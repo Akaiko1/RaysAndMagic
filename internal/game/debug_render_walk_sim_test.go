@@ -30,6 +30,8 @@ package game
 // RAM_WALK_OFFSET_PX=0,30 moves that pose within the selected tile.
 // RAM_WALK_SCREENSHOT=/tmp/river.png saves the final rendered frame.
 // RAM_WALK_TREES_ONLY=1 removes every other unified-sprite category.
+// RAM_WALK_FULL_FRAME=1 renders GameLoop.Draw (scene + HUD) instead of the
+// renderer alone, for ebitenginedebug command audits of the complete frame.
 // RAM_WALK_REPS=1 exposes cold per-pose costs instead of taking a warm minimum.
 // RAM_WALK_POSE_REPS=300 go test -tags debug ./internal/game \
 // -run TestDebugSim_RenderWalk -cpuprofile /tmp/river.pprof
@@ -68,11 +70,12 @@ type walkFrame struct {
 
 // walkHarness owns the real game + offscreen target and measures poses.
 type walkHarness struct {
-	g      *MMGame
-	r      *Renderer
-	w      *world.World3D
-	screen *ebiten.Image
-	reps   int
+	g         *MMGame
+	r         *Renderer
+	w         *world.World3D
+	screen    *ebiten.Image
+	reps      int
+	fullFrame bool
 }
 
 // measure renders the pose reps times - each render inside its OWN live Draw
@@ -85,7 +88,11 @@ func (h *walkHarness) measure(x, y, angleRad float64) walkFrame {
 	for i := 0; i < h.reps; i++ {
 		runOnDrawFrame(func(_ *ebiten.Image) {
 			h.screen.Clear()
-			h.r.RenderFirstPersonView(h.screen)
+			if h.fullFrame {
+				h.g.gameLoop.Draw(h.screen)
+			} else {
+				h.r.RenderFirstPersonView(h.screen)
+			}
 		})
 		if h.r.statSpritesMs < best.spritesMs {
 			best.spritesMs = h.r.statSpritesMs
@@ -250,6 +257,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 
 	g := NewMMGame(cfg)
+	g.appScreen = AppScreenInGame
 	if poseSet {
 		g.camera.X, g.camera.Y = TileCenterFromTile(poseTileX, poseTileY, float64(cfg.GetTileSize()))
 		g.camera.X += poseOffsetX
@@ -287,7 +295,8 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 	h := &walkHarness{
 		g: g, r: g.gameLoop.renderer, w: w,
-		screen: screen,
+		screen:    screen,
+		fullFrame: os.Getenv("RAM_WALK_FULL_FRAME") != "",
 		// Fast mode limits the route, not samples per pose: the first sample
 		// warms Ebitengine's lazy GPU resources and is intentionally discarded.
 		reps: 3,

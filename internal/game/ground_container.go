@@ -10,8 +10,6 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
-
-	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // ContainerKind tags a GroundContainer with how it was spawned, controlling a
@@ -551,7 +549,31 @@ func (g *MMGame) groundContainerHitTestFromInfo(info GroundContainerRenderInfo, 
 	}
 	sprite := g.sprites.GetSprite(spriteName)
 	drawLeft := info.ScreenX - info.SpriteSize/2
-	return spriteHitTest(sprite, mouseX, mouseY, drawLeft, info.ScreenY, info.SpriteSize)
+	if sprite == nil || info.SpriteSize <= 0 {
+		return false
+	}
+	if mouseX < drawLeft || mouseX >= drawLeft+info.SpriteSize ||
+		mouseY < info.ScreenY || mouseY >= info.ScreenY+info.SpriteSize {
+		return false
+	}
+	spriteW := sprite.Bounds().Dx()
+	spriteH := sprite.Bounds().Dy()
+	if spriteW == 0 || spriteH == 0 {
+		return false
+	}
+	scaleX := float64(info.SpriteSize) / float64(spriteW)
+	scaleY := float64(info.SpriteSize) / float64(spriteH)
+	localX := int(float64(mouseX-drawLeft) / scaleX)
+	localY := int(float64(mouseY-info.ScreenY) / scaleY)
+	if localX < 0 || localX >= spriteW || localY < 0 || localY >= spriteH {
+		return false
+	}
+	if opaque, known := g.sprites.SpriteOpaqueAt(spriteName, localX, localY); known {
+		return opaque
+	}
+	// Missing/undecodable authored art already renders as a placeholder. Keep
+	// that placeholder interactable by its visible rectangle.
+	return true
 }
 
 // currentMapKey returns the active map key, with nil-safety for early-init or
@@ -576,29 +598,4 @@ func groundContainerTileIsValid(mapKey string, tileX, tileY int) bool {
 	}
 	tx, ty := projectTileToCurrentWorld(mapKey, tileX, tileY)
 	return !w.IsTileBlocking(tx, ty)
-}
-
-// spriteHitTest is a pixel-perfect hit test against an image-backed sprite.
-// Used by all ground-container interaction (click-to-pick-up/open).
-func spriteHitTest(sprite *ebiten.Image, mouseX, mouseY, drawLeft, drawTop, spriteSize int) bool {
-	if sprite == nil || spriteSize <= 0 {
-		return false
-	}
-	if mouseX < drawLeft || mouseX >= drawLeft+spriteSize || mouseY < drawTop || mouseY >= drawTop+spriteSize {
-		return false
-	}
-	spriteW := sprite.Bounds().Dx()
-	spriteH := sprite.Bounds().Dy()
-	if spriteW == 0 || spriteH == 0 {
-		return false
-	}
-	scaleX := float64(spriteSize) / float64(spriteW)
-	scaleY := float64(spriteSize) / float64(spriteH)
-	localX := int(float64(mouseX-drawLeft) / scaleX)
-	localY := int(float64(mouseY-drawTop) / scaleY)
-	if localX < 0 || localX >= spriteW || localY < 0 || localY >= spriteH {
-		return false
-	}
-	_, _, _, a := sprite.At(localX, localY).RGBA()
-	return a > 0
 }

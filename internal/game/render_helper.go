@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"image"
 	"image/color"
 	"math"
 	"ugataima/internal/character"
@@ -163,9 +162,10 @@ func (rh *RenderingHelper) projectToScreenXF(entityX, entityY float64) (screenXf
 	return float64(screenW) / 2 * (1 + transformX/transformY), transformY, true
 }
 
-// CreateBaseTexturedWallSlice creates a wall slice with base colors and textures but without distance-based shading.
-// Distance-based shading should be applied at draw time for better cache efficiency.
-func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D, width, height, wallSide int, textureCoord float64) *ebiten.Image {
+// CreateBaseTexturedWallSlice creates a procedural or color-only wall slice
+// without distance shading. Sprite-textured walls are handled by the renderer's
+// direct column/mesh paths and never enter this cache.
+func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D, width, height, wallSide int) *ebiten.Image {
 	// Get the base color for this tile type
 	baseColor := rh.GetTileColor(tileType)
 
@@ -186,21 +186,6 @@ func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D
 
 	// Create the wall slice image
 	wallImage := ebiten.NewImage(width, height)
-
-	// First, try to use actual sprite texture if available for ANY tile type
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
-	}
-
-	if spriteName != "" {
-		// Use actual sprite texture - extract vertical slice
-		sprite := rh.game.sprites.GetSprite(spriteName)
-		if sprite != nil {
-			rh.applyWallSliceFromSprite(wallImage, sprite, finalColor, width, height, textureCoord)
-			return wallImage
-		}
-	}
 
 	// Fallback to procedural texture patterns when no sprite available
 	// Check if this is a textured wall type that needs special procedural patterns
@@ -289,79 +274,6 @@ func (rh *RenderingHelper) applyFoliageTextureCached(wallImage *ebiten.Image, fi
 		}
 		base.DrawImage(shadowTexture, nil)
 	})
-}
-
-// applyWallSliceFromSprite extracts a vertical slice from a sprite texture for wall rendering.
-// This uses caching to avoid repeated sprite slice extraction and scaling operations.
-func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, sprite *ebiten.Image, finalColor color.RGBA, width, height int, textureCoord float64) {
-	spriteWidth := sprite.Bounds().Dx()
-	spriteHeight := sprite.Bounds().Dy()
-
-	// Calculate which column of the sprite to use based on textureCoord
-	textureX := int(textureCoord * float64(spriteWidth))
-	if textureX >= spriteWidth {
-		textureX = spriteWidth - 1
-	}
-	if textureX < 0 {
-		textureX = 0
-	}
-
-	sourceWidth := width
-	if sourceWidth < 1 {
-		sourceWidth = 1
-	}
-	if sourceWidth > spriteWidth {
-		sourceWidth = spriteWidth
-	}
-
-	// Create cache key including sprite dimensions, texture position, sampled strip width, and target size.
-	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_sw%d_%dx%d", spriteWidth, spriteHeight, textureX, sourceWidth, width, height)
-
-	// Grayscale distance/side shading, red component as reference
-	shading := float32(finalColor.R) / 255.0
-
-	// Check if we have this sprite slice cached
-	if cachedSlice, exists := rh.textureCache[cacheKey]; exists {
-		wallImage.DrawImage(cachedSlice, tintOptions(shading, shading, shading))
-		return
-	}
-
-	// Create a narrow strip from the sprite. This keeps real wall textures readable
-	// for ray widths > 1 and wraps at texture edges for seamless textures.
-	sliceImage := ebiten.NewImage(sourceWidth, spriteHeight)
-	drawSourceStrip := func(srcX, dstX, stripWidth int) {
-		if stripWidth <= 0 {
-			return
-		}
-		src := sprite.SubImage(image.Rect(srcX, 0, srcX+stripWidth, spriteHeight)).(*ebiten.Image)
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(dstX), 0)
-		sliceImage.DrawImage(src, opts)
-	}
-	if textureX+sourceWidth <= spriteWidth {
-		drawSourceStrip(textureX, 0, sourceWidth)
-	} else {
-		firstWidth := spriteWidth - textureX
-		drawSourceStrip(textureX, 0, firstWidth)
-		drawSourceStrip(0, firstWidth, sourceWidth-firstWidth)
-	}
-
-	// Create the final scaled slice for caching
-	scaledSlice := ebiten.NewImage(width, height)
-	drawOpts := &ebiten.DrawImageOptions{}
-
-	// Scale the slice to fit the wall dimensions
-	scaleX := float64(width) / float64(sourceWidth)
-	scaleY := float64(height) / float64(spriteHeight)
-	drawOpts.GeoM.Scale(scaleX, scaleY)
-
-	// Draw the scaled slice (white/uncolored for caching)
-	scaledSlice.DrawImage(sliceImage, drawOpts)
-
-	// Cache the scaled slice for reuse
-	rh.textureCache[cacheKey] = scaledSlice
-
-	wallImage.DrawImage(scaledSlice, tintOptions(shading, shading, shading))
 }
 
 // GetTileColor returns the base color for a tile type (reads from tile configuration)
@@ -574,15 +486,20 @@ func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, hei
 	return int(float64(rh.game.config.GetScreenHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
-// RenderBackgroundLayers renders sky and ground layers
-func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
+// RenderSkyBackground draws the panorama or its solid-color fallback. The
+// perspective floor is rendered separately by the floor shader.
+func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 	if !rh.drawSkyPanorama(screen) {
 		// Draw cached solid-color sky fallback.
 		skyOpts := &ebiten.DrawImageOptions{}
 		screen.DrawImage(rh.game.skyImg, skyOpts)
 	}
+}
 
-	// Draw cached ground
+// DrawGroundFallback covers the lower half when the floor shader is unavailable.
+// The normal shader path is fully opaque, so drawing this first would only add
+// a redundant half-screen source draw and fill cost.
+func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
 	groundOpts.GeoM.Translate(0, float64(rh.game.config.GetScreenHeight()/2))
 	screen.DrawImage(rh.game.groundImg, groundOpts)

@@ -3,7 +3,6 @@ package game
 import (
 	"image"
 	"math"
-	"sort"
 
 	"ugataima/internal/world"
 
@@ -430,10 +429,10 @@ func sampleLinear1(p vec2) vec4 {
 	q1 := q + 0.5
 	p0 := q0 + origin0
 	p1 := q1 + origin0
-	c0 := imageSrc1At(p0)
-	c1 := imageSrc1At(vec2(p1.x, p0.y))
-	c2 := imageSrc1At(vec2(p0.x, p1.y))
-	c3 := imageSrc1At(p1)
+	c0 := imageSrc1UnsafeAt(p0)
+	c1 := imageSrc1UnsafeAt(vec2(p1.x, p0.y))
+	c2 := imageSrc1UnsafeAt(vec2(p0.x, p1.y))
+	c3 := imageSrc1UnsafeAt(p1)
 	rate := fract(q1)
 	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
 }
@@ -448,10 +447,10 @@ func sampleLinear2(p vec2) vec4 {
 	q1 := q + 0.5
 	p0 := q0 + origin0
 	p1 := q1 + origin0
-	c0 := imageSrc2At(p0)
-	c1 := imageSrc2At(vec2(p1.x, p0.y))
-	c2 := imageSrc2At(vec2(p0.x, p1.y))
-	c3 := imageSrc2At(p1)
+	c0 := imageSrc2UnsafeAt(p0)
+	c1 := imageSrc2UnsafeAt(vec2(p1.x, p0.y))
+	c2 := imageSrc2UnsafeAt(vec2(p0.x, p1.y))
+	c3 := imageSrc2UnsafeAt(p1)
 	rate := fract(q1)
 	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
 }
@@ -461,7 +460,7 @@ func sampleNearest1(p vec2) vec4 {
 	size0 := imageSrc0Size()
 	size := imageSrc1Size()
 	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc1At(q + origin0)
+	return imageSrc1UnsafeAt(q + origin0)
 }
 
 func sampleNearest3(p vec2) vec4 {
@@ -469,7 +468,7 @@ func sampleNearest3(p vec2) vec4 {
 	size0 := imageSrc0Size()
 	size := imageSrc3Size()
 	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc3At(q + origin0)
+	return imageSrc3UnsafeAt(q + origin0)
 }
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
@@ -484,7 +483,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		return sampleNearest3(srcPos) * color
 	}
 	if custom.z <= 0.0 {
-		return imageSrc0At(srcPos) * color
+		return imageSrc0UnsafeAt(srcPos) * color
 	}
 	lo := sampleLinear1(srcPos)
 	if custom.x <= 0.0 {
@@ -1470,7 +1469,7 @@ func (r *Renderer) prewarmTreeStandeeResources() {
 		if sprite == nil {
 			continue
 		}
-		key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
+		key := standeeCoreKey{name: r.prefixedStandeeKeyName("tree", spriteName), bounds: sprite.Bounds(), img: sprite}
 		_, alreadyCached := r.standeeCoreCache[key]
 		r.standeeCoreSilhouette(key, sprite)
 		if alreadyCached {
@@ -1531,7 +1530,7 @@ func (r *Renderer) flushStandeeImageUploads(images map[*ebiten.Image]struct{}, s
 		return
 	}
 	target := ebiten.NewImage(len(images)+2, 1)
-	defer target.Dispose()
+	defer target.Deallocate()
 	x := 0
 	for img := range images {
 		bounds := img.Bounds()
@@ -1597,7 +1596,10 @@ func (r *Renderer) prewarmPendingTreeStandeeResources() {
 }
 
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	spriteName := treeStandeeSpriteName(s.tileType)
+	spriteName := s.spriteName
+	if spriteName == "" {
+		spriteName = treeStandeeSpriteName(s.tileType)
+	}
 	sprite := r.game.sprites.GetSprite(spriteName)
 	if sprite == nil || s.sizeF <= 0 || s.depthPerp <= 0 {
 		return
@@ -1614,7 +1616,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		heightF = s.sizeF * float64(sprite.Bounds().Dy()) / texW
 	}
 	bottomF := s.bottomF
-	key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
+	key := standeeCoreKey{name: r.prefixedStandeeKeyName("tree", spriteName), bounds: sprite.Bounds(), img: sprite}
 
 	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
 	centerDepth := s.depthPerp
@@ -1694,7 +1696,13 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 			r.drawStandeeSlabColumns(screen, slabs[1], -1, -1)
 		}
 	} else {
-		sort.Slice(arms[:], func(i, j int) bool { return arms[i].depth > arms[j].depth }) // far -> near
+		// Four fixed arms: an inline insertion sort avoids sort.Slice's
+		// reflection/closure allocation in every crossed tree every frame.
+		for i := 1; i < len(arms); i++ {
+			for j := i; j > 0 && arms[j-1].depth < arms[j].depth; j-- {
+				arms[j-1], arms[j] = arms[j], arms[j-1]
+			}
+		}
 		for _, a := range arms {
 			if slabOK[a.slabIdx] {
 				r.drawStandeeSlabColumns(screen, slabs[a.slabIdx], a.lo, a.hi)

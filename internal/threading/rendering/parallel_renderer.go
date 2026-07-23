@@ -34,6 +34,17 @@ func NewParallelRenderer() *ParallelRenderer {
 // RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
 // Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
 func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (float64, interface{})) []RaycastResult {
+	return pr.RenderRaycastInto(numRays, func(rayIndex int, result *RaycastResult) {
+		result.Distance, result.TileType = raycastFunc(rayIndex)
+	})
+}
+
+// RenderRaycastInto runs raycastFunc in parallel and lets it fill the reused
+// result slot directly. Hot renderers should prefer this form when TileType
+// carries a pointer to caller-owned typed storage: it avoids boxing a value into
+// an interface for every ray while keeping this package independent of the
+// game's concrete hit type.
+func (pr *ParallelRenderer) RenderRaycastInto(numRays int, raycastFunc func(int, *RaycastResult)) []RaycastResult {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 
@@ -46,11 +57,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (fl
 	// Very small workloads: process inline to avoid synchronization overhead
 	if numRays <= 8 {
 		for rayIndex := 0; rayIndex < numRays; rayIndex++ {
-			distance, tileType := raycastFunc(rayIndex)
-			results[rayIndex] = RaycastResult{
-				Distance: distance,
-				TileType: tileType,
-			}
+			raycastFunc(rayIndex, &results[rayIndex])
 		}
 		return results
 	}
@@ -76,11 +83,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (fl
 		job := func() {
 			defer wg.Done()
 			for rayIndex := start; rayIndex < end; rayIndex++ {
-				distance, tileType := raycastFunc(rayIndex)
-				results[rayIndex] = RaycastResult{
-					Distance: distance,
-					TileType: tileType,
-				}
+				raycastFunc(rayIndex, &results[rayIndex])
 			}
 		}
 		// Refused (pool stopped, post-shutdown render): run inline so this

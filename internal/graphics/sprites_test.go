@@ -74,6 +74,59 @@ func TestGetSpriteVariants(t *testing.T) {
 	}
 }
 
+func TestSpriteOpaqueAtUsesColorKeyedCPUMask(t *testing.T) {
+	tempDir := t.TempDir()
+	spriteDir := filepath.Join(tempDir, "assets", "sprites", "environment")
+	if err := os.MkdirAll(spriteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	img.SetNRGBA(0, 0, color.NRGBA{255, 0, 255, 255})
+	img.SetNRGBA(1, 0, color.NRGBA{20, 180, 40, 255})
+	spritePath := filepath.Join(spriteDir, "hit_mask.png")
+	file, err := os.Create(spritePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{"hit_mask": spritePath}
+	sm.spriteDirType = map[string]string{"hit_mask": "environment"}
+	sm.SetColorKey(true, 255, 0, 255, 0, false)
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 0, 0); !known || opaque {
+		t.Fatalf("keyed background = opaque:%v known:%v, want false,true", opaque, known)
+	}
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 1, 0); !known || !opaque {
+		t.Fatalf("visible pixel = opaque:%v known:%v, want true,true", opaque, known)
+	}
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 2, 0); !known || opaque {
+		t.Fatalf("out-of-bounds pixel = opaque:%v known:%v, want false,true", opaque, known)
+	}
+}
+
+func TestCachedAnimationLookupDoesNotAllocate(t *testing.T) {
+	sm := NewSpriteManager()
+	want := &SpriteAnimation{}
+	sm.animations[animationKey("orc", "walking")] = want
+
+	var got *SpriteAnimation
+	allocs := testing.AllocsPerRun(1000, func() {
+		got = sm.GetAnimation("orc", "walking")
+	})
+	if got != want {
+		t.Fatalf("cached animation = %p, want %p", got, want)
+	}
+	if allocs != 0 {
+		t.Fatalf("cached animation lookup allocated %.2f objects/run", allocs)
+	}
+}
+
 // applyColorKey must zero the alpha of pixels within tolerance of the key color
 // (default magenta), leave others untouched, and no-op when disabled.
 func TestApplyColorKey(t *testing.T) {

@@ -457,7 +457,7 @@ func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h 
 			continue
 		}
 		r := float32(1.5 + 2.2*phase) // swells as it rises
-		vector.DrawFilledCircle(screen, float32(bx), float32(by), r, color.RGBA{70, 210, 90, a}, true)
+		vector.FillCircle(screen, float32(bx), float32(by), r, color.RGBA{70, 210, 90, a}, true)
 	}
 }
 
@@ -499,14 +499,14 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 		py := fb - ph*fh*1.05 - 4
 		base := float32(4 + 5*rise)
 		if a := uint8(85 * rise); a > 8 { // outer red glow
-			vector.DrawFilledCircle(screen, float32(px), float32(py), base*1.7, color.RGBA{200, 30, 0, a}, true)
+			vector.FillCircle(screen, float32(px), float32(py), base*1.7, color.RGBA{200, 30, 0, a}, true)
 		}
 		if a := uint8(170 * rise); a > 8 { // orange body
-			vector.DrawFilledCircle(screen, float32(px), float32(py), base, color.RGBA{255, uint8(40 + 120*rise), 0, a}, true)
+			vector.FillCircle(screen, float32(px), float32(py), base, color.RGBA{255, uint8(40 + 120*rise), 0, a}, true)
 		}
 		if rise > 0.55 { // hot core, only near the base
 			a := uint8(230 * (rise - 0.55) / 0.45)
-			vector.DrawFilledCircle(screen, float32(px), float32(py), base*0.5, color.RGBA{255, 240, 170, a}, true)
+			vector.FillCircle(screen, float32(px), float32(py), base*0.5, color.RGBA{255, 240, 170, a}, true)
 		}
 	}
 
@@ -520,7 +520,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 		if a < 12 {
 			continue
 		}
-		vector.DrawFilledCircle(screen, float32(px), float32(py), float32(1+1.5*(1-ph)), color.RGBA{255, 200, 90, a}, true)
+		vector.FillCircle(screen, float32(px), float32(py), float32(1+1.5*(1-ph)), color.RGBA{255, 200, 90, a}, true)
 	}
 }
 
@@ -547,7 +547,7 @@ func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int)
 		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
 		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
 		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		vector.DrawFilledCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+		vector.FillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
 	}
 }
 
@@ -732,7 +732,7 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	compassRadius := ui.game.config.UI.CompassRadius
 
 	// Draw compass background circle (dark, semi-transparent)
-	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{20, 20, 30, 200}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{20, 20, 30, 200}, true)
 
 	// Draw minimap tiles within the compass
 	ui.drawCompassMinimap(screen, compassX, compassY, compassRadius)
@@ -753,7 +753,7 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(arrowX-arrowHeadSize/2), float32(arrowY-arrowHeadSize/2), float32(arrowHeadSize), float32(arrowHeadSize), color.RGBA{255, 80, 80, 255}, false)
 
 	// Draw player position indicator in center
-	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
 }
 
 // invalidateCompassTileLayer forces the next drawCompassMinimap call to
@@ -809,7 +809,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 			screenX := float32(centerX) + float32(dx)*miniTileSize
 			screenY := float32(centerY) + float32(dy)*miniTileSize
 			// Draw NPC as yellow dot
-			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+			vector.FillCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
 		}
 	}
 }
@@ -932,7 +932,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 				dotImg = ui.radarDotFar // Yellow for far enemies
 			}
 
-			// Draw cached dot image (much faster than vector.DrawFilledCircle)
+			// Draw cached dot image (much faster than vector.FillCircle)
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM.Translate(float64(dotX-2), float64(dotY-2)) // Center the 4x4 dot
 			screen.DrawImage(dotImg, opts)

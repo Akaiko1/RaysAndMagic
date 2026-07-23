@@ -116,8 +116,6 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 		col := mixColor([3]int{255, 90, 10}, [3]int{255, 220, 120}, 1-ph) // hot core -> ember tip
 		r.drawGlowRect(screen, float64(screenX)+sway, baseY-rise, size*(1.1-0.5*ph), col, alpha, additiveGlowBlend)
 	}
-	// Bright heart of the flame.
-	r.drawGlowSprite(screen, float64(screenX), baseY, size*2.4*flick, [3]int{255, 180, 60}, 0.55*flick, additiveGlowBlend)
 
 	// Crackling sparks: a few tiny embers that FLY out smoothly and die.
 	// Each spark's flight is one phase cycle; the cycle index seeds a fresh
@@ -138,4 +136,8 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 		r.drawGlowRect(screen, sx, sy, math.Max(1.5, size*0.35), [3]int{255, 250, 200},
 			flick*(1-ph)*0.95, additiveGlowBlend)
 	}
+
+	// Bright heart last so every white-pixel mote/spark above remains one
+	// consecutive DrawImage batch. Additive composition is order-independent.
+	r.drawGlowSprite(screen, float64(screenX), baseY, size*2.4*flick, [3]int{255, 180, 60}, 0.55*flick, additiveGlowBlend)
 }

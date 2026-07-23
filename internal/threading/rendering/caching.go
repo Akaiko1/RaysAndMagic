@@ -14,8 +14,10 @@ const (
 
 // WallSliceCache provides thread-safe caching of pre-rendered wall slices to improve rendering performance.
 // This cache prevents redundant wall slice generation by storing commonly used combinations of wall parameters.
-// The cache uses quantized distance and texture coordinates to maximize cache hit rates while maintaining
-// visual quality. Memory usage is controlled through automatic eviction when size limits are reached.
+// The cache quantizes projected height to maximize hit rates while maintaining
+// visual quality. Sprite-textured walls use the renderer's direct column/mesh
+// paths, so this cache only stores procedural or color-only wall slices.
+// Memory usage is controlled through automatic eviction when size limits are reached.
 //
 // Eviction policy is FIFO: cache hits do not promote entries, so the oldest
 // inserted entries are evicted first regardless of recent access. This is
@@ -28,19 +30,17 @@ type WallSliceCache struct {
 }
 
 // WallSliceKey represents a unique wall slice configuration used as a cache key.
-// Distance-based shading is applied at draw time so it's not part of the key;
-// texture coordinates are quantized during caching to improve hit rates.
+// Distance-based shading is applied at draw time so it is not part of the key.
 //
 // TileType is `int` rather than `interface{}` to avoid boxing the caller's
 // world.TileType3D value into an interface header on every cache lookup -
 // that allocation showed up in the hot raycast path. Callers cast
 // `int(tileType)` when building the key.
 type WallSliceKey struct {
-	Height   int     // Rendered wall height in pixels
-	Width    int     // Rendered wall width in pixels
-	TileType int     // Tile type identifier (caller casts world.TileType3D)
-	Side     int     // Wall orientation: 0 for N-S walls, 1 for E-W walls
-	WallX    float64 // Quantized texture x-coordinate (1/16 increments)
+	Height   int // Rendered wall height in pixels
+	Width    int // Rendered wall width in pixels
+	TileType int // Tile type identifier (caller casts world.TileType3D)
+	Side     int // Wall orientation: 0 for N-S walls, 1 for E-W walls
 }
 
 // NewWallSliceCache creates a new wall slice cache with an empty cache map.
@@ -60,10 +60,6 @@ func NewWallSliceCache() *WallSliceCache {
 //
 // Returns the cached or newly created wall slice image.
 func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func(quantizedHeight int) *ebiten.Image) *ebiten.Image {
-	// Quantize texture coordinate for better cache hit rates
-	// Use 1/16 increments for smooth texture mapping
-	key.WallX = float64(int(key.WallX*16)) / 16
-
 	// Adaptive height quantization: finer steps for distant walls (small heights),
 	// coarser steps for close walls (large heights) where precision matters less
 	// - Distant walls (<64px): 2px steps - fine detail visible

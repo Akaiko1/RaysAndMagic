@@ -49,6 +49,12 @@ func fireflySwarmFlicker(seed int, frameCount int64) float64 {
 	return f
 }
 
+type fireflyMoteDraw struct {
+	x, y                 float64
+	glowSize, coreSize   float64
+	glowAlpha, coreAlpha float64
+}
+
 func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, distance float64) {
 	if s.spriteSize <= 0 {
 		return
@@ -70,6 +76,8 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 	coreBase := math.Max(1.25, size*0.018)
 	globalFlicker := fireflySwarmFlicker(seed, r.game.frameCount)
 
+	var draws [len(fireflySwarmMotes)]fireflyMoteDraw
+	drawCount := 0
 	for i, mote := range fireflySwarmMotes {
 		localPhase := auraHash(seed, i, 41, 0) * 2 * math.Pi
 		slowPulse := 0.66 + 0.34*math.Sin(frame*0.070+localPhase) +
@@ -98,7 +106,24 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		}
 		scale := 0.82 + 0.36*auraHash(seed, i, 42, 0)
 
-		r.drawGlowSprite(screen, x, y, glowBase*scale, [3]int{255, 218, 80}, 0.50*alpha, additiveGlowBlend)
-		r.drawGlowRect(screen, x, y, coreBase*scale, [3]int{255, 252, 170}, 0.95*alpha, additiveGlowBlend)
+		draws[drawCount] = fireflyMoteDraw{
+			x: x, y: y,
+			glowSize: glowBase * scale, coreSize: coreBase * scale,
+			glowAlpha: 0.50 * alpha, coreAlpha: 0.95 * alpha,
+		}
+		drawCount++
+	}
+
+	// Keep DrawImage's exact subpixel geometry, but make calls with the same
+	// source successive. Ebitengine then automatically batches the N halos into
+	// one GPU command and the N cores into another; the old alternating order
+	// forced 2*N commands. Additive composition is order-independent.
+	for i := 0; i < drawCount; i++ {
+		d := draws[i]
+		r.drawGlowSprite(screen, d.x, d.y, d.glowSize, [3]int{255, 218, 80}, d.glowAlpha, additiveGlowBlend)
+	}
+	for i := 0; i < drawCount; i++ {
+		d := draws[i]
+		r.drawGlowRect(screen, d.x, d.y, d.coreSize, [3]int{255, 252, 170}, d.coreAlpha, additiveGlowBlend)
 	}
 }

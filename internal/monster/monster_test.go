@@ -62,6 +62,14 @@ func TestSetupMonsterFromConfig_CopiesBossClassification(t *testing.T) {
 	}
 }
 
+func TestSetupMonsterFromConfig_CachesSprite(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{Name: "Dragon", Sprite: "dragon_gold"})
+	if got := m.GetSpriteType(); got != "dragon_gold" {
+		t.Fatalf("sprite = %q, want dragon_gold", got)
+	}
+}
+
 func TestValidateMonsterConfiguration_AlarmRally(t *testing.T) {
 	cases := []struct {
 		name    string

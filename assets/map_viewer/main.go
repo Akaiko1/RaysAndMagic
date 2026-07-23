@@ -255,7 +255,7 @@ func main() {
 	ebiten.SetWindowTitle("RaysAndMagic Map Viewer")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetVsyncEnabled(false)
-	ebiten.SetMaxTPS(120)
+	ebiten.SetTPS(120)
 
 	if err := ebiten.RunGame(v); err != nil {
 		log.Fatal(err)
@@ -1757,7 +1757,7 @@ func drawTileMarkerCircle(screen *ebiten.Image, originX, originY, tileSize, tx, 
 	centerX := float32(originX + tx*tileSize + tileSize/2)
 	centerY := float32(originY + ty*tileSize + tileSize/2)
 	radius := float32(tileSize) * 0.35
-	vector.DrawFilledCircle(screen, centerX, centerY, radius, clr, true)
+	vector.FillCircle(screen, centerX, centerY, radius, clr, true)
 	if stroke {
 		vector.StrokeCircle(screen, centerX, centerY, radius, 1, color.RGBA{255, 255, 255, 255}, true)
 	}

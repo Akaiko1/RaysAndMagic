@@ -328,11 +328,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 			if shader, err := g.ensureBlurShader(); err == nil {
 				scene.Clear()
 				gl.renderer.RenderFirstPersonView(scene)
-				b := scene.Bounds()
-				op := &ebiten.DrawRectShaderOptions{}
-				op.Images[0] = scene
-				op.Uniforms = map[string]any{"BlurPx": float32(blurPx)}
-				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+				g.drawTurnBlur(screen, scene, shader, float32(blurPx))
 			} else {
 				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile - no blur
 			}
@@ -347,11 +343,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 				// Ebiten/Metal compile the shader pipeline before the first TB turn.
 				scene.Clear()
 				gl.renderer.RenderFirstPersonView(scene)
-				b := scene.Bounds()
-				op := &ebiten.DrawRectShaderOptions{}
-				op.Images[0] = scene
-				op.Uniforms = map[string]any{"BlurPx": float32(0)}
-				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+				g.drawTurnBlur(screen, scene, shader, 0)
 				g.turnBlurWarm = true
 			} else {
 				g.turnBlurWarm = true

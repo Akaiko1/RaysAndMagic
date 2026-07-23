@@ -378,8 +378,9 @@ func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
 	m.MonsterType = def.Type
-	// Size never changes after setup; cached so the per-tick callers (monster
-	// separation runs GetSize per overlapping pair) skip the config scan.
+	// Render/collision identity never changes after setup; cache it so hot
+	// frame/tick callers do not copy or scan the YAML definition.
+	m.cachedSprite = def.GetSpriteFromConfig()
 	m.cachedSizeW, m.cachedSizeH = def.GetSizeFromConfig()
 	m.cachedSizeMult = def.GetSizeGameMultiplier()
 	m.Level = def.Level

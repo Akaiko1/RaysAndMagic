@@ -53,6 +53,11 @@ type floorTextureGroup struct {
 	count int
 }
 
+type standeeKeyNameParts struct {
+	prefix string
+	name   string
+}
+
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
 	game                     *MMGame
@@ -91,6 +96,10 @@ type Renderer struct {
 	ambientLight float64
 	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
 	standeeCoreCache map[standeeCoreKey]*ebiten.Image
+	// Stable prefixed names used by standeeCoreKey. Constructing "mob:"+key,
+	// "npc:"+key, etc. for every visible object every frame showed up as
+	// allocator churn; the identity set is tiny and immutable after load.
+	standeeKeyNames map[standeeKeyNameParts]string
 	// Standee mip chains are immutable, normalized copies of immutable sprite
 	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
 	// integer mip selection cannot make a whole token flash sharp/soft at range.
@@ -155,11 +164,10 @@ type Renderer struct {
 	// avoids recalculating sin/cos/tan once per rendered wall column.
 	rayDirX, rayDirY     float64
 	rayPlaneX, rayPlaneY float64
-	// Per-ray RaycastHit buffer, pre-allocated to avoid per-frame slice
-	// allocations during raycasting. Each ray writes into its own index,
-	// so disjoint cells are safe across parallel workers. Capacity grows
-	// once per ray then stabilizes.
-	rayHitBuffers [][]RaycastHit
+	// Per-ray result storage, pre-allocated to avoid both hit-slice allocation
+	// and boxing MultiRaycastHit into an interface on every ray. Each worker
+	// writes to a disjoint slot; RenderRaycastInto keeps only a pointer to it.
+	rayHitResults []MultiRaycastHit
 	// Sprite cache for brightness-adjusted alpha variants. The composite key
 	// avoids a per-frame fmt.Sprintf allocation that showed up in the hot draw
 	// path (one call per visible transparent sprite per frame).
@@ -196,6 +204,10 @@ type Renderer struct {
 	// struct each; reset-and-reuse keeps the hot path allocation-free. Safe
 	// because rendering is single-threaded and DrawImage reads it synchronously.
 	glowOpts ebiten.DrawImageOptions
+	// Unique melee ribbons reuse the standee vertex/index scratch buffers and
+	// this options value. Those effects can emit several ribbons per frame, so
+	// keeping all three temporaries on the renderer avoids transient GC churn.
+	meleeTriOpts ebiten.DrawTrianglesOptions
 	// softGlowImg is a radial-gradient (opaque centre -> transparent edge) white
 	// texture for soft ROUND glows - used for spell projectile bodies/halos so a
 	// big fireball reads as a fuzzy ball, not a hard square. Built lazily.
@@ -235,12 +247,12 @@ func NewRenderer(game *MMGame) *Renderer {
 // are needed. Initial capacity 8 covers typical hit counts; capacity grows
 // once per ray if needed and is reused on subsequent frames.
 func (r *Renderer) ensureRayHitBuffers(numRays int) {
-	if len(r.rayHitBuffers) == numRays {
+	if len(r.rayHitResults) == numRays {
 		return
 	}
-	r.rayHitBuffers = make([][]RaycastHit, numRays)
-	for i := range r.rayHitBuffers {
-		r.rayHitBuffers[i] = make([]RaycastHit, 0, 8)
+	r.rayHitResults = make([]MultiRaycastHit, numRays)
+	for i := range r.rayHitResults {
+		r.rayHitResults[i].Hits = make([]RaycastHit, 0, 8)
 	}
 }
 
@@ -315,9 +327,10 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 			// Tree tiles: cache one entry per tile for the crossed-standee mode.
 			if world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+				spriteName := world.GlobalTileManager.GetSprite(tileType)
 				treeCache = append(treeCache, TransparentSpriteData{
 					tileX: tileX, tileY: tileY, worldX: worldX, worldY: worldY,
-					tileType: tileType, spriteName: world.GlobalTileManager.GetSprite(tileType),
+					tileType: tileType, spriteName: spriteName,
 				})
 			}
 
@@ -398,6 +411,19 @@ func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX,
 		index = -index
 	}
 	return variants[index%len(variants)]
+}
+
+func (r *Renderer) prefixedStandeeKeyName(prefix, name string) string {
+	parts := standeeKeyNameParts{prefix: prefix, name: name}
+	if cached := r.standeeKeyNames[parts]; cached != "" {
+		return cached
+	}
+	if r.standeeKeyNames == nil {
+		r.standeeKeyNames = make(map[standeeKeyNameParts]string)
+	}
+	key := prefix + ":" + name
+	r.standeeKeyNames[parts] = key
+	return key
 }
 
 // computeNumRays derives the per-frame ray count from the configured screen
@@ -1229,14 +1255,12 @@ func (r *Renderer) RenderFirstPersonView(screen *ebiten.Image) {
 // renderFirstPerson3D performs the main 3D rendering using raycasting
 func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Clear environment sprite tracking for this frame
-	for k := range r.renderedSpritesThisFrame {
-		delete(r.renderedSpritesThisFrame, k)
-	}
+	clear(r.renderedSpritesThisFrame)
 
 	r.updateActiveLights()
 
-	// Draw background layers using helper
-	r.game.renderHelper.RenderBackgroundLayers(screen)
+	// Sky is independent of the opaque perspective-floor shader below.
+	r.game.renderHelper.RenderSkyBackground(screen)
 
 	// Clear depth buffer for this frame - optimized with slice header manipulation
 	viewDist := r.game.camera.ViewDist
@@ -1269,9 +1293,9 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 	// Perform raycasting in parallel with performance monitoring using precomputed directions
 	raycastTimer := r.game.threading.PerformanceMonitor.StartRaycast()
-	results := r.game.threading.ParallelRenderer.RenderRaycast(
+	results := r.game.threading.ParallelRenderer.RenderRaycastInto(
 		numRays,
-		r.castRayWithPrecomputedDirection,
+		r.castRayWithPrecomputedDirectionInto,
 	)
 	raycastTimer.EndRaycast()
 
@@ -1442,8 +1466,9 @@ func (r *Renderer) castRayWithType(angle float64) (float64, interface{}) {
 	return hits.Hits[0].Distance, hits
 }
 
-// castRayWithPrecomputedDirection casts a single ray using precomputed sin/cos values
-func (r *Renderer) castRayWithPrecomputedDirection(rayIndex int) (float64, interface{}) {
+// castRayWithPrecomputedDirectionInto casts a single ray using precomputed
+// sin/cos values and writes into reused result storage.
+func (r *Renderer) castRayWithPrecomputedDirectionInto(rayIndex int, result *rendering.RaycastResult) {
 	// Safety guard: check ray index bounds
 	if rayIndex < 0 || rayIndex >= len(r.rayDirectionsX) || rayIndex >= len(r.rayDirectionsY) {
 		// Fallback to angle-based calculation
@@ -1454,7 +1479,8 @@ func (r *Renderer) castRayWithPrecomputedDirection(rayIndex int) (float64, inter
 			totalRays = 1
 		}
 		angle := camAngle - fov/2 + (float64(rayIndex)/float64(totalRays))*fov
-		return r.castRayWithType(angle)
+		result.Distance, result.TileType = r.castRayWithType(angle)
+		return
 	}
 
 	// Use precomputed ray directions instead of recalculating sin/cos
@@ -1464,23 +1490,27 @@ func (r *Renderer) castRayWithPrecomputedDirection(rayIndex int) (float64, inter
 	// Reuse this ray's pre-allocated hit buffer (different rayIndex per worker
 	// -> no race). Capacity is retained across frames; only first few frames
 	// may grow the slice's backing.
-	buf := r.rayHitBuffers[rayIndex][:0]
+	slot := &r.rayHitResults[rayIndex]
+	buf := slot.Hits[:0]
 	hits := r.performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY, buf)
-	r.rayHitBuffers[rayIndex] = hits.Hits
+	slot.Hits = hits.Hits
+	result.TileType = slot
 	// If there are no hits, it means the ray went into the void.
 	if len(hits.Hits) == 0 {
-		return r.game.camera.ViewDist, hits
+		result.Distance = r.game.camera.ViewDist
+		return
 	}
 
 	// The primary distance for depth sorting should be the first solid object hit.
 	for _, hit := range hits.Hits {
 		if !hit.IsTransparent {
-			return hit.Distance, hits
+			result.Distance = hit.Distance
+			return
 		}
 	}
 
 	// If no solid wall was hit, return the distance of the closest transparent object.
-	return hits.Hits[0].Distance, hits
+	result.Distance = hits.Hits[0].Distance
 }
 
 // performMultiHitRaycast performs DDA raycasting that can return multiple hits for transparency
@@ -1696,34 +1726,12 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 
 		// Handle both single hits and multi-hits for transparency
 		switch hitData := rayResult.TileType.(type) {
+		case *MultiRaycastHit:
+			if hitData != nil {
+				r.renderRaycastHitStack(screen, screenX, currentRayWidth, hitData.Hits)
+			}
 		case MultiRaycastHit:
-			if len(hitData.Hits) == 0 {
-				continue
-			}
-
-			// Render all hits from back to front for proper transparency
-			for i := len(hitData.Hits) - 1; i >= 0; i-- {
-				hit := hitData.Hits[i]
-
-				// Record depth + wall-top for solid objects (tall sprites clip on
-				// the wall's top edge so their canopy shows above shorter walls).
-				if !hit.IsTransparent {
-					r.writeWallColumns(screenX, currentRayWidth, hit.Distance, hit.TileType)
-				}
-
-				// Collect tree hits for later sorted rendering
-				if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == "tree_sprite" {
-					r.treeHits = append(r.treeHits, treeHitData{
-						screenX:  screenX,
-						distance: hit.Distance,
-						tileType: hit.TileType,
-					})
-					continue
-				}
-
-				// Render this hit
-				r.renderSingleHit(screen, screenX, hit, currentRayWidth)
-			}
+			r.renderRaycastHitStack(screen, screenX, currentRayWidth, hitData.Hits)
 		case RaycastHit:
 			// This case should ideally not be hit with the new system, but as a fallback:
 			hitInfo := hitData
@@ -1746,6 +1754,31 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 		}
 	}
 	r.flushMipmappedWallBatch(screen)
+}
+
+func (r *Renderer) renderRaycastHitStack(screen *ebiten.Image, screenX, width int, hits []RaycastHit) {
+	// Render all hits from back to front for proper transparency.
+	for i := len(hits) - 1; i >= 0; i-- {
+		hit := hits[i]
+
+		// Record depth + wall-top for solid objects (tall sprites clip on the
+		// wall's top edge so their canopy shows above shorter walls).
+		if !hit.IsTransparent {
+			r.writeWallColumns(screenX, width, hit.Distance, hit.TileType)
+		}
+
+		// Collect tree hits for later sorted rendering.
+		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == "tree_sprite" {
+			r.treeHits = append(r.treeHits, treeHitData{
+				screenX:  screenX,
+				distance: hit.Distance,
+				tileType: hit.TileType,
+			})
+			continue
+		}
+
+		r.renderSingleHit(screen, screenX, hit, width)
+	}
 }
 
 // renderSingleHit renders a single raycast hit
@@ -1810,6 +1843,7 @@ const maxFloorShaderLights = 32
 func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	shader, err := r.ensureFloorShader()
 	if err != nil || shader == nil || r.floorColorMap == nil || r.floorTextureIndexMap == nil || r.game.world == nil {
+		r.game.renderHelper.DrawGroundFallback(screen)
 		return
 	}
 
@@ -1862,10 +1896,25 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	// allocator churn in the hottest draw call.
 	if r.floorUniforms == nil {
 		r.floorUniforms = map[string]any{
-			"CamPos":      make([]float32, 2),
-			"ScreenSize":  make([]float32, 2),
-			"WorldSize":   make([]float32, 2),
-			"TexTileSize": make([]float32, 2),
+			"CamPos":        make([]float32, 2),
+			"ScreenSize":    make([]float32, 2),
+			"WorldSize":     make([]float32, 2),
+			"TexTileSize":   make([]float32, 2),
+			"DirCos":        make([]float32, 1),
+			"DirSin":        make([]float32, 1),
+			"PlaneCos":      make([]float32, 1),
+			"PlaneSin":      make([]float32, 1),
+			"Horizon":       make([]float32, 1),
+			"RowDistFactor": make([]float32, 1),
+			"TileSize":      make([]float32, 1),
+			"ViewDist":      make([]float32, 1),
+			"MinBrightness": make([]float32, 1),
+			"Ambient":       make([]float32, 1),
+			"ViewerAmbient": make([]float32, 1),
+			"TexCount":      make([]float32, 1),
+			"MaxMip":        make([]float32, 1),
+			"LightCount":    make([]float32, 1),
+			"Lights":        r.floorLightsBuf[:],
 		}
 	}
 	uniforms := r.floorUniforms
@@ -1873,29 +1922,31 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		v := uniforms[key].([]float32)
 		v[0], v[1] = a, b
 	}
+	setFloat := func(key string, value float32) {
+		uniforms[key].([]float32)[0] = value
+	}
 	setVec2("CamPos", float32(camX), float32(camY))
 	setVec2("ScreenSize", float32(screenWidth), float32(screenHeight))
 	setVec2("WorldSize", float32(worldW), float32(worldH))
 	setVec2("TexTileSize", float32(r.floorTexTileW), float32(r.floorTexTileH))
-	uniforms["DirCos"] = float32(cosA)
-	uniforms["DirSin"] = float32(sinA)
-	uniforms["PlaneCos"] = float32(planeX)
-	uniforms["PlaneSin"] = float32(planeY)
-	uniforms["Horizon"] = float32(horizon)
-	uniforms["RowDistFactor"] = float32(0.5 * float64(screenHeight) * float64(tileSize))
-	uniforms["TileSize"] = float32(tileSize)
-	uniforms["ViewDist"] = float32(r.game.camera.ViewDist)
-	uniforms["MinBrightness"] = float32(r.game.config.Graphics.BrightnessMin)
+	setFloat("DirCos", float32(cosA))
+	setFloat("DirSin", float32(sinA))
+	setFloat("PlaneCos", float32(planeX))
+	setFloat("PlaneSin", float32(planeY))
+	setFloat("Horizon", float32(horizon))
+	setFloat("RowDistFactor", float32(0.5*float64(screenHeight)*float64(tileSize)))
+	setFloat("TileSize", float32(tileSize))
+	setFloat("ViewDist", float32(r.game.camera.ViewDist))
+	setFloat("MinBrightness", float32(r.game.config.Graphics.BrightnessMin))
 	ambient := r.ambientLight
 	if ambient <= 0 {
 		ambient = 1
 	}
-	uniforms["Ambient"] = float32(ambient)
-	uniforms["ViewerAmbient"] = float32(r.viewerAmbient())
-	uniforms["TexCount"] = float32(r.floorTexCount)
-	uniforms["MaxMip"] = float32(r.floorTexMaxMip)
-	uniforms["LightCount"] = float32(lightCount)
-	uniforms["Lights"] = lights
+	setFloat("Ambient", float32(ambient))
+	setFloat("ViewerAmbient", float32(r.viewerAmbient()))
+	setFloat("TexCount", float32(r.floorTexCount))
+	setFloat("MaxMip", float32(r.floorTexMaxMip))
+	setFloat("LightCount", float32(lightCount))
 
 	x0 := float32(0)
 	x1 := float32(screenWidth)
@@ -2212,11 +2263,10 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		Width:    width,
 		TileType: int(tileType),
 		Side:     wallSide,
-		WallX:    textureCoord,
 	}
 
 	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func(quantizedHeight int) *ebiten.Image {
-		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide, textureCoord)
+		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide)
 	})
 
 	drawOptions := r.sharedDrawOpts()
@@ -2995,6 +3045,9 @@ type UnifiedSpriteRenderData struct {
 	depthPerp float64 // Camera-space perpendicular depth (for z-buffer comparison)
 	distance  float64
 	sprite    *ebiten.Image
+	// Resolved authored variant from the map cache. Keeping this beside sprite
+	// prevents the draw path from rediscovering the same variant every frame.
+	spriteName string
 	// Environment/Tree specific
 	tileX    int
 	tileY    int
@@ -3141,6 +3194,7 @@ func (r *Renderer) crossedTreeRenderData(td *TransparentSpriteData, camX, camY, 
 		bottomF:    bottomF,
 		depthPerp:  depthPerp,
 		distance:   distance,
+		spriteName: td.spriteName,
 		tileX:      td.tileX,
 		tileY:      td.tileY,
 		tileType:   td.tileType,
@@ -3348,6 +3402,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				bottomF:    bottomF,
 				depthPerp:  depthPerp,
 				sprite:     sprite,
+				spriteName: spriteData.spriteName,
 				tileX:      spriteData.tileX,
 				tileY:      spriteData.tileY,
 				tileType:   spriteData.tileType,
@@ -3729,6 +3784,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		return
 	}
 	c := s.groundContainer
+	spriteName := c.effectiveSprite()
 
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
@@ -3741,7 +3797,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 			Distance:   s.distance,
 			Visible:    true,
 		}
-		hovered = r.game.groundContainerHitTestFromInfo(info, c.effectiveSprite(), mouseX, mouseY, pickupRange)
+		hovered = r.game.groundContainerHitTestFromInfo(info, spriteName, mouseX, mouseY, pickupRange)
 	}
 
 	brightness := r.calculateBrightnessWithTorchLight(c.X, c.Y, s.distance)
@@ -3758,7 +3814,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		ox, oy := r.game.groundContainerRenderOffset(c)
 		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
-		key := standeeCoreKey{name: "container:" + c.effectiveSprite(), bounds: s.sprite.Bounds()}
+		key := standeeCoreKey{name: r.prefixedStandeeKeyName("container", spriteName), bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return
@@ -3817,13 +3873,16 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	// billboard - the turn rate makes them feel like propped-up cutouts being
 	// nudged, not glued to the view). Rate 0 = fixed diagonal.
 	if r.game.config.Graphics.Standee.Enabled {
-		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
+		name := s.spriteName
+		if name == "" {
+			name = r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
+		}
 		// Wall-mounted decoration tile: stick flush to the nearest solid neighbour
 		// and orient along that wall (the tile twin of NPC wall_mounted). Falls
 		// through to a centred standee when no wall is adjacent.
 		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWallMounted(s.tileType) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(worldX, worldY); ok {
-				wkey := standeeCoreKey{name: "wallprop:" + name, bounds: frame.Bounds()}
+				wkey := standeeCoreKey{name: r.prefixedStandeeKeyName("wallprop", name), bounds: frame.Bounds()}
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
 				centeredBottom := float64(r.game.config.GetScreenHeight())/2 + s.sizeF/2
@@ -3849,7 +3908,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
 				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 			}
-			if r.drawLandmarkStandee(screen, frame, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.sizeF, s.bottomF, b) {
+			if r.drawLandmarkStandee(screen, frame, r.prefixedStandeeKeyName("landmark", name), worldX, worldY, yaw, s.depthPerp, s.sizeF, s.bottomF, b) {
 				return
 			}
 		}
@@ -3868,7 +3927,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// not the base name: variants share dimensions, and a base-name key let
 		// whichever variant rendered first stamp its wood slab onto all of them
 		// (short grass tuft wearing the tall variant's silhouette).
-		key := standeeCoreKey{name: "tile:" + name, bounds: frame.Bounds()}
+		key := standeeCoreKey{name: r.prefixedStandeeKeyName("tile", name), bounds: frame.Bounds()}
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0) {
 			return
@@ -4010,7 +4069,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 		// Monster animation frames are load-time images with identical bounds;
 		// the pointer (stable for them) is what tells frames apart in the cache.
-		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
+		key := standeeCoreKey{name: r.prefixedStandeeKeyName("mob", m.Key), bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
 			s.depthPerp, s.sizeF, screenYF+s.sizeF, rr, gg, bb, false, m.StandeeMirror, 0) {
 			r.drawMonsterStatusFX(screen, s, screenY)
@@ -4075,7 +4134,7 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 			continue
 		}
 		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
-		vector.DrawFilledCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
+		vector.FillCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
 	}
 }
 
@@ -4115,7 +4174,7 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
 		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
 		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		vector.DrawFilledCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+		vector.FillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
 	}
 }
 
@@ -4125,6 +4184,8 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 	// One source of truth for how this NPC renders (shared with the map editor).
 	cat := npcRenderCatOf(s.npc)
+	npcName := npcSpriteName(s.npc)
+	npcKeyName := r.prefixedStandeeKeyName("npc", npcName)
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -4169,7 +4230,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// wall bias.
 		if r.game.npcIsWall(s.npc) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
+				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
 				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.sizeF, s.bottomF, sb, 0, wallMountedDepthAllowanceWorld(r.game.config.GetTileSize(), r.game.config.Graphics.Standee.ThicknessTiles), true)
 				return
@@ -4186,7 +4247,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// line. It is free-standing, so it must NOT borrow a wall's depth bias.
 		if s.npc.GridSpanTiles >= 2 {
 			if bx, by, byaw, ok := r.game.buildingPose(s.npc); ok {
-				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
+				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
 				ts := float64(r.game.config.GetTileSize())
 				span := float64(s.npc.GridSpanTiles) * ts
 				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
@@ -4250,7 +4311,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
+				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
 				// The gate art is square and the doorway is exactly one tile:
 				// force the slab to 1 tile of world span and measure its pixel
 				// height with the WALLS' own formula at the same depth, so the
@@ -4288,11 +4349,11 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
 		// instead of a flat token.
 		if cat == catLandmark {
-			if r.drawLandmarkStandee(screen, sprite, "landmark:"+npcSpriteName(s.npc), s.npc.X, s.npc.Y, yaw, s.depthPerp, s.sizeF, s.bottomF, sb) {
+			if r.drawLandmarkStandee(screen, sprite, r.prefixedStandeeKeyName("landmark", npcName), s.npc.X, s.npc.Y, yaw, s.depthPerp, s.sizeF, s.bottomF, sb) {
 				return
 			}
 		}
-		key := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
+		key := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return
@@ -4339,26 +4400,29 @@ func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, drawLeft, dr
 // a non-sheet image comes back as a single frame. Shared by the looping NPC
 // animation and one-shot players (buff overlay), which index frames themselves.
 func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
+	if frames := r.animFrameCache[sprite]; frames != nil {
+		return frames
+	}
 	bounds := sprite.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
+	if r.animFrameCache == nil {
+		r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
+	}
 	if h <= 0 || w != h*SpriteSheetFrameCount {
-		return []*ebiten.Image{sprite}
-	}
-	frames := r.animFrameCache[sprite]
-	if frames == nil {
-		if r.animFrameCache == nil {
-			r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
-		}
-		frames = make([]*ebiten.Image, SpriteSheetFrameCount)
-		for i := range frames {
-			rect := image.Rect(
-				bounds.Min.X+i*h, bounds.Min.Y,
-				bounds.Min.X+(i+1)*h, bounds.Min.Y+h,
-			)
-			frames[i] = sprite.SubImage(rect).(*ebiten.Image)
-		}
+		frames := []*ebiten.Image{sprite}
 		r.animFrameCache[sprite] = frames
+		return frames
 	}
+
+	frames := make([]*ebiten.Image, SpriteSheetFrameCount)
+	for i := range frames {
+		rect := image.Rect(
+			bounds.Min.X+i*h, bounds.Min.Y,
+			bounds.Min.X+(i+1)*h, bounds.Min.Y+h,
+		)
+		frames[i] = sprite.SubImage(rect).(*ebiten.Image)
+	}
+	r.animFrameCache[sprite] = frames
 	return frames
 }
 

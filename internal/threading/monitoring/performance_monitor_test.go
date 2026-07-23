@@ -232,6 +232,28 @@ func TestParallelRenderer(t *testing.T) {
 	}
 }
 
+func TestParallelRendererInto(t *testing.T) {
+	renderer := rendering.NewParallelRenderer()
+	const numRays = 100
+	payloads := make([]int, numRays)
+
+	results := renderer.RenderRaycastInto(numRays, func(rayIndex int, result *rendering.RaycastResult) {
+		payloads[rayIndex] = rayIndex * 2
+		result.Distance = float64(rayIndex) * 1.5
+		result.TileType = &payloads[rayIndex]
+	})
+
+	for i := range results {
+		if results[i].Distance != float64(i)*1.5 {
+			t.Fatalf("ray %d distance = %.2f", i, results[i].Distance)
+		}
+		got, ok := results[i].TileType.(*int)
+		if !ok || got != &payloads[i] || *got != i*2 {
+			t.Fatalf("ray %d payload = %#v", i, results[i].TileType)
+		}
+	}
+}
+
 func TestParallelRendererConcurrency(t *testing.T) {
 	renderer := rendering.NewParallelRenderer()
 

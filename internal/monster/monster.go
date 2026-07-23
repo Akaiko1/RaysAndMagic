@@ -464,9 +464,10 @@ type Monster3D struct {
 	// Configuration reference
 	config *config.Config
 
-	// Config-derived size, cached at SetupMonsterFromConfig (never changes).
-	// The separation pass calls GetSize per overlapping pair every tick - a
-	// by-name scan of monsters.yaml there cost ~10^5 string compares/tick.
+	// Immutable config-derived render/collision data, cached at setup. The
+	// renderer asks for the sprite every frame, and the separation pass asks
+	// for size per overlapping pair; neither should copy/scan monsters.yaml.
+	cachedSprite   string
 	cachedSizeW    float64
 	cachedSizeH    float64
 	cachedSizeMult float64
@@ -810,10 +811,13 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 }
 
 func (m *Monster3D) GetSpriteType() string {
+	if m.cachedSprite != "" {
+		return m.cachedSprite
+	}
 	// Resolve by the monster's own KEY (always set by NewMonster3DFromConfig),
 	// never by name: several monsters can share a display Name (the 4 elemental
-	// dragons are all "Dragon"), and a name scan returns a random match per call
-	// (Go map order) - which made dragons flicker through every color each frame.
+	// dragons are all "Dragon"). This fallback serves hand-built test monsters;
+	// normal runtime monsters cache the immutable sprite during setup.
 	if MonsterConfig != nil {
 		if def, err := MonsterConfig.GetMonsterByKey(m.Key); err == nil {
 			return def.GetSpriteFromConfig()

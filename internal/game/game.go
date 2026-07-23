@@ -301,6 +301,8 @@ type MMGame struct {
 	sceneBuf           *ebiten.Image  // offscreen 3D scene (blur shader source)
 	blurShader         *ebiten.Shader // lazily compiled horizontal motion blur
 	turnBlurWarm       bool           // first draw prewarms shader/buffer before the first real turn
+	turnBlurOpts       ebiten.DrawRectShaderOptions
+	turnBlurUniform    []float32
 
 	// Map overlay UI state
 	mapOverlayOpen bool
@@ -1354,6 +1356,20 @@ func (g *MMGame) ensureTurnSceneBuffer(bounds image.Rectangle) *ebiten.Image {
 		g.sceneBuf = ebiten.NewImage(bounds.Dx(), bounds.Dy())
 	}
 	return g.sceneBuf
+}
+
+func (g *MMGame) drawTurnBlur(screen, scene *ebiten.Image, shader *ebiten.Shader, blurPx float32) {
+	if screen == nil || scene == nil || shader == nil {
+		return
+	}
+	if g.turnBlurUniform == nil {
+		g.turnBlurUniform = make([]float32, 1)
+		g.turnBlurOpts.Uniforms = map[string]any{"BlurPx": g.turnBlurUniform}
+	}
+	g.turnBlurUniform[0] = blurPx
+	g.turnBlurOpts.Images[0] = scene
+	b := scene.Bounds()
+	screen.DrawRectShader(b.Dx(), b.Dy(), shader, &g.turnBlurOpts)
 }
 
 // turnViewFrames is how many frames a 90deg TB turn eases over at the current TPS.

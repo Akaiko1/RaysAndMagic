@@ -19,8 +19,12 @@ import (
 type SpriteManager struct {
 	sprites          map[string]*ebiten.Image
 	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
-	animations       map[string]*SpriteAnimation
-	animationMissing map[string]bool
+	animations       map[animationCacheKey]*SpriteAnimation
+	animationMissing map[animationCacheKey]bool
+	// CPU alpha masks for the rare pixel-perfect hit tests. Reading an
+	// *ebiten.Image with At/ReadPixels would synchronize the GPU command queue
+	// and can also isolate the source from the automatic texture atlas.
+	alphaMasks map[string]*spriteAlphaMask
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built
 	// once by walking the sprite roots recursively (see ensureIndex). Lets
@@ -42,6 +46,16 @@ type SpriteManager struct {
 	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
 	keyEdgeOnly   map[string]bool
 	keyEdgeRadius int
+}
+
+type spriteAlphaMask struct {
+	width, height int
+	alpha         []uint8
+}
+
+type animationCacheKey struct {
+	name     string
+	animType string
 }
 
 // despillHueFloor is the magenta-excess (min(R,B)-G) below which a kept pixel is
@@ -177,8 +191,9 @@ func NewSpriteManager() *SpriteManager {
 	return &SpriteManager{
 		sprites:          make(map[string]*ebiten.Image),
 		spriteTypeCache:  make(map[string]string),
-		animations:       make(map[string]*SpriteAnimation),
-		animationMissing: make(map[string]bool),
+		animations:       make(map[animationCacheKey]*SpriteAnimation),
+		animationMissing: make(map[animationCacheKey]bool),
+		alphaMasks:       make(map[string]*spriteAlphaMask),
 	}
 }
 
@@ -266,8 +281,8 @@ type SpriteAnimation struct {
 	FrameHeight int
 }
 
-func animationKey(name, animType string) string {
-	return name + ":" + animType
+func animationKey(name, animType string) animationCacheKey {
+	return animationCacheKey{name: name, animType: animType}
 }
 
 func (sm *SpriteManager) createPlaceholder(name string) *ebiten.Image {
@@ -339,6 +354,74 @@ func (sm *SpriteManager) HasSprite(name string) bool {
 		return true
 	}
 	return sm.spriteExists(name)
+}
+
+// SpriteOpaqueAt reports whether a source-local pixel is visible. The mask is
+// decoded from the authored PNG and color-keyed exactly like GetSprite, keeping
+// interaction pixel-perfect without ever reading the GPU render source back.
+// known is false only when the sprite source cannot be decoded.
+func (sm *SpriteManager) SpriteOpaqueAt(name string, x, y int) (opaque, known bool) {
+	if sm == nil || name == "" {
+		return false, false
+	}
+	if sm.alphaMasks == nil {
+		sm.alphaMasks = make(map[string]*spriteAlphaMask)
+	}
+	mask, cached := sm.alphaMasks[name]
+	if !cached {
+		mask = sm.loadSpriteAlphaMask(name)
+		sm.alphaMasks[name] = mask // nil is a cached decode failure
+	}
+	if mask == nil {
+		return false, false
+	}
+	if x < 0 || y < 0 || x >= mask.width || y >= mask.height {
+		return false, true
+	}
+	return mask.alpha[y*mask.width+x] != 0, true
+}
+
+func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {
+	sm.ensureIndex()
+	spritePath, ok := sm.spritePaths[name]
+	if !ok {
+		return nil
+	}
+	file, err := os.Open(spritePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil
+	}
+	img = sm.applyColorKey(name, img)
+	return spriteAlphaMaskFromImage(img)
+}
+
+func spriteAlphaMaskFromImage(img image.Image) *spriteAlphaMask {
+	if img == nil {
+		return nil
+	}
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+	mask := &spriteAlphaMask{
+		width:  width,
+		height: height,
+		alpha:  make([]uint8, width*height),
+	}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			_, _, _, a := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+			mask.alpha[y*width+x] = uint8(a >> 8)
+		}
+	}
+	return mask
 }
 
 func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
