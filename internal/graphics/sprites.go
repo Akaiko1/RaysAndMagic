@@ -23,8 +23,8 @@ type SpriteManager struct {
 	animations       map[animationCacheKey]*SpriteAnimation
 	animationMissing map[animationCacheKey]bool
 	// CPU alpha masks for the rare pixel-perfect hit tests. Reading an
-	// *ebiten.Image with At/ReadPixels would synchronize the GPU command queue
-	// and can also isolate the source from the automatic texture atlas.
+	// *ebiten.Image with At/ReadPixels flushes the GPU command queue, and At
+	// reads the WHOLE image back - a stall per interaction probe.
 	alphaMasks map[string]*spriteAlphaMask
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built

@@ -373,10 +373,16 @@ func (s SkillType) Category() string {
 func (s SkillType) Description() string {
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster:
-		return fmt.Sprintf("Proficiency to wield %ss. Weapon Mastery: +%d true damage per tier above Novice "+
+		// A skill-optional category (blaster) needs no training to fire; its
+		// skill only pays the mastery bonuses.
+		lead := fmt.Sprintf("Proficiency to wield %ss.", weaponNoun(s))
+		if WeaponCategorySkillOptional(weaponNoun(s)) {
+			lead = fmt.Sprintf("Anyone can fire a %s untrained - this skill only makes it better.", weaponNoun(s))
+		}
+		return fmt.Sprintf("%s Weapon Mastery: +%d true damage per tier above Novice "+
 			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
 			"strikes ignore Perfect Dodge.",
-			weaponNoun(s), MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
+			lead, MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillMartialArts:
 		return fmt.Sprintf("Proficiency fighting unarmed. Weapon Mastery: +%d true damage per tier above Novice "+
 			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit unarmed and "+

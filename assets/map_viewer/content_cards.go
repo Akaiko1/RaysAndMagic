@@ -50,6 +50,27 @@ const (
 	cardSkill
 )
 
+// groupCardsBySection collapses each section into ONE contiguous run, keeping
+// both the sections' and the cards' first-appearance order. The page draws a
+// header whenever the section changes, so a section that reappears later in the
+// source order (a skill appended late in the save-pinned SkillType enum lands
+// after the Misc block) would otherwise print its header twice.
+func groupCardsBySection(cards []contentCard) []contentCard {
+	order := make([]string, 0, len(cards))
+	bySection := make(map[string][]contentCard, len(cards))
+	for _, card := range cards {
+		if _, seen := bySection[card.section]; !seen {
+			order = append(order, card.section)
+		}
+		bySection[card.section] = append(bySection[card.section], card)
+	}
+	out := make([]contentCard, 0, len(cards))
+	for _, section := range order {
+		out = append(out, bySection[section]...)
+	}
+	return out
+}
+
 // buildItemsCards assembles the Items page: weapons (by category) followed by
 // items (armor/accessory/consumable/quest). Runs once at startup.
 func buildItemsCards() []contentCard {

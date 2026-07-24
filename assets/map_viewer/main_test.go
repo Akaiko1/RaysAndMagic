@@ -292,3 +292,48 @@ func TestMobSheetsFitDefaultColumns(t *testing.T) {
 		}
 	}
 }
+
+// TestContentCardSectionsAreContiguous: the page draws a header whenever the
+// section changes, so every section must appear as ONE run. A skill appended
+// late in the save-pinned SkillType enum (Blaster is a weapon skill sitting
+// after the Misc block) used to print "Weapon Skills" twice.
+func TestContentCardSectionsAreContiguous(t *testing.T) {
+	pages := map[string][]contentCard{
+		"items":  groupCardsBySection(buildItemsCards()),
+		"spells": groupCardsBySection(buildSpellCards()),
+		"skills": groupCardsBySection(buildSkillCards()),
+	}
+	for page, cards := range pages {
+		if len(cards) == 0 {
+			t.Errorf("page %s built no cards", page)
+			continue
+		}
+		seen := map[string]bool{}
+		prev := ""
+		for _, card := range cards {
+			if card.section == prev {
+				continue
+			}
+			if seen[card.section] {
+				t.Errorf("page %s: section %q starts a second run - its header would repeat", page, card.section)
+			}
+			seen[card.section] = true
+			prev = card.section
+		}
+	}
+}
+
+// TestBlasterSkillCardStatesTrainingIsOptional keeps the editor's skill text
+// honest about the equip rule it shares with the game.
+func TestBlasterSkillCardStatesTrainingIsOptional(t *testing.T) {
+	for _, card := range buildSkillCards() {
+		if card.name != "Blaster" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(card.description), "untrained") {
+			t.Errorf("Blaster card must say it needs no training: %q", card.description)
+		}
+		return
+	}
+	t.Fatal("no Blaster skill card")
+}

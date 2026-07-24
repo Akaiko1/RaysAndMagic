@@ -1015,6 +1015,13 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
 		return true
 	}
+	// Firearms need no training to point and shoot: anyone with real weapon
+	// training can fire a blaster untrained (the Blaster skill only makes it
+	// better - mastery true damage, crit, cooldown). See
+	// weaponCategorySkillOptional.
+	if WeaponCategorySkillOptional(weaponDef.Category) && c.HasAnyWeaponSkill() {
+		return true
+	}
 	requiredSkill, ok := WeaponSkillForCategory(weaponDef.Category)
 	if !ok {
 		return false

@@ -4,9 +4,11 @@ package status
 // keep their own fields and effects (damage amounts, condition flags, action
 // gating); what lives here is the clockwork they all share:
 //
-//   - dual-clock statuses (stun): an RT frame counter and a TB turn counter,
-//     only the current mode's clock ticks, and whichever expires first ends the
-//     status and clears the other - a mode switch can never make it permanent;
+//   - dual-clock statuses (stun, root, shred, soak, cooldowns): an RT frame
+//     counter and a TB turn counter tied together by a frames-per-turn rate.
+//     Only the current mode's clock ticks; the other is clamped to the same
+//     remaining time, and whichever expires first ends the status and clears
+//     the rest - a mode switch can neither make it permanent nor refund time;
 //   - DoT statuses (poison, burn): a duration plus a once-per-second damage
 //     cadence in RT, or one damage tick per turn in TB;
 //   - refresh-never-shortens application, so re-applying a status extends it
@@ -44,45 +46,15 @@ func RefreshDualRated(frames, turns, rate *int, addFrames, addTurns int) bool {
 	return true
 }
 
-// TickFrame advances a dual-clock status by one RT frame. When this tick
-// expires it, the counterpart TB clock is cleared too (the status is OVER, not
-// waiting for a mode switch to resume). Returns true exactly on the expiring
-// tick.
-func TickFrame(frames, turns *int) (expired bool) {
-	if *frames <= 0 {
-		return false
-	}
-	*frames--
-	if *frames > 0 {
-		return false
-	}
-	*frames = 0
-	*turns = 0
-	return true
-}
-
-// TickTurn advances a dual-clock status by one TB turn, mirroring TickFrame.
-func TickTurn(turns, frames *int) (expired bool) {
-	if *turns <= 0 {
-		return false
-	}
-	*turns--
-	if *turns > 0 {
-		return false
-	}
-	*turns = 0
-	*frames = 0
-	return true
-}
-
-// Plain dual-clock ticks freeze the INACTIVE clock at its full value, so
-// spending 2 of 3 turns in TB and switching to RT handed a stun its whole RT
-// duration back (and vice versa) - a mode-flip farm. The rated variants keep
-// the clocks proportionally synced through `rate` (RT frames per TB turn):
-// after every tick the inactive clock is clamped to the active one's
-// equivalent, so a mode switch can never revive spent time. Callers keep rate
-// in persisted state. Legacy saves have a zero rate, so DualRate recovers the
-// best available approximation from their remaining pair on the next tick.
+// A dual-clock tick that only decremented the ACTIVE clock froze the inactive
+// one at its full value, so spending 2 of 3 turns in TB and switching to RT
+// handed a stun its whole RT duration back (and vice versa) - a mode-flip farm.
+// The rated ticks below keep both clocks proportionally synced through `rate`
+// (RT frames per TB turn): after every tick the inactive clock is clamped to the
+// active one's equivalent, so a mode switch can never revive spent time.
+// Callers keep rate in persisted state. Legacy saves have a zero rate, so
+// DualRate recovers the best available approximation from their remaining pair
+// on the next tick.
 
 // DualRate derives the frames-per-turn exchange rate of an active pair.
 func DualRate(frames, turns int) int {

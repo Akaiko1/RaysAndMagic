@@ -1483,9 +1483,11 @@ func (r *Renderer) reserveStandeeBuffers() {
 }
 
 // flushPrewarmedImageUploads submits every map image and generated mip as a
-// source before gameplay. Reading the tiny destination synchronizes buffered
-// uploads while leaving the sources themselves atlas-friendly; calling
-// ReadPixels on each source would isolate it and destroy batching.
+// source before gameplay. One ReadPixels on the tiny destination flushes the
+// whole command queue (graphicscommand.ReadPixels drains it), so the buffered
+// WritePixels uploads land once here instead of stalling the first frame that
+// draws each image; reading every source instead would pay that stall - plus a
+// full-image GPU readback - per sprite.
 func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *standeeMipChain) {
 	if len(images) == 0 {
 		return

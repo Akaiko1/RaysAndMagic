@@ -1,5 +1,7 @@
 package character
 
+import "strings"
+
 type SkillType int
 
 const (
@@ -284,7 +286,9 @@ func (s SkillType) IsWeaponSkill() bool { return weaponSkills[s] }
 func (s SkillType) IsArmorSkill() bool  { return armorSkills[s] }
 
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
-// SkillType that gates wielding/proficiency bonuses.
+// SkillType that gates wielding/proficiency bonuses. A category listed in
+// weaponCategorySkillOptional still resolves here - its skill pays mastery
+// bonuses - but does not gate equipping (see CanEquipWeaponByName).
 func WeaponSkillForCategory(category string) (SkillType, bool) {
 	if category == "throwing" {
 		return SkillDagger, true // throwing weapons use the dagger skill
@@ -294,6 +298,21 @@ func WeaponSkillForCategory(category string) (SkillType, bool) {
 		return 0, false
 	}
 	return t, true
+}
+
+// weaponCategorySkillOptional lists weapon categories anyone can fire untrained:
+// "blaster" is every FIREARM (matchlocks, the Clockwork Pistol, the Alien
+// Blaster) - you point it and pull the trigger. Their skill remains a real
+// weapon skill and still pays mastery/crit/cooldown bonuses; only the equip gate
+// is waived. Single source of that rule for equipping, tooltips, and the editor.
+var weaponCategorySkillOptional = map[string]bool{
+	"blaster": true,
+}
+
+// WeaponCategorySkillOptional reports whether a category can be equipped
+// without its weapon skill.
+func WeaponCategorySkillOptional(category string) bool {
+	return weaponCategorySkillOptional[strings.ToLower(category)]
 }
 
 // ArmorSkillForCategory maps an armor category string (lowercased) to the

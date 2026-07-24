@@ -54,26 +54,26 @@ func TestRefreshDualRatedRecalculatesRateWhenExtended(t *testing.T) {
 	}
 }
 
-func TestTickFrameCrossClears(t *testing.T) {
-	f, tn := 2, 3
-	if TickFrame(&f, &tn) {
+func TestTickFrameRatedCrossClears(t *testing.T) {
+	f, tn, rate := 2, 3, 0
+	if TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("first tick must not expire")
 	}
-	if !TickFrame(&f, &tn) {
+	if !TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("second tick must expire")
 	}
-	if f != 0 || tn != 0 {
-		t.Fatalf("expiry must clear BOTH clocks: f=%d t=%d", f, tn)
+	if f != 0 || tn != 0 || rate != 0 {
+		t.Fatalf("expiry must clear BOTH clocks and the rate: f=%d t=%d rate=%d", f, tn, rate)
 	}
-	if TickFrame(&f, &tn) {
+	if TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("ticking an inactive status must not expire again")
 	}
 }
 
-func TestTickTurnCrossClears(t *testing.T) {
-	f, tn := 300, 1
-	if !TickTurn(&tn, &f) || tn != 0 || f != 0 {
-		t.Fatalf("turn expiry must clear both clocks: f=%d t=%d", f, tn)
+func TestTickTurnRatedCrossClears(t *testing.T) {
+	f, tn, rate := 300, 1, 0
+	if !TickTurnRated(&tn, &f, &rate) || tn != 0 || f != 0 || rate != 0 {
+		t.Fatalf("turn expiry must clear both clocks and the rate: f=%d t=%d rate=%d", f, tn, rate)
 	}
 }
 

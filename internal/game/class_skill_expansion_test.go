@@ -42,13 +42,19 @@ func TestBlasterRequiresAndUsesBlasterMastery(t *testing.T) {
 	archer := character.CreateCharacter("Archer", character.ClassArcher, cs.game.config)
 	thief := character.CreateCharacter("Thief", character.ClassThief, cs.game.config)
 	sorcerer := character.CreateCharacter("Sorcerer", character.ClassSorcerer, cs.game.config)
-	for _, member := range []*character.MMCharacter{archer, thief} {
+	// Firearms need no training: every trained character can equip a blaster,
+	// with or without the Blaster skill. The skill only pays mastery bonuses
+	// (asserted below).
+	for _, member := range []*character.MMCharacter{archer, thief, sorcerer} {
 		if !member.CanEquipWeaponByName("Alien Blaster") {
-			t.Errorf("%s cannot equip a Blaster despite class training", member.Class)
+			t.Errorf("%s cannot equip a Blaster - blasters need no training", member.Class)
 		}
 	}
-	if sorcerer.CanEquipWeaponByName("Alien Blaster") {
-		t.Fatal("an unrelated weapon skill unlocked Blasters")
+	if sorcerer.HasSkill(character.SkillBlaster) {
+		t.Fatal("the Sorcerer kit must not include the Blaster skill (it tests the untrained case)")
+	}
+	if trueDmg, _ := cs.weaponMasteryStrike(sorcerer, lookupWeaponConfigByKey("alien_blaster")); trueDmg != 0 {
+		t.Errorf("untrained blaster mastery = %d true damage, want 0", trueDmg)
 	}
 
 	blaster := lookupWeaponConfigByKey("alien_blaster")

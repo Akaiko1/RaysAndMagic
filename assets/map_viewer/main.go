@@ -233,10 +233,12 @@ func main() {
 		tileManager:   world.GlobalTileManager,
 		monsterCfg:    monsterCfg,
 		brush:         brush{kind: brushEraser},
+		// Grouped so each section prints exactly one header (see
+		// groupCardsBySection) regardless of the source enum/catalog order.
 		pageCards: map[int][]contentCard{
-			pageItems:  buildItemsCards(),
-			pageSpells: buildSpellCards(),
-			pageSkills: buildSkillCards(),
+			pageItems:  groupCardsBySection(buildItemsCards()),
+			pageSpells: groupCardsBySection(buildSpellCards()),
+			pageSkills: groupCardsBySection(buildSkillCards()),
 		},
 		pageScroll:  map[int]int{},
 		charDetails: buildCharacterDetails(cfg),

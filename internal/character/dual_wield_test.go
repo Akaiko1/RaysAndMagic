@@ -3,7 +3,7 @@ package character
 // Dual Wielding / zero-weapon-skill class tests - exercise the off-hand
 // equip gate, the second-weapon overflow, the "can't unequip your only
 // weapon" guard, the IsDualWielding skill requirement, and the universal
-// fallbacks (blaster still needs a real weapon skill; cloth stays a true
+// fallbacks (firearms need no Blaster skill to fire; cloth stays a true
 // no-skill armor category).
 //
 // TestMain in main_test.go has already wired items.GlobalItemAccessor via
@@ -122,8 +122,8 @@ func TestUnequipGuardBlocksOnlyAZeroWeaponSkillCharacter(t *testing.T) {
 	}
 }
 
-// TestUniversalFallbacks: blaster has its own weapon skill, while cloth remains
-// a true no-skill armor category.
+// TestUniversalFallbacks: a firearm needs no Blaster skill (only some real
+// weapon training), and cloth remains a true no-skill armor category.
 func TestUniversalFallbacks(t *testing.T) {
 	weaponless := &MMCharacter{Skills: map[SkillType]*Skill{}, Equipment: make(map[items.EquipSlot]items.Item)}
 	if weaponless.CanEquipWeaponByName("Alien Blaster") {
@@ -140,12 +140,14 @@ func TestUniversalFallbacks(t *testing.T) {
 		},
 		Equipment: make(map[items.EquipSlot]items.Item),
 	}
-	if trained.CanEquipWeaponByName("Alien Blaster") {
-		t.Error("Dagger training must not unlock Blasters")
+	// Firearms need no training: any trained fighter can fire a blaster
+	// without the Blaster skill - the skill only pays mastery bonuses.
+	if !trained.CanEquipWeaponByName("Alien Blaster") {
+		t.Error("a blaster must be equippable without the Blaster skill")
 	}
 	trained.Skills[SkillBlaster] = &Skill{Mastery: MasteryNovice}
 	if !trained.CanEquipWeaponByName("Alien Blaster") {
-		t.Error("Blaster training should unlock Blasters")
+		t.Error("Blaster training must keep Blasters equippable")
 	}
 	if !trained.CanEquipArmor(items.CreateItemFromYAML("wizard_robe")) {
 		t.Error("a character with a real armor skill should still get the universal cloth pass")
