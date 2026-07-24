@@ -21,7 +21,7 @@ type MonsterDefinition struct {
 	Experience   int      `yaml:"experience"`
 	DamageMin    int      `yaml:"damage_min"`
 	DamageMax    int      `yaml:"damage_max"`
-	TrueDamage   int      `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
+	TrueDamage   int      `yaml:"true_damage,omitempty"` // typed per-attack damage: resistance applies; armor/flat/dodge do not
 	AlertRadius  float64  `yaml:"alert_radius"`
 	AttackRadius float64  `yaml:"attack_radius"`
 	Speed        float64  `yaml:"speed"`

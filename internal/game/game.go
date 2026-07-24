@@ -62,6 +62,8 @@ type MagicProjectile struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
+	TrueDamage         int                    // typed true component snapshotted when a monster fires
+	IgnoresDodge       bool                   // snapshotted attack rider; champion weapon state may change in flight
 	Attacker           *character.MMCharacter // caster (nil = monster/none) - mastery/pierce resolve from HIM at impact; a pointer survives roster swaps mid-flight
 	LifeTime           int                    // Frames remaining
 	Active             bool
@@ -71,7 +73,7 @@ type MagicProjectile struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
-	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) - carries true-damage + on-hit rider flags to impact
+	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	AoE                bool               // monster projectile: on hit, splash damage to the whole party
 	NoCollide          bool               // mortar visual (Stone Blossom): the display bolt never collides
 }
@@ -96,6 +98,8 @@ type Arrow struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
+	TrueDamage         int                    // typed true component snapshotted when a monster fires
+	IgnoresDodge       bool                   // snapshotted attack rider; champion weapon state may change in flight
 	Attacker           *character.MMCharacter // shooter (nil = monster/none)
 	LifeTime           int                    // Frames remaining
 	Active             bool
@@ -107,7 +111,7 @@ type Arrow struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
-	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) - carries true-damage + on-hit rider flags to impact
+	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	// Pierce-through (Arena Arbalest): a hit with PierceLeft > 0 consumes this
 	// arrow and spawns a continuation bolt that skips the monster it went through.
 	PierceLeft     int

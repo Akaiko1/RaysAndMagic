@@ -274,7 +274,7 @@ monsters:
     experience: 2000
     damage_min: 34
     damage_max: 54
-    true_damage: 12  # black dragon: +12 unmitigable per hit
+    true_damage: 12  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "fire"
     alert_radius: 5
@@ -312,7 +312,7 @@ monsters:
     experience: 2000
     damage_min: 34
     damage_max: 54
-    true_damage: 10  # red dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "dark"
     ignite_chance: 0.30           # 30% to set a character ablaze
@@ -348,7 +348,7 @@ monsters:
     experience: 2000
     damage_min: 36
     damage_max: 58
-    true_damage: 10  # green dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.6  # attacks fast
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "earth"
@@ -382,7 +382,7 @@ monsters:
     experience: 2000
     damage_min: 32
     damage_max: 52
-    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.85
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "air"
@@ -1410,7 +1410,7 @@ monsters:
     experience: 1100
     damage_min: 36
     damage_max: 54
-    true_damage: 10  # jungle spearwoman: +10 unmitigable per hit
+    true_damage: 10  # typed physical true damage: bypasses armor/flat/dodge, not resistance
     projectile_weapon: "blowgun"
     ranged_attack_range: 6
     attack_radius: 5

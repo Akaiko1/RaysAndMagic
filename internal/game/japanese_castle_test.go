@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -206,7 +207,7 @@ func TestSealedBossIgnoresIndirectEffects(t *testing.T) {
 	// AoE splash centered on a mob right beside the boss.
 	center := monsterPkg.NewMonster3DFromConfig(5*tile+8, 5*tile, "goblin", cs.game.config)
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{center, boss}
-	cs.applyAoeSplash(center, 9999, "fire", monsterPkg.DamageFire, "Test", 3.0, 0)
+	cs.applyAoeSplash(center, damagecalc.Parts{Normal: 9999}, "fire", monsterPkg.DamageFire, "Test", 3.0, 0)
 	assertInert("AoE splash")
 
 	// Trap payload directly on the boss.

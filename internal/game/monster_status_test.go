@@ -2,8 +2,10 @@ package game
 
 import (
 	"testing"
+
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 )
 
@@ -278,7 +280,12 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 		member.MaxHitPoints = 50
 		member.Luck = 0
 		member.Equipment = nil
-		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamage(10, "fire", member, false) - 2
+		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamageParts(
+			damagecalc.Parts{Normal: 10, True: 2},
+			monsterPkg.DamageSchoolFire,
+			member,
+			false,
+		).Total()
 	}
 
 	monster := &monsterPkg.Monster3D{
@@ -315,7 +322,10 @@ func TestMonsterProjectileAoEUsesDamageablePartyMembersNotCanAct(t *testing.T) {
 	}
 	cs.game.party.Members[1].AddCondition(character.ConditionUnconscious)
 
-	cs.applyMonsterProjectileDamageAoE(nil, "Archmage", 10, "fire", 0)
+	cs.applyMonsterProjectileDamageAoE(nil, "Archmage", monsterCharacterHit{
+		Parts:      damagecalc.Parts{Normal: 10},
+		DamageType: "fire",
+	})
 
 	for i, member := range cs.game.party.Members {
 		if member.HitPoints >= 50 {

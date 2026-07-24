@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -192,22 +193,26 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 		return false
 	}
 	wd, dmg := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
-	return cs.applyChampionMeleeSwingToParty(m, wd, dmg)
+	return cs.applyChampionMeleeSwingToParty(m, wd, championMeleeHit(m, wd, dmg))
+}
+
+func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, damage int) monsterCharacterHit {
+	damageType := monster.DamageSchoolPhysical
+	if wd != nil && wd.DamageType != "" {
+		damageType = wd.DamageType
+	}
+	return hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
 }
 
 // applyChampionMeleeSwingToParty applies one already-rolled champion hand swing
 // to the party formation. Clean party attacks and mixed summon/party crossfire
 // share this sink so the selected hand's damage, riders, arc, and AoE cannot
 // diverge or re-roll between targets caught by the same swing.
-func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, dmg int) bool {
-	dtype := "physical"
-	if wd != nil && wd.DamageType != "" {
-		dtype = wd.DamageType
-	}
+func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, hit monsterCharacterHit) bool {
 	if wd != nil && wd.AoeRadiusTiles > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-			cs.monsterHitCharacter(m, member, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
+			cs.monsterHitCharacter(m, member, m.Name, hit)
 		})
 		return true
 	}
@@ -224,7 +229,7 @@ func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd 
 	}
 	targets := cs.randomLivingMembers(n)
 	for _, t := range targets {
-		cs.monsterHitCharacter(m, t, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
+		cs.monsterHitCharacter(m, t, m.Name, hit)
 	}
 	return len(targets) > 0
 }
@@ -243,10 +248,8 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	}
 	weapon := championHandWeapon(ch, offHand)
 	wd, dmg := cs.championSwingDamage(m, ch, weapon)
-	dtype := monster.DamagePhysical
-	if wd != nil && wd.DamageType != "" {
-		dtype = convertToMonsterDamageType(wd.DamageType)
-	}
+	hit := championMeleeHit(m, wd, dmg)
+	dtype := convertToMonsterDamageType(hit.DamageType)
 	ts := float64(cs.game.config.GetTileSize())
 	facing := math.Atan2(foe.Y-m.Y, foe.X-m.X)
 	partyCaught := false
@@ -257,7 +260,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		r := wd.AoeRadiusTiles * ts
 		for _, o := range cs.game.world.Monsters {
 			if o != nil && o.Bound && o.IsAlive() && Distance(m.X, m.Y, o.X, o.Y) <= r {
-				cs.strikeMonsterFor(m, o, dmg, dtype)
+				cs.strikeMonsterFor(m, o, hit.Parts, dtype)
 			}
 		}
 		partyCaught = Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) <= r
@@ -281,7 +284,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 			}
 			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
 				summon := o
-				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, dmg, dtype) }})
+				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit.Parts, dtype) }})
 			}
 		}
 		if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, cs.game.camera.X, cs.game.camera.Y); ok {
@@ -294,7 +297,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	// Re-entering championMeleeStrike here would silently switch an off-hand
 	// attack back to the main hand and roll its damage/riders a second time.
 	if partyCaught {
-		cs.applyChampionMeleeSwingToParty(m, wd, dmg)
+		cs.applyChampionMeleeSwingToParty(m, wd, hit)
 	}
 }
 
@@ -835,7 +838,17 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
 		total, _ = cs.rollSpellCritDamage(spellID, ch, total)
-		cs.spawnMonsterSpellProjectileDamage(m, spellID, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster, total)
+		// Champion spells use the spell's own damage packet. Weapon mastery true
+		// damage and dodge-pierce belong only to weapon strikes.
+		cs.spawnMonsterSpellProjectileDamage(
+			m,
+			spellID,
+			cs.game.camera.X,
+			cs.game.camera.Y,
+			ProjectileOwnerMonster,
+			damagecalc.Parts{Normal: total},
+			false,
+		)
 	}
 }
 

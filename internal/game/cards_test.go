@@ -179,7 +179,7 @@ func TestCardEffects_BatchB(t *testing.T) {
 		"archmage_card":      "25% of physical damage dealt as fire",
 		"ningyo_card":        "5% to self-heal 25 on attack",
 		"lich_card":          "10% to cheat death (half HP+SP)",
-		"gorilla_titan_card": "10% on move: 50 pure to nearby foes",
+		"gorilla_titan_card": "10% on move: 50 physical true damage to nearby foes",
 	} {
 		if got := cardEffectText(cardDef(key)); got != want {
 			t.Errorf("cardEffectText(%s) = %q, want %q", key, got, want)
@@ -310,9 +310,9 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst is PURE: physical resistance (or immunity) must NOT
-// reduce it, so a resistant mob still takes the full advertised amount.
-func TestCardMoveBurst_PureBypassesPhysicalResist(t *testing.T) {
+// The Gorilla move-burst is physical true damage: it bypasses armor/flat soak,
+// but the physical resistance carried by its element still applies.
+func TestCardMoveBurst_TrueDamageUsesPhysicalResist(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -327,11 +327,11 @@ func TestCardMoveBurst_PureBypassesPhysicalResist(t *testing.T) {
 	if !cs.cardMoveBurstApply(50) {
 		t.Fatal("expected the burst to hit")
 	}
-	if resistant.HitPoints != 50 {
-		t.Errorf("50%% physical-resist mob should still take full 50 pure (hp=%d, want 50)", resistant.HitPoints)
+	if resistant.HitPoints != 75 {
+		t.Errorf("50%% physical-resist mob hp = %d, want 75", resistant.HitPoints)
 	}
-	if immune.HitPoints != 50 {
-		t.Errorf("physical-immune mob should still take full 50 pure (hp=%d, want 50)", immune.HitPoints)
+	if immune.HitPoints != 100 {
+		t.Errorf("physical-immune mob hp = %d, want 100", immune.HitPoints)
 	}
 }
 
@@ -770,7 +770,7 @@ func TestVengefulNingyoCard_Thorns(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 500, 500
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
-	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0, false)
+	cs.monsterHitCharacter(attacker, member, "Bandit", hitFromMonster(attacker, 100, "physical", false, 0, false))
 	if attacker.HitPoints >= 1000 {
 		t.Errorf("attacker HP = %d, should have taken thorns reflect damage", attacker.HitPoints)
 	}
@@ -794,7 +794,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
 	before := len(g.deadMonsterIDs)
-	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0, false)
+	cs.monsterHitCharacter(attacker, member, "Weak Attacker", hitFromMonster(attacker, 100, "physical", false, 0, false))
 	if attacker.IsAlive() {
 		t.Fatal("setup: reflected damage should have killed the attacker")
 	}

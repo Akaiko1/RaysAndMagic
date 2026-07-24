@@ -3,6 +3,8 @@ package game
 import (
 	"math"
 	"testing"
+
+	damagecalc "ugataima/internal/damage"
 )
 
 // TestTankTarget_FrontSlotThenFallback: the tank is party slot 0 while alive,
@@ -96,7 +98,10 @@ func TestRangedRT_AlwaysTank(t *testing.T) {
 		for _, x := range m { // reset so the tank never dies -> never falls back
 			x.HitPoints = x.MaxHitPoints
 		}
-		cs.applyMonsterProjectileDamage(nil, "Test", 999, "true", 0) // sourceless; tests targeting only
+		cs.applyMonsterProjectileDamage(nil, "Test", monsterCharacterHit{ // sourceless; tests targeting only
+			Parts:      damagecalc.Parts{Normal: 999},
+			DamageType: "true",
+		})
 		if m[0].HitPoints >= m[0].MaxHitPoints {
 			t.Fatalf("RT ranged did not hit the tank (slot 0) on iter %d", i)
 		}

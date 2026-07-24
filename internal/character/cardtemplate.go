@@ -193,9 +193,11 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, strings.Title(dt))
 	}
 	if hasTrueDmg {
-		// Resistance still applies to the summed hit - true damage only
-		// bypasses ARMOR and lands through Perfect Dodge.
-		sec.AddDetail("True Damage ignores armor and lands through dodges")
+		school := strings.Title(dt)
+		if dt == "" {
+			school = "Physical"
+		}
+		sec.AddDetail("True Damage ignores armor/flat reduction and lands through dodges; %s Resistance still applies", school)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -302,7 +303,12 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := cs.damagePartyMemberElement(idx, member, m.InfernoDamage, "fire")
+		dealt := cs.damagePartyMemberParts(
+			idx,
+			member,
+			damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage},
+			monsterPkg.DamageSchoolFire,
+		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx)

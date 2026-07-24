@@ -22,6 +22,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -305,7 +306,12 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			breathType := normalizeDamageTypeStr(m.DragonBreathDamageType)
 			breathDmg := m.GetAttackDamage()
 			for _, c := range alive {
-				d := cs.mitigateCharacterDamage(breathDmg, breathType, c, m.IgnoresArmor) + m.TrueDamage
+				d := cs.mitigateCharacterDamageParts(
+					damagecalc.Parts{Normal: breathDmg, True: m.TrueDamage},
+					breathType,
+					c,
+					m.IgnoresArmor,
+				).Total()
 				c.HitPoints -= d
 				if c.HitPoints < 0 {
 					c.HitPoints = 0
@@ -318,20 +324,24 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
+		school := monsterPkg.DamageSchoolPhysical
+		ignoreArmor := m.IgnoresArmor
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
 			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
 			// uses ranged whenever HasRangedAttack, even point-blank - it never
 			// melees). Mitigate it by the breath's element so the target's armor
 			// (elemental cap), resists, and buffs actually apply.
-			school := "physical"
 			if d, ok := config.GetSpellDefinition(m.ProjectileSpell); ok && d != nil && d.School != "" {
 				school = d.School
 			}
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), school, target, false)
-		} else {
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, m.IgnoresArmor)
+			ignoreArmor = false
 		}
-		dmg += m.TrueDamage // bypasses all mitigation, folded into the hit
+		dmg = cs.mitigateCharacterDamageParts(
+			damagecalc.Parts{Normal: m.GetAttackDamage(), True: m.TrueDamage},
+			school,
+			target,
+			ignoreArmor,
+		).Total()
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
 			dmg += m.FireburstDamageMin + rand.Intn(m.FireburstDamageMax-m.FireburstDamageMin+1)

@@ -1407,7 +1407,7 @@ type ItemDefinitionConfig struct {
 	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
 	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
 	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
-	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // pure damage dealt by the move-burst
+	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
 	CardWalkOnWater       bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
 	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
 	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card

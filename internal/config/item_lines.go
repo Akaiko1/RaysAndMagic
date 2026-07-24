@@ -236,7 +236,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% to cheat death (half HP+SP)", d.CardLethalSavePct))
 	}
 	if d.CardMoveAoePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on move: %d pure to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
+		p = append(p, fmt.Sprintf("%d%% on move: %d physical true damage to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
 	}
 	if d.CardSummonChance != 0 {
 		line := fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit)

@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/storage"
@@ -420,7 +421,7 @@ func TestChampionVictoryRewardsFromCardSummonKill(t *testing.T) {
 		t.Fatal("easy champion tier missing")
 	}
 	before := cs.game.party.ArenaPoints
-	cs.strikeMonsterFor(summon, champion, 9999, monsterPkg.DamagePhysical)
+	cs.strikeMonsterFor(summon, champion, damagecalc.Parts{Normal: 9999}, monsterPkg.DamagePhysical)
 
 	if got, want := cs.game.party.ArenaPoints-before, tier.ArenaPoints; got != want {
 		t.Fatalf("arena points from card-summon champion kill = %d, want %d", got, want)

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strconv"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/status"
 )
@@ -219,9 +220,9 @@ type Monster3D struct {
 	// Combat stats
 	DamageMin int
 	DamageMax int
-	// TrueDamage is added to every attack and bypasses EVERYTHING on the target -
-	// armor, resists, Stone Skin/flat, dodge - landing straight on HP (folded into
-	// the hit's total, no separate message). Applies to melee AND ranged.
+	// TrueDamage is added to every attack with that attack's school. It meets the
+	// target's resistance, but bypasses armor/flat reduction and lands through
+	// dodge. It is folded into the hit total for melee, ranged, arcs, and AoE.
 	TrueDamage int
 	// Light emission (torch-like)
 	LightRadius    float64
@@ -581,6 +582,20 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
 // of the target's resistance to damageType is ignored before reduction. Used by
 // Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
 func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int) int {
+	return m.TakeDamageParts(damagecalc.Parts{Normal: damage}, damageType, resistPiercePct)
+}
+
+// TakeTrueDamage applies typed true damage: the attack's resistance still
+// applies, but armor and flat soak do not. Scripted boss invulnerability remains
+// absolute and is enforced by TakeDamageParts.
+func (m *Monster3D) TakeTrueDamage(damage int, damageType DamageType, resistPiercePct int) int {
+	return m.TakeDamageParts(damagecalc.Parts{True: damage}, damageType, resistPiercePct)
+}
+
+// TakeDamageParts is the single monster damage sink. Normal and true damage
+// share the attack's element and resistance; champion Stone Skin soaks only the
+// normal component.
+func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
@@ -588,28 +603,24 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 	if m.IsDamageInvulnerable() {
 		return 0
 	}
-	// Apply resistance (reduced by any piercing)
-	if resistance, exists := m.Resistances[damageType]; exists {
-		if resistPiercePct > 0 && resistance > 0 {
-			resistance = resistance * (100 - resistPiercePct) / 100
-		}
-		damage = damage * (100 - resistance) / 100
-		if damage < 0 {
-			damage = 0
-		}
+	resistance := 0
+	if m.Resistances != nil {
+		resistance = m.Resistances[damageType]
 	}
+	dealt := parts.ApplyResistance(resistance, resistPiercePct)
 
 	// Flat soak (champion Stone Skin) after resists, like the party's
-	// incoming-damage-reduction buff ordering.
+	// incoming-damage-reduction buff ordering. True damage bypasses it.
 	if m.SoakDamage > 0 && (m.SoakFrames > 0 || m.SoakTurns > 0) {
-		damage -= m.SoakDamage
-		if damage < 0 {
-			damage = 0
+		dealt.Normal -= m.SoakDamage
+		if dealt.Normal < 0 {
+			dealt.Normal = 0
 		}
 	}
 
 	// Apply damage
-	m.HitPoints -= damage
+	total := dealt.Total()
+	m.HitPoints -= total
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
@@ -619,13 +630,13 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
-		return damage
+		return total
 	}
 
 	// Being attacked always triggers engagement - chase the attacker
 	m.BeginPlayerEngagement()
 
-	return damage
+	return total
 }
 
 // ApplyPoison applies or refreshes a party-inflicted poison DoT (Venom-proc

@@ -85,13 +85,15 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 				t.Errorf("champion did not damage the summoned huntress (HP %d -> %d)", hpBefore, huntress.HitPoints)
 			}
 
-			// --- Huntress strikes the champion for her own authored band ---
-			// Neither champion resists physical, so the tier HP pool takes the raw band.
+			// --- Huntress strikes with her authored normal + true packet ---
+			// Neither champion resists physical, so both authored components land.
 			champHPBefore := champ.HitPoints
 			cs.monsterStrikeMonster(huntress, champ)
 			hit := champHPBefore - champ.HitPoints
-			if hit < huntress.DamageMin || hit > huntress.DamageMax {
-				t.Errorf("huntress hit the champion for %d, want her authored band [%d,%d]", hit, huntress.DamageMin, huntress.DamageMax)
+			minHit := huntress.DamageMin + huntress.TrueDamage
+			maxHit := huntress.DamageMax + huntress.TrueDamage
+			if hit < minHit || hit > maxHit {
+				t.Errorf("huntress hit the champion for %d, want her authored packet [%d,%d]", hit, minHit, maxHit)
 			}
 			if champ.HitPoints >= champ.MaxHitPoints {
 				t.Errorf("champion tier HP pool untouched (%d/%d) after a huntress blow", champ.HitPoints, champ.MaxHitPoints)

@@ -21,7 +21,7 @@ import (
 // so existing combat references keep working unchanged.
 const (
 	// MasteryWeaponTrueDamagePerTier: bonus TRUE damage per weapon-mastery tier
-	// (ignores armor, lands through dodges). Expert +3 / Master +6 / GM +9.
+	// (resistance applies; armor/flat/dodge do not). Expert +3 / Master +6 / GM +9.
 	MasteryWeaponTrueDamagePerTier = 3
 	// WeaponGMCritBonus: extra crit % a Grandmaster gets with their mastered weapon.
 	WeaponGMCritBonus = 7
@@ -285,12 +285,12 @@ func (s SkillType) Description() string {
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff:
 		return fmt.Sprintf("Proficiency to wield %ss. Weapon Mastery: +%d true damage per level "+
-			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
+			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
 			"strikes ignore Perfect Dodge.",
 			weaponNoun(s), MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillMartialArts:
 		return fmt.Sprintf("Proficiency fighting unarmed. Weapon Mastery: +%d true damage per level "+
-			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit unarmed and "+
+			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit unarmed and "+
 			"strikes ignore Perfect Dodge.",
 			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillLeather, SkillChain, SkillPlate:
