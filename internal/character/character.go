@@ -130,6 +130,7 @@ type MMCharacter struct {
 	// Stun: skips the character's actions. RT counts frames, TB counts turns.
 	StunFramesRemaining int
 	StunTurnsRemaining  int
+	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -532,15 +533,17 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 // mode switch ends it on whichever runs out first - never permanent.
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
+// Rated: the TB clock drains proportionally so toggling combat mode cannot
+// hand the stun its frozen turn count back.
 func (c *MMCharacter) tickStunFrames() {
-	if status.TickFrame(&c.StunFramesRemaining, &c.StunTurnsRemaining) {
+	if status.TickFrameRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
 func (c *MMCharacter) TickStunTurn() {
-	if status.TickTurn(&c.StunTurnsRemaining, &c.StunFramesRemaining) {
+	if status.TickTurnRated(&c.StunTurnsRemaining, &c.StunFramesRemaining, &c.StunRate) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
@@ -681,8 +684,11 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	if frames <= 0 {
 		return
 	}
+	wasActive := c.BurnFramesRemaining > 0
 	if status.Refresh(&c.BurnFramesRemaining, frames) {
-		c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
+		if !wasActive {
+			c.burnTickTimer = config.GetTargetTPS() / 2 // desync the first tick from poison
+		}
 		c.AddCondition(ConditionBurning)
 	}
 }
@@ -707,7 +713,7 @@ func (c *MMCharacter) updateBurn(tps int) {
 // ApplyCharStun stuns the character for the given RT frames / TB turns (max with
 // any existing stun). A stunned character takes no action until it wears off.
 func (c *MMCharacter) ApplyCharStun(frames, turns int) {
-	if status.RefreshDual(&c.StunFramesRemaining, &c.StunTurnsRemaining, frames, turns) {
+	if status.RefreshDualRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate, frames, turns) {
 		c.AddCondition(ConditionStunned)
 	}
 }

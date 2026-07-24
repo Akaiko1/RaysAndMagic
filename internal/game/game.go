@@ -874,8 +874,8 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	g.world.Monsters = append(g.world.Monsters, m)
 	width, height := m.GetSize()
 	g.syncMonsterAttackPost(m)
-	entityType, solid := desiredMonsterCollisionState(m)
-	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, solid)
+	entityType := desiredMonsterCollisionType(m)
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, false)
 	g.collisionSystem.RegisterEntity(entity)
 }
 
@@ -1805,10 +1805,11 @@ func (g *MMGame) refreshMonsterAIState() {
 		return
 	}
 	g.refreshBoundAllyCache()
-	// Precompute each monster's foe + pursuit target ONCE per frame, single-threaded,
-	// so the parallel real-time update never scans other monsters' positions (which
-	// are being mutated concurrently) and no consumer recomputes the foe. The wrapper
-	// reads AITargetX/Y; combat reads AIFoe.
+	// Precompute each monster's scripted state, foe, and pursuit target ONCE per
+	// frame, single-threaded, so the parallel real-time update never scans other
+	// monsters' live state and no consumer recomputes the foe. Scripted state is
+	// a separate first pass: target selection must not depend on world slice order
+	// when an ally appears before an inactive boss.
 	if g.combat == nil {
 		return
 	}
@@ -1849,6 +1850,17 @@ func (g *MMGame) refreshMonsterAIState() {
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
 		m.BossDormant = evasive && m.EvadeRadiusTiles == 0
+		// Relentless chase (ignores detection range). Most bosses go relentless only
+		// AFTER normal aggro - within their alert radius or once the party has hit
+		// them. AggroWholeMap is the unique opt-in that chases from anywhere.
+		m.BossAggro = m.IsBoss() && !evasive && !m.BossWarded &&
+			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
+	}
+
+	for _, m := range g.world.Monsters {
+		if m == nil {
+			continue
+		}
 		if m.IsInertSetPiece() {
 			// Do not hand a scripted inactive actor a crossfire foe. The RT combat
 			// loop is separate from movement AI, so leaving this populated lets it
@@ -1859,13 +1871,6 @@ func (g *MMGame) refreshMonsterAIState() {
 			continue
 		}
 		g.combat.refreshMonsterAITarget(m)
-		// Relentless chase (ignores detection range). Most bosses go relentless only
-		// AFTER normal aggro - within their (larger) alert radius or once the party
-		// has hit them (WasAttacked is sticky) - so they don't beeline across the
-		// whole map the instant they activate. AggroWholeMap is the UNIQUE opt-in
-		// (Golden Thief Bug) that DOES chase from anywhere on activation.
-		m.BossAggro = m.IsBoss() && !evasive && !m.BossWarded &&
-			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
 	}
 	g.ejectPartyTargetingMonsters()
 }
@@ -2188,13 +2193,13 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	g.parkSelection = false // a new round clears any manual park
-	tps := g.config.GetTPS()
+	periodicFrames := turnBasedPeriodicEffectFrames(g.config.GetTPS())
 	for _, m := range g.party.Members {
 		// Poison/ignite tick once per party turn in TB (mirrors monster
-		// TickPoisonTurn) - ticks regardless of stun, same as the RT per-frame
-		// updatePoison/updateBurn did before TB switched off real-time ticking.
-		m.TickPoisonTurn(tps)
-		m.TickBurnTurn(tps)
+		// TickPoisonTurn) and consume three seconds of duration. They tick
+		// regardless of stun, same as their RT per-frame clocks.
+		m.TickPoisonTurn(periodicFrames)
+		m.TickBurnTurn(periodicFrames)
 	}
 	// Run the lethal-DoT sweep (Lich Card save / Unconscious) BEFORE handing out
 	// action slots below - otherwise a member the tick just ticked to 0 HP reads
@@ -2432,9 +2437,6 @@ func (g *MMGame) ToggleTurnBasedMode() {
 	// Snap all monsters to tile centers
 	g.snapMonstersToTileCenters()
 
-	// Reset all monster AI states for turn-based combat
-	g.resetMonsterStatesForTurnBased()
-
 	// Input repeat timing is presentation-only, so a mode switch may reset
 	// it without changing either mode's combat economy.
 	g.turnBasedMoveCooldown = 0
@@ -2546,44 +2548,6 @@ func (g *MMGame) snapMonstersToTileCenters() {
 	}
 }
 
-// resetMonsterStatesForTurnBased normalizes monster AI state for turn-based
-// combat. A sight-only loot guard is the explicit exception: its active
-// seven-tile objective encounter survives the mode switch.
-func (g *MMGame) resetMonsterStatesForTurnBased() {
-	for _, currentMonster := range g.world.Monsters {
-		if !currentMonster.IsAlive() {
-			continue
-		}
-
-		// A sight-only guard encounter has one exact seven-tile leash in both
-		// modes. Preserve its active objective state across RT -> TB instead of
-		// silently reclassifying it as a calm mob with an ordinary alert radius.
-		keepSightGuardEncounter := currentMonster.LootGuardAlerted && !currentMonster.WasAttacked
-		// Reset to idle state - monsters will be controlled explicitly by turn-based system.
-		currentMonster.State = monster.StateIdle
-		currentMonster.StateTimer = 0
-		currentMonster.IsEngagingPlayer = keepSightGuardEncounter
-		if keepSightGuardEncounter {
-			currentMonster.State = monster.StateAlert
-		} else {
-			currentMonster.LootGuardAlerted = false
-		}
-		currentMonster.AttackCount = 0
-		currentMonster.AttackPost = false
-		currentMonster.AttackPostTargetID = ""
-		currentMonster.AttackPostSince = 0
-		currentMonster.AttackTransit = false
-		g.applyMonsterCollisionState(currentMonster.ID, collision.CollisionTypeMonster, false)
-
-		// Reset movement direction to face player (for visual consistency)
-		dx := g.camera.X - currentMonster.X
-		dy := g.camera.Y - currentMonster.Y
-		if dx != 0 || dy != 0 {
-			currentMonster.Direction = math.Atan2(dy, dx)
-		}
-	}
-}
-
 // Wrapper types for threading system integration
 
 // MonsterWrapper implements entities.MonsterUpdateInterface
@@ -2594,11 +2558,10 @@ type MonsterWrapper struct {
 	game            *MMGame                      // Added to access camera position for tethering system
 
 	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
-	pendingSolid         bool
 }
 
-// Update is the canonical RT monster tick: AI movement + the desired
-// collision-solidity decision - COMPUTED ONLY here, against the frozen
+// Update is the canonical RT monster tick: AI movement + the desired collision
+// marker - COMPUTED ONLY here, against the frozen
 // snapshot; nothing shared is written. Code that steps monsters manually
 // (including tests) must call this AND ApplyCollisionUpdate, not the bare
 // Monster3D.Update - that alone leaves the collision type stale.
@@ -2641,7 +2604,7 @@ func (mw *MonsterWrapper) Update() {
 	// collision marker. Both touch only frame-local data on this monster, so are
 	// safe in the parallel worker. ApplyCollisionUpdate writes them serially.
 	mw.game.syncMonsterAttackPost(mw.Monster)
-	mw.pendingCollisionType, mw.pendingSolid = desiredMonsterCollisionState(mw.Monster)
+	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster)
 
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
@@ -2728,7 +2691,7 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 		return
 	}
 	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
-	mw.game.applyMonsterCollisionState(mw.Monster.ID, mw.pendingCollisionType, mw.pendingSolid)
+	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
 }
 
 const partyAttackTargetID = "player"
@@ -2740,8 +2703,10 @@ func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y floa
 	if m == nil {
 		return "", 0, 0, false
 	}
-	switch m.CurrentAIBehavior() {
-	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive, monster.AIBehaviorFleeing:
+	behavior := m.CurrentAIBehavior()
+	switch behavior {
+	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive,
+		monster.AIBehaviorFleeing, monster.AIBehaviorPassive:
 		return "", 0, 0, false
 	}
 	// SNAPSHOT reads only: this runs inside the PARALLEL wrapper update, where
@@ -2751,7 +2716,7 @@ func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y floa
 	if foe := m.AIFoe; foe != nil {
 		return foe.ID, m.AITargetX, m.AITargetY, true
 	}
-	if m.CurrentAIBehavior() == monster.AIBehaviorBoundAlly || !m.TargetsParty() || g == nil || g.camera == nil {
+	if behavior == monster.AIBehaviorBoundAlly || !m.TargetsParty() || g == nil || g.camera == nil {
 		return "", 0, 0, false
 	}
 	return partyAttackTargetID, g.camera.X, g.camera.Y, true
@@ -2838,8 +2803,7 @@ func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
 		m.AttackPostSince = g.frameCount
 	}
 	m.AttackTransit = false
-	desired, solid := desiredMonsterCollisionState(m)
-	g.applyMonsterCollisionState(m.ID, desired, solid)
+	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
 	return true
 }
 
@@ -2858,25 +2822,26 @@ func (g *MMGame) releaseMonsterAttackPost(m *monster.Monster3D) {
 		m.ResetPathfinding()
 	}
 	if g != nil {
-		g.applyMonsterCollisionState(m.ID, collision.CollisionTypeMonster, false)
+		g.applyMonsterCollisionType(m.ID, collision.CollisionTypeMonster)
 	}
 }
 
-// desiredMonsterCollisionState owns the conversion from logical combat state to
+// desiredMonsterCollisionType owns the conversion from logical combat state to
 // collision metadata. All monsters remain physically non-solid; the engaged
 // type only marks one claimed combat attack post for AI arbitration.
-func desiredMonsterCollisionState(m *monster.Monster3D) (collision.CollisionType, bool) {
+func desiredMonsterCollisionType(m *monster.Monster3D) collision.CollisionType {
 	if monsterHoldsAttackPost(m) {
-		return collision.CollisionTypeMonsterEngaged, false
+		return collision.CollisionTypeMonsterEngaged
 	}
-	return collision.CollisionTypeMonster, false
+	return collision.CollisionTypeMonster
 }
 
-// applyMonsterCollisionState writes a monster's collision type and solidity to the live
-// system. Must only run single-threaded (main goroutine, or another
-// non-parallel context) - never from a monster-update worker; see
-// desiredMonsterCollisionState for the race-free compute half.
-func (g *MMGame) applyMonsterCollisionState(monsterID string, desired collision.CollisionType, solid bool) {
+// applyMonsterCollisionType writes a monster's logical collision marker to the
+// live system and enforces the universal pass-through rule. It must only run
+// single-threaded (main goroutine, or another non-parallel context), never from
+// a monster-update worker; see desiredMonsterCollisionType for the race-free
+// compute half.
+func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
 	if g == nil || g.collisionSystem == nil {
 		return
 	}
@@ -2889,20 +2854,19 @@ func (g *MMGame) applyMonsterCollisionState(monsterID string, desired collision.
 		// engaged-post index that reservation queries scan.
 		g.collisionSystem.SetEntityCollisionType(monsterID, desired)
 	}
-	entity.Solid = solid
+	entity.Solid = false
 }
 
-// refreshMonsterCollisionSolidity computes AND immediately applies m's desired
+// refreshMonsterCollisionState computes AND immediately applies m's desired
 // collision type. Used by single-threaded call sites OUTSIDE the parallel RT
 // tick (turn-based monster processing, boss summons, combat triggers) where
 // there is no separate apply phase to defer to.
-func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D) {
+func (g *MMGame) refreshMonsterCollisionState(m *monster.Monster3D) {
 	if g == nil || m == nil {
 		return
 	}
 	g.syncMonsterAttackPost(m)
-	desired, solid := desiredMonsterCollisionState(m)
-	g.applyMonsterCollisionState(m.ID, desired, solid)
+	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
 }
 
 func (mw *MonsterWrapper) IsAlive() bool {

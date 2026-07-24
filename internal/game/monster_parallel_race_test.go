@@ -17,7 +17,7 @@ import (
 // entities" concurrency contract: canMoveToEntityPosition/shouldIgnoreEntityCollision
 // iterate ALL entities (not just the caller's own), so if a monster's worker
 // reads another monster's BoundingBox/CollisionType while that monster's own
-// worker concurrently writes them (UpdateEntity / refreshMonsterCollisionSolidity),
+// worker concurrently writes them (UpdateEntity / refreshMonsterCollisionState),
 // the race detector must catch it here.
 //
 // Run: go test ./internal/game/ -race -run TestRace_MonsterParallelUpdate -v

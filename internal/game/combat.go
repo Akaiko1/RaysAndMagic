@@ -12,6 +12,7 @@ import (
 	"ugataima/internal/mathutil"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -191,7 +192,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 		// "Nearby FOES" only: never the party's own bound allies (card summons /
 		// bind-undead), charmed (pacified) monsters, or an invulnerable boss (sealed/
 		// idol-warded) - the latter would absorb the damage yet still flash + log a hit.
-		if m == nil || !m.IsAlive() || m.IsPartyControlled() || bossInvulnerable(m) ||
+		if m == nil || !m.IsAlive() || m.IsPartyControlled() || m.IsDamageInvulnerable() ||
 			math.Hypot(m.X-px, m.Y-py) > radius {
 			continue
 		}
@@ -322,7 +323,7 @@ func (cs *CombatSystem) summonCardAllies(key string, n int) int {
 		}
 		markCardAlly(add)
 		cs.game.registerSpawnedMonster(add)
-		cs.game.refreshMonsterCollisionSolidity(add)
+		cs.game.refreshMonsterCollisionState(add)
 		spawned++
 	}
 	if spawned > 0 {
@@ -1820,8 +1821,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			monster.OffHandCDFrames--
 		}
 
-		// Pacified (Charm): stands and does nothing, never attacks the party.
-		if behavior == monsterPkg.AIBehaviorPacified {
+		// These behavior modes own no RT attack action. Keep this explicit here:
+		// stale StateAttacking, pounce data, or an attack-post claim must never
+		// bypass the mode-independent behavior policy.
+		if behavior == monsterPkg.AIBehaviorPacified ||
+			behavior == monsterPkg.AIBehaviorFleeing ||
+			behavior == monsterPkg.AIBehaviorPassive {
 			continue
 		}
 		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
@@ -1836,7 +1841,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// the PARTY), but it is just as inactive toward summons. This stays after
 		// the shared stun/charm/bind gates, preserving their suppression of boss
 		// actions, while still running before the crossfire branch below.
-		if cs.bossEvasive(monster) {
+		if behavior == monsterPkg.AIBehaviorEvasive {
 			ready := monster.BossCD == 0
 			if monster.BossCD > 0 {
 				monster.BossCD--
@@ -1846,10 +1851,15 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		}
 
 		// Lured at a bound undead instead of the party: attack it on the monster's
-		// normal individual cooldown whenever within reach (ranged mobs loose a visible bolt; melee
-		// strike directly), independent of the engagement state machine - so a mob
-		// jittering at the edge of melee range still connects. Then skip party logic.
-		if foe := monster.AIFoe; foe != nil && foe.IsAlive() {
+		// normal individual cooldown whenever within reach. The frame snapshot can
+		// outlive that foe when an earlier monster kills it; in that case this actor
+		// waits for the next shared retarget instead of falling into party combat.
+		if behavior == monsterPkg.AIBehaviorFightFoe {
+			foe := monster.AIFoe
+			if foe == nil || !foe.IsAlive() {
+				cs.game.releaseMonsterAttackPost(monster)
+				continue
+			}
 			if monster.IsChampion() {
 				if cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
 					monster.State = monsterPkg.StateAttacking
@@ -1886,8 +1896,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			// Same reach gate as the normal attack below: a melee boss on an
 			// adjacent tile is in real contact at >1 tile of pixel distance.
 			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 &&
+				monster.AttackCDFrames == 0 &&
 				cs.monsterCanAttackParty(monster, dist, attackRange)
 			if cs.updateBoss(monster, ready, attackTick) {
+				if attackTick {
+					cs.armMonsterRTAttackCooldowns(monster)
+				}
 				continue
 			}
 		}
@@ -1895,19 +1909,14 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// Pounce (real-time): from within pounce range but beyond melee, leap
 		// to melee contact and strike immediately, then go on cooldown.
 		if monster.CanPounce() {
-			if monster.PounceCDFrames > 0 {
-				monster.PounceCDFrames--
-			}
+			monster.TickPounceCooldownFrame()
 			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
-				(!monster.PassiveUntilAttacked || monster.WasAttacked || monster.HatesActiveTrait()) {
+				cs.monsterCanPounceParty(monster) {
 				if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
 					cs.applyMonsterMeleeDamage(monster)
-					tps := cs.game.config.GetTPS()
-					if tps <= 0 {
-						tps = 60
-					}
-					monster.PounceCDFrames = int(monster.PounceCooldownSeconds * float64(tps))
+					cs.armMonsterRTAttackCooldowns(monster)
+					monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
 					continue
 				}
 			}
@@ -1940,6 +1949,43 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 		}
 	}
+}
+
+// armMonsterRTAttackCooldowns marks a spent attack action on every real-time
+// hand stream. TB uses it when carrying an action back across a mode switch;
+// RT specials use it when replacing a normal strike. Taking the max preserves
+// a longer cooldown already in flight.
+func (cs *CombatSystem) armMonsterRTAttackCooldowns(attacker *monsterPkg.Monster3D) {
+	if cs == nil || cs.game == nil || attacker == nil {
+		return
+	}
+	if cooldown := attacker.AttackCooldownFrames(); cooldown > attacker.AttackCDFrames {
+		attacker.AttackCDFrames = cooldown
+	}
+	if !attacker.IsChampion() || attacker.HasRangedAttack() {
+		return
+	}
+	champion := cs.game.championTemplateFor(attacker)
+	if champion == nil {
+		return
+	}
+	if _, dual := championOffHandWeapon(champion); !dual {
+		return
+	}
+	if cooldown := cs.OffHandWeaponCooldownFrames(champion); cooldown > attacker.OffHandCDFrames {
+		attacker.OffHandCDFrames = cooldown
+	}
+}
+
+// monsterCanPounceParty is the shared non-range gate for RT and TB leaps. A
+// pounce is a party attack, so it requires both an active party target and a
+// direct line of sight; it cannot create aggro or teleport through a wall.
+func (cs *CombatSystem) monsterCanPounceParty(m *monsterPkg.Monster3D) bool {
+	if cs == nil || cs.game == nil || m == nil || !m.TargetsParty() {
+		return false
+	}
+	return cs.game.collisionSystem == nil ||
+		cs.game.collisionSystem.CheckLineOfSight(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
 }
 
 // executePounce leaps a pouncing monster onto the nearest walkable tile
@@ -1982,7 +2028,7 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	m.State = monsterPkg.StateAttacking
 	m.StateTimer = 0
 	m.ResetPathfinding()
-	cs.game.refreshMonsterCollisionSolidity(m)
+	cs.game.refreshMonsterCollisionState(m)
 	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
 	return true
 }
@@ -2698,7 +2744,7 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(center, source *monsterPkg.Monst
 			continue
 		}
 		if owner == ProjectileOwnerBoundUndead {
-			if candidate.IsPartyControlled() {
+			if !cs.boundAllyCanDamageMonster(candidate) {
 				continue
 			}
 		} else if !candidate.Bound {
@@ -2842,11 +2888,16 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile", cs.game.magicProjectiles[i].Owner})
 		}
 	}
-	// Check each projectile against each monster using perspective-scaled collision
+	// Player shots retain the perspective-scaled first-person assist. Crossfire is
+	// autonomous world combat and must not depend on where the party is looking,
+	// so those projectiles use the registered world-space collision boxes.
 	for _, proj := range projectiles {
 		var hitMonster *monsterPkg.Monster3D
 		bestDepth := 0.0
 		bestLateral := 0.0
+		bestWorldDistance := math.MaxFloat64
+		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
+		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
 
 		camCos := math.Cos(cs.game.camera.Angle)
 		camSin := math.Sin(cs.game.camera.Angle)
@@ -2862,10 +2913,23 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 			// Crossfire faction rules: a bound undead's bolt skips controlled allies
 			// (hits enemies); a mob's anti-undead bolt hits ONLY the bound undead.
-			if proj.owner == ProjectileOwnerBoundUndead && monster.IsPartyControlled() {
+			if proj.owner == ProjectileOwnerBoundUndead && !cs.boundAllyCanDamageMonster(monster) {
 				continue
 			}
 			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
+				continue
+			}
+			if crossfire {
+				if !cs.checkWorldSpaceProjectileCollision(proj.entityID, monster) {
+					continue
+				}
+				dx, dy := monster.X-projectileX, monster.Y-projectileY
+				distSq := dx*dx + dy*dy
+				if hitMonster == nil || distSq < bestWorldDistance ||
+					(distSq == bestWorldDistance && monster.ID < hitMonster.ID) {
+					bestWorldDistance = distSq
+					hitMonster = monster
+				}
 				continue
 			}
 			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
@@ -3412,7 +3476,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) takes no splash and triggers
 		// no hit-flash / pack-aggro / message: skip it entirely.
-		if m == nil || m == center || !m.IsAlive() || bossInvulnerable(m) {
+		if m == nil || m == center || !m.IsAlive() || m.IsDamageInvulnerable() {
 			continue
 		}
 		dx := m.X - cx
@@ -3579,6 +3643,21 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
 	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
 	return scaledProjBox.Intersects(scaledMonsterBox)
+}
+
+// checkWorldSpaceProjectileCollision is the camera-independent impact rule for
+// monster-vs-monster crossfire. Both entities already own authoritative world
+// boxes in the collision system; scaling them by the party camera would make a
+// fight stop dealing damage when it moved behind or outside the player's FOV.
+func (cs *CombatSystem) checkWorldSpaceProjectileCollision(entityID string, monster *monsterPkg.Monster3D) bool {
+	if cs == nil || cs.game == nil || cs.game.collisionSystem == nil || monster == nil {
+		return false
+	}
+	projectileEntity := cs.game.collisionSystem.GetEntityByID(entityID)
+	monsterEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
+	return projectileEntity != nil && projectileEntity.BoundingBox != nil &&
+		monsterEntity != nil && monsterEntity.BoundingBox != nil &&
+		projectileEntity.BoundingBox.Intersects(monsterEntity.BoundingBox)
 }
 
 // markMonsterHit applies the side effects every hit shares regardless of source
@@ -3993,15 +4072,7 @@ func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 		return false
 	}
 	// An invulnerable boss (sealed or idol-warded) can't be instakilled.
-	return m.MonsterType == "undead" || m.MonsterType == "dragon" || bossInvulnerable(m)
-}
-
-// bossInvulnerable reports whether a boss is currently immune to ALL damage: a
-// sealed (dormant) boss until its quest unseals it, or an idol-warded boss until
-// its idols fall. Every indirect-damage path (AoE splash, inferno, zones, traps)
-// skips such a monster so it takes no damage and triggers no side effects.
-func bossInvulnerable(m *monsterPkg.Monster3D) bool {
-	return m != nil && (m.BossDormant || m.BossWarded)
+	return m.MonsterType == "undead" || m.MonsterType == "dragon" || m.IsDamageInvulnerable()
 }
 
 // absorbIfSealed reports whether the monster is an invulnerable boss and, if so,
@@ -4065,7 +4136,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
 	// "the map" is the party's REGION - MapWide must not burn the other four.
 	regionScoped := def.MapWide && cs.game.openWorldActive()
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || bossInvulnerable(m) || Distance(cx, cy, m.X, m.Y) > radius {
+		if m == nil || !m.IsAlive() || m.IsDamageInvulnerable() || Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
 		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
@@ -4239,12 +4310,13 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 		}
 		return false
 	}
-	if effFrames > m.StunFramesRemaining {
-		m.StunFramesRemaining = effFrames
-	}
-	if effTurns > m.StunTurnsRemaining {
-		m.StunTurnsRemaining = effTurns
-	}
+	status.RefreshDualRated(
+		&m.StunFramesRemaining,
+		&m.StunTurnsRemaining,
+		&m.StunRate,
+		effFrames,
+		effTurns,
+	)
 	if announce && !wasStunned {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", m.Name))
 	}
@@ -4265,12 +4337,13 @@ func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, turns, frames 
 	if cs == nil || cs.game == nil || m == nil || (turns <= 0 && frames <= 0) {
 		return
 	}
-	if turns > m.RootTurnsRemaining {
-		m.RootTurnsRemaining = turns
-	}
-	if frames > m.RootFramesRemaining {
-		m.RootFramesRemaining = frames
-	}
+	status.RefreshDualRated(
+		&m.RootFramesRemaining,
+		&m.RootTurnsRemaining,
+		&m.RootRate,
+		frames,
+		turns,
+	)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", m.Name))
 }
 
@@ -4359,15 +4432,25 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 	return cs.monsterMeleeAdjacentToPoint(attacker, target.X, target.Y)
 }
 
-// nearestEnemyMonster returns the closest alive ENEMY monster to m within maxDist
-// (pixels), or nil. An "enemy" is one the party does not control - i.e. neither
-// bound nor pacified. The target of a bound undead and the lure for a normal mob.
+// boundAllyCanDamageMonster is the shared faction/encounter gate for a party
+// summon's target selection, direct projectile collision, and AoE collateral.
+// Keeping all three on one policy prevents a bolt or splash from silently
+// provoking a passive creature that the summon's AI deliberately ignored.
+func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3D) bool {
+	return cs != nil && candidate != nil && candidate.IsAlive() &&
+		!candidate.IsPartyControlled() &&
+		!candidate.IsDamageInvulnerable() &&
+		!candidate.IsPassiveUntilProvoked() &&
+		!cs.bossEvasive(candidate)
+}
+
+// nearestEnemyMonster returns the closest monster a bound ally may damage
+// within maxDist (pixels), or nil.
 func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist float64) *monsterPkg.Monster3D {
 	var target *monsterPkg.Monster3D
 	best := maxDist
 	for _, other := range cs.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.IsPartyControlled() ||
-			other.BossDormant || other.BossWarded || other.IsPassiveUntilProvoked() || cs.bossEvasive(other) {
+		if other == m || !cs.boundAllyCanDamageMonster(other) {
 			continue
 		}
 		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
@@ -4384,11 +4467,12 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 //   - normal monster: the nearest bound undead within its alert radius, if one is
 //     no farther than the party - so mobs turn on the bound undead in their midst.
 func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg.Monster3D {
-	if m == nil || m.IsPassiveUntilProvoked() || cs.bossEvasive(m) {
+	if m == nil {
 		return nil
 	}
 	switch m.CurrentAIBehavior() {
-	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified:
+	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified,
+		monsterPkg.AIBehaviorEvasive, monsterPkg.AIBehaviorPassive:
 		return nil
 	case monsterPkg.AIBehaviorBoundAlly:
 		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
@@ -4438,20 +4522,14 @@ func (cs *CombatSystem) refreshMonsterAITarget(m *monsterPkg.Monster3D) {
 // foe if it has one, else the party. Reads the per-frame cached AIFoe (set in
 // refreshMonsterAIState) - never recomputes the foe.
 func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
-	behavior := m.CurrentAIBehavior()
-	switch behavior {
+	switch m.CurrentAIBehavior() {
 	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified, monsterPkg.AIBehaviorEvasive:
 		return m.X, m.Y // pacified: never chase the party - hold position
-	}
-	if cs.bossEvasive(m) {
-		return m.X, m.Y // evasive boss (quest unfinished): never chases - holds + blinks away
 	}
 	if m.AIFoe != nil {
 		return m.AIFoe.X, m.AIFoe.Y
 	}
-	if behavior == monsterPkg.AIBehaviorBoundAlly {
-		return cs.game.camera.X, cs.game.camera.Y // an idle bound ally tags along with the party
-	}
+	// Hostiles chase the party; an idle bound ally uses the same point to follow it.
 	return cs.game.camera.X, cs.game.camera.Y
 }
 

@@ -31,8 +31,8 @@ type monsterBandGroup struct {
 	members []*monster.Monster3D
 }
 
-// updateMonsterBands runs once per tick AFTER movement + separation. It treats
-// bands as stable runtime groups:
+// updateMonsterBands runs once per tick after movement. It treats bands as
+// stable runtime groups:
 //   - existing bands stay bands and may recruit only solo same-key calm mobs;
 //   - existing band + existing band never merges;
 //   - solo calm mobs may form new bands with other solo calm mobs;

@@ -37,12 +37,12 @@ func TestControlledMonsterStatusExpiry(t *testing.T) {
 		t.Fatal("both expiries must announce themselves exactly once")
 	}
 
-	// TB semantics: a zero-frame control lasts the encounter - no decay ticks.
+	// A zero-frame control is permanent (used by card summons) in both modes.
 	forever := &monsterPkg.Monster3D{Name: "Lich", HitPoints: 10, Bound: true, BoundFramesRemaining: 0}
 	gl.game.world.Monsters = []*monsterPkg.Monster3D{forever}
 	gl.updateControlledMonsters()
 	if !forever.Bound {
-		t.Fatal("a control with no timer must persist (TB: lasts the encounter)")
+		t.Fatal("a control with no timer must persist")
 	}
 }
 

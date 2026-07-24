@@ -4,7 +4,11 @@ package character
 // unconscious, dead, eradicated. Exercises the real apply/tick/cure entry
 // points end-to-end (condition flags AND clocks), one test per status family.
 
-import "testing"
+import (
+	"testing"
+
+	"ugataima/internal/config"
+)
 
 func statusTestChar() *MMCharacter {
 	return &MMCharacter{Name: "T", HitPoints: 50, MaxHitPoints: 50}
@@ -78,6 +82,31 @@ func TestCharBurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestCharBurnRefreshPreservesTickPhase(t *testing.T) {
+	c := statusTestChar()
+	tps := config.GetTargetTPS()
+
+	c.ApplyBurn(10 * tps)
+	advance := tps/2 - 10
+	for range advance {
+		c.updateBurn(tps)
+	}
+	if c.burnTickTimer != tps-10 {
+		t.Fatalf("setup burn phase = %d, want %d", c.burnTickTimer, tps-10)
+	}
+
+	c.ApplyBurn(20 * tps) // stronger refresh extends duration, not the next tick
+	if c.burnTickTimer != tps-10 {
+		t.Fatalf("burn refresh reset tick phase to %d, want %d", c.burnTickTimer, tps-10)
+	}
+	for range 10 {
+		c.updateBurn(tps)
+	}
+	if c.HitPoints != 50-BurnDamagePerTick {
+		t.Fatalf("refreshed burn delayed its due tick: HP=%d", c.HitPoints)
+	}
+}
+
 func TestCharBurnTurnBased(t *testing.T) {
 	c := statusTestChar()
 	c.ApplyBurn(60)
@@ -115,6 +144,25 @@ func TestCharStunDualClock(t *testing.T) {
 	c.ApplyCharStun(0, 0)
 	if c.IsStunned() || c.HasCondition(ConditionStunned) {
 		t.Fatal("empty apply must not stun")
+	}
+}
+
+func TestCharStunWeakRefreshPreservesModeExchangeRate(t *testing.T) {
+	c := statusTestChar()
+	c.ApplyCharStun(480, 4)
+	for range 119 {
+		c.tickStunFrames()
+	}
+	if c.StunFramesRemaining != 361 || c.StunTurnsRemaining != 4 || c.StunRate != 120 {
+		t.Fatalf("RT progress: frames=%d turns=%d rate=%d, want 361/4/120",
+			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+	}
+
+	c.ApplyCharStun(120, 1)
+	c.TickStunTurn()
+	if c.StunFramesRemaining != 360 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
+		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 360/3/120",
+			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
 	}
 }
 

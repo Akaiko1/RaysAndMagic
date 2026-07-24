@@ -114,6 +114,44 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 	}
 }
 
+func TestChampionCrossfireArcDoesNotHitPartyOutsideWorldCone(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, cs.game)
+	fillTestParty(t, cs.game)
+	overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", "magic_dagger")
+	ts := float64(cs.game.config.GetTileSize())
+
+	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
+	champ.ChampionTier = "impossible"
+	foe := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
+	foe.MaxHitPoints, foe.HitPoints = 5000, 5000
+	markCardAlly(foe)
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
+	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+
+	// The dagger swings east at the summon. The party is equally close but
+	// north of the champion, outside the arc-1 cone.
+	cs.game.camera.X, cs.game.camera.Y = 10*ts+ts/2, 9*ts+ts/2
+	partyHP := make([]int, len(cs.game.party.Members))
+	for i, member := range cs.game.party.Members {
+		member.MaxHitPoints = 5000
+		member.HitPoints = 5000
+		partyHP[i] = member.HitPoints
+	}
+
+	cs.championCrossfireStrike(champ, foe, false)
+
+	if foe.HitPoints >= foe.MaxHitPoints {
+		t.Fatal("summon in front of the champion was not hit")
+	}
+	for i, member := range cs.game.party.Members {
+		if member.HitPoints != partyHP[i] {
+			t.Fatalf("party member %d outside the world-space arc was hit: HP %d -> %d",
+				i, partyHP[i], member.HitPoints)
+		}
+	}
+}
+
 // Weapon Master's hands keep their own authored arc shapes during crossfire:
 // impossible-tier main-hand Steel Mace is arc 2, while off-hand Muramasa is
 // arc 3. This guards the multi-summon case specifically, not just party arcs.
@@ -156,6 +194,42 @@ func TestWeaponMasterCrossfireUsesEachHandArcAgainstSummons(t *testing.T) {
 	cs.championCrossfireStrike(champ, bounds[0], true)
 	if got := hitCount(); got != 3 {
 		t.Fatalf("off-hand Muramasa crossfire hit %d summons, want arc 3", got)
+	}
+}
+
+func TestWeaponMasterCrossfireUsesOffHandArcAgainstCaughtParty(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, cs.game)
+	fillTestParty(t, cs.game)
+	ts := float64(cs.game.config.GetTileSize())
+
+	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
+	champ.ChampionTier = "impossible"
+	foe := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
+	foe.MaxHitPoints, foe.HitPoints = 5000, 5000
+	markCardAlly(foe)
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
+	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+	cs.game.camera.X, cs.game.camera.Y = foe.X, foe.Y
+
+	for _, member := range cs.game.party.Members {
+		member.Luck = 0
+		member.MaxHitPoints = 5000
+		member.HitPoints = 5000
+	}
+	cs.championCrossfireStrike(champ, foe, true)
+
+	hitParty := 0
+	for _, member := range cs.game.party.Members {
+		if member.HitPoints < member.MaxHitPoints {
+			hitParty++
+		}
+	}
+	if hitParty != 3 {
+		t.Fatalf("off-hand Muramasa crossfire hit %d party members, want its arc 3", hitParty)
+	}
+	if champ.StunCharChance != 0 {
+		t.Fatalf("off-hand Muramasa crossfire left main-hand Steel Mace stun rider %.2f", champ.StunCharChance)
 	}
 }
 
@@ -234,6 +308,50 @@ func TestChampionCrossfireMeleeAoEHitsBoundsAndParty(t *testing.T) {
 			t.Fatalf("party member %d untouched by melee AoE", i)
 		}
 	}
+}
+
+func TestChampionCrossfireTransitTargetsSkipArcButTakeAoe(t *testing.T) {
+	setup := func(t *testing.T, weapon string) (*CombatSystem, *monsterPkg.Monster3D, *monsterPkg.Monster3D, *monsterPkg.Monster3D) {
+		t.Helper()
+		cs := newTestCombatSystemWithConfig(t)
+		primeTestChampions(t, cs.game)
+		fillTestParty(t, cs.game)
+		overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", weapon)
+		ts := float64(cs.game.config.GetTileSize())
+		cs.game.camera.X, cs.game.camera.Y = 40*ts, 40*ts
+
+		champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
+		champ.ChampionTier = "impossible"
+		front := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
+		transit := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 11*ts+ts/2, "masked_huntress", cs.game.config)
+		for _, bound := range []*monsterPkg.Monster3D{front, transit} {
+			bound.MaxHitPoints, bound.HitPoints = 5000, 5000
+			markCardAlly(bound)
+		}
+		transit.AttackTransit = true
+		cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, front, transit}
+		cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+		return cs, champ, front, transit
+	}
+
+	t.Run("arc", func(t *testing.T) {
+		cs, champ, front, transit := setup(t, "steel_mace")
+		cs.championCrossfireStrike(champ, front, false)
+		if front.HitPoints >= front.MaxHitPoints {
+			t.Fatal("front summon was not hit by the champion arc")
+		}
+		if transit.HitPoints != transit.MaxHitPoints {
+			t.Fatal("transit summon sharing an attack post must be skipped by an arc")
+		}
+	})
+
+	t.Run("aoe", func(t *testing.T) {
+		cs, champ, front, transit := setup(t, "tonbogiri")
+		cs.championCrossfireStrike(champ, front, false)
+		if front.HitPoints >= front.MaxHitPoints || transit.HitPoints >= transit.MaxHitPoints {
+			t.Fatal("melee AoE must hit both the settled and transit summons")
+		}
+	})
 }
 
 // A ranged champion's AoE bolt (Dark Elf Sorceress' archmage staff, radius 3)

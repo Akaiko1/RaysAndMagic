@@ -437,21 +437,6 @@ func lootGuardTargetReservations(targets map[lootGuardTargetID]lootGuardTarget) 
 	return reservations
 }
 
-func (gl *GameLoop) lootGuardPostReservations(targets map[lootGuardTargetID]lootGuardTarget, except lootGuardTargetID) map[lootGuardPostID]lootGuardTargetID {
-	reservations := lootGuardTargetReservations(targets)
-	for id, members := range gl.lootGuardGroups(targets) {
-		if id == except || len(members) == 0 {
-			continue
-		}
-		leader := stableLootGuardLeader(members)
-		if leader == nil {
-			continue
-		}
-		reservations[lootGuardPostID{tileX: leader.LootGuardMoveTileX, tileY: leader.LootGuardMoveTileY}] = id
-	}
-	return reservations
-}
-
 // syncLootGuardBand updates a valid target reservation. A two-mob reservation
 // only becomes a normal positional band after both mobs arrive at the same post;
 // until then each walks there independently, avoiding a long-distance snap.

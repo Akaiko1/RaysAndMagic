@@ -158,32 +158,28 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY flo
 // pursuit, attack range, and facing. Keeping them separate matters whenever a
 // monster is redirected to a summon or told to hold its current position.
 //
-// It does not touch collision-entity metadata (e.g. the engaged/solid
-// distinction), so a real-time gameplay step must call this through
+// It does not touch collision-entity metadata (the logical attack-post marker),
+// so a real-time gameplay step must call this through
 // game.MonsterWrapper.Update, not on its own. Tests that need RT fidelity (not
 // just AI/position behavior) should do the same.
 func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
-	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
-	// its throne until its quest unseals it. The RT attack loop already no-ops via
-	// updateBoss; without this the patrol state would still drift the boss off its
-	// spawn tile. Flag is set single-threaded in refreshMonsterAIState.
-	// A warlord idol is likewise immobile - it stands where placed and never moves.
-	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
-	// without this it would chase the party clear across the map at load.
-	if m.CurrentAIBehavior() == AIBehaviorInert {
-		return
-	}
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
-	if m.SoakFrames > 0 {   // Stone Skin soak runs on the stun dual-clock convention
-		status.TickFrame(&m.SoakFrames, &m.SoakTurns)
+	m.TickSoakFrame()       // Champion Stone Skin uses the same rated dual-clock contract
+	if !m.IsAlive() {
+		// Match the TB scheduler: a lethal autonomous tick ends this actor's
+		// action immediately. The game-level indirect-kill sweep awards and
+		// removes it after all parallel workers have completed.
+		return
 	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
 	if m.StunFramesRemaining > 0 {
 		// Expiry clears the TB clock too, or the stun-star overlay stays on.
-		status.TickFrame(&m.StunFramesRemaining, &m.StunTurnsRemaining)
+		// Rated: the TB clock drains proportionally so a mode switch cannot
+		// hand the stun its frozen turn count back (stun farming).
+		status.TickFrameRated(&m.StunFramesRemaining, &m.StunTurnsRemaining, &m.StunRate)
 		return
 	}
 	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
@@ -197,9 +193,16 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// attack cadence - but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
 	if m.RootFramesRemaining > 0 {
-		status.TickFrame(&m.RootFramesRemaining, &m.RootTurnsRemaining)
+		status.TickFrameRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate)
 		px, py := m.X, m.Y
 		defer func() { m.X, m.Y = px, py }()
+	}
+
+	// Inert controls actions, not universal status clocks. Sealed/warded bosses
+	// absorb poison through IsDamageInvulnerable; destructible ward idols still
+	// take it. This ordering matches the TB scheduler.
+	if m.CurrentAIBehavior() == AIBehaviorInert {
+		return
 	}
 
 	m.StateTimer++
@@ -300,22 +303,13 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		// stops chasing), then skip detection so it can't re-engage; the idle/patrol
 		// states below drive its wandering as normal. (Resetting the state every frame
 		// would freeze it - the idle->patrol timer could never elapse.)
-		m.IsEngagingPlayer = false
-		m.LootGuardAlerted = false
-		switch m.State {
-		case StateAlert, StatePursuing, StateAttacking, StateFleeing:
-			m.State = StateIdle
-			m.StateTimer = 0
-		}
+		m.StandDownFromCombat()
 		return
 	case AIBehaviorEvasive:
 		// Quest-gated evasive bosses keep their ordinary idle/patrol movement, but
 		// never acquire a combat target. Their quest behavior is owned by
 		// CombatSystem.updateBoss, which blinks them away on proximity or damage.
-		if m.IsEngagingPlayer || m.State == StateAlert || m.State == StatePursuing ||
-			m.State == StateAttacking || m.State == StateFleeing {
-			m.EndPlayerEngagement()
-		}
+		m.StandDownFromCombat()
 		return
 	case AIBehaviorBoundAlly, AIBehaviorFightFoe, AIBehaviorRelentlessParty:
 		// Bound allies, redirected enemies, and map-wide hunters already have an
@@ -328,9 +322,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		// detection until updateFleeing finishes its own timeout/reconsideration.
 		return
 	case AIBehaviorPassive:
-		if m.IsEngagingPlayer {
-			m.EndPlayerEngagement()
-		}
+		m.StandDownFromCombat()
 		return
 	}
 
@@ -380,6 +372,7 @@ func (m *Monster3D) BeginCombatEngagement() {
 	if m == nil {
 		return
 	}
+	m.ResetPathfinding()
 	m.IsEngagingPlayer = true
 	m.State = StateAlert
 	m.StateTimer = 0
@@ -393,11 +386,31 @@ func (m *Monster3D) EndPlayerEngagement() {
 	if m == nil {
 		return
 	}
+	m.ResetPathfinding()
 	m.IsEngagingPlayer = false
 	m.LootGuardAlerted = false
 	m.State = StateIdle
 	m.StateTimer = 0
 	m.AttackCount = 0
+}
+
+// StandDownFromCombat clears a stale hostile state while preserving an already
+// calm idle/patrol cycle. Pacified, passive, and evasive actors use it in both
+// combat modes so changing mode cannot leave one of them visually pursuing or
+// attacking even though the behavior policy forbids combat.
+func (m *Monster3D) StandDownFromCombat() {
+	if m == nil {
+		return
+	}
+	m.IsEngagingPlayer = false
+	m.LootGuardAlerted = false
+	switch m.State {
+	case StateAlert, StatePursuing, StateAttacking, StateFleeing:
+		m.ResetPathfinding()
+		m.State = StateIdle
+		m.StateTimer = 0
+		m.AttackCount = 0
+	}
 }
 
 // CanStartPlayerAggro reports whether a monster may begin a normal party fight.
@@ -674,11 +687,9 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		return
 	}
 
-	// Stall watchdog: the cached path is only recomputed when the target tile
-	// changes, so a route that an engaged packmate now bodily blocks (wedged
-	// behind it in a one-tile corridor) is micro-danced on forever. No net
-	// progress in half a second -> drop the path and replan against current
-	// entity positions: flank if a route exists, else wait for the gap.
+	// Stall watchdog: the cached path is normally reused while the target tile
+	// stays fixed. No net progress in half a second means some dynamic condition
+	// invalidated it; drop the route and replan, or wait if no route exists.
 	m.stallTimer++
 	if m.stallTimer >= 60 {
 		if distance(m.X, m.Y, m.stallAnchorX, m.stallAnchorY) < 2 {
@@ -720,12 +731,14 @@ func (m *Monster3D) usesAttackPosts() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing:
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
 		return false
 	case AIBehaviorBoundAlly:
 		return m.AIFoe != nil
+	case AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorSeekParty:
+		return true
 	}
-	return true
+	return false
 }
 
 // entersTargetTile reports whether (x, y) would land an attacker on the
@@ -829,6 +842,13 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 }
 
 func (m *Monster3D) setMoveTarget(state MonsterState, tileX, tileY int) {
+	if !m.HasMoveTarget || m.MoveTargetState != state ||
+		m.MoveTargetTileX != tileX || m.MoveTargetTileY != tileY {
+		// An exact-tile objective owns its route. Reusing the previous patrol
+		// or flee path until the repath throttle expires can move the monster
+		// in the opposite direction after a behavior transition.
+		m.ResetPathCache()
+	}
 	m.MoveTargetState = state
 	m.MoveTargetTileX = tileX
 	m.MoveTargetTileY = tileY
@@ -841,14 +861,20 @@ func (m *Monster3D) clearMoveTarget() {
 	m.MoveTargetTileY = 0
 }
 
-// ResetPathfinding drops the cached A* path and move-target so the monster
-// repaths from its current position. Call after teleporting it (e.g. a boss blink).
-func (m *Monster3D) ResetPathfinding() {
+// ResetPathCache drops only the continuous RT route. Mode-specific exact
+// objectives such as a flee or loot-guard tile remain intact.
+func (m *Monster3D) ResetPathCache() {
 	m.PathTiles = nil
 	m.PathIndex = 0
 	m.PathTargetTileX = 0
 	m.PathTargetTileY = 0
 	m.LastPathCalcTick = 0 // also lifts the failed-search retry gate
+}
+
+// ResetPathfinding drops the cached A* path and move-target so the monster
+// repaths from its current position. Call after teleporting it (e.g. a boss blink).
+func (m *Monster3D) ResetPathfinding() {
+	m.ResetPathCache()
 	m.clearMoveTarget()
 }
 
@@ -1591,64 +1617,107 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	}
 }
 
-// updateFleeing moves monster away from player using pathfinding
-func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, playerY float64) {
-	// Get AI config values
-	var fleeDuration int = 300 // Default value
-
+func (m *Monster3D) fleeDurationFrames() int {
+	fleeDuration := 300
 	if m.config != nil {
 		fleeDuration = m.config.MonsterAI.FleeDuration
 	}
+	return fleeDuration
+}
 
-	// Safety check for collision system
+// finishFleeIfExpired owns the common RT/TB exit transition. Flee is the tail
+// of an existing encounter, so cover does not erase it: distance alone decides
+// whether the monster rejoins the fight or wanders home.
+func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
+	if m.StateTimer <= m.fleeDurationFrames() {
+		return false
+	}
+	m.ResetPathfinding()
+	m.StateTimer = 0
+
+	// Reuse the same authored/tethered hysteresis radius without applying a
+	// fresh LoS gate, so cover cannot erase the fight that caused the flee.
+	detectionRadius, disengageMult := m.playerAlertRadii()
+	if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
+		m.BeginPlayerEngagement()
+	} else {
+		m.LootGuardAlerted = false
+		m.State = StatePatrolling
+		m.Direction = m.GetDirectionToSpawn()
+	}
+	return true
+}
+
+func (m *Monster3D) ensureFleeTarget(collisionChecker CollisionChecker, playerX, playerY float64) (TileCoord, bool) {
 	if collisionChecker == nil {
-		return
+		return TileCoord{}, false
 	}
-
-	// Flee is over - reconsider instead of standing dazed: the party still in
-	// reach (the same hysteresis radius that keeps engagement alive) -> rejoin
-	// the fight; party gone -> wander home. This check runs FIRST: the movement
-	// code below has early returns, and detection is fully disabled while
-	// fleeing - a skipped timeout meant a permanently blind, frozen monster.
-	if m.StateTimer > fleeDuration {
-		m.clearMoveTarget()
-		m.StateTimer = 0
-
-		// Flee is the tail of an existing encounter, not a new sight event. Reuse
-		// the same authored/tethered hysteresis radius without applying a fresh
-		// LoS gate, so cover cannot erase the fight that caused the flee.
-		detectionRadius, disengageMult := m.playerAlertRadii()
-		if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
-			m.BeginPlayerEngagement()
-		} else {
-			m.LootGuardAlerted = false
-			m.State = StatePatrolling
-			m.Direction = m.GetDirectionToSpawn()
-		}
-		return
-	}
-
-	// Reset RT target when state changes
 	if m.MoveTargetState != StateFleeing {
 		m.clearMoveTarget()
 	}
-
 	if !m.hasMoveTarget(StateFleeing) {
 		if target, ok := m.pickFleeTarget(collisionChecker, playerX, playerY); ok {
 			m.setMoveTarget(StateFleeing, target.X, target.Y)
 		}
 	}
+	if !m.hasMoveTarget(StateFleeing) {
+		return TileCoord{}, false
+	}
+	return m.currentMoveTarget(), true
+}
 
-	if m.hasMoveTarget(StateFleeing) {
-		target := m.currentMoveTarget()
+// updateFleeing moves a real-time monster away from the party along the shared
+// exact-tile flee objective.
+func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, playerY float64) {
+	if m.finishFleeIfExpired(playerX, playerY) {
+		return
+	}
+	target, ok := m.ensureFleeTarget(collisionChecker, playerX, playerY)
+	if !ok {
+		return
+	}
+	if m.isAtTile(target.X, target.Y) {
+		m.clearMoveTarget()
+		return
+	}
+	if !m.followPathToTile(collisionChecker, target.X, target.Y) {
+		m.clearMoveTarget()
+	}
+}
+
+// NextFleeTurnStep advances the same frame-based flee clock by elapsedFrames and
+// returns one exact A* tile step for a turn-based action. A second monster action
+// in the same round passes zero elapsed frames: it may move again, but the flee
+// duration advances only once per monster turn.
+func (m *Monster3D) NextFleeTurnStep(collisionChecker CollisionChecker, playerX, playerY float64, elapsedFrames int) (tileX, tileY int, ok bool) {
+	if m == nil || m.State != StateFleeing {
+		return 0, 0, false
+	}
+	if elapsedFrames > 0 {
+		m.StateTimer += elapsedFrames
+	}
+	if m.finishFleeIfExpired(playerX, playerY) || collisionChecker == nil {
+		return 0, 0, false
+	}
+
+	// Reaching a four-tile objective costs only one RT frame before repicking.
+	// Repick immediately in TB so the same event does not consume a whole turn.
+	for attempt := 0; attempt < 2; attempt++ {
+		target, found := m.ensureFleeTarget(collisionChecker, playerX, playerY)
+		if !found {
+			return 0, 0, false
+		}
 		if m.isAtTile(target.X, target.Y) {
 			m.clearMoveTarget()
-			return
+			continue
 		}
-		if !m.followPathToTile(collisionChecker, target.X, target.Y) {
-			m.clearMoveTarget()
+		path := m.findPathToTile(collisionChecker, target.X, target.Y)
+		if len(path) >= 2 {
+			return path[1].X, path[1].Y, true
 		}
+		m.clearMoveTarget()
 	}
+	return 0, 0, false
 }
 
 // unstuckFromObstacles tries to move the monster to the nearest non-blocked position

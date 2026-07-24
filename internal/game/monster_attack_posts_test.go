@@ -77,7 +77,7 @@ func TestRTMonsterOnReservedPostKeepsSeeking(t *testing.T) {
 	}
 	game.world.Monsters = []*monster.Monster3D{holder, contender}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshMonsterCollisionSolidity(holder)
+	game.refreshMonsterCollisionState(holder)
 
 	wrapper := &MonsterWrapper{
 		Monster:         contender,
@@ -194,6 +194,31 @@ func TestCombatTransitVisualStackEasesAcrossTileBoundary(t *testing.T) {
 	}
 }
 
+func TestCombatTransitVisualStackIncludesCalmOccupant(t *testing.T) {
+	game, gl, tileSize := tbBehaviorGame(t, 30, 30)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 14, 14, tileSize)
+
+	pursuer := hostileMonsterAt(game, 16, 14, tileSize)
+	pursuer.State = monster.StatePursuing
+	calm := monster.NewMonster3DFromConfig(pursuer.X, pursuer.Y, "goblin", game.config)
+	calm.State = monster.StateIdle
+	game.world.Monsters = []*monster.Monster3D{pursuer, calm}
+
+	gl.updateCombatTransitVisualStacks()
+	if pursuer.TransitStackCount != 2 || calm.TransitStackCount != 2 {
+		t.Fatalf("active/calm overlap must fan both standees, counts=%d/%d",
+			pursuer.TransitStackCount, calm.TransitStackCount)
+	}
+
+	pursuer.X += tileSize
+	gl.updateCombatTransitVisualStacks()
+	if pursuer.TransitStackCount != 0 || calm.TransitStackCount != 0 {
+		t.Fatalf("separated active/calm standees retained stack counts=%d/%d",
+			pursuer.TransitStackCount, calm.TransitStackCount)
+	}
+}
+
 func TestSummonAttackPostsArePassThroughAndArbitrateTransit(t *testing.T) {
 	game, gl, tileSize := tbBehaviorGame(t, 30, 30)
 	game.turnBasedMode = false
@@ -300,5 +325,158 @@ func TestTurnBasedDuplicateAttackPostBecomesTransit(t *testing.T) {
 	}
 	if second.AttackPost && first.AttackPost {
 		t.Fatal("both TB mobs retained the same attack post")
+	}
+}
+
+type rearMeleeTransitSetup struct {
+	game       *MMGame
+	gl         *GameLoop
+	tileSize   float64
+	targetTile [2]int
+	front      *monster.Monster3D
+	rear       *monster.Monster3D
+}
+
+func setupRearMeleeTransit(t *testing.T, targetSummon bool) rearMeleeTransitSetup {
+	t.Helper()
+	game, gl, tileSize := tbBehaviorGame(t, 30, 30)
+	targetTile := [2]int{14, 14}
+	if targetSummon {
+		placePlayerAtTile(game, 2, 2, tileSize)
+	} else {
+		placePlayerAtTile(game, targetTile[0], targetTile[1], tileSize)
+	}
+
+	newTreant := func(id string, tx int) *monster.Monster3D {
+		m := monster.NewMonster3DFromConfig(
+			float64(tx)*tileSize+tileSize/2,
+			float64(targetTile[1])*tileSize+tileSize/2,
+			"treant",
+			game.config,
+		)
+		m.ID = id
+		m.IsEngagingPlayer = true
+		m.WasAttacked = true
+		return m
+	}
+	front := newTreant("front_treant", targetTile[0]+1)
+	front.State = monster.StateAttacking
+	rear := newTreant("rear_treant", targetTile[0]+2)
+	rear.State = monster.StatePursuing
+	game.world.Monsters = []*monster.Monster3D{front, rear}
+	var summon *monster.Monster3D
+	if targetSummon {
+		summon = monster.NewMonster3DFromConfig(
+			float64(targetTile[0])*tileSize+tileSize/2,
+			float64(targetTile[1])*tileSize+tileSize/2,
+			"masked_huntress",
+			game.config,
+		)
+		markCardAlly(summon)
+		summon.MaxHitPoints, summon.HitPoints = 100000, 100000
+		game.world.Monsters = append(game.world.Monsters, summon)
+	}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshMonsterAIState()
+	if targetSummon {
+		if front.AIFoe != summon || rear.AIFoe != summon {
+			t.Fatal("setup: both treants must target the closer summon")
+		}
+	} else if front.AIFoe != nil || rear.AIFoe != nil {
+		t.Fatal("setup: party-targeting treants unexpectedly selected a monster foe")
+	}
+	gl.reconcileMonsterAttackPosts()
+
+	return rearMeleeTransitSetup{
+		game:       game,
+		gl:         gl,
+		tileSize:   tileSize,
+		targetTile: targetTile,
+		front:      front,
+		rear:       rear,
+	}
+}
+
+func TestTurnBasedRearMeleeKeepsTransitProgressAcrossTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		targetSummon bool
+	}{
+		{name: "party"},
+		{name: "summon", targetSummon: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := setupRearMeleeTransit(t, tc.targetSummon)
+			setup.gl.monsterMoveTurnBased(setup.rear)
+			if frontTile, rearTile := tileOf(setup.front, setup.tileSize), tileOf(setup.rear, setup.tileSize); frontTile != rearTile {
+				t.Fatalf("rear treant did not enter the occupied transit tile: front=%v rear=%v", frontTile, rearTile)
+			}
+
+			// endMonsterTurn calls startPartyTurn before the outer game-loop
+			// reconciliation. That boundary must not scatter the rear treant back
+			// and erase the movement action it just spent.
+			setup.game.startPartyTurn()
+			if frontTile, rearTile := tileOf(setup.front, setup.tileSize), tileOf(setup.rear, setup.tileSize); frontTile != rearTile {
+				t.Fatalf("party-turn start undid transit progress: front=%v rear=%v", frontTile, rearTile)
+			}
+
+			setup.gl.reconcileMonsterAttackPosts()
+			if !setup.rear.AttackTransit {
+				t.Fatal("rear treant sharing the occupied attack post must be transit")
+			}
+
+			setup.gl.monsterMoveTurnBased(setup.rear)
+			rearTile := tileOf(setup.rear, setup.tileSize)
+			if rearTile == tileOf(setup.front, setup.tileSize) {
+				t.Fatal("rear treant did not leave the transit tile for a free attack post")
+			}
+			if dx, dy := absInt(rearTile[0]-setup.targetTile[0]), absInt(rearTile[1]-setup.targetTile[1]); dx > 1 || dy > 1 {
+				t.Fatalf("rear treant moved to %v, want a free tile adjacent to the target", rearTile)
+			}
+		})
+	}
+}
+
+func TestRealTimeRearMeleeReachesDistinctPostAcrossTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		targetSummon bool
+	}{
+		{name: "party"},
+		{name: "summon", targetSummon: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := setupRearMeleeTransit(t, tc.targetSummon)
+			setup.game.turnBasedMode = false
+			setup.game.config.MonsterAI.FleeAfterAttacks = 10000
+
+			for frame := 0; frame < 600; frame++ {
+				setup.game.frameCount++
+				setup.game.refreshMonsterAIState()
+				setup.gl.reconcileMonsterAttackPosts()
+				snapshot := setup.game.collisionSystem.Snapshot()
+				wrappers := []*MonsterWrapper{
+					{Monster: setup.front, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
+					{Monster: setup.rear, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
+				}
+				for _, wrapper := range wrappers {
+					wrapper.Update()
+				}
+				for _, wrapper := range wrappers {
+					wrapper.ApplyCollisionUpdate()
+				}
+				setup.gl.reconcileMonsterAttackPosts()
+
+				rearTile := tileOf(setup.rear, setup.tileSize)
+				if setup.rear.AttackPost && rearTile != tileOf(setup.front, setup.tileSize) {
+					if dx, dy := absInt(rearTile[0]-setup.targetTile[0]), absInt(rearTile[1]-setup.targetTile[1]); dx <= 1 && dy <= 1 {
+						return
+					}
+				}
+			}
+			t.Fatalf("rear RT treant never reached a distinct attack post: front=%v rear=%v state=%v post=%v transit=%v",
+				tileOf(setup.front, setup.tileSize), tileOf(setup.rear, setup.tileSize),
+				setup.rear.State, setup.rear.AttackPost, setup.rear.AttackTransit)
+		})
 	}
 }

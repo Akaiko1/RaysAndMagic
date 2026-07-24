@@ -2,7 +2,6 @@ package game
 
 import (
 	"encoding/json"
-	"math"
 	"testing"
 
 	"ugataima/internal/character"
@@ -92,6 +91,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.walkOnWaterActive = true
 	game.walkOnWaterDuration = 33
 	game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 60, Bonuses: character.UniformStatBonuses(2)})
+	game.steamZones = []SteamZone{{
+		SpellID: "hot_steam", MapKey: "forest", FramesLeft: 42,
+		IntervalFrames: 360, TickDamage: 3,
+	}}
 	game.waterBreathingActive = true
 	game.waterBreathingDuration = 25
 	game.underwaterReturnX = 96
@@ -191,7 +194,112 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != wantBless.Frames {
 		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
+	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
+		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
+	}
 
+}
+
+func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+	if len(game.party.Members) == 0 {
+		t.Fatal("test party has no members")
+	}
+	member := game.party.Members[0]
+	member.StunFramesRemaining = 361
+	member.StunTurnsRemaining = 4
+	member.StunRate = 120
+
+	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	mob.ID = "rated-clock-mob"
+	mob.StunFramesRemaining = 361
+	mob.StunTurnsRemaining = 4
+	mob.StunRate = 120
+	mob.RootFramesRemaining = 181
+	mob.RootTurnsRemaining = 2
+	mob.RootRate = 120
+	mob.ArmorShredPct = 20
+	mob.ArmorShredFramesRemaining = 361
+	mob.ArmorShredTurnsRemaining = 4
+	mob.ArmorShredRate = 120
+	mob.PounceCDFrames = 361
+	mob.PounceCDTurns = 2
+	mob.PounceCDRate = 240
+	mob.SoakDamage = 5
+	mob.SoakFrames = 361
+	mob.SoakTurns = 4
+	mob.SoakRate = 120
+	worldSave.Monsters = []*monster.Monster3D{mob}
+
+	raw, err := json.Marshal(game.buildSave(wmSave))
+	if err != nil {
+		t.Fatalf("marshal save: %v", err)
+	}
+	var save GameSave
+	if err := json.Unmarshal(raw, &save); err != nil {
+		t.Fatalf("unmarshal save: %v", err)
+	}
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+
+	loaded := newTestGame(cfg, worldLoad)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if len(loaded.party.Members) == 0 || len(worldLoad.Monsters) != 1 {
+		t.Fatalf("loaded party/monster counts = %d/%d, want nonzero/1",
+			len(loaded.party.Members), len(worldLoad.Monsters))
+	}
+
+	loadedMember := loaded.party.Members[0]
+	if loadedMember.StunRate != 120 {
+		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
+	}
+	loadedMember.TickStunTurn()
+	if loadedMember.StunFramesRemaining != 360 || loadedMember.StunTurnsRemaining != 3 {
+		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 360/3",
+			loadedMember.StunFramesRemaining, loadedMember.StunTurnsRemaining)
+	}
+
+	loadedMob := worldLoad.Monsters[0]
+	if loadedMob.StunRate != 120 || loadedMob.RootRate != 120 ||
+		loadedMob.ArmorShredRate != 120 || loadedMob.PounceCDRate != 240 || loadedMob.SoakRate != 120 {
+		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",
+			loadedMob.StunRate, loadedMob.RootRate, loadedMob.ArmorShredRate,
+			loadedMob.PounceCDRate, loadedMob.SoakRate)
+	}
+	loadedMob.TickRootTurn()
+	if loadedMob.RootFramesRemaining != 120 || loadedMob.RootTurnsRemaining != 1 {
+		t.Fatalf("root after load/tick = %d frames/%d turns, want 120/1",
+			loadedMob.RootFramesRemaining, loadedMob.RootTurnsRemaining)
+	}
+	loadedMob.TickPounceCooldownTurn()
+	if loadedMob.PounceCDFrames != 240 || loadedMob.PounceCDTurns != 1 {
+		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 240/1",
+			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
+	}
+	loadedMob.TickArmorShredTurn()
+	if loadedMob.ArmorShredFramesRemaining != 360 || loadedMob.ArmorShredTurnsRemaining != 3 {
+		t.Fatalf("shred after load/tick = %d frames/%d turns, want 360/3",
+			loadedMob.ArmorShredFramesRemaining, loadedMob.ArmorShredTurnsRemaining)
+	}
+	loadedMob.TickSoakTurn()
+	if loadedMob.SoakFrames != 360 || loadedMob.SoakTurns != 3 {
+		t.Fatalf("soak after load/tick = %d frames/%d turns, want 360/3",
+			loadedMob.SoakFrames, loadedMob.SoakTurns)
+	}
 }
 
 func TestApplySaveMigratesSkillLevelToMastery(t *testing.T) {
@@ -465,85 +573,6 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	if !kept {
 		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
 	}
-}
-
-// Overlapping monsters must be pushed apart by the separation pass (engaged
-// pairs that overlap veto each other's every normal move and would otherwise
-// stay glued forever).
-func TestSeparateOverlappingMonsters(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := newTestWorld(cfg)
-	g := newTestGame(cfg, w)
-	gl := &GameLoop{game: g}
-
-	// Park the player away from the pair - pushes refuse to land on the player.
-	g.camera.X, g.camera.Y = 8, 8
-	g.collisionSystem.UpdateEntity("player", 8, 8)
-	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
-	b := monster.NewMonster3DFromConfig(66, 64, "goblin", cfg) // almost fully stacked
-	a.IsEngagingPlayer = true
-	a.AIFoe = b // preserve the non-party-fight separation contract under pass-through party combat
-	w.Monsters = []*monster.Monster3D{a, b}
-	g.registerSpawnedMonster(a)
-	g.registerSpawnedMonster(b)
-
-	aw, _ := a.GetSize()
-	bw, _ := b.GetSize()
-	need := (aw + bw) / 2
-	for i := 0; i < 240; i++ {
-		gl.separateOverlappingMonsters()
-		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
-			return // separated
-		}
-	}
-	t.Fatalf("monsters still overlapping after separation pass: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
-		a.X, a.Y, b.X, b.Y, need)
-}
-
-// In a one-wide corridor (trees above and below) the least-penetration push is
-// blocked on both sides - the pair must fall back to separating ALONG the
-// corridor instead of staying glued (the goblins-stuck-between-trees bug).
-func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := world.NewWorld3D(cfg)
-	w.Width, w.Height = 7, 3
-	w.Tiles = make([][]world.TileType3D, w.Height)
-	for y := 0; y < w.Height; y++ {
-		w.Tiles[y] = make([]world.TileType3D, w.Width)
-		for x := 0; x < w.Width; x++ {
-			if y == 1 {
-				w.Tiles[y][x] = world.TileEmpty // the corridor
-			} else {
-				w.Tiles[y][x] = world.TileTree
-			}
-		}
-	}
-	g := newTestGame(cfg, w)
-	gl := &GameLoop{game: g}
-
-	// Stacked mid-corridor, offset slightly along Y so the LEAST penetration
-	// axis is the blocked cross-corridor one.
-	a := monster.NewMonster3DFromConfig(64*3+32, 96, "goblin", cfg)
-	b := monster.NewMonster3DFromConfig(64*3+34, 90, "goblin", cfg)
-	a.IsEngagingPlayer = true
-	b.IsEngagingPlayer = true
-	a.AIFoe = b
-	b.AIFoe = a
-	w.Monsters = []*monster.Monster3D{a, b}
-	g.registerSpawnedMonster(a)
-	g.registerSpawnedMonster(b)
-
-	aw, _ := a.GetSize()
-	bw, _ := b.GetSize()
-	need := (aw + bw) / 2
-	for i := 0; i < 300; i++ {
-		gl.separateOverlappingMonsters()
-		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
-			return // separated along the corridor
-		}
-	}
-	t.Fatalf("corridor pair still glued: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
-		a.X, a.Y, b.X, b.Y, need)
 }
 
 // creditClearedKillQuests completes a region kill quest when its target_map is

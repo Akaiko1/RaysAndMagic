@@ -42,6 +42,18 @@ func loadTestConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
+// setTestWorldManager isolates tests from the process-wide world registry.
+// Tests built around MMGame.world should pass nil; integration-style tests can
+// install their own manager without leaking it into whichever test runs next.
+func setTestWorldManager(t *testing.T, manager *world.WorldManager) {
+	t.Helper()
+	previous := world.GlobalWorldManager
+	world.GlobalWorldManager = manager
+	t.Cleanup(func() {
+		world.GlobalWorldManager = previous
+	})
+}
+
 func newTestWorld(cfg *config.Config) *world.World3D {
 	return newTestWorldSized(cfg, 2, 2)
 }

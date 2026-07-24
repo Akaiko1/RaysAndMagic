@@ -60,13 +60,14 @@ func spawnSpecialsMonster(g *MMGame, key string, tileX, tileY int) *monsterPkg.M
 func runRTCombatSeconds(g *MMGame, seconds int) {
 	for tick := 0; tick < seconds*g.config.GetTPS(); tick++ {
 		g.frameCount++
+		g.refreshMonsterAIState()
 		for _, m := range g.world.Monsters {
 			if !m.IsAlive() {
 				continue
 			}
 			m.Update(g.collisionSystem, g.camera.X, g.camera.Y)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m)
+			g.refreshMonsterCollisionState(m)
 		}
 		g.combat.HandleMonsterInteractions()
 	}
@@ -216,5 +217,37 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRealTimeBossSpecialUsesNormalAttackCadence(t *testing.T) {
+	g, _ := newSpecialsTestGame(t)
+	boss := spawnSpecialsMonster(g, "golden_thief_bug", 3, 2)
+	aggro(boss)
+	noSummons(boss)
+	boss.InfernoChance = 1
+	boss.TeleportChance = 0
+	boss.State = monsterPkg.StateAttacking
+	boss.StateTimer = 1
+	if !g.tryClaimMonsterAttackPost(boss) {
+		t.Fatal("setup: boss could not claim its adjacent attack post")
+	}
+
+	g.combat.HandleMonsterInteractions()
+	castsAfterFirstAttack := countCombatLog(g, "Inferno scorches")
+	if castsAfterFirstAttack == 0 {
+		t.Fatal("first RT attack moment did not cast Inferno")
+	}
+	if boss.AttackCDFrames <= 0 {
+		t.Fatal("RT boss special did not arm the normal attack cadence")
+	}
+
+	// Force another attack-state edge on the next frame. The persistent cooldown,
+	// not StateTimer churn, must prevent another guaranteed special.
+	boss.State = monsterPkg.StateAttacking
+	boss.StateTimer = 1
+	g.combat.HandleMonsterInteractions()
+	if got := countCombatLog(g, "Inferno scorches"); got != castsAfterFirstAttack {
+		t.Fatalf("RT state churn bypassed boss attack cadence: log entries %d -> %d", castsAfterFirstAttack, got)
 	}
 }

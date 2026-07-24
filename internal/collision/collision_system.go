@@ -363,9 +363,8 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 }
 
 // CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
-// Used by the monster separation pass: two overlapping monsters veto each
-// other's every move through the normal check, so pushing them apart must
-// consult terrain alone.
+// Recovery and path-start checks use it when the actor already occupies an
+// entity-blocked position and must validate terrain without vetoing itself.
 func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {

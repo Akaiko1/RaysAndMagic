@@ -1185,3 +1185,82 @@ func TestFlee_CorneredStillTimesOut(t *testing.T) {
 		t.Errorf("party at 2 tiles: state=%v engaged=%v, want Alert+engaged", m.State, m.IsEngagingPlayer)
 	}
 }
+
+func TestFleeObjectiveInvalidatesPreviousExactTileRoute(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	m := &Monster3D{
+		ID: "route_switch", X: 5*defaultTileSize + defaultTileSize/2, Y: 5*defaultTileSize + defaultTileSize/2,
+		Speed: 1.5, HitPoints: 10, MaxHitPoints: 10, State: StateFleeing,
+		MoveTargetState: StatePatrolling, MoveTargetTileX: 6, MoveTargetTileY: 5, HasMoveTarget: true,
+		PathTiles: []TileCoord{{X: 5, Y: 5}, {X: 6, Y: 5}}, PathIndex: 1,
+		PathTargetTileX: 6, PathTargetTileY: 5, LastPathCalcTick: 100,
+	}
+
+	target, ok := m.ensureFleeTarget(checker, m.X+2*defaultTileSize, m.Y)
+	if !ok {
+		t.Fatal("open map did not provide a flee objective")
+	}
+	if m.MoveTargetState != StateFleeing || !m.HasMoveTarget ||
+		m.MoveTargetTileX != target.X || m.MoveTargetTileY != target.Y {
+		t.Fatalf("flee objective was not installed: state=%v target=(%d,%d) has=%v",
+			m.MoveTargetState, m.MoveTargetTileX, m.MoveTargetTileY, m.HasMoveTarget)
+	}
+	if len(m.PathTiles) != 0 || m.PathIndex != 0 || m.LastPathCalcTick != 0 {
+		t.Fatalf("flee objective reused cached patrol route: path=%v index=%d last=%d",
+			m.PathTiles, m.PathIndex, m.LastPathCalcTick)
+	}
+
+	m.PathTiles = []TileCoord{{X: 5, Y: 5}, target}
+	m.PathIndex = 1
+	m.PathTargetTileX, m.PathTargetTileY = target.X, target.Y
+	m.LastPathCalcTick = 120
+	m.StateTimer = m.fleeDurationFrames() + 1
+	if !m.finishFleeIfExpired(m.X+20*defaultTileSize, m.Y) {
+		t.Fatal("expired flee state did not finish")
+	}
+	if len(m.PathTiles) != 0 || m.HasMoveTarget || m.LastPathCalcTick != 0 {
+		t.Fatalf("finished flee retained its route/objective: path=%v has=%v last=%d",
+			m.PathTiles, m.HasMoveTarget, m.LastPathCalcTick)
+	}
+}
+
+func TestCombatStateTransitionsInvalidatePreviousRoute(t *testing.T) {
+	seedRoute := func() *Monster3D {
+		return &Monster3D{
+			HitPoints: 10, MaxHitPoints: 10,
+			State:           StatePatrolling,
+			MoveTargetState: StatePatrolling, MoveTargetTileX: 8, MoveTargetTileY: 5, HasMoveTarget: true,
+			PathTiles: []TileCoord{{X: 5, Y: 5}, {X: 6, Y: 5}}, PathIndex: 1,
+			PathTargetTileX: 8, PathTargetTileY: 5, LastPathCalcTick: 60,
+		}
+	}
+	assertRouteCleared := func(t *testing.T, m *Monster3D) {
+		t.Helper()
+		if m.HasMoveTarget || len(m.PathTiles) != 0 || m.PathIndex != 0 || m.LastPathCalcTick != 0 {
+			t.Fatalf("transition retained route/objective: has=%v path=%v index=%d last=%d",
+				m.HasMoveTarget, m.PathTiles, m.PathIndex, m.LastPathCalcTick)
+		}
+	}
+
+	t.Run("begin combat", func(t *testing.T) {
+		m := seedRoute()
+		m.BeginCombatEngagement()
+		assertRouteCleared(t, m)
+	})
+
+	t.Run("end engagement", func(t *testing.T) {
+		m := seedRoute()
+		m.State = StatePursuing
+		m.IsEngagingPlayer = true
+		m.EndPlayerEngagement()
+		assertRouteCleared(t, m)
+	})
+
+	t.Run("forced stand down", func(t *testing.T) {
+		m := seedRoute()
+		m.State = StateAttacking
+		m.IsEngagingPlayer = true
+		m.StandDownFromCombat()
+		assertRouteCleared(t, m)
+	})
+}

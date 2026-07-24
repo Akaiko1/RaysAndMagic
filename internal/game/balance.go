@@ -2,6 +2,7 @@ package game
 
 import (
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 )
 
@@ -27,6 +28,15 @@ const (
 	MerchantPricePctPerTier           = character.MerchantPricePctPerTier
 	MeditationGMSpellCostReductionPct = character.MeditationGMSpellCostReductionPct
 )
+
+// turnBasedPeriodicEffectFrames converts the shared seconds-per-round policy to
+// the frame unit used by poison, burn, and persistent damage zones.
+func turnBasedPeriodicEffectFrames(tps int) int {
+	if tps <= 0 {
+		tps = config.GetTargetTPS()
+	}
+	return tps * TurnBasedPeriodicEffectSeconds
+}
 
 // Game-only mastery constants (not needed by the editor) stay here.
 const (
@@ -137,9 +147,18 @@ const (
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = 3
 
+	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
+	// TB round for periodic damage effects. Poison and burn still deal one tick
+	// per round; Hot Steam's authored three-second cadence also becomes one tick.
+	TurnBasedPeriodicEffectSeconds = 3
+
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
 	TurnBasedExtraMonsterActionDelaySeconds = 0.18
+
+	// TurnBasedPounceCooldownTurns is the TB counterpart of a monster's authored
+	// real-time pounce cooldown. Both clocks are armed together across Tab.
+	TurnBasedPounceCooldownTurns = 2
 
 	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.

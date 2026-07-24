@@ -36,6 +36,7 @@ func (t *testTileChecker) GetWorldBounds() (int, int) {
 
 func newTestCombatSystemWithConfig(t *testing.T) *CombatSystem {
 	t.Helper()
+	setTestWorldManager(t, nil)
 
 	cfg, err := config.LoadConfig("../../config.yaml")
 	if err != nil {

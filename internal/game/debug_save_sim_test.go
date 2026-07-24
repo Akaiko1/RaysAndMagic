@@ -5,7 +5,7 @@ package game
 
 // Headless save-file simulation - a DEBUG MODULE, not a regression test.
 // Loads a real save (default bin/saves/save1.json), steps the real-time
-// monster path (AI + engagement flip + separation + combat interactions)
+// monster path (AI + engagement flip + attack-post arbitration + combat)
 // with the party parked at the saved position, and reports what every
 // monster near the party is doing - for diagnosing "monster frozen in
 // front of the party" reports on live saves.

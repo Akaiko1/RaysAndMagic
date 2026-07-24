@@ -8,6 +8,8 @@ import (
 )
 
 func TestBanditSpawning(t *testing.T) {
+	setTestWorldManager(t, nil)
+
 	// Load configuration
 	cfg, err := config.LoadConfig("../../config.yaml")
 	if err != nil {

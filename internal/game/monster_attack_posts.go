@@ -34,8 +34,7 @@ func (gl *GameLoop) reconcileMonsterAttackPosts() {
 		wasPost, wasTarget := m.AttackPost, m.AttackPostTargetID
 		gl.game.syncMonsterAttackPost(m)
 		if wasPost != m.AttackPost || wasTarget != m.AttackPostTargetID {
-			desired, solid := desiredMonsterCollisionState(m)
-			gl.game.applyMonsterCollisionState(m.ID, desired, solid)
+			gl.game.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
 		}
 		if monsterHoldsAttackPost(m) {
 			posts = append(posts, m)
@@ -63,8 +62,7 @@ func (gl *GameLoop) reconcileMonsterAttackPosts() {
 	for i := 0; i < len(posts); {
 		winner := posts[i]
 		key := attackPostTile{x: int(winner.X / tileSize), y: int(winner.Y / tileSize)}
-		desired, solid := desiredMonsterCollisionState(winner)
-		gl.game.applyMonsterCollisionState(winner.ID, desired, solid)
+		gl.game.applyMonsterCollisionType(winner.ID, desiredMonsterCollisionType(winner))
 		i++
 		for i < len(posts) {
 			candidate := posts[i]
@@ -94,10 +92,11 @@ func (gl *GameLoop) reconcileMonsterAttackPosts() {
 	gl.attackPostBuf = posts
 }
 
-// combatStackParticipant is intentionally narrower than generic movement: only
-// combatants with an active attack target share transit-stack visuals. Calm
-// monsters retain normal banding, while unrelated monster-vs-monster fights do
-// not visually merge merely because their paths happen to cross.
+// combatStackParticipant reports whether a tile needs temporary combat-stack
+// visuals. Once one active pursuer enters a tile, every live monster already
+// there joins the render-only fan; otherwise a calm occupant would be hidden
+// inside the passing combatant. Tiles containing only calm monsters retain
+// normal banding visuals.
 func combatStackParticipant(g *MMGame, m *monster.Monster3D) bool {
 	if g == nil || !g.monsterHasAttackTarget(m) {
 		return false
@@ -110,9 +109,9 @@ func combatStackParticipant(g *MMGame, m *monster.Monster3D) bool {
 	}
 }
 
-// updateCombatTransitVisualStacks fans co-located combatants without inventing
-// a BandID. It is strictly render state: combat reads logical attack posts, and
-// AoE continues to read actual positions.
+// updateCombatTransitVisualStacks fans every live monster on a tile occupied by
+// an active combatant without inventing a BandID. It is strictly render state:
+// combat reads logical attack posts, and AoE continues to read actual positions.
 func (gl *GameLoop) updateCombatTransitVisualStacks() {
 	if gl == nil || gl.game == nil || gl.game.world == nil || gl.game.config == nil {
 		return
@@ -122,6 +121,11 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 		return
 	}
 
+	if gl.combatTransitTileBuf == nil {
+		gl.combatTransitTileBuf = make(map[attackPostTile]struct{})
+	} else {
+		clear(gl.combatTransitTileBuf)
+	}
 	stacks := gl.combatTransitStackBuf[:0]
 	for _, m := range gl.game.world.Monsters {
 		if m == nil {
@@ -130,6 +134,15 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 		m.TransitStackIndex = 0
 		m.TransitStackCount = 0
 		if m.IsAlive() && combatStackParticipant(gl.game, m) {
+			gl.combatTransitTileBuf[attackPostTile{x: int(m.X / tileSize), y: int(m.Y / tileSize)}] = struct{}{}
+		}
+	}
+	for _, m := range gl.game.world.Monsters {
+		if m != nil && m.IsAlive() {
+			key := attackPostTile{x: int(m.X / tileSize), y: int(m.Y / tileSize)}
+			if _, active := gl.combatTransitTileBuf[key]; !active {
+				continue
+			}
 			stacks = append(stacks, m)
 		}
 	}

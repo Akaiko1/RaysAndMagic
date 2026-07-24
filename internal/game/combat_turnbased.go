@@ -9,16 +9,12 @@ import (
 	"ugataima/internal/status"
 )
 
-// separateStackedMonstersTB pulls in-play monsters off shared tiles onto distinct
-// neighbouring tile centres. Turn-based combat fires down rows/columns, so two
-// mobs the real-time pixel push left stacked or half-a-tile offset straddle the
-// aim line and a shot threads the gap between them. Runs once per turn boundary
-// (via startPartyTurn - which fires on TB entry and at every party turn); being
-// turn-discrete it can't oscillate the way a per-frame RT snap would (that
-// jittered because pursuit re-converged the pair every frame). Real time keeps
-// its smooth pixel push (separateOverlappingMonsters); this is TB-only. Calm
-// band stacks are skipped - stacking is the banding feature, and stackMonsterBand
-// would snap them back the same tick anyway; it only reuses the read-only
+// separateStackedMonstersTB repairs accidental non-combat overlaps by moving
+// them onto distinct neighbouring tile centres. Combatants with an active target
+// deliberately keep shared tiles: that is the common transit-stack model, and
+// scattering them here would undo the movement action they just spent passing
+// through an occupied attack post. Calm social bands are intentional stacks too.
+// Runs once per turn boundary via startPartyTurn and reuses only the read-only
 // bandScatterRing order.
 func (g *MMGame) separateStackedMonstersTB() {
 	if g.world == nil || g.collisionSystem == nil {
@@ -29,8 +25,17 @@ func (g *MMGame) separateStackedMonstersTB() {
 	px, py := g.camera.X, g.camera.Y
 	playerTile := [2]int{int(px / tile), int(py / tile)}
 	byTile := map[[2]int][]*monster.Monster3D{}
+	// Only byTile actors may be repaired, but every live actor reserves its
+	// current tile. Otherwise a legacy stack can scatter onto a combat transit
+	// participant that was deliberately excluded from repair.
+	used := map[[2]int]bool{playerTile: true}
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() {
+			continue
+		}
+		key := [2]int{int(m.X / tile), int(m.Y / tile)}
+		used[key] = true
+		if combatStackParticipant(g, m) {
 			continue
 		}
 		if (m.Banding || (m.LootGuarding && m.BandID > 0)) && m.IsCalmForSocialBehavior() {
@@ -39,7 +44,6 @@ func (g *MMGame) separateStackedMonstersTB() {
 		if Distance(px, py, m.X, m.Y) > separationRadius && !m.IsInCombat() {
 			continue // out of this fight - leave it be
 		}
-		key := [2]int{int(m.X / tile), int(m.Y / tile)}
 		byTile[key] = append(byTile[key], m)
 	}
 	keys := make([][2]int, 0, len(byTile))
@@ -54,11 +58,8 @@ func (g *MMGame) separateStackedMonstersTB() {
 	})
 	// used is shared across clusters: every occupied tile is off-limits as a
 	// destination, so two adjacent stacks can't scatter onto the same free tile
-	// (calm-calm pass-through wouldn't stop them) or onto a lone calm mob.
-	used := map[[2]int]bool{playerTile: true}
-	for k := range byTile {
-		used[k] = true
-	}
+	// (calm-calm pass-through wouldn't stop them), onto a lone calm mob, or onto
+	// a combatant intentionally sharing a transit stack.
 	for _, k := range keys {
 		cluster := byTile[k]
 		if len(cluster) < 2 {
@@ -152,15 +153,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 		if gl.game.turnBasedMonsterStunned[m] {
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
 		if tickTurnStatuses {
-			m.TickPoisonTurn(gl.game.config.GetTPS()) // Venom-proc cards; ticks regardless of stun
-			m.TickArmorShredTurn()                    // Pit Labrys shred decays regardless of stun
-			if m.SoakTurns > 0 {                      // Stone Skin soak: stun dual-clock convention
-				status.TickTurn(&m.SoakTurns, &m.SoakFrames)
-			}
+			m.TickPoisonTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
+			m.TickArmorShredTurn()                                                   // Pit Labrys shred decays regardless of stun
+			m.TickSoakTurn()                                                         // Champion Stone Skin rated dual clock
 			if !m.IsAlive() {
 				// Matches RT: HandleMonsterInteractions skips a monster the parallel
 				// Update's TickPoison just killed. finalizeIndirectKills (end of
@@ -178,9 +177,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			// Expiry clears the RT clock too, or the stun-star overlay and
 			// bossDisabled keep reading the monster as stunned.
-			status.TickTurn(&m.StunTurnsRemaining, &m.StunFramesRemaining)
+			status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
 			gl.game.turnBasedMonsterStunned[m] = true
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
 		// Root (bear trap) burns one turn per monster TURN - whether it moves
@@ -191,45 +190,70 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			m.TickRootTurn()
 		}
 
-		// Match real-time AI: sealed bosses, warded warlords, and ward idols are
-		// inert in TB too. They hold their placed tile and never spend the monster
-		// turn moving or attacking while the seal/ward condition is active.
+		// CurrentAIBehavior is the mode-independent owner of high-level precedence.
+		// Keep every mode explicit here: adding a behavior to the policy without a TB
+		// branch must not silently fall through into ordinary party combat.
 		behavior := m.CurrentAIBehavior()
-		if behavior == monster.AIBehaviorInert {
-			gl.game.refreshMonsterCollisionSolidity(m)
+		switch behavior {
+		case monster.AIBehaviorInert:
+			// Sealed bosses, warded warlords, and ward idols hold their placed tile.
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-
-		// Pacified (Charm): holds position, never acts against the party.
-		if behavior == monster.AIBehaviorPacified {
-			gl.game.refreshMonsterCollisionSolidity(m)
+		case monster.AIBehaviorPacified:
+			// Charm must clear a pre-existing pursuit/attack state in TB just as it
+			// does in RT; otherwise the actor remains visually combat-active.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-		// Evasive quest bosses still react through tickEvasiveBossesTB above, but
-		// never take a normal combat turn. Unlike dormant bosses they remain
-		// vulnerable and may patrol in RT; TB has no calm-patrol phase.
-		if behavior == monster.AIBehaviorEvasive {
-			m.EndPlayerEngagement()
-			gl.game.refreshMonsterCollisionSolidity(m)
+		case monster.AIBehaviorEvasive:
+			// Evasive quest bosses still react through tickEvasiveBossesTB above,
+			// but never take a normal combat turn.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
-		// nearest one. Never acts against the party. Spends its whole turn here.
-		if behavior == monster.AIBehaviorBoundAlly {
+		case monster.AIBehaviorBoundAlly:
+			// Bound (Bind Undead): strike an enemy in reach or step toward it;
+			// without an enemy, follow the party without ever attacking it.
+			if m.AIFoe != nil && !m.AIFoe.IsAlive() {
+				// The cached target died earlier in this serial monster pass.
+				// Do not spend the action walking toward its corpse.
+				gl.game.releaseMonsterAttackPost(m)
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
 			if foe := m.AIFoe; foe != nil && foe.IsAlive() && gl.tryMonsterAttackFoeTurnBased(m, foe) {
 				// Claimed a distinct logical attack post and spent the turn striking.
 			} else {
 				gl.monsterMoveTurnBased(m) // no enemy in reach - close the distance
 			}
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-
-		// Passive monsters mirror RT behaviour: no move, no attack until hit.
-		// The RT path enforces this in updatePlayerEngagementWithVision; the
-		// TB scheduler skips engagement updates entirely, so re-check here.
-		if behavior == monster.AIBehaviorPassive {
+		case monster.AIBehaviorFleeing:
+			elapsedFrames := 0
+			if tickTurnStatuses {
+				elapsedFrames = gl.game.config.GetTPS()
+			}
+			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && !m.RootHeld() {
+				wx, wy := TileCenterFromTile(nx, ny, tileSize)
+				gl.commitMonsterMoveTB(m, wx, wy)
+			}
+			gl.game.refreshMonsterCollisionState(m)
 			continue
+		case monster.AIBehaviorPassive:
+			// Passive monsters mirror RT behavior: no move or attack until hit.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		case monster.AIBehaviorFightFoe:
+			// A previous actor can kill this frame's cached foe. Wait for the next
+			// shared retarget instead of falling through to a party action.
+			if m.AIFoe == nil || !m.AIFoe.IsAlive() {
+				gl.game.releaseMonsterAttackPost(m)
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
+		case monster.AIBehaviorRelentlessParty, monster.AIBehaviorSeekParty:
+			// These modes continue through the shared combat scheduler below.
 		}
 		// A sight-only loot guard has one exact seven-tile combat radius in both
 		// modes. Ordinary fights intentionally remain sticky in TB, but this
@@ -237,11 +261,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
 			if m.ShouldDisengageFromPlayer(gl.game.collisionSystem, playerX, playerY) {
 				m.EndPlayerEngagement()
-				gl.game.refreshMonsterCollisionSolidity(m)
+				gl.game.refreshMonsterCollisionState(m)
 				continue
 			}
 		}
-		gl.game.refreshMonsterCollisionSolidity(m)
+		gl.game.refreshMonsterCollisionState(m)
 
 		// TB does not run Monster3D.Update, so it invokes the exact same normal
 		// sight gate as RT. Loot guards receive their exact seven-tile objective
@@ -278,7 +302,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
 
@@ -291,7 +315,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// asymmetry is intentional TB flavor - do not "fix" toward RT.
 		if m.IsBoss() {
 			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
-				gl.game.refreshMonsterCollisionSolidity(m)
+				if !gl.game.combat.bossEvasive(m) {
+					gl.game.combat.armMonsterRTAttackCooldowns(m)
+				}
+				gl.game.refreshMonsterCollisionState(m)
 				continue
 			}
 		}
@@ -318,16 +345,17 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 		// tile and strike. Brief turn cooldown.
 		if m.CanPounce() {
-			if m.PounceCDTurns > 0 {
-				m.PounceCDTurns--
+			if tickTurnStatuses {
+				m.TickPounceCooldownTurn()
 			}
 			pounceTiles := int(m.PounceRangePixels / tileSize)
-			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles {
+			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles &&
+				gl.game.combat.monsterCanPounceParty(m) {
 				if gl.game.combat.executePounce(m, playerX, playerY) {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
-					m.PounceCDTurns = 2
-					gl.game.refreshMonsterCollisionSolidity(m)
+					m.ArmPounceCooldown(gl.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+					gl.game.refreshMonsterCollisionState(m)
 					continue
 				}
 				// Couldn't land adjacent - fall through to a normal step this turn.
@@ -380,7 +408,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		gl.game.refreshMonsterCollisionSolidity(m)
+		gl.game.refreshMonsterCollisionState(m)
 	}
 
 	// Monsters finished moving: spring any traps they stepped onto.
@@ -471,8 +499,13 @@ func (gl *GameLoop) forEachMonsterAttackTurnBased(attacker *monster.Monster3D, t
 	}
 	attacker.AttackAnimFrames = MonsterAttackAnimFrames
 	attacker.LastMoveTick = gl.game.frameCount
+	attacked := false
 	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && targetAlive(); hit++ {
 		attack()
+		attacked = true
+	}
+	if attacked {
+		gl.game.combat.armMonsterRTAttackCooldowns(attacker)
 	}
 }
 
@@ -496,11 +529,17 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
-	if tileSize > 0 && (int(m.X/tileSize) != int(wx/tileSize) || int(m.Y/tileSize) != int(wy/tileSize)) {
+	movedTile := tileSize > 0 && (int(m.X/tileSize) != int(wx/tileSize) || int(m.Y/tileSize) != int(wy/tileSize))
+	if movedTile {
 		gl.game.releaseMonsterAttackPost(m)
 	}
 	m.X = wx
 	m.Y = wy
+	if movedTile {
+		// TB computes a fresh discrete A* step. Its new position invalidates the
+		// continuous RT route, but not a flee/guard objective shared across turns.
+		m.ResetPathCache()
+	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
 	m.LastMoveTick = gl.game.frameCount
 	return true
@@ -597,9 +636,9 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// of truth after moving actors have updated their positions.
 }
 
-// moveMonsterAlongTBGoals is the common serial TB A* commit path. It retries
-// only through its own summons, which preserves a boss's ability to swap past
-// its personal adds without letting any other entity bypass collision rules.
+// moveMonsterAlongTBGoals is the common serial TB A* commit path. Combatants
+// are already pass-through at the collision layer; logical attack posts decide
+// who may stop and attack around a target.
 func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monster.TileCoord, tileSize float64) bool {
 	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
 		return false
@@ -609,13 +648,6 @@ func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monste
 		if gl.commitMonsterMoveTB(m, wx, wy) {
 			return true
 		}
-	}
-	if nx, ny, ok := gl.nextPathStepToAnyIgnoringOwnSummonsTB(m, goals); ok {
-		if gl.swapWithOwnSummonAtTileTB(m, nx, ny, tileSize) {
-			return true
-		}
-		wx, wy := TileCenterFromTile(nx, ny, tileSize)
-		return gl.commitMonsterMoveTB(m, wx, wy)
 	}
 	return false
 }
@@ -720,71 +752,6 @@ func uniqueTileGoals(goals []monster.TileCoord) []monster.TileCoord {
 		out = append(out, goal)
 	}
 	return out
-}
-
-func (gl *GameLoop) nextPathStepToAnyIgnoringOwnSummonsTB(m *monster.Monster3D, goals []monster.TileCoord) (int, int, bool) {
-	if m == nil || m.ID == "" || len(goals) == 0 || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
-		return 0, 0, false
-	}
-	type restore struct {
-		id    string
-		solid bool
-	}
-	var restoreEntities []restore
-	for _, other := range gl.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.SummonedBy != m.ID {
-			continue
-		}
-		ent := gl.game.collisionSystem.GetEntityByID(other.ID)
-		if ent == nil {
-			continue
-		}
-		restoreEntities = append(restoreEntities, restore{id: other.ID, solid: ent.Solid})
-		ent.Solid = false
-	}
-	defer func() {
-		for _, r := range restoreEntities {
-			if ent := gl.game.collisionSystem.GetEntityByID(r.id); ent != nil {
-				ent.Solid = r.solid
-			}
-		}
-	}()
-	return m.NextPathStepTileToAny(gl.game.collisionSystem, goals)
-}
-
-func (gl *GameLoop) swapWithOwnSummonAtTileTB(m *monster.Monster3D, tileX, tileY int, tileSize float64) bool {
-	if m == nil || m.ID == "" || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
-		return false
-	}
-
-	for _, blocker := range gl.game.world.Monsters {
-		if blocker == nil || blocker == m || !blocker.IsAlive() || blocker.SummonedBy != m.ID {
-			continue
-		}
-		btx, bty := int(blocker.X/tileSize), int(blocker.Y/tileSize)
-		if btx != tileX || bty != tileY {
-			continue
-		}
-		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(m.ID, blocker.X, blocker.Y, m.HabitatPrefs, m.Flying) {
-			continue
-		}
-		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(blocker.ID, m.X, m.Y, blocker.HabitatPrefs, blocker.Flying) {
-			continue
-		}
-
-		mx, my := m.X, m.Y
-		bx, by := blocker.X, blocker.Y
-		m.X, m.Y = bx, by
-		blocker.X, blocker.Y = mx, my
-		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-		gl.game.collisionSystem.UpdateEntity(blocker.ID, blocker.X, blocker.Y)
-		m.ResetPathfinding()
-		blocker.ResetPathfinding()
-		m.LastMoveTick = gl.game.frameCount
-		blocker.LastMoveTick = gl.game.frameCount
-		return true
-	}
-	return false
 }
 
 // turnBasedRangedGoalTiles lists a party-hunting ranged monster's turn-based

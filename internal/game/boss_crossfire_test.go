@@ -89,6 +89,24 @@ func assertInactiveBossTargeting(t *testing.T, tc inactiveBossCase, game *MMGame
 	}
 }
 
+func TestInactiveBossTargetingIsWorldOrderIndependent(t *testing.T) {
+	for _, tc := range inactiveBossCases {
+		t.Run(tc.name, func(t *testing.T) {
+			game, boss, ally := newInactiveBossScenario(t, tc)
+			reordered := make([]*monster.Monster3D, 0, len(game.world.Monsters))
+			reordered = append(reordered, ally)
+			for _, m := range game.world.Monsters {
+				if m != ally {
+					reordered = append(reordered, m)
+				}
+			}
+			game.world.Monsters = reordered
+
+			assertInactiveBossTargeting(t, tc, game, boss, ally)
+		})
+	}
+}
+
 // Every inactive boss style must remain neutral to party-controlled monsters in
 // real time. These states use different mechanics: the Samurai is dormant, the
 // Golden Thief Bug evades, and the Orc Warlord is warded by an idol.

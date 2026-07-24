@@ -300,6 +300,7 @@ type CharacterSave struct {
 	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
+	StunRate              int                `json:"stun_rate,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. It also survives an RT save made
 	// while a Tab-suspended TB turn is waiting to resume.
@@ -395,6 +396,7 @@ type MonsterSave struct {
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
+	StunRate                int `json:"stun_rate,omitempty"`
 	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
 	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
@@ -403,12 +405,15 @@ type MonsterSave struct {
 	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
 	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
 	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
+	RootRate            int                  `json:"root_rate,omitempty"`
 	ArmorShredPct       int                  `json:"armor_shred_pct,omitempty"`
 	ArmorShredFrames    int                  `json:"armor_shred_frames,omitempty"`
 	ArmorShredTurns     int                  `json:"armor_shred_turns,omitempty"`
+	ArmorShredRate      int                  `json:"armor_shred_rate,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
 	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
+	PounceCDRate        int                  `json:"pounce_cd_rate,omitempty"`
 	BossCD              int                  `json:"boss_cd,omitempty"`
 	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
@@ -420,6 +425,7 @@ type MonsterSave struct {
 	SoakDamage          int                  `json:"soak_damage,omitempty"`
 	SoakFrames          int                  `json:"soak_frames,omitempty"`
 	SoakTurns           int                  `json:"soak_turns,omitempty"`
+	SoakRate            int                  `json:"soak_rate,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
 	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
@@ -878,6 +884,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.StunFramesRemaining = cs.StunFramesRemaining
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
+	m.StunRate = cs.StunRate
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
 	m.OffHandRTCooldown = cs.OffHandRTCooldown
@@ -941,6 +948,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.StunFramesRemaining = m.StunFramesRemaining
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
+	cs.StunRate = m.StunRate
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.RTCooldown = m.RTCooldown
 	cs.OffHandRTCooldown = m.OffHandRTCooldown
@@ -1055,22 +1063,27 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SoakDamage:              mon.SoakDamage,
 				SoakFrames:              mon.SoakFrames,
 				SoakTurns:               mon.SoakTurns,
+				SoakRate:                mon.SoakRate,
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				StunFramesRemaining:     mon.StunFramesRemaining,
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
+				StunRate:                mon.StunRate,
 				PoisonedFramesRemaining: mon.PoisonedFramesRemaining,
 				StunDRStacks:            mon.StunDRStacks,
 				StunDRMemoryTurns:       mon.StunDRMemoryTurns,
 				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
 				RootFramesRemaining:     mon.RootFramesRemaining,
 				RootTurnsRemaining:      mon.RootTurnsRemaining,
+				RootRate:                mon.RootRate,
 				ArmorShredPct:           mon.ArmorShredPct,
 				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
 				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
+				ArmorShredRate:          mon.ArmorShredRate,
 				Pilfered:                mon.Pilfered,
 				PounceCDFrames:          mon.PounceCDFrames,
 				PounceCDTurns:           mon.PounceCDTurns,
+				PounceCDRate:            mon.PounceCDRate,
 				BossCD:                  mon.BossCD,
 				BossHurtPending:         mon.BossHurtPending,
 				BossLastHP:              mon.BossLastHP,
@@ -1530,6 +1543,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.SoakDamage = ms.SoakDamage
 				m.SoakFrames = ms.SoakFrames
 				m.SoakTurns = ms.SoakTurns
+				m.SoakRate = ms.SoakRate
 				if m.IsChampion() {
 					// Mirror at restore (not next frame): the first post-load
 					// input tick must already see tier HP pool and real armor.
@@ -1551,18 +1565,32 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.CharmedByParty = ms.CharmedByParty || ms.Pacified
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.StunRate = ms.StunRate
 				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
 				m.StunDRStacks = ms.StunDRStacks
 				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
 				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
 				m.RootFramesRemaining = ms.RootFramesRemaining
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
+				m.RootRate = ms.RootRate
 				m.ArmorShredPct = ms.ArmorShredPct
 				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
 				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
+				m.ArmorShredRate = ms.ArmorShredRate
+				// Pre-rated saves could preserve the inactive mode's stale clock
+				// after shred had already expired in the mode they were saved in.
+				// Treat that as expired rather than reviving it after load.
+				if (!save.TurnBased && m.ArmorShredFramesRemaining <= 0) ||
+					(save.TurnBased && m.ArmorShredTurnsRemaining <= 0) {
+					m.ArmorShredPct = 0
+					m.ArmorShredFramesRemaining = 0
+					m.ArmorShredTurnsRemaining = 0
+					m.ArmorShredRate = 0
+				}
 				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
+				m.PounceCDRate = ms.PounceCDRate
 				m.BossCD = ms.BossCD
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
@@ -1997,6 +2025,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, b := range g.combatBuffs {
 		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
 	}
+	g.syncSteamZoneStatuses()
 
 	// Restore quest progress. Reset to the baseline (starting quests only) first
 	// so quests taken AFTER this save - and therefore absent from it - don't

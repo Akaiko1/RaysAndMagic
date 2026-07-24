@@ -55,6 +55,116 @@ func TestMonsterPoisonTurnBased(t *testing.T) {
 	}
 }
 
+func TestChampionSoakCarriesAcrossModes(t *testing.T) {
+	m := statusTestMonster()
+	m.ApplySoak(5, 120, 4)
+	if m.SoakDamage != 5 || m.SoakRate != 30 {
+		t.Fatalf("armed soak = damage %d rate %d, want 5/30", m.SoakDamage, m.SoakRate)
+	}
+
+	for range 30 {
+		m.TickSoakFrame()
+	}
+	if m.SoakFrames != 90 || m.SoakTurns != 3 {
+		t.Fatalf("soak after RT = %d frames/%d turns, want 90/3", m.SoakFrames, m.SoakTurns)
+	}
+	m.TickSoakTurn()
+	if m.SoakFrames != 60 || m.SoakTurns != 2 {
+		t.Fatalf("soak after RT->TB = %d frames/%d turns, want 60/2", m.SoakFrames, m.SoakTurns)
+	}
+	for range 60 {
+		m.TickSoakFrame()
+	}
+	if m.SoakDamage != 0 || m.SoakFrames != 0 || m.SoakTurns != 0 || m.SoakRate != 0 {
+		t.Fatalf("mixed-mode soak did not fully expire: damage=%d frames=%d turns=%d rate=%d",
+			m.SoakDamage, m.SoakFrames, m.SoakTurns, m.SoakRate)
+	}
+}
+
+func TestInvulnerableBossAbsorbsPoisonInBothModes(t *testing.T) {
+	for _, flag := range []struct {
+		name  string
+		apply func(*Monster3D)
+	}{
+		{name: "dormant", apply: func(m *Monster3D) { m.BossDormant = true }},
+		{name: "warded", apply: func(m *Monster3D) { m.BossWarded = true }},
+	} {
+		for _, turnBased := range []bool{false, true} {
+			mode := "RT"
+			if turnBased {
+				mode = "TB"
+			}
+			t.Run(flag.name+"/"+mode, func(t *testing.T) {
+				m := statusTestMonster()
+				flag.apply(m)
+				tps := config.GetTargetTPS()
+				m.ApplyPoison(tps)
+				if turnBased {
+					m.TickPoisonTurn(tps)
+				} else {
+					for range tps {
+						m.TickPoison()
+					}
+				}
+				if m.HitPoints != m.MaxHitPoints {
+					t.Fatalf("invulnerable boss took poison damage: HP=%d", m.HitPoints)
+				}
+				if m.PoisonedFramesRemaining != 0 {
+					t.Fatalf("poison clock did not advance while damage was absorbed: %d", m.PoisonedFramesRemaining)
+				}
+			})
+		}
+	}
+}
+
+func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
+	m := &Monster3D{PounceCooldownSeconds: 4}
+	const tps = 120
+	m.ArmPounceCooldown(tps, 2)
+	if m.PounceCDFrames != 4*tps || m.PounceCDTurns != 2 {
+		t.Fatalf("armed pounce cooldown = %d frames/%d turns, want %d/2",
+			m.PounceCDFrames, m.PounceCDTurns, 4*tps)
+	}
+
+	m.TickPounceCooldownTurn()
+	if m.PounceCDTurns != 1 || m.PounceCDFrames != 2*tps || m.PounceCDRate != 2*tps {
+		t.Fatalf("first TB tick = %d frames/%d turns at rate %d, want %d/1 at %d",
+			m.PounceCDFrames, m.PounceCDTurns, m.PounceCDRate, 2*tps, 2*tps)
+	}
+	for range tps {
+		m.TickPounceCooldownFrame()
+	}
+	if m.PounceCDTurns != 1 || m.PounceCDFrames != tps {
+		t.Fatalf("partial RT continuation = %d frames/%d turns, want %d/1",
+			m.PounceCDFrames, m.PounceCDTurns, tps)
+	}
+	for range tps {
+		m.TickPounceCooldownFrame()
+	}
+	if m.PounceCDTurns != 0 || m.PounceCDFrames != 0 {
+		t.Fatalf("mixed-mode expiry did not clear both clocks: %d frames/%d turns",
+			m.PounceCDFrames, m.PounceCDTurns)
+	}
+
+	m.ArmPounceCooldown(tps, 2)
+	for range tps {
+		m.TickPounceCooldownFrame()
+	}
+	if m.PounceCDFrames != 3*tps || m.PounceCDTurns != 2 {
+		t.Fatalf("partial RT progress = %d frames/%d turns, want %d/2",
+			m.PounceCDFrames, m.PounceCDTurns, 3*tps)
+	}
+	m.TickPounceCooldownTurn()
+	if m.PounceCDFrames != 2*tps || m.PounceCDTurns != 1 {
+		t.Fatalf("RT-to-TB continuation = %d frames/%d turns, want %d/1",
+			m.PounceCDFrames, m.PounceCDTurns, 2*tps)
+	}
+	m.TickPounceCooldownTurn()
+	if m.PounceCDFrames != 0 || m.PounceCDTurns != 0 {
+		t.Fatalf("TB expiry did not clear RT clock: %d frames/%d turns", m.PounceCDFrames, m.PounceCDTurns)
+	}
+}
+
 // RT stun ticks inside the real Update; its expiry must clear the TB clock too
 // (a pure-RT stun that authored both would otherwise leave the star overlay
 // and TB skip stuck on).

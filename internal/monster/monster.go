@@ -250,9 +250,9 @@ type Monster3D struct {
 	LastPathCalcTick int
 	pathScratch      pathScratch
 	// Pursuit stall detection: a cached path is only recomputed when the target
-	// tile changes, so a path that became unwalkable (an engaged packmate now
-	// blocks the corridor) is followed forever. Track net progress and drop the
-	// path when pursuing goes nowhere, forcing A* against current positions.
+	// tile changes, so a route invalidated by a door or another dynamic obstacle
+	// can otherwise be followed forever. Track net progress and drop the path
+	// when pursuing goes nowhere, forcing A* against current state.
 	stallAnchorX float64
 	stallAnchorY float64
 	stallTimer   int
@@ -273,21 +273,24 @@ type Monster3D struct {
 	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
 	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
-	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (separation shoves / band snaps excluded)
+	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
 	FaceAccY            float64
 	StunTurnsRemaining  int  // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int  // Real-time stun duration in frames
+	StunRate            int  // Persisted frames-per-turn exchange rate keeping mode switches proportional
 	StunDRStacks        int  // Stun diminishing-returns chain length (0=fresh; caps -> immune)
 	StunDRMemoryTurns   int  // TB: stun-free turns left before the DR chain resets
 	StunDRMemoryFrames  int  // RT: stun-free frames left before the DR chain resets
 	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
+	RootRate            int  // Persisted frames-per-turn rate for the root clocks
 	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
 	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
 	// ArmorShredPct percent. Refreshes on hit, never stacks.
 	ArmorShredPct             int
 	ArmorShredTurnsRemaining  int
 	ArmorShredFramesRemaining int
+	ArmorShredRate            int  // Persisted frames-per-turn rate keeping mode switches proportional
 	Pilfered                  bool // Sleight of Hand already succeeded on this monster
 	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
 	// serpent dancer cards) - separate from monster-inflicted PoisonChance on
@@ -297,9 +300,9 @@ type Monster3D struct {
 	poisonTickTimer         int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
 	Bound                   bool       // Bind Undead: under party control - hunts other monsters, ignores party
-	BoundFramesRemaining    int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
+	BoundFramesRemaining    int        // Shared RT/TB bind duration in frames (0 = permanent, e.g. card summon)
 	Pacified                bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	PacifiedFramesRemaining int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	PacifiedFramesRemaining int        // Shared RT/TB charm duration in frames
 	CharmedByParty          bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
 	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
 	AITargetY               float64    // Per-frame pursuit target Y
@@ -370,12 +373,13 @@ type Monster3D struct {
 	ProjectileSpell  string
 	ProjectileWeapon string
 
-	// Pounce/leap: PounceRangePixels > 0 enables it. Runtime cooldowns are
-	// tracked separately per mode (frames in real-time, turns in turn-based).
+	// Pounce/leap: PounceRangePixels > 0 enables it. Cooldown remainders are
+	// tracked per mode and share a persisted conversion rate.
 	PounceRangePixels     float64
 	PounceCooldownSeconds float64
 	PounceCDFrames        int // real-time cooldown countdown (frames)
 	PounceCDTurns         int // turn-based cooldown countdown (turns)
+	PounceCDRate          int // persisted frames-per-turn rate keeping mode switches proportional
 
 	// Boss is the static YAML classification. Runtime code uses IsBoss rather
 	// than inferring bosshood from the currently-authored special abilities.
@@ -464,9 +468,9 @@ type Monster3D struct {
 	// Configuration reference
 	config *config.Config
 
-	// Immutable config-derived render/collision data, cached at setup. The
-	// renderer asks for the sprite every frame, and the separation pass asks
-	// for size per overlapping pair; neither should copy/scan monsters.yaml.
+	// Immutable config-derived render/collision data, cached at setup. Rendering,
+	// collision registration, and overlap recovery read it frequently; none
+	// should copy or scan monsters.yaml.
 	cachedSprite   string
 	cachedSizeW    float64
 	cachedSizeH    float64
@@ -506,6 +510,7 @@ type Monster3D struct {
 	SoakDamage int
 	SoakFrames int
 	SoakTurns  int
+	SoakRate   int // Persisted frames-per-turn rate keeping mode switches proportional
 }
 
 // IsChampion reports whether this mob rides a champions.yaml character build.
@@ -559,6 +564,12 @@ func (m *Monster3D) IsInertSetPiece() bool {
 	return m != nil && (m.BossDormant || m.BossWarded || m.WarlordIdol)
 }
 
+// IsDamageInvulnerable reports the two encounter states that absorb every
+// damage source. Warlord idols are inert but deliberately remain destructible.
+func (m *Monster3D) IsDamageInvulnerable() bool {
+	return m != nil && (m.BossDormant || m.BossWarded)
+}
+
 // IsBoss returns the explicit YAML classification copied at spawn time.
 func (m *Monster3D) IsBoss() bool { return m != nil && m.Boss }
 
@@ -574,7 +585,7 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
 	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
-	if m.BossDormant || m.BossWarded {
+	if m.IsDamageInvulnerable() {
 		return 0
 	}
 	// Apply resistance (reduced by any piercing)
@@ -629,7 +640,7 @@ func (m *Monster3D) ApplyPoison(frames int) {
 
 // poisonTickDamage deals one poison tick: 1% of max HP, minimum 1.
 func (m *Monster3D) poisonTickDamage() {
-	if m.HitPoints <= 0 {
+	if m.HitPoints <= 0 || m.IsDamageInvulnerable() {
 		return
 	}
 	dmg := m.MaxHitPoints / 100
@@ -711,7 +722,7 @@ func (m *Monster3D) HasRangedAttack() bool {
 func (m *Monster3D) TickRootTurn() {
 	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
 	if m.RootTurnsRemaining > 0 {
-		status.TickTurn(&m.RootTurnsRemaining, &m.RootFramesRemaining)
+		status.TickTurnRated(&m.RootTurnsRemaining, &m.RootFramesRemaining, &m.RootRate)
 	}
 }
 
@@ -734,31 +745,67 @@ func (m *Monster3D) ApplyArmorShred(pct, frames, turns int) {
 	if pct > m.ArmorShredPct {
 		m.ArmorShredPct = pct
 	}
-	if frames > m.ArmorShredFramesRemaining {
-		m.ArmorShredFramesRemaining = frames
-	}
-	if turns > m.ArmorShredTurnsRemaining {
-		m.ArmorShredTurnsRemaining = turns
+	if !status.RefreshDualRated(
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredRate,
+		frames,
+		turns,
+	) {
+		m.ArmorShredPct = 0
 	}
 }
 
 // TickArmorShredFrame burns one RT frame of the shred debuff.
 func (m *Monster3D) TickArmorShredFrame() {
-	if m.ArmorShredFramesRemaining > 0 {
-		m.ArmorShredFramesRemaining--
-		if m.ArmorShredFramesRemaining == 0 && m.ArmorShredTurnsRemaining == 0 {
-			m.ArmorShredPct = 0
-		}
+	if status.TickFrameRated(
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredRate,
+	) {
+		m.ArmorShredPct = 0
 	}
 }
 
 // TickArmorShredTurn burns one TB turn of the shred debuff.
 func (m *Monster3D) TickArmorShredTurn() {
-	if m.ArmorShredTurnsRemaining > 0 {
-		m.ArmorShredTurnsRemaining--
-		if m.ArmorShredTurnsRemaining == 0 && m.ArmorShredFramesRemaining == 0 {
-			m.ArmorShredPct = 0
-		}
+	if status.TickTurnRated(
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredRate,
+	) {
+		m.ArmorShredPct = 0
+	}
+}
+
+// ApplySoak activates or refreshes a champion's Stone Skin. The effect uses the
+// same rated dual-clock contract as stun/root so changing combat mode cannot
+// restore time already spent in the other mode.
+func (m *Monster3D) ApplySoak(damage, frames, turns int) {
+	if m == nil {
+		return
+	}
+	m.SoakDamage = damage
+	if !status.RefreshDualRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate, frames, turns) {
+		m.SoakDamage = 0
+	}
+}
+
+func (m *Monster3D) TickSoakFrame() {
+	if m == nil {
+		return
+	}
+	if status.TickFrameRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate) {
+		m.SoakDamage = 0
+	}
+}
+
+func (m *Monster3D) TickSoakTurn() {
+	if m == nil {
+		return
+	}
+	if status.TickTurnRated(&m.SoakTurns, &m.SoakFrames, &m.SoakRate) {
+		m.SoakDamage = 0
 	}
 }
 
@@ -769,6 +816,36 @@ func (m *Monster3D) CanPounce() bool {
 	// already decremented the counter to 0 but the pin lasts the whole turn.
 	return m.PounceRangePixels > 0 && m.RootFramesRemaining <= 0 &&
 		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
+}
+
+// ArmPounceCooldown starts both mode clocks. The active clock drains its
+// counterpart proportionally, so changing combat mode cannot extend the wait.
+func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
+	if m == nil {
+		return
+	}
+	if tps <= 0 {
+		tps = config.GetTargetTPS()
+	}
+	frames := int(math.Round(m.PounceCooldownSeconds * float64(tps)))
+	if m.PounceCooldownSeconds > 0 && frames < 1 {
+		frames = 1
+	}
+	status.RefreshDualRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate, frames, turns)
+}
+
+func (m *Monster3D) TickPounceCooldownFrame() {
+	if m == nil {
+		return
+	}
+	status.TickFrameRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate)
+}
+
+func (m *Monster3D) TickPounceCooldownTurn() {
+	if m == nil {
+		return
+	}
+	status.TickTurnRated(&m.PounceCDTurns, &m.PounceCDFrames, &m.PounceCDRate)
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.

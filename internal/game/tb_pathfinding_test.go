@@ -303,7 +303,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState() // marks the struck gorilla as BossAggro.
 	for _, m := range w.Monsters {
-		g.refreshMonsterCollisionSolidity(m)
+		g.refreshMonsterCollisionState(m)
 	}
 
 	gl := &GameLoop{game: g}
@@ -420,7 +420,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
-	refreshTBMonsterSolidity(g)
+	refreshTBMonsterCollisionState(g)
 
 	gl := &GameLoop{game: g}
 
@@ -432,7 +432,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	for step := 0; step < 12; step++ {
 		g.refreshMonsterAIState()
 		gl.monsterMoveTurnBased(gorilla)
-		refreshTBMonsterSolidity(g)
+		refreshTBMonsterCollisionState(g)
 
 		if [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)} != startTile {
 			movedTowardParty = true
@@ -478,7 +478,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 		}
 		movePartyToTileForTBTest(t, g, p[0], p[1], tile)
 		runFullMonsterTurnForTBTest(t, g, gl)
-		refreshTBMonsterSolidity(g)
+		refreshTBMonsterCollisionState(g)
 
 		cur := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 		visited = append(visited, cur)
@@ -497,7 +497,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 				prev = [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 				spendPartyBuffRoundForTBTest(t, g)
 				runFullMonsterTurnForTBTest(t, g, gl)
-				refreshTBMonsterSolidity(g)
+				refreshTBMonsterCollisionState(g)
 				cur = [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 				visited = append(visited, cur)
 				if cur == prev && !gorillaReadyToAttackOrPounceTB(g, gorilla, tile) {
@@ -537,7 +537,7 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
-	refreshTBMonsterSolidity(g)
+	refreshTBMonsterCollisionState(g)
 
 	for _, c := range [8][2]int{
 		{6, 5}, {4, 5}, {5, 6}, {5, 4},
@@ -593,7 +593,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
-	refreshTBMonsterSolidity(g)
+	refreshTBMonsterCollisionState(g)
 
 	gl := &GameLoop{game: g}
 	bounce := [][2]int{{34, 39}, {35, 39}}
@@ -604,7 +604,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 		p := bounce[turn%len(bounce)]
 		movePartyToTileForTBTest(t, g, p[0], p[1], tile)
 		runFullMonsterTurnForTBTest(t, g, gl)
-		refreshTBMonsterSolidity(g)
+		refreshTBMonsterCollisionState(g)
 
 		cur := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 		visited = append(visited, cur)
@@ -649,7 +649,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
-	refreshTBMonsterSolidity(g)
+	refreshTBMonsterCollisionState(g)
 	if !gorilla.BossAggro {
 		t.Fatal("setup failed: WasAttacked gorilla should recompute BossAggro")
 	}
@@ -670,9 +670,9 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(
 	}
 }
 
-func refreshTBMonsterSolidity(g *MMGame) {
+func refreshTBMonsterCollisionState(g *MMGame) {
 	for _, m := range g.world.Monsters {
-		g.refreshMonsterCollisionSolidity(m)
+		g.refreshMonsterCollisionState(m)
 	}
 }
 
@@ -702,7 +702,7 @@ func runFullMonsterTurnForTBTest(t *testing.T, g *MMGame, gl *GameLoop) {
 	t.Helper()
 	for frames := 0; g.currentTurn == 1 && frames < 180; frames++ {
 		g.refreshMonsterAIState()
-		refreshTBMonsterSolidity(g)
+		refreshTBMonsterCollisionState(g)
 		gl.updateMonstersTurnBased()
 	}
 	if g.currentTurn != 0 {

@@ -56,7 +56,6 @@ func TestWolfRoutesAroundTreeToParty(t *testing.T) {
 	wolves := []*monster.Monster3D{spawnWolf(5, 7), spawnWolf(5, 9)}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 
-	gl := &GameLoop{game: g}
 	tps := cfg.GetTPS()
 	attacked := make([]bool, len(wolves))
 	walked := make([]float64, len(wolves))
@@ -75,13 +74,12 @@ func TestWolfRoutesAroundTreeToParty(t *testing.T) {
 			px, py := m.X, m.Y
 			m.Update(g.collisionSystem, camX, camY)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m)
+			g.refreshMonsterCollisionState(m)
 			walked[i] += math.Hypot(m.X-px, m.Y-py)
 			if m.State == monster.StateAttacking {
 				attacked[i] = true
 			}
 		}
-		gl.separateOverlappingMonsters()
 	}
 
 	for i, m := range wolves {

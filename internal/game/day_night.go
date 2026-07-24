@@ -473,7 +473,7 @@ func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, cou
 		m.QuestProgressIgnored = true // ambient packs never advance kill quests
 		if current {
 			g.registerSpawnedMonster(m)
-			g.refreshMonsterCollisionSolidity(m)
+			g.refreshMonsterCollisionState(m)
 		} else {
 			w.Monsters = append(w.Monsters, m)
 		}

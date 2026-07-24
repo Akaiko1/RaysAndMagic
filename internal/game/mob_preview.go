@@ -89,8 +89,8 @@ func (p *MobPreview) Select(key string) {
 }
 
 // Step advances the sandbox one tick - the same monster sub-updates the RT
-// game loop runs: movement AI, overlap separation, band flocking, and the
-// frame-motion facing pass (without it walkers moonwalk on stale Direction).
+// game loop runs: movement AI, band flocking, and the frame-motion facing pass
+// (without it walkers moonwalk on stale Direction).
 func (p *MobPreview) Step() {
 	// Editor preview sandboxes share the global world manager; re-pin our stage
 	// in case another preview tab switched the current map.
@@ -101,7 +101,6 @@ func (p *MobPreview) Step() {
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.updateMonstersParallel()
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart) // walk-only window, matching the game loop
-	gl.separateOverlappingMonsters()
 	gl.updateMonsterBands()
 }
 

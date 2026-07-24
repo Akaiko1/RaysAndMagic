@@ -8,6 +8,8 @@ import (
 
 // TestBanditSpawningFix tests that the DRY walkability check fix works
 func TestBanditSpawningFix(t *testing.T) {
+	setTestWorldManager(t, nil)
+
 	// Load configuration
 	cfg, err := config.LoadConfig("../../config.yaml")
 	if err != nil {

@@ -99,10 +99,10 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 	if !cs.bossEvasive(gtb) {
 		t.Errorf("GTB should be evasive before the valve quest is done")
 	}
+	g.refreshMonsterAIState()
 	if tx, ty := cs.monsterAITargetPoint(gtb); tx != gtb.X || ty != gtb.Y {
 		t.Errorf("evasive GTB must hold position, not chase the party")
 	}
-	g.refreshMonsterAIState()
 	if !gtb.BossEvasive || gtb.CurrentAIBehavior() != monster.AIBehaviorEvasive {
 		t.Errorf("evasive GTB must expose the shared evasive AI mode (flag=%v behavior=%v)",
 			gtb.BossEvasive, gtb.CurrentAIBehavior())

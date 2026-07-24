@@ -27,7 +27,6 @@ type GameLoop struct {
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
 	monsterFrameBuf       []monsterFramePosition
-	sepEngagedBuf         []int
 	bandersBuf            []*monster.Monster3D
 	bandSinglesBuf        []*monster.Monster3D
 	bandIDsBuf            []int
@@ -36,6 +35,7 @@ type GameLoop struct {
 	bandUsedSingles       map[*monster.Monster3D]bool
 	attackPostBuf         []*monster.Monster3D
 	combatTransitStackBuf []*monster.Monster3D
+	combatTransitTileBuf  map[attackPostTile]struct{}
 }
 
 type monsterFramePosition struct {
@@ -186,14 +186,9 @@ func (gl *GameLoop) updateExploration() {
 	// snapshot. Serial arbitration runs before combat so only one can strike.
 	gl.reconcileMonsterAttackPosts()
 
-	// Non-combat overlaps still get a gentle resolution. Active combatants remain
-	// pass-through and can share a transit tile; their logical post reservation,
-	// rather than a physical shove, decides who can attack.
-	gl.separateOverlappingMonsters()
-
 	// Banding: stack calm same-key flockers onto their leader (or scatter a band
-	// whose member just engaged/was hit). Runs after movement+separation so it has
-	// the final positions to snap/fan.
+	// whose member just engaged/was hit). Runs after movement so it has the final
+	// positions to snap/fan.
 	gl.updateMonsterBands()
 	// Guard pairs use the same stack/fan presentation but admit mixed monster
 	// keys and cap at two. Reconcile after movement so sight aggro scatters the
@@ -251,8 +246,8 @@ func (gl *GameLoop) updateExploration() {
 
 // faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
 // each monster faces its accumulated walk displacement. The capture->face window
-// spans only the movement pass, so separation shoves, band snaps and combat
-// blinks can never flip a walker. Accumulation (FaceAcc) lets sub-threshold
+// spans only the movement pass, so band snaps and combat blinks can never flip
+// a walker. Accumulation (FaceAcc) lets sub-threshold
 // walkers still turn while back-and-forth jitter cancels out; standing still
 // drops the momentum. Movement helpers don't set m.Direction themselves - only
 // no-move state transitions (idle/alert/flee) set an intent facing.
@@ -396,129 +391,6 @@ func (gl *GameLoop) updateProjectilesParallel() {
 
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
-}
-
-// separateOverlappingMonsters softly resolves monster-monster overlap: each
-// overlapping pair is pushed apart a few pixels per tick along their least
-// penetrated axis, so glued pairs un-merge smoothly instead of teleporting
-// (the old unstuck ring-search) or freezing (engaged-while-overlapped pairs
-// veto each other's every normal move). Terrain still wins: a push that would
-// enter a blocked tile is skipped for that monster.
-func (gl *GameLoop) separateOverlappingMonsters() {
-	monsters := gl.game.world.Monsters
-	if len(monsters) < 2 || gl.game.collisionSystem == nil {
-		return
-	}
-	const pushPerTick = 2.0
-	// Mirror of the collision rule: two CALM monsters pass through each other
-	// by design (pathfinding deadlock prevention) - separating them turned
-	// every crossing into a push-fight (measured: 1850 one-tick shove episodes
-	// per 2 sim-minutes on the forest map). Only non-party fights still need
-	// physical separation; party-targeting mobs deliberately overlap in transit.
-	requiresSeparation := func(m *monster.Monster3D) bool {
-		if m.TargetsParty() {
-			return false
-		}
-		return m.IsInCombat()
-	}
-	// Tile-checked half-push; also refuses to shove a monster into the PLAYER's
-	// box - entity collision is deliberately skipped (the overlapped partner
-	// would veto every push), but landing on the player would deadlock the
-	// monster against player collision instead.
-	camX, camY := gl.game.camera.X, gl.game.camera.Y
-	pushOne := func(m *monster.Monster3D, px, py float64) bool {
-		nx, ny := m.X+px, m.Y+py
-		mw, mh := m.GetSize()
-		if math.Abs(nx-camX) < mw/2+8 && math.Abs(ny-camY) < mh/2+8 {
-			return false
-		}
-		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
-			return false
-		}
-		m.X, m.Y = nx, ny
-		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-		return true
-	}
-	resolvePair := func(i int, a, b *monster.Monster3D, aw, ah float64) {
-		if a.TargetsParty() || b.TargetsParty() {
-			return
-		}
-		bw, bh := b.GetSize()
-		dx := b.X - a.X
-		dy := b.Y - a.Y
-		sepX := (aw+bw)/2 - math.Abs(dx)
-		sepY := (ah+bh)/2 - math.Abs(dy)
-		if sepX <= 0 || sepY <= 0 {
-			return // no overlap
-		}
-		// Signed pushes per axis (b gets the positive direction); perfectly
-		// stacked pairs get a deterministic tiebreak.
-		sx := pushPerTick
-		if dx < 0 || (dx == 0 && i%2 == 0) {
-			sx = -sx
-		}
-		sy := pushPerTick
-		if dy < 0 || (dy == 0 && i%2 == 0) {
-			sy = -sy
-		}
-		// Prefer the axis of least penetration (standard AABB resolve), but
-		// fall back to the other one when terrain blocks it: in a one-wide
-		// gap between trees the cross-corridor push hits a trunk on both
-		// sides, and the pair could only ever separate ALONG the corridor.
-		var prim, sec [2]float64
-		if sepX < sepY {
-			prim, sec = [2]float64{sx, 0}, [2]float64{0, sy}
-		} else {
-			prim, sec = [2]float64{0, sy}, [2]float64{sx, 0}
-		}
-		// a moves opposite to b.
-		if !pushOne(a, -prim[0], -prim[1]) {
-			pushOne(a, -sec[0], -sec[1])
-		}
-		if !pushOne(b, prim[0], prim[1]) {
-			pushOne(b, sec[0], sec[1])
-		}
-	}
-	// Every processed pair has a non-party combat side, so collect that alive
-	// subset once (reusable buffer): the common calm case exits without any
-	// pair scan, and the scan walks allxengaged instead of allxall.
-	engagedIdx := gl.sepEngagedBuf[:0]
-	for i, m := range monsters {
-		if m.IsAlive() && requiresSeparation(m) {
-			engagedIdx = append(engagedIdx, i)
-		}
-	}
-	gl.sepEngagedBuf = engagedIdx
-	if len(engagedIdx) == 0 {
-		return
-	}
-	// Pairs run in the original (i,j) order: an engaged a pairs with every
-	// alive j>i; a calm a pairs only with the engaged mobs after it. Pushes
-	// change positions only, so engagement/liveness are constant mid-pass.
-	nextEngaged := 0
-	for i := 0; i < len(monsters); i++ {
-		for nextEngaged < len(engagedIdx) && engagedIdx[nextEngaged] <= i {
-			nextEngaged++
-		}
-		a := monsters[i]
-		if !a.IsAlive() {
-			continue
-		}
-		aw, ah := a.GetSize()
-		if requiresSeparation(a) {
-			for j := i + 1; j < len(monsters); j++ {
-				b := monsters[j]
-				if !b.IsAlive() {
-					continue
-				}
-				resolvePair(i, a, b, aw, ah)
-			}
-		} else {
-			for _, j := range engagedIdx[nextEngaged:] {
-				resolvePair(i, a, monsters[j], aw, ah)
-			}
-		}
-	}
 }
 
 // finalizeIndirectKills sweeps for monsters that died from an autonomous tick
@@ -841,9 +713,9 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateControlledMonsters ticks Bind Undead and Charm timers in real-time. When a
-// bind expires the undead turns hostile again; when a charm expires the living
-// mob re-aggros. (TB control persists the encounter - no real-frame countdown.)
+// updateControlledMonsters ticks the one frame clock used by Bind Undead and
+// Charm in both RT and TB. When a bind expires the undead turns hostile again;
+// when a charm expires the living mob re-aggros.
 func (gl *GameLoop) updateControlledMonsters() {
 	if gl.game.world == nil {
 		return

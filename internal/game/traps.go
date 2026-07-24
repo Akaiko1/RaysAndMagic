@@ -315,7 +315,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
-	if bossInvulnerable(victim) {
+	if victim.IsDamageInvulnerable() {
 		return
 	}
 
@@ -333,7 +333,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
 func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
-	if bossInvulnerable(m) {
+	if m.IsDamageInvulnerable() {
 		return // invulnerable boss (sealed or idol-warded) - no trap damage, FX, or aggro
 	}
 	// Phys-to-element conversion cards apply to physical trap damage too - a

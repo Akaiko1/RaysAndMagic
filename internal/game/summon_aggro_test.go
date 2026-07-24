@@ -12,21 +12,35 @@ import (
 // it from range, even while the party stands well off - not stand and watch.
 var meleeMobsThatShouldChaseSummons = []string{"goblin", "orc_hero_boss"}
 
-// runRTFoeTicks drives the REAL real-time monster loop: refresh the AI foe/target
-// cache, move each monster toward its AITarget (the wrapper's real input), then
-// resolve interactions - the faithful equivalent of one game frame.
+// runRTFoeTicks drives the production RT monster phases: one frozen collision
+// snapshot, all wrapper updates before serial collision apply, post arbitration,
+// then combat. The fixture has no worker pool, so phase 1 runs serially, but it
+// must not quietly exercise the bare Monster3D.Update path instead.
 func runRTFoeTicks(g *MMGame, ticks int) {
+	gl := &GameLoop{game: g}
 	for i := 0; i < ticks; i++ {
 		g.frameCount++
 		g.refreshMonsterAIState()
+		gl.reconcileMonsterAttackPosts()
+		snapshot := g.collisionSystem.Snapshot()
+		wrappers := make([]*MonsterWrapper, 0, len(g.world.Monsters))
 		for _, m := range g.world.Monsters {
 			if m == nil || !m.IsAlive() {
 				continue
 			}
-			m.UpdateWithTarget(g.collisionSystem, g.camera.X, g.camera.Y, m.AITargetX, m.AITargetY)
-			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m)
+			wrapper := &MonsterWrapper{
+				Monster:         m,
+				collisionSystem: g.collisionSystem,
+				snapshot:        snapshot,
+				game:            g,
+			}
+			wrapper.Update()
+			wrappers = append(wrappers, wrapper)
 		}
+		for _, wrapper := range wrappers {
+			wrapper.ApplyCollisionUpdate()
+		}
+		gl.reconcileMonsterAttackPosts()
 		g.combat.HandleMonsterInteractions()
 	}
 }
@@ -167,6 +181,49 @@ func TestPassiveMonsterAndPartySummonIgnoreEachOtherUntilProvoked(t *testing.T) 
 	}
 }
 
+func TestBoundCrossfireCannotCollaterallyProvokePassiveMonster(t *testing.T) {
+	game, _, tileSize := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 2, 2, tileSize)
+
+	source := monsterPkg.NewMonster3DFromConfig(10*tileSize+tileSize/2, 10*tileSize+tileSize/2, "bandit", game.config)
+	markCardAlly(source)
+	passive := monsterPkg.NewMonster3DFromConfig(12*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+	passive.PassiveUntilAttacked = true
+	passive.MaxHitPoints, passive.HitPoints = 5000, 5000
+	target := monsterPkg.NewMonster3DFromConfig(15*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+	target.MaxHitPoints, target.HitPoints = 5000, 5000
+	splashTarget := monsterPkg.NewMonster3DFromConfig(16*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+	splashTarget.MaxHitPoints, splashTarget.HitPoints = 5000, 5000
+	game.world.Monsters = []*monsterPkg.Monster3D{source, passive, target, splashTarget}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	if got := game.combat.nearestEnemyMonster(source, 10*tileSize); got != target {
+		t.Fatalf("bound ally selected %v, want nearest damageable target %s beyond passive mob", got, target.Name)
+	}
+	if !game.combat.spawnMonsterRangedAttackAtMonster(source, target, ProjectileOwnerBoundUndead) {
+		t.Fatal("bound bandit did not spawn a crossfire projectile")
+	}
+	bolt := &game.arrows[len(game.arrows)-1]
+	bolt.X, bolt.Y = passive.X, passive.Y
+	game.collisionSystem.UpdateEntity(bolt.ID, bolt.X, bolt.Y)
+
+	game.combat.CheckProjectileMonsterCollisions()
+	if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked {
+		t.Fatal("bound projectile collaterally hit and provoked an ignored passive monster")
+	}
+	if !bolt.Active {
+		t.Fatal("bound projectile was consumed by a passive monster it may not target")
+	}
+
+	game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, 50, monsterPkg.DamagePhysical, 4)
+	if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked {
+		t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
+	}
+	if splashTarget.HitPoints >= splashTarget.MaxHitPoints {
+		t.Fatal("bound AoE failed to damage an ordinary enemy in the same blast")
+	}
+}
+
 // cardSummonDuelTB sets up the real TB scheduler scenario: a hostile monster
 // four tiles from a card ally, while the party is well out of the fight. It
 // returns the enemy and summon so callers can assert the kind of attack they
@@ -292,6 +349,35 @@ func TestOrdinaryMeleeAndRangedMobsFightCardSummonsRT(t *testing.T) {
 				t.Fatalf("melee %s never struck card summon in RT (HP %d -> %d)", enemy.Name, hp0, ally.HitPoints)
 			}
 		})
+	}
+}
+
+func TestCrossfireProjectileHitsSummonOutsidePartyView(t *testing.T) {
+	game, _, tileSize := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 20, 20, tileSize)
+	game.camera.Angle = 0 // look east; the whole crossfire exchange is west/behind us
+
+	attacker := monsterPkg.NewMonster3DFromConfig(18*tileSize+tileSize/2, 20*tileSize+tileSize/2, "bandit", game.config)
+	summon := monsterPkg.NewMonster3DFromConfig(16*tileSize+tileSize/2, 20*tileSize+tileSize/2, "masked_huntress", game.config)
+	summon.MaxHitPoints, summon.HitPoints = 5000, 5000
+	markCardAlly(summon)
+	game.world.Monsters = []*monsterPkg.Monster3D{attacker, summon}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	if !game.combat.spawnMonsterRangedAttackAtMonster(attacker, summon, ProjectileOwnerMonsterAtBound) {
+		t.Fatal("bandit did not spawn its crossfire projectile")
+	}
+	bolt := &game.arrows[len(game.arrows)-1]
+	bolt.X, bolt.Y = summon.X, summon.Y
+	game.collisionSystem.UpdateEntity(bolt.ID, bolt.X, bolt.Y)
+
+	game.combat.CheckProjectileMonsterCollisions()
+
+	if summon.HitPoints >= summon.MaxHitPoints {
+		t.Fatal("crossfire projectile at the summon was ignored merely because the party looked away")
+	}
+	if bolt.Active {
+		t.Fatal("crossfire projectile remained active after its world-space impact")
 	}
 }
 

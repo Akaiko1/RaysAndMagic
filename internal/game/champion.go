@@ -192,6 +192,14 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 		return false
 	}
 	wd, dmg := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
+	return cs.applyChampionMeleeSwingToParty(m, wd, dmg)
+}
+
+// applyChampionMeleeSwingToParty applies one already-rolled champion hand swing
+// to the party formation. Clean party attacks and mixed summon/party crossfire
+// share this sink so the selected hand's damage, riders, arc, and AoE cannot
+// diverge or re-roll between targets caught by the same swing.
+func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, dmg int) bool {
 	dtype := "physical"
 	if wd != nil && wd.DamageType != "" {
 		dtype = wd.DamageType
@@ -225,8 +233,8 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 // (summon), giving that swing the SAME weapon mechanics the party gets in PvE:
 // one damage roll spread across the arc/AoE it catches among summons, plus - as
 // an ADDITIONAL action, when the same swing's geometry reaches the party - the
-// champion's normal vs-party hit (championMeleeStrike, untouched). AoE never
-// re-rolls and never stacks with the arc (the weapon is one or the other).
+// selected hand's normal formation hit. AoE never re-rolls and never stacks
+// with the arc (the weapon is one or the other).
 func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D, offHand bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
@@ -268,7 +276,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		}
 		var cands []meleeArcCandidate
 		for _, o := range cs.game.world.Monsters {
-			if o == nil || !o.Bound || !o.IsAlive() {
+			if o == nil || !o.Bound || !o.IsAlive() || monsterInAttackTransit(o) {
 				continue
 			}
 			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
@@ -282,10 +290,11 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		applyMeleeArc(cands, arc)
 	}
 
-	// Party caught in the same sweep: the champion's normal vs-party hit (whole
-	// party for AoE, arc_type members for an arc) - reused as-is.
+	// Party caught in the same sweep: apply the already-rolled selected-hand hit.
+	// Re-entering championMeleeStrike here would silently switch an off-hand
+	// attack back to the main hand and roll its damage/riders a second time.
 	if partyCaught {
-		cs.championMeleeStrike(m, false)
+		cs.applyChampionMeleeSwingToParty(m, wd, dmg)
 	}
 }
 
@@ -798,15 +807,15 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 
 	switch {
 	case def.IncomingDamageReduction > 0:
-		m.SoakDamage = scaledIncomingDamageReduction(def, ch)
-		m.SoakFrames = cs.CalculateSpellDurationFrames(spellID, ch)
+		frames := cs.CalculateSpellDurationFrames(spellID, ch)
 		// Stun convention: 1s per TB turn, floored at 1 whenever the soak is
 		// active (a sub-1s duration would truncate to 0 turns and, since TB never
 		// ticks SoakFrames, never expire in turn-based play).
-		m.SoakTurns = m.SoakFrames / cs.game.config.GetTPS()
-		if m.SoakTurns < 1 && m.SoakFrames > 0 {
-			m.SoakTurns = 1
+		turns := frames / cs.game.config.GetTPS()
+		if turns < 1 && frames > 0 {
+			turns = 1
 		}
+		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, turns)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
 
 	case def.StunRadiusTiles > 0:

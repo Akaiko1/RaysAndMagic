@@ -10,9 +10,9 @@ import (
 
 // SteamZone is a fixed-position persistent damage field (Hot Steam). It is
 // spawned at the party's location on cast and, each tick, sears every monster
-// within Radius. Lifetime (FramesLeft) counts down in real frames in BOTH modes
-// (like the other timed buffs); damage ticks every IntervalFrames in real-time
-// and once per monster turn in turn-based.
+// within Radius. RT advances it every frame; one TB monster round advances it by
+// TurnBasedPeriodicEffectSeconds, so deliberating over the party turn can never
+// deal free damage or consume duration.
 type SteamZone struct {
 	SpellID        string
 	MapKey         string  // map the zone was cast on - it never follows the party
@@ -97,7 +97,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	dmgType := convertToMonsterDamageType(damageTypeStr)
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) is unscathed by the zone.
-		if m == nil || !m.IsAlive() || bossInvulnerable(m) {
+		if m == nil || !m.IsAlive() || m.IsDamageInvulnerable() {
 			continue
 		}
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
@@ -110,12 +110,22 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	}
 }
 
-// updateSteamZonesRT ticks every zone once per frame: counts down its lifetime
-// (both modes) and, in real-time, applies damage on its cadence plus ambient
-// steam VFX. Expired zones are dropped and their HUD status cleared.
+// updateSteamZonesRT advances zones only in real time. TB owns the same clock at
+// the monster-round boundary in tickSteamZonesTB.
 func (gl *GameLoop) updateSteamZonesRT() {
+	if gl.game.turnBasedMode {
+		return
+	}
+	gl.advanceSteamZones(1)
+}
+
+// advanceSteamZones advances lifetime and cadence by elapsedFrames. It is the
+// single RT/TB implementation: one RT frame passes 1; one TB monster round
+// passes the configured three-second equivalent. Damage is resolved before
+// final-turn expiry, matching poison/burn's final active tick.
+func (gl *GameLoop) advanceSteamZones(elapsedFrames int) {
 	zones := gl.game.steamZones
-	if len(zones) == 0 {
+	if len(zones) == 0 || elapsedFrames <= 0 {
 		return
 	}
 	// Several zones can share one spell id (recasts at different spots), but
@@ -127,21 +137,29 @@ func (gl *GameLoop) updateSteamZonesRT() {
 	w := 0
 	for i := range zones {
 		z := &zones[i]
-		z.FramesLeft--
 		if z.FramesLeft <= 0 {
+			expired[z.SpellID] = true
+			continue
+		}
+
+		interval := z.IntervalFrames
+		if interval <= 0 {
+			interval = turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())
+		}
+		z.tickCounter += elapsedFrames
+		for z.tickCounter >= interval {
+			z.tickCounter -= interval
+			gl.game.combat.damageSteamZoneOnce(z)
+		}
+
+		z.FramesLeft -= elapsedFrames
+		if z.FramesLeft <= 0 {
+			z.FramesLeft = 0
 			expired[z.SpellID] = true
 			continue
 		}
 		if z.FramesLeft > maxLeft[z.SpellID] {
 			maxLeft[z.SpellID] = z.FramesLeft
-		}
-
-		if !gl.game.turnBasedMode {
-			z.tickCounter++
-			if z.tickCounter >= z.IntervalFrames {
-				z.tickCounter = 0
-				gl.game.combat.damageSteamZoneOnce(z)
-			}
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
 		// frame (Renderer.drawSteamZoneBubbles) - no sparse particle spawns here.
@@ -159,11 +177,26 @@ func (gl *GameLoop) updateSteamZonesRT() {
 	}
 }
 
-// tickSteamZonesTB applies one steam damage tick per zone - called once per
-// monster turn in turn-based combat.
+// tickSteamZonesTB advances Hot Steam by the same three seconds one TB round
+// represents for poison/burn. With its authored three-second interval this is
+// exactly one damage tick, and no time passes while the player deliberates.
 func (gl *GameLoop) tickSteamZonesTB() {
-	for i := range gl.game.steamZones {
-		gl.game.combat.damageSteamZoneOnce(&gl.game.steamZones[i])
+	gl.advanceSteamZones(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))
+}
+
+// syncSteamZoneStatuses rebuilds the one-HUD-icon-per-spell view without
+// advancing zone time. Load uses it because a restored TB game may deliberate
+// indefinitely before the next monster round updates the zone.
+func (g *MMGame) syncSteamZoneStatuses() {
+	maxLeft := map[string]int{}
+	for i := range g.steamZones {
+		z := &g.steamZones[i]
+		if z.FramesLeft > maxLeft[z.SpellID] {
+			maxLeft[z.SpellID] = z.FramesLeft
+		}
+	}
+	for id, left := range maxLeft {
+		g.updateUtilityStatus(spells.SpellID(id), left, left > 0)
 	}
 }
 

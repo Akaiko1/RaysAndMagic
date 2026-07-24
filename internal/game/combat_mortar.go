@@ -130,7 +130,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
 	for _, target := range cs.game.world.Monsters {
-		if target == nil || !target.IsAlive() || bossInvulnerable(target) {
+		if target == nil || !target.IsAlive() || target.IsDamageInvulnerable() {
 			continue
 		}
 		if Distance(m.X, m.Y, target.X, target.Y) > radius {

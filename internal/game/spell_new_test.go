@@ -176,8 +176,8 @@ func TestPartyBuffs_Stack(t *testing.T) {
 	}
 }
 
-// Hot Steam must damage monsters in TURN-BASED mode too (once per monster turn
-// via tickSteamZonesTB), not only in real time.
+// Hot Steam must not tick while the player deliberates in TB. One monster round
+// deals one tick and consumes the shared three-second periodic-effect step.
 func TestHotSteam_DamagesInTurnBased(t *testing.T) {
 	game, gl, _ := tbBehaviorGame(t, 7, 7)
 	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
@@ -193,14 +193,50 @@ func TestHotSteam_DamagesInTurnBased(t *testing.T) {
 	if len(game.steamZones) == 0 {
 		t.Fatalf("no steam zone created")
 	}
+	framesBefore := game.steamZones[0].FramesLeft
 	// Run a monster turn - the zone should sear the monster inside it.
 	game.turnBasedMode = true
+	for range 30 {
+		gl.updateSteamZonesRT()
+	}
+	if mon.HitPoints != 200 || game.steamZones[0].FramesLeft != framesBefore {
+		t.Fatalf("TB deliberation advanced Hot Steam: HP=%d frames=%d, want 200/%d",
+			mon.HitPoints, game.steamZones[0].FramesLeft, framesBefore)
+	}
 	game.currentTurn = 1
 	game.monsterTurnResolved = false
 	gl.updateMonstersTurnBased()
 
 	if mon.HitPoints >= 200 {
 		t.Errorf("hot_steam should damage the monster in TB (hp still %d)", mon.HitPoints)
+	}
+	wantFrames := framesBefore - turnBasedPeriodicEffectFrames(game.config.GetTPS())
+	if game.steamZones[0].FramesLeft != wantFrames {
+		t.Errorf("Hot Steam TB remainder = %d, want %d", game.steamZones[0].FramesLeft, wantFrames)
+	}
+}
+
+func TestHotSteam_FinalRTIntervalDealsBeforeExpiry(t *testing.T) {
+	game, gl, _ := tbBehaviorGame(t, 7, 7)
+	game.turnBasedMode = false
+	tps := game.config.GetTPS()
+	interval := 3 * tps
+	mon := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+	mon.MaxHitPoints, mon.HitPoints = 200, 200
+	game.world.Monsters = []*monster.Monster3D{mon}
+	game.steamZones = []SteamZone{{
+		SpellID: "hot_steam", X: game.camera.X, Y: game.camera.Y,
+		Radius: 64, FramesLeft: interval, TickDamage: 3, IntervalFrames: interval,
+	}}
+
+	for range interval {
+		gl.updateSteamZonesRT()
+	}
+	if mon.HitPoints >= 200 {
+		t.Fatalf("final RT interval expired before dealing its due tick: HP=%d", mon.HitPoints)
+	}
+	if len(game.steamZones) != 0 {
+		t.Fatalf("expired Hot Steam zones = %d, want 0", len(game.steamZones))
 	}
 }
 

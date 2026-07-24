@@ -331,6 +331,7 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	const ptx, pty = 10, 10
 	placePlayerAtTile(game, ptx, pty, ts)
 	puma := spawnMonsterAtTile(game, "puma", 13, 10, ts)
+	puma.BeginPlayerEngagement()
 
 	hp0 := partyHPSum(game)
 	game.combat.HandleMonsterInteractions()
@@ -345,6 +346,21 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time puma pounce should strike the party")
+	}
+	if puma.AttackCDFrames <= 0 {
+		t.Fatal("real-time pounce did not arm the normal attack cadence")
+	}
+
+	// executePounce leaves the puma in StateAttacking with StateTimer=0. Without
+	// carrying the normal cadence, the next AI frame reaches StateTimer=1 and
+	// lands a second, unintended melee hit immediately after the pounce.
+	hpAfterPounce := partyHPSum(game)
+	wrapper := CreateMonsterWrapper(puma, game.collisionSystem, game.collisionSystem.Snapshot(), game)
+	wrapper.Update()
+	wrapper.ApplyCollisionUpdate()
+	game.combat.HandleMonsterInteractions()
+	if got := partyHPSum(game); got != hpAfterPounce {
+		t.Fatalf("puma gained a free follow-up after pounce: HP %d -> %d", hpAfterPounce, got)
 	}
 }
 
