@@ -472,6 +472,9 @@ type SpellDefinitionConfig struct {
 	// Damage-formula modifiers (data-driven; default behaviour when unset).
 	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool `yaml:"scales_with_personality,omitempty"` // also add Personality/divisor to spell damage
+	// MasteryDamagePerTier is an explicit per-school-mastery damage step for
+	// special non-projectile spells such as Inferno.
+	MasteryDamagePerTier int `yaml:"mastery_damage_per_tier,omitempty"`
 
 	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
 	// every monster within that radius of the caster - no damage. RT uses
@@ -969,14 +972,13 @@ type WeaponSystemConfig struct {
 	Weapons map[string]*WeaponDefinitionConfig `yaml:"weapons"`
 	// WeaponCooldownMultipliers is the per-weapon-TYPE real-time attack-cooldown
 	// multiplier (1.0 = baseline sword), keyed by the canonical weapon-skill
-	// noun (sword/dagger/axe/spear/bow/mace/staff). Types not listed default to
+	// noun (sword/dagger/axe/spear/bow/mace/staff/blaster). Types not listed default to
 	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
 	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
 }
 
 // WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
-// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown - so a
-// weapon whose category maps to no skill (e.g. the alien blaster) is neutral.
+// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown.
 func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 	if GlobalWeapons != nil {
 		if m, ok := GlobalWeapons.WeaponCooldownMultipliers[skillNoun]; ok && m > 0 {
@@ -1211,6 +1213,12 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 				return fmt.Errorf("spell '%s': unsupported resist_buff_school %q", id, def.ResistBuffSchool)
 			}
 			def.ResistBuffSchool = school
+		}
+		if def.MasteryDamagePerTier < 0 {
+			return fmt.Errorf("spell '%s': mastery_damage_per_tier cannot be negative", id)
+		}
+		if def.MasteryDamagePerTier > 0 && !def.MapWide && def.PartyAoeRadiusTiles <= 0 {
+			return fmt.Errorf("spell '%s': mastery_damage_per_tier requires map_wide or party_aoe_radius_tiles", id)
 		}
 		switch strings.ToLower(strings.TrimSpace(def.Category)) {
 		case "":

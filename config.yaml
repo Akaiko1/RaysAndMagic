@@ -84,7 +84,7 @@ characters:
       accuracy: 12
       speed: 10
       luck: 10
-      skills: [sword, spear, leather, chain, plate, shield, bodybuilding]
+      skills: [sword, spear, leather, chain, plate, shield, bodybuilding, impenetrable_defense]
       main_hand: iron_sword
 
     sorcerer:
@@ -95,7 +95,7 @@ characters:
       accuracy: 10
       speed: 10
       luck: 12
-      skills: [dagger, staff, leather, meditation, learning]
+      skills: [dagger, staff, leather, meditation, learning, elemental_mastery]
       magic:
         - { school: fire,  spells: [torch_light, firebolt] }
         - { school: water, spells: [ice_bolt] }
@@ -111,7 +111,7 @@ characters:
       accuracy: 8
       speed: 10
       luck: 10
-      skills: [mace, chain, shield, meditation, learning]
+      skills: [mace, chain, shield, meditation, learning, natural_healer]
       magic:
         - { school: body,   spells: [heal_other, harm] }
         - { school: mind,   spells: [mind_blast] }
@@ -127,7 +127,7 @@ characters:
       accuracy: 15
       speed: 12
       luck: 10
-      skills: [bow, leather, dagger, disarm_trap, bodybuilding]
+      skills: [bow, blaster, leather, dagger, disarm_trap, bodybuilding]
       magic:
         - { school: air, spells: [wizard_eye] }
       main_hand: hunting_bow
@@ -141,7 +141,7 @@ characters:
       accuracy: 10
       speed: 10
       luck: 11
-      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation]
+      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation, sacrifice]
       magic:
         - { school: body, spells: [heal] }
       main_hand: bronze_labrys
@@ -156,7 +156,7 @@ characters:
       accuracy: 10
       speed: 11
       luck: 11
-      skills: [staff, leather, meditation, bodybuilding, learning]
+      skills: [staff, leather, meditation, bodybuilding, learning, animal_bonding]
       magic:
         - { school: water, spells: [ice_bolt] }
         - { school: mind,  spells: [awaken] }
@@ -174,7 +174,7 @@ characters:
       accuracy: 15
       speed: 13
       luck: 12
-      skills: [dagger, leather, trapper, sleight_of_hand, meditation, disarm_trap]
+      skills: [dagger, blaster, leather, trapper, sleight_of_hand, meditation, disarm_trap, lockpicking]
       main_hand: magic_dagger
       armor: leather_armor
       quick_trap: cleave_trap

@@ -443,6 +443,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if mastery > 0 {
 			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
+		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
+			dmg.AddDetail("Current Resistance Pierce: %d%%", pierce)
+		}
 		// Active party buffs add a flat bonus after crit doubling; Heroism is
 		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
 		outBonus := cs.game.combatBuffOutBonusForDamageType(def.School)
@@ -455,11 +458,25 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			dmg.Add("Critical Damage: %d", total*CritDamageMultiplier+outBonus)
 		}
 	}
-	// Party nova (Inferno): fixed damage, own EFFECT block.
-	if def.PartyAoeRadiusTiles > 0 {
+	// Party/map nova (Inferno): explicit mastery scaling, all normal damage.
+	if def.PartyAoeRadiusTiles > 0 || def.MapWide {
+		novaDamage := cs.CalculateInfernoDamage(def, char)
 		dmg.Title = "EFFECT"
-		dmg.Add("Damage: %d", def.SpellPointsCost*spells.SpellDamagePerSP)
-		dmg.Add("Radius: %.0f tiles", def.PartyAoeRadiusTiles)
+		if def.MasteryDamagePerTier > 0 {
+			dmg.AddDetail("Base: %d", def.MasteryScaledDamage(0))
+			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, tier*def.MasteryDamagePerTier)
+		}
+		if cs != nil {
+			if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
+				dmg.AddDetail("Current Resistance Pierce: %d%% (enemies only)", pierce)
+			}
+		}
+		dmg.Add("Damage: %d", novaDamage)
+		if def.MapWide {
+			dmg.Add("Radius: Current map")
+		} else {
+			dmg.Add("Radius: %.0f tiles", def.PartyAoeRadiusTiles)
+		}
 		dmg.Add("Targets: Monsters and Party")
 	}
 
@@ -473,6 +490,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		}
 		if mastery > 0 {
 			heal.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
+		}
+		if char != nil && char.HasSkill(character.SkillNaturalHealer) {
+			heal.AddDetail("Natural Healer: +%d%%", character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer)))
 		}
 		heal.Add("Total Healing: %d", totalHeal)
 	}
@@ -508,6 +528,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		}
 		if mastery > 0 {
 			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
+		}
+		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
+			dmg.AddDetail("Current Resistance Pierce: %d%%", pierce)
 		}
 		outBonus := 0
 		if char != nil {
@@ -561,19 +584,26 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 
 	rules := ttSection{Title: "RULES"}
 	switch {
-	case def.PartyAoeRadiusTiles > 0:
-		rules.AddDetail("Fixed damage: no stat or mastery scaling")
-		rules.AddDetail("%s: no GM resistance penetration", def.Name)
+	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
+		rules.AddDetail("All damage remains normal %s damage", strings.ToLower(formatSchoolName(def.School)))
 		rules.AddDetail("Enemy %s Resistance reduces damage", formatSchoolName(def.School))
 		rules.AddDetail("Party %s Resistance reduces self-damage", formatSchoolName(def.School))
+		if line := spellPierceLine(def, char); line != "" {
+			rules.AddDetail("%s", line)
+		}
 		rules.AddDetail("Cannot critically hit")
 	case def.DealsNoDamage:
 		rules.AddDetail("Deals no damage")
 		rules.AddDetail("Cannot critically hit")
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
 		rules.AddDetail("%s Resistance reduces damage", formatSchoolName(def.School))
-		if line := spellGMPierceLine(def, char); line != "" {
-			rules.AddDetail("GM: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, formatSchoolName(def.School))
+		if line := spellPierceLine(def, char); line != "" {
+			rules.AddDetail("%s", line)
+		}
+		if char != nil && character.MagicSchoolID(def.School).IsElemental() {
+			if ms := char.MagicSchools[character.MagicSchoolID(def.School)]; ms != nil && ms.Mastery >= character.MasteryGrandMaster {
+				rules.AddDetail("GM: the school mastery damage bonus is typed true damage")
+			}
 		}
 	}
 	if def.AoeRadiusTiles > 0 {

@@ -45,6 +45,18 @@ var AllMagicSchools = []MagicSchoolID{
 // String returns the raw YAML key of the school.
 func (ms MagicSchoolID) String() string { return string(ms) }
 
+// IsElemental reports the four schools whose Grandmaster mastery bonus becomes
+// typed true damage. Shared by combat and presentation so the rule cannot
+// drift into separate Fire/Water/Air/Earth lists.
+func (ms MagicSchoolID) IsElemental() bool {
+	switch ms {
+	case MagicSchoolFire, MagicSchoolWater, MagicSchoolAir, MagicSchoolEarth:
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseMagicSchoolID validates a YAML/UI school through the shared damage
 // catalog, excluding physical because it is not a learnable magic school.
 func ParseMagicSchoolID(raw string) (MagicSchoolID, bool) {

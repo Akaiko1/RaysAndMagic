@@ -112,7 +112,59 @@ const (
 	// ((tier+1)*this), that a melee hit also fires the slotted quick-spell for
 	// free (0 SP), mirroring the Pixie Card's free Fire Bolt proc.
 	SpiritualTrainingProcPctPerTier = 10
+	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
+	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.
+	DoorForceChancePct    = 20
+	DoorMaxNonKeyAttempts = 3
 )
+
+var (
+	elementalMasteryPiercePct = [...]int{10, 20, 35, 50}
+	animalBondingProcPct      = [...]int{5, 8, 12, 15}
+	animalBondingStatPct      = [...]int{40, 60, 80, 100}
+	sacrificeRedirectPct      = [...]int{10, 20, 30, 50}
+	impenetrableDefenseFlat   = [...]int{3, 5, 7, 10}
+	lockpickingChancePct      = [...]int{20, 35, 50, 60}
+	naturalHealerBonusPct     = [...]int{20, 40, 60, 100}
+)
+
+func masteryTableValue(table [4]int, tier int) int {
+	if tier < int(MasteryNovice) {
+		return 0
+	}
+	if tier > int(MasteryGrandMaster) {
+		tier = int(MasteryGrandMaster)
+	}
+	return table[tier]
+}
+
+func ElementalMasteryPiercePct(tier int) int {
+	return masteryTableValue(elementalMasteryPiercePct, tier)
+}
+
+func AnimalBondingProcPct(tier int) int {
+	return masteryTableValue(animalBondingProcPct, tier)
+}
+
+func AnimalBondingStatPct(tier int) int {
+	return masteryTableValue(animalBondingStatPct, tier)
+}
+
+func SacrificeRedirectPct(tier int) int {
+	return masteryTableValue(sacrificeRedirectPct, tier)
+}
+
+func ImpenetrableDefenseReduction(tier int) int {
+	return masteryTableValue(impenetrableDefenseFlat, tier)
+}
+
+func LockpickingChancePct(tier int) int {
+	return masteryTableValue(lockpickingChancePct, tier)
+}
+
+func NaturalHealerBonusPct(tier int) int {
+	return masteryTableValue(naturalHealerBonusPct, tier)
+}
 
 // TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
 // given Trapper tier, on top of its 1-turn base: Novice/Expert +0, Master +1,
@@ -251,8 +303,9 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 // text for the in-game tooltip and the map editor.
 func MagicMasteryDescription() string {
 	return fmt.Sprintf(
-		"Magic Mastery: +%d%% spell duration and +%d damage/healing per mastery tier above Novice. "+
-			"Grandmaster: projectile and zone spells ignore %d%% of enemy resistance.",
+		"Magic Mastery: +%d%% spell duration and +%d regular spell damage/healing per mastery tier above Novice. "+
+			"At Grandmaster, that regular elemental damage bonus becomes typed true damage; explicit special-spell scaling remains normal. "+
+			"Other schools ignore %d%% of enemy resistance.",
 		SpellMasteryDurationBonusPct, MasterySpellEffectPerLevel, MagicGMResistPiercePct)
 }
 
@@ -264,6 +317,8 @@ var AllSkills = []SkillType{
 	SkillIdentifyItem, SkillDisarmTrap, SkillLearning, SkillArmsMaster,
 	SkillTrapper, SkillSleightOfHand,
 	SkillDualWielding, SkillIronBody, SkillSpiritualTraining,
+	SkillBlaster, SkillElementalMastery, SkillAnimalBonding, SkillSacrifice,
+	SkillImpenetrableDefense, SkillLockpicking, SkillNaturalHealer,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
@@ -284,7 +339,7 @@ func (s SkillType) Category() string {
 // / Grandmaster 3 (bonuses scale per tier above Novice unless noted).
 func (s SkillType) Description() string {
 	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff:
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster:
 		return fmt.Sprintf("Proficiency to wield %ss. Weapon Mastery: +%d true damage per level "+
 			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
 			"strikes ignore Perfect Dodge.",
@@ -355,6 +410,29 @@ func (s SkillType) Description() string {
 		return fmt.Sprintf("Spiritual Training: %d-%d%% chance (by mastery, Novice included) that a melee "+
 			"attack also casts the slotted offensive quick-spell for free (no spell points spent).",
 			SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
+	case SkillElementalMastery:
+		return fmt.Sprintf("Elemental Mastery: elemental spells ignore %d/%d/%d/%d%% of enemy resistance at Novice/Expert/Master/Grandmaster.",
+			ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(1),
+			ElementalMasteryPiercePct(2), ElementalMasteryPiercePct(3))
+	case SkillAnimalBonding:
+		return fmt.Sprintf("Animal Bonding: each successful attack or spell cast has a %d/%d/%d/%d%% chance to summon one allied bear. "+
+			"The bear copies %d/%d/%d/%d%% of the Druid's current HP, Armor Class, and attack damage.",
+			AnimalBondingProcPct(0), AnimalBondingProcPct(1), AnimalBondingProcPct(2), AnimalBondingProcPct(3),
+			AnimalBondingStatPct(0), AnimalBondingStatPct(1), AnimalBondingStatPct(2), AnimalBondingStatPct(3))
+	case SkillSacrifice:
+		return fmt.Sprintf("Sacrifice: redirects %d/%d/%d/%d%% of mitigated hit damage from another party member to this Paladin.",
+			SacrificeRedirectPct(0), SacrificeRedirectPct(1), SacrificeRedirectPct(2), SacrificeRedirectPct(3))
+	case SkillImpenetrableDefense:
+		return fmt.Sprintf("Impenetrable Defense: reduces normal damage taken by %d/%d/%d/%d after armor and resistance. True damage and damage over time bypass it.",
+			ImpenetrableDefenseReduction(0), ImpenetrableDefenseReduction(1),
+			ImpenetrableDefenseReduction(2), ImpenetrableDefenseReduction(3))
+	case SkillLockpicking:
+		return fmt.Sprintf("Lockpicking: %d/%d/%d/%d%% chance to open a locked door. Three failed non-key attempts jam the lock; a key still opens it.",
+			LockpickingChancePct(0), LockpickingChancePct(1), LockpickingChancePct(2), LockpickingChancePct(3))
+	case SkillNaturalHealer:
+		return fmt.Sprintf("Natural Healer: healing spells restore %d/%d/%d/%d%% more HP at Novice/Expert/Master/Grandmaster.",
+			NaturalHealerBonusPct(0), NaturalHealerBonusPct(1),
+			NaturalHealerBonusPct(2), NaturalHealerBonusPct(3))
 	default:
 		return ""
 	}
@@ -371,7 +449,7 @@ func weaponNoun(s SkillType) string {
 	// Derive from String() (lowercased) so the noun can never drift from the
 	// canonical name - load-bearing: WeaponNoun() keys the cooldown table.
 	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff,
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster,
 		SkillLeather, SkillChain, SkillPlate:
 		return strings.ToLower(s.String())
 	default:

@@ -518,11 +518,13 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 // one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
-	MapKey  string  `json:"map_key"`
-	Name    string  `json:"name"`
-	X       float64 `json:"x,omitempty"`
-	Y       float64 `json:"y,omitempty"`
-	Visited bool    `json:"visited"`
+	MapKey         string  `json:"map_key"`
+	Name           string  `json:"name"`
+	X              float64 `json:"x,omitempty"`
+	Y              float64 `json:"y,omitempty"`
+	Visited        bool    `json:"visited"`
+	DoorAttempts   int     `json:"door_attempts,omitempty"`
+	DoorLockBroken bool    `json:"door_lock_broken,omitempty"`
 	// Remaining merchant stock, keyed by item NAME in stock order (duplicate
 	// names consume sequentially). Index-aligned restore was abandoned: stock
 	// ORDER is a presentation detail (grouping can reorder it between versions)
@@ -1174,7 +1176,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 						key, x, y = k, lx, ly
 					}
 				}
-				ns := NPCSave{MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited}
+				ns := NPCSave{
+					MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
+					DoorAttempts: npc.DoorAttempts, DoorLockBroken: npc.DoorLockBroken,
+				}
 				if len(npc.MerchantStock) > 0 {
 					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
@@ -1441,15 +1446,18 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			g.loadNeedsResave = true
 		}
 	}
-	for _, cs := range save.Party.Members {
-		g.party.Members = append(g.party.Members, restoreCharacterSave(cs))
+	restoreRoster := func(dst *[]*character.MMCharacter, saves []CharacterSave) {
+		for _, cs := range saves {
+			member := restoreCharacterSave(cs)
+			if member.EnsureClassKitSkills(g.config) {
+				g.loadNeedsResave = true
+			}
+			*dst = append(*dst, member)
+		}
 	}
-	for _, cs := range save.Party.Reserve {
-		g.party.Reserve = append(g.party.Reserve, restoreCharacterSave(cs))
-	}
-	for _, cs := range save.Party.Captive {
-		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
-	}
+	restoreRoster(&g.party.Members, save.Party.Members)
+	restoreRoster(&g.party.Reserve, save.Party.Reserve)
+	restoreRoster(&g.party.Captive, save.Party.Captive)
 	if save.TotalExperienceEarned > 0 {
 		g.totalExperienceEarned = save.TotalExperienceEarned
 	} else {
@@ -1796,6 +1804,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					continue
 				}
 				npc.Visited = ns.Visited
+				npc.DoorAttempts = ns.DoorAttempts
+				npc.DoorLockBroken = ns.DoorLockBroken
 				// Stock restores by item NAME (order is presentation-only and can
 				// change between versions); duplicate names consume sequentially.
 				// A saved name missing from the current YAML is simply dropped.

@@ -743,6 +743,7 @@ spells:
     school: "fire"
     level: 7
     spell_points_cost: 15       # 45 damage (cost x 3) to every monster on the map, and the party
+    mastery_damage_per_tier: 15 # Novice/Expert/Master/GM: 45/60/75/90, all normal fire damage
     cooldown_seconds: 3.0
     duration: 0
     is_projectile: false

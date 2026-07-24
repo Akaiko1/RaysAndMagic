@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"ugataima/internal/character"
@@ -142,14 +143,25 @@ func (g *MMGame) clearLockedDoorEntities() {
 }
 
 // doorUnlockOption is one available way to open a specific door this instant,
-// materialized into a dialogue choice. Exactly one of the fields drives the
-// open: a key item to consume, the never-spent master key, or a stat forcing.
+// materialized into a dialogue choice. kind is the sole behavior discriminator;
+// the other fields carry the selected method's data.
 type doorUnlockOption struct {
 	text          string
 	keyItemKey    string // consumable items.yaml key (master/forcing leave this empty)
 	masterKeyName string // held master key: never consumed
-	force         bool   // opened by a stat check: never consumes anything
+	kind          doorUnlockKind
+	chancePct     int
+	actorName     string
 }
+
+type doorUnlockKind int
+
+const (
+	doorUnlockMasterKey doorUnlockKind = iota
+	doorUnlockConsumableKey
+	doorUnlockForce
+	doorUnlockLockpick
+)
 
 // partyMasterKeyName reports the held master key. The item attribute, not a
 // hard-coded display name, is the source of truth for that capability.
@@ -163,16 +175,16 @@ func (g *MMGame) partyMasterKeyName() (string, bool) {
 }
 
 // availableDoorUnlocks enumerates every unlock the party can perform on this
-// door RIGHT NOW: the master key (if held), each authored key the bag holds, and
-// each stat requirement some living member meets. Order: master key, keys, then
-// stat forcings - cheapest-to-lose consumable never auto-preferred over the free
-// options in the list the player picks from.
+// door RIGHT NOW: the master key (if held), each authored key the bag holds,
+// the best living lockpicker, then each stat requirement some living member
+// meets. A jammed lock returns only key methods.
 func (g *MMGame) availableDoorUnlocks(npc *character.NPC) []doorUnlockOption {
 	var opts []doorUnlockOption
 	if masterKeyName, ok := g.partyMasterKeyName(); ok {
 		opts = append(opts, doorUnlockOption{
 			text:          fmt.Sprintf("Open it with the %s", masterKeyName),
 			masterKeyName: masterKeyName,
+			kind:          doorUnlockMasterKey,
 		})
 	}
 	for _, itemKey := range npc.DoorKeyItemKeys {
@@ -184,8 +196,29 @@ func (g *MMGame) availableDoorUnlocks(npc *character.NPC) []doorUnlockOption {
 			opts = append(opts, doorUnlockOption{
 				text:       fmt.Sprintf("Unlock it with the %s", def.Name),
 				keyItemKey: itemKey,
+				kind:       doorUnlockConsumableKey,
 			})
 		}
+	}
+	if npc.DoorLockBroken {
+		return opts
+	}
+	var bestLockpicker *character.MMCharacter
+	bestChance := 0
+	for _, m := range g.party.Members {
+		if m == nil || m.HitPoints <= 0 || !m.HasSkill(character.SkillLockpicking) {
+			continue
+		}
+		chance := character.LockpickingChancePct(m.SkillTier(character.SkillLockpicking))
+		if chance > bestChance {
+			bestLockpicker, bestChance = m, chance
+		}
+	}
+	if bestLockpicker != nil {
+		opts = append(opts, doorUnlockOption{
+			text: fmt.Sprintf("Pick the lock (%s, %d%%)", bestLockpicker.Name, bestChance),
+			kind: doorUnlockLockpick, chancePct: bestChance, actorName: bestLockpicker.Name,
+		})
 	}
 	for _, req := range npc.DoorStatReqs {
 		getter := doorStatGetters[strings.ToLower(req.Stat)]
@@ -195,10 +228,10 @@ func (g *MMGame) availableDoorUnlocks(npc *character.NPC) []doorUnlockOption {
 		for _, m := range g.party.Members {
 			if m != nil && m.HitPoints > 0 && getter(m) >= req.Value {
 				opts = append(opts, doorUnlockOption{
-					text:  fmt.Sprintf("Force it open (%s, %s %d)", m.Name, req.Stat, req.Value),
-					force: true,
+					text: fmt.Sprintf("Force it open (%s, %s %d, %d%%)", m.Name, req.Stat, req.Value, character.DoorForceChancePct),
+					kind: doorUnlockForce, chancePct: character.DoorForceChancePct, actorName: m.Name,
 				})
-				break // one forcing option per requirement, named for the strongest-listed member found
+				break // one forcing option per requirement, named for the first qualifying party member
 			}
 		}
 	}
@@ -227,6 +260,12 @@ func (g *MMGame) lockedDoorChoices(npc *character.NPC) []*character.NPCDialogueC
 // when at least one unlock is available, or a sealed-shut message when the party
 // can do nothing to it yet (so the player learns the door exists and is stuck).
 func (g *MMGame) lockedDoorGreeting(npc *character.NPC, hasOptions bool) string {
+	if npc.DoorLockBroken {
+		if hasOptions {
+			return "The lock is jammed beyond finesse or force. A key can still turn it."
+		}
+		return "The lock is jammed. Only a fitting key can open this door now."
+	}
 	if hasOptions {
 		if npc.DialogueData != nil && npc.DialogueData.Greeting != "" {
 			return npc.DialogueData.Greeting
@@ -241,8 +280,8 @@ func (g *MMGame) lockedDoorGreeting(npc *character.NPC, hasOptions bool) string 
 }
 
 // openLockedDoor resolves a chosen unlock option: consumes a single-use key
-// (master key and stat forcings consume nothing), marks the door open (Visited,
-// persisted), and drops its collision block so the party can walk through.
+// (master key and non-key attempts consume nothing), marks the door open
+// (Visited, persisted), and drops its collision block so the party can pass.
 func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 	if !lockedDoorClosed(npc) {
 		return
@@ -252,18 +291,38 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 		return
 	}
 	opt := opts[optIdx]
-	switch {
-	case opt.masterKeyName != "":
+	opened := false
+	switch opt.kind {
+	case doorUnlockMasterKey:
 		g.AddCombatMessage(fmt.Sprintf("The %s turns without resistance - the %s door swings open.", opt.masterKeyName, doorLabelOrDefault(npc)))
-	case opt.keyItemKey != "":
+		opened = true
+	case doorUnlockConsumableKey:
 		def, ok := config.GetItemDefinition(opt.keyItemKey)
 		if !ok || def == nil || !g.party.RemoveItemsByName(def.Name, 1) {
 			return // key vanished between opening the dialog and confirming
 		}
 		g.AddCombatMessage(fmt.Sprintf("The %s turns in the lock and breaks off - the door opens.", def.Name))
-	case opt.force:
-		g.AddCombatMessage(fmt.Sprintf("With a heave, the %s door gives way.", doorLabelOrDefault(npc)))
+		opened = true
+	case doorUnlockForce, doorUnlockLockpick:
+		opened, _ = resolveNonKeyDoorAttempt(npc, opt.chancePct, rand.Intn(100))
+		if opened {
+			verb := "forces"
+			if opt.kind == doorUnlockLockpick {
+				verb = "picks"
+			}
+			g.AddCombatMessage(fmt.Sprintf("%s %s the %s door open.", opt.actorName, verb, doorLabelOrDefault(npc)))
+		} else if npc.DoorLockBroken {
+			g.AddCombatMessage("The third failed attempt jams the lock. Only a key can open it now.")
+		} else {
+			g.AddCombatMessage(fmt.Sprintf("The attempt fails. %d non-key attempt(s) remain before the lock jams.",
+				character.DoorMaxNonKeyAttempts-npc.DoorAttempts))
+		}
 	default:
+		return
+	}
+	if !opened {
+		g.dialogActive = false
+		g.dialogNPC = nil
 		return
 	}
 	npc.Visited = true
@@ -273,6 +332,22 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 	delete(g.lockedDoorEntityIDs, lockedDoorEntityID(npc))
 	g.dialogActive = false
 	g.dialogNPC = nil
+}
+
+// resolveNonKeyDoorAttempt is the deterministic lock state transition shared
+// by Might, Intellect, Lockpicking, and tests. roll is [0,99].
+func resolveNonKeyDoorAttempt(npc *character.NPC, chancePct, roll int) (opened, jammed bool) {
+	if npc == nil || npc.DoorLockBroken {
+		return false, npc != nil && npc.DoorLockBroken
+	}
+	npc.DoorAttempts++
+	if roll < chancePct {
+		return true, false
+	}
+	if npc.DoorAttempts >= character.DoorMaxNonKeyAttempts {
+		npc.DoorLockBroken = true
+	}
+	return false, npc.DoorLockBroken
 }
 
 func doorLabelOrDefault(npc *character.NPC) string {

@@ -56,6 +56,14 @@ const (
 	// SkillMartialArts: unarmed combat - gates the Monk's fists. Appended last:
 	// SkillType persists as a raw int, so new skills go at the end, never mid-block.
 	SkillMartialArts
+	// New skills MUST remain appended: SkillType is persisted as a raw integer.
+	SkillBlaster
+	SkillElementalMastery
+	SkillAnimalBonding
+	SkillSacrifice
+	SkillImpenetrableDefense
+	SkillLockpicking
+	SkillNaturalHealer
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -111,6 +119,20 @@ func (s SkillType) String() string {
 		return "Iron Body"
 	case SkillSpiritualTraining:
 		return "Spiritual Training"
+	case SkillBlaster:
+		return "Blaster"
+	case SkillElementalMastery:
+		return "Elemental Mastery"
+	case SkillAnimalBonding:
+		return "Animal Bonding"
+	case SkillSacrifice:
+		return "Sacrifice"
+	case SkillImpenetrableDefense:
+		return "Impenetrable Defense"
+	case SkillLockpicking:
+		return "Lockpicking"
+	case SkillNaturalHealer:
+		return "Natural Healer"
 	default:
 		return "Unknown"
 	}
@@ -196,31 +218,38 @@ func (s *Skill) IncreaseMastery() bool {
 // types. Weapon/armor category strings coincide with these keys; the category
 // lookups below gate on the SkillType const-block ranges.
 var skillTypeByKey = map[string]SkillType{
-	"sword":              SkillSword,
-	"dagger":             SkillDagger,
-	"axe":                SkillAxe,
-	"spear":              SkillSpear,
-	"bow":                SkillBow,
-	"mace":               SkillMace,
-	"staff":              SkillStaff,
-	"martial_arts":       SkillMartialArts,
-	"leather":            SkillLeather,
-	"chain":              SkillChain,
-	"plate":              SkillPlate,
-	"shield":             SkillShield,
-	"bodybuilding":       SkillBodybuilding,
-	"meditation":         SkillMeditation,
-	"merchant":           SkillMerchant,
-	"repair":             SkillRepair,
-	"identify_item":      SkillIdentifyItem,
-	"disarm_trap":        SkillDisarmTrap,
-	"learning":           SkillLearning,
-	"arms_master":        SkillArmsMaster,
-	"trapper":            SkillTrapper,
-	"sleight_of_hand":    SkillSleightOfHand,
-	"dual_wielding":      SkillDualWielding,
-	"iron_body":          SkillIronBody,
-	"spiritual_training": SkillSpiritualTraining,
+	"sword":                SkillSword,
+	"dagger":               SkillDagger,
+	"axe":                  SkillAxe,
+	"spear":                SkillSpear,
+	"bow":                  SkillBow,
+	"mace":                 SkillMace,
+	"staff":                SkillStaff,
+	"martial_arts":         SkillMartialArts,
+	"leather":              SkillLeather,
+	"chain":                SkillChain,
+	"plate":                SkillPlate,
+	"shield":               SkillShield,
+	"bodybuilding":         SkillBodybuilding,
+	"meditation":           SkillMeditation,
+	"merchant":             SkillMerchant,
+	"repair":               SkillRepair,
+	"identify_item":        SkillIdentifyItem,
+	"disarm_trap":          SkillDisarmTrap,
+	"learning":             SkillLearning,
+	"arms_master":          SkillArmsMaster,
+	"trapper":              SkillTrapper,
+	"sleight_of_hand":      SkillSleightOfHand,
+	"dual_wielding":        SkillDualWielding,
+	"iron_body":            SkillIronBody,
+	"spiritual_training":   SkillSpiritualTraining,
+	"blaster":              SkillBlaster,
+	"elemental_mastery":    SkillElementalMastery,
+	"animal_bonding":       SkillAnimalBonding,
+	"sacrifice":            SkillSacrifice,
+	"impenetrable_defense": SkillImpenetrableDefense,
+	"lockpicking":          SkillLockpicking,
+	"natural_healer":       SkillNaturalHealer,
 }
 
 // SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)
@@ -242,6 +271,7 @@ func SkillTypeFromKey(key string) (SkillType, bool) {
 var weaponSkills = map[SkillType]bool{
 	SkillSword: true, SkillDagger: true, SkillAxe: true, SkillSpear: true,
 	SkillBow: true, SkillMace: true, SkillStaff: true, SkillMartialArts: true,
+	SkillBlaster: true,
 }
 
 var armorSkills = map[SkillType]bool{
@@ -254,9 +284,7 @@ func (s SkillType) IsWeaponSkill() bool { return weaponSkills[s] }
 func (s SkillType) IsArmorSkill() bool  { return armorSkills[s] }
 
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
-// SkillType that gates wielding/proficiency bonuses. The "blaster" category
-// returns (0, false) because it's universally usable - callers handle that
-// special case explicitly.
+// SkillType that gates wielding/proficiency bonuses.
 func WeaponSkillForCategory(category string) (SkillType, bool) {
 	if category == "throwing" {
 		return SkillDagger, true // throwing weapons use the dagger skill

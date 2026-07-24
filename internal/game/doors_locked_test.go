@@ -124,7 +124,7 @@ func TestAvailableDoorUnlocks_KeyStatAndMaster(t *testing.T) {
 	// A strong member adds the force option (order: keys then forcings).
 	g.party.Members[0].Might = 60
 	opts := g.availableDoorUnlocks(npc)
-	if len(opts) != 2 || !opts[1].force {
+	if len(opts) != 2 || opts[1].kind != doorUnlockForce || opts[1].chancePct != character.DoorForceChancePct {
 		t.Fatalf("might 60 should add a force option, got %+v", opts)
 	}
 
@@ -166,6 +166,53 @@ func TestOpenLockedDoor_ConsumesKeyButNotSkeleton(t *testing.T) {
 			t.Error("skeleton key must NOT be consumed - it opens every door forever")
 		}
 	})
+}
+
+func TestDoorNonKeyAttemptsJamAfterThreeFailures(t *testing.T) {
+	npc := woodenDoorNPC()
+	for attempt := 1; attempt <= character.DoorMaxNonKeyAttempts; attempt++ {
+		opened, jammed := resolveNonKeyDoorAttempt(npc, 20, 99)
+		if opened {
+			t.Fatalf("failed roll %d opened the door", attempt)
+		}
+		if jammed != (attempt == character.DoorMaxNonKeyAttempts) {
+			t.Fatalf("attempt %d jammed=%v", attempt, jammed)
+		}
+	}
+	if !npc.DoorLockBroken || npc.DoorAttempts != character.DoorMaxNonKeyAttempts {
+		t.Fatalf("door state after failures = attempts %d broken %v", npc.DoorAttempts, npc.DoorLockBroken)
+	}
+	if opened, jammed := resolveNonKeyDoorAttempt(npc, 100, 0); opened || !jammed {
+		t.Fatal("a perfect non-key roll reopened an already jammed lock")
+	}
+}
+
+func TestDoorLockpickingUsesBestLivingSkillAndKeysBypassJam(t *testing.T) {
+	npc := woodenDoorNPC()
+	g := makeDoorGame(t, npc)
+	thief := character.CreateCharacter("Thief", character.ClassThief, g.config)
+	thief.Skills[character.SkillLockpicking].Mastery = character.MasteryMaster
+	g.party.Members = append(g.party.Members, thief)
+
+	opts := g.availableDoorUnlocks(npc)
+	if len(opts) != 1 || opts[0].kind != doorUnlockLockpick ||
+		opts[0].chancePct != character.LockpickingChancePct(2) {
+		t.Fatalf("lockpick options = %+v", opts)
+	}
+
+	npc.DoorLockBroken = true
+	if opts = g.availableDoorUnlocks(npc); len(opts) != 0 {
+		t.Fatalf("jammed keyless door still offers non-key options: %+v", opts)
+	}
+	g.party.AddItem(items.CreateItemFromYAML("ordinary_key"))
+	opts = g.availableDoorUnlocks(npc)
+	if len(opts) != 1 || opts[0].kind != doorUnlockConsumableKey {
+		t.Fatalf("key did not bypass jammed lock: %+v", opts)
+	}
+	g.openLockedDoor(npc, 0)
+	if !npc.Visited {
+		t.Fatal("matching key failed to open a jammed lock")
+	}
 }
 
 func TestValidateDoorNPCs(t *testing.T) {
@@ -234,6 +281,42 @@ func TestSaveLoad_OpenedLockedDoorDoesNotReblock(t *testing.T) {
 	}
 	if loaded.collisionSystem.CanMoveTo("player", door.X, door.Y) == false {
 		t.Fatal("opened door restored as an invisible collision block")
+	}
+}
+
+func TestSaveLoad_PreservesJammedDoorState(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const mapKey = "door_jam_save_test"
+	tile := float64(cfg.GetTileSize())
+	makeWorld := func() *world.World3D {
+		w := newTestWorldSized(cfg, 12, 12)
+		door := woodenDoorNPC()
+		door.X, door.Y = TileCenterFromTile(5, 5, tile)
+		w.NPCs = append(w.NPCs, door)
+		return w
+	}
+	makeManager := func(w *world.World3D) *world.WorldManager {
+		wm := world.NewWorldManager(cfg)
+		wm.CurrentMapKey = mapKey
+		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
+		return wm
+	}
+
+	saveWorld := makeWorld()
+	saveWorld.NPCs[0].DoorAttempts = character.DoorMaxNonKeyAttempts
+	saveWorld.NPCs[0].DoorLockBroken = true
+	saveManager := makeManager(saveWorld)
+	save := newTestGame(cfg, saveWorld).buildSave(saveManager)
+
+	loadWorld := makeWorld()
+	loadManager := makeManager(loadWorld)
+	loaded := newTestGame(cfg, loadWorld)
+	if err := loaded.applySave(loadManager, &save); err != nil {
+		t.Fatal(err)
+	}
+	door := loadWorld.NPCs[0]
+	if door.DoorAttempts != character.DoorMaxNonKeyAttempts || !door.DoorLockBroken {
+		t.Fatalf("loaded door state = attempts %d broken %v", door.DoorAttempts, door.DoorLockBroken)
 	}
 }
 

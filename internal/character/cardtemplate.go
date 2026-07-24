@@ -392,8 +392,26 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	}
 	if sd.PartyAoeRadiusTiles > 0 {
 		dmg.Title = "EFFECT"
-		dmg.Add("Damage: %d", def.SpellPointsCost*spells.SpellDamagePerSP)
+		base := sd.MasteryScaledDamage(0)
+		if sd.MasteryDamagePerTier > 0 {
+			dmg.Add("Base: %d", base)
+			dmg.Add("Mastery: +%d per tier", sd.MasteryDamagePerTier)
+			dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
+		} else {
+			dmg.Add("Damage: %d", base)
+		}
 		dmg.Add("Radius: %.0f tiles", sd.PartyAoeRadiusTiles)
+		dmg.Add("Targets: Monsters and Party")
+	}
+	if sd.MapWide {
+		dmg.Title = "EFFECT"
+		base := sd.MasteryScaledDamage(0)
+		dmg.Add("Base: %d", base)
+		if sd.MasteryDamagePerTier > 0 {
+			dmg.Add("Mastery: +%d per tier", sd.MasteryDamagePerTier)
+		}
+		dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
+		dmg.Add("Radius: Current map")
 		dmg.Add("Targets: Monsters and Party")
 	}
 
@@ -402,6 +420,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		heal.Add("Base: %d", sd.HealAmount)
 		heal.Add("Personality / %d: scales", spells.HealingPersonalityDivisor)
 		heal.Add("Mastery: +%d per tier", MasterySpellEffectPerLevel)
+		heal.Add("Natural Healer: +%d-%d%%", NaturalHealerBonusPct(0), NaturalHealerBonusPct(3))
 	}
 
 	// Damage projectiles crit on the character's shared crit roll (no base crit)
@@ -436,18 +455,27 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	rules := CardSection{Title: "RULES"}
 	school := strings.Title(def.School)
 	switch {
-	case sd.PartyAoeRadiusTiles > 0:
-		rules.Add("Fixed damage: no stat or mastery scaling")
-		rules.Add("%s: no GM resistance penetration", def.Name)
+	case sd.PartyAoeRadiusTiles > 0 || sd.MapWide:
+		rules.Add("All damage remains normal %s damage", strings.ToLower(school))
 		rules.Add("Enemy %s Resistance reduces damage", school)
 		rules.Add("Party %s Resistance reduces self-damage", school)
+		if MagicSchoolID(def.School).IsElemental() {
+			rules.Add("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
+				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+		}
 		rules.Add("Cannot critically hit")
 	case sd.DealsNoDamage:
 		rules.Add("Deals no damage")
 		rules.Add("Cannot critically hit")
 	case sd.IsProjectile || sd.ZoneRadiusTiles > 0:
 		rules.Add("%s Resistance reduces damage", school)
-		rules.Add("Grandmaster: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, school)
+		if MagicSchoolID(def.School).IsElemental() {
+			rules.Add("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
+				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+			rules.Add("GM: the school mastery damage bonus is typed true damage")
+		} else {
+			rules.Add("Grandmaster: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, school)
+		}
 	}
 	if sd.AoeRadiusTiles > 0 {
 		rules.Add("%s", SplashCritRule)

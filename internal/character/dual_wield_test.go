@@ -122,9 +122,8 @@ func TestUnequipGuardBlocksOnlyAZeroWeaponSkillCharacter(t *testing.T) {
 	}
 }
 
-// TestUniversalFallbacks: blaster still requires at least one real weapon
-// skill, while cloth remains a true no-skill armor category (robes are allowed
-// for Monk-like classes; leather/chain/plate/shield stay skill-gated).
+// TestUniversalFallbacks: blaster has its own weapon skill, while cloth remains
+// a true no-skill armor category.
 func TestUniversalFallbacks(t *testing.T) {
 	weaponless := &MMCharacter{Skills: map[SkillType]*Skill{}, Equipment: make(map[items.EquipSlot]items.Item)}
 	if weaponless.CanEquipWeaponByName("Alien Blaster") {
@@ -141,8 +140,12 @@ func TestUniversalFallbacks(t *testing.T) {
 		},
 		Equipment: make(map[items.EquipSlot]items.Item),
 	}
+	if trained.CanEquipWeaponByName("Alien Blaster") {
+		t.Error("Dagger training must not unlock Blasters")
+	}
+	trained.Skills[SkillBlaster] = &Skill{Mastery: MasteryNovice}
 	if !trained.CanEquipWeaponByName("Alien Blaster") {
-		t.Error("a character with a real weapon skill should still get the universal blaster pass")
+		t.Error("Blaster training should unlock Blasters")
 	}
 	if !trained.CanEquipArmor(items.CreateItemFromYAML("wizard_robe")) {
 		t.Error("a character with a real armor skill should still get the universal cloth pass")

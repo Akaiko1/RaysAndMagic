@@ -579,8 +579,7 @@ func magicMasteryOptionLabel(char *character.MMCharacter, school character.Magic
 }
 
 // skillTypeFromKey resolves a level-up choice key (weapon or armor category)
-// to its SkillType. "throwing" and "blaster" aren't level-up choices and are
-// intentionally not accepted here.
+// to its SkillType. "throwing" aliases Dagger and is not a distinct choice.
 func skillTypeFromKey(key string) (character.SkillType, bool) {
 	key = strings.ToLower(key)
 	if skill, ok := character.WeaponSkillForCategory(key); ok && key != "throwing" {

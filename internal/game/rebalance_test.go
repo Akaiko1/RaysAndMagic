@@ -83,8 +83,8 @@ func TestArmorMastery_AddsAC(t *testing.T) {
 	}
 }
 
-// TestSpellResistPierce_GMGated: only a Grandmaster of the spell's school pierces
-// resistance.
+// TestSpellResistPierce_ElementalMastery: elemental schools do not pierce by
+// themselves; the separate skill supplies 10-50%.
 func TestSpellResistPierce_GMGated(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	m := cs.game.party.Members[0]
@@ -98,21 +98,29 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 		t.Errorf("Master Fire -> pierce %d, want 0 (GM only)", p)
 	}
 	m.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
-	if p := cs.spellResistPierce(m, "fireball"); p != MagicGMResistPiercePct {
-		t.Errorf("GM Fire -> pierce %d, want %d", p, MagicGMResistPiercePct)
+	if p := cs.spellResistPierce(m, "fireball"); p != 0 {
+		t.Errorf("GM Fire without Elemental Mastery -> pierce %d, want 0", p)
+	}
+	m.Skills[character.SkillElementalMastery] = &character.Skill{Mastery: character.MasteryNovice}
+	if p := cs.spellResistPierce(m, "fireball"); p != character.ElementalMasteryPiercePct(0) {
+		t.Errorf("Novice Elemental Mastery -> pierce %d, want %d", p, character.ElementalMasteryPiercePct(0))
+	}
+	m.Skills[character.SkillElementalMastery].Mastery = character.MasteryGrandMaster
+	if p := cs.spellResistPierce(m, "fireball"); p != character.ElementalMasteryPiercePct(3) {
+		t.Errorf("GM Elemental Mastery -> pierce %d, want %d", p, character.ElementalMasteryPiercePct(3))
 	}
 }
 
 func TestMagicMasteryTooltip_CitesGMResistPierce(t *testing.T) {
 	tip := magicMasteryTooltipText()
-	if !strings.Contains(tip, fmt.Sprintf("%d%%", MagicGMResistPiercePct)) {
-		t.Errorf("magic mastery tooltip %q should cite GM resist pierce %d%%", tip, MagicGMResistPiercePct)
+	if !strings.Contains(tip, "typed true damage") {
+		t.Errorf("magic mastery tooltip %q should cite elemental GM true damage", tip)
 	}
 	if strings.Contains(tip, "Inferno") {
 		t.Errorf("magic mastery tooltip should not mention Inferno globally: %q", tip)
 	}
-	if !strings.Contains(tip, "projectile and zone spells") {
-		t.Errorf("magic mastery tooltip should scope GM pierce to projectile/zone spells: %q", tip)
+	if !strings.Contains(tip, fmt.Sprintf("%d%%", MagicGMResistPiercePct)) {
+		t.Errorf("magic mastery tooltip should retain non-elemental GM pierce: %q", tip)
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -840,7 +839,8 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
-		total, _ = cs.rollSpellCritDamage(spellID, ch, total)
+		parts := cs.spellDamageParts(spellID, ch, total)
+		parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
 		// Champion spells use the spell's own damage packet. Weapon mastery true
 		// damage and dodge-pierce belong only to weapon strikes.
 		cs.spawnMonsterSpellProjectileDamage(
@@ -849,7 +849,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			cs.game.camera.X,
 			cs.game.camera.Y,
 			ProjectileOwnerMonster,
-			damagecalc.Parts{Normal: total},
+			parts,
 			false,
 		)
 	}

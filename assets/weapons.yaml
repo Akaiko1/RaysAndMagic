@@ -1346,8 +1346,8 @@ weapons:
 
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
-# skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a
-# category with no skill such as "blaster" stays neutral 1.0). Lighter weapons
+# skill via WeaponSkillForCategory (so "throwing" uses the dagger value; an
+# unlisted skill such as Blaster stays neutral 1.0). Lighter weapons
 # swing faster, heavy weapons slower. Legendaries override via their own
 # `cooldown_multiplier`.
 weapon_cooldown_multipliers:

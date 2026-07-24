@@ -350,21 +350,7 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	for _, sk := range stats.Skills {
-		st, ok := SkillTypeFromKey(sk)
-		if !ok {
-			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
-		}
-		mastery := MasteryNovice
-		if startTier, ok := stats.SkillStartMastery[sk]; ok {
-			m, ok := masteryFromKey(startTier)
-			if !ok {
-				panic(fmt.Sprintf("class %q: unknown skill_start_mastery value %q for %q in config.yaml", key, startTier, sk))
-			}
-			mastery = m
-		}
-		c.Skills[st] = &Skill{Mastery: mastery}
-	}
+	c.ensureClassKitSkills(stats, key)
 
 	for _, entry := range stats.Magic {
 		school := MagicSchoolID(entry.School)
@@ -402,6 +388,47 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 			c.Equipment[items.SlotSpell] = spellItem
 		}
 	}
+}
+
+func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) bool {
+	if c.Skills == nil {
+		c.Skills = make(map[SkillType]*Skill)
+	}
+	added := false
+	for _, sk := range stats.Skills {
+		st, ok := SkillTypeFromKey(sk)
+		if !ok {
+			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
+		}
+		mastery := MasteryNovice
+		if startTier, ok := stats.SkillStartMastery[sk]; ok {
+			m, ok := masteryFromKey(startTier)
+			if !ok {
+				panic(fmt.Sprintf("class %q: unknown skill_start_mastery value %q for %q in config.yaml", key, startTier, sk))
+			}
+			mastery = m
+		}
+		if _, exists := c.Skills[st]; !exists {
+			c.Skills[st] = &Skill{Mastery: mastery}
+			added = true
+		}
+	}
+	return added
+}
+
+// EnsureClassKitSkills migrates an existing character to the current
+// data-authored class kit. It only adds absent skills; earned mastery remains
+// untouched.
+func (c *MMCharacter) EnsureClassKitSkills(cfg *config.Config) bool {
+	if c == nil || cfg == nil {
+		return false
+	}
+	key := c.Class.Key()
+	stats, ok := cfg.Characters.Classes[key]
+	if !ok {
+		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
+	}
+	return c.ensureClassKitSkills(stats, key)
 }
 
 func isKnownMagicSchool(id MagicSchoolID) bool {
@@ -983,9 +1010,6 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 		return false // Unknown weapon cannot be equipped
 	}
 
-	if weaponDef.Category == "blaster" && c.HasAnyWeaponSkill() {
-		return true // universally usable - but not for a class trained in NO weapon at all
-	}
 	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
 	// weapon training entirely.
 	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
@@ -1134,10 +1158,7 @@ func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
 // (the same weapon already sitting in the slot). Guards UnequipItem: a
 // character whose only weapon skill is Martial Arts could never equip anything
 // else, so unequipping SlotMainHand would leave them permanently weaponless -
-// everyone else can always re-equip some other weapon they know. Also gates
-// the "blaster" universal-weapon fallback (see CanEquipWeaponByName): every
-// class in the current roster already has a real weapon skill, so this is a
-// no-op for them and only keeps a Monk-like class unarmed.
+// everyone else can always re-equip some other weapon they know.
 //
 // Membership goes through Category() (the single source of what's a weapon
 // skill) rather than a numeric SkillType range - a range silently drops any
@@ -1147,8 +1168,7 @@ func (c *MMCharacter) HasAnyWeaponSkill() bool {
 	for skill := range c.Skills {
 		// Martial Arts IS a weapon skill but is excluded here on purpose: it only
 		// ever gates the Monk's fists (already in the slot), so it can't rescue an
-		// unequipped main hand or justify the blaster fallback. Explicit exclusion,
-		// not a range accident.
+		// unequipped main hand. Explicit exclusion, not a range accident.
 		if skill.IsWeaponSkill() && skill != SkillMartialArts {
 			return true
 		}

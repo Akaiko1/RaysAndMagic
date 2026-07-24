@@ -21,6 +21,7 @@ type SteamZone struct {
 	Radius         float64 // pixels
 	FramesLeft     int     // total lifetime remaining (frames)
 	TickDamage     int
+	TrueTickDamage int
 	ResistPierce   int // snapshotted from the caster's school mastery
 	IntervalFrames int // RT damage cadence
 	tickCounter    int // frames since last RT tick
@@ -41,6 +42,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
 	// in-game tooltip - same source of truth as every other timed spell.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
+	tickParts := cs.spellDamageParts(spellID, caster, cs.CalculateSteamZoneTickDamage(def, caster))
 	newZone := SteamZone{
 		SpellID:        string(spellID),
 		MapKey:         currentMapKey(),
@@ -48,7 +50,8 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 		Y:              cs.game.camera.Y,
 		Radius:         def.ZoneRadiusTiles * tile,
 		FramesLeft:     frames,
-		TickDamage:     cs.CalculateSteamZoneTickDamage(def, caster),
+		TickDamage:     tickParts.Normal,
+		TrueTickDamage: tickParts.True,
 		ResistPierce:   cs.spellResistPierce(caster, string(spellID)),
 		IntervalFrames: interval,
 	}
@@ -85,7 +88,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 // damageSteamZoneOnce applies one damage tick from a zone to every monster inside
 // it, with a small steam puff on each victim.
 func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
-	if z.TickDamage <= 0 {
+	if z.TickDamage <= 0 && z.TrueTickDamage <= 0 {
 		return
 	}
 	// A zone lives on the map it was cast on: same coordinates on another map
@@ -105,7 +108,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		}
 		cs.applyMonsterDamagePacket(
 			m,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: tickDamage}, damageTypeStr, z.ResistPierce),
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: tickDamage, True: z.TrueTickDamage}, damageTypeStr, z.ResistPierce),
 			monsterDamageOptions{IgnoreArmor: true},
 		)
 		cs.markMonsterHit(m)
@@ -245,6 +248,7 @@ type SteamZoneSave struct {
 	Radius         float64 `json:"radius"`
 	FramesLeft     int     `json:"frames_left"`
 	TickDamage     int     `json:"tick_damage"`
+	TrueTickDamage int     `json:"true_tick_damage,omitempty"`
 	ResistPierce   int     `json:"resist_pierce,omitempty"`
 	IntervalFrames int     `json:"interval_frames"`
 	TickCounter    int     `json:"tick_counter,omitempty"`
@@ -258,7 +262,7 @@ func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
 	for i, z := range zones {
 		out[i] = SteamZoneSave{
 			SpellID: z.SpellID, MapKey: z.MapKey, X: z.X, Y: z.Y, Radius: z.Radius,
-			FramesLeft: z.FramesLeft, TickDamage: z.TickDamage, ResistPierce: z.ResistPierce,
+			FramesLeft: z.FramesLeft, TickDamage: z.TickDamage, TrueTickDamage: z.TrueTickDamage, ResistPierce: z.ResistPierce,
 			IntervalFrames: z.IntervalFrames, TickCounter: z.tickCounter,
 		}
 	}
@@ -279,7 +283,7 @@ func restoreSteamZones(saves []SteamZoneSave, saveMapKey string) []SteamZone {
 		}
 		out[i] = SteamZone{
 			SpellID: s.SpellID, MapKey: mapKey, X: s.X, Y: s.Y, Radius: s.Radius,
-			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, ResistPierce: s.ResistPierce,
+			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, TrueTickDamage: s.TrueTickDamage, ResistPierce: s.ResistPierce,
 			IntervalFrames: s.IntervalFrames, tickCounter: s.TickCounter,
 		}
 	}

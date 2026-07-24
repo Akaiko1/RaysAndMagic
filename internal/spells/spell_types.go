@@ -46,6 +46,7 @@ type SpellDefinition struct {
 	// Damage-formula modifiers (default behaviour when zero/false)
 	DamageCostMultiplier  int  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool // also add Personality/divisor to spell damage
+	MasteryDamagePerTier  int  // explicit special-spell scaling (Inferno)
 	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
 	StunRadiusTiles     float64
 	StunDurationSeconds int
@@ -97,6 +98,19 @@ type SpellDefinition struct {
 	Message           string   // Effect message to display
 }
 
+// MasteryScaledDamage is the canonical damage formula for special nova spells
+// with an explicit YAML mastery step (currently Inferno). tier is the zero-based
+// Novice..Grandmaster mastery index.
+func (d SpellDefinition) MasteryScaledDamage(tier int) int {
+	if tier < 0 {
+		tier = 0
+	}
+	if tier > 3 {
+		tier = 3
+	}
+	return d.SpellPointsCost*SpellDamagePerSP + tier*d.MasteryDamagePerTier
+}
+
 // SchoolList returns every school the spell belongs to: Schools when authored,
 // else the single School. The ONE place dual-school membership is resolved.
 func (d SpellDefinition) SchoolList() []string {
@@ -144,6 +158,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		StatBonuses:                        configDef.StatBonuses,
 		DamageCostMultiplier:               configDef.DamageCostMultiplier,
 		ScalesWithPersonality:              configDef.ScalesWithPersonality,
+		MasteryDamagePerTier:               configDef.MasteryDamagePerTier,
 		StunRadiusTiles:                    configDef.StunRadiusTiles,
 		StunDurationSeconds:                configDef.StunDurationSeconds,
 		StunDurationTurns:                  configDef.StunDurationTurns,
@@ -248,10 +263,22 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Pacifies a living target for %ds (stops attacking; breaks if hit)", d.PacifyDurationSeconds))
 	}
 	if d.PartyAoeRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
+		minDamage := d.MasteryScaledDamage(0)
+		maxDamage := d.MasteryScaledDamage(3)
+		if maxDamage > minDamage {
+			out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d-%d damage by mastery - your party too", d.PartyAoeRadiusTiles, minDamage, maxDamage))
+		} else {
+			out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, minDamage))
+		}
 	}
 	if d.MapWide {
-		out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage - your party too", d.SpellPointsCost*SpellDamagePerSP))
+		minDamage := d.MasteryScaledDamage(0)
+		maxDamage := d.MasteryScaledDamage(3)
+		if maxDamage > minDamage {
+			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d-%d damage by mastery - your party too", minDamage, maxDamage))
+		} else {
+			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage - your party too", minDamage))
+		}
 	}
 	if d.MortarRangeTiles > 0 {
 		out = append(out, fmt.Sprintf("Arcs over everything and blooms exactly %.0f tiles out", d.MortarRangeTiles))

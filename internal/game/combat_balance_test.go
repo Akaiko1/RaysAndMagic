@@ -2217,6 +2217,7 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 	// is purely that set).
 	newTank := func(pieces map[items.EquipSlot]string) *character.MMCharacter {
 		c := character.CreateCharacter("Tank", character.ClassKnight, cs.game.config)
+		delete(c.Skills, character.SkillImpenetrableDefense) // this matrix isolates armor tiers
 		c.Level = 6
 		c.Endurance = 20
 		for _, s := range armorSlots {

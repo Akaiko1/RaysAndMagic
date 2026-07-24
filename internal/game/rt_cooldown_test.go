@@ -179,10 +179,10 @@ func TestWeaponCooldown_TypeMultipliers(t *testing.T) {
 	if throwingKnife := frames("throwing_knife"); throwingKnife != dagger {
 		t.Errorf("throwing_knife cooldown (%d) should equal dagger (%d) - throwing maps to the dagger skill", throwingKnife, dagger)
 	}
-	// "blaster" maps to no weapon skill, so the alien blaster gets the neutral
-	// 1.0 multiplier (same as the sword baseline).
+	// Blaster is a real skill but has no authored category multiplier, so it
+	// keeps the neutral 1.0 cadence (same as the sword baseline).
 	if blaster := frames("alien_blaster"); blaster != sword {
-		t.Errorf("alien_blaster cooldown (%d) should be neutral 1.0 == sword (%d) - blaster is not a real weapon type", blaster, sword)
+		t.Errorf("alien_blaster cooldown (%d) should be neutral 1.0 == sword (%d)", blaster, sword)
 	}
 }
 

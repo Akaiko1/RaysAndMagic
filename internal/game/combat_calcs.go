@@ -3,8 +3,10 @@ package game
 import (
 	"math"
 	"strings"
+
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -56,19 +58,41 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	return baseDamage, intellectBonus, totalDamage
 }
 
-// rollSpellCritDamage rolls the universal player crit chance for a spell (no
-// spell base crit) and returns the possibly-boosted damage plus whether it
-// crit. No-damage spells (Disintegrate) never crit - the ONE place that rule
-// lives, shared by every cast path (player projectile, champion cast, mortar)
-// so none can drift.
-func (cs *CombatSystem) rollSpellCritDamage(spellID spells.SpellID, caster *character.MMCharacter, base int) (int, bool) {
+// spellDamageParts converts only an elemental school's regular +5/tier mastery
+// bonus to typed true damage at Grandmaster. A spell with its own explicit
+// mastery step (currently Inferno's 45-90 scaling) remains entirely Normal.
+func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+	parts := damagecalc.Parts{Normal: total}
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil || !character.MagicSchoolID(def.School).IsElemental() ||
+		def.MasteryDamagePerTier > 0 || caster == nil {
+		return parts
+	}
+	school := caster.MagicSchools[character.MagicSchoolID(def.School)]
+	if school == nil || school.Mastery < character.MasteryGrandMaster {
+		return parts
+	}
+	bonus := cs.spellMasteryBonus(caster, spellID)
+	if bonus > parts.Normal {
+		bonus = parts.Normal
+	}
+	parts.Normal -= bonus
+	parts.True = bonus
+	return parts
+}
+
+// rollSpellCritParts rolls the universal player crit chance for a spell and
+// doubles both components together. No-damage spells never crit.
+func (cs *CombatSystem) rollSpellCritParts(spellID spells.SpellID, caster *character.MMCharacter, parts damagecalc.Parts) (damagecalc.Parts, bool) {
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.DealsNoDamage {
-		return base, false
+		return parts, false
 	}
 	if crit, _ := cs.RollCriticalChance(0, caster); crit {
-		return base * CritDamageMultiplier, true
+		parts.Normal *= CritDamageMultiplier
+		parts.True *= CritDamageMultiplier
+		return parts, true
 	}
-	return base, false
+	return parts, false
 }
 
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
@@ -83,6 +107,9 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	if masteryBonus > 0 {
 		baseHeal += masteryBonus
 		totalHeal += masteryBonus
+	}
+	if char.HasSkill(character.SkillNaturalHealer) {
+		totalHeal = totalHeal * (100 + character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer))) / 100
 	}
 	return baseHeal, personalityBonus, totalHeal
 }
@@ -371,7 +398,7 @@ func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, wea
 			default:
 				// Resolve the weapon's category to its canonical weapon SKILL
 				// (so "throwing" -> dagger) and read that type's multiplier from
-				// weapons.yaml. Categories with no skill (e.g. blaster) stay 1.0.
+				// weapons.yaml. Unlisted skill types stay at 1.0.
 				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
 					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
 				}

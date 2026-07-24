@@ -72,6 +72,7 @@ func newTestCombatSystemWithConfig(t *testing.T) *CombatSystem {
 		party: character.NewParty(cfg),
 		world: &world.World3D{},
 	}
+	stripNewClassSkillsForLegacyFixtures(game.party)
 	game.selectedChar = 0
 	game.collisionSystem = collision.NewCollisionSystem(&testTileChecker{width: 100, height: 100}, float64(cfg.GetTileSize()))
 	game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))

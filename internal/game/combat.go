@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -21,6 +22,11 @@ import (
 type CombatSystem struct {
 	game *MMGame
 }
+
+// Animal Bonding summons are pure party allies. The owner prefix persists
+// through MonsterSave.SummonedBy and identifies their no-reward/map-exit
+// lifecycle independently of the Druid's display name.
+const animalBondingOwnerPrefix = "animal_bonding:"
 
 // NewCombatSystem creates a new combat system
 func NewCombatSystem(game *MMGame) *CombatSystem {
@@ -256,6 +262,70 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 	}
 }
 
+// tryPartyActionSummons is the shared attack/generic-cast proc gate. Card
+// summons are party-wide; Animal Bonding belongs to the character who acted.
+func (cs *CombatSystem) tryPartyActionSummons(actor *character.MMCharacter) {
+	cs.tryCardSummonOnAction()
+	cs.tryAnimalBondingOnAction(actor)
+}
+
+func (cs *CombatSystem) tryAnimalBondingOnAction(druid *character.MMCharacter) {
+	if druid == nil || !druid.HasSkill(character.SkillAnimalBonding) || cs.game.GetCurrentWorld() == nil {
+		return
+	}
+	tier := druid.SkillTier(character.SkillAnimalBonding)
+	if rand.Intn(100) >= character.AnimalBondingProcPct(tier) {
+		return
+	}
+	cs.summonAnimalBondingBear(druid)
+}
+
+func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bool {
+	if druid == nil || !druid.HasSkill(character.SkillAnimalBonding) || cs.game.GetCurrentWorld() == nil {
+		return false
+	}
+	tier := druid.SkillTier(character.SkillAnimalBonding)
+	tile := float64(cs.game.config.GetTileSize())
+	angle := rand.Float64() * 2 * math.Pi
+	sx, sy, ok := cs.findNearestSummonTile(
+		cs.game.camera.X+math.Cos(angle)*2*tile,
+		cs.game.camera.Y+math.Sin(angle)*2*tile,
+		10,
+	)
+	if !ok {
+		return false
+	}
+	bear := monsterPkg.NewMonster3DFromConfig(sx, sy, "bear", cs.game.config)
+	if bear == nil {
+		return false
+	}
+	markPurePartySummon(bear, animalBondingOwnerPrefix+druid.Name)
+	copyPct := character.AnimalBondingStatPct(tier)
+	bear.MaxHitPoints = druid.MaxHitPoints * copyPct / 100
+	if bear.MaxHitPoints < 1 {
+		bear.MaxHitPoints = 1
+	}
+	bear.HitPoints = bear.MaxHitPoints
+	bear.ArmorClass = cs.CalculateTotalArmorClass(druid) * copyPct / 100
+	attack := druid.GetEffectiveMight() / WeaponPrimaryStatDivisor
+	if weapon, ok := druid.Equipment[items.SlotMainHand]; ok {
+		_, _, attack = cs.CalculateWeaponDamage(weapon, druid)
+		if def := lookupWeaponConfigByName(weapon.Name); def != nil {
+			trueDamage, _ := cs.weaponMasteryStrike(druid, def)
+			attack += trueDamage
+		}
+	}
+	attack = attack * copyPct / 100
+	if attack < 1 {
+		attack = 1
+	}
+	bear.DamageMin, bear.DamageMax = attack, attack
+	cs.game.registerSpawnedMonster(bear)
+	cs.game.refreshMonsterCollisionState(bear)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's Animal Bonding calls a bear ally!", druid.Name))
+	return true
+}
+
 // markCardAlly turns a spawned monster into a party ally summoned by the card
 // collection: Bound (hunts enemy monsters, ignores the party), tagged for the
 // summon limit, and excluded from map-clear quest counts.
@@ -264,12 +334,16 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 // XP/gold/loot on death and does not follow across maps - it simply crumbles
 // when the party leaves (a fresh set is re-summoned there via the proc).
 func markCardAlly(m *monsterPkg.Monster3D) {
+	markPurePartySummon(m, cardSummonOwner)
+}
+
+func markPurePartySummon(m *monsterPkg.Monster3D, owner string) {
 	m.Bound = true
 	m.BoundFramesRemaining = 0
 	m.Pacified = false
 	m.PacifiedFramesRemaining = 0
 	m.WasAttacked = false
-	m.SummonedBy = cardSummonOwner
+	m.SummonedBy = owner
 	m.QuestProgressIgnored = true
 }
 
@@ -281,9 +355,13 @@ func isCardAlly(m *monsterPkg.Monster3D) bool {
 	return m != nil && m.SummonedBy == cardSummonOwner
 }
 
+func isPurePartySummon(m *monsterPkg.Monster3D) bool {
+	return isCardAlly(m) || (m != nil && strings.HasPrefix(m.SummonedBy, animalBondingOwnerPrefix))
+}
+
 // crumbleBoundAlliesOnDeparture removes the party's bound allies from the world
 // being left. A bound undead (a former enemy) grants XP but no loot or gold; a
-// pure card ally yields nothing. The removal is immediate because the normal
+// pure party summon yields nothing. The removal is immediate because the normal
 // end-of-frame death sweep runs only on the newly entered world.
 func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 	if departing == nil || g.combat == nil {
@@ -295,7 +373,7 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 			kept = append(kept, m)
 			continue
 		}
-		if !isCardAlly(m) {
+		if !isPurePartySummon(m) {
 			g.combat.awardExperienceOnly(m)
 			g.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
 		}
@@ -440,6 +518,10 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		n := cs.healWholeParty(healAmount)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s, healing %d allies for %d HP!",
 			caster.Name, def.Name, n, healAmount))
+		// Targeted/book healing predates castResolvedSpell and must join the
+		// Druid's per-spell Animal Bonding rule without changing the older,
+		// attack/generic-cast-only Orc Warlord Card cadence.
+		cs.tryAnimalBondingOnAction(caster)
 		return true
 	}
 
@@ -463,6 +545,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
 	}
+	cs.tryAnimalBondingOnAction(caster)
 	return true
 }
 
@@ -722,7 +805,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	if acted {
 		cs.tryCardHealOnAttack() // Ningyo Card: chance to self-heal on attacking
 		if !summonRolled {
-			cs.tryCardSummonOnAction() // Orc Warlord Card: chance to summon allies
+			cs.tryPartyActionSummons(attacker)
 		}
 		// Bandit Card: chance to also loose a short bonus bolt (Accuracy/3 dmg).
 		// Always the main hand - a generic card proc, not tied to which hand swung.
@@ -1565,7 +1648,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		// no-op cast.
 		if caster.SpellPoints <= spAfterPay {
 			if countsAsAction {
-				cs.tryCardSummonOnAction()
+				cs.tryPartyActionSummons(caster)
 			}
 			cs.playSpellBuffFx(spellID) // same no-op gate: refunded cast = no animation
 		}
@@ -1575,7 +1658,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 	// A projectile or utility cast that reaches here is a real party action
 	// unless it is a free proc riding on an action that already rolled cards.
 	if countsAsAction {
-		cs.tryCardSummonOnAction()
+		cs.tryPartyActionSummons(caster)
 	}
 
 	castingSystem := spells.NewCastingSystem(cs.game.config)
@@ -1612,9 +1695,12 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		}
 		disintegrateChance += float64(cs.game.cardDisintegratePct()) / 100
 
-		// Luck-based spell crit (no-damage spells never crit - see helper).
+		// Luck-based spell crit doubles the normal and typed-true components
+		// together. Elemental GM converts only the regular mastery bonus.
+		parts := cs.spellDamageParts(spellID, caster, totalDamage)
 		var isCrit bool
-		projectile.Damage, isCrit = cs.rollSpellCritDamage(spellID, caster, totalDamage)
+		parts, isCrit = cs.rollSpellCritParts(spellID, caster, parts)
+		projectile.Damage = parts.Normal
 
 		magicProjectile := MagicProjectile{
 			ID:                 cs.game.GenerateProjectileID(string(spellID)),
@@ -1624,6 +1710,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			VelX:               projectile.VelX,
 			VelY:               projectile.VelY,
 			Damage:             projectile.Damage,
+			TrueDamage:         parts.True,
 			LifeTime:           projectile.LifeTime,
 			Active:             projectile.Active,
 			SpellType:          string(spellID),
@@ -2167,6 +2254,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
 			return
 		}
+		trueDealt = cs.redirectDamageThroughSacrifice(target, trueDealt)
 		target.HitPoints -= trueDealt
 		if target.HitPoints < 0 {
 			target.HitPoints = 0
@@ -2197,6 +2285,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		hit.ArmorPiercePct,
 	)
 	finalDamage := dealt.Total()
+	finalDamage = cs.redirectDamageThroughSacrifice(target, finalDamage)
 	target.HitPoints -= finalDamage
 	if target.HitPoints < 0 {
 		target.HitPoints = 0
@@ -2450,6 +2539,7 @@ func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCh
 // callers supply their own flavor line and any extra VFX (e.g. party flame).
 func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string) int {
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
+	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
 	member.HitPoints -= dealt
 	if member.HitPoints < 0 {
 		member.HitPoints = 0
@@ -2459,6 +2549,42 @@ func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMChar
 	}
 	cs.game.TriggerDamageBlink(idx)
 	return dealt
+}
+
+// redirectDamageThroughSacrifice moves a share of an already-mitigated hit
+// from the victim to the strongest living Sacrifice user. The transfer is not
+// mitigated a second time and never recurses; DoTs bypass this combat-hit sink.
+func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMCharacter, damage int) int {
+	if cs == nil || cs.game == nil || cs.game.party == nil || victim == nil || damage <= 0 {
+		return damage
+	}
+	var protector *character.MMCharacter
+	bestPct := 0
+	for _, member := range cs.game.party.Members {
+		if member == nil || member == victim || member.HitPoints <= 0 || !member.HasSkill(character.SkillSacrifice) {
+			continue
+		}
+		pct := character.SacrificeRedirectPct(member.SkillTier(character.SkillSacrifice))
+		if pct > bestPct {
+			protector, bestPct = member, pct
+		}
+	}
+	redirected := damage * bestPct / 100
+	if protector == nil || redirected <= 0 {
+		return damage
+	}
+	protector.HitPoints -= redirected
+	if protector.HitPoints < 0 {
+		protector.HitPoints = 0
+	}
+	if idx := cs.findCharacterIndex(protector); idx >= 0 {
+		cs.game.TriggerDamageBlink(idx)
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s sacrifices %d HP to protect %s!", protector.Name, redirected, victim.Name))
+	if protector.HitPoints == 0 {
+		cs.knockOut(protector)
+	}
+	return damage - redirected
 }
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
@@ -3419,12 +3545,16 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// assist connects), not its real off-to-the-side tile.
 	fxX, fxY := cs.monsterVisualPos(monster)
 
-	// Weapon mastery is stamped when the arrow leaves the weapon. Resolving it
-	// here used to let equipment/mastery changes in flight alter the hit and made
-	// Bandit Card's generic bolt inherit the Hunting Bow physics fallback.
+	// Typed true damage is stamped when the projectile leaves its source.
+	// Resolving weapon mastery here used to let equipment/mastery changes in
+	// flight alter an arrow and made Bandit Card's generic bolt inherit the
+	// Hunting Bow physics fallback.
 	trueDmg, ignoreDodge := 0, false
-	if ar, ok := projectile.(*Arrow); ok {
-		trueDmg, ignoreDodge = ar.TrueDamage, ar.IgnoresDodge
+	switch p := projectile.(type) {
+	case *Arrow:
+		trueDmg, ignoreDodge = p.TrueDamage, p.IgnoresDodge
+	case *MagicProjectile:
+		trueDmg, ignoreDodge = p.TrueDamage, p.IgnoresDodge
 	}
 	resistPierce := 0
 	if isSpell {
@@ -3446,7 +3576,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	attack.IgnoreDodge = ignoreDodge
 
 	// Check monster perfect dodge (applies to all attack types). A Grandmaster
-	// weapon strike ignores it; otherwise the normal hit is dodged but mastery
+	// weapon strike ignores it; otherwise the normal hit is dodged but typed
 	// TRUE damage still lands.
 	if monsterPerfectDodges(monster, attack.IgnoreDodge) {
 		cs.breakPacifyOnHit(monster)
@@ -3816,10 +3946,10 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	if monster == nil || cs.game.party == nil || len(cs.game.party.Members) == 0 {
 		return 0
 	}
-	// A card ally is a pure summon, never an enemy: its death credits the party
+	// A pure party summon was never an enemy: its death credits the party
 	// with nothing (no XP, gold, or loot). THE single gate for that rule, so
 	// every death path (melee, projectile, splash) honours it automatically.
-	if isCardAlly(monster) {
+	if isPurePartySummon(monster) {
 		return 0
 	}
 
@@ -4033,8 +4163,8 @@ func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, wea
 }
 
 // spellResistPierce returns the resistance-pierce percent for the given
-// caster's spell: MagicGMResistPiercePct if they are Grandmaster in that
-// spell's school, else 0.
+// caster's spell. Elemental schools use the separate Elemental Mastery skill;
+// other schools retain their school-GM pierce.
 func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellType string) int {
 	if caster == nil {
 		return 0
@@ -4044,6 +4174,12 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 		return 0
 	}
 	school := character.MagicSchoolID(def.School)
+	if school.IsElemental() {
+		if !caster.HasSkill(character.SkillElementalMastery) {
+			return 0
+		}
+		return character.ElementalMasteryPiercePct(caster.SkillTier(character.SkillElementalMastery))
+	}
 	if ms, ok := caster.MagicSchools[school]; ok && ms != nil && ms.Mastery >= character.MasteryGrandMaster {
 		return MagicGMResistPiercePct
 	}
@@ -4079,6 +4215,18 @@ func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition,
 		tick += cs.spellMasteryBonus(char, def.ID)
 	}
 	return tick
+}
+
+// CalculateInfernoDamage returns the whole normal-fire nova payload. Inferno
+// has explicit YAML mastery scaling and never converts any part to true damage.
+func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
+	tier := 0
+	if char != nil && def.MasteryDamagePerTier > 0 {
+		if school := char.MagicSchools[character.MagicSchoolID(def.School)]; school != nil {
+			tier = int(school.Mastery)
+		}
+	}
+	return def.MasteryScaledDamage(tier)
 }
 
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
@@ -4186,7 +4334,7 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 // projectile/utility paths. Single place to register a new effect-spell type.
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	return cs.tryCastAoeStun(spellID, def) ||
-		cs.tryCastInferno(def) ||
+		cs.tryCastInferno(def, caster) ||
 		cs.tryCastSteamZone(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
 		cs.tryCastRaiseDead(def, caster) ||
@@ -4198,11 +4346,11 @@ func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.
 // every party member takes the spell's full damage (cost x SpellDamagePerSP).
 // MapWide burns the ENTIRE current map - no radius; the party always burns too
 // (fire resistance is the intended answer). Gated on either trigger field.
-func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
+func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.PartyAoeRadiusTiles <= 0 && !def.MapWide {
 		return false
 	}
-	dmg := def.SpellPointsCost * spells.SpellDamagePerSP
+	dmg := cs.CalculateInfernoDamage(def, caster)
 	radius := math.Inf(1) // MapWide: every monster on the map
 	if !def.MapWide {
 		radius = def.PartyAoeRadiusTiles * float64(cs.game.config.GetTileSize())
@@ -4210,6 +4358,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
 	cx, cy := cs.game.camera.X, cs.game.camera.Y
 	damageTypeStr := normalizeDamageTypeStr(def.School)
 	monsterDmg := dmg + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+	resistPierce := cs.spellResistPierce(caster, string(def.ID))
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
 
@@ -4226,7 +4375,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
 		}
 		cs.applyMonsterDamagePacket(
 			m,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: monsterDmg}, damageTypeStr, 0),
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: monsterDmg}, damageTypeStr, resistPierce),
 			monsterDamageOptions{},
 		)
 		cs.markMonsterHit(m)
@@ -4997,12 +5146,23 @@ func (cs *CombatSystem) mitigateCharacterDamagePartsWithArmorPierce(
 	}
 	// 3) ...then the flat reductions (DisarmTrap + Hour of Power / Stone Skin),
 	//    which CAN finish normal damage off to 0. True and DoTs bypass this step.
-	parts.Normal -= char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier
+	parts.Normal -= personalSkillDamageReduction(char)
 	parts.Normal -= cs.game.combatBuffInReduce()
 	if parts.Normal < 0 {
 		parts.Normal = 0
 	}
 	return parts
+}
+
+func personalSkillDamageReduction(char *character.MMCharacter) int {
+	if char == nil {
+		return 0
+	}
+	reduction := char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier
+	if char.HasSkill(character.SkillImpenetrableDefense) {
+		reduction += character.ImpenetrableDefenseReduction(char.SkillTier(character.SkillImpenetrableDefense))
+	}
+	return reduction
 }
 
 // PhysicalMitigation is the breakdown of how an incoming PHYSICAL hit is reduced,
@@ -5013,7 +5173,7 @@ type PhysicalMitigation struct {
 	ArmorClass int // total AC across equipped armor
 	ArmorPct   int // armor % mitigation vs physical (capped 75)
 	ResistPct  int // physical resistance % (gear + party buff, capped 100; 100 = immune)
-	SkillFlat  int // flat reduction from DisarmTrap tier, applied AFTER the % steps with FlatBuff
+	SkillFlat  int // combined personal skill reduction, applied AFTER the % steps with FlatBuff
 	FlatBuff   int // flat reduction applied after the % steps (Hour of Power / Stone Skin)
 }
 
@@ -5027,7 +5187,7 @@ func (cs *CombatSystem) PhysicalMitigationBreakdown(char *character.MMCharacter)
 	return PhysicalMitigation{
 		ArmorClass: cs.CalculateTotalArmorClass(char),
 		ArmorPct:   cs.armorMitigationPct(char, true),
-		SkillFlat:  char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier,
+		SkillFlat:  personalSkillDamageReduction(char),
 		ResistPct:  cs.game.schoolResistPct(char, monsterPkg.DamagePhysical.String()),
 		FlatBuff:   cs.game.combatBuffInReduce(),
 	}

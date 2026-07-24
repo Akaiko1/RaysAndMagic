@@ -18,6 +18,7 @@ type pendingMortar struct {
 	FramesLeft  int
 	SpellID     string
 	Damage      int
+	TrueDamage  int
 	Crit        bool
 	Caster      *character.MMCharacter
 	RadiusTiles float64
@@ -37,7 +38,8 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	landY := cs.game.camera.Y + dirY*dist
 
 	_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
-	totalDamage, isCrit := cs.rollSpellCritDamage(spellID, caster, totalDamage)
+	parts := cs.spellDamageParts(spellID, caster, totalDamage)
+	parts, isCrit := cs.rollSpellCritParts(spellID, caster, parts)
 
 	// Flight time from the spell's authored projectile speed (validateSpellAuthoring
 	// guarantees a mortar spell has physics.speed_tiles > 0); a wall may clip the
@@ -56,7 +58,8 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		X: landX, Y: landY,
 		FramesLeft:  frames,
 		SpellID:     string(spellID),
-		Damage:      totalDamage,
+		Damage:      parts.Normal,
+		TrueDamage:  parts.True,
 		Crit:        isCrit,
 		Caster:      caster,
 		RadiusTiles: spellDef.AoeRadiusTiles,
@@ -138,7 +141,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		}
 		actual := cs.applyMonsterDamagePacket(
 			target,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg}, damageTypeStr, resistPierce),
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg, True: m.TrueDamage}, damageTypeStr, resistPierce),
 			monsterDamageOptions{},
 		).Total()
 		cs.markMonsterHit(target)

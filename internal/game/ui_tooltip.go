@@ -492,16 +492,23 @@ func formatSchoolName(school string) string {
 	return strings.ToUpper(school[:1]) + school[1:]
 }
 
-// spellGMPierceLine renders the Grandmaster resist-pierce note when the caster
-// is GM in the spell's school - shared by the projectile and zone sections
-// (the two paths that actually apply spellResistPierce).
-func spellGMPierceLine(def spells.SpellDefinition, char *character.MMCharacter) string {
+// spellPierceLine renders the same school/skill policy spellResistPierce uses.
+func spellPierceLine(def spells.SpellDefinition, char *character.MMCharacter) string {
 	if char == nil || def.School == "" {
 		return ""
+	}
+	if character.MagicSchoolID(def.School).IsElemental() {
+		if !char.HasSkill(character.SkillElementalMastery) {
+			return ""
+		}
+		return fmt.Sprintf("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
+			character.ElementalMasteryPiercePct(0),
+			character.ElementalMasteryPiercePct(int(character.MasteryGrandMaster)),
+			formatSchoolName(def.School))
 	}
 	school := char.MagicSchools[character.MagicSchoolID(def.School)]
 	if school == nil || school.Mastery < character.MasteryGrandMaster {
 		return ""
 	}
-	return fmt.Sprintf("Grandmaster: ignores %d%% of enemy resistance", MagicGMResistPiercePct)
+	return fmt.Sprintf("Grandmaster: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, formatSchoolName(def.School))
 }

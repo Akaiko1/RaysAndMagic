@@ -83,8 +83,37 @@ func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
 		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),
 		sessionStartTime: time.Now(),
 	}
+	stripNewClassSkillsForLegacyFixtures(game.party)
 	game.collisionSystem.RegisterEntity(newPlayerCollisionEntity(game.camera.X, game.camera.Y))
 	return game
+}
+
+// Most legacy combat tests use the starting roster as neutral stat fixtures,
+// not as class-integration subjects. Keep their old baseline stable; dedicated
+// tests add and exercise each new class skill explicitly.
+func stripNewClassSkillsForLegacyFixtures(party *character.Party) {
+	if party == nil {
+		return
+	}
+	newSkills := []character.SkillType{
+		character.SkillBlaster,
+		character.SkillElementalMastery,
+		character.SkillAnimalBonding,
+		character.SkillSacrifice,
+		character.SkillImpenetrableDefense,
+		character.SkillLockpicking,
+		character.SkillNaturalHealer,
+	}
+	for _, roster := range [][]*character.MMCharacter{party.Members, party.Reserve, party.Captive} {
+		for _, member := range roster {
+			if member == nil {
+				continue
+			}
+			for _, skill := range newSkills {
+				delete(member.Skills, skill)
+			}
+		}
+	}
 }
 
 func tbBehaviorGame(t *testing.T, width, height int) (*MMGame, *GameLoop, float64) {
@@ -135,4 +164,5 @@ func fillTestParty(t *testing.T, g *MMGame) {
 		ch.HitPoints = ch.MaxHitPoints
 		g.party.Members = append(g.party.Members, ch)
 	}
+	stripNewClassSkillsForLegacyFixtures(g.party)
 }

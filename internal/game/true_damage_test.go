@@ -196,7 +196,7 @@ func TestMonsterSpecialAoe_CarriesAuthoredTrueDamage(t *testing.T) {
 	}
 }
 
-func TestChampionSpellDoesNotInheritWeaponTrueDamage(t *testing.T) {
+func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
 	champion := monsterPkg.NewMonster3DFromConfig(64, 64, "dark_elf_sorceress", cs.game.config)
@@ -214,8 +214,9 @@ func TestChampionSpellDoesNotInheritWeaponTrueDamage(t *testing.T) {
 		t.Fatal("champion spell did not spawn a projectile")
 	}
 	projectile := cs.game.magicProjectiles[len(cs.game.magicProjectiles)-1]
-	if projectile.TrueDamage != 0 || projectile.IgnoresDodge {
-		t.Fatalf("champion spell inherited weapon riders: true=%d ignoreDodge=%v",
-			projectile.TrueDamage, projectile.IgnoresDodge)
+	wantTrue := int(character.MasteryGrandMaster) * MasterySpellEffectPerLevel
+	if projectile.TrueDamage != wantTrue || projectile.IgnoresDodge {
+		t.Fatalf("champion spell riders: true=%d ignoreDodge=%v, want spell true=%d and no dodge ignore",
+			projectile.TrueDamage, projectile.IgnoresDodge, wantTrue)
 	}
 }

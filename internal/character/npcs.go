@@ -40,6 +40,8 @@ type NPC struct {
 	LockLabel       string
 	DoorKeyItemKeys []string // items.yaml keys; never display names
 	DoorStatReqs    []NPCDoorStatReq
+	DoorAttempts    int  // non-key attempts made on this lock
+	DoorLockBroken  bool // jammed after DoorMaxNonKeyAttempts; only keys work
 	Visited         bool
 }
 
