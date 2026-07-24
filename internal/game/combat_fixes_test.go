@@ -28,21 +28,25 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 		t.Fatalf("arrow stamped with %v, want the archer", arrow.Attacker)
 	}
 
+	wantTrue := 3 * MasteryWeaponTrueDamagePerTier
+	if arrow.TrueDamage != wantTrue || !arrow.IgnoresDodge {
+		t.Fatalf("spawned arrow mastery = (%d,%v), want GM archer's (%d,true)",
+			arrow.TrueDamage, arrow.IgnoresDodge, wantTrue)
+	}
+
 	// Selection auto-advances to the knight - and the tavern even swaps the
-	// archer out - while the arrow flies: the POINTER still names the shooter.
+	// archer out - while the arrow flies. The projectile keeps both its author
+	// and the attack properties resolved when it was fired.
 	g.selectedChar = 0
 	g.party.Members[3] = knight
-	bowDef := lookupWeaponConfigByKey(arrow.BowKey)
-	trueDmg, ignoreDodge := cs.weaponMasteryStrike(arrow.Attacker, bowDef)
-	if trueDmg != 3*MasteryWeaponTrueDamagePerTier || !ignoreDodge {
-		t.Errorf("impact mastery = (%d,%v), want GM archer's (%d,true) - not the selected knight's",
-			trueDmg, ignoreDodge, 3*MasteryWeaponTrueDamagePerTier)
+	if arrow.Attacker != archer || arrow.TrueDamage != wantTrue || !arrow.IgnoresDodge {
+		t.Errorf("in-flight arrow changed to author=%v mastery=(%d,%v), want archer and (%d,true)",
+			arrow.Attacker, arrow.TrueDamage, arrow.IgnoresDodge, wantTrue)
 	}
 }
 
 func TestDamageSchoolNormalizationUsesOneCanonicalKey(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
-	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	cs.game.cardSlots[0].key = "golden_thief_bug_card"
 	member := cs.game.party.Members[0]
 
@@ -52,8 +56,11 @@ func TestDamageSchoolNormalizationUsesOneCanonicalKey(t *testing.T) {
 	if got := cs.game.schoolResistPct(member, " FIRE "); got != 100 {
 		t.Fatalf("card fire resistance through spaced/mixed-case key = %d, want 100", got)
 	}
+	loaded := monsterPkg.MonsterConfig
+	monsterPkg.MonsterConfig = nil
+	defer func() { monsterPkg.MonsterConfig = loaded }()
 	if got := convertToMonsterDamageType(" FIRE "); got != monsterPkg.DamageFire {
-		t.Fatalf("normalized monster damage type = %v, want fire", got)
+		t.Fatalf("config-independent monster damage type = %v, want fire", got)
 	}
 }
 

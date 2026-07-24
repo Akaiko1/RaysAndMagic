@@ -4,7 +4,6 @@ import (
 	"math"
 	"testing"
 
-	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 )
 
@@ -31,7 +30,8 @@ func TestAoeSplashFX_AnchorsOnBandFannedPosition(t *testing.T) {
 	g.world.Monsters = []*monsterPkg.Monster3D{center, follower}
 
 	g.spellHitEffects = g.spellHitEffects[:0]
-	cs.applyAoeSplash(center, damagecalc.Parts{Normal: 40}, "fire", monsterPkg.DamageFire, "Archmage Staff", 3.0, 0)
+	attack := cs.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Archmage Staff", false, true, false)
+	cs.applyAoeSplash(center, attack, 3.0)
 
 	if len(g.spellHitEffects) != 1 {
 		t.Fatalf("splash to one follower must spawn exactly one hit effect, got %d", len(g.spellHitEffects))

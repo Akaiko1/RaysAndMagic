@@ -3,7 +3,9 @@ package spells
 import (
 	"fmt"
 	"strings"
+
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 )
 
@@ -300,7 +302,7 @@ func (d SpellDefinition) EffectLines() []string {
 	}
 	if d.OutgoingDamageBonus > 0 {
 		target := "attacks"
-		if d.OutgoingDamageType == "physical" {
+		if damageType, err := damagecalc.ParseType(d.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
 			target = "physical attacks"
 		}
 		if d.OutgoingDamageBonusGrandmaster > d.OutgoingDamageBonus {
@@ -364,8 +366,12 @@ func (d SpellDefinition) EffectLines() []string {
 // SchoolScalesWithPersonality reports whether a school's spells scale with
 // Personality instead of Intellect - the self-magic schools (body/mind/spirit).
 func SchoolScalesWithPersonality(school string) bool {
-	switch school {
-	case "body", "mind", "spirit":
+	damageType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return false
+	}
+	switch damageType {
+	case damagecalc.Body, damagecalc.Mind, damagecalc.Spirit:
 		return true
 	}
 	return false

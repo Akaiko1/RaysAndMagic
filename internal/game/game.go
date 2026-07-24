@@ -62,8 +62,8 @@ type MagicProjectile struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	TrueDamage         int                    // typed true component snapshotted when a monster fires
-	IgnoresDodge       bool                   // snapshotted attack rider; champion weapon state may change in flight
+	TrueDamage         int                    // typed true component snapshotted when the projectile is fired
+	IgnoresDodge       bool                   // snapshotted attack rider; shooter state may change in flight
 	Attacker           *character.MMCharacter // caster (nil = monster/none) - mastery/pierce resolve from HIM at impact; a pointer survives roster swaps mid-flight
 	LifeTime           int                    // Frames remaining
 	Active             bool
@@ -98,8 +98,8 @@ type Arrow struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	TrueDamage         int                    // typed true component snapshotted when a monster fires
-	IgnoresDodge       bool                   // snapshotted attack rider; champion weapon state may change in flight
+	TrueDamage         int                    // typed true component snapshotted when the projectile is fired
+	IgnoresDodge       bool                   // snapshotted attack rider; shooter state may change in flight
 	Attacker           *character.MMCharacter // shooter (nil = monster/none)
 	LifeTime           int                    // Frames remaining
 	Active             bool
@@ -143,17 +143,17 @@ type SpellHitEffect struct {
 
 // ElementColors maps spell elements to RGB colors
 var ElementColors = map[string][3]int{
-	"fire":     {255, 100, 0},   // Orange-red
-	"water":    {0, 150, 255},   // Blue
-	"air":      {200, 200, 255}, // Light blue-white
-	"earth":    {139, 90, 43},   // Brown
-	"light":    {255, 255, 200}, // Warm white
-	"dark":     {80, 0, 120},    // Purple
-	"arcane":   {150, 190, 255}, // Arcane blue-white (staff/book bolts)
-	"body":     {120, 230, 150}, // Healing green
-	"mind":     {170, 190, 255}, // Pale blue
-	"spirit":   {210, 185, 255}, // Pale violet
-	"physical": {200, 200, 200}, // Gray
+	monster.DamageFire.String():     {255, 100, 0},   // Orange-red
+	monster.DamageWater.String():    {0, 150, 255},   // Blue
+	monster.DamageAir.String():      {200, 200, 255}, // Light blue-white
+	monster.DamageEarth.String():    {139, 90, 43},   // Brown
+	monster.DamageLight.String():    {255, 255, 200}, // Warm white
+	monster.DamageDark.String():     {80, 0, 120},    // Purple
+	"arcane":                        {150, 190, 255}, // Arcane blue-white (staff/book bolts)
+	monster.DamageBody.String():     {120, 230, 150}, // Healing green
+	monster.DamageMind.String():     {170, 190, 255}, // Pale blue
+	monster.DamageSpirit.String():   {210, 185, 255}, // Pale violet
+	monster.DamagePhysical.String(): {200, 200, 200}, // Gray
 }
 
 // MapPose captures the player's position and facing on a specific map so

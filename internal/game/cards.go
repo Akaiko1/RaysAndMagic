@@ -40,9 +40,9 @@ func (g *MMGame) splitPhysConversions(damage int) (int, []physConvShare) {
 		element string
 		pct     int
 	}{
-		{"fire", g.cardPhysToFirePct()},
-		{"dark", g.cardPhysToDarkPct()},
-		{"light", g.cardPhysToLightPct()},
+		{monsterPkg.DamageFire.String(), g.cardPhysToFirePct()},
+		{monsterPkg.DamageDark.String(), g.cardPhysToDarkPct()},
+		{monsterPkg.DamageLight.String(), g.cardPhysToLightPct()},
 	} {
 		var amt int
 		damage, amt = splitPhysToFire(damage, c.pct)

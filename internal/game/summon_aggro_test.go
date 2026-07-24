@@ -216,7 +216,8 @@ func TestBoundCrossfireCannotCollaterallyProvokePassiveMonster(t *testing.T) {
 		t.Fatal("bound projectile was consumed by a passive monster it may not target")
 	}
 
-	game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical, 4)
+	packet := singleMonsterDamagePacket(damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical.String(), 0)
+	game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, false, 4)
 	if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked {
 		t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
 	}

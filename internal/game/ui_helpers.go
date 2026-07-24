@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -504,24 +505,24 @@ func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
 // schoolPlateColor maps a magic school to its nameplate base hue (darkened +
 // brushed by drawMetalPlate). Used for spell-item / spellbook nameplates.
 func schoolPlateColor(school string) color.Color {
-	switch strings.ToLower(school) {
-	case "fire":
+	switch convertToMonsterDamageType(school) {
+	case monsterPkg.DamageFire:
 		return color.RGBA{220, 70, 40, 255}
-	case "water":
+	case monsterPkg.DamageWater:
 		return color.RGBA{60, 130, 220, 255}
-	case "air":
+	case monsterPkg.DamageAir:
 		return color.RGBA{150, 205, 225, 255}
-	case "earth":
+	case monsterPkg.DamageEarth:
 		return color.RGBA{150, 120, 60, 255}
-	case "spirit":
+	case monsterPkg.DamageSpirit:
 		return color.RGBA{230, 215, 120, 255}
-	case "mind":
+	case monsterPkg.DamageMind:
 		return color.RGBA{200, 120, 215, 255}
-	case "body":
+	case monsterPkg.DamageBody:
 		return color.RGBA{90, 195, 110, 255}
-	case "light":
+	case monsterPkg.DamageLight:
 		return color.RGBA{240, 225, 140, 255}
-	case "dark":
+	case monsterPkg.DamageDark:
 		return color.RGBA{135, 95, 170, 255}
 	default:
 		return color.RGBA{120, 128, 148, 255} // steel

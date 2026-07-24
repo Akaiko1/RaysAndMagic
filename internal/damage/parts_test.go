@@ -2,6 +2,18 @@ package damage
 
 import "testing"
 
+func TestParseTypeUsesCanonicalSchoolCatalog(t *testing.T) {
+	if got, err := ParseType(" DARK "); err != nil || got != Dark {
+		t.Fatalf("ParseType(DARK) = (%q, %v), want (%q, nil)", got, err, Dark)
+	}
+	if _, err := ParseType("arcane"); err == nil {
+		t.Fatal("unknown damage school passed validation")
+	}
+	if got := Types(); len(got) != 10 || got[0] != Physical || got[len(got)-1] != Dark {
+		t.Fatalf("canonical types = %v", got)
+	}
+}
+
 func TestPartsApplyResistance(t *testing.T) {
 	tests := []struct {
 		name       string

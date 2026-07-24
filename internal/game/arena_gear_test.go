@@ -62,7 +62,7 @@ func TestArmorShredAndPierce(t *testing.T) {
 		t.Fatalf("shredded AC = %d, want 32", got)
 	}
 	hammer, _ := config.GetWeaponDefinition("lion_warhammer")
-	if got := effectiveMonsterArmor(m, hammer); got != 32*(100-hammer.ArmorPiercePct)/100 {
+	if got := armorAfterPierce(m.EffectiveArmorClass(), hammer.ArmorPiercePct); got != 32*(100-hammer.ArmorPiercePct)/100 {
 		t.Fatalf("pierced AC = %d, want %d", got, 32*(100-hammer.ArmorPiercePct)/100)
 	}
 	// Pure RT expiry clears the inactive TB clock too.

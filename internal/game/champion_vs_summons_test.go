@@ -50,6 +50,7 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 
 			cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, huntress}
 			cs.game.refreshMonsterAIState() // mirrors the champion + resolves AIFoe both ways
+			champ.PerfectDodge = 0          // mirror is complete; isolate armor/damage, not dodge
 
 			// The delivery mechanism differs by archetype (documents HOW each attacks).
 			if champ.HasRangedAttack() != tc.ranged {
@@ -86,14 +87,15 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			}
 
 			// --- Huntress strikes with her authored normal + true packet ---
-			// Neither champion resists physical, so both authored components land.
+			// Champion armor reduces the normal component; typed true bypasses it.
+			// Neither champion resists physical.
 			champHPBefore := champ.HitPoints
 			cs.monsterStrikeMonster(huntress, champ)
 			hit := champHPBefore - champ.HitPoints
-			minHit := huntress.DamageMin + huntress.TrueDamage
-			maxHit := huntress.DamageMax + huntress.TrueDamage
+			minHit := applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
+			maxHit := applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
 			if hit < minHit || hit > maxHit {
-				t.Errorf("huntress hit the champion for %d, want her authored packet [%d,%d]", hit, minHit, maxHit)
+				t.Errorf("huntress hit the champion for %d, want armor-mitigated packet [%d,%d]", hit, minHit, maxHit)
 			}
 			if champ.HitPoints >= champ.MaxHitPoints {
 				t.Errorf("champion tier HP pool untouched (%d/%d) after a huntress blow", champ.HitPoints, champ.MaxHitPoints)

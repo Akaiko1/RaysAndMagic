@@ -69,7 +69,8 @@ func TestDebugSim_ChampionBalance(t *testing.T) {
 			}
 			resists := ""
 			if monster.MonsterConfig != nil {
-				for school := range monster.MonsterConfig.DamageTypes {
+				for _, damageType := range monster.DamageTypes() {
+					school := damageType.String()
 					if pct := ch.GearResistPct(school); pct != 0 {
 						resists += fmt.Sprintf(" %s+%d", school, pct)
 					}

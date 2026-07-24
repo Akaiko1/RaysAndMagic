@@ -1,8 +1,7 @@
 package game
 
 import (
-	"strings"
-
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -48,11 +47,18 @@ func (g *MMGame) combatBuffOutBonus() int {
 // combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
 // the supplied damage type. Empty/all buff types apply to every outgoing hit.
 func (g *MMGame) combatBuffOutBonusForDamageType(damageType string) int {
-	damageType = strings.ToLower(strings.TrimSpace(damageType))
+	targetType, err := damagecalc.ParseType(damageType)
+	if err != nil {
+		targetType = damagecalc.Physical
+	}
 	total := 0
 	for i := range g.combatBuffs {
-		buffType := strings.ToLower(strings.TrimSpace(g.combatBuffs[i].OutDamageType))
-		if buffType == "" || buffType == "all" || buffType == damageType {
+		buffType := g.combatBuffs[i].OutDamageType
+		if buffType == "" || buffType == "all" {
+			total += g.combatBuffs[i].OutBonus
+			continue
+		}
+		if typedBuff, parseErr := damagecalc.ParseType(buffType); parseErr == nil && typedBuff == targetType {
 			total += g.combatBuffs[i].OutBonus
 		}
 	}
@@ -84,10 +90,14 @@ func (g *MMGame) combatBuffResistPct() int {
 // combatBuffSchoolResistPct sums per-school resistance from active buffs
 // (Fire Shield) for the given damage school.
 func (g *MMGame) combatBuffSchoolResistPct(school string) int {
-	school = strings.ToLower(strings.TrimSpace(school))
+	targetType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return 0
+	}
 	total := 0
 	for i := range g.combatBuffs {
-		if strings.ToLower(strings.TrimSpace(g.combatBuffs[i].ResistSchool)) == school {
+		buffType, parseErr := damagecalc.ParseType(g.combatBuffs[i].ResistSchool)
+		if parseErr == nil && buffType == targetType {
 			total += g.combatBuffs[i].ResistSchoolPct
 		}
 	}

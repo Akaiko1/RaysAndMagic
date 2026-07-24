@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/stats"
 
@@ -39,8 +41,8 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		return nil
 	}
 	var lines []string
-	if w.DamageType != "" && w.DamageType != "physical" {
-		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(w.DamageType)))
+	if damageType, err := damagecalc.ParseType(w.DamageType); err == nil && damageType != damagecalc.Physical {
+		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
 		turns := w.StunTurns
@@ -1027,7 +1029,7 @@ type WeaponDefinitionConfig struct {
 	// wielder casts while this weapon is in their main hand (e.g. Archmage
 	// Staff = 0.8 -> -20% spell cooldown). 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
-	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
+	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
 	// plain arrow. Cosmetic only; damage stays weapon-based.
 	ProjectileSchool string `yaml:"projectile_school,omitempty"`
@@ -1146,10 +1148,70 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	return &spellConfig, nil
 }
 
+func canonicalDamageSchool(raw string) (string, error) {
+	damageType, err := damagecalc.ParseType(raw)
+	if err != nil {
+		return "", err
+	}
+	return damageType.String(), nil
+}
+
+func canonicalMagicSchool(raw string) (string, error) {
+	damageType, err := damagecalc.ParseType(raw)
+	if err != nil {
+		return "", err
+	}
+	if damageType == damagecalc.Physical {
+		return "", fmt.Errorf("%q is not a magic school", raw)
+	}
+	return damageType.String(), nil
+}
+
+func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
+	if values == nil {
+		return nil, nil
+	}
+	canonical := make(map[string]int, len(values))
+	originals := make(map[string]string, len(values))
+	for raw, value := range values {
+		school, err := canonicalDamageSchool(raw)
+		if err != nil {
+			return nil, err
+		}
+		if previous, exists := originals[school]; exists {
+			return nil, fmt.Errorf("damage schools %q and %q normalize to the same key %q", previous, raw, school)
+		}
+		originals[school] = raw
+		canonical[school] = value
+	}
+	return canonical, nil
+}
+
 // validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.School != "" {
+			school, err := canonicalDamageSchool(def.School)
+			if err != nil {
+				return fmt.Errorf("spell '%s': unsupported school %q", id, def.School)
+			}
+			def.School = school
+		}
+		for i, school := range def.Schools {
+			canonical, err := canonicalDamageSchool(school)
+			if err != nil {
+				return fmt.Errorf("spell '%s': schools[%d] is unsupported: %q", id, i, school)
+			}
+			def.Schools[i] = canonical
+		}
+		if def.ResistBuffSchool != "" {
+			school, err := canonicalDamageSchool(def.ResistBuffSchool)
+			if err != nil {
+				return fmt.Errorf("spell '%s': unsupported resist_buff_school %q", id, def.ResistBuffSchool)
+			}
+			def.ResistBuffSchool = school
+		}
 		switch strings.ToLower(strings.TrimSpace(def.Category)) {
 		case "":
 		case "buff":
@@ -1169,11 +1231,11 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 				}
 			}
 		}
-		switch strings.TrimSpace(def.OutgoingDamageType) {
-		case "", "all", "physical":
-		default:
+		outgoingType := strings.ToLower(strings.TrimSpace(def.OutgoingDamageType))
+		if outgoingType != "" && outgoingType != "all" && outgoingType != damagecalc.Physical.String() {
 			return fmt.Errorf("spell '%s': unsupported outgoing_damage_type %q", id, def.OutgoingDamageType)
 		}
+		def.OutgoingDamageType = outgoingType
 		// A mortar spell's arc timing is derived from its projectile speed; require
 		// it so the flight never silently falls back to a code default.
 		if def.MortarRangeTiles > 0 && (def.Physics == nil || def.Physics.SpeedTiles <= 0) {
@@ -1259,6 +1321,20 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 	for key, def := range cfg.Weapons {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
+		}
+		if def.DamageType != "" {
+			damageType, err := canonicalDamageSchool(def.DamageType)
+			if err != nil {
+				return fmt.Errorf("weapon '%s' has unsupported damage_type %q", key, def.DamageType)
+			}
+			def.DamageType = damageType
+		}
+		if def.ProjectileSchool != "" {
+			school, err := canonicalDamageSchool(def.ProjectileSchool)
+			if err != nil {
+				return fmt.Errorf("weapon '%s' has unsupported projectile_school %q", key, def.ProjectileSchool)
+			}
+			def.ProjectileSchool = school
 		}
 		if def.BonusStat != "" && !validWeaponBonusStats[def.BonusStat] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat %q", key, def.BonusStat)
@@ -1513,6 +1589,16 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 // typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
+		resistances, err := canonicalDamageIntMap(def.Resistances)
+		if err != nil {
+			return fmt.Errorf("item '%s' has invalid resistances: %w", key, err)
+		}
+		def.Resistances = resistances
+		cardResists, err := canonicalDamageIntMap(def.CardResistBonus)
+		if err != nil {
+			return fmt.Errorf("item '%s' has invalid card_resist_bonus: %w", key, err)
+		}
+		def.CardResistBonus = cardResists
 		if def.EquipSlot != "" {
 			if _, ok := items.EquipSlotFromName(def.EquipSlot); !ok {
 				return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
@@ -1824,9 +1910,11 @@ func validateCrates(lt *LootTablesConfig) error {
 			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
 		}
 		for i, damageType := range c.TrapDamageTypes {
-			if !validCrateTrapDamageType(damageType) {
+			canonical, err := canonicalDamageSchool(damageType)
+			if err != nil {
 				return fmt.Errorf("crate %q: trap_damage_types[%d] has unsupported damage type %q", key, i, damageType)
 			}
+			c.TrapDamageTypes[i] = canonical
 		}
 		// Effect fields apply to EVERY crate shape (loot_table ones included),
 		// so they validate before the loot_table early-out.
@@ -1867,15 +1955,6 @@ func validateCrates(lt *LootTablesConfig) error {
 		}
 	}
 	return nil
-}
-
-func validCrateTrapDamageType(damageType string) bool {
-	switch strings.TrimSpace(damageType) {
-	case "physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark":
-		return true
-	default:
-		return false
-	}
 }
 
 func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {

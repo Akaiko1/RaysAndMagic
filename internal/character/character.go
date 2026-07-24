@@ -3,7 +3,9 @@ package character
 import (
 	"fmt"
 	"strings"
+
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/status"
@@ -1374,7 +1376,11 @@ func (c *MMCharacter) SetCritChanceBonus() int {
 
 // GearResistPct sums the character's % resistance to a damage school from equipped gear.
 func (c *MMCharacter) GearResistPct(school string) int {
-	key := "resist_" + strings.ToLower(strings.TrimSpace(school))
+	damageType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return 0
+	}
+	key := "resist_" + damageType.String()
 	total := 0
 	for _, it := range c.Equipment {
 		total += it.Attributes[key]

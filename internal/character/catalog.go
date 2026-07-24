@@ -2,10 +2,10 @@ package character
 
 import (
 	"fmt"
-
 	"strings"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -240,7 +240,8 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 		}
 		out = append(out, fmt.Sprintf("Attack cooldown x%.2f (%d%% %s than standard)", mult, int(d*100+0.5), rel))
 	}
-	if def.Physics != nil && (def.DamageType == "" || def.DamageType == "physical") {
+	damageType, damageTypeErr := damagecalc.ParseType(def.DamageType)
+	if def.Physics != nil && (def.DamageType == "" || (damageTypeErr == nil && damageType == damagecalc.Physical)) {
 		out = append(out, fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct))
 	}
 	return out

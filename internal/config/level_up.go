@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -45,8 +46,43 @@ func LoadLevelUpConfig(filename string) (*LevelUpConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse level up config: %w", err)
 	}
+	if err := validateLevelUpConfig(&cfg); err != nil {
+		return nil, err
+	}
 	levelUpConfig = &cfg
 	return &cfg, nil
+}
+
+func validateLevelUpConfig(cfg *LevelUpConfig) error {
+	for classKey, classCfg := range cfg.LevelUps {
+		for levelIndex := range classCfg.Levels {
+			level := &classCfg.Levels[levelIndex]
+			for choiceIndex := range level.Choices {
+				choice := &level.Choices[choiceIndex]
+				rawSchool := strings.TrimSpace(choice.School)
+				if rawSchool == "" {
+					continue
+				}
+				if strings.EqualFold(rawSchool, "any") {
+					choice.School = "any"
+					continue
+				}
+				school, err := canonicalMagicSchool(rawSchool)
+				if err != nil {
+					return fmt.Errorf(
+						"level_up %q level %d choice %d: unsupported school %q",
+						classKey,
+						level.Level,
+						choiceIndex,
+						choice.School,
+					)
+				}
+				choice.School = school
+			}
+		}
+		cfg.LevelUps[classKey] = classCfg
+	}
+	return nil
 }
 
 // MustLoadLevelUpConfig loads level-up config or panics.

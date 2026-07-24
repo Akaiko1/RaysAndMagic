@@ -132,9 +132,8 @@ type MonsterLightConfig struct {
 
 // MonsterYAMLConfig holds the complete monster configuration from YAML
 type MonsterYAMLConfig struct {
-	Monsters    map[string]MonsterDefinition `yaml:"monsters"`
-	DamageTypes map[string]int               `yaml:"damage_types"`
-	TileTypes   map[string]int               `yaml:"tile_types"`
+	Monsters  map[string]MonsterDefinition `yaml:"monsters"`
+	TileTypes map[string]int               `yaml:"tile_types"`
 }
 
 // Global monster configuration
@@ -148,6 +147,7 @@ var MonsterConfig *MonsterYAMLConfig
 func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	universalLetters := make(map[string][]string)
 	biomeLetters := make(map[string]map[string][]string)
+	var conflicts []string
 
 	for key, monster := range config.Monsters {
 		letter := monster.Letter
@@ -166,7 +166,6 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 	}
 
-	var conflicts []string
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
@@ -213,11 +212,44 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has dragon_breath_chance but no dragon_breath_damage_type", key))
 		}
 		breathType := strings.ToLower(strings.TrimSpace(monster.DragonBreathType))
-		if breathType != "" && config.DamageTypes[breathType] == 0 && breathType != DamageSchoolPhysical {
-			if _, err := config.ConvertDamageType(breathType); err != nil {
+		if breathType != "" {
+			if damageType, err := ParseDamageType(breathType); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
+			} else {
+				monster.DragonBreathType = damageType.String()
 			}
 		}
+		if monster.Resistances != nil {
+			resistances := make(map[string]int, len(monster.Resistances))
+			originals := make(map[string]string, len(monster.Resistances))
+			valid := true
+			for rawSchool, resistance := range monster.Resistances {
+				damageType, err := ParseDamageType(rawSchool)
+				if err != nil {
+					conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown resistance school %q", key, rawSchool))
+					valid = false
+					continue
+				}
+				school := damageType.String()
+				if previous, exists := originals[school]; exists {
+					conflicts = append(conflicts, fmt.Sprintf(
+						"Monster '%s' resistance schools %q and %q normalize to the same key %q",
+						key,
+						previous,
+						rawSchool,
+						school,
+					))
+					valid = false
+					continue
+				}
+				originals[school] = rawSchool
+				resistances[school] = resistance
+			}
+			if valid {
+				monster.Resistances = resistances
+			}
+		}
+		config.Monsters[key] = monster
 		// An evasive boss (blinks away while its quest is unfinished) needs a blink
 		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
 		// just holds until the quest completes, so it needs neither.
@@ -357,15 +389,6 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 	return keys
 }
 
-// ConvertDamageType converts string damage type to DamageType enum
-func (c *MonsterYAMLConfig) ConvertDamageType(damageTypeStr string) (DamageType, error) {
-	damageTypeStr = strings.ToLower(strings.TrimSpace(damageTypeStr))
-	if typeInt, exists := c.DamageTypes[damageTypeStr]; exists {
-		return DamageType(typeInt), nil
-	}
-	return DamagePhysical, fmt.Errorf("unknown damage type: %s", damageTypeStr)
-}
-
 // ConvertTileType converts string tile type to integer
 func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
 	if typeInt, exists := c.TileTypes[tileTypeStr]; exists {
@@ -404,12 +427,11 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.Gold = def.GoldMin
 	}
 
-	// Set resistances
-	if MonsterConfig != nil {
-		for damageTypeStr, resistance := range def.Resistances {
-			if damageType, err := MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
-				m.Resistances[damageType] = resistance
-			}
+	// Set resistances from the canonical runtime school catalog. YAML keys were
+	// validated at load, so this no longer depends on the global config pointer.
+	for damageTypeStr, resistance := range def.Resistances {
+		if damageType, err := ParseDamageType(damageTypeStr); err == nil {
+			m.Resistances[damageType] = resistance
 		}
 	}
 

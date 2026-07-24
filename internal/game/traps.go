@@ -299,17 +299,16 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
-		dmgType := convertToMonsterDamageType(def.Element)
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
 			for _, m := range cs.game.world.Monsters {
 				if m == nil || !m.IsAlive() || Distance(t.X, t.Y, m.X, m.Y) > radius {
 					continue
 				}
-				cs.applyTrapDamage(m, dmg, def.Element, dmgType, def.Name)
+				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			}
 		} else {
-			cs.applyTrapDamage(victim, dmg, def.Element, dmgType, def.Name)
+			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
 		}
 	}
 
@@ -332,21 +331,15 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
-func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
+func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, sourceName string) {
 	if m.IsDamageInvulnerable() {
 		return // invulnerable boss (sealed or idol-warded) - no trap damage, FX, or aggro
 	}
-	// Phys-to-element conversion cards apply to physical trap damage too - a
-	// physical trap is as much "party physical damage" as a swing or an arrow.
-	var convShares []physConvShare
-	if element == "physical" {
-		dmg, convShares = cs.game.splitPhysConversions(dmg)
-	}
-	// Trap damage runs the same armor->resist path as any hit: armor mitigates by
-	// element (physical fully, elemental on the reduced cap), then resistances.
-	dmg = applyMonsterArmor(dmg, element, m.EffectiveArmorClass(), false)
-	actual := m.TakeDamageResist(dmg, dmgType, 0)
-	actual += cs.applyPhysConversionShares(m, convShares, false)
+	// Traps use the shared party packet builder so physical conversion stays one
+	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
+	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
+	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
+	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
 	cs.markMonsterHit(m)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
 	cs.finishIndirectKill(m)
@@ -408,9 +401,10 @@ func (g *MMGame) spawnTrapSwirl(x, y float64, element string) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
+	element = normalizeDamageTypeStr(element)
 	baseColor, ok := ElementColors[element]
 	if !ok {
-		baseColor = ElementColors["physical"]
+		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
 	}
 	const n = 3
 	const ringRadius = 13.0 // world units around the tile center

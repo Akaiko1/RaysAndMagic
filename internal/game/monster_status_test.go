@@ -282,7 +282,7 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 		member.Equipment = nil
 		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamageParts(
 			damagecalc.Parts{Normal: 10, True: 2},
-			monsterPkg.DamageSchoolFire,
+			monsterPkg.DamageFire.String(),
 			member,
 			false,
 		).Total()

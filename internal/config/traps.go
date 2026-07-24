@@ -87,6 +87,11 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 		if t.Element == "" {
 			return fmt.Errorf("trap %q: missing element", key)
 		}
+		element, err := canonicalDamageSchool(t.Element)
+		if err != nil {
+			return fmt.Errorf("trap %q: unsupported element %q", key, t.Element)
+		}
+		t.Element = element
 		if t.Level <= 0 {
 			return fmt.Errorf("trap %q: level must be positive", key)
 		}

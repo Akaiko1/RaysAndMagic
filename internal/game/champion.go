@@ -197,11 +197,17 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 }
 
 func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, damage int) monsterCharacterHit {
-	damageType := monster.DamageSchoolPhysical
+	damageType := monster.DamagePhysical.String()
+	armorPiercePct := 0
 	if wd != nil && wd.DamageType != "" {
 		damageType = wd.DamageType
 	}
-	return hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
+	if wd != nil {
+		armorPiercePct = wd.ArmorPiercePct
+	}
+	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
+	hit.ArmorPiercePct = armorPiercePct
+	return hit
 }
 
 // applyChampionMeleeSwingToParty applies one already-rolled champion hand swing
@@ -249,7 +255,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	weapon := championHandWeapon(ch, offHand)
 	wd, dmg := cs.championSwingDamage(m, ch, weapon)
 	hit := championMeleeHit(m, wd, dmg)
-	dtype := convertToMonsterDamageType(hit.DamageType)
+	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
 	ts := float64(cs.game.config.GetTileSize())
 	facing := math.Atan2(foe.Y-m.Y, foe.X-m.X)
 	partyCaught := false
@@ -260,7 +266,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		r := wd.AoeRadiusTiles * ts
 		for _, o := range cs.game.world.Monsters {
 			if o != nil && o.Bound && o.IsAlive() && Distance(m.X, m.Y, o.X, o.Y) <= r {
-				cs.strikeMonsterFor(m, o, hit.Parts, dtype)
+				cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.IgnoresArmor, hit.IgnoresDodge, false)
 			}
 		}
 		partyCaught = Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) <= r
@@ -284,7 +290,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 			}
 			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
 				summon := o
-				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit.Parts, dtype) }})
+				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit, wd, false) }})
 			}
 		}
 		if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, cs.game.camera.X, cs.game.camera.Y); ok {
@@ -476,13 +482,10 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 
 	// Gear resistances (resist_<school> item attributes) ADD to the mob's
 	// authored table. Safe to add: this runs once per instance.
-	if monster.MonsterConfig != nil {
-		for school := range monster.MonsterConfig.DamageTypes {
-			if pct := ch.GearResistPct(school); pct != 0 {
-				if dt, err := monster.MonsterConfig.ConvertDamageType(school); err == nil {
-					m.Resistances[dt] += pct
-				}
-			}
+	for _, damageType := range monster.DamageTypes() {
+		school := damageType.String()
+		if pct := ch.GearResistPct(school); pct != 0 {
+			m.Resistances[damageType] += pct
 		}
 	}
 	m.ChampionMirrored = true

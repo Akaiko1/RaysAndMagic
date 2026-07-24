@@ -324,7 +324,7 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
-		school := monsterPkg.DamageSchoolPhysical
+		school := monsterPkg.DamagePhysical.String()
 		ignoreArmor := m.IgnoresArmor
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
 			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch

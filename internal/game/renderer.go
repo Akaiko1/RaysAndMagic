@@ -2610,8 +2610,8 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 	}
 
 	if def, ok := config.GetSpellDefinition(spellKey); ok {
-		switch strings.ToLower(def.School) {
-		case "fire":
+		switch convertToMonsterDamageType(def.School) {
+		case monster.DamageFire:
 			profile.glowColor = [3]int{255, 140, 60}
 			profile.trailColor = [3]int{255, 210, 120}
 			profile.glowScale = 1.8
@@ -2621,7 +2621,7 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.spark = true
 			profile.sparkColor = [3]int{255, 220, 160}
 			profile.style = "ember"
-		case "water":
+		case monster.DamageWater:
 			profile.style = "shard"
 			profile.glowColor = [3]int{90, 170, 255}
 			profile.trailColor = [3]int{150, 220, 255}
@@ -2629,7 +2629,7 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.trailLengthScale = 1.2
 			profile.trailWidthScale = 0.4
 			profile.pulseSpeed = 1.0
-		case "air":
+		case monster.DamageAir:
 			profile.glowColor = [3]int{210, 240, 255}
 			profile.trailColor = [3]int{230, 255, 255}
 			profile.glowScale = 1.6
@@ -2638,14 +2638,14 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.pulseSpeed = 1.3
 			profile.spark = true
 			profile.sparkColor = [3]int{240, 255, 255}
-		case "earth":
+		case monster.DamageEarth:
 			profile.glowColor = [3]int{140, 200, 120}
 			profile.trailColor = [3]int{190, 220, 140}
 			profile.glowScale = 1.4
 			profile.trailLengthScale = 1.1
 			profile.trailWidthScale = 0.45
 			profile.pulseSpeed = 0.9
-		case "dark":
+		case monster.DamageDark:
 			profile.glowColor = [3]int{170, 90, 220}
 			profile.trailColor = [3]int{210, 140, 255}
 			profile.glowScale = 1.7
@@ -2655,7 +2655,7 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.spark = true
 			profile.sparkColor = [3]int{210, 160, 255}
 			profile.style = "dark" // sinking violet motes (not the legacy square)
-		case "light":
+		case monster.DamageLight:
 			profile.glowColor = [3]int{255, 240, 150}
 			profile.trailColor = [3]int{255, 255, 210}
 			profile.glowScale = 1.7
@@ -2664,21 +2664,21 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.pulseSpeed = 1.2
 			profile.spark = true
 			profile.sparkColor = [3]int{255, 255, 220}
-		case "body":
+		case monster.DamageBody:
 			profile.glowColor = [3]int{160, 255, 180}
 			profile.trailColor = [3]int{210, 255, 220}
 			profile.glowScale = 1.4
 			profile.trailLengthScale = 1.1
 			profile.trailWidthScale = 0.4
 			profile.pulseSpeed = 1.0
-		case "mind":
+		case monster.DamageMind:
 			profile.glowColor = [3]int{180, 200, 255}
 			profile.trailColor = [3]int{210, 230, 255}
 			profile.glowScale = 1.5
 			profile.trailLengthScale = 1.2
 			profile.trailWidthScale = 0.35
 			profile.pulseSpeed = 1.1
-		case "spirit":
+		case monster.DamageSpirit:
 			profile.glowColor = [3]int{220, 190, 255}
 			profile.trailColor = [3]int{235, 210, 255}
 			profile.glowScale = 1.6
@@ -2750,7 +2750,7 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 		// arrow), tinted to its magic element - staves/books fire magic charges,
 		// not arrows. The "arcane" style name is just the orb body renderer
 		// (pixel-particle, mirrored R->L), independent of the element.
-		if school := strings.ToLower(weaponDef.ProjectileSchool); school != "" {
+		if school := normalizeDamageTypeStr(weaponDef.ProjectileSchool); weaponDef.ProjectileSchool != "" {
 			c, ok := ElementColors[school]
 			if !ok {
 				c = ElementColors["arcane"]

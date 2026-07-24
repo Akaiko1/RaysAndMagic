@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -93,7 +94,7 @@ func RenderCardLines(sections []CardSection, full bool) []string {
 func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	dt := damageType
 	if dt == "" {
-		dt = "physical"
+		dt = damagecalc.Physical.String()
 	}
 	line := strings.Title(dt) + " Damage"
 	if aoeTiles > 0 {
@@ -183,8 +184,9 @@ func CooldownLine(seconds float64) string {
 // Resistance, ranged physical shots can pierce armor. Universal/educational RULES
 // -> DETAIL tier (full view only); the map editor renders full and still shows them.
 func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool) {
-	dt := strings.ToLower(damageType)
-	if dt == "" || dt == "physical" {
+	dt := strings.ToLower(strings.TrimSpace(damageType))
+	school, err := damagecalc.ParseType(dt)
+	if dt == "" || (err == nil && school == damagecalc.Physical) {
 		sec.AddDetail("Reduced by target Armor (up to %d%%, diminishing)", ArmorPhysicalMitigationCap)
 		if isRanged {
 			sec.AddDetail("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)

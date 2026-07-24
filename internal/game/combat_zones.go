@@ -4,6 +4,7 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -92,9 +93,8 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 		return
 	}
-	damageTypeStr := "water"
+	damageTypeStr := damagecalc.Water.String()
 	tickDamage := z.TickDamage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
-	dmgType := convertToMonsterDamageType(damageTypeStr)
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) is unscathed by the zone.
 		if m == nil || !m.IsAlive() || m.IsDamageInvulnerable() {
@@ -103,7 +103,11 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
 			continue
 		}
-		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce)
+		cs.applyMonsterDamagePacket(
+			m,
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: tickDamage}, damageTypeStr, z.ResistPierce),
+			monsterDamageOptions{IgnoreArmor: true},
+		)
 		cs.markMonsterHit(m)
 		cs.game.spawnSteamPuff(m.X, m.Y)
 		cs.finishIndirectKill(m)

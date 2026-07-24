@@ -6,6 +6,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -181,11 +182,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 		armsBonus = char.ArmsMasterTier() * ArmsMasterDamagePerTier
 	}
 	// A nil char is the SHOP view: the item's own base numbers, no bearer scaling.
-	normal, trueDmg := def.Damage, 0
-	if char != nil {
-		_, _, normal = cs.CalculateWeaponDamage(item, char)
-		trueDmg, _ = cs.weaponMasteryStrike(char, def)
-	}
+	preview := cs.calculateWeaponDamagePreview(item, char)
 	dmg.AddDetail("Base: %d", def.Damage)
 	primaryStat := def.BonusStat
 	if primaryStat == "" {
@@ -206,30 +203,37 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 		_, tierName := masteryTier(char, character.SkillArmsMaster)
 		dmg.AddDetail("Arms Master - %s: +%d", tierName, armsBonus)
 	}
-	dmg.AddDetail("Normal Damage: %d", normal)
-	if trueDmg > 0 {
+	if preview.CardDamagePct != 0 {
+		mode := "melee"
+		if def.Range > 3 {
+			mode = "ranged"
+		}
+		dmg.AddDetail("Cards: +%d%% %s damage", preview.CardDamagePct, mode)
+	}
+	masteryTrue := preview.True - preview.CardTrue
+	if masteryTrue > 0 {
 		if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 			_, tierName := masteryTier(char, skill)
-			dmg.AddDetail("%s Mastery - %s: +%d True", skill.String(), tierName, trueDmg)
+			dmg.AddDetail("%s Mastery - %s: +%d True", skill.String(), tierName, masteryTrue)
 		}
+	}
+	if preview.CardTrue > 0 {
+		dmg.AddDetail("Cards: +%d True", preview.CardTrue)
 	}
 	// Active party buffs add a flat bonus after crit doubling; filter by the
 	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
 	// e.g. Heroism (physical) does not boost a light/fire weapon.
-	outBonus := 0
-	if char != nil {
-		outBonus = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+	if preview.OutgoingBuff > 0 {
+		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
 	}
-	if outBonus > 0 {
-		dmg.AddDetail("Active party buff: +%d", outBonus)
-	}
-	dmg.Add("Total Damage: %d", normal+trueDmg+outBonus)
+	dmg.AddDetail("Normal Damage: %d", preview.Normal)
+	dmg.Add("Total Damage: %d", preview.Total)
 	totalCrit := def.CritChance
 	if char != nil {
 		totalCrit = cs.CalculateWeaponCritChance(item, char)
 	}
 	if totalCrit > 0 {
-		dmg.Add("Critical Damage: %d", normal*CritDamageMultiplier+trueDmg+outBonus)
+		dmg.Add("Critical Damage: %d", preview.CriticalTotal)
 	}
 
 	crit := ttSection{Title: "CRITICAL"}
@@ -266,7 +270,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	}
 
 	rules := ttSection{Title: "RULES"}
-	armorInteractionRules(&rules, def.DamageType, def.Physics != nil, trueDmg > 0)
+	armorInteractionRules(&rules, def.DamageType, def.Physics != nil, preview.True > 0)
 	if def.AoeRadiusTiles > 0 {
 		rules.AddDetail("%s", character.SplashCritRule)
 	}
@@ -496,11 +500,8 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		zone.Add("TB: one tick per monster turn")
 	}
 	if def.ZoneRadiusTiles > 0 && cs != nil {
-		// Tick damage decomposed exactly as CalculateSteamZoneTickDamage.
-		intBonus := 0
-		if char != nil {
-			intBonus = char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
-		}
+		// Tick damage uses the cast snapshot plus the same live outgoing buff
+		// damageSteamZoneOnce reads on every tick.
 		dmg.AddDetail("Base: %d", def.ZoneTickDamage)
 		if char != nil {
 			statContribDetail(&dmg, "Intellect", char.GetEffectiveIntellect(), spells.SpellIntellectDivisor)
@@ -508,7 +509,14 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if mastery > 0 {
 			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
-		dmg.Add("Total per tick: %d", def.ZoneTickDamage+intBonus+mastery)
+		outBonus := 0
+		if char != nil {
+			outBonus = cs.game.combatBuffOutBonusForDamageType(def.School)
+		}
+		if outBonus > 0 {
+			dmg.AddDetail("Active party buff: +%d", outBonus)
+		}
+		dmg.Add("Total per tick: %d", cs.CalculateSteamZoneTickDamage(def, char)+outBonus)
 		dmg.Title = "DAMAGE PER TICK"
 	}
 
@@ -532,7 +540,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	if def.OutgoingDamageBonusGrandmaster > def.OutgoingDamageBonus && def.OutgoingDamageBonus > 0 {
 		current := scaledSpellMasteryValue(def, char, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
 		target := "damage"
-		if def.OutgoingDamageType == "physical" {
+		if damageType, err := damagecalc.ParseType(def.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
 			target = "physical damage"
 		}
 		effects.Add("Current %s bonus: +%d", target, current)

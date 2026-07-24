@@ -129,7 +129,7 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		})
 		return
 	}
-	damageType := "physical"
+	damageType := monsterPkg.DamagePhysical.String()
 	if len(crate.TrapDamageTypes) > 0 {
 		damageType = crate.TrapDamageTypes[rand.Intn(len(crate.TrapDamageTypes))]
 	}

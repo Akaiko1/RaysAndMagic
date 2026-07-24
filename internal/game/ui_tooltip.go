@@ -302,8 +302,8 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
-	_, _, total := combatSystem.CalculateWeaponDamage(item, char)
-	_, _, eqTotal := combatSystem.CalculateWeaponDamage(equipped, char)
+	total := combatSystem.calculateWeaponDamagePreview(item, char).Total
+	eqTotal := combatSystem.calculateWeaponDamagePreview(equipped, char).Total
 	lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", total, eqTotal, total-eqTotal))
 
 	itemRange, eqRange := 0, 0

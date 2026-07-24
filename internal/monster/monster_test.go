@@ -41,8 +41,7 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 			tc.def.SizeClass = "person" // these cases exercise other rules, not size
 		}
 		cfg := &MonsterYAMLConfig{
-			Monsters:    map[string]MonsterDefinition{"boss": tc.def},
-			DamageTypes: map[string]int{"physical": 0, "fire": 1},
+			Monsters: map[string]MonsterDefinition{"boss": tc.def},
 		}
 		err := validateMonsterConfiguration(cfg)
 		if tc.wantErr && err == nil {
@@ -97,10 +96,46 @@ func TestValidateMonsterConfiguration_AlarmRally(t *testing.T) {
 	}
 }
 
-func TestConvertDamageTypeNormalizesExternalKeys(t *testing.T) {
-	cfg := &MonsterYAMLConfig{DamageTypes: map[string]int{"physical": 0, "fire": 1}}
-	if got, err := cfg.ConvertDamageType(" FIRE "); err != nil || got != DamageFire {
-		t.Fatalf("ConvertDamageType( FIRE ) = (%v, %v), want (%v, nil)", got, err, DamageFire)
+func TestParseDamageTypeNormalizesExternalKeys(t *testing.T) {
+	if got, err := ParseDamageType(" FIRE "); err != nil || got != DamageFire {
+		t.Fatalf("ParseDamageType( FIRE ) = (%v, %v), want (%v, nil)", got, err, DamageFire)
+	}
+}
+
+func TestValidateMonsterConfigurationRejectsUnknownResistanceSchool(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"bad_resist": {
+			SizeClass:   "person",
+			Resistances: map[string]int{"flame-ish": 50},
+		},
+	}}
+	if err := validateMonsterConfiguration(cfg); err == nil {
+		t.Fatal("unknown resistance school passed validation")
+	}
+}
+
+func TestValidateMonsterConfigurationCanonicalizesDamageSchools(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"typed": {
+			SizeClass:        "person",
+			DragonBreathType: " FIRE ",
+			Resistances:      map[string]int{" DARK ": 50},
+		},
+	}}
+	if err := validateMonsterConfiguration(cfg); err != nil {
+		t.Fatalf("validate monster: %v", err)
+	}
+	def := cfg.Monsters["typed"]
+	if def.DragonBreathType != "fire" || def.Resistances["dark"] != 50 {
+		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.DragonBreathType, def.Resistances)
+	}
+
+	cfg.Monsters["typed"] = MonsterDefinition{
+		SizeClass:   "person",
+		Resistances: map[string]int{"dark": 10, " DARK ": 20},
+	}
+	if err := validateMonsterConfiguration(cfg); err == nil {
+		t.Fatal("duplicate resistance aliases passed validation")
 	}
 }
 

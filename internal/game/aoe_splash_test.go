@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
-	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -36,7 +35,8 @@ func TestAoESplash_DamagesNearbyMonsters_NotFarOnes(t *testing.T) {
 
 	primaryHPBefore := primary.HitPoints
 
-	cs.applyAoeSplash(primary, damagecalc.Parts{Normal: 20}, "fire", monsterPkg.DamageFire, "Fireball", 2.0, 0)
+	attack := cs.newPartyMonsterAttack(20, 0, "fire", 0, nil, "Fireball", false, true, false)
+	cs.applyAoeSplash(primary, attack, 2.0)
 
 	if primary.HitPoints != primaryHPBefore {
 		t.Errorf("primary should not be re-damaged by splash, got HP %d (was %d)", primary.HitPoints, primaryHPBefore)
@@ -68,7 +68,8 @@ func TestAoESplash_SkipsDeadMonsters(t *testing.T) {
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, corpse}
 
-	cs.applyAoeSplash(primary, damagecalc.Parts{Normal: 20}, "fire", monsterPkg.DamageFire, "Fireball", 2.0, 0)
+	attack := cs.newPartyMonsterAttack(20, 0, "fire", 0, nil, "Fireball", false, true, false)
+	cs.applyAoeSplash(primary, attack, 2.0)
 
 	if corpse.HitPoints != 0 {
 		t.Errorf("dead monster should remain at 0 HP, got %d", corpse.HitPoints)
@@ -85,7 +86,8 @@ func TestAoESplash_ZeroRadius_NoOp(t *testing.T) {
 	bystander := &monsterPkg.Monster3D{Name: "Bystander", X: tileSize * 0.5, Y: 0, HitPoints: 100, MaxHitPoints: 100}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, bystander}
 
-	cs.applyAoeSplash(primary, damagecalc.Parts{Normal: 50}, "fire", monsterPkg.DamageFire, "Firebolt", 0, 0)
+	attack := cs.newPartyMonsterAttack(50, 0, "fire", 0, nil, "Firebolt", false, true, false)
+	cs.applyAoeSplash(primary, attack, 0)
 
 	if bystander.HitPoints != 100 {
 		t.Errorf("bystander should be untouched when AoE radius is 0, got HP %d", bystander.HitPoints)

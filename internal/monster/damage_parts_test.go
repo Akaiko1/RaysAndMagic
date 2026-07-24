@@ -38,3 +38,23 @@ func TestTakeDamageParts_ScriptedInvulnerabilityAbsorbsBoth(t *testing.T) {
 		t.Fatalf("invulnerable target changed: hp=%d attacked=%v", m.HitPoints, m.WasAttacked)
 	}
 }
+
+func TestTakeDamagePacket_MultiSchoolHitPaysSoakOnce(t *testing.T) {
+	m := &Monster3D{
+		HitPoints:    1000,
+		MaxHitPoints: 1000,
+		Resistances:  map[DamageType]int{},
+		SoakDamage:   10,
+		SoakFrames:   1,
+	}
+	dealt := m.TakeDamagePacket([]DamageComponent{
+		{Parts: damagecalc.Parts{Normal: 80}, DamageType: DamagePhysical},
+		{Parts: damagecalc.Parts{Normal: 20}, DamageType: DamageFire},
+	})
+	if got := dealt.Total(); got != 90 {
+		t.Fatalf("80 physical + 20 fire with soak 10 dealt %d, want 90 from one hit", got)
+	}
+	if m.HitPoints != 910 {
+		t.Fatalf("HP = %d, want 910", m.HitPoints)
+	}
+}

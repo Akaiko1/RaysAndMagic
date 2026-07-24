@@ -354,6 +354,7 @@ func TestControlledMonsterRewardRules(t *testing.T) {
 	t.Run("card_ally", func(t *testing.T) {
 		target := monsterPkg.NewMonster3DFromConfig(0, 0, "masked_huntress", game.config)
 		target.HitPoints, target.Experience, target.Gold = 1, 40, 17
+		target.PerfectDodge = 0 // reward test; the killing blow must be deterministic
 		killer := makeKiller()
 		game.world.Monsters = []*monsterPkg.Monster3D{target, killer}
 		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

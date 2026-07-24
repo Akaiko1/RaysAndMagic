@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -122,7 +123,6 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		name = def.Name
 	}
 	damageTypeStr := normalizeDamageTypeStr(m.School)
-	damageType := convertToMonsterDamageType(damageTypeStr)
 	dmg := m.Damage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	radius := m.RadiusTiles * float64(cs.game.config.GetTileSize())
 	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
@@ -136,8 +136,11 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		if Distance(m.X, m.Y, target.X, target.Y) > radius {
 			continue
 		}
-		reduced := applyMonsterArmor(dmg, damageTypeStr, target.EffectiveArmorClass(), false)
-		actual := target.TakeDamageResist(reduced, damageType, resistPierce)
+		actual := cs.applyMonsterDamagePacket(
+			target,
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg}, damageTypeStr, resistPierce),
+			monsterDamageOptions{},
+		).Total()
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
 		if !target.IsAlive() {

@@ -83,6 +83,7 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 			for _, pos := range positions {
 				bound := monsterPkg.NewMonster3DFromConfig(pos[0]*ts+ts/2, pos[1]*ts+ts/2, "masked_huntress", cs.game.config)
 				bound.MaxHitPoints, bound.HitPoints = 5000, 5000
+				bound.PerfectDodge = 0 // geometry test; defense parity has dedicated coverage
 				markCardAlly(bound)
 				bounds = append(bounds, bound)
 			}
@@ -125,6 +126,7 @@ func TestChampionCrossfireArcDoesNotHitPartyOutsideWorldCone(t *testing.T) {
 	champ.ChampionTier = "impossible"
 	foe := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
 	foe.MaxHitPoints, foe.HitPoints = 5000, 5000
+	foe.PerfectDodge = 0 // geometry test; dodge parity has dedicated coverage
 	markCardAlly(foe)
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
@@ -326,6 +328,7 @@ func TestChampionCrossfireTransitTargetsSkipArcButTakeAoe(t *testing.T) {
 		transit := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 11*ts+ts/2, "masked_huntress", cs.game.config)
 		for _, bound := range []*monsterPkg.Monster3D{front, transit} {
 			bound.MaxHitPoints, bound.HitPoints = 5000, 5000
+			bound.PerfectDodge = 0 // transit/arc test; defense parity is separate
 			markCardAlly(bound)
 		}
 		transit.AttackTransit = true
@@ -374,6 +377,7 @@ func TestChampionRangedAoESplashesSummonsAndParty(t *testing.T) {
 	other := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
 	for _, h := range []*monsterPkg.Monster3D{target, other} {
 		h.MaxHitPoints, h.HitPoints = 5000, 5000
+		h.PerfectDodge = 0
 		markCardAlly(h)
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{sorc, target, other}
@@ -443,6 +447,7 @@ func TestChampionCrossfireAoESparesSourceAndEnemyAllies(t *testing.T) {
 	otherAlly := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 11*ts+ts/2, "masked_huntress", cs.game.config)
 	for _, h := range []*monsterPkg.Monster3D{target, otherAlly} {
 		h.MaxHitPoints, h.HitPoints = 5000, 5000
+		h.PerfectDodge = 0 // this test isolates AoE faction targeting, not dodge
 		markCardAlly(h)
 	}
 	enemyAlly := monsterPkg.NewMonster3DFromConfig(12*ts+ts/2, 10*ts+ts/2, "goblin", cs.game.config)

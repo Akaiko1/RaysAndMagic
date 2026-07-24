@@ -744,6 +744,7 @@ func TestMonsterStrike_RewardsRules(t *testing.T) {
 	// A mob cuts down a CARD ALLY (a pure summon) -> NO party XP.
 	huntress := monster.NewMonster3DFromConfig(0, 0, "masked_huntress", cfg)
 	huntress.HitPoints = 1
+	huntress.PerfectDodge = 0 // reward test; the killing blow must be deterministic
 	mob2 := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	game.world.Monsters = []*monster.Monster3D{huntress, mob2}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -843,6 +844,7 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	// The identical projectile path must not reward a card ally.
 	ally := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "masked_huntress", cfg)
 	ally.HitPoints, ally.Experience, ally.Gold = 1, 40, 17
+	ally.PerfectDodge = 0
 	markCardAlly(ally)
 	game.world.Monsters = []*monster.Monster3D{bandit, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

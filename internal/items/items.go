@@ -3,6 +3,8 @@ package items
 import (
 	"fmt"
 	"strings"
+
+	damagecalc "ugataima/internal/damage"
 )
 
 type EquipSlot int
@@ -685,7 +687,10 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	for school, pct := range def.Resistances {
 		if pct != 0 {
-			attrs["resist_"+strings.ToLower(strings.TrimSpace(school))] = pct
+			damageType, err := damagecalc.ParseType(school)
+			if err == nil {
+				attrs["resist_"+damageType.String()] = pct
+			}
 		}
 	}
 	if def.Value != 0 {

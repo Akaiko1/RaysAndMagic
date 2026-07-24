@@ -6,7 +6,6 @@ import (
 
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
-	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 )
@@ -146,7 +145,8 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 		t.Fatal("a transit mob on the same post must be skipped by a party arc")
 	}
 
-	game.combat.applyAoeSplash(holder, damagecalc.Parts{Normal: 40}, "fire", monster.DamageFire, "test", 1, 0)
+	attack := game.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "test", false, true, false)
+	game.combat.applyAoeSplash(holder, attack, 1)
 	if transit.HitPoints >= transit.MaxHitPoints {
 		t.Fatal("AoE must still damage a transit mob sharing the post")
 	}

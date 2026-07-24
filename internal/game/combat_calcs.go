@@ -237,7 +237,9 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 			}
 		}
 	}
-	total += cs.game.cardArmorBonus()             // Treant Card: flat party Armor Class
+	if cs.game.isPartyMember(char) {
+		total += cs.game.cardArmorBonus() // Treant Card: flat PARTY Armor Class
+	}
 	total += cs.game.partyArmorAuraBonusFor(char) // Parma shield wall: aura from OTHER members' gear
 	if char.HasSkill(character.SkillIronBody) {
 		// Iron Body: flat AC per tier, Novice included - a Monk's only AC
@@ -247,6 +249,18 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 	return total
 }
 
+func (g *MMGame) isPartyMember(char *character.MMCharacter) bool {
+	if g == nil || g.party == nil || char == nil {
+		return false
+	}
+	for _, member := range g.party.Members {
+		if member == char {
+			return true
+		}
+	}
+	return false
+}
+
 // partyArmorAuraBonusFor sums party_armor_bonus from every OTHER member's
 // equipped items (the Parma's shield wall: the bearer shelters the line, not
 // themselves - the shield's own armor_class_base already covers them). Only
@@ -254,17 +268,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 // characters run through CalculateTotalArmorClass too and must never borrow
 // the party's shields.
 func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
-	if g == nil || g.party == nil {
-		return 0
-	}
-	inParty := false
-	for _, member := range g.party.Members {
-		if member == char {
-			inParty = true
-			break
-		}
-	}
-	if !inParty {
+	if !g.isPartyMember(char) {
 		return 0
 	}
 	total := 0

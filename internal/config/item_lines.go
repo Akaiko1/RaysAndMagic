@@ -4,14 +4,24 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	damagecalc "ugataima/internal/damage"
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
 // tooltip and the map-editor card (same contract as the weapon/spell/trap
 // EffectLines). New YAML fields get a line HERE, and every consumer shows it.
 
-// nonPhysicalSchools is the resist-collapse order (matches damage schools).
-var nonPhysicalSchools = []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
+func nonPhysicalDamageSchools() []damagecalc.Type {
+	all := damagecalc.Types()
+	out := make([]damagecalc.Type, 0, len(all)-1)
+	for _, school := range all {
+		if school != damagecalc.Physical {
+			out = append(out, school)
+		}
+	}
+	return out
+}
 
 // StatBonusLines lists the item's flat stat bonuses and scaling-divisor
 // bonuses (divisors are STAT bonuses computed from the base stat - they feed
@@ -60,15 +70,16 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 	if len(d.Resistances) == 0 {
 		return nil
 	}
-	allEqual, common := true, d.Resistances[nonPhysicalSchools[0]]
-	for _, s := range nonPhysicalSchools {
-		if d.Resistances[s] != common {
+	nonPhysicalSchools := nonPhysicalDamageSchools()
+	allEqual, common := true, d.Resistances[nonPhysicalSchools[0].String()]
+	for _, school := range nonPhysicalSchools {
+		if d.Resistances[school.String()] != common {
 			allEqual = false
 			break
 		}
 	}
 	if allEqual && common > 0 {
-		phys := d.Resistances["physical"]
+		phys := d.Resistances[damagecalc.Physical.String()]
 		if phys > 0 {
 			return []string{fmt.Sprintf("Resist +%d%% to all damage (+%d%% physical)", common, phys)}
 		}

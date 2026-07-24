@@ -592,22 +592,50 @@ func (m *Monster3D) TakeTrueDamage(damage int, damageType DamageType, resistPier
 	return m.TakeDamageParts(damagecalc.Parts{True: damage}, damageType, resistPiercePct)
 }
 
-// TakeDamageParts is the single monster damage sink. Normal and true damage
-// share the attack's element and resistance; champion Stone Skin soaks only the
-// normal component.
+// DamageComponent is one school carried by a single hit. Armor is resolved by
+// the game before this boundary; the monster owns resistance, one shared flat
+// soak, HP mutation and attacked-state bookkeeping.
+type DamageComponent struct {
+	Parts           damagecalc.Parts
+	DamageType      DamageType
+	ResistPiercePct int
+}
+
+// TakeDamageParts is the compatibility wrapper for a single-school hit. Normal
+// and true damage share the attack's element and resistance; champion Stone
+// Skin soaks only the normal component.
 func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
+	return m.TakeDamagePacket([]DamageComponent{{
+		Parts:           parts,
+		DamageType:      damageType,
+		ResistPiercePct: resistPiercePct,
+	}}).Total()
+}
+
+// TakeDamagePacket is the single monster sink for one potentially multi-school
+// hit. Each school applies its own resistance, then one flat soak is subtracted
+// from the combined normal damage. A physical hit converted into several
+// elements therefore remains one hit instead of consuming Stone Skin once per
+// component.
+func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Parts {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
 	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
 	if m.IsDamageInvulnerable() {
-		return 0
+		return damagecalc.Parts{}
 	}
-	resistance := 0
-	if m.Resistances != nil {
-		resistance = m.Resistances[damageType]
+
+	var dealt damagecalc.Parts
+	for _, component := range components {
+		resistance := 0
+		if m.Resistances != nil {
+			resistance = m.Resistances[component.DamageType]
+		}
+		resisted := component.Parts.ApplyResistance(resistance, component.ResistPiercePct)
+		dealt.Normal += resisted.Normal
+		dealt.True += resisted.True
 	}
-	dealt := parts.ApplyResistance(resistance, resistPiercePct)
 
 	// Flat soak (champion Stone Skin) after resists, like the party's
 	// incoming-damage-reduction buff ordering. True damage bypasses it.
@@ -630,13 +658,13 @@ func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageTyp
 
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
-		return total
+		return dealt
 	}
 
 	// Being attacked always triggers engagement - chase the attacker
 	m.BeginPlayerEngagement()
 
-	return total
+	return dealt
 }
 
 // ApplyPoison applies or refreshes a party-inflicted poison DoT (Venom-proc

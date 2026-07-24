@@ -3,9 +3,9 @@ package game
 import (
 	"math"
 	"math/rand"
-	"strings"
 
 	"ugataima/internal/config"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -18,16 +18,16 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		return
 	}
 	if weaponDef.ProjectileSchool != "" {
-		g.CreateSpellHitEffect(x, y, strings.ToLower(weaponDef.ProjectileSchool), count, size)
+		g.CreateSpellHitEffect(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size)
 		return
 	}
 	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
 	if weaponDef.AoeRadiusTiles > 0 {
-		el := strings.ToLower(weaponDef.DamageType)
-		if el == "" || el == "physical" {
-			el = "fire"
+		element := convertToMonsterDamageType(weaponDef.DamageType)
+		if element == monsterPkg.DamagePhysical {
+			element = monsterPkg.DamageFire
 		}
-		g.CreateSpellHitEffect(x, y, el, count, size)
+		g.CreateSpellHitEffect(x, y, element.String(), count, size)
 	}
 	// Plain arrow: no impact effect - it just disappears.
 }
@@ -42,7 +42,7 @@ const (
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
 func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
-	element := "physical"
+	element := monsterPkg.DamagePhysical.String()
 	damage := 1
 	if err == nil {
 		element = def.School
@@ -111,24 +111,24 @@ func (g *MMGame) addScreenShake(amp, maxAmp float64) {
 // generalizes beyond the named spells; unknown elements fall back to a plain
 // radial burst.
 func spellHitStyle(element string) string {
-	switch strings.ToLower(element) {
-	case "fire":
+	switch convertToMonsterDamageType(element) {
+	case monsterPkg.DamageFire:
 		return "ember" // rising hot embers
-	case "water":
+	case monsterPkg.DamageWater:
 		return "shard" // sharp shards that fall and linger
-	case "dark":
+	case monsterPkg.DamageDark:
 		return "void" // slow creeping motes that sink
-	case "light":
+	case monsterPkg.DamageLight:
 		return "flash" // fast radiant flare, quick pop
-	case "air":
+	case monsterPkg.DamageAir:
 		return "static" // air school is lightning/sparks: fast erratic crackle
-	case "earth":
+	case monsterPkg.DamageEarth:
 		return "rubble" // heavy chunks, strong drop
-	case "mind":
+	case monsterPkg.DamageMind:
 		return "spiral" // tangential swirl
-	case "spirit":
+	case monsterPkg.DamageSpirit:
 		return "soul" // slow rising wisps, long-lived
-	case "body":
+	case monsterPkg.DamageBody:
 		return "mend" // gentle drifting sparkles
 	default:
 		return "burst"
@@ -158,9 +158,10 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
+	element = normalizeDamageTypeStr(element)
 	baseColor, ok := ElementColors[element]
 	if !ok {
-		baseColor = ElementColors["physical"]
+		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
 	}
 
 	if particleCount <= 0 {

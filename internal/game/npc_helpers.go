@@ -156,21 +156,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 // schoolIDFromString returns the typed school ID for a YAML/dialog string. The
 // bool reports whether the value matches a known school.
 func schoolIDFromString(raw string) (character.MagicSchoolID, bool) {
-	school := character.MagicSchoolID(strings.ToLower(strings.TrimSpace(raw)))
-	switch school {
-	case character.MagicSchoolBody,
-		character.MagicSchoolMind,
-		character.MagicSchoolSpirit,
-		character.MagicSchoolFire,
-		character.MagicSchoolWater,
-		character.MagicSchoolAir,
-		character.MagicSchoolEarth,
-		character.MagicSchoolLight,
-		character.MagicSchoolDark:
-		return school, true
-	default:
-		return "", false
-	}
+	return character.ParseMagicSchoolID(raw)
 }
 
 func formatNPCDialogue(template string, vars npcDialogVars) string {

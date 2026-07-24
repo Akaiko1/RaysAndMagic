@@ -307,7 +307,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 			idx,
 			member,
 			damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage},
-			monsterPkg.DamageSchoolFire,
+			monsterPkg.DamageFire.String(),
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))

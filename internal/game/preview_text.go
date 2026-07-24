@@ -3,6 +3,7 @@ package game
 import (
 	"image/color"
 
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -34,21 +35,25 @@ func RefreshItemFromConfig(item *items.Item) { normalizeItemFromConfig(item) }
 // SchoolColor is the damage-school tint, usable wherever a school needs a
 // color (editor resist sheets; free for game HUD use).
 func SchoolColor(school string) color.Color {
-	if c, ok := schoolColors[school]; ok {
+	damageType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return color.White
+	}
+	if c, ok := schoolColors[damageType]; ok {
 		return c
 	}
 	return color.White
 }
 
-var schoolColors = map[string]color.RGBA{
-	"physical": {200, 200, 200, 255},
-	"fire":     {255, 110, 60, 255},
-	"water":    {80, 150, 255, 255},
-	"air":      {160, 220, 255, 255},
-	"earth":    {180, 140, 70, 255},
-	"mind":     {230, 120, 255, 255},
-	"body":     {150, 220, 90, 255},
-	"spirit":   {235, 235, 255, 255},
-	"light":    {255, 235, 130, 255},
-	"dark":     {160, 70, 220, 255},
+var schoolColors = map[damagecalc.Type]color.RGBA{
+	damagecalc.Physical: {200, 200, 200, 255},
+	damagecalc.Fire:     {255, 110, 60, 255},
+	damagecalc.Water:    {80, 150, 255, 255},
+	damagecalc.Air:      {160, 220, 255, 255},
+	damagecalc.Earth:    {180, 140, 70, 255},
+	damagecalc.Mind:     {230, 120, 255, 255},
+	damagecalc.Body:     {150, 220, 90, 255},
+	damagecalc.Spirit:   {235, 235, 255, 255},
+	damagecalc.Light:    {255, 235, 130, 255},
+	damagecalc.Dark:     {160, 70, 220, 255},
 }

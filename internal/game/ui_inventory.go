@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 
@@ -611,7 +612,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 
 	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
 	lines := []string{
-		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType("physical")),
+		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String())),
 		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
 		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% elemental)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
 		fmt.Sprintf("2. Physical resistance: -%d%%", m.ResistPct),
@@ -624,16 +625,16 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 
 	drawDebugTextColored(screen, "RESISTANCES", x, y+158, headingColor)
 	buffResist := ui.game.combatBuffResistPct()
-	schools := []string{"physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark"}
+	schools := damagecalc.Types()
 	const colGap = 190
 	for i, school := range schools {
-		total := ui.game.schoolResistPct(member, school)
+		total := ui.game.schoolResistPct(member, school.String())
 		colX := x
 		if i >= 5 {
 			colX += colGap
 		}
 		rowY := y + 178 + (i%5)*18
-		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", strings.Title(school), total), colGap-10), colX, rowY, textColor)
+		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", strings.Title(school.String()), total), colGap-10), colX, rowY, textColor)
 	}
 	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }

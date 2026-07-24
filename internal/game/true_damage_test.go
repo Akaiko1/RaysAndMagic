@@ -29,7 +29,7 @@ func TestPartyMitigation_ResistanceAppliesToBothFlatOnlyToNormal(t *testing.T) {
 
 	got := cs.mitigateCharacterDamageParts(
 		damagecalc.Parts{Normal: 100, True: 40},
-		monsterPkg.DamageSchoolPhysical,
+		monsterPkg.DamagePhysical.String(),
 		member,
 		false,
 	)
@@ -41,7 +41,7 @@ func TestPartyMitigation_ResistanceAppliesToBothFlatOnlyToNormal(t *testing.T) {
 	isolateTrueDamageMember(member, 100)
 	got = cs.mitigateCharacterDamageParts(
 		damagecalc.Parts{True: 40},
-		monsterPkg.DamageSchoolPhysical,
+		monsterPkg.DamagePhysical.String(),
 		member,
 		false,
 	)
@@ -62,7 +62,7 @@ func TestMonsterTrueDamage_LandsThroughPartyDodgeButUsesResistance(t *testing.T)
 
 	cs.monsterHitCharacter(attacker, member, attacker.Name, monsterCharacterHit{
 		Parts:      damagecalc.Parts{Normal: 100, True: 20},
-		DamageType: monsterPkg.DamageSchoolPhysical,
+		DamageType: monsterPkg.DamagePhysical.String(),
 	})
 
 	if got := 200 - member.HitPoints; got != 10 {
@@ -161,7 +161,7 @@ func TestMonsterCrossfireProjectile_CarriesTrueDamage(t *testing.T) {
 		ID:            "true_crossfire",
 		Active:        true,
 		LifeTime:      1,
-		DamageType:    monsterPkg.DamageSchoolPhysical,
+		DamageType:    monsterPkg.DamagePhysical.String(),
 		TrueDamage:    20,
 		Owner:         ProjectileOwnerBoundUndead,
 		SourceName:    source.Name,

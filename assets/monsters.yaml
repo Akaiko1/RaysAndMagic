@@ -1818,18 +1818,6 @@ monsters:
       - "empty"
 
 # Damage type mappings for resistances
-damage_types:
-  physical: 0
-  fire: 1
-  water: 2
-  air: 3
-  earth: 4
-  spirit: 5
-  mind: 6
-  body: 7
-  light: 8
-  dark: 9
-
 # Tile type mappings for habitat preferences
 tile_types:
   empty: 0

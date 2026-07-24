@@ -160,7 +160,7 @@ func avgIncomingPerHit(cs *CombatSystem, mobKey string, target *character.MMChar
 		// physical resistance applies to both while flat reduction touches normal.
 		sum += cs.mitigateCharacterDamageParts(
 			damagecalc.Parts{Normal: mob.GetAttackDamage(), True: mob.TrueDamage},
-			monsterPkg.DamageSchoolPhysical,
+			monsterPkg.DamagePhysical.String(),
 			target,
 			mob.IgnoresArmor,
 		).Total()
