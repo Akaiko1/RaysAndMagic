@@ -219,6 +219,9 @@ func (cs *CombatSystem) monsterWeaponDamageOptions(
 }
 
 func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, attack partyMonsterAttack) damagecalc.Parts {
+	if isPurePartySummon(target) {
+		return damagecalc.Parts{}
+	}
 	return cs.applyMonsterDamagePacket(target, attack.Packet, cs.partyMonsterDamageOptions(attack, target))
 }
 

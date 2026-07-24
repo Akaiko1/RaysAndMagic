@@ -81,6 +81,12 @@ func (p *MobPreview) Select(key string) {
 	stageX := g.camera.X + (1.1+0.35*def.GetSizeGameMultiplier())*ts
 	for i := 0; i < count; i++ {
 		m := monster.NewMonster3DFromConfig(stageX, 8.5*ts, key, g.config)
+		if m.IsChampion() {
+			// The editor reads this runtime instance immediately after Select.
+			// Mirror now so the first frame and stat sheet never expose the
+			// placeholder values in monsters.yaml.
+			g.mirrorChampionStats(m)
+		}
 		m.PassiveUntilAttacked = true
 		m.TetherRadius = 2 * ts
 		p.arena.Monsters = append(p.arena.Monsters, m)

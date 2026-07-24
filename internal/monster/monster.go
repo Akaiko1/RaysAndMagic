@@ -737,16 +737,13 @@ func (m *Monster3D) IsEnraged() bool {
 }
 
 func (m *Monster3D) GetTurnBasedAttackCount() int {
-	n := m.AttacksPerRound
-	if n < 1 {
-		n = tbAttacksForCooldownMult(m.AttackCooldownMultiplier)
-	}
+	n := TurnBasedAttackCount(m.AttacksPerRound, m.AttackCooldownMultiplier)
 	// RT/TB parity: cooldown speedups that make the monster strike faster in real
 	// time grant proportionally more turn-based swings. If AttacksPerRound is set,
 	// it is the explicit base; otherwise derive the base from the static cooldown
 	// multiplier. Enrage is a dynamic multiplier on top.
 	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
-		n *= tbAttacksForCooldownMult(m.EnrageCooldownMult)
+		n *= TurnBasedAttacksForCooldownMultiplier(m.EnrageCooldownMult)
 	}
 	return n
 }

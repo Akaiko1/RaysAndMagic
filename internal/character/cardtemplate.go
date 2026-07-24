@@ -178,11 +178,11 @@ func CooldownLine(seconds float64) string {
 	return fmt.Sprintf("RT Cooldown: %.1fs - TB: 1 action", seconds)
 }
 
-// ArmorInteractionLines spells out how a damage type meets the target's defenses
+// ArmorInteractionLines spells out how a normal hit meets the target's defenses
 // under the percentage armor model: armor mitigates physical up to its cap and
-// elemental up to a lower cap (diminishing returns), elemental also meets
-// Resistance, ranged physical shots can pierce armor. Universal/educational RULES
-// -> DETAIL tier (full view only); the map editor renders full and still shows them.
+// non-physical damage up to a lower cap (diminishing returns), and it also meets
+// Resistance; ranged physical shots can pierce armor. Universal/educational
+// RULES -> DETAIL tier (full view only); the map editor renders full.
 func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool) {
 	dt := strings.ToLower(strings.TrimSpace(damageType))
 	school, err := damagecalc.ParseType(dt)
@@ -293,10 +293,10 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	if def.BonusStatSecondary != "" {
 		dmg.Add("%s / %d: scales", def.BonusStatSecondary, WeaponSecondaryStatDivisor)
 	}
-	dmg.Add("Arms Master: +%d Normal per tier", ArmsMasterDamagePerTier)
+	dmg.Add("Arms Master: +%d Normal per tier above Novice", ArmsMasterDamagePerTier)
 	_, hasWeaponSkill := WeaponSkillForCategory(strings.ToLower(def.Category))
 	if hasWeaponSkill {
-		dmg.Add("Weapon Mastery: +%d True per tier", MasteryWeaponTrueDamagePerTier)
+		dmg.Add("Weapon Mastery: +%d True per tier above Novice", MasteryWeaponTrueDamagePerTier)
 	}
 
 	crit := CardSection{Title: "CRITICAL"}
@@ -340,13 +340,11 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	// authored fallback value as if it were active.
 	if !sd.IsBuff() {
 		cd := def.CooldownSeconds
-		note := ""
 		if cd <= 0 {
 			cd = spells.SpellCooldownDefaultSecondsForLevel(def.Level)
-			note = " (level default)"
 		}
 		casting.Add("%s", CooldownLine(cd))
-		casting.Add("Scales with caster Speed%s", note)
+		casting.Add("Scales with caster Speed")
 	}
 	if sd.IsProjectile && def.Physics != nil {
 		if def.Physics.RangeTiles > 0 {
@@ -355,8 +353,10 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		if def.Physics.SpeedTiles > 0 {
 			casting.Add("Projectile Speed: %.0f tiles/s", def.Physics.SpeedTiles)
 		}
-		if hb := ProjectileHitboxLine(def.Physics); hb != "" {
-			casting.AddDetail("%s", hb)
+		if sd.MortarRangeTiles <= 0 {
+			if hb := ProjectileHitboxLine(def.Physics); hb != "" {
+				casting.AddDetail("%s", hb)
+			}
 		}
 	}
 	switch {
@@ -382,20 +382,20 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		if sd.ScalesWithPersonality {
 			dmg.Add("Personality / %d: scales", spells.SpellIntellectDivisor)
 		}
-		dmg.Add("Mastery: +%d per tier", MasterySpellEffectPerLevel)
+		dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
 	}
 	if sd.ZoneRadiusTiles > 0 {
 		dmg.Title = "DAMAGE PER TICK"
 		dmg.Add("Base: %d", sd.ZoneTickDamage)
 		dmg.Add("Intellect / %d: scales", spells.SpellIntellectDivisor)
-		dmg.Add("Mastery: +%d per tier", MasterySpellEffectPerLevel)
+		dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
 	}
 	if sd.PartyAoeRadiusTiles > 0 {
 		dmg.Title = "EFFECT"
 		base := sd.MasteryScaledDamage(0)
 		if sd.MasteryDamagePerTier > 0 {
 			dmg.Add("Base: %d", base)
-			dmg.Add("Mastery: +%d per tier", sd.MasteryDamagePerTier)
+			dmg.Add("Mastery: +%d per tier above Novice", sd.MasteryDamagePerTier)
 			dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
 		} else {
 			dmg.Add("Damage: %d", base)
@@ -408,7 +408,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		base := sd.MasteryScaledDamage(0)
 		dmg.Add("Base: %d", base)
 		if sd.MasteryDamagePerTier > 0 {
-			dmg.Add("Mastery: +%d per tier", sd.MasteryDamagePerTier)
+			dmg.Add("Mastery: +%d per tier above Novice", sd.MasteryDamagePerTier)
 		}
 		dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
 		dmg.Add("Radius: Current map")
@@ -419,7 +419,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	if sd.HealAmount > 0 {
 		heal.Add("Base: %d", sd.HealAmount)
 		heal.Add("Personality / %d: scales", spells.HealingPersonalityDivisor)
-		heal.Add("Mastery: +%d per tier", MasterySpellEffectPerLevel)
+		heal.Add("School Mastery: +%d healing per tier above Novice", MasterySpellEffectPerLevel)
 		heal.Add("Natural Healer: +%d-%d%%", NaturalHealerBonusPct(0), NaturalHealerBonusPct(3))
 	}
 
@@ -449,60 +449,117 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	}
 	if sd.Duration > 0 {
 		effects.Add("Base Duration: %ds", sd.Duration)
-		effects.Add("Mastery: +%d%% duration per tier", SpellMasteryDurationBonusPct)
+		effects.Add("Mastery: +%d%% duration per tier above Novice", SpellMasteryDurationBonusPct)
 	}
 
 	rules := CardSection{Title: "RULES"}
-	school := strings.Title(def.School)
-	switch {
-	case sd.PartyAoeRadiusTiles > 0 || sd.MapWide:
-		rules.Add("All damage remains normal %s damage", strings.ToLower(school))
-		rules.Add("Enemy %s Resistance reduces damage", school)
-		rules.Add("Party %s Resistance reduces self-damage", school)
-		if MagicSchoolID(def.School).IsElemental() {
-			rules.Add("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
-				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
-		}
-		rules.Add("Cannot critically hit")
-	case sd.DealsNoDamage:
-		rules.Add("Deals no damage")
-		rules.Add("Cannot critically hit")
-	case sd.IsProjectile || sd.ZoneRadiusTiles > 0:
-		rules.Add("%s Resistance reduces damage", school)
-		if MagicSchoolID(def.School).IsElemental() {
-			rules.Add("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
-				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
-			rules.Add("GM: the school mastery damage bonus is typed true damage")
-		} else {
-			rules.Add("Grandmaster: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, school)
-		}
-	}
-	if sd.AoeRadiusTiles > 0 {
-		rules.Add("%s", SplashCritRule)
-	}
-	if sd.IsProjectile {
-		rules.Add("Can be evaded by Perfect Dodge (magic mastery never pierces it)")
-	}
-	if sd.Pacify {
-		rules.Add("Any received hit breaks the charm")
-		rules.Add("No effect on undead")
-	}
-	if sd.StatBonus > 0 || len(sd.StatBonuses) > 0 {
-		if sd.StatBonusGrandmaster > sd.StatBonus {
-			rules.Add("Mastery increases duration and the bonus")
-		} else {
-			rules.Add("Mastery increases duration, not the bonus")
-		}
-		rules.Add("Recasting refreshes the effect")
-	}
-	if sd.ZoneRadiusTiles > 0 {
-		rules.Add("Overlapping zones of the same spell do not stack")
+	for _, line := range SpellRuleLines(sd) {
+		rules.Add("%s", line)
 	}
 	if def.MonsterOnly {
 		rules.Add("Monster only - never offered to the party")
 	}
 
 	return []CardSection{casting, dmg, heal, crit, zone, effects, rules}
+}
+
+type SpellRuleKind uint8
+
+const (
+	SpellRuleGeneral SpellRuleKind = iota
+	// SpellRuleMasteryPolicy is shown by the editor as a reference formula.
+	// The live tooltip replaces it with the character's current values beside
+	// DAMAGE, avoiding a second copy in RULES.
+	SpellRuleMasteryPolicy
+	// SpellRuleDodge lets the live tooltip describe the current packet: before
+	// elemental GM it is fully dodgeable; once typed true damage exists, only
+	// the normal component is avoided.
+	SpellRuleDodge
+)
+
+type SpellRule struct {
+	Kind SpellRuleKind
+	Text string
+}
+
+// SpellRules is the character-independent rules contract shared by the
+// in-game spell tooltip and editor catalog. Rule kinds let the live card
+// replace reference formulas with current values without duplicating the
+// underlying applicability logic.
+func SpellRules(def spells.SpellDefinition) []SpellRule {
+	var out []SpellRule
+	add := func(kind SpellRuleKind, format string, args ...any) {
+		out = append(out, SpellRule{Kind: kind, Text: fmt.Sprintf(format, args...)})
+	}
+
+	school := strings.Title(def.School)
+	switch {
+	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
+		add(SpellRuleGeneral, "All damage remains normal %s damage", strings.ToLower(school))
+		add(SpellRuleGeneral, "Enemy %s Resistance reduces damage", school)
+		add(SpellRuleGeneral, "Party %s Resistance reduces self-damage", school)
+		if MagicSchoolID(def.School).IsElemental() {
+			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
+				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+		}
+		add(SpellRuleGeneral, "Cannot critically hit")
+	case def.DealsNoDamage:
+		add(SpellRuleGeneral, "Deals no damage")
+		add(SpellRuleGeneral, "Cannot critically hit")
+	case def.IsProjectile || def.ZoneRadiusTiles > 0:
+		add(SpellRuleGeneral, "%s Resistance reduces damage", school)
+		if MagicSchoolID(def.School).IsElemental() {
+			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
+				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+			add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: +%d %s true damage",
+				school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school)
+		} else {
+			add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: ignores %d%% of enemy %s Resistance",
+				school, SelfMagicGMResistPiercePct, school)
+		}
+	}
+	if def.AoeRadiusTiles > 0 {
+		if def.MortarRangeTiles > 0 {
+			add(SpellRuleGeneral, "One critical roll boosts the entire bloom")
+		} else {
+			add(SpellRuleGeneral, "%s", SplashCritRule)
+		}
+	}
+	if def.IsProjectile && def.MortarRangeTiles <= 0 {
+		if !def.DealsNoDamage && MagicSchoolID(def.School).IsElemental() {
+			add(SpellRuleDodge, "At Grandmaster, Perfect Dodge avoids normal damage; typed true damage still lands")
+		} else {
+			add(SpellRuleDodge, "Can be evaded by Perfect Dodge")
+		}
+	}
+	if def.MortarRangeTiles > 0 {
+		add(SpellRuleGeneral, "The bloom cannot be evaded by Perfect Dodge")
+	}
+	if def.Pacify {
+		add(SpellRuleGeneral, "Any received hit breaks the charm")
+		add(SpellRuleGeneral, "No effect on undead")
+	}
+	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
+		if def.StatBonusGrandmaster > def.StatBonus {
+			add(SpellRuleGeneral, "Mastery increases duration and the bonus")
+		} else {
+			add(SpellRuleGeneral, "Mastery increases duration, not the bonus")
+		}
+		add(SpellRuleGeneral, "Recasting refreshes the effect")
+	}
+	if def.ZoneRadiusTiles > 0 {
+		add(SpellRuleGeneral, "Overlapping zones of the same spell do not stack")
+	}
+	return out
+}
+
+func SpellRuleLines(def spells.SpellDefinition) []string {
+	rules := SpellRules(def)
+	out := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, rule.Text)
+	}
+	return out
 }
 
 // MonsterSpellCardSections renders a MONSTER-ONLY spell. Monsters cast these
@@ -528,7 +585,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 	dmg := CardSection{Title: "DAMAGE"}
 	if sd.IsProjectile && !sd.DealsNoDamage {
 		dmg.Add("Deals the casting monster's attack damage")
-		dmg.Add("No SP, Intellect, mastery or critical scaling")
+		dmg.Add("Cannot critically hit")
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
@@ -539,7 +596,6 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 
 	rules := CardSection{Title: "RULES"}
 	rules.Add("Strikes your party, not other monsters")
-	rules.Add("Monster only - never offered to the party")
 
 	return []CardSection{casting, dmg, effects, rules}
 }
@@ -556,18 +612,18 @@ func TrapCardSections(def *config.TrapDefinitionConfig, placeRangeTiles, maxPerO
 	if def.DamageBase > 0 {
 		dmg.Add("Base: %d", def.DamageBase)
 		dmg.Add("(Intellect + Accuracy) / %d: scales", TrapStatScalingDivisor)
-		dmg.Add("Trapper: +%d per tier", TrapperDamagePerTier)
+		dmg.Add("Trapper: +%d per tier above Novice", TrapperDamagePerTier)
 	}
 
 	gmTier := int(MasteryGrandMaster)
 	effect := CardSection{Title: "EFFECT"}
 	if def.StunTurns > 0 {
 		effect.Add("Base Stun: %d TB turns / %ds", def.StunTurns, def.StunSeconds)
-		effect.Add("Trapper: +%ds per tier, up to +%d TB turns at Grandmaster", TrapperSecondsPerTier, TrapperTurnBonus(gmTier))
+		effect.Add("Trapper: +%ds per tier above Novice, up to +%d TB turns at Grandmaster", TrapperSecondsPerTier, TrapperTurnBonus(gmTier))
 	}
 	if def.RootTurns > 0 {
 		effect.Add("Base Root: %d TB turns / %ds", def.RootTurns, def.RootSeconds)
-		effect.Add("Trapper: +%ds per tier, up to +%d TB turns at Grandmaster", TrapperSecondsPerTier, TrapperTurnBonus(gmTier))
+		effect.Add("Trapper: +%ds per tier above Novice, up to +%d TB turns at Grandmaster", TrapperSecondsPerTier, TrapperTurnBonus(gmTier))
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
@@ -601,7 +657,7 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 		}
 		// Cloth (and other skill-less categories) gains no mastery AC.
 		if hasArmorSkill {
-			defense.Add("Armor Mastery: +%d per tier", MasteryArmorACPerLevel)
+			defense.Add("Armor Mastery: +%d per tier above Novice", MasteryArmorACPerLevel)
 		}
 	}
 
@@ -613,7 +669,7 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 		effects.Add("%s", ln)
 	}
 	if def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0 {
-		effects.Add("Armor mitigates physical up to %d%%, elemental up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
+		effects.Add("Armor reduces normal hit damage: physical up to %d%%, non-physical up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
 	}
 	// Consumable / quest behavior shares the item formatter.
 	for _, ln := range def.EffectLines() {
@@ -632,6 +688,9 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 	}
 
 	rules := CardSection{Title: "RULES"}
+	if def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0 {
+		rules.Add("Typed true damage and damage over time bypass Armor Class")
+	}
 	if hasArmorSkill {
 		rules.Add("Requires: %s Skill", strings.Title(def.ArmorType))
 		rules.Add("Grandmaster: +%d%% Perfect Dodge while worn", ArmorGMDodgeBonus)

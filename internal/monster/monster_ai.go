@@ -1555,12 +1555,14 @@ func (m *Monster3D) AttackCooldownFrames() int {
 	return cd
 }
 
-// tbAttacksForCooldownMult maps a real-time attack-cooldown multiplier to the
-// turn-based swing count that keeps the two modes at parity: a faster RT cadence
-// (mult < 1) grants proportionally more TB swings. Power-of-two buckets so the
-// count stays integer - mult >= 1 -> 1, [0.5,1) -> 2, [0.25,0.5) -> 4, ... (capped at
-// 8). Used both for cooldown-only static configs and dynamic enrage multipliers.
-func tbAttacksForCooldownMult(mult float64) int {
+// TurnBasedAttacksForCooldownMultiplier maps a real-time attack-cooldown
+// multiplier to the turn-based swing count that keeps the two modes at parity.
+// Power-of-two buckets keep the count integer: mult >= 1 -> 1, [0.5,1) -> 2,
+// [0.25,0.5) -> 4, ... (capped at 8).
+//
+// Presentation tools use this exported function too, so authored monster sheets
+// cannot drift from the cadence the combat loop executes.
+func TurnBasedAttacksForCooldownMultiplier(mult float64) int {
 	if mult <= 0 {
 		return 1
 	}
@@ -1570,6 +1572,16 @@ func tbAttacksForCooldownMult(mult float64) int {
 		mult *= 2
 	}
 	return n
+}
+
+// TurnBasedAttackCount resolves the authored static cadence. An explicit
+// attacks_per_round value owns TB behavior; otherwise the RT cooldown
+// multiplier supplies the equivalent number of swings.
+func TurnBasedAttackCount(attacksPerRound int, cooldownMultiplier float64) int {
+	if attacksPerRound > 0 {
+		return attacksPerRound
+	}
+	return TurnBasedAttacksForCooldownMultiplier(cooldownMultiplier)
 }
 
 func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, playerY float64) {

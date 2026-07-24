@@ -195,10 +195,9 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
 	for _, m := range cs.game.world.Monsters {
-		// "Nearby FOES" only: never the party's own bound allies (card summons /
-		// bind-undead), charmed (pacified) monsters, or an invulnerable boss (sealed/
-		// idol-warded) - the latter would absorb the damage yet still flash + log a hit.
-		if m == nil || !m.IsAlive() || m.IsPartyControlled() || m.IsDamageInvulnerable() ||
+		// Pure summons are transparent to every party attack. Bound undead and
+		// charmed former enemies remain valid targets and react like any other mob.
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
 			math.Hypot(m.X-px, m.Y-py) > radius {
 			continue
 		}
@@ -211,7 +210,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 			),
 			monsterDamageOptions{IgnoreArmor: true},
 		)
-		m.HitTintFrames = MonsterHitFlashFrames
+		cs.markMonsterHit(m)
 		hit = true
 		if !m.IsAlive() {
 			cs.finishMonsterKill(m)
@@ -300,13 +299,14 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 		return false
 	}
 	markPurePartySummon(bear, animalBondingOwnerPrefix+druid.Name)
-	copyPct := character.AnimalBondingStatPct(tier)
-	bear.MaxHitPoints = druid.MaxHitPoints * copyPct / 100
+	statPct := character.AnimalBondingStatPct(tier)
+	hpPct := character.AnimalBondingHPPct(tier)
+	bear.MaxHitPoints = druid.MaxHitPoints * hpPct / 100
 	if bear.MaxHitPoints < 1 {
 		bear.MaxHitPoints = 1
 	}
 	bear.HitPoints = bear.MaxHitPoints
-	bear.ArmorClass = cs.CalculateTotalArmorClass(druid) * copyPct / 100
+	bear.ArmorClass = cs.CalculateTotalArmorClass(druid) * statPct / 100
 	attack := druid.GetEffectiveMight() / WeaponPrimaryStatDivisor
 	if weapon, ok := druid.Equipment[items.SlotMainHand]; ok {
 		_, _, attack = cs.CalculateWeaponDamage(weapon, druid)
@@ -315,7 +315,7 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 			attack += trueDamage
 		}
 	}
-	attack = attack * copyPct / 100
+	attack = attack * statPct / 100
 	if attack < 1 {
 		attack = 1
 	}
@@ -355,6 +355,10 @@ func isCardAlly(m *monsterPkg.Monster3D) bool {
 	return m != nil && m.SummonedBy == cardSummonOwner
 }
 
+// isPurePartySummon is the shared distinction between creatures created for
+// the party and former enemies controlled by Bind Undead. Pure summons yield no
+// rewards, crumble on map exit, and are transparent to party attacks. Bound
+// undead deliberately satisfy none of those exclusions.
 func isPurePartySummon(m *monsterPkg.Monster3D) bool {
 	return isCardAlly(m) || (m != nil && strings.HasPrefix(m.SummonedBy, animalBondingOwnerPrefix))
 }
@@ -1137,7 +1141,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 	// suppresses their own turn).
 	var cands []meleeHitCandidate
 	for _, monster := range cs.game.world.Monsters {
-		if !monster.IsAlive() {
+		if !monster.IsAlive() || isPurePartySummon(monster) {
 			continue
 		}
 		// A combatant merely transiting through another monster's claimed post
@@ -1266,7 +1270,13 @@ func (cs *CombatSystem) turnBasedProjectileAssistTarget(px, py, dirX, dirY float
 	if cs == nil || cs.game == nil || !cs.game.turnBasedMode {
 		return nil
 	}
-	front, left, right, _ := cs.classifyFrontSlots(cs.game.world.Monsters)
+	targets := make([]*monsterPkg.Monster3D, 0, len(cs.game.world.Monsters))
+	for _, m := range cs.game.world.Monsters {
+		if m != nil && m.IsAlive() && !isPurePartySummon(m) {
+			targets = append(targets, m)
+		}
+	}
+	front, left, right, _ := cs.classifyFrontSlots(targets)
 	best := front
 	if best == nil {
 		best = chooseFrontAttackSide(left, right)
@@ -1433,6 +1443,9 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 }
 
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+	if isPurePartySummon(monster) {
+		return
+	}
 	if cs.absorbIfSealed(monster) {
 		return
 	}
@@ -1633,7 +1646,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 	// and the action-proc roll (Orc Warlord summon), or a failed cast would still
 	// pay SP and free-summon before the deep refund runs.
 	if spellDef.TownPortal && len(cs.game.sortedTownPortalDestinations()) == 0 {
-		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a town or tavern first.")
+		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a tavern, town, or major landmark first.")
 		return false
 	}
 	caster.SpellPoints -= spellCost
@@ -3148,6 +3161,9 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			if !monster.IsAlive() {
 				continue
 			}
+			if proj.owner == ProjectileOwnerPlayer && isPurePartySummon(monster) {
+				continue
+			}
 			// A pierce continuation bolt (Arena Arbalest) flies on THROUGH the
 			// monster it already hit - never collides with it again.
 			if ar, ok := proj.data.(*Arrow); ok && ar.SkipMonster == monster {
@@ -3422,6 +3438,11 @@ func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY fl
 
 // applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
 func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
+	// This guard is also kept at the resolver boundary for direct callers.
+	// Do not consume or unregister the projectile: pure summons are transparent.
+	if isPurePartySummon(monster) {
+		return
+	}
 	var damage int
 	var isCrit bool
 	var weaponName string
@@ -3696,7 +3717,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) takes no splash and triggers
 		// no hit-flash / pack-aggro / message: skip it entirely.
-		if m == nil || m == center || !m.IsAlive() || m.IsDamageInvulnerable() {
+		if m == nil || m == center || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
 			continue
 		}
 		dx := m.X - cx
@@ -4163,8 +4184,8 @@ func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, wea
 }
 
 // spellResistPierce returns the resistance-pierce percent for the given
-// caster's spell. Elemental schools use the separate Elemental Mastery skill;
-// other schools retain their school-GM pierce.
+// caster's spell. Elemental schools (including Light/Dark) use the separate
+// Elemental Mastery skill; Body/Mind/Spirit retain their school-GM pierce.
 func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellType string) int {
 	if caster == nil {
 		return 0
@@ -4181,7 +4202,7 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 		return character.ElementalMasteryPiercePct(caster.SkillTier(character.SkillElementalMastery))
 	}
 	if ms, ok := caster.MagicSchools[school]; ok && ms != nil && ms.Mastery >= character.MasteryGrandMaster {
-		return MagicGMResistPiercePct
+		return SelfMagicGMResistPiercePct
 	}
 	return 0
 }
@@ -4367,7 +4388,8 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	// "the map" is the party's REGION - MapWide must not burn the other four.
 	regionScoped := def.MapWide && cs.game.openWorldActive()
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || m.IsDamageInvulnerable() || Distance(cx, cy, m.X, m.Y) > radius {
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
+			Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
 		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
@@ -4896,7 +4918,7 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 	turns := def.StunDurationTurns
 	stunned := 0
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
 			continue
 		}
 		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {

@@ -256,7 +256,7 @@ func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
 	ts := float64(cs.game.config.GetTileSize())
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
 			continue
 		}
 		if int(m.X/ts) == tileX && int(m.Y/ts) == tileY {
@@ -291,6 +291,9 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 // fireTrap applies a trap's payload to the victim (and, for AoE, everything
 // in radius), with messages and burst VFX.
 func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
+	if isPurePartySummon(victim) {
+		return
+	}
 	def, ok := config.GetTrapDefinition(t.Key)
 	if !ok {
 		return
@@ -302,7 +305,8 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
 			for _, m := range cs.game.world.Monsters {
-				if m == nil || !m.IsAlive() || Distance(t.X, t.Y, m.X, m.Y) > radius {
+				if m == nil || !m.IsAlive() || isPurePartySummon(m) ||
+					Distance(t.X, t.Y, m.X, m.Y) > radius {
 					continue
 				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
@@ -332,8 +336,8 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
 func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, sourceName string) {
-	if m.IsDamageInvulnerable() {
-		return // invulnerable boss (sealed or idol-warded) - no trap damage, FX, or aggro
+	if isPurePartySummon(m) || m.IsDamageInvulnerable() {
+		return // transparent summon or invulnerable boss: no damage, FX, or aggro
 	}
 	// Traps use the shared party packet builder so physical conversion stays one
 	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;

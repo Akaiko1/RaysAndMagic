@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/world"
 )
 
 // Spells page must group purely BY SCHOOL (no Battle/Utility split) and order
@@ -132,11 +133,162 @@ func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
 		"dragon":   {"Ranged spell: Fire Bolt (fire)", "Dragon Breath: 33% fire attack to whole party"},
 	}
 	for key, subs := range want {
-		got := rowsFor(key)
+		got := strings.Join(strings.Fields(rowsFor(key)), " ")
 		for _, sub := range subs {
 			if !strings.Contains(got, sub) {
 				t.Errorf("editor mob %s missing %q. rows:\n%s", key, sub, got)
 			}
+		}
+	}
+}
+
+func TestMobInfo_ShowsEffectiveCadenceAndAuthoredAbilities(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+
+	rowsFor := func(key string) string {
+		def, ok := monster.MonsterConfig.Monsters[key]
+		if !ok {
+			t.Fatalf("monster %q missing", key)
+		}
+		lines := buildMobInfo(key, def)
+		rows := make([]string, 0, len(lines))
+		for _, line := range lines {
+			rows = append(rows, line.text)
+		}
+		return strings.Join(strings.Fields(strings.Join(rows, "\n")), " ")
+	}
+
+	for key, wants := range map[string][]string{
+		"dragon_green": {
+			"TB attacks: 2",
+			"RT attack cooldown: x0.60",
+		},
+		"old_samurai": {
+			"TB attacks: 1",
+			"Enraged TB attacks: 2",
+			"first guaranteed, then 18%",
+		},
+		"alarm_clock": {
+			"TB attacks: 2",
+			"Aggro rally: up to 4 mobs within 15 tiles",
+		},
+	} {
+		got := rowsFor(key)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("editor mob %s missing %q. rows:\n%s", key, want, got)
+			}
+		}
+	}
+}
+
+func TestBuildMapInfoLines_ShowsMapRuntimeSettings(t *testing.T) {
+	m := mapInfo{
+		Key: "test_map",
+		Config: &config.MapConfig{
+			Name:              "Test Map",
+			File:              "assets/test.map",
+			Biome:             "forest",
+			DefaultFloorColor: [3]int{12, 34, 56},
+			CanopyShade: &config.MapCanopyShadeConfig{
+				MinAmbient:   0.7,
+				RadiusTiles:  4,
+				StartDensity: 2,
+				FullDensity:  6,
+			},
+		},
+		Data: &world.MapData{
+			Width:  30,
+			Height: 20,
+			StartX: 4,
+			StartY: 7,
+		},
+	}
+	lines := buildMapInfoLines(m, brush{kind: brushEraser})
+	rows := make([]string, 0, len(lines))
+	for _, line := range lines {
+		rows = append(rows, line.text)
+	}
+	got := strings.Join(rows, "\n")
+	for _, want := range []string{
+		"Test Map  (test_map)",
+		"Biome: forest",
+		"Size: 30x20   Start: 4,7",
+		"Ambient light: 1.00",
+		"Floor RGB: 12, 34, 56",
+		"Canopy: 0.70 light, 4.0t radius",
+		"Brush: Eraser",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("map info missing %q. rows:\n%s", want, got)
+		}
+	}
+}
+
+func TestCatalogTooltipsFitDefaultWindow(t *testing.T) {
+	assets := filepath.Join("..", "..", "assets")
+	if _, err := config.LoadSpellConfig(filepath.Join(assets, "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	if _, err := config.LoadWeaponConfig(filepath.Join(assets, "weapons.yaml")); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	if _, err := config.LoadItemConfig(filepath.Join(assets, "items.yaml")); err != nil {
+		t.Fatalf("load items: %v", err)
+	}
+	if _, err := config.LoadTrapConfig(filepath.Join(assets, "traps.yaml")); err != nil {
+		t.Fatalf("load traps: %v", err)
+	}
+
+	var cards []contentCard
+	cards = append(cards, buildItemsCards()...)
+	cards = append(cards, buildSpellCards()...)
+	cards = append(cards, buildSkillCards()...)
+	if len(cards) == 0 {
+		t.Fatal("catalog is empty")
+	}
+	for i := range cards {
+		w, h := cardTooltipSize(&cards[i])
+		if w > windowWidth-8 {
+			t.Errorf("%s tooltip is %dpx wide, exceeds %dpx window", cards[i].key, w, windowWidth)
+		}
+		if h > windowHeight-pageBarHeight-8 {
+			t.Errorf("%s tooltip is %dpx tall, exceeds available %dpx", cards[i].key, h, windowHeight-pageBarHeight-8)
+		}
+	}
+}
+
+func TestHeaderBandsClearPreviousOutlinedText(t *testing.T) {
+	const (
+		textY                    = 100
+		outlinedTextBottomOffset = 15
+	)
+	for _, rowAdvance := range []int{14, 16, 18} {
+		bandY, bandH := headerBandForTextRowBounds(textY, rowAdvance)
+		previousTextBottom := textY - rowAdvance + outlinedTextBottomOffset
+		if bandY <= previousTextBottom {
+			t.Errorf("row %d: band starts at %d over previous text ending at %d",
+				rowAdvance, bandY, previousTextBottom)
+		}
+		if bandY+bandH > textY+rowAdvance {
+			t.Errorf("row %d: band ends past the next row baseline", rowAdvance)
+		}
+	}
+}
+
+func TestMobSheetsFitDefaultColumns(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+
+	const maxVisibleRows = 69 // three 23-row columns at the default 1200x800 layout
+	for key, def := range monster.MonsterConfig.Monsters {
+		if rows := len(buildMobInfo(key, def)); rows > maxVisibleRows {
+			t.Errorf("%s stat sheet has %d rows, exceeds %d-row default layout", key, rows, maxVisibleRows)
 		}
 	}
 }

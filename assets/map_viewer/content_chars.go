@@ -1,8 +1,8 @@
 package main
 
-// Characters page: a scrollable, full-detail panel per playable class - portrait,
-// stats, skills, and starting spells/equipment shown inline with icons (no hover
-// needed). Built by instantiating each class so it always matches the live game.
+// Characters page: a scrollable, full-detail panel per shipped hero with
+// portrait, stats, skills, and starting spells/equipment. Hovering a spell or
+// item row opens the same catalog tooltip used on the content pages.
 
 import (
 	"fmt"
@@ -88,7 +88,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			if race == "" {
 				race = "human"
 			}
-			hdr(fmt.Sprintf("%s - %s", e.Name, titleCase(key)))
+			hdr(fmt.Sprintf("%s - %s", e.Name, class.String()))
 			txt(fmt.Sprintf("%s   -   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
 			txt("")
 			for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
@@ -160,12 +160,12 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				if !ok || it.Name == "" {
 					continue
 				}
-				kind, key := cardItem, itemKeyByName(it.Name)
-				if s.slot == items.SlotMainHand {
-					kind, key = cardWeapon, weaponKeyByName(it.Name)
+				kind, itemKey := cardItem, itemKeyByName(it.Name)
+				if weaponKey := weaponKeyByName(it.Name); weaponKey != "" {
+					kind, itemKey = cardWeapon, weaponKey
 				}
 				equipRows = append(equipRows, panelRow{
-					hasIcon: true, iconKind: kind, iconKey: key,
+					hasIcon: true, iconKind: kind, iconKey: itemKey,
 					text: fmt.Sprintf("%s - %s", s.label, it.Name),
 				})
 			}
@@ -224,17 +224,24 @@ func (v *viewer) drawCharactersPage(screen *ebiten.Image) {
 	clip.Fill(color.RGBA{20, 20, 30, 255})
 
 	y := areaY - v.pageScroll[pageChars]
+	var hovered *contentCard
 	for i := range v.charDetails {
 		d := &v.charDetails[i]
 		h := v.charPanelHeight(d)
 		if y+h >= areaY && y < areaY+areaH {
-			v.drawCharPanel(clip, d, areaX, y, areaW, h)
+			if card := v.drawCharPanel(clip, d, areaX, y, areaW, h); card != nil {
+				hovered = card
+			}
 		}
 		y += h + charPanelGap
 	}
+	if hovered != nil {
+		mouseX, mouseY := ebiten.CursorPosition()
+		drawCardTooltip(screen, hovered, mouseX, mouseY, areaX, areaW)
+	}
 }
 
-func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int) {
+func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int) *contentCard {
 	drawFilledRect(dst, x, y, w, h, color.RGBA{30, 30, 42, 255})
 	drawRectBorder(dst, x, y, w, h, 1, color.RGBA{72, 72, 96, 255})
 
@@ -252,8 +259,13 @@ func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int)
 	rw := w - (charPanelPad + charPortraitSz + 16) - charPanelPad
 	cols := charTextCols()
 	ry := y + charPanelPad
+	mouseX, mouseY := ebiten.CursorPosition()
+	var hovered *contentCard
 	for _, r := range d.rows {
 		if r.hasIcon {
+			if pointInRect(mouseX, mouseY, rx, ry, rw, charIconSz) {
+				hovered = v.cardForKindKey(r.iconKind, r.iconKey)
+			}
 			if icon := v.iconKindKey(r.iconKind, r.iconKey); icon != nil {
 				drawImageScaled(dst, icon, rx, ry, charIconSz, charIconSz)
 			} else {
@@ -264,12 +276,28 @@ func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int)
 			ry += charIconSz + 6
 		} else {
 			if r.header {
-				drawFilledRect(dst, rx-4, ry-2, rw, charLineH+2, color.RGBA{48, 48, 72, 255})
+				drawHeaderBandForTextRow(dst, rx-4, ry, rw, charLineH)
 			}
 			ebitenutil.DebugPrintAt(dst, truncate(r.text, cols), rx, ry)
 			ry += charLineH
 		}
 	}
+	return hovered
+}
+
+func (v *viewer) cardForKindKey(kind contentKind, key string) *contentCard {
+	if key == "" {
+		return nil
+	}
+	for _, page := range []int{pageItems, pageSpells, pageSkills} {
+		cards := v.pageCards[page]
+		for i := range cards {
+			if cards[i].kind == kind && cards[i].key == key {
+				return &cards[i]
+			}
+		}
+	}
+	return nil
 }
 
 // maxCharactersScroll mirrors maxContentScroll for the custom Characters page.

@@ -489,12 +489,12 @@ type SpellDefinitionConfig struct {
 
 	// Party combat buffs (applied for `duration` seconds). Optional Grandmaster
 	// fields make the magnitude scale linearly by spell-school mastery.
-	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of all incoming party damage
+	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of incoming hit damage across all schools
 	ResistBuffPctGrandmaster           int    `yaml:"resist_buff_pct_grandmaster,omitempty"`           // optional GM-scaled % reduction cap
 	OutgoingDamageBonus                int    `yaml:"outgoing_damage_bonus,omitempty"`                 // base flat add to party outgoing damage
 	OutgoingDamageBonusGrandmaster     int    `yaml:"outgoing_damage_bonus_grandmaster,omitempty"`     // optional GM-scaled outgoing damage cap
 	OutgoingDamageType                 string `yaml:"outgoing_damage_type,omitempty"`                  // empty/"all" applies to all damage; "physical" only to weapon/arrow damage
-	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
+	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of normal hit damage (floors at 0)
 	IncomingDamageReductionGrandmaster int    `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
 	// Bind Undead: on hit, takes control of an UNDEAD target for the duration - it
@@ -535,12 +535,13 @@ type SpellDefinitionConfig struct {
 	MapWide bool `yaml:"map_wide,omitempty"`
 
 	// Per-school party resist buff (Fire Shield: fire +50 for the duration).
-	// Distinct from ResistBuffPct, which reduces ALL incoming damage.
+	// Distinct from ResistBuffPct, which reduces incoming hits of every school.
 	ResistBuffSchool    string `yaml:"resist_buff_school,omitempty"`
 	ResistBuffSchoolPct int    `yaml:"resist_buff_school_pct,omitempty"`
 
-	// Fly: the party walks through any tile except the map's border while the
-	// buff lasts. OutdoorOnly gates casting to maps with a day/night sky.
+	// Fly: terrain collision allows every tile except the map's border while the
+	// buff lasts. Entity-based doors still block. OutdoorOnly gates casting to
+	// maps with a day/night sky.
 	Fly         bool `yaml:"fly,omitempty"`
 	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
 
@@ -548,8 +549,8 @@ type SpellDefinitionConfig struct {
 	TownPortal bool `yaml:"town_portal,omitempty"`
 
 	// MortarRangeTiles (Stone Blossom): the projectile arcs over everything -
-	// no collisions in flight - and detonates exactly this many tiles out (or
-	// at the wall that cuts the arc short), splashing AoeRadiusTiles + stun.
+	// no collisions in flight - and detonates exactly this many tiles out,
+	// splashing AoeRadiusTiles + stun.
 	MortarRangeTiles float64 `yaml:"mortar_range_tiles,omitempty"`
 
 	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
@@ -1487,7 +1488,7 @@ type ItemDefinitionConfig struct {
 	CardRangedDmgPct      int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
 	CardMeleeTrueDmg      int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
 	CardPhysToFirePct     int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
-	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on attacking
+	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
 	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
 	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
 	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
@@ -1512,7 +1513,7 @@ type ItemDefinitionConfig struct {
 	CardMaxHPBonus        int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
 	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
 	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
-	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on any attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
 	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
 	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
 	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster

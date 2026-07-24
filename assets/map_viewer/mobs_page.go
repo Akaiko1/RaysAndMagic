@@ -28,6 +28,7 @@ const (
 	mobListPadY = 8
 	mobInfoRowH = 14
 	mobInfoColW = 300
+	mobInfoCols = 40
 )
 
 // infoLine is one stat-sheet row with its tint (the game's line-color idiom:
@@ -123,7 +124,11 @@ func (v *viewer) selectMob(idx int) {
 	mobsPage.selIdx = idx
 	key := mobsPage.keys[idx]
 	mobsPage.preview.Select(key)
-	mobsPage.info = buildMobInfo(key, v.monsterCfg.Monsters[key])
+	var runtime *monster.Monster3D
+	if staged := mobsPage.preview.Monsters(); len(staged) > 0 {
+		runtime = staged[0]
+	}
+	mobsPage.info = buildMobInfoRuntime(key, v.monsterCfg.Monsters[key], runtime, v.cfg.GetTileSize())
 }
 
 func (v *viewer) updateMobsPage() {
@@ -271,7 +276,7 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 		y := infoY + row*mobInfoRowH
 		// Section headers render on a filled band (editor/game convention).
 		if line.header {
-			drawHeaderBandRect(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2)
+			drawHeaderBandForTextRow(info, x-4, y, mobInfoColW-16, mobInfoRowH)
 		}
 		game.DrawShadedText(info, line.text, x, y, line.col)
 	}
@@ -281,43 +286,115 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 // lines. Zero-valued optional fields are skipped, so the sheet shows exactly
 // what the YAML authors.
 func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
+	return buildMobInfoRuntime(key, def, nil, 0)
+}
+
+// buildMobInfoRuntime uses a staged monster when available so the editor shows
+// effective values after the same setup/mirroring paths the game runs. The
+// definition remains the source for authored behavior and loot.
+func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *monster.Monster3D, tileSize float64) []infoLine {
 	var out []infoLine
 	addc := func(col color.Color, format string, args ...any) {
-		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: col})
+		for _, line := range wrapTooltipLines(fmt.Sprintf(format, args...), mobInfoCols) {
+			out = append(out, infoLine{text: line, col: col})
+		}
 	}
 	add := func(format string, args ...any) { addc(mobStatDefault, format, args...) }
 	addHeader := func(format string, args ...any) {
 		out = appendInfoHeader(out, format, args...)
 	}
 
+	level, xp := def.Level, def.Experience
+	hp, armor, dodge := def.MaxHitPoints, def.ArmorClass, def.PerfectDodge
+	damageMin, damageMax, trueDamage := def.DamageMin, def.DamageMax, def.TrueDamage
+	attacks := monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)
+	cooldownMult := def.AttackCooldownMult
+	speed, alertTiles, meleeTiles := def.Speed, def.AlertRadius, def.AttackRadius
+	rangedTiles := def.RangedAttackRange
+	effectDef := def
+	resistances := make(map[string]int, len(def.Resistances))
+	for school, value := range def.Resistances {
+		resistances[school] = value
+	}
+	if runtime != nil {
+		level, xp = runtime.Level, runtime.Experience
+		hp, armor, dodge = runtime.MaxHitPoints, runtime.ArmorClass, runtime.PerfectDodge
+		damageMin, damageMax, trueDamage = runtime.DamageMin, runtime.DamageMax, runtime.TrueDamage
+		attacks = monster.TurnBasedAttackCount(runtime.AttacksPerRound, runtime.AttackCooldownMultiplier)
+		cooldownMult = runtime.AttackCooldownMultiplier
+		speed = runtime.Speed
+		if tileSize > 0 {
+			alertTiles = runtime.AlertRadius / tileSize
+			meleeTiles = runtime.AttackRadius / tileSize
+			if runtime.HasRangedAttack() {
+				rangedTiles = runtime.GetAttackRangePixels() / tileSize
+			}
+		}
+		effectDef.ProjectileSpell = runtime.ProjectileSpell
+		effectDef.ProjectileWeapon = runtime.ProjectileWeapon
+		resistances = make(map[string]int, len(runtime.Resistances))
+		for school, value := range runtime.Resistances {
+			resistances[school.String()] = value
+		}
+	}
+
+	addHeader("IDENTITY")
 	add("%s  (key: %s)", def.Name, key)
 	if def.Type != "" {
 		add("Type: %s", def.Type)
 	}
-	add("Level %d   XP %d", def.Level, def.Experience)
-	addc(mobStatHP, "HP %d", def.MaxHitPoints)
-	add("AC %d", def.ArmorClass)
-	if def.PerfectDodge > 0 {
-		add("Perfect dodge: %d%%", def.PerfectDodge)
+	add("Level %d   XP %d", level, xp)
+	if def.Champion != "" {
+		tierName := config.ChampionDefaultTier
+		if runtime != nil && runtime.ChampionTier != "" {
+			tierName = runtime.ChampionTier
+		}
+		if champion := config.GetChampionDefinition(def.Champion); champion != nil {
+			race := champion.Race
+			if race == "" {
+				race = "human"
+			}
+			add("Champion: %s   Tier: %s", champion.Name, titleCase(tierName))
+			add("Class: %s   Race: %s", titleCase(strings.ReplaceAll(champion.Class, "_", " ")), titleCase(strings.ReplaceAll(race, "_", " ")))
+			if gear := champion.Equipment[tierName]; len(gear) > 0 {
+				add("Tier loadout: %s", strings.Join(gear, ", "))
+			}
+			if champion.SpellCastChance > 0 {
+				add("Spell cast: %.0f%% from {%s}", champion.SpellCastChance*100, strings.Join(champion.SpellSchools, ", "))
+			}
+			if champion.OpeningSpell != "" {
+				add("Opening spell: %s", champion.OpeningSpell)
+			}
+		}
 	}
 
-	dmg := fmt.Sprintf("Damage %d-%d", def.DamageMin, def.DamageMax)
-	if def.TrueDamage > 0 {
-		dmg += fmt.Sprintf(" +%d true", def.TrueDamage)
+	addHeader("COMBAT")
+	addc(mobStatHP, "HP %d", hp)
+	add("Armor Class %d", armor)
+	if dodge > 0 {
+		add("Perfect dodge: %d%%", dodge)
 	}
-	if def.AttacksPerRound > 1 {
-		dmg += fmt.Sprintf(", %d attacks/round", def.AttacksPerRound)
+	dmg := fmt.Sprintf("Damage %d-%d", damageMin, damageMax)
+	if trueDamage > 0 {
+		dmg += fmt.Sprintf(" +%d true", trueDamage)
 	}
+	dmg += fmt.Sprintf("   TB attacks: %d", attacks)
 	addc(mobStatDamage, "%s", dmg)
-	if def.AttackCooldownMult != 0 && def.AttackCooldownMult != 1 {
-		add("Attack cooldown x%.2f", def.AttackCooldownMult)
+	if cooldownMult != 0 && cooldownMult != 1 {
+		add("RT attack cooldown: x%.2f", cooldownMult)
 	}
-	add("Speed %.1f   Alert %.0f tiles   Melee reach %.1f tiles", def.Speed, def.AlertRadius, def.AttackRadius)
-	if def.RangedAttackRange > 0 {
-		add("Ranged range: %.0f tiles", def.RangedAttackRange)
+	add("Speed %.1f   Alert %.0f tiles", speed, alertTiles)
+	add("Melee reach %.1f tiles", meleeTiles)
+	if rangedTiles > 0 && (effectDef.ProjectileSpell != "" || effectDef.ProjectileWeapon != "") {
+		add("Effective ranged range: %.1f tiles", rangedTiles)
+	}
+	if def.EnrageAtHP > 0 && def.EnrageCooldownMult > 0 {
+		enragedAttacks := attacks * monster.TurnBasedAttacksForCooldownMultiplier(def.EnrageCooldownMult)
+		add("Enraged TB attacks: %d", enragedAttacks)
 	}
 
-	for _, line := range def.CombatEffectLines() {
+	addHeader("ABILITIES")
+	for _, line := range effectDef.CombatEffectLines() {
 		var col color.Color = mobStatDefault
 		if line.School != "" {
 			col = game.SchoolColor(line.School)
@@ -370,7 +447,11 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 		if n == 0 {
 			n = 1
 		}
-		add("Summons %dx {%s}: %.0f%% (max %d)", n, strings.Join(def.SummonMonsters, ", "), def.SummonChance*100, def.SummonMax)
+		if def.SummonFirstGuaranteed {
+			add("Summons %dx {%s}: first guaranteed, then %.0f%% (max %d)", n, strings.Join(def.SummonMonsters, ", "), def.SummonChance*100, def.SummonMax)
+		} else {
+			add("Summons %dx {%s}: %.0f%% (max %d)", n, strings.Join(def.SummonMonsters, ", "), def.SummonChance*100, def.SummonMax)
+		}
 	}
 	if def.EnrageAtHP > 0 {
 		add("Enrages below %d HP: dmg x%.1f, cd x%.1f", def.EnrageAtHP, def.EnrageDamageMult, def.EnrageCooldownMult)
@@ -378,18 +459,25 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	if def.DeathRalliesType != "" {
 		add("Death rallies: %s", def.DeathRalliesType)
 	}
+	if def.RallyOnAggroTiles > 0 {
+		if def.RallyMaxTargets > 0 {
+			add("Aggro rally: up to %d mobs within %.0f tiles", def.RallyMaxTargets, def.RallyOnAggroTiles)
+		} else {
+			add("Aggro rally: every mob within %.0f tiles", def.RallyOnAggroTiles)
+		}
+	}
 
 	// Resistances: one line per school in the school's tint, sorted for a
 	// stable sheet.
-	if len(def.Resistances) > 0 {
-		addHeader("Resists")
-		resKeys := make([]string, 0, len(def.Resistances))
-		for r := range def.Resistances {
+	if len(resistances) > 0 {
+		addHeader("RESISTS")
+		resKeys := make([]string, 0, len(resistances))
+		for r := range resistances {
 			resKeys = append(resKeys, r)
 		}
 		sort.Strings(resKeys)
 		for _, r := range resKeys {
-			addc(game.SchoolColor(r), "  %s %d", r, def.Resistances[r])
+			addc(game.SchoolColor(r), "  %s %d", titleCase(r), resistances[r])
 		}
 	}
 
@@ -403,7 +491,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 
 	// Drop table: each entry tinted by its rarity (metal tiers render as the
 	// game's gradient).
-	addHeader("Drops")
+	addHeader("DROPS")
 	if def.GoldMax > 0 {
 		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)
 	}

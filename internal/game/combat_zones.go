@@ -100,7 +100,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	tickDamage := z.TickDamage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) is unscathed by the zone.
-		if m == nil || !m.IsAlive() || m.IsDamageInvulnerable() {
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
 			continue
 		}
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {

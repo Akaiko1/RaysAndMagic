@@ -30,7 +30,7 @@ const (
 	windowWidth   = 1200
 	windowHeight  = 800
 	sidebarWidth  = 300
-	pageBarHeight = 32 // top tab bar (Maps | Items & Spells)
+	pageBarHeight = 32 // shared top-level page bar
 )
 
 // Top-level pages within the viewer window.
@@ -46,7 +46,7 @@ const (
 	pageOpenWorld = 8 // unified-world layout editor (open_world_page.go)
 )
 
-// pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
+// pageTabDefs drives both the top tab bar and its F-key shortcuts.
 var pageTabDefs = []struct {
 	page   int
 	label  string
@@ -271,7 +271,7 @@ func (v *viewer) Update() error {
 		return ebiten.Termination
 	}
 
-	// Top-page switching via F1..F5 (Maps / Items / Spells / Characters / Skills).
+	// Top-page switching via the F-key declared by each page tab.
 	for i, def := range pageTabDefs {
 		if inpututil.IsKeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
 			v.page = def.page
@@ -496,7 +496,7 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 
 	if !v.saveDialogOpen {
-		drawMapHoverTooltip(screen, m, lay)
+		v.drawMapHoverTooltip(screen, m, lay)
 		v.drawShiftSpritePopup(screen, m, lay)
 	}
 
@@ -526,10 +526,9 @@ func hoveredMapTile(lay layout, mouseX, mouseY int) (tileX, tileY int, ok bool) 
 	return tileX, tileY, true
 }
 
-// drawMapHoverTooltip shows the hovered tile's coordinates, plus - when the
-// tile holds an `@` NPC spawn - its name/type/description from the shared
-// npcs.yaml config (no hardcoded list), so it stays in sync with the game.
-func drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
+// drawMapHoverTooltip shows coordinates and resolves the hovered terrain,
+// monster, NPC, or special tile through the same loaded configs as the game.
+func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
 	if m.Data == nil {
 		return
 	}
@@ -539,19 +538,23 @@ func drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
 		return
 	}
 
-	var lines []string
+	lines := []string{"TILE", fmt.Sprintf("Position: %d, %d", tileX, tileY)}
 	for _, npc := range m.Data.NPCSpawns {
 		if npc.X != tileX || npc.Y != tileY {
 			continue
 		}
-		lines = append(lines, "@  "+npc.NPCKey)
+		lines = append(lines, "", "NPC", "@  "+npc.NPCKey)
 		if character.NPCConfigInstance != nil {
 			if def, ok := character.NPCConfigInstance.NPCs[npc.NPCKey]; ok {
 				if def.Name != "" {
-					lines[0] = "@  " + def.Name
+					lines[len(lines)-1] = "@  " + def.Name
 				}
+				lines = append(lines, "Key: "+npc.NPCKey)
 				if def.Type != "" {
-					lines = append(lines, "  ["+def.Type+"]")
+					lines = append(lines, "Type: "+def.Type)
+				}
+				if def.RenderCategory != "" {
+					lines = append(lines, "Render: "+def.RenderCategory)
 				}
 				if def.Description != "" {
 					lines = append(lines, "")
@@ -559,11 +562,77 @@ func drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
 				}
 			}
 		}
-		break
+		drawTooltipBox(screen, lines, mouseX, mouseY)
+		return
 	}
-	lines = append(lines, fmt.Sprintf("tile %d, %d", tileX, tileY))
 
+	for _, spawn := range m.Data.MonsterSpawns {
+		if spawn.X != tileX || spawn.Y != tileY {
+			continue
+		}
+		lines = append(lines, "", "MONSTER", "Key: "+spawn.MonsterKey)
+		if def, ok := v.monsterCfg.Monsters[spawn.MonsterKey]; ok {
+			lines = append(lines,
+				"Name: "+def.Name,
+				fmt.Sprintf("Level: %d   HP: %d   AC: %d", def.Level, def.MaxHitPoints, def.ArmorClass),
+				fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
+					monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)),
+			)
+			if def.Type != "" {
+				lines = append(lines, "Type: "+def.Type)
+			}
+		}
+		drawTooltipBox(screen, lines, mouseX, mouseY)
+		return
+	}
+
+	for _, special := range m.Data.SpecialTileSpawns {
+		if special.X != tileX || special.Y != tileY {
+			continue
+		}
+		lines = append(lines, "", "SPECIAL TILE", "Key: "+special.TileKey)
+		if data := v.tileManager.ListSpecialTiles()[special.TileKey]; data != nil {
+			lines = appendTileTooltipLines(lines, data)
+		} else if data := v.tileDataByKey[special.TileKey]; data != nil {
+			lines = appendTileTooltipLines(lines, data)
+		} else if key := v.tileManager.GetTileKey(special.TileType); key != "" {
+			lines = append(lines, "Resolved key: "+key)
+			lines = appendTileTooltipLines(lines, v.tileDataByKey[key])
+		}
+		drawTooltipBox(screen, lines, mouseX, mouseY)
+		return
+	}
+
+	tile := m.Data.Tiles[tileY][tileX]
+	key := v.tileManager.GetTileKey(tile)
+	lines = append(lines, "", "TERRAIN", "Key: "+key)
+	if data := v.tileDataByKey[key]; data != nil {
+		lines = appendTileTooltipLines(lines, data)
+	}
 	drawTooltipBox(screen, lines, mouseX, mouseY)
+}
+
+func appendTileTooltipLines(lines []string, data *config.TileData) []string {
+	if data == nil {
+		return lines
+	}
+	if data.Name != "" {
+		lines = append(lines, "Name: "+data.Name)
+	}
+	if data.Type != "" {
+		lines = append(lines, "Type: "+data.Type)
+	}
+	if data.RenderType != "" {
+		lines = append(lines, "Render: "+data.RenderType)
+	}
+	lines = append(lines, fmt.Sprintf("Solid: %t   Walkable: %t   Transparent: %t", data.Solid, data.Walkable, data.Transparent))
+	if data.FloorTextureGroup != "" {
+		lines = append(lines, "Floor group: "+data.FloorTextureGroup)
+	}
+	if data.Sprite != "" {
+		lines = append(lines, "Sprite: "+data.Sprite)
+	}
+	return lines
 }
 
 // hoveredSprite resolves what the cursor points at (legend row or map tile)
@@ -664,15 +733,29 @@ func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layou
 // drawTooltipBox renders tooltip lines in a bordered box near the cursor,
 // clamped to the window.
 func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
-	const lineH = 14
+	const (
+		lineH   = 14
+		headerH = 18
+		spacerH = 7
+	)
 	maxLineW := 0
 	for _, ln := range lines {
 		if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
 			maxLineW = w
 		}
 	}
-	boxW := maxLineW + 16
-	boxH := len(lines)*lineH + 12
+	boxW := maxLineW + 24
+	boxH := 16
+	for _, line := range lines {
+		switch {
+		case line == "":
+			boxH += spacerH
+		case isTooltipSection(line):
+			boxH += headerH
+		default:
+			boxH += lineH
+		}
+	}
 	boxX := mouseX + 16
 	boxY := mouseY + 12
 	if boxX+boxW > windowWidth-4 {
@@ -687,10 +770,21 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 	if boxY < 4 {
 		boxY = 4
 	}
-	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
-	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{200, 180, 60, 255})
-	for i, ln := range lines {
-		ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
+	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{16, 17, 25, 248})
+	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{105, 145, 185, 255})
+	drawFilledRect(screen, boxX+1, boxY+1, boxW-2, 3, color.RGBA{105, 170, 220, 255})
+	y := boxY + 8
+	for _, line := range lines {
+		switch {
+		case line == "":
+			y += spacerH
+		case isTooltipSection(line):
+			drawTooltipSectionLine(screen, line, boxX+7, y, boxW-14, headerH)
+			y += headerH
+		default:
+			drawTooltipBodyLine(screen, line, boxX+10, y)
+			y += lineH
+		}
 	}
 }
 
@@ -1051,29 +1145,90 @@ func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legen
 		return
 	}
 
-	stats := []string{
-		fmt.Sprintf("Tiles: %dx%d", m.Data.Width, m.Data.Height),
-		fmt.Sprintf("Monsters: %d", len(m.Data.MonsterSpawns)),
-		fmt.Sprintf("NPCs: %d", len(m.Data.NPCSpawns)),
-		fmt.Sprintf("Special tiles: %d", len(m.Data.SpecialTileSpawns)),
-	}
-	for _, line := range stats {
-		ebitenutil.DebugPrintAt(screen, line, x+12, row)
+	for _, line := range buildMapInfoLines(m, currentBrush) {
+		if line.header {
+			drawHeaderBandForTextRow(screen, x+8, row, w-16, 16)
+			game.DrawShadedText(screen, line.text, x+12, row, viewerHeaderTextColor)
+		} else {
+			game.DrawShadedText(screen, clipText(line.text, w-24), x+12, row, line.col)
+		}
 		row += 16
+		if row > y+h-18 {
+			game.DrawShadedText(screen, "...", x+12, row-16, mobStatHeader)
+			break
+		}
+	}
+}
+
+func buildMapInfoLines(m mapInfo, currentBrush brush) []infoLine {
+	var out []infoLine
+	add := func(format string, args ...any) {
+		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: mobStatDefault})
+	}
+	header := func(text string) {
+		out = appendInfoHeader(out, "%s", text)
 	}
 
-	row += 8
-	ebitenutil.DebugPrintAt(screen, "Markers:", x+12, row)
-	row += 16
-	ebitenutil.DebugPrintAt(screen, "Cyan: start  Red: monsters", x+12, row)
-	row += 16
-	ebitenutil.DebugPrintAt(screen, "Yellow: NPCs  Letters: keys", x+12, row)
-	row += 24
-	ebitenutil.DebugPrintAt(screen, "Brush:", x+12, row)
-	row += 16
-	ebitenutil.DebugPrintAt(screen, formatBrushLabel(currentBrush), x+12, row)
-	row += 16
-	ebitenutil.DebugPrintAt(screen, "Save uses toolbar prompt", x+12, row)
+	header("MAP")
+	if m.Config != nil {
+		add("%s  (%s)", m.Config.Name, m.Key)
+		add("File: %s", m.Config.File)
+		add("Biome: %s", m.Config.Biome)
+	}
+	if m.Data != nil {
+		add("Size: %dx%d   Start: %d,%d", m.Data.Width, m.Data.Height, m.Data.StartX, m.Data.StartY)
+	}
+
+	if m.Config != nil {
+		header("RENDERING")
+		ambient := m.Config.AmbientLight
+		if ambient <= 0 {
+			ambient = 1
+		}
+		add("Ambient light: %.2f", ambient)
+		add("Floor RGB: %d, %d, %d", m.Config.DefaultFloorColor[0], m.Config.DefaultFloorColor[1], m.Config.DefaultFloorColor[2])
+		if m.Config.SkyTexture != "" {
+			add("Sky: %s", m.Config.SkyTexture)
+		}
+		if m.Config.WallTorches {
+			add("Wall torches: enabled")
+		}
+		if shade := m.Config.CanopyShade; shade != nil {
+			add("Canopy: %.2f light, %.1ft radius", shade.MinAmbient, shade.RadiusTiles)
+			add("Canopy density: %d -> %d", shade.StartDensity, shade.FullDensity)
+		}
+	}
+
+	if m.Data != nil {
+		header("CONTENT")
+		add("Monsters: %d   NPCs: %d", len(m.Data.MonsterSpawns), len(m.Data.NPCSpawns))
+		add("Special tiles: %d", len(m.Data.SpecialTileSpawns))
+	}
+	if m.Config != nil {
+		if m.Config.TownPortalDestination {
+			add("Town Portal destination")
+		}
+		if m.Config.RespawnDays > 0 {
+			add("Respawn: %d phase changes", m.Config.RespawnDays)
+		}
+		if m.Config.ClearEncounter != nil {
+			add("Clear encounter: map-wide")
+		}
+		if len(m.Config.ClearEncounters) > 0 {
+			add("Clear encounters: %d", len(m.Config.ClearEncounters))
+		}
+		if duel := m.Config.Duel; duel != nil {
+			add("Duel: party %d,%d -> champion %d,%d",
+				duel.PartyTile[0], duel.PartyTile[1], duel.ChampionTile[0], duel.ChampionTile[1])
+		}
+	}
+
+	header("EDITOR")
+	add("Brush: %s", formatBrushLabel(currentBrush))
+	add("Cyan start   Red monsters")
+	add("Yellow NPCs   Letters keys")
+	add("Wheel zoom   RMB pan")
+	return out
 }
 
 func drawSidebarTabs(screen *ebiten.Image, x, y, w, h int, active int) {
@@ -1145,11 +1300,10 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		if brushMatchesEntry(currentBrush, entry) {
 			drawFilledRect(screen, x+4, drawY-2, w-8, lineHeight+2, color.RGBA{70, 70, 95, 255})
 		}
-		// Group headers render on a filled band with green text, like the game's
-		// item-section headers. The band leaves 1px top+bottom padding inside the
-		// row (shared viewerHeaderBand style).
+		// Group headers use the text-row helper so their background cannot paint
+		// over a descender or outline from the preceding compact row.
 		if entry.Section {
-			drawHeaderBandRect(screen, x+4, drawY-2, w-8, lineHeight+2)
+			drawHeaderBandForTextRow(screen, x+4, drawY, w-8, lineHeight)
 			avail := (x + w) - (x + 10) - 8
 			game.DrawShadedText(screen, clipText(entry.Text, avail), x+10, drawY, viewerHeaderTextColor)
 			continue
@@ -2320,6 +2474,26 @@ var (
 func drawHeaderBandRect(screen *ebiten.Image, x, y, w, h int) {
 	drawFilledRect(screen, x, y+1, w, h-2, viewerHeaderFill)
 	drawRectBorder(screen, x, y+1, w, h-2, 1, viewerHeaderBorder)
+}
+
+// headerBandForTextRowBounds places a compact header band behind this row's
+// visible glyphs, not above its baseline. Outlined debug text from the previous
+// row can extend 15px below its baseline, so a 14px row needs the band to begin
+// at textY+2 to avoid painting over that final outline pixel.
+func headerBandForTextRowBounds(textY, rowAdvance int) (y, h int) {
+	const outlinedTextTopOffset = 2
+	y = textY + outlinedTextTopOffset
+	h = rowAdvance - outlinedTextTopOffset
+	if h < 2 {
+		h = 2
+	}
+	return y, h
+}
+
+func drawHeaderBandForTextRow(screen *ebiten.Image, x, textY, w, rowAdvance int) {
+	y, h := headerBandForTextRowBounds(textY, rowAdvance)
+	drawFilledRect(screen, x, y, w, h, viewerHeaderFill)
+	drawRectBorder(screen, x, y, w, h, 1, viewerHeaderBorder)
 }
 
 // drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's

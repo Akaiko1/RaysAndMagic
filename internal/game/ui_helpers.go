@@ -930,8 +930,8 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	return skill.Description()
 }
 
-func magicMasteryTooltipText() string {
-	return character.MagicMasteryDescription()
+func magicMasteryTooltipText(school character.MagicSchoolID) string {
+	return character.MagicMasteryDescription(school)
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

@@ -42,7 +42,7 @@ func turnBasedPeriodicEffectFrames(tps int) int {
 const (
 	// Canonical values live in character/catalog.go (shared with tooltips and
 	// the map editor); these are package-local aliases.
-	MagicGMResistPiercePct     = character.MagicGMResistPiercePct
+	SelfMagicGMResistPiercePct = character.SelfMagicGMResistPiercePct
 	MasterySpellEffectPerLevel = character.MasterySpellEffectPerLevel
 )
 

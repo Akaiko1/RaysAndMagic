@@ -75,6 +75,8 @@ func TestElementalGMConvertsOnlySchoolMasteryBonusToTrueDamage(t *testing.T) {
 		{character.MagicSchoolWater, "ice_bolt"},
 		{character.MagicSchoolAir, "lightning"},
 		{character.MagicSchoolEarth, "rock_blast"},
+		{character.MagicSchoolLight, "ray_of_light"},
+		{character.MagicSchoolDark, "darkbolt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.school.String(), func(t *testing.T) {
@@ -94,13 +96,13 @@ func TestElementalGMConvertsOnlySchoolMasteryBonusToTrueDamage(t *testing.T) {
 		t.Fatalf("non-GM elemental spell split into true damage: %+v", parts)
 	}
 
-	caster.MagicSchools[character.MagicSchoolDark] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
-	_, _, total = cs.CalculateSpellDamage("darkbolt", caster)
-	if parts = cs.spellDamageParts("darkbolt", caster, total); parts != (damagecalc.Parts{Normal: total}) {
-		t.Fatalf("non-elemental GM spell split into true damage: %+v", parts)
+	caster.MagicSchools[character.MagicSchoolBody] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	_, _, total = cs.CalculateSpellDamage("harm", caster)
+	if parts = cs.spellDamageParts("harm", caster, total); parts != (damagecalc.Parts{Normal: total}) {
+		t.Fatalf("self-magic GM spell split into true damage: %+v", parts)
 	}
-	if got := cs.spellResistPierce(caster, "darkbolt"); got != MagicGMResistPiercePct {
-		t.Fatalf("non-elemental GM pierce = %d, want %d", got, MagicGMResistPiercePct)
+	if got := cs.spellResistPierce(caster, "harm"); got != SelfMagicGMResistPiercePct {
+		t.Fatalf("self-magic GM pierce = %d, want %d", got, SelfMagicGMResistPiercePct)
 	}
 }
 
@@ -252,10 +254,11 @@ func TestAnimalBondingBearCopiesDruidStatsAndIsPureSummon(t *testing.T) {
 		t.Fatalf("bear lifecycle flags are wrong: key=%q bound=%v owner=%q ignored=%v",
 			bear.Key, bear.Bound, bear.SummonedBy, bear.QuestProgressIgnored)
 	}
-	if bear.MaxHitPoints != 200 || bear.ArmorClass != wantArmor ||
+	wantHP := druid.MaxHitPoints * character.AnimalBondingHPPct(2) / 100
+	if bear.MaxHitPoints != wantHP || bear.ArmorClass != wantArmor ||
 		bear.DamageMin != wantAttack || bear.DamageMax != wantAttack {
-		t.Fatalf("bear copied stats HP=%d AC=%d damage=%d-%d; want 200/%d/%d",
-			bear.MaxHitPoints, bear.ArmorClass, bear.DamageMin, bear.DamageMax, wantArmor, wantAttack)
+		t.Fatalf("bear copied stats HP=%d AC=%d damage=%d-%d; want %d/%d/%d",
+			bear.MaxHitPoints, bear.ArmorClass, bear.DamageMin, bear.DamageMax, wantHP, wantArmor, wantAttack)
 	}
 	bear.Experience = 999
 	if xp := game.combat.awardExperienceAndGold(bear); xp != 0 {

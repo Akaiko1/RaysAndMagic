@@ -82,14 +82,20 @@ func TestEnrageScalesTurnBasedAttacks(t *testing.T) {
 		mult float64
 		want int
 	}{{0, 1}, {1.0, 1}, {0.9, 2}, {0.6, 2}, {0.5, 2}, {0.49, 4}, {0.25, 4}, {0.2, 8}} {
-		if got := tbAttacksForCooldownMult(c.mult); got != c.want {
-			t.Errorf("tbAttacksForCooldownMult(%.2f) = %d, want %d", c.mult, got, c.want)
+		if got := TurnBasedAttacksForCooldownMultiplier(c.mult); got != c.want {
+			t.Errorf("TurnBasedAttacksForCooldownMultiplier(%.2f) = %d, want %d", c.mult, got, c.want)
 		}
 	}
 
 	fast := &Monster3D{AttackCooldownMultiplier: 0.6}
 	if got := fast.GetTurnBasedAttackCount(); got != 2 {
 		t.Errorf("cooldown-only TB attacks = %d, want 2", got)
+	}
+	if got := TurnBasedAttackCount(0, 0.3); got != 4 {
+		t.Errorf("cooldown-derived TB attacks = %d, want 4", got)
+	}
+	if got := TurnBasedAttackCount(1, 0.3); got != 1 {
+		t.Errorf("explicit attacks_per_round must win: got %d, want 1", got)
 	}
 
 	m := &Monster3D{

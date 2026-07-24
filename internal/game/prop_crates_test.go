@@ -223,14 +223,15 @@ func TestCrateBlockedDuringCombatWithoutWasting(t *testing.T) {
 	}
 }
 
-// Bound allies use IsEngagingPlayer while following the party or pursuing an
-// enemy. A party hit also sets WasAttacked through the shared damage sink, but
-// neither flag may turn a friendly summon into combat for crate interaction.
+// Pure summons ignore the attempted party hit entirely. Bound undead remain
+// hittable former enemies, but their generic combat flags must not turn a
+// controlled ally into combat for crate interaction.
 func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 	tests := []struct {
 		name    string
 		key     string
 		control func(*MMGame, *monster.Monster3D)
+		wantHit bool
 	}{
 		{
 			name: "card ally",
@@ -240,8 +241,9 @@ func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 			},
 		},
 		{
-			name: "bound undead",
-			key:  "skeleton",
+			name:    "bound undead",
+			key:     "skeleton",
+			wantHit: true,
 			control: func(g *MMGame, ally *monster.Monster3D) {
 				g.combat.applyBindUndead(ally, 60, "Bind Undead")
 			},
@@ -259,10 +261,13 @@ func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 			g.world.Monsters = []*monster.Monster3D{ally}
 
 			// Exercise the real party damage hub rather than setting the flags by hand.
+			hpBefore := ally.HitPoints
 			g.combat.ApplyDamageToMonster(ally, 1, "Iron Sword", false)
-			if !ally.IsEngagingPlayer || !ally.WasAttacked {
-				t.Fatalf("party hit must set the generic combat flags, got engaging=%v attacked=%v",
-					ally.IsEngagingPlayer, ally.WasAttacked)
+			if gotHit := ally.HitPoints < hpBefore; gotHit != tt.wantHit {
+				t.Fatalf("party hit landed=%v, want %v (HP %d -> %d)", gotHit, tt.wantHit, hpBefore, ally.HitPoints)
+			}
+			if ally.WasAttacked != tt.wantHit {
+				t.Fatalf("WasAttacked=%v, want %v", ally.WasAttacked, tt.wantHit)
 			}
 			if g.partyInCombat() {
 				t.Fatal("a bound ally must not count as combat with the party")

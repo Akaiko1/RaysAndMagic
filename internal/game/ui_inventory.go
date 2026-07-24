@@ -577,7 +577,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			y := magicY + (schoolIdx%magicRows)*rowH
 			drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
-				tooltip = magicMasteryTooltipText()
+				tooltip = magicMasteryTooltipText(school)
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
 			}
@@ -614,7 +614,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	lines := []string{
 		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String())),
 		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
-		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% elemental)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
+		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% non-physical)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
 		fmt.Sprintf("2. Physical resistance: -%d%%", m.ResistPct),
 		fmt.Sprintf("3. Skill reduction: -%d flat", m.SkillFlat),
 		fmt.Sprintf("4. Flat buff reduction: -%d", m.FlatBuff),

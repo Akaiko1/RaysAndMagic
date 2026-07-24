@@ -31,8 +31,8 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
-	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic -
+	// Self magic (Body/Mind/Spirit) scales with Personality; all elemental
+	// schools, including Light/Dark, scale with Intellect. The math is stat-agnostic -
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
 	def, defErr := spells.GetSpellDefinitionByID(spellID)
 	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)

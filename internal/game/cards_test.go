@@ -177,7 +177,7 @@ func TestCardEffects_BatchB(t *testing.T) {
 
 	for key, want := range map[string]string{
 		"archmage_card":      "25% of physical damage dealt as fire",
-		"ningyo_card":        "5% to self-heal 25 on attack",
+		"ningyo_card":        "5% to self-heal 25 on weapon attack",
 		"lich_card":          "10% to cheat death (half HP+SP)",
 		"gorilla_titan_card": "10% on move: 50 physical true damage to nearby foes",
 	} {
@@ -272,9 +272,9 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits FOES only - never the party's own bound allies
-// (card summons / bind-undead) or charmed (pacified) monsters.
-func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
+// The Gorilla move-burst ignores pure summons, but a bound undead remains a
+// former enemy and Charm breaks on the hit like it does for every party attack.
+func TestCardMoveBurst_SkipsPureSummonsAndHitsFormerEnemies(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -287,10 +287,11 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 		return m
 	}
 	foe := mk("foe", func(m *monster.Monster3D) {})
-	ally := mk("ally", func(m *monster.Monster3D) { m.Bound = true })
+	pure := mk("pure", func(m *monster.Monster3D) { markCardAlly(m) })
+	bound := mk("bound", func(m *monster.Monster3D) { m.Bound = true })
 	charmed := mk("charmed", func(m *monster.Monster3D) { m.Pacified = true })
 	warded := mk("warded", func(m *monster.Monster3D) { m.BossWarded = true })
-	g.world.Monsters = []*monster.Monster3D{foe, ally, charmed, warded}
+	g.world.Monsters = []*monster.Monster3D{foe, pure, bound, charmed, warded}
 
 	if !cs.cardMoveBurstApply(50) {
 		t.Fatal("burst should report a hit on the foe")
@@ -298,11 +299,15 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	if foe.HitPoints != 50 {
 		t.Errorf("foe should take 50 pure (hp=%d, want 50)", foe.HitPoints)
 	}
-	if ally.HitPoints != 100 {
-		t.Errorf("bound ally must NOT be hit by the burst (hp=%d, want 100)", ally.HitPoints)
+	if pure.HitPoints != 100 || pure.WasAttacked {
+		t.Errorf("pure summon must be transparent to the burst (hp=%d attacked=%v)", pure.HitPoints, pure.WasAttacked)
 	}
-	if charmed.HitPoints != 100 {
-		t.Errorf("pacified monster must NOT be hit by the burst (hp=%d, want 100)", charmed.HitPoints)
+	if bound.HitPoints != 50 {
+		t.Errorf("bound undead must be hit by the burst (hp=%d, want 50)", bound.HitPoints)
+	}
+	if charmed.HitPoints != 50 || charmed.Pacified || !charmed.WasAttacked {
+		t.Errorf("burst must damage and break Charm (hp=%d pacified=%v attacked=%v)",
+			charmed.HitPoints, charmed.Pacified, charmed.WasAttacked)
 	}
 	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.
 	if warded.HitPoints != 100 || warded.HitTintFrames != 0 {

@@ -81,9 +81,12 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 	if allEqual && common > 0 {
 		phys := d.Resistances[damagecalc.Physical.String()]
 		if phys > 0 {
-			return []string{fmt.Sprintf("Resist +%d%% to all damage (+%d%% physical)", common, phys)}
+			if phys == common {
+				return []string{fmt.Sprintf("+%d%% resistance to every damage school", common)}
+			}
+			return []string{fmt.Sprintf("+%d%% resistance to every non-physical school; +%d%% Physical resistance", common, phys)}
 		}
-		return []string{fmt.Sprintf("Resist +%d%% to all damage except physical", common)}
+		return []string{fmt.Sprintf("+%d%% resistance to every non-physical school", common)}
 	}
 	schools := make([]string, 0, len(d.Resistances))
 	for s := range d.Resistances {
@@ -241,7 +244,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, "Walk on water")
 	}
 	if d.CardHealOnAtkPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% to self-heal %d on attack", d.CardHealOnAtkPct, d.CardHealAmount))
+		p = append(p, fmt.Sprintf("%d%% to self-heal %d on weapon attack", d.CardHealOnAtkPct, d.CardHealAmount))
 	}
 	if d.CardLethalSavePct != 0 {
 		p = append(p, fmt.Sprintf("%d%% to cheat death (half HP+SP)", d.CardLethalSavePct))
@@ -257,10 +260,10 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: disintegrate the target", d.CardDisintegratePct))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: disintegrate (undead and dragons immune)", d.CardDisintegratePct))
 	}
 	if d.CardRegenPct != 0 {
-		p = append(p, fmt.Sprintf("Regenerate %d%% max HP per tick", d.CardRegenPct))
+		p = append(p, fmt.Sprintf("Regenerate %d%% max HP per regeneration tick", d.CardRegenPct))
 	}
 	if d.CardDoubleAttackPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% on melee hit: attack again", d.CardDoubleAttackPct))
@@ -269,13 +272,13 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% a melee swing casts a Fire Bolt instead", d.CardSpellProcPct))
 	}
 	if d.CardDodgeBonusPct != 0 {
-		p = append(p, fmt.Sprintf("+%d Perfect Dodge", d.CardDodgeBonusPct))
+		p = append(p, fmt.Sprintf("+%d%% Perfect Dodge", d.CardDodgeBonusPct))
 	}
 	if d.CardArmorBonus != 0 {
 		p = append(p, fmt.Sprintf("+%d Armor Class", d.CardArmorBonus))
 	}
 	if d.CardThornsPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% of incoming damage reflected", d.CardThornsPct))
+		p = append(p, fmt.Sprintf("%d%% of damage received from monster hits reflected", d.CardThornsPct))
 	}
 	if d.CardPhysToDarkPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as dark", d.CardPhysToDarkPct))
@@ -284,7 +287,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as light", d.CardPhysToLightPct))
 	}
 	if d.CardPoisonProcPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: poison for %ds", d.CardPoisonProcPct, d.CardPoisonDurationSec))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: poison for %ds", d.CardPoisonProcPct, d.CardPoisonDurationSec))
 	}
 	if d.CardMeleeDmgPct != 0 {
 		p = append(p, fmt.Sprintf("+%d%% melee damage", d.CardMeleeDmgPct))
@@ -306,22 +309,22 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("+%d%% gold from kills", d.CardGoldFindPct))
 	}
 	if d.CardBonusBoltPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on attack: fire a bonus bolt", d.CardBonusBoltPct))
+		p = append(p, fmt.Sprintf("%d%% on weapon attack: fire a bonus bolt", d.CardBonusBoltPct))
 	}
 	if d.CardVolleyBonusPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% a bow shot looses an extra arrow", d.CardVolleyBonusPct))
 	}
 	if d.CardStunOnHitPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: stun the target", d.CardStunOnHitPct))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: stun the target", d.CardStunOnHitPct))
 	}
 	if d.CardPoisonResistPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% resist poison", d.CardPoisonResistPct))
+		p = append(p, fmt.Sprintf("%d%% chance to resist monster poison", d.CardPoisonResistPct))
 	}
 	if d.CardCritBonusPct != 0 {
 		p = append(p, fmt.Sprintf("+%d%% critical hit chance", d.CardCritBonusPct))
 	}
 	if d.CardArmorPiercePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: ignore armor", d.CardArmorPiercePct))
+		p = append(p, fmt.Sprintf("%d%% on melee hit: ignore armor", d.CardArmorPiercePct))
 	}
 	if len(d.CardBonusVs) > 0 {
 		keys := make([]string, 0, len(d.CardBonusVs))

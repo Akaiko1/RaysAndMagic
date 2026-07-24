@@ -53,7 +53,7 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"heal", "Personality ("},
 		{"inferno", "Burns EVERY monster on the map for 45-90 damage by mastery"},
 		{"fly", "Only under an open sky"},
-		{"town_portal", "any town or tavern the party has visited"},
+		{"town_portal", "visited taverns, towns, and major landmarks"},
 		{"fire_shield", "Party resists Fire +50%"},
 		{"stone_blossom", "blooms exactly 7 tiles out"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},
@@ -101,5 +101,21 @@ func TestCompactSpellTooltipShowsResultsWithoutFormulaDetails(t *testing.T) {
 	if got := tooltip("stone_blossom"); !strings.Contains(got, "Total Damage:") ||
 		strings.Contains(got, "Earth Mastery -") || strings.Contains(got, "GM: ignores") {
 		t.Errorf("Stone Blossom compact tooltip must show total damage, not mastery details:\n%s", got)
+	}
+
+	char.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	for _, tc := range []struct {
+		id        string
+		want      string
+		hideRange string
+	}{
+		{id: "stone_skin", want: "Current reduction: -10 per hit", hideRange: "Party takes -4 to -10"},
+		{id: "heroism", want: "Current physical damage bonus: +3", hideRange: "Party physical attacks deal +3 to +10"},
+		{id: "inferno", want: "Damage: 90", hideRange: "45-90 damage by mastery"},
+	} {
+		if got := tooltip(tc.id); !strings.Contains(got, tc.want) || strings.Contains(got, tc.hideRange) {
+			t.Errorf("%s compact tooltip must show %q without reference range %q:\n%s",
+				tc.id, tc.want, tc.hideRange, got)
+		}
 	}
 }

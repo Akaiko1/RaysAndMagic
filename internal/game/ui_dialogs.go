@@ -446,7 +446,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			case "weapon_mastery", "armor_mastery":
 				tooltip = masteryTooltipTextForSkill(option.skillType)
 			case "magic_mastery":
-				tooltip = magicMasteryTooltipText()
+				tooltip = magicMasteryTooltipText(option.school)
 			}
 			if tooltip != "" {
 				lines := strings.Split(tooltip, "\n")

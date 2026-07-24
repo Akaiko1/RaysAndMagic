@@ -17,13 +17,15 @@ const (
 	MagicSchoolMind   MagicSchoolID = MagicSchoolID(damagecalc.Mind)
 	MagicSchoolSpirit MagicSchoolID = MagicSchoolID(damagecalc.Spirit)
 
-	// Elemental magic (sorcerers, archers, druids).
+	// Elemental magic. Light and Dark are promotion-gated, but use the same
+	// mastery damage and Elemental Mastery rules as the four common elements.
 	MagicSchoolFire  MagicSchoolID = MagicSchoolID(damagecalc.Fire)
 	MagicSchoolWater MagicSchoolID = MagicSchoolID(damagecalc.Water)
 	MagicSchoolAir   MagicSchoolID = MagicSchoolID(damagecalc.Air)
 	MagicSchoolEarth MagicSchoolID = MagicSchoolID(damagecalc.Earth)
 
-	// Greater magic (restricted classes).
+	// Promotion-gated elemental schools. They are separated here only to
+	// document availability; IsElemental applies the same combat rules.
 	MagicSchoolLight MagicSchoolID = MagicSchoolID(damagecalc.Light)
 	MagicSchoolDark  MagicSchoolID = MagicSchoolID(damagecalc.Dark)
 )
@@ -45,12 +47,14 @@ var AllMagicSchools = []MagicSchoolID{
 // String returns the raw YAML key of the school.
 func (ms MagicSchoolID) String() string { return string(ms) }
 
-// IsElemental reports the four schools whose Grandmaster mastery bonus becomes
-// typed true damage. Shared by combat and presentation so the rule cannot
-// drift into separate Fire/Water/Air/Earth lists.
+// IsElemental reports the schools whose Grandmaster mastery damage becomes
+// typed true damage and whose resistance pierce comes from Elemental Mastery.
+// Shared by combat and presentation so Light/Dark cannot drift into a separate
+// policy from Fire/Water/Air/Earth.
 func (ms MagicSchoolID) IsElemental() bool {
 	switch ms {
-	case MagicSchoolFire, MagicSchoolWater, MagicSchoolAir, MagicSchoolEarth:
+	case MagicSchoolFire, MagicSchoolWater, MagicSchoolAir, MagicSchoolEarth,
+		MagicSchoolLight, MagicSchoolDark:
 		return true
 	default:
 		return false

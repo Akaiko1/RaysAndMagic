@@ -37,6 +37,8 @@ type mechanicSkeleton struct {
 	hasMastery    bool            // school/weapon mastery scaling present
 	hasArmsMaster bool            // Arms Master contribution present
 	hasCooldown   bool            // a cooldown line is shown
+	hasPierce     bool            // current value in-game / policy formula in editor
+	hasGMTrue     bool            // current typed mastery damage / editor GM policy
 	rules         map[string]bool // normalized RULES-section tokens (wording-independent)
 	attack        map[string]bool // weapon ATTACK tokens (arc/speed/hitbox/max/multiplier) minus absolute cooldown
 	casting       map[string]bool // spell CASTING delivery tokens (range/proj-speed/hitbox/target); cost+cooldown excluded
@@ -95,6 +97,16 @@ func extractSkeleton(card string) mechanicSkeleton {
 		if strings.Contains(strings.ToLower(ln), "cooldown") {
 			sk.hasCooldown = true
 		}
+		lower := strings.ToLower(ln)
+		if strings.Contains(lower, "current resistance pierce:") ||
+			(strings.Contains(lower, "resistance") &&
+				(strings.Contains(lower, "elemental mastery:") || strings.Contains(lower, "grandmaster"))) {
+			sk.hasPierce = true
+		}
+		if strings.Contains(lower, "true damage") &&
+			(strings.Contains(lower, "mastery") || strings.Contains(lower, "grandmaster")) {
+			sk.hasGMTrue = true
+		}
 		// Weapon ATTACK mechanics (arc, attack-speed multiplier, projectile speed,
 		// hitbox, max projectiles, range) - the shared/identical lines. The ABSOLUTE
 		// "RT Cooldown: Xs" is excluded (editor has no Speed to compute it).
@@ -135,7 +147,9 @@ func extractSkeleton(card string) mechanicSkeleton {
 			sk.effects[ln] = true
 		}
 		if section == "RULES" {
-			sk.rules[normalizeRule(ln)] = true
+			if rule := normalizeRule(ln); rule != "" {
+				sk.rules[rule] = true
+			}
 		}
 	}
 	// The xCritDamageMultiplier component: game prints "Critical Damage: N" (DAMAGE),
@@ -153,8 +167,18 @@ func extractSkeleton(card string) mechanicSkeleton {
 // without false-firing on cosmetic wording.
 func normalizeRule(ln string) string {
 	s := strings.ToLower(strings.TrimSpace(ln))
+	// Reference mastery formulas live in editor RULES, while the live card
+	// shows their current values beside DAMAGE. Dedicated skeleton flags compare
+	// those mechanics across sections without requiring duplicate placement.
+	if strings.Contains(s, "elemental mastery:") ||
+		(strings.Contains(s, "grandmaster") && strings.Contains(s, "resistance")) ||
+		(strings.Contains(s, "grandmaster") && strings.Contains(s, "true damage") &&
+			!strings.Contains(s, "perfect dodge")) {
+		return ""
+	}
 	s = strings.ReplaceAll(s, "gm:", "grandmaster:")
 	s = strings.ReplaceAll(s, "this strike ignores", "strikes ignore")
+	s = strings.TrimPrefix(s, "at grandmaster, ")
 	if strings.Contains(s, "ignore perfect dodge") { // weapon GM-dodge: collapse all variants
 		return "grandmaster: strikes ignore perfect dodge"
 	}
@@ -215,6 +239,12 @@ func (s mechanicSkeleton) diff(other mechanicSkeleton, includeCooldown bool) []s
 	}
 	if s.hasArmsMaster != other.hasArmsMaster {
 		out = append(out, "hasArmsMaster differs")
+	}
+	if s.hasPierce != other.hasPierce {
+		out = append(out, "hasPierce differs")
+	}
+	if s.hasGMTrue != other.hasGMTrue {
+		out = append(out, "hasGMTrue differs")
 	}
 	if includeCooldown && s.hasCooldown != other.hasCooldown {
 		out = append(out, "hasCooldown differs")

@@ -228,16 +228,21 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunChance > 0
 }
 
-// EffectLines returns the character-INDEPENDENT mechanics of a spell as
-// human-readable lines - the SINGLE SOURCE shared by the in-game tooltip and the
-// map-editor spell card so the two can never drift. It excludes values that
-// scale with the caster (projectile damage/heal totals, current buff magnitudes,
-// buff duration); those are rendered per-consumer because the editor has no
-// character context. Range lines read SpellDefinition fields - add a YAML field,
-// add a line here, never name-switch.
+// EffectLines returns every character-independent mechanic, including reference
+// ranges/formulas used by comparisons and the editor. CoreEffectLines omits
+// summaries for values the live tooltip already renders with the current
+// caster; both views come from effectLines, so wording cannot drift.
 func (d SpellDefinition) EffectLines() []string {
+	return d.effectLines(true)
+}
+
+func (d SpellDefinition) CoreEffectLines() []string {
+	return d.effectLines(false)
+}
+
+func (d SpellDefinition) effectLines(includeStructured bool) []string {
 	var out []string
-	if d.AoeRadiusTiles > 0 {
+	if includeStructured && d.AoeRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("AoE radius: %.1f tiles (splashes nearby monsters)", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
@@ -262,7 +267,7 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.Pacify {
 		out = append(out, fmt.Sprintf("Pacifies a living target for %ds (stops attacking; breaks if hit)", d.PacifyDurationSeconds))
 	}
-	if d.PartyAoeRadiusTiles > 0 {
+	if includeStructured && d.PartyAoeRadiusTiles > 0 {
 		minDamage := d.MasteryScaledDamage(0)
 		maxDamage := d.MasteryScaledDamage(3)
 		if maxDamage > minDamage {
@@ -271,7 +276,7 @@ func (d SpellDefinition) EffectLines() []string {
 			out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, minDamage))
 		}
 	}
-	if d.MapWide {
+	if includeStructured && d.MapWide {
 		minDamage := d.MasteryScaledDamage(0)
 		maxDamage := d.MasteryScaledDamage(3)
 		if maxDamage > minDamage {
@@ -284,13 +289,13 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Arcs over everything and blooms exactly %.0f tiles out", d.MortarRangeTiles))
 	}
 	if d.Fly {
-		out = append(out, "The party walks through anything but the map's edge")
+		out = append(out, "The party crosses terrain and walls, but not doors or the map's edge")
 	}
 	if d.OutdoorOnly {
 		out = append(out, "Only under an open sky (never in dungeons)")
 	}
 	if d.TownPortal {
-		out = append(out, "Opens a portal to any town or tavern the party has visited")
+		out = append(out, "Opens a portal to visited taverns, towns, and major landmarks")
 	}
 	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
 		out = append(out, fmt.Sprintf("Party resists %s +%d%% for the duration",
@@ -320,14 +325,14 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ReviveHpPct > 0 {
 		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
 	}
-	if d.ResistBuffPct > 0 {
+	if includeStructured && d.ResistBuffPct > 0 {
 		if d.ResistBuffPctGrandmaster > d.ResistBuffPct {
 			out = append(out, fmt.Sprintf("Party takes %d%% to %d%% less damage by mastery", d.ResistBuffPct, d.ResistBuffPctGrandmaster))
 		} else {
 			out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
 		}
 	}
-	if d.OutgoingDamageBonus > 0 {
+	if includeStructured && d.OutgoingDamageBonus > 0 {
 		target := "attacks"
 		if damageType, err := damagecalc.ParseType(d.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
 			target = "physical attacks"
@@ -338,7 +343,7 @@ func (d SpellDefinition) EffectLines() []string {
 			out = append(out, fmt.Sprintf("Party %s deal +%d damage", target, d.OutgoingDamageBonus))
 		}
 	}
-	if d.IncomingDamageReduction > 0 {
+	if includeStructured && d.IncomingDamageReduction > 0 {
 		if d.IncomingDamageReductionGrandmaster > d.IncomingDamageReduction {
 			out = append(out, fmt.Sprintf("Party takes -%d to -%d damage per hit by mastery", d.IncomingDamageReduction, d.IncomingDamageReductionGrandmaster))
 		} else {
@@ -362,16 +367,18 @@ func (d SpellDefinition) EffectLines() []string {
 	// grows with), so the map-editor card and the in-game tooltip both surface
 	// what a spell scales from. The numeric bonus itself is caster-dependent and
 	// shown only by the in-game tooltip.
-	switch {
-	case d.IsProjectile && !d.DealsNoDamage:
-		out = append(out, fmt.Sprintf("Damage scales with %s & %s mastery", d.DamageScalingStat(), d.School))
-	case d.ZoneRadiusTiles > 0:
-		out = append(out, fmt.Sprintf("Tick damage scales with Intellect & %s mastery", d.School))
+	if includeStructured {
+		switch {
+		case d.IsProjectile && !d.DealsNoDamage:
+			out = append(out, fmt.Sprintf("Damage scales with %s & %s mastery", d.DamageScalingStat(), d.School))
+		case d.ZoneRadiusTiles > 0:
+			out = append(out, fmt.Sprintf("Tick damage scales with Intellect & %s mastery", d.School))
+		}
+		if d.HealAmount > 0 {
+			out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
+		}
 	}
-	if d.HealAmount > 0 {
-		out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
-	}
-	if d.StatBonus > 0 {
+	if includeStructured && d.StatBonus > 0 {
 		if d.StatBonusGrandmaster > d.StatBonus {
 			out = append(out, fmt.Sprintf("+%d to +%d to all stats by mastery (whole party)", d.StatBonus, d.StatBonusGrandmaster))
 		} else {

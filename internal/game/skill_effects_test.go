@@ -12,7 +12,7 @@ import (
 // TestSkillTooltips_NoOmission: every skill (weapon/armor/misc) describes its
 // effect - none silently returns an empty tooltip.
 func TestSkillTooltips_NoOmission(t *testing.T) {
-	for s := character.SkillSword; s <= character.SkillArmsMaster; s++ {
+	for _, s := range character.AllSkills {
 		if strings.TrimSpace(masteryTooltipTextForSkill(s)) == "" {
 			t.Errorf("skill %v (%d) has no tooltip text", s, int(s))
 		}

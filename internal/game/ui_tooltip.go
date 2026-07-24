@@ -491,24 +491,3 @@ func formatSchoolName(school string) string {
 	}
 	return strings.ToUpper(school[:1]) + school[1:]
 }
-
-// spellPierceLine renders the same school/skill policy spellResistPierce uses.
-func spellPierceLine(def spells.SpellDefinition, char *character.MMCharacter) string {
-	if char == nil || def.School == "" {
-		return ""
-	}
-	if character.MagicSchoolID(def.School).IsElemental() {
-		if !char.HasSkill(character.SkillElementalMastery) {
-			return ""
-		}
-		return fmt.Sprintf("Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
-			character.ElementalMasteryPiercePct(0),
-			character.ElementalMasteryPiercePct(int(character.MasteryGrandMaster)),
-			formatSchoolName(def.School))
-	}
-	school := char.MagicSchools[character.MagicSchoolID(def.School)]
-	if school == nil || school.Mastery < character.MasteryGrandMaster {
-		return ""
-	}
-	return fmt.Sprintf("Grandmaster: ignores %d%% of enemy %s Resistance", MagicGMResistPiercePct, formatSchoolName(def.School))
-}

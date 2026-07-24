@@ -260,7 +260,7 @@ spells:
 
   day_of_the_gods:
     name: "Day of the Gods"
-    description: "Blesses the party with scaling resistance to all damage for 5 minutes"
+    description: "Blesses the party with scaling resistance against every damage school for 5 minutes"
     school: "light"
     level: 7
     spell_points_cost: 20
@@ -628,7 +628,7 @@ spells:
 
   stone_skin:
     name: "Stone Skin"
-    description: "Hardens the party's skin to stone, reducing all incoming damage"
+    description: "Hardens the party's skin to stone, reducing normal damage from each hit"
     school: "earth"
     level: 3
     spell_points_cost: 10
@@ -797,7 +797,7 @@ spells:
 
   fly:
     name: "Fly"
-    description: "The party takes wing: walk through anything but the map's edge. Only under an open sky."
+    description: "The party takes wing: cross terrain and walls, but not doors or the map's edge. Only under an open sky."
     school: "air"
     level: 5
     spell_points_cost: 12
@@ -813,7 +813,7 @@ spells:
 
   town_portal:
     name: "Town Portal"
-    description: "Opens a portal to any town or tavern the party has ever visited"
+    description: "Opens a portal to visited taverns, towns, and major landmarks"
     school: "earth"
     schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
     level: 4
@@ -852,7 +852,7 @@ spells:
     projectile_size: 14
     is_projectile: true
     is_utility: false
-    mortar_range_tiles: 7      # ballistic: ignores everything in flight, detonates exactly here (or at the wall that cuts the arc short)
+    mortar_range_tiles: 7      # ballistic: ignores everything in flight and detonates exactly here
     aoe_radius_tiles: 3.0
     stun_chance: 1.0           # the bloom stuns like Darkness does
     stun_duration_seconds: 5

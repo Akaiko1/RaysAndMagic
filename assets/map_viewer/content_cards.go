@@ -498,15 +498,17 @@ func buildSkillCards() []contentCard {
 			description: st.Description(),
 		})
 	}
-	// Magic mastery + primary stats come from the same catalog texts the
-	// in-game tooltips quote (character.MagicMasteryDescription/StatDescription).
-	cards = append(cards, contentCard{
-		kind:        cardSkill,
-		section:     "Magic",
-		key:         "magic_mastery",
-		name:        "Magic Mastery",
-		description: character.MagicMasteryDescription(),
-	})
+	// Each school gets its own mastery policy. A generic card used to mix
+	// elemental and self-magic rules into one misleading description.
+	for _, school := range character.AllMagicSchools {
+		cards = append(cards, contentCard{
+			kind:        cardSkill,
+			section:     "Magic",
+			key:         school.String() + "_magic",
+			name:        school.DisplayName() + " Magic",
+			description: character.MagicMasteryDescription(school),
+		})
+	}
 	for _, statName := range stats.Names {
 		cards = append(cards, contentCard{
 			kind:        cardSkill,

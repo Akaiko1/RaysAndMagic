@@ -111,16 +111,26 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 	}
 }
 
-func TestMagicMasteryTooltip_CitesGMResistPierce(t *testing.T) {
-	tip := magicMasteryTooltipText()
-	if !strings.Contains(tip, "typed true damage") {
-		t.Errorf("magic mastery tooltip %q should cite elemental GM true damage", tip)
+func TestMagicMasteryTooltip_ExplainsSelectedSchoolPolicy(t *testing.T) {
+	elementalTip := magicMasteryTooltipText(character.MagicSchoolLight)
+	if !strings.Contains(elementalTip, "Light true damage") {
+		t.Errorf("elemental magic mastery tooltip %q should cite GM true damage", elementalTip)
 	}
-	if strings.Contains(tip, "Inferno") {
-		t.Errorf("magic mastery tooltip should not mention Inferno globally: %q", tip)
+	for _, leak := range []string{"Inferno", "Other schools", "explicit", "Body Resistance"} {
+		if strings.Contains(elementalTip, leak) {
+			t.Errorf("Light mastery tooltip leaks unrelated policy %q: %q", leak, elementalTip)
+		}
 	}
-	if !strings.Contains(tip, fmt.Sprintf("%d%%", MagicGMResistPiercePct)) {
-		t.Errorf("magic mastery tooltip should retain non-elemental GM pierce: %q", tip)
+
+	selfTip := magicMasteryTooltipText(character.MagicSchoolBody)
+	if !strings.Contains(selfTip, fmt.Sprintf("%d%%", SelfMagicGMResistPiercePct)) {
+		t.Errorf("self-magic mastery tooltip should cite GM pierce: %q", selfTip)
+	}
+	if !strings.Contains(selfTip, "Body Resistance") {
+		t.Errorf("self-magic mastery tooltip should name its school: %q", selfTip)
+	}
+	if strings.Contains(selfTip, "true damage") {
+		t.Errorf("Body mastery tooltip leaks elemental GM rule: %q", selfTip)
 	}
 }
 

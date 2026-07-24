@@ -1,19 +1,25 @@
 Map Viewer / Editor (Utility)
 =============================
 
-GUI tool to preview and edit maps plus browse all game content. Five top tabs
-(F1-F5), click or hotkey:
+GUI tool to preview and edit maps plus browse game content and runtime previews.
+Nine top tabs (F1-F9), selectable by click or hotkey:
 
 1. **Maps** (F1) - preview/edit maps: biome-scoped legend, paint tiles and
    monsters, save back to the `.map` file.
 2. **Items** (F2) - every weapon and item, grouped by category, full stats on hover.
-3. **Spells** (F3) - every spell grouped BY SCHOOL (battle then utility).
+3. **Spells** (F3) - every spell grouped by school and level.
 4. **Characters** (F4) - each playable class with its full starting loadout:
    stats, skills, magic schools + known spells, starting equipment.
 5. **Skills** (F5) - all skills with detailed descriptions of what they do.
+6. **FX** (F6) - live previews of combat and environment effects.
+7. **Mobs** (F7) - effective runtime stats, abilities, drops, and a live
+   animation/AI preview. Champion values are mirrored from their real build.
+8. **Save Stashes** (F8) - inspect save slots, party inventories, and stashes.
+9. **Open World** (F9) - edit the unified-world map layout.
 
-Content tabs are read-only catalogs built from the YAML configs (and, for
-Characters, by instantiating each class), so they always match the live game.
+Content tabs are read-only catalogs built from the YAML configs and shared game
+mechanics. Hover item, spell, skill, equipment, monster, NPC, and map elements
+for detailed information.
 
 The legend is biome-aware: it shows only the tiles and monsters valid for the
 current map's biome (universal ones plus that biome's own), rebuilding when you
@@ -36,9 +42,11 @@ go build -o bin/map_viewer ./assets/map_viewer
 Release archives include the viewer next to the game executable as `RaysAndMagicMapViewer` (macOS) or `RaysAndMagicMapViewer.exe` (Windows).
 
 Controls:
+- F1-F9 to switch top-level pages
 - Left/Right (or A/D) to switch maps
 - Tab or 1/2 to switch Info/Legend panel
 - Mouse wheel or PgUp/PgDn/Up/Down to scroll legend
+- Mouse wheel to zoom the map; right-drag to pan
 - Click legend entry to choose a brush
 - Click on the map to paint (in-memory only)
 - E to select the eraser quickly
