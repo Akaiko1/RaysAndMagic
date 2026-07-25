@@ -23,7 +23,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8  # Brief slash animation
-      hit_delay: 2      # Frames before damage applies
 
     # Visual effects for slash animation
     graphics:
@@ -47,7 +46,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6  # Quick stab animation
-      hit_delay: 1      # Instant hit for dagger
 
     # Visual effects for slash animation
     graphics:
@@ -95,7 +93,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slower, heavier swing
-      hit_delay: 4      # Delayed impact for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -120,7 +117,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slower, heavier swing
-      hit_delay: 4      # Delayed impact for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -216,7 +212,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8  # Standard sword swing
-      hit_delay: 2      # Standard timing
 
     # Visual effects for slash animation
     graphics:
@@ -240,7 +235,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12  # Longer thrust animation
-      hit_delay: 6      # Longer windup for thrust
 
     # Visual effects for thrust animation
     graphics:
@@ -263,7 +257,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12
-      hit_delay: 6
     graphics:
       slash_color: [120, 110, 70]
       slash_width: 18
@@ -284,7 +277,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [150, 130, 60]
       slash_width: 18
@@ -306,7 +298,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slightly slower, powerful swing
-      hit_delay: 3      # Slight delay for power
 
     # Visual effects for slash animation
     graphics:
@@ -331,7 +322,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 14  # Slow, heavy swing
-      hit_delay: 6      # Long windup for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -431,7 +421,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 8
-      hit_delay: 3
     graphics:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
@@ -526,7 +515,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 5
 
     # Visual effects for slash animation
     graphics:
@@ -550,7 +538,6 @@ weapons:
     melee:
       arc_type: 4
       animation_frames: 16  # Slow, ponderous swing
-      hit_delay: 7      # Long windup
 
     # Visual effects for slash animation
     graphics:
@@ -576,7 +563,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [200, 40, 40]
       slash_width: 36
@@ -599,7 +585,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [120, 200, 140]
       slash_width: 22
@@ -624,7 +609,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [120, 60, 180]
       slash_width: 22
@@ -670,7 +654,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8
-      hit_delay: 2
     graphics:
       slash_color: [220, 230, 235]
       slash_width: 34
@@ -690,7 +673,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6
-      hit_delay: 1
     graphics:
       slash_color: [220, 225, 230]
       slash_width: 24
@@ -710,7 +692,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12
-      hit_delay: 6
     graphics:
       slash_color: [180, 180, 190]
       slash_width: 18
@@ -730,7 +711,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 6
     graphics:
       slash_color: [200, 210, 200]
       slash_width: 30
@@ -775,7 +755,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 11
-      hit_delay: 4
     graphics:
       slash_color: [170, 150, 120]
       slash_width: 42
@@ -797,7 +776,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [200, 210, 180]
       slash_width: 32
@@ -818,7 +796,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 9
-      hit_delay: 4
     graphics:
       slash_color: [80, 70, 90]
       slash_width: 20
@@ -838,7 +815,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [210, 200, 170]
       slash_width: 40
@@ -883,7 +859,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [140, 200, 120]
       slash_width: 22
@@ -906,7 +881,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 12
-      hit_delay: 5
     graphics:
       slash_color: [220, 180, 90]
       slash_width: 46
@@ -930,7 +904,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [230, 225, 215]
       slash_width: 34
@@ -953,7 +926,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 5
     graphics:
       slash_color: [210, 190, 130]
       slash_width: 48
@@ -976,7 +948,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [200, 200, 210]
       slash_width: 42
@@ -998,7 +969,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [190, 180, 170]
       slash_width: 20
@@ -1022,7 +992,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 22
@@ -1045,7 +1014,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6
-      hit_delay: 1
     graphics:
       slash_color: [220, 220, 235]
       slash_width: 22
@@ -1068,7 +1036,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 12
-      hit_delay: 5
     graphics:
       slash_color: [220, 205, 160]
       slash_width: 46
@@ -1165,7 +1132,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [210, 160, 110]
       slash_width: 24
@@ -1192,7 +1158,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8
-      hit_delay: 2
 
     graphics:
       slash_color: [255, 220, 180]
@@ -1217,7 +1182,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8
-      hit_delay: 3
     graphics:
       slash_color: [200, 220, 245]
       slash_fx: "clock_cogfang"
@@ -1242,7 +1206,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 11
-      hit_delay: 4
     graphics:
       slash_color: [235, 215, 160]
       slash_fx: "clock_chime"
@@ -1266,7 +1229,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6
-      hit_delay: 1
     graphics:
       slash_color: [220, 228, 240]
       slash_fx: "clock_minute"
@@ -1289,7 +1251,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [200, 195, 185]
       slash_fx: "clock_mainspring"
@@ -1313,7 +1274,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 9
-      hit_delay: 3
     graphics:
       slash_color: [225, 200, 140]
       slash_fx: "clock_escapement"

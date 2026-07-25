@@ -52,12 +52,6 @@ monsters:
     resistances: {}
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "forest_stream"
-        radius: 3
-      - type: "clearing"
-        radius: 2
-
   wolf:
     name: "Wolf"
     banding: true
@@ -568,12 +562,6 @@ monsters:
       earth: 25
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "forest_stream"
-        radius: 3
-      - type: "clearing"
-        radius: 2
-
   dire_wolf:
     name: "Dire Wolf"
     level: 5
@@ -647,10 +635,6 @@ monsters:
       - "fern_patch"
       - "thicket"
       - "empty"
-    habitat_near:
-      - type: "thicket"
-        radius: 2
-
   treant:
     name: "Treant"
     level: 8
@@ -676,10 +660,6 @@ monsters:
       physical: 30
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "ancient_tree"
-        radius: 3
-
   pixie:
     name: "Pixie"
     level: 2
@@ -716,10 +696,6 @@ monsters:
       - "mushroom_ring"
       - "firefly_swarm"
       - "empty"
-    habitat_near:
-      - type: "mushroom_ring"
-        radius: 2
-
   bandit:
     name: "Bandit"
     level: 3
@@ -839,10 +815,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "highlands_heather"
-    habitat_near:
-      - type: "highlands_rock_outcrop"
-        radius: 4
-
   # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
@@ -871,10 +843,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "highlands_heather"
-    habitat_near:
-      - type: "highlands_pine"
-        radius: 3
-
   # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
@@ -901,10 +869,6 @@ monsters:
       physical: 30
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_ruin_wall"
-        radius: 4
-
   # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
@@ -930,10 +894,6 @@ monsters:
       fire: -25
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_boulder"
-        radius: 3
-
   # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
@@ -962,10 +922,6 @@ monsters:
       dark: 30
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_ruin_wall"
-        radius: 4
-
   # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
@@ -1000,10 +956,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "lich_nexus_floor"
-    habitat_near:
-      - type: "highlands_slate_wall"
-        radius: 4
-
   revenant:
     type: "undead"
     name: "Revenant"
@@ -1160,6 +1112,7 @@ monsters:
     ignores_armor: true
     inferno_chance: 0.10
     inferno_damage: 28
+    inferno_range_tiles: 8   # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
     teleport_at_hp: 300
     teleport_chance: 0.10
     passive_until_quest: "culverts_valves"
@@ -1816,30 +1769,3 @@ monsters:
     resistances: { mind: 100, physical: 15, fire: -20 }
     habitat_preferences:
       - "empty"
-
-# Damage type mappings for resistances
-# Tile type mappings for habitat preferences
-tile_types:
-  empty: 0
-  tree: 1
-  ancient_tree: 2
-  thicket: 3
-  clearing: 4
-  forest_stream: 5
-  mushroom_ring: 6
-  firefly_swarm: 7
-  fern_patch: 8
-  moss_circle: 9
-  fallen_log: 10
-  boulder: 11
-  flower_patch: 12
-  highlands_floor: 13
-  highlands_pine: 14
-  highlands_rock_outcrop: 15
-  highlands_boulder: 16
-  highlands_heather: 17
-  highlands_stream: 18
-  highlands_ruin_wall: 19
-  highlands_slate_wall: 20
-  pyramid_floor: 21
-  lich_nexus_floor: 22

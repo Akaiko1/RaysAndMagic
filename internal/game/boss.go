@@ -39,12 +39,16 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 }
 
 // updateBoss runs the boss's special behaviour. `ready` gates the evasive blink to
-// the boss's own cadence (RT: BossCD; TB: every turn). `attackTick` marks the
+// the boss's own special cooldown (RT: BossCD; TB: every turn). `attackTick` marks the
 // once-per-attack moment when an aggressive boss may blink (low HP) or cast
 // Inferno. Returns true when it handled the monster's action this tick (caller
 // skips the normal attack); false lets the normal melee/ranged attack proceed
 // (which honours IgnoresArmor).
-func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bool) bool {
+// infernoRollDue tells updateBoss that an AT-RANGE nova roll is allowed this
+// tick: RT passes it when the per-monster inferno cooldown elapsed, TB once per
+// monster pass. The nova's own authored radius still gates it either way, and a
+// melee-moment roll (attackTick) needs neither.
+func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, infernoRollDue bool) bool {
 	if m == nil || !m.IsBoss() {
 		return false
 	}
@@ -97,10 +101,11 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 		}
 	}
 
-	// The remaining specials (low-HP blink, Inferno) still fire only at the melee
-	// attack moment.
+	// The low-HP blink still fires only at the melee attack moment. Inferno is a
+	// RANGED nova (inferno_range_tiles) and may also roll from a distance, so it
+	// is handled after this gate.
 	if !attackTick {
-		return false
+		return cs.tryBossRangedInferno(m, infernoRollDue)
 	}
 	if m.TeleportAtHP > 0 && m.HitPoints <= m.TeleportAtHP && rand.Float64() < m.TeleportChance {
 		if cs.blinkMonsterRandom(m) {
@@ -108,11 +113,53 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 			return true
 		}
 	}
-	if m.InfernoChance > 0 && rand.Float64() < m.InfernoChance {
+	// Melee moment: the nova can replace the normal hit, as long as the party is
+	// inside its authored reach (always true at melee range for a sane radius).
+	if m.InfernoChance > 0 && cs.bossInfernoInRange(m) && rand.Float64() < m.InfernoChance {
 		cs.applyMonsterInferno(m)
+		m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
 		return true
 	}
 	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
+}
+
+// bossInfernoInRange reports whether the party is inside the nova's authored
+// radius. A boss with inferno_chance but no radius cannot reach the party at all
+// (load validation rejects that combination, so this is a belt-and-suspenders
+// guard against hand-built test monsters).
+func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
+	if m.InfernoRangeTiles <= 0 {
+		return false
+	}
+	reach := m.InfernoRangeTiles * float64(cs.game.config.GetTileSize())
+	return Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= reach
+}
+
+// bossInfernoRollCooldownFrames is the gap between AT-RANGE nova rolls. It is a
+// timing policy (not per-boss content), and it is armed after every cast so a
+// melee nova cannot be followed instantly by a ranged one.
+func (cs *CombatSystem) bossInfernoRollCooldownFrames() int {
+	return BossInfernoRangedRollSeconds * cs.game.config.GetTPS()
+}
+
+// tryBossRangedInferno rolls the nova from OUTSIDE melee reach: the party must be
+// within inferno_range_tiles and the caller's cooldown must have elapsed. Returns true
+// when the nova fired and consumed the boss's action this tick.
+func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bool) bool {
+	if m.InfernoChance <= 0 || cs.bossDisabled(m) {
+		return false
+	}
+	if !rollDue || m.InfernoCDFrames > 0 || !cs.bossInfernoInRange(m) {
+		return false
+	}
+	// The cooldown is armed by the ATTEMPT, not only by a hit, so a failed roll
+	// cannot be retried every frame.
+	m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
+	if rand.Float64() >= m.InfernoChance {
+		return false
+	}
+	cs.applyMonsterInferno(m)
+	return true
 }
 
 // summonBossAdds rallies the boss's adds (war-banner): up to SummonCount monsters
@@ -246,7 +293,7 @@ func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
 }
 
 // tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based
-// mode, mirroring the RT cadence. Without it the hurt-blink waits for the
+// mode, mirroring the RT BossCD cooldown. Without it the hurt-blink waits for the
 // monster turn, so a full party round of focused hits could kill the boss
 // before it ever dodged. Aggressive-phase specials still fire only on the
 // boss's own TB turn.
@@ -267,7 +314,7 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 		if m.BossCD > 0 {
 			m.BossCD--
 		}
-		cs.updateBoss(m, ready, false)
+		cs.updateBoss(m, ready, false, false)
 	}
 }
 

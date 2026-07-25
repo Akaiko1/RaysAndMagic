@@ -19,7 +19,7 @@ type TrapDefinitionConfig struct {
 	Icon            string  `yaml:"icon"`
 	Level           int     `yaml:"level"`            // owner level required
 	SPCost          int     `yaml:"sp_cost"`          // spell points to place
-	CooldownSeconds float64 `yaml:"cooldown_seconds"` // RT cadence after placing
+	CooldownSeconds float64 `yaml:"cooldown_seconds"` // RT cooldown after placing
 	LifetimeSeconds int     `yaml:"lifetime_seconds"` // armed trap despawns after this
 	Element         string  `yaml:"element"`          // particle colour/shape family
 	DamageBase      int     `yaml:"damage_base,omitempty"`

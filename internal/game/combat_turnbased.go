@@ -310,11 +310,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Runs AFTER the bound-undead check (matching RT order): a boss lured
 		// at a bound foe spends its turn on that fight, not on party novas.
 		// DESIGN: specials are rolled BEFORE range/movement checks, so in TB an
-		// aggressive boss may cast Inferno or its low-HP blink from across the
-		// room instead of closing in. RT gates these to the attack moment; the
-		// asymmetry is intentional TB flavor - do not "fix" toward RT.
+		// aggressive boss may spend its turn on a special instead of closing in.
+		// The Inferno nova is the exception that needed a real gate: it is bound to
+		// its authored inferno_range_tiles in BOTH modes (it used to be map-wide
+		// here, which with aggro_whole_map let the Golden Thief Bug burn the party
+		// from anywhere). TB gets ONE nova roll per monster pass; RT rolls it on the
+		// BossInfernoRangedRollSeconds cooldown.
 		if m.IsBoss() {
-			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
+			if gl.game.combat.updateBoss(m, m.BossCD == 0, true, true) {
 				if !gl.game.combat.bossEvasive(m) {
 					gl.game.combat.armMonsterRTAttackCooldowns(m)
 				}

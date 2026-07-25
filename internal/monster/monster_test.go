@@ -15,6 +15,8 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		wantErr bool
 	}{
 		{"inferno chance without damage", MonsterDefinition{Boss: true, InfernoChance: 0.1}, true},
+		{"inferno chance without range", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28}, true},
+		{"inferno fully configured", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8}, false},
 		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
 		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
 		{"boss-only behavior needs boss flag", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, true},
@@ -30,7 +32,7 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		{"enrage with damage mult", MonsterDefinition{Boss: true, EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
 		{"fully configured boss", MonsterDefinition{
 			Boss:          true,
-			InfernoChance: 0.1, InfernoDamage: 28,
+			InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8,
 			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
 			SummonChance: 0.1, SummonMonsters: []string{"rat"},
 			EnrageAtHP: 100, EnrageCooldownMult: 0.6,

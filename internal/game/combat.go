@@ -1941,7 +1941,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.BossCD > 0 {
 				monster.BossCD--
 			}
-			cs.updateBoss(monster, ready, false)
+			cs.updateBoss(monster, ready, false, false)
 			continue
 		}
 
@@ -1993,7 +1993,13 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 &&
 				monster.AttackCDFrames == 0 &&
 				cs.monsterCanAttackParty(monster, dist, attackRange)
-			if cs.updateBoss(monster, ready, attackTick) {
+			// The nova also reaches from range (inferno_range_tiles): tick its own
+			// cooldown here and let updateBoss roll when it elapses, so a boss the
+			// party is out-ranging still fights back instead of only closing in.
+			if monster.InfernoCDFrames > 0 {
+				monster.InfernoCDFrames--
+			}
+			if cs.updateBoss(monster, ready, attackTick, monster.InfernoCDFrames == 0) {
 				if attackTick {
 					cs.armMonsterRTAttackCooldowns(monster)
 				}

@@ -50,12 +50,10 @@ special_tiles:
     sprite: ""
     render_type: "floor_only"
     floor_color: [139, 69, 19]  # Saddle brown RGB
-    properties:
-      damage: 10
-      damage_type: "physical"
-      trigger_chance: 0.8   # 80% chance to trigger when stepped on
-      rearm_time: 30        # Rearms after 30 seconds
-      visible_when_triggered: true
+    # NOTE: no properties yet - the engine only consumes the teleporter keys
+    # above (teleporter_group/cooldown_seconds/auto_activate/random_destination/
+    # exclude_self/cross_map). Placing [stile:spike_trap] on a map today renders
+    # the floor tile and deals NO damage; wire a reader before authoring numbers.
 
   magic_circle:
     name: "Magic Circle"
@@ -67,8 +65,5 @@ special_tiles:
     sprite: ""
     render_type: "floor_only"
     floor_color: [65, 105, 225]  # Royal blue RGB
-    properties:
-      trigger_type: "event"
-      event_id: "ancient_magic"
-      single_use: false
-      requires_item: null   # Optional item requirement
+    # NOTE: no properties yet - see the spike_trap note above. Stepping on this
+    # tile triggers nothing until an event reader exists.

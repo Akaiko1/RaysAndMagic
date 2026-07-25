@@ -92,7 +92,6 @@ type NPCSummon struct {
 // NPCDialogue represents the dialogue options for an NPC
 type NPCDialogue struct {
 	Greeting         string `yaml:"greeting"`
-	Teaching         string `yaml:"teaching,omitempty"`
 	InsufficientGold string `yaml:"insufficient_gold,omitempty"`
 	AlreadyKnown     string `yaml:"already_known,omitempty"`
 	Success          string `yaml:"success,omitempty"`

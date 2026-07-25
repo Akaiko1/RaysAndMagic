@@ -389,12 +389,14 @@ type Monster3D struct {
 	IgnoresArmor      bool    // melee bypasses the party's armor class
 	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     // fire damage of that nova, pre-mitigation
+	InfernoRangeTiles float64 // how far the nova reaches (authored; 0 = melee moment only)
+	InfernoCDFrames   int     // RT: frames until the next AT-RANGE inferno roll (persisted; melee-moment rolls ignore it)
 	TeleportAtHP      int     // when HP <= this, may blink to a random walkable tile
 	TeleportChance    float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
 	PassiveUntilQuest string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
 	EvadeRadiusTiles  float64 // evasive phase: blink when the party is within this many tiles
-	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
-	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
+	BossCooldownSecs  float64 // RT cooldown between evasive blinks (seconds)
+	BossCD            int     // RT cooldown (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshMonsterAIState)
 	BossEvasive       bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
 	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)

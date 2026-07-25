@@ -2390,7 +2390,7 @@ func (g *MMGame) consumeSelectedCharAction() {
 }
 
 // consumeSelectedCharActionWithRTCooldown spends a TB action while recording
-// the cadence it must still honor after a later return to real-time mode.
+// the cooldown it must still honor after a later return to real-time mode.
 // RT timers are paused in TB, so retain the longer timer if the character
 // already carried one into the mode switch.
 func (g *MMGame) consumeSelectedCharActionWithRTCooldown(cooldownFrames int) {
@@ -2412,7 +2412,7 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 	if idx := g.selectedChar; idx >= 0 && idx < len(g.party.Members) {
 		if m := g.party.Members[idx]; m != nil {
 			// TB does not gate swings on frame timers, but a swing must still
-			// carry its hand's real-time cadence across a later Tab switch.
+			// carry its hand's real-time cooldown across a later Tab switch.
 			if g.turnBasedMode && g.combat != nil {
 				if g.combat.attackSlotFor(m) == items.SlotOffHand {
 					if cooldown := g.combat.OffHandWeaponCooldownFrames(m); cooldown > m.OffHandRTCooldown {

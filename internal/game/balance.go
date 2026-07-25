@@ -156,6 +156,12 @@ const (
 	// monster action pass and the anti-kite extra pass.
 	TurnBasedExtraMonsterActionDelaySeconds = 0.18
 
+	// BossInfernoRangedRollSeconds is how often a boss may roll its nova from
+	// OUTSIDE melee reach (inside reach the nova replaces a normal hit and rides
+	// the attack cadence). Cooldown policy, not per-boss content - the reach itself
+	// is authored per monster as inferno_range_tiles.
+	BossInfernoRangedRollSeconds = 2
+
 	// TurnBasedPounceCooldownTurns is the TB counterpart of a monster's authored
 	// real-time pounce cooldown. Both clocks are armed together across Tab.
 	TurnBasedPounceCooldownTurns = 2

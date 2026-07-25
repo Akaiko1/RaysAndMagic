@@ -96,7 +96,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Fatal("boss must be dormant while castle_armory is unfinished")
 	}
 	prevX, prevY := boss.X, boss.Y
-	if !cs.updateBoss(boss, true, true) {
+	if !cs.updateBoss(boss, true, true, true) {
 		t.Error("a dormant boss should consume its action (hold, no normal attack)")
 	}
 	if boss.X != prevX || boss.Y != prevY {
@@ -328,7 +328,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	boss.SummonMax = 4
 	cs.game.registerSpawnedMonster(boss)
 
-	if !cs.updateBoss(boss, true, true) {
+	if !cs.updateBoss(boss, true, true, true) {
 		t.Fatal("first summon should be guaranteed even when summon_chance is 0")
 	}
 	if !boss.SummonFirstDone {
@@ -337,7 +337,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	if got := cs.countLiveSummons(boss); got != 2 {
 		t.Fatalf("first summon count = %d, want 2", got)
 	}
-	if cs.updateBoss(boss, true, true) {
+	if cs.updateBoss(boss, true, true, true) {
 		t.Fatal("second summon should use summon_chance after the first guaranteed summon")
 	}
 	if got := cs.countLiveSummons(boss); got != 2 {

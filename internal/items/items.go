@@ -409,20 +409,8 @@ type SpellEffect string
 
 // Spell effect constants mirror spell IDs from config.
 const (
-	SpellEffectFireball    SpellEffect = "fireball"
-	SpellEffectFireBolt    SpellEffect = "firebolt"
-	SpellEffectIceBolt     SpellEffect = "ice_bolt"
-	SpellEffectTorchLight  SpellEffect = "torch_light"
-	SpellEffectLightning   SpellEffect = "lightning"
-	SpellEffectIceShard    SpellEffect = "ice_shard"
-	SpellEffectHealSelf    SpellEffect = "heal"
-	SpellEffectHealOther   SpellEffect = "heal_other"
-	SpellEffectPartyBuff   SpellEffect = "party_buff"
-	SpellEffectShield      SpellEffect = "shield"
-	SpellEffectBless       SpellEffect = "bless"
-	SpellEffectWizardEye   SpellEffect = "wizard_eye"
-	SpellEffectAwaken      SpellEffect = "awaken"
-	SpellEffectWalkOnWater SpellEffect = "walk_on_water"
+	SpellEffectHealSelf  SpellEffect = "heal"
+	SpellEffectHealOther SpellEffect = "heal_other"
 )
 
 // CreateWeaponFromYAML creates a weapon item from YAML weapon configuration.

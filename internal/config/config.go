@@ -337,7 +337,6 @@ func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float
 type MeleeAttackConfig struct {
 	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
 	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
-	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
@@ -355,7 +354,6 @@ type WeaponGraphicsConfig struct {
 }
 
 type CameraConfig struct {
-	FieldOfView  float64 `yaml:"field_of_view"`
 	ViewDistance float64 `yaml:"view_distance"`
 }
 
@@ -732,7 +730,6 @@ type ColorsConfig struct {
 }
 
 type SpriteConfig struct {
-	PlaceholderSize      int     `yaml:"placeholder_size"`
 	TreeHeightMultiplier float64 `yaml:"tree_height_multiplier"`
 	TreeWidthMultiplier  float64 `yaml:"tree_width_multiplier"`
 }
@@ -1121,7 +1118,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
-	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane
+	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
 	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {

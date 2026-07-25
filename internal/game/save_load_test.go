@@ -235,6 +235,7 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.SoakFrames = 361
 	mob.SoakTurns = 4
 	mob.SoakRate = 120
+	mob.InfernoCDFrames = 240 // ranged-nova cooldown: a reload must not refresh it
 	worldSave.Monsters = []*monster.Monster3D{mob}
 
 	raw, err := json.Marshal(game.buildSave(wmSave))
@@ -274,6 +275,10 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	}
 
 	loadedMob := worldLoad.Monsters[0]
+	if loadedMob.InfernoCDFrames != 240 {
+		t.Errorf("inferno cadence = %d frames after reload, want 240 (a reload must not hand the boss a fresh nova roll)",
+			loadedMob.InfernoCDFrames)
+	}
 	if loadedMob.StunRate != 120 || loadedMob.RootRate != 120 ||
 		loadedMob.ArmorShredRate != 120 || loadedMob.PounceCDRate != 240 || loadedMob.SoakRate != 120 {
 		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",

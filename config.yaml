@@ -30,11 +30,9 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  # Square-projection FOV is DERIVED at runtime: 2*atan(screen_w/(2*screen_h))
-  # from the LIVE logical resolution (boot + every resize/fullscreen), so one
-  # world tile renders as a true square at any window aspect. This value is a
-  # fallback for config-less consumers only - the engine overrides it.
-  field_of_view: 1.176005207
+  # No field_of_view knob: the square-projection FOV is DERIVED at runtime as
+  # 2*atan(screen_w/(2*screen_h)) from the LIVE logical resolution (boot + every
+  # resize/fullscreen), so one world tile renders as a true square at any aspect.
   view_distance: 3200          # 50 * tile_size
 
 # UI settings
@@ -292,7 +290,6 @@ graphics:
 
   # Sprite sizes
   sprite:
-    placeholder_size: 16
     tree_height_multiplier: 1.5
     tree_width_multiplier: 0.8
 

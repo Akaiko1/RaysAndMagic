@@ -42,36 +42,35 @@ type MonsterDefinition struct {
 	// size_game and size_multiplier are retired. The fields exist only so content
 	// still authoring them FAILS LOUD in validation instead of silently rendering
 	// at the wrong scale.
-	DeprecatedSizeGame       float64           `yaml:"size_game,omitempty"`
-	DeprecatedSizeMultiplier float64           `yaml:"size_multiplier,omitempty"`
-	Resistances              map[string]int    `yaml:"resistances"`
-	HabitatPrefs             []string          `yaml:"habitat_preferences"`
-	HabitatNear              []HabitatNearRule `yaml:"habitat_near"`
-	ProjectileSpell          string            `yaml:"projectile_spell"`
-	ProjectileWeapon         string            `yaml:"projectile_weapon"`
-	Flying                   bool              `yaml:"flying"`
-	RangedAttackRange        float64           `yaml:"ranged_attack_range"`
-	AttacksPerRound          int               `yaml:"attacks_per_round"`
-	AttackCooldownMult       float64           `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit          bool              `yaml:"passive_until_attacked"`
-	FireburstChance          float64           `yaml:"fireburst_chance"`
-	FireburstDamageMin       int               `yaml:"fireburst_damage_min"`
-	FireburstDamageMax       int               `yaml:"fireburst_damage_max"`
-	DragonBreathChance       float64           `yaml:"dragon_breath_chance,omitempty"`
-	DragonBreathType         string            `yaml:"dragon_breath_damage_type,omitempty"`
-	PiercingShotChance       float64           `yaml:"piercing_shot_chance,omitempty"`
-	PiercingShotTargets      int               `yaml:"piercing_shot_targets,omitempty"`
-	AllyHealChance           float64           `yaml:"ally_heal_chance,omitempty"`
-	AllyHealAmount           int               `yaml:"ally_heal_amount,omitempty"`
-	AllyHealRadius           float64           `yaml:"ally_heal_radius_tiles,omitempty"`
-	PoisonChance             float64           `yaml:"poison_chance"`
-	PoisonDurationSec        int               `yaml:"poison_duration_seconds"`
-	IgniteChance             float64           `yaml:"ignite_chance,omitempty"`
-	IgniteDurationSec        int               `yaml:"ignite_duration_seconds,omitempty"`
-	StunCharChance           float64           `yaml:"stun_char_chance,omitempty"`
-	StunCharSeconds          int               `yaml:"stun_char_seconds,omitempty"`
-	StunCharTurns            int               `yaml:"stun_char_turns,omitempty"`
-	DispelChance             float64           `yaml:"dispel_chance,omitempty"`
+	DeprecatedSizeGame       float64        `yaml:"size_game,omitempty"`
+	DeprecatedSizeMultiplier float64        `yaml:"size_multiplier,omitempty"`
+	Resistances              map[string]int `yaml:"resistances"`
+	HabitatPrefs             []string       `yaml:"habitat_preferences"`
+	ProjectileSpell          string         `yaml:"projectile_spell"`
+	ProjectileWeapon         string         `yaml:"projectile_weapon"`
+	Flying                   bool           `yaml:"flying"`
+	RangedAttackRange        float64        `yaml:"ranged_attack_range"`
+	AttacksPerRound          int            `yaml:"attacks_per_round"`
+	AttackCooldownMult       float64        `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit          bool           `yaml:"passive_until_attacked"`
+	FireburstChance          float64        `yaml:"fireburst_chance"`
+	FireburstDamageMin       int            `yaml:"fireburst_damage_min"`
+	FireburstDamageMax       int            `yaml:"fireburst_damage_max"`
+	DragonBreathChance       float64        `yaml:"dragon_breath_chance,omitempty"`
+	DragonBreathType         string         `yaml:"dragon_breath_damage_type,omitempty"`
+	PiercingShotChance       float64        `yaml:"piercing_shot_chance,omitempty"`
+	PiercingShotTargets      int            `yaml:"piercing_shot_targets,omitempty"`
+	AllyHealChance           float64        `yaml:"ally_heal_chance,omitempty"`
+	AllyHealAmount           int            `yaml:"ally_heal_amount,omitempty"`
+	AllyHealRadius           float64        `yaml:"ally_heal_radius_tiles,omitempty"`
+	PoisonChance             float64        `yaml:"poison_chance"`
+	PoisonDurationSec        int            `yaml:"poison_duration_seconds"`
+	IgniteChance             float64        `yaml:"ignite_chance,omitempty"`
+	IgniteDurationSec        int            `yaml:"ignite_duration_seconds,omitempty"`
+	StunCharChance           float64        `yaml:"stun_char_chance,omitempty"`
+	StunCharSeconds          int            `yaml:"stun_char_seconds,omitempty"`
+	StunCharTurns            int            `yaml:"stun_char_turns,omitempty"`
+	DispelChance             float64        `yaml:"dispel_chance,omitempty"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
@@ -85,11 +84,12 @@ type MonsterDefinition struct {
 	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee bypasses party armor class
 	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
+	InfernoRangeTiles float64 `yaml:"inferno_range_tiles,omitempty"`   // how far the nova reaches (required with inferno_chance); melee reach can still replace a hit with it
 	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile
 	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`       // 0..1 chance per action to blink (only below TeleportAtHP)
 	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
 	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
-	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with evade_radius_tiles)
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cooldown between evasive blinks (required with evade_radius_tiles)
 	// Summon: an aggressive boss rallies adds on its action.
 	SummonChance          float64  `yaml:"summon_chance,omitempty"`           // 0..1 chance per action to summon (needs summon_monsters)
 	SummonFirstGuaranteed bool     `yaml:"summon_first_guaranteed,omitempty"` // first successful summon ignores summon_chance; refill uses chance
@@ -118,12 +118,6 @@ type MonsterDefinition struct {
 	TintColor []float64 `yaml:"tint_color,omitempty"`
 }
 
-// HabitatNearRule defines a rule for placing monsters near certain tile types
-type HabitatNearRule struct {
-	Type   string `yaml:"type"`
-	Radius int    `yaml:"radius"`
-}
-
 type MonsterLightConfig struct {
 	Enabled     bool    `yaml:"enabled"`
 	RadiusTiles float64 `yaml:"radius_tiles"`
@@ -132,8 +126,7 @@ type MonsterLightConfig struct {
 
 // MonsterYAMLConfig holds the complete monster configuration from YAML
 type MonsterYAMLConfig struct {
-	Monsters  map[string]MonsterDefinition `yaml:"monsters"`
-	TileTypes map[string]int               `yaml:"tile_types"`
+	Monsters map[string]MonsterDefinition `yaml:"monsters"`
 }
 
 // Global monster configuration
@@ -186,6 +179,11 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		// A nova with no authored reach would silently become map-wide in TB (it
+		// used to) - make the radius explicit content, like every other range.
+		if monster.InfernoChance > 0 && monster.InfernoRangeTiles <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_range_tiles", key))
 		}
 		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets < 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative piercing_shot_targets", key))
@@ -251,7 +249,7 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		config.Monsters[key] = monster
 		// An evasive boss (blinks away while its quest is unfinished) needs a blink
-		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
+		// cooldown. A dormant boss (passive_until_quest with no evade_radius_tiles)
 		// just holds until the quest completes, so it needs neither.
 		if monster.EvadeRadiusTiles > 0 && monster.BossCooldownSecs <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has evade_radius_tiles but no boss_cooldown_seconds", key))
@@ -474,6 +472,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.IgnoresArmor = def.IgnoresArmor
 	m.InfernoChance = def.InfernoChance
 	m.InfernoDamage = def.InfernoDamage
+	m.InfernoRangeTiles = def.InfernoRangeTiles
 	m.TeleportAtHP = def.TeleportAtHP
 	m.TeleportChance = def.TeleportChance
 	m.PassiveUntilQuest = def.PassiveUntilQuest

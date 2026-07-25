@@ -390,7 +390,7 @@ type MonsterSave struct {
 	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag
 	QuestProgressIgnored bool   `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
-	// reset the monster's special-attack cadence.
+	// reset the monster's special-attack cooldowns.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
 	StunRate                int `json:"stun_rate,omitempty"`
@@ -412,6 +412,7 @@ type MonsterSave struct {
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
 	PounceCDRate        int                  `json:"pounce_cd_rate,omitempty"`
 	BossCD              int                  `json:"boss_cd,omitempty"`
+	InfernoCD           int                  `json:"inferno_cd,omitempty"`
 	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
@@ -1084,6 +1085,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				PounceCDTurns:           mon.PounceCDTurns,
 				PounceCDRate:            mon.PounceCDRate,
 				BossCD:                  mon.BossCD,
+				InfernoCD:               mon.InfernoCDFrames,
 				BossHurtPending:         mon.BossHurtPending,
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
@@ -1597,6 +1599,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PounceCDTurns = ms.PounceCDTurns
 				m.PounceCDRate = ms.PounceCDRate
 				m.BossCD = ms.BossCD
+				m.InfernoCDFrames = ms.InfernoCD
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
