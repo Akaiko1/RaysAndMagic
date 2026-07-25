@@ -3774,16 +3774,12 @@ func (r *Renderer) scaledWorldSpriteOpts(scaleX, scaleY float64) *ebiten.DrawIma
 	return opts
 }
 
-// drawTintedSprite draws a sprite scaled to spriteSize at (drawLeft, screenY)
-// with the given RGBA tint applied via ColorScale. Used for both the
-// brightness pass and the hover-highlight overlay.
-func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize int, tintR, tintG, tintB, tintA float32) {
-	r.drawTintedSpriteF(screen, sprite, float64(drawLeft), float64(screenY), float64(spriteSize), tintR, tintG, tintB, tintA)
-}
-
-// drawTintedSpriteF is drawTintedSprite with float metrics: the GPU rasterizes
-// the float rect, so a distant sprite glides subpixel-smoothly instead of
-// hopping whole pixels.
+// drawTintedSpriteF draws a sprite scaled to spriteSize at (drawLeft, screenY)
+// with the given RGBA tint applied via ColorScale - the brightness pass and the
+// hover-highlight overlay share it. Metrics are FLOAT on purpose: the GPU
+// rasterizes the float rect, so a distant sprite glides subpixel-smoothly
+// instead of hopping whole pixels (an int draw path is how the far-object
+// jitter got in).
 func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize float64, tintR, tintG, tintB, tintA float32) {
 	if sprite == nil || spriteSize <= 0 {
 		return

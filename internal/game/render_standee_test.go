@@ -95,7 +95,7 @@ func TestTreeIsBillboardLOD(t *testing.T) {
 func TestCrossedTreeArmsInterleaveWithAdjacentStandee(t *testing.T) {
 	cfg := loadTestConfig(t)
 	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
-	game.camera.FOV = cfg.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	game.camera.ViewDist = cfg.GetViewDistance()
 	game.camera.Angle = 0
 	tileSize := float64(cfg.GetTileSize())

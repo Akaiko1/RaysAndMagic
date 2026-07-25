@@ -82,10 +82,8 @@ func TestTickDoTFrameCadence(t *testing.T) {
 	remaining, timer := 3*tps, 0
 	ticks, expiries := 0, 0
 	for i := 0; i < 3*tps; i++ {
-		deal, exp := TickDoTFrame(&remaining, &timer, tps)
-		if deal {
-			ticks++
-		}
+		dealt, exp := TickDoT(&remaining, &timer, 1, tps)
+		ticks += dealt
 		if exp {
 			expiries++
 		}
@@ -96,23 +94,53 @@ func TestTickDoTFrameCadence(t *testing.T) {
 	if expiries != 1 || remaining != 0 || timer != 0 {
 		t.Fatalf("expiry: n=%d remaining=%d timer=%d", expiries, remaining, timer)
 	}
-	if deal, exp := TickDoTFrame(&remaining, &timer, tps); deal || exp {
+	if dealt, exp := TickDoT(&remaining, &timer, 1, tps); dealt != 0 || exp {
 		t.Fatal("inactive DoT must not tick")
 	}
 }
 
-func TestTickDoTTurn(t *testing.T) {
-	remaining, timer := 100, 30
-	deal, exp := TickDoTTurn(&remaining, &timer, 60)
-	if !deal || exp || remaining != 40 {
-		t.Fatalf("first turn: deal=%v exp=%v remaining=%d", deal, exp, remaining)
+// TestTickDoTRoundBillsItsWholeSpan: a TB round consumes several seconds of
+// duration, so it must deal that many ticks - not one. (The one-tick-per-round
+// rule made every DoT 3x weaker in TB than in RT.)
+func TestTickDoTRoundBillsItsWholeSpan(t *testing.T) {
+	const tps = 60
+	remaining, timer := 10*tps, 0
+	ticks, exp := TickDoT(&remaining, &timer, 3*tps, tps)
+	if exp || remaining != 7*tps || ticks != 3 {
+		t.Fatalf("3s round of a 10s DoT: ticks=%d exp=%v remaining=%d, want 3/false/%d", ticks, exp, remaining, 7*tps)
 	}
-	deal, exp = TickDoTTurn(&remaining, &timer, 60)
-	if !deal || !exp || remaining != 0 || timer != 0 {
-		t.Fatalf("final turn: deal=%v exp=%v remaining=%d timer=%d", deal, exp, remaining, timer)
+
+	// A round longer than what the DoT has left bills only the remainder.
+	remaining, timer = tps+tps/2, 0 // 1.5s left
+	ticks, exp = TickDoT(&remaining, &timer, 3*tps, tps)
+	if !exp || remaining != 0 || ticks != 1 {
+		t.Fatalf("1.5s remainder: ticks=%d exp=%v remaining=%d, want 1/true/0", ticks, exp, remaining)
 	}
-	if deal, exp = TickDoTTurn(&remaining, &timer, 60); deal || exp {
-		t.Fatal("inactive DoT must not tick per turn")
+}
+
+// TestTickDoTModeParity: the SAME authored duration must deal the same total
+// damage whether it burns down frame by frame in RT or three seconds per TB
+// round, including a duration that is not a whole multiple of the round.
+func TestTickDoTModeParity(t *testing.T) {
+	const tps = 60
+	for _, seconds := range []int{1, 3, 20, 23, 30, 45} {
+		rtRemaining, rtTimer, rtTicks := seconds*tps, 0, 0
+		for rtRemaining > 0 {
+			dealt, _ := TickDoT(&rtRemaining, &rtTimer, 1, tps)
+			rtTicks += dealt
+		}
+		tbRemaining, tbTimer, tbTicks, rounds := seconds*tps, 0, 0, 0
+		for tbRemaining > 0 {
+			dealt, _ := TickDoT(&tbRemaining, &tbTimer, 3*tps, tps)
+			tbTicks += dealt
+			rounds++
+			if rounds > seconds+1 {
+				t.Fatalf("%ds DoT: TB never expired (%d rounds)", seconds, rounds)
+			}
+		}
+		if rtTicks != seconds || tbTicks != seconds {
+			t.Errorf("%ds DoT: RT dealt %d ticks, TB dealt %d - want %d in both", seconds, rtTicks, tbTicks, seconds)
+		}
 	}
 }
 

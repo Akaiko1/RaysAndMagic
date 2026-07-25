@@ -35,15 +35,6 @@ func (g *MMGame) removeCombatBuff(spellID string) {
 	g.combatBuffs, _ = removeBuffByID(g, g.combatBuffs, spellID)
 }
 
-// combatBuffOutBonus sums the flat outgoing-damage bonus from all active buffs.
-func (g *MMGame) combatBuffOutBonus() int {
-	total := 0
-	for i := range g.combatBuffs {
-		total += g.combatBuffs[i].OutBonus
-	}
-	return total
-}
-
 // combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
 // the supplied damage type. Empty/all buff types apply to every outgoing hit.
 func (g *MMGame) combatBuffOutBonusForDamageType(damageType string) int {

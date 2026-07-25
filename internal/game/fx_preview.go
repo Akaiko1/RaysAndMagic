@@ -58,13 +58,6 @@ const fxStageMapKey = "fx_stage"
 // fxRespawnTicks is how often the selected effect re-fires so it loops.
 const fxRespawnTicks = 75
 
-// tile exhibit slots (tile coords in the arena).
-type fxExhibit struct {
-	label   string
-	tileKey string   // primary tile placed at the exhibit spot
-	extra   []string // fallback candidates if tileKey is absent in tiles.yaml
-}
-
 // NewFxPreview builds the sandbox: a small flat arena world registered under
 // the global world manager (created if the host app never set one), a real
 // MMGame on top of it, and a caster/attacker standing at the stage edge.

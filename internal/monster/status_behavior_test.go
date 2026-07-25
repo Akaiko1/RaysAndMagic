@@ -42,16 +42,27 @@ func TestMonsterPoisonLifecycleRT(t *testing.T) {
 	}
 }
 
+// TestMonsterPoisonTurnBased: a TB round consumes several seconds of duration
+// and must deal that many ticks (1% max HP each), so the DoT's total matches RT.
 func TestMonsterPoisonTurnBased(t *testing.T) {
 	m := statusTestMonster()
-	m.ApplyPoison(100)
-	m.TickPoisonTurn(60)
-	if m.HitPoints != 198 {
-		t.Fatalf("TB poison must tick once per turn: HP=%d", m.HitPoints)
+	tps := config.GetTargetTPS() // config-less monsters fall back to this
+	round := 3 * tps             // one TB round = three seconds of DoT time
+	const perTick = 2            // 1% of 200 max HP
+
+	m.ApplyPoison(10 * tps)
+	m.TickPoisonTurn(round)
+	if m.HitPoints != 200-3*perTick {
+		t.Fatalf("a 3s TB round must deal 3 poison ticks: HP=%d", m.HitPoints)
 	}
-	m.TickPoisonTurn(60) // 40 left -> expires, still ticks
-	if m.HitPoints != 196 || m.PoisonedFramesRemaining != 0 {
-		t.Fatalf("final TB turn: HP=%d remaining=%d", m.HitPoints, m.PoisonedFramesRemaining)
+	if m.PoisonedFramesRemaining != 7*tps {
+		t.Fatalf("round consumed %d frames, want %d", 10*tps-m.PoisonedFramesRemaining, round)
+	}
+	for m.PoisonedFramesRemaining > 0 {
+		m.TickPoisonTurn(round)
+	}
+	if m.HitPoints != 200-10*perTick {
+		t.Fatalf("a 10s poison must deal 10 ticks in TB too: HP=%d", m.HitPoints)
 	}
 }
 

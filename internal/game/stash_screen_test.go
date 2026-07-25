@@ -7,6 +7,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
+	"ugataima/internal/storage"
 )
 
 func stashTestGame(t *testing.T) *MMGame {
@@ -190,7 +191,7 @@ func TestSaveRowModel(t *testing.T) {
 		t.Errorf("row 3 label = %q, want Slot 3", got)
 	}
 	// Row N (N>=1) keeps the old saveN.json filename so existing saves stay reachable.
-	if got, want := saveRowPath(1), slotPath(0); got != want {
+	if got, want := saveRowPath(1), storage.AppSavePath("save1.json"); got != want {
 		t.Errorf("manual row 1 path = %q, want %q (old slot 0)", got, want)
 	}
 	// 3 pages x rows-per-page total rows; selected row offsets by page.

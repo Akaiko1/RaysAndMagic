@@ -425,31 +425,6 @@ const (
 	SpellEffectWalkOnWater SpellEffect = "walk_on_water"
 )
 
-// Helper functions to create items
-func CreateBattleSpell(name string, effect SpellEffect, school string, cost int, description string) Item {
-	return Item{
-		Name:        name,
-		Type:        ItemBattleSpell,
-		SpellEffect: effect,
-		SpellSchool: school,
-		SpellCost:   cost,
-		Description: description,
-		Attributes:  make(map[string]int),
-	}
-}
-
-func CreateUtilitySpell(name string, effect SpellEffect, school string, cost int, description string) Item {
-	return Item{
-		Name:        name,
-		Type:        ItemUtilitySpell,
-		SpellEffect: effect,
-		SpellSchool: school,
-		SpellCost:   cost,
-		Description: description,
-		Attributes:  make(map[string]int),
-	}
-}
-
 // CreateWeaponFromYAML creates a weapon item from YAML weapon configuration.
 // Returns an error if the weapon is not found in weapons.yaml.
 func CreateWeaponFromYAML(weaponKey string) Item {

@@ -350,6 +350,11 @@ func (rh *RenderingHelper) npcBillboardParams(npc *character.NPC) (sizeTiles flo
 // wall/door): unlike people they may recede to almost nothing at range.
 const sceneryMinSpriteSize = 8
 
+// The Calculate*SpriteMetrics trio below are the PIXEL (int) view of the float
+// cores: truncating whole-pixel metrics is what made distant sprites jitter, so
+// draw paths must use the F twins. These stay for hit tests and the golden
+// size/near-cull tests, which reason in pixels by nature.
+
 // CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
 // distant mobs shrink freely). sizeTiles is height in tiles.
 func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
@@ -367,13 +372,6 @@ func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entity
 // whole-pixel jitter.
 func (rh *RenderingHelper) CalculateGroundContainerSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
-}
-
-// CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
-// distant NPCs stay readable). NPCs remain visible when walked up to, matching
-// loot containers instead of disappearing under a near-cull.
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.NPC.MinSpriteSize)
 }
 
 // npcSizeTiles resolves an NPC's sprite height in tiles: a shared size_class

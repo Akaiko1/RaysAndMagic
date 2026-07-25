@@ -165,7 +165,7 @@ func TestPartyBuffs_Stack(t *testing.T) {
 		}
 	}
 	// Hour of Power +5 out / -1 in, Stone Skin -4 in, Heroism +3 physical out at Novice.
-	if out := game.combatBuffOutBonus(); out != 8 {
+	if out := game.combatBuffOutBonusForDamageType("physical"); out != 8 {
 		t.Errorf("outgoing bonus should stack to 8, got %d", out)
 	}
 	if in := game.combatBuffInReduce(); in != 5 {

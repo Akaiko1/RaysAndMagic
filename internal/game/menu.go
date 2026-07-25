@@ -28,9 +28,6 @@ var ErrExit = errors.New("exit game")
 // DefaultSavePath is the default file used for saving/loading
 const DefaultSavePath = "savegame.json"
 
-// slotPath returns a filename for a numbered save slot (0-based index)
-func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
-
 // Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
 // pages. Global row 0 is the shared Autosave (written automatically on map change
 // and stash use; load-only - never manually overwritten). Rows 1..N are manual

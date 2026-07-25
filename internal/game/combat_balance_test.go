@@ -1,4 +1,14 @@
+// Since Go 1.24 the top-level math/rand Seed is a NO-OP by default, which
+// silently made these sims non-reproducible (verified on this toolchain: two
+// seeded sequences differed). The combat code rolls through the PACKAGE-LEVEL
+// rand functions, so a local *rand.Rand cannot reach them - this directive
+// restores functional seeding for the whole test binary instead, and the
+// rand.Seed calls below really do pin the sequence again.
+//go:debug randseednop=0
+
 package game
+
+//lint:file-ignore SA1019 rand.Seed is deliberate here - see the go:debug note above
 
 // Diagnostic combat-balance simulator. Builds a reference L5 party (Knight,
 // Sorcerer, Cleric, Archer) with hand-tuned stats and equipment, then runs N
@@ -197,7 +207,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 				// No one to heal - fall through to weapon.
 			} else {
 				_, _, dmg := cs.CalculateSpellDamage(spellID, char)
-				target.TakeDamage(dmg, spellSchoolToDamageType(def.School))
+				target.TakeDamageParts(damagecalc.Parts{Normal: dmg}, spellSchoolToDamageType(def.School), 0)
 				char.SpellPoints -= def.SpellPointsCost
 				return
 			}
@@ -211,7 +221,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	isRanged := weaponDef != nil && weaponDef.Category == "bow"
 	dmg = applyMonsterArmor(dmg, "physical", target.ArmorClass, isRanged)
-	target.TakeDamage(dmg, monsterPkg.DamagePhysical)
+	target.TakeDamageParts(damagecalc.Parts{Normal: dmg}, monsterPkg.DamagePhysical, 0)
 }
 
 func trySimMonsterAllyHeal(m *monsterPkg.Monster3D, monsters []*monsterPkg.Monster3D, cfg *config.Config) bool {

@@ -14,7 +14,7 @@ func TestBillboardSizingSingleFormula(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.renderHelper = NewRenderingHelper(game)
 	game.camera.Angle = 0
-	game.camera.FOV = game.config.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(game.config.GetScreenWidth(), game.config.GetScreenHeight())
 	game.camera.ViewDist = game.config.GetViewDistance()
 
 	person := &character.NPC{RenderCategory: "npc", SizeTiles: 1}

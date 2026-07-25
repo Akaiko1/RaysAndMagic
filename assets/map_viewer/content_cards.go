@@ -550,19 +550,7 @@ func appendRow(rows []string, label, value string) []string {
 	return append(rows, label+": "+value)
 }
 
-func titleCase(s string) string {
-	if s == "" {
-		return ""
-	}
-	words := strings.Fields(s)
-	for i, w := range words {
-		if len(w) == 0 {
-			continue
-		}
-		words[i] = strings.ToUpper(w[:1]) + w[1:]
-	}
-	return strings.Join(words, " ")
-}
+func titleCase(s string) string { return config.TitleWords(s) }
 
 // tileSpriteThumbnail loads a tile's sprite image (for legend previews),
 // searching the same sprite dirs the game does. Returns nil for tiles with no

@@ -107,14 +107,20 @@ func TestDespawnPackMonstersCurrentMapQueuesIDs(t *testing.T) {
 	}
 }
 
-func TestWorldHasLivingMonsters(t *testing.T) {
-	w := &world.World3D{Monsters: []*monster.Monster3D{{HitPoints: 0}, nil}}
-	if worldHasLivingMonsters(w) {
+// The pack clear-gate censuses a REGION rect (the unified world holds five
+// maps), so the test drives the same helper the spawner calls.
+func TestWorldHasLivingMonstersInRect(t *testing.T) {
+	const tile = 64.0
+	w := &world.World3D{Monsters: []*monster.Monster3D{{X: 96, Y: 96, HitPoints: 0}, nil}}
+	if worldHasLivingMonstersInRect(w, 0, 0, 10, 10, tile) {
 		t.Fatal("dead monsters must not block a clear-gated pack")
 	}
-	w.Monsters = append(w.Monsters, &monster.Monster3D{HitPoints: 1})
-	if !worldHasLivingMonsters(w) {
+	w.Monsters = append(w.Monsters, &monster.Monster3D{X: 96, Y: 96, HitPoints: 1})
+	if !worldHasLivingMonstersInRect(w, 0, 0, 10, 10, tile) {
 		t.Fatal("a living monster must block a clear-gated pack")
+	}
+	if worldHasLivingMonstersInRect(w, 20, 20, 5, 5, tile) {
+		t.Fatal("a monster outside the rect must not gate it")
 	}
 }
 

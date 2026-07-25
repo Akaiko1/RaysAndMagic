@@ -40,7 +40,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnified(item, char, combatSystem, full)
 	case items.ItemConsumable:
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Double-click to use", "Single use"}, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Double-click to use", "Single use"}, full)
 	case items.ItemQuest:
 		// Only ACTIVATABLE quest items get a usage hint - plain story tokens
 		// (statuettes etc.) just sit in the inventory.
@@ -48,11 +48,11 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && def != nil && (def.OpensMap || def.PromotesLich) {
 			usage = append([]string{"Double-click to use"}, usage...)
 		}
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", usage, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", usage, full)
 	case items.ItemTrinket, items.ItemCard:
 		// Cards (split out of trinkets) share the simple path so their
 		// "Collection: ..." effect lines surface as loose inventory items too.
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))

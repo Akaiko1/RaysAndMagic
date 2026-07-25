@@ -20,6 +20,8 @@ var debugSimJobs = make(chan func(*ebiten.Image))
 // runOnDrawFrame executes fn inside a live Draw frame and blocks until done.
 // Only call from debug sims (RAM_DEBUG_SIM=1) - without the game loop running
 // there is nothing to drain the channel.
+// Used by the -tags debug simulations (staticcheck reports it unused without
+// that tag).
 func runOnDrawFrame(fn func(screen *ebiten.Image)) {
 	done := make(chan struct{})
 	debugSimJobs <- func(s *ebiten.Image) {

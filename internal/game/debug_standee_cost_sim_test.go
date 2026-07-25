@@ -33,7 +33,7 @@ func TestDebugSim_StandeeCost(t *testing.T) {
 
 	tileSize := float64(cfg.GetTileSize())
 	screenW := cfg.GetScreenWidth()
-	halfFovTan := math.Tan(cfg.GetCameraFOV() / 2)
+	halfFovTan := math.Tan(squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()) / 2)
 	lodTiles := cfg.Graphics.TreeStandeeLODTiles
 	// Both crossed slabs use the shared standee thickness from config.
 	h := cfg.Graphics.Standee.ThicknessTiles * tileSize / 2

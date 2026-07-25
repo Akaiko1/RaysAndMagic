@@ -634,38 +634,6 @@ func (m *Monster3D) updateLootGuarding(collisionChecker CollisionChecker) {
 	}
 }
 
-// tryMoveCardinal attempts to move in a cardinal direction using the current state's speed.
-func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dirY int) bool {
-	if dirX == 0 && dirY == 0 {
-		return false
-	}
-
-	speed := m.movementSpeed(m.State)
-	if speed <= 0 {
-		return false
-	}
-
-	currentCenterX, currentCenterY := m.worldToTileCenter(m.X, m.Y)
-	targetX := currentCenterX + float64(dirX)*m.tileSize()
-	targetY := currentCenterY + float64(dirY)*m.tileSize()
-
-	if !collisionChecker.CanMoveToWithHabitat(m.ID, targetX, targetY, m.HabitatPrefs, m.Flying) {
-		return false
-	}
-
-	dirAngle := math.Atan2(float64(dirY), float64(dirX))
-	newX := m.X + math.Cos(dirAngle)*speed
-	newY := m.Y + math.Sin(dirAngle)*speed
-
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
-		m.X = newX
-		m.Y = newY
-		return true
-	}
-
-	return false
-}
-
 // updatePursuing moves monster towards player using grid-based cardinal movement
 func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Calculate distance to player

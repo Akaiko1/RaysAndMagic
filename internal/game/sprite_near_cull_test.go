@@ -13,7 +13,7 @@ func TestMonsterAndNPCSpritesHaveNoNearCull(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 8, 8)
 	game.renderHelper = NewRenderingHelper(game)
 	game.camera.Angle = 0
-	game.camera.FOV = game.config.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(game.config.GetScreenWidth(), game.config.GetScreenHeight())
 	game.camera.ViewDist = game.config.GetViewDistance()
 	x, y := game.camera.X+2, game.camera.Y
 

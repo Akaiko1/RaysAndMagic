@@ -174,7 +174,10 @@ func TestMonsterPoisonKillTB_FinalizesKill(t *testing.T) {
 	}
 }
 
-func TestTurnBasedPeriodicEffectsConsumeThreeSecondsPerRound(t *testing.T) {
+// TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound: one TB round both
+// CONSUMES three seconds of DoT duration and DEALS three seconds of damage.
+// Billing only one tick per round made every DoT 3x weaker in TB than in RT.
+func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	g.turnBasedMode = true
@@ -190,8 +193,9 @@ func TestTurnBasedPeriodicEffectsConsumeThreeSecondsPerRound(t *testing.T) {
 		t.Fatalf("party DoT remainder = poison %d burn %d, want %d each",
 			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
 	}
-	if member.HitPoints != 100-character.PoisonDamagePerTick-character.BurnDamagePerTick {
-		t.Fatalf("party DoTs must deal one tick each per round: HP=%d", member.HitPoints)
+	wantTicks := TurnBasedPeriodicEffectSeconds
+	if want := 100 - wantTicks*(character.PoisonDamagePerTick+character.BurnDamagePerTick); member.HitPoints != want {
+		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
 	}
 
 	mob := &monsterPkg.Monster3D{
@@ -208,8 +212,8 @@ func TestTurnBasedPeriodicEffectsConsumeThreeSecondsPerRound(t *testing.T) {
 	if mob.PoisonedFramesRemaining != wantStep {
 		t.Fatalf("monster poison remainder = %d, want %d", mob.PoisonedFramesRemaining, wantStep)
 	}
-	if mob.HitPoints != 99 {
-		t.Fatalf("monster poison must deal one 1%% tick per round: HP=%d", mob.HitPoints)
+	if want := 100 - wantTicks; mob.HitPoints != want { // 1% of 100 max HP per tick
+		t.Fatalf("monster poison must deal %d 1%% ticks per round: HP=%d, want %d", wantTicks, mob.HitPoints, want)
 	}
 }
 
@@ -421,5 +425,36 @@ func TestLethalDoTTick_RoutesThroughKnockOut(t *testing.T) {
 	}
 	if len(g.combatLogHistory) <= msgsBefore {
 		t.Error("expected a combat message from the knockOut sweep")
+	}
+}
+
+// TestTurnBasedDoTResolvesTickByTick: a TB round must resolve its three seconds
+// of poison/burn ONE TICK AT A TIME with the lethal sweep between them, exactly
+// as RT does per frame. Batching the whole round let poison zero a member before
+// burn ticked at all (dotDamage no-ops at 0 HP) and gave the Lich Card a single
+// cheat-death roll instead of one per lethal tick.
+func TestTurnBasedDoTResolvesTickByTick(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = true
+	tps := g.config.GetTPS()
+	round := TurnBasedPeriodicEffectSeconds * tps
+
+	member := g.party.Members[0]
+	member.MaxHitPoints, member.HitPoints = 100, 1
+	member.ApplyPoison(2 * round)
+	member.ApplyBurn(2 * round)
+
+	g.startPartyTurn()
+
+	// Poison's first tick is lethal, so the round must knock the member out
+	// there - and burn must NOT have silently vanished into a 0-HP no-op.
+	if !member.HasCondition(character.ConditionUnconscious) {
+		t.Fatalf("a lethal DoT tick must knock the member out (HP=%d conditions=%v)",
+			member.HitPoints, member.Conditions)
+	}
+	if member.BurnFramesRemaining != 2*round-round {
+		t.Errorf("burn duration = %d, want %d - the round must still consume burn time",
+			member.BurnFramesRemaining, 2*round-round)
 	}
 }

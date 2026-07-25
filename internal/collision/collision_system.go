@@ -57,7 +57,9 @@ func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (
 	return true, "ok"
 }
 
-// GetAllEntities returns a slice of all entities in the collision system
+// GetAllEntities returns a slice of all entities in the collision system.
+// TEST/diagnostic accessor - gameplay resolves entities by ID or through a
+// Snapshot, never by scanning the whole registry.
 func (cs *CollisionSystem) GetAllEntities() []*Entity {
 	entities := make([]*Entity, 0, len(cs.entities))
 	for _, e := range cs.entities {
@@ -374,49 +376,6 @@ func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float
 	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
 }
 
-// GetCollisions returns all current collisions between entities
-func (cs *CollisionSystem) GetCollisions() []CollisionPair {
-	var collisions []CollisionPair
-
-	// Convert entities to slice for indexed iteration
-	entities := make([]*Entity, 0, len(cs.entities))
-	for _, entity := range cs.entities {
-		entities = append(entities, entity)
-	}
-
-	// Check all pairs
-	for i := 0; i < len(entities); i++ {
-		for j := i + 1; j < len(entities); j++ {
-			if entities[i].BoundingBox.Intersects(entities[j].BoundingBox) {
-				collisions = append(collisions, CollisionPair{
-					Entity1: entities[i],
-					Entity2: entities[j],
-				})
-			}
-		}
-	}
-
-	return collisions
-}
-
-// GetNearbyEntities returns entities within a certain distance of a point
-func (cs *CollisionSystem) GetNearbyEntities(x, y, radius float64, excludeID string) []*Entity {
-	var nearby []*Entity
-	searchPoint := Point{X: x, Y: y}
-
-	for id, entity := range cs.entities {
-		if id == excludeID {
-			continue
-		}
-
-		if entity.BoundingBox.DistanceToPoint(searchPoint) <= radius {
-			nearby = append(nearby, entity)
-		}
-	}
-
-	return nearby
-}
-
 // RaycastHit represents the result of a raycast operation
 type RaycastHit struct {
 	Hit   bool    // Whether the ray hit an opaque tile
@@ -556,25 +515,6 @@ func (cs *CollisionSystem) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 type CollisionPair struct {
 	Entity1 *Entity
 	Entity2 *Entity
-}
-
-// GetCollisionDistance returns the overlap distance between two colliding entities
-func (cp *CollisionPair) GetCollisionDistance() float64 {
-	return cp.Entity1.BoundingBox.Distance(cp.Entity2.BoundingBox)
-}
-
-// GetCollisionNormal returns the collision normal vector (normalized)
-func (cp *CollisionPair) GetCollisionNormal() (float64, float64) {
-	dx := cp.Entity2.BoundingBox.X - cp.Entity1.BoundingBox.X
-	dy := cp.Entity2.BoundingBox.Y - cp.Entity1.BoundingBox.Y
-
-	// Normalize
-	length := math.Sqrt(dx*dx + dy*dy)
-	if length == 0 {
-		return 0, 0
-	}
-
-	return dx / length, dy / length
 }
 
 // GetEntityByID returns the entity with the given ID, or nil if not found

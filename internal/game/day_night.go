@@ -376,18 +376,6 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 	}
 }
 
-func worldHasLivingMonsters(w *world.World3D) bool {
-	if w == nil {
-		return false
-	}
-	for _, m := range w.Monsters {
-		if m != nil && m.IsAlive() {
-			return true
-		}
-	}
-	return false
-}
-
 // worldHasLivingMonstersInRect reports a living monster inside the tile rect
 // (the whole world for split maps, one region's rect on the unified world).
 func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize float64) bool {

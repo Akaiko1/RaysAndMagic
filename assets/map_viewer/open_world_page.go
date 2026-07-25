@@ -113,13 +113,12 @@ func (v *viewer) owRebuild() {
 	voidColor := color.RGBA{12, 12, 18, 255}
 	for ty := 0; ty < ow.Height; ty++ {
 		for tx := 0; tx < ow.Width; tx++ {
-			floor := color.RGBA{60, 120, 60, 255}
-			if mc := wm.MapConfigAtTile(tx, ty); mc != nil {
-				floor = color.RGBA{uint8(mc.DefaultFloorColor[0]), uint8(mc.DefaultFloorColor[1]), uint8(mc.DefaultFloorColor[2]), 255}
-			} else {
+			mc := wm.MapConfigAtTile(tx, ty)
+			if mc == nil { // void between placements
 				img.SetRGBA(tx, ty, voidColor)
 				continue
 			}
+			floor := color.RGBA{uint8(mc.DefaultFloorColor[0]), uint8(mc.DefaultFloorColor[1]), uint8(mc.DefaultFloorColor[2]), 255}
 			img.SetRGBA(tx, ty, getMapTileColor(ow.Tiles[ty][tx], floor, v.tileManager, v.tileDataByKey))
 		}
 	}

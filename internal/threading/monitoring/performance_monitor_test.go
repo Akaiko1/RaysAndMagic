@@ -71,22 +71,6 @@ func TestPerformanceMonitorMetrics(t *testing.T) {
 		t.Errorf("Expected monsters updated to be 25, got %d", pm.monstersUpdated.Load())
 	}
 
-	// Test worker metrics
-	pm.UpdateWorkerMetrics(5, 10, 100)
-	if pm.activeWorkers.Load() != 5 {
-		t.Errorf("Expected active workers to be 5, got %d", pm.activeWorkers.Load())
-	}
-
-	// Test individual operations
-	pm.IncrementActiveWorkers()
-	if pm.activeWorkers.Load() != 6 {
-		t.Errorf("Expected active workers to be 6 after increment, got %d", pm.activeWorkers.Load())
-	}
-
-	pm.CompleteJob()
-	if pm.completedJobs.Load() != 101 {
-		t.Errorf("Expected completed jobs to be 101, got %d", pm.completedJobs.Load())
-	}
 }
 
 func TestPerformanceMonitorConcurrency(t *testing.T) {
@@ -100,9 +84,7 @@ func TestPerformanceMonitorConcurrency(t *testing.T) {
 				frameTimer := pm.StartFrame()
 				time.Sleep(time.Microsecond * 100)
 				frameTimer.EndFrame()
-				pm.IncrementActiveWorkers()
-				pm.CompleteJob()
-				pm.DecrementActiveWorkers()
+				pm.UpdateGameMetrics(uint64(j), 1, 1)
 			}
 			done <- true
 		}()
@@ -117,8 +99,8 @@ func TestPerformanceMonitorConcurrency(t *testing.T) {
 	if pm.frameCount.Load() == 0 {
 		t.Error("Expected some frames to be recorded")
 	}
-	if pm.completedJobs.Load() == 0 {
-		t.Error("Expected some jobs to be completed")
+	if pm.monstersUpdated.Load() == 0 {
+		t.Error("Expected the game metrics to be recorded")
 	}
 }
 
@@ -216,7 +198,9 @@ func TestParallelRenderer(t *testing.T) {
 
 	// Test parallel raycast
 	numRays := 100
-	results := renderer.RenderRaycast(numRays, mockRaycastFunc)
+	results := renderer.RenderRaycastInto(numRays, func(rayIndex int, result *rendering.RaycastResult) {
+		result.Distance, result.TileType = mockRaycastFunc(rayIndex)
+	})
 
 	if len(results) != numRays {
 		t.Errorf("Expected %d results, got %d", numRays, len(results))
@@ -266,7 +250,9 @@ func TestParallelRendererConcurrency(t *testing.T) {
 		go func(renderID int) {
 			defer wg.Done()
 			numRays := 50 + renderID*10 // Different ray counts
-			results := renderer.RenderRaycast(numRays, mockRaycastFunc)
+			results := renderer.RenderRaycastInto(numRays, func(rayIndex int, result *rendering.RaycastResult) {
+				result.Distance, result.TileType = mockRaycastFunc(rayIndex)
+			})
 
 			if len(results) != numRays {
 				t.Errorf("Render %d: expected %d results, got %d", renderID, numRays, len(results))
@@ -415,7 +401,9 @@ func TestFullParallelPipeline(t *testing.T) {
 	updater.UpdateMonstersParallel(monsters)
 
 	// Parallel rendering
-	results := renderer.RenderRaycast(50, mockRaycastFunc)
+	results := renderer.RenderRaycastInto(50, func(rayIndex int, result *rendering.RaycastResult) {
+		result.Distance, result.TileType = mockRaycastFunc(rayIndex)
+	})
 
 	// Some parallel work via the worker pool
 	var workCounter int64
@@ -487,9 +475,7 @@ func TestHighLoadConcurrency(t *testing.T) {
 			}
 
 			// Update metrics
-			pm.IncrementActiveWorkers()
 			pm.UpdateGameMetrics(uint64(sum), 1, 1)
-			pm.DecrementActiveWorkers()
 
 			frameTimer.EndFrame()
 			atomic.AddInt64(&totalWork, 1)
@@ -546,7 +532,9 @@ func BenchmarkParallelRenderer(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderer.RenderRaycast(100, mockRaycastFunc)
+		renderer.RenderRaycastInto(100, func(rayIndex int, result *rendering.RaycastResult) {
+			result.Distance, result.TileType = mockRaycastFunc(rayIndex)
+		})
 	}
 }
 

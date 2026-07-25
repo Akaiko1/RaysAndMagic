@@ -304,7 +304,8 @@ func (tm *TileManager) GetTileTypeFromKey(key string) (TileType3D, bool) {
 	return tileType, ok
 }
 
-// GetAllTileKeys returns all available tile keys from the loaded configuration
+// GetAllTileKeys returns all available tile keys from the loaded configuration.
+// Used by the sprite golden test to sweep every authored tile.
 func (tm *TileManager) GetAllTileKeys() []string {
 	keys := make([]string, 0, len(tm.tileData))
 	for key := range tm.tileData {
@@ -536,7 +537,10 @@ func (tm *TileManager) HasFloorNearColor(tileType TileType3D) bool {
 	return color[0] != 0 || color[1] != 0 || color[2] != 0
 }
 
-// SetTileProperty allows dynamic modification of tile properties at runtime
+// SetTileProperty allows dynamic modification of tile properties at runtime.
+// TESTS ONLY: shipped content is authored in tiles.yaml, and no gameplay path
+// mutates tile definitions - keep it that way (a live edit would desync the
+// renderer caches built from these properties).
 func (tm *TileManager) SetTileProperty(tileType TileType3D, property string, value interface{}) error {
 	key, ok := tm.typeToKey[tileType]
 	if !ok {
@@ -634,17 +638,6 @@ func (tm *TileManager) ListSpecialTiles() map[string]*config.TileData {
 	return result
 }
 
-// IsSpecialTile reports whether a key came from special_tiles.yaml.
-func (tm *TileManager) IsSpecialTile(key string) bool {
-	return tm.specialTileKeys[key]
-}
-
-// GetTileTypeFromLetter returns the tile type for a given letter
-func (tm *TileManager) GetTileTypeFromLetter(letter string) (TileType3D, bool) {
-	tileType, ok := tm.letterToType[letter]
-	return tileType, ok
-}
-
 // GetTileTypeFromLetterForBiome returns the tile type for a given letter in a specific biome
 func (tm *TileManager) GetTileTypeFromLetterForBiome(letter string, biome string) (TileType3D, bool) {
 	// First try to find a biome-specific tile
@@ -682,33 +675,7 @@ func (tm *TileManager) tileSupportsbiome(tileData *config.TileData, biome string
 	return false
 }
 
-// GetTileKeyFromLetter returns the tile key for a given letter
-// This works for all tiles, including dynamically assigned ones
-func (tm *TileManager) GetTileKeyFromLetter(letter string) (string, bool) {
-	if tileType, ok := tm.letterToType[letter]; ok {
-		return tm.typeToKey[tileType], true
-	}
-	return "", false
-}
-
 // GetLetterFromTileType returns the letter for a given tile type
 func (tm *TileManager) GetLetterFromTileType(tileType TileType3D) string {
 	return tm.typeToLetter[tileType]
-}
-
-// GetLetterFromTileKey returns the letter for a given tile key
-func (tm *TileManager) GetLetterFromTileKey(key string) string {
-	if data, ok := tm.tileData[key]; ok {
-		return data.Letter
-	}
-	return ""
-}
-
-// GetAllLetterMappings returns all letter to tile type mappings
-func (tm *TileManager) GetAllLetterMappings() map[string]TileType3D {
-	result := make(map[string]TileType3D)
-	for letter, tileType := range tm.letterToType {
-		result[letter] = tileType
-	}
-	return result
 }

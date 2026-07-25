@@ -21,10 +21,6 @@ func spellScalesWithPersonality(school string) bool {
 	return spells.SchoolScalesWithPersonality(school)
 }
 
-func spellDamageStatLabel(school string, scalesWithPersonality bool) string {
-	return spells.DamageStatLabel(school, scalesWithPersonality)
-}
-
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual projectile damage.
 func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {

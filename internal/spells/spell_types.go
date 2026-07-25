@@ -120,16 +120,6 @@ func (d SpellDefinition) SchoolList() []string {
 	return []string{d.School}
 }
 
-// BelongsToSchool reports whether the spell is a member of the given school key.
-func (d SpellDefinition) BelongsToSchool(school string) bool {
-	for _, s := range d.SchoolList() {
-		if s == school {
-			return true
-		}
-	}
-	return false
-}
-
 // GetSpellDefinitionByID retrieves spell definition from YAML config
 func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	configDef, exists := config.GetSpellDefinition(string(spellID))

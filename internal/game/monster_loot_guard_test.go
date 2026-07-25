@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -401,7 +402,7 @@ func TestLootGuardReleasesSpentProp(t *testing.T) {
 func TestLootGuardAttackScattersTheWholePair(t *testing.T) {
 	game, loop, _, _, first, second := setupLootGuardPair(t, false)
 	secondX, secondY := second.X, second.Y
-	first.TakeDamage(1, monster.DamagePhysical)
+	first.TakeDamageParts(damagecalc.Parts{Normal: 1}, monster.DamagePhysical, 0)
 
 	prepareLootGuardsForTest(game, loop)
 

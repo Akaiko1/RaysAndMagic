@@ -83,7 +83,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	// Fail fast: every map's biome must have a definition so floors render.
 	for key, mapConfig := range wm.MapConfigs {
 		if _, ok := wm.Biomes[mapConfig.Biome]; !ok {
-			return fmt.Errorf("map %q references biome %q with no definition in biomes:", key, mapConfig.Biome)
+			return fmt.Errorf("map %q references biome %q with no definition in the biomes: block", key, mapConfig.Biome)
 		}
 	}
 

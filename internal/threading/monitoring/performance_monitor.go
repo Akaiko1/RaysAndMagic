@@ -18,11 +18,6 @@ type PerformanceMonitor struct {
 	spriteRenderTime atomic.Uint64
 	entityUpdateTime atomic.Uint64
 
-	// Threading metrics
-	activeWorkers atomic.Int32
-	queuedJobs    atomic.Int32
-	completedJobs atomic.Uint64
-
 	// Game-specific metrics
 	monstersUpdated    atomic.Uint64
 	projectilesActive  atomic.Int32
@@ -106,42 +101,6 @@ func (rt *RaycastTimer) EndRaycast() {
 	}
 }
 
-// WorkerMetrics tracks worker pool performance
-type WorkerMetrics struct {
-	ActiveWorkers  int32
-	QueuedJobs     int32
-	CompletedJobs  uint64
-	AverageJobTime time.Duration
-}
-
-// UpdateWorkerMetrics updates threading metrics
-func (pm *PerformanceMonitor) UpdateWorkerMetrics(active, queued int32, completed uint64) {
-	pm.activeWorkers.Store(active)
-	pm.queuedJobs.Store(queued)
-	pm.completedJobs.Store(completed)
-}
-
-// IncrementActiveWorkers atomically increments active worker count
-func (pm *PerformanceMonitor) IncrementActiveWorkers() {
-	pm.activeWorkers.Add(1)
-}
-
-// DecrementActiveWorkers atomically decrements active worker count
-func (pm *PerformanceMonitor) DecrementActiveWorkers() {
-	pm.activeWorkers.Add(-1)
-}
-
-// AddQueuedJob atomically adds to queued job count
-func (pm *PerformanceMonitor) AddQueuedJob() {
-	pm.queuedJobs.Add(1)
-}
-
-// CompleteJob atomically marks a job as complete
-func (pm *PerformanceMonitor) CompleteJob() {
-	pm.queuedJobs.Add(-1)
-	pm.completedJobs.Add(1)
-}
-
 // GameMetrics tracks game-specific performance data
 type GameMetrics struct {
 	MonstersUpdated    uint64
@@ -204,9 +163,6 @@ func (pm *PerformanceMonitor) GetDetailedStats() map[string]interface{} {
 		"last_sprite_render_time_ms": float64(pm.spriteRenderTime.Load()) / 1000000,
 		"last_entity_update_time_ms": float64(pm.entityUpdateTime.Load()) / 1000000,
 		"current_fps":                1000000000.0 / float64(pm.frameTime.Load()),
-		"active_workers":             pm.activeWorkers.Load(),
-		"queued_jobs":                pm.queuedJobs.Load(),
-		"completed_jobs":             pm.completedJobs.Load(),
 		"memory_alloc_mb":            memStats.Alloc / 1024 / 1024,
 		"memory_sys_mb":              memStats.Sys / 1024 / 1024,
 		"gc_cycles":                  memStats.NumGC,
@@ -261,26 +217,7 @@ func (pm *PerformanceMonitor) CheckPerformanceAlerts() []PerformanceAlert {
 		})
 	}
 
-	// Check worker queue
-	queuedJobs := pm.queuedJobs.Load()
-	if queuedJobs > 100 { // Alert if job queue is backing up
-		alerts = append(alerts, PerformanceAlert{
-			Type:      "queue_backlog",
-			Message:   "Worker queue has more than 100 pending jobs",
-			Value:     float64(queuedJobs),
-			Threshold: 100,
-			Timestamp: currentTime,
-		})
-	}
-
 	return alerts
-}
-
-// EnableDetailedLogging enables/disables detailed performance logging
-func (pm *PerformanceMonitor) EnableDetailedLogging(enabled bool) {
-	pm.mutex.Lock()
-	defer pm.mutex.Unlock()
-	pm.enableDetailed = enabled
 }
 
 // Reset resets all performance counters
@@ -290,9 +227,6 @@ func (pm *PerformanceMonitor) Reset() {
 	pm.raycastTime.Store(0)
 	pm.spriteRenderTime.Store(0)
 	pm.entityUpdateTime.Store(0)
-	pm.activeWorkers.Store(0)
-	pm.queuedJobs.Store(0)
-	pm.completedJobs.Store(0)
 	pm.monstersUpdated.Store(0)
 	pm.projectilesActive.Store(0)
 	pm.collisionsDetected.Store(0)
@@ -322,16 +256,4 @@ func (pm *PerformanceMonitor) ProfiledFunction(name string, fn func()) time.Dura
 	}
 
 	return duration
-}
-
-// GetAverageJobTime calculates average job completion time
-func (pm *PerformanceMonitor) GetAverageJobTime() time.Duration {
-	completedJobs := pm.completedJobs.Load()
-	if completedJobs == 0 {
-		return 0
-	}
-
-	totalTime := pm.frameTime.Load()
-	avgNanos := totalTime / completedJobs
-	return time.Duration(avgNanos)
 }

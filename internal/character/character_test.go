@@ -245,32 +245,3 @@ func TestCharacterUpdate(t *testing.T) {
 		t.Error("Spell points should not exceed maximum")
 	}
 }
-
-func TestCharacterDisplayInfo(t *testing.T) {
-	cfg := &config.Config{
-		Characters: config.CharacterConfig{
-			Classes: map[string]config.ClassStats{
-				"knight": {Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
-			},
-			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 3, LevelMultiplier: 2},
-			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},
-		},
-	}
-
-	char := CreateCharacter("TestKnight", ClassKnight, cfg)
-
-	displayInfo := char.GetDisplayInfo()
-	if displayInfo == "" {
-		t.Error("Display info should not be empty")
-	}
-
-	detailedInfo := char.GetDetailedInfo()
-	if detailedInfo == "" {
-		t.Error("Detailed info should not be empty")
-	}
-
-	// Check that character name appears in display info
-	if len(displayInfo) < len(char.Name) {
-		t.Error("Display info should contain character name")
-	}
-}

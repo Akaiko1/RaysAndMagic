@@ -205,6 +205,7 @@ func isStyleDivergent(line string) bool {
 		strings.HasPrefix(line, "Current reduction:") ||
 		strings.HasPrefix(line, "Current resistance:") ||
 		strings.HasPrefix(line, "Current stat bonus:") ||
+		strings.HasPrefix(line, "Current total:") || // armor: the WEARER's mitigation total
 		strings.HasPrefix(line, "Mastery:") || // editor "Mastery: +20% duration per tier"
 		strings.Contains(line, " Mastery - ") // game "<School> Mastery - Tier: +N%"
 }
@@ -448,4 +449,34 @@ func setStr(m map[string]bool) string {
 	}
 	sort.Strings(ks)
 	return "{" + strings.Join(ks, " | ") + "}"
+}
+
+// TestCardParity_ItemsGameVsEditor closes the gap the weapon/spell/trap parity
+// tests left open: armor, accessories, consumables and quest items are rendered
+// by the game's own builders (buildArmorTooltipUnified /
+// buildSimpleItemTooltipUnified) while the editor renders ItemCardSections, so
+// without this the two could drift silently.
+func TestCardParity_ItemsGameVsEditor(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := gmReferenceChar(cs.game.config)
+
+	processed := 0
+	for key := range config.GlobalItems.Items {
+		def, ok := config.GetItemDefinition(key)
+		if !ok || def == nil {
+			t.Fatalf("item %q is in GlobalItems but GetItemDefinition failed", key)
+		}
+		processed++
+		gameCard := GetItemTooltip(items.CreateItemFromYAML(key), char, cs, true)
+		editorCard := strings.Join(character.RenderCardLines(
+			character.ItemCardSections(def), true), "\n")
+
+		if d := extractSkeleton(gameCard).diff(extractSkeleton(editorCard), false); len(d) > 0 {
+			t.Errorf("item %q game/editor drift:\n  %s\n--- game ---\n%s\n--- editor ---\n%s",
+				key, strings.Join(d, "\n  "), gameCard, editorCard)
+		}
+	}
+	if processed != len(config.GlobalItems.Items) {
+		t.Fatalf("checked %d items, expected %d", processed, len(config.GlobalItems.Items))
+	}
 }

@@ -769,14 +769,14 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 		lines := []string{
 			npcSpell.Name,
-			fmt.Sprintf("%s school   %d gold", strings.Title(npcSpell.School), npcSpell.Cost),
+			fmt.Sprintf("%s school   %d gold", config.TitleWords(npcSpell.School), npcSpell.Cost),
 		}
 		if npcSpell.Requirements != nil {
 			if npcSpell.Requirements.MinLevel > 0 {
 				lines = append(lines, fmt.Sprintf("Requires char level %d", npcSpell.Requirements.MinLevel))
 			}
 			for _, req := range npcSpell.Requirements.Schools {
-				lines = append(lines, fmt.Sprintf("Requires %s magic L%d", strings.Title(req.School), req.MinLevel))
+				lines = append(lines, fmt.Sprintf("Requires %s magic L%d", config.TitleWords(req.School), req.MinLevel))
 			}
 		}
 		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)

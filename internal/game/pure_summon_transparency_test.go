@@ -143,14 +143,6 @@ func TestPartyAreaAttacksIgnorePureSummonsButHitBoundUndead(t *testing.T) {
 		apply func(*CombatSystem, *monsterPkg.Monster3D)
 	}{
 		{
-			name: "card move burst",
-			apply: func(cs *CombatSystem, _ *monsterPkg.Monster3D) {
-				if !cs.cardMoveBurstApply(100) {
-					t.Fatal("card burst should hit the nearby bound undead")
-				}
-			},
-		},
-		{
 			name: "weapon or spell splash",
 			apply: func(cs *CombatSystem, center *monsterPkg.Monster3D) {
 				attack := cs.newPartyMonsterAttack(100, 0, "fire", 0, nil, "Test Splash", false, true, false)

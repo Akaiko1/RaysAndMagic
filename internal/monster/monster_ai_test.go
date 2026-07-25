@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 )
 
 // MockCollisionChecker implements CollisionChecker for testing
@@ -306,29 +307,6 @@ func TestTileCenterCalculation(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestTryMoveCardinal tests cardinal movement using the state speed.
-func TestTryMoveCardinal(t *testing.T) {
-	m := &Monster3D{
-		X:     32.0, // Tile (0,0) center
-		Y:     32.0,
-		Speed: 1.5,
-	}
-
-	checker := NewMockCollisionChecker(64.0)
-
-	// Try to move East (1, 0)
-	success := m.tryMoveCardinal(checker, 1, 0)
-
-	if !success {
-		t.Errorf("tryMoveCardinal failed when it should succeed")
-		t.Logf("Collision checks: %d, Last check at: (%f, %f)",
-			checker.checkCount, checker.lastX, checker.lastY)
-	}
-
-	t.Logf("After tryMoveCardinal East: Position = (%f, %f)", m.X, m.Y)
-	t.Logf("Expected intermediate: X should be > 32, Y should be 32")
 }
 
 // TestMonsterShakingScenario simulates the actual shaking bug using pathfinding
@@ -770,7 +748,7 @@ func TestMonsterEngagesWhenHit(t *testing.T) {
 	}
 
 	// Monster takes damage from close range
-	damage := m.TakeDamage(10, DamagePhysical)
+	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Verify damage was applied
 	if damage != 10 {
@@ -838,7 +816,7 @@ func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 	playerX, playerY := 1060.0, 100.0
 
 	// Hit the monster from long range
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Verify initial engagement
 	if !m.IsEngagingPlayer {
@@ -891,7 +869,7 @@ func TestMonsterResistanceReducesDamage(t *testing.T) {
 	m.Resistances[DamageFire] = 50 // 50% fire resistance
 
 	// Hit with fire damage
-	damage := m.TakeDamage(20, DamageFire)
+	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 20}, DamageFire, 0)
 
 	// Should receive only 50% of damage
 	if damage != 10 {
@@ -917,7 +895,7 @@ func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
 	m.StateTimer = 50
 
 	// Take more damage
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// State should not change (still pursuing, not reset to alert)
 	if m.State != StatePursuing {
@@ -937,7 +915,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 	playerX, playerY := 800.0, 100.0
 
 	// First hit
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Run some AI updates
 	for i := 0; i < 30; i++ {
@@ -945,7 +923,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 	}
 
 	// Second hit
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Run more AI updates
 	for i := 0; i < 30; i++ {
@@ -970,7 +948,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 	playerX, playerY := 612.0, 100.0
 
 	// Hit the monster
-	m.TakeDamage(10, DamageFire)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamageFire, 0)
 
 	initialX := m.X
 

@@ -139,9 +139,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if def == nil || cs == nil {
 		return item.Name
 	}
-	subtitle := strings.Title(strings.ReplaceAll(def.Category, "_", " "))
+	subtitle := config.TitleWords(strings.ReplaceAll(def.Category, "_", " "))
 	if def.Rarity != "" {
-		subtitle += " - " + strings.Title(def.Rarity)
+		subtitle += " - " + config.TitleWords(def.Rarity)
 	}
 
 	attack := ttSection{Title: "ATTACK"}
@@ -291,7 +291,7 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
-		subtitle += " - " + strings.Title(def.Rarity)
+		subtitle += " - " + config.TitleWords(def.Rarity)
 	}
 
 	defense := ttSection{Title: "DEFENSE"}
@@ -724,7 +724,7 @@ func buildSimpleItemTooltipUnified(item items.Item, title string, defaultUsage [
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
-		subtitle += " - " + strings.Title(def.Rarity)
+		subtitle += " - " + config.TitleWords(def.Rarity)
 	}
 	effect := ttSection{Title: title}
 	if ok && def != nil {

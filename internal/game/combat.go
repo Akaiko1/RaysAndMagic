@@ -195,9 +195,9 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
 	for _, m := range cs.game.world.Monsters {
-		// Pure summons are transparent to every party attack. Bound undead and
-		// charmed former enemies remain valid targets and react like any other mob.
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
+		// This automatic movement proc hits nearby foes only. It must not damage
+		// pure summons, bound undead, or charmed monsters controlled by the party.
+		if m == nil || !m.IsAlive() || m.IsPartyControlled() || m.IsDamageInvulnerable() ||
 			math.Hypot(m.X-px, m.Y-py) > radius {
 			continue
 		}
@@ -2317,7 +2317,6 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.tryApplyMonsterDispel(monster, target)
 		cs.reflectMonsterDamage(monster, target, finalDamage, hit.Melee)
 	}
-	return
 }
 
 // reflectMonsterDamage answers damage actually received, including a typed true
@@ -4216,14 +4215,6 @@ func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCo
 	return baseCost
 }
 
-// CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
-func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
-	baseDamage := spellPoints * spells.SpellDamagePerSP
-	intellectBonus := char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
-	totalDamage := baseDamage + intellectBonus
-	return baseDamage, intellectBonus, totalDamage
-}
-
 // CalculateSteamZoneTickDamage is the per-tick damage of a persistent damage zone
 // (Hot Steam), scaled by the caster like the elemental spells: the YAML
 // zone_tick_damage is the flat base, plus Intellect/divisor and the caster's
@@ -5116,6 +5107,9 @@ func (g *MMGame) schoolResistPct(char *character.MMCharacter, school string) int
 	return total
 }
 
+// mitigateCharacterDamage is the int-shaped shorthand for a hit with no true
+// component: same pipeline, same armor step, one number in and out. Balance
+// tests and tooltips read better through it; there is no second formula here.
 func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
 	return cs.mitigateCharacterDamageParts(
 		damagecalc.Parts{Normal: damage}, damageTypeStr, char, ignoreArmor,

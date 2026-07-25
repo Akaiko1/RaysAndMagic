@@ -348,11 +348,6 @@ func (c *MonsterYAMLConfig) GetMonsterByKey(key string) (*MonsterDefinition, err
 	return &monster, nil
 }
 
-// GetMonsterByLetter returns monster definition by letter marker
-func (c *MonsterYAMLConfig) GetMonsterByLetter(letter string) (*MonsterDefinition, string, error) {
-	return c.GetMonsterByLetterForBiome(letter, "")
-}
-
 // GetMonsterByLetterForBiome resolves a monster spawn marker for a map biome.
 // Biome-specific definitions win over universal fallback definitions.
 func (c *MonsterYAMLConfig) GetMonsterByLetterForBiome(letter string, biome string) (*MonsterDefinition, string, error) {
@@ -387,14 +382,6 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 		keys = append(keys, key)
 	}
 	return keys
-}
-
-// ConvertTileType converts string tile type to integer
-func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
-	if typeInt, exists := c.TileTypes[tileTypeStr]; exists {
-		return typeInt, nil
-	}
-	return 0, fmt.Errorf("unknown tile type: %s", tileTypeStr)
 }
 
 // SetupMonsterFromConfig configures a monster from YAML definition

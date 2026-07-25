@@ -289,9 +289,6 @@ func (wm *WorldManager) SetOpenWorldConfig(owc *config.OpenWorldConfig) {
 	wm.openWorldConfig = owc
 }
 
-// OpenWorldActive reports whether the unified world has been built.
-func (wm *WorldManager) OpenWorldActive() bool { return wm.OpenWorld != nil }
-
 // IsOpenWorldRegion reports whether mapKey is merged into the unified world.
 func (wm *WorldManager) IsOpenWorldRegion(mapKey string) bool {
 	_, ok := wm.openWorldRegionIdx[mapKey]

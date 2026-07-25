@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
@@ -634,7 +635,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 			colX += colGap
 		}
 		rowY := y + 178 + (i%5)*18
-		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", strings.Title(school.String()), total), colGap-10), colX, rowY, textColor)
+		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", config.TitleWords(school.String()), total), colGap-10), colX, rowY, textColor)
 	}
 	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }

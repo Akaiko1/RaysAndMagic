@@ -134,7 +134,8 @@ func TestPlaythroughIDLifecycle(t *testing.T) {
 		t.Fatalf("saved id must be adopted verbatim, got %q", got)
 	}
 
-	if mintPlaythroughID() == mintPlaythroughID() {
-		t.Fatal("fresh runs must mint unique ids")
+	first, second := mintPlaythroughID(), mintPlaythroughID()
+	if first == second {
+		t.Fatalf("fresh runs must mint unique ids, got %q twice", first)
 	}
 }

@@ -66,7 +66,7 @@ func newTestCombatSystemWithConfig(t *testing.T) *CombatSystem {
 			X:        0,
 			Y:        0,
 			Angle:    0,
-			FOV:      cfg.GetCameraFOV(),
+			FOV:      squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
 			ViewDist: cfg.GetViewDistance(),
 		},
 		party: character.NewParty(cfg),

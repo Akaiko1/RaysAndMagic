@@ -96,7 +96,7 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	if dt == "" {
 		dt = damagecalc.Physical.String()
 	}
-	line := strings.Title(dt) + " Damage"
+	line := config.TitleWords(dt) + " Damage"
 	if aoeTiles > 0 {
 		line += fmt.Sprintf(" - %.0f-tile AoE", aoeTiles)
 	}
@@ -192,10 +192,10 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 			sec.AddDetail("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)
 		}
 	} else {
-		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, strings.Title(dt))
+		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, config.TitleWords(dt))
 	}
 	if hasTrueDmg {
-		school := strings.Title(dt)
+		school := config.TitleWords(dt)
 		if dt == "" {
 			school = "Physical"
 		}
@@ -492,7 +492,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		out = append(out, SpellRule{Kind: kind, Text: fmt.Sprintf(format, args...)})
 	}
 
-	school := strings.Title(def.School)
+	school := config.TitleWords(def.School)
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 		add(SpellRuleGeneral, "All damage remains normal %s damage", strings.ToLower(school))
@@ -692,7 +692,7 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 		rules.Add("Typed true damage and damage over time bypass Armor Class")
 	}
 	if hasArmorSkill {
-		rules.Add("Requires: %s Skill", strings.Title(def.ArmorType))
+		rules.Add("Requires: %s Skill", config.TitleWords(def.ArmorType))
 		rules.Add("Grandmaster: +%d%% Perfect Dodge while worn", ArmorGMDodgeBonus)
 	}
 

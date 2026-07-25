@@ -109,11 +109,25 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	return lines
 }
 
+// titleCaseLower capitalizes the FIRST letter only (damage-type labels).
 func titleCaseLower(s string) string {
 	if s == "" {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// TitleWords capitalizes every space-separated word - the display form for
+// YAML keys (schools, rarities, categories). It replaces strings.Title
+// (deprecated since Go 1.18) and is the ONE implementation shared by the game,
+// the character card templates and the map editor: content keys are ASCII by
+// project rule, so no Unicode word-boundary handling is needed.
+func TitleWords(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		words[i] = titleCaseLower(w)
+	}
+	return strings.Join(words, " ")
 }
 
 // Config holds all game configuration values
@@ -2085,7 +2099,9 @@ func GetLootTable(monsterKey string, isBoss bool) []LootEntry {
 }
 
 // GetBossLoot returns the globally-authored entries appended to every boss's
-// normal loot table.
+// normal loot table. Gameplay must NOT call this: it resolves loot through
+// GetLootTable(key, isBoss), which merges these entries in - the door/key test
+// uses it to prove that merge really happens.
 func GetBossLoot() []LootEntry {
 	if GlobalLoots == nil {
 		return nil
@@ -2104,14 +2120,6 @@ func (c *Config) GetScreenHeight() int {
 
 func (c *Config) GetTileSize() float64 {
 	return float64(c.World.TileSize)
-}
-
-func (c *Config) GetMapWidth() int {
-	return c.World.MapWidth
-}
-
-func (c *Config) GetMapHeight() int {
-	return c.World.MapHeight
 }
 
 func (c *Config) GetMoveSpeed() float64 {
@@ -2205,10 +2213,6 @@ func GetSpellsBySchool(schoolKey string) []string {
 	// level-up spell picker, which would otherwise reshuffle every run.
 	sort.Strings(spells)
 	return spells
-}
-
-func (c *Config) GetCameraFOV() float64 {
-	return c.Camera.FieldOfView
 }
 
 func (c *Config) GetViewDistance() float64 {

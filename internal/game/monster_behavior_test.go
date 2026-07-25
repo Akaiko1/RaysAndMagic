@@ -471,7 +471,7 @@ func TestHourOfPower_DamageBuffs(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 5 || in != 1 {
+	if out, in := game.combatBuffOutBonusForDamageType("fire"), game.combatBuffInReduce(); out != 5 || in != 1 {
 		t.Fatalf("hour_of_power: out=%d in=%d (want 5/1)", out, in)
 	}
 	m := game.party.Members[0]

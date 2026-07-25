@@ -574,24 +574,6 @@ func (m *Monster3D) IsDamageInvulnerable() bool {
 // IsBoss returns the explicit YAML classification copied at spawn time.
 func (m *Monster3D) IsBoss() bool { return m != nil && m.Boss }
 
-func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
-	return m.TakeDamageResist(damage, damageType, 0)
-}
-
-// TakeDamageResist is TakeDamage with resistance piercing: resistPiercePct (0..100)
-// of the target's resistance to damageType is ignored before reduction. Used by
-// Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
-func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int) int {
-	return m.TakeDamageParts(damagecalc.Parts{Normal: damage}, damageType, resistPiercePct)
-}
-
-// TakeTrueDamage applies typed true damage: the attack's resistance still
-// applies, but armor and flat soak do not. Scripted boss invulnerability remains
-// absolute and is enforced by TakeDamageParts.
-func (m *Monster3D) TakeTrueDamage(damage int, damageType DamageType, resistPiercePct int) int {
-	return m.TakeDamageParts(damagecalc.Parts{True: damage}, damageType, resistPiercePct)
-}
-
 // DamageComponent is one school carried by a single hit. Armor is resolved by
 // the game before this boundary; the monster owns resistance, one shared flat
 // soak, HP mutation and attacked-state bookkeeping.
@@ -601,9 +583,15 @@ type DamageComponent struct {
 	ResistPiercePct int
 }
 
-// TakeDamageParts is the compatibility wrapper for a single-school hit. Normal
-// and true damage share the attack's element and resistance; champion Stone
-// Skin soaks only the normal component.
+// TakeDamageParts is a single-school shorthand for TakeDamagePacket: normal and
+// true damage share the attack's element and resistance, and champion Stone Skin
+// soaks only the normal component.
+//
+// GAME CODE MUST NOT CALL THIS (or TakeDamagePacket) DIRECTLY - it is the
+// monster's own mitigation half and knows nothing about ARMOR. Every hit belongs
+// to CombatSystem.applyMonsterDamagePacket, which resolves target armor first;
+// calling in here is how monster-vs-monster damage used to skip armor entirely.
+// Kept for tests that exercise the monster half on its own.
 func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
 	return m.TakeDamagePacket([]DamageComponent{{
 		Parts:           parts,
@@ -677,41 +665,42 @@ func (m *Monster3D) ApplyPoison(frames int) {
 	status.Refresh(&m.PoisonedFramesRemaining, frames)
 }
 
-// poisonTickDamage deals one poison tick: 1% of max HP, minimum 1.
-func (m *Monster3D) poisonTickDamage() {
-	if m.HitPoints <= 0 || m.IsDamageInvulnerable() {
+// poisonTickDamage deals `ticks` poison ticks: 1% of max HP each, minimum 1.
+func (m *Monster3D) poisonTickDamage(ticks int) {
+	if ticks <= 0 || m.HitPoints <= 0 || m.IsDamageInvulnerable() {
 		return
 	}
 	dmg := m.MaxHitPoints / 100
 	if dmg < 1 {
 		dmg = 1
 	}
-	m.HitPoints -= dmg
+	m.HitPoints -= dmg * ticks
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
 }
 
+// poisonTPS is the cadence reference for poison ticks (one per second).
+func (m *Monster3D) poisonTPS() int {
+	if m.config != nil {
+		return m.config.GetTPS()
+	}
+	return config.GetTargetTPS()
+}
+
 // TickPoison advances the poison timer by one REAL-TIME frame (RT mode),
 // dealing a tick once per second of real time.
 func (m *Monster3D) TickPoison() {
-	tps := 60
-	if m.config != nil {
-		tps = m.config.GetTPS()
-	} else {
-		tps = config.GetTargetTPS()
-	}
-	if deal, _ := status.TickDoTFrame(&m.PoisonedFramesRemaining, &m.poisonTickTimer, tps); deal {
-		m.poisonTickDamage()
-	}
+	ticks, _ := status.TickDoT(&m.PoisonedFramesRemaining, &m.poisonTickTimer, 1, m.poisonTPS())
+	m.poisonTickDamage(ticks)
 }
 
-// TickPoisonTurn advances the poison timer by one TURN (TB mode) - one damage
-// tick per turn, duration measured in the same frame units ApplyPoison used.
-func (m *Monster3D) TickPoisonTurn(framesPerTurn int) {
-	if deal, _ := status.TickDoTTurn(&m.PoisonedFramesRemaining, &m.poisonTickTimer, framesPerTurn); deal {
-		m.poisonTickDamage()
-	}
+// TickPoisonTurn advances the poison timer by one TB round: the round consumes
+// elapsedFrames of duration and deals the damage that span is worth, so a
+// three-second round bites three times - exactly like the same span in RT.
+func (m *Monster3D) TickPoisonTurn(elapsedFrames int) {
+	ticks, _ := status.TickDoT(&m.PoisonedFramesRemaining, &m.poisonTickTimer, elapsedFrames, m.poisonTPS())
+	m.poisonTickDamage(ticks)
 }
 
 func (m *Monster3D) IsAlive() bool {

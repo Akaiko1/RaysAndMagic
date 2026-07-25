@@ -107,49 +107,38 @@ func TickTurnRated(turns, frames, rate *int) (expired bool) {
 	return false
 }
 
-// TickDoTFrame advances a DoT by one RT frame: the duration counts down every
-// frame, and the cadence timer fires a damage tick once per `tps` frames.
-// dealTick is true on the frames the DoT's damage lands; expired is true
-// exactly on the tick the DoT runs out (the cadence timer is reset then).
-func TickDoTFrame(remaining, tickTimer *int, tps int) (dealTick, expired bool) {
-	if *remaining <= 0 {
-		return false, false
+// TickDoT advances a DoT by elapsedFrames of game time and reports how many
+// once-per-second damage ticks that time contains. It is the ONE implementation
+// for both modes: RT passes 1 (one frame), a TB round passes the seconds that
+// round represents - so a round is billed exactly like the same span of real
+// time and neither mode deals more total damage than the DoT's duration.
+// Elapsed time is capped at the remaining duration, and the cadence timer
+// carries the sub-second remainder across calls, so a duration that is not a
+// whole multiple of the round length still lands its full tick count.
+// expired is true exactly on the call that runs the DoT out.
+func TickDoT(remaining, tickTimer *int, elapsedFrames, tps int) (ticks int, expired bool) {
+	if *remaining <= 0 || elapsedFrames <= 0 {
+		return 0, false
 	}
 	if tps <= 0 {
 		tps = 60
 	}
-	*remaining--
-	*tickTimer++
-	if *tickTimer >= tps {
-		*tickTimer = 0
-		dealTick = true
+	elapsed := elapsedFrames
+	if elapsed > *remaining {
+		elapsed = *remaining
+	}
+	*remaining -= elapsed
+	*tickTimer += elapsed
+	for *tickTimer >= tps {
+		*tickTimer -= tps
+		ticks++
 	}
 	if *remaining <= 0 {
 		*remaining = 0
 		*tickTimer = 0
 		expired = true
 	}
-	return dealTick, expired
-}
-
-// TickDoTTurn advances a DoT by one TB turn (framesPerTurn of duration) and
-// always lands one damage tick while active - the per-turn analogue of
-// TickDoTFrame's once-per-second cadence. Returns dealTick=true when the DoT
-// was active this turn, expired=true when this turn finished it.
-func TickDoTTurn(remaining, tickTimer *int, framesPerTurn int) (dealTick, expired bool) {
-	if *remaining <= 0 {
-		return false, false
-	}
-	if framesPerTurn <= 0 {
-		framesPerTurn = 60
-	}
-	*remaining -= framesPerTurn
-	if *remaining <= 0 {
-		*remaining = 0
-		*tickTimer = 0
-		expired = true
-	}
-	return true, expired
+	return ticks, expired
 }
 
 // Clear ends a DoT outright (cure): both the duration and the cadence timer.

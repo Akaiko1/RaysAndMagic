@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -199,7 +200,7 @@ func TestTurnBasedPackAggroRequiresOwnPartyLoS(t *testing.T) {
 		if game.collisionSystem.CheckLineOfSight(hidden.X, hidden.Y, game.camera.X, game.camera.Y) {
 			t.Fatal("setup: hidden neighbour must not see the party")
 		}
-		hit.TakeDamage(1, monster.DamagePhysical)
+		hit.TakeDamageParts(damagecalc.Parts{Normal: 1}, monster.DamagePhysical, 0)
 		game.combat.markMonsterHit(hit)
 		return game, visible, hidden
 	}

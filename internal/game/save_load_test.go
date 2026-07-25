@@ -551,7 +551,7 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	world.GlobalWorldManager = nil // interact focus reads GetCurrentWorld; pin it to w
 	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
 	game.camera.Angle = 0 // face the statue: it sits at +X from the camera
-	game.camera.FOV = cfg.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 
 	game.updateFocusedNPC()
 	if game.focusedNPC != statue {

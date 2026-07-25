@@ -3,10 +3,8 @@ package main
 import (
 	"errors"
 	"log"
-	"math/rand"
 	"os"
 	"runtime"
-	"time"
 
 	"ugataima/internal/boot"
 	"ugataima/internal/config"
@@ -19,8 +17,6 @@ import (
 )
 
 func main() {
-	// Seed RNG for combat rolls (crit, loot, etc.)
-	rand.Seed(time.Now().UnixNano())
 
 	// Shared content configs (also loaded by the map editor).
 	cfg, _ := boot.LoadGameData()

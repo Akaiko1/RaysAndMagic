@@ -272,9 +272,9 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst ignores pure summons, but a bound undead remains a
-// former enemy and Charm breaks on the hit like it does for every party attack.
-func TestCardMoveBurst_SkipsPureSummonsAndHitsFormerEnemies(t *testing.T) {
+// The Gorilla move-burst hits foes only. It must not damage pure summons,
+// bound undead, or charmed monsters controlled by the party.
+func TestCardMoveBurst_SkipsPartyControlledMonsters(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -302,11 +302,11 @@ func TestCardMoveBurst_SkipsPureSummonsAndHitsFormerEnemies(t *testing.T) {
 	if pure.HitPoints != 100 || pure.WasAttacked {
 		t.Errorf("pure summon must be transparent to the burst (hp=%d attacked=%v)", pure.HitPoints, pure.WasAttacked)
 	}
-	if bound.HitPoints != 50 {
-		t.Errorf("bound undead must be hit by the burst (hp=%d, want 50)", bound.HitPoints)
+	if bound.HitPoints != 100 || bound.WasAttacked {
+		t.Errorf("bound undead must be ignored by the burst (hp=%d attacked=%v)", bound.HitPoints, bound.WasAttacked)
 	}
-	if charmed.HitPoints != 50 || charmed.Pacified || !charmed.WasAttacked {
-		t.Errorf("burst must damage and break Charm (hp=%d pacified=%v attacked=%v)",
+	if charmed.HitPoints != 100 || !charmed.Pacified || charmed.WasAttacked {
+		t.Errorf("burst must preserve Charm (hp=%d pacified=%v attacked=%v)",
 			charmed.HitPoints, charmed.Pacified, charmed.WasAttacked)
 	}
 	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.

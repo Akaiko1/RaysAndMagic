@@ -1691,6 +1691,8 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 }
 
 // GetCombatMessages returns the HUD combat-message texts (most recent last).
+// Read-only view for TESTS: the HUD itself draws from the cached line list
+// (combatLogVersion), so nothing in the draw path needs this.
 func (g *MMGame) GetCombatMessages() []string {
 	hud := g.hudLog()
 	out := make([]string, len(hud))
@@ -1951,19 +1953,6 @@ func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
 	return g.cardFxActive(fxBlink, characterIndex) > 0
 }
 
-// Getter methods for turn-based mode testing
-func (g *MMGame) IsTurnBasedMode() bool {
-	return g.turnBasedMode
-}
-
-func (g *MMGame) GetCurrentTurn() int {
-	return g.currentTurn
-}
-
-func (g *MMGame) GetPartyActionsUsed() int {
-	return g.partyActionsUsed
-}
-
 // canSelectChar reports whether the party member can spend a turn-based action
 // right now. Manual UI selection is looser; exhausted or stunned living members
 // can still be selected for stats, inventory, and passive items.
@@ -2194,24 +2183,39 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // startPartyTurn resets ActionsRemaining for every able-bodied party member,
 // then grants a small party-wide pool of Speed bonus actions to the fastest
 // living members (tie-break: lower party slot). Called on a fresh entry into
+// sweepLethalDoTVictims routes members a DoT tick just dropped to 0 HP through
+// the real knockOut (Lich Card save + message). Nil-safe for tests that build a
+// game without a CombatSystem.
+func (g *MMGame) sweepLethalDoTVictims() {
+	if g.combat != nil {
+		g.combat.knockOutLethalDoTVictims()
+	}
+}
+
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	g.parkSelection = false // a new round clears any manual park
-	periodicFrames := turnBasedPeriodicEffectFrames(g.config.GetTPS())
-	for _, m := range g.party.Members {
-		// Poison/ignite tick once per party turn in TB (mirrors monster
-		// TickPoisonTurn) and consume three seconds of duration. They tick
-		// regardless of stun, same as their RT per-frame clocks.
-		m.TickPoisonTurn(periodicFrames)
-		m.TickBurnTurn(periodicFrames)
-	}
-	// Run the lethal-DoT sweep (Lich Card save / Unconscious) BEFORE handing out
-	// action slots below - otherwise a member the tick just ticked to 0 HP reads
-	// as unable to act this round even when the Lich Card would have saved them,
-	// and the KO message/condition lag a full frame behind the tick that caused
-	// it (the per-frame sweep in the main loop runs before this point, not after).
-	if g.combat != nil {
-		g.combat.knockOutLethalDoTVictims()
+	tps := g.config.GetTPS()
+	// Poison/ignite consume the seconds this round represents and deal that many
+	// ticks, so a mode switch never changes a DoT's total. They advance ONE
+	// SECOND AT A TIME with the lethal sweep between ticks, exactly how RT
+	// resolves them (there the sweep runs every frame): a lump three-second hit
+	// would let poison zero a member before burn ticked at all and hand the Lich
+	// Card a single cheat-death roll instead of one per lethal tick. DoTs tick
+	// regardless of stun, same as in RT.
+	//
+	// The sweep also has to finish BEFORE the action slots below - otherwise a
+	// member ticked to 0 HP reads as unable to act this round even when the card
+	// would have saved them, and the KO message lags a frame behind its cause.
+	for range TurnBasedPeriodicEffectSeconds {
+		for _, m := range g.party.Members {
+			m.TickPoisonTurn(tps, tps)
+		}
+		g.sweepLethalDoTVictims()
+		for _, m := range g.party.Members {
+			m.TickBurnTurn(tps, tps)
+		}
+		g.sweepLethalDoTVictims()
 	}
 	for _, m := range g.party.Members {
 		m.NextTBAttackOffHand = false // fresh round: next swing starts on the main hand

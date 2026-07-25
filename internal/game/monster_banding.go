@@ -269,6 +269,7 @@ func (gl *GameLoop) soloBandClusters(singles []*monster.Monster3D, bindDistSq fl
 		parent = append(parent, i)
 	}
 	gl.bandParentBuf = parent
+	//lint:ignore S1021 a recursive closure must be declared before it is assigned
 	var find func(int) int
 	find = func(i int) int {
 		for parent[i] != i {

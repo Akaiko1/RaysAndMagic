@@ -298,6 +298,9 @@ const (
 	PromotionLich
 )
 
+// IsArchmage / IsLich are the promotion predicates. IsLich drives party traits
+// (hates.yaml aggro); IsArchmage currently has no gameplay caller and exists as
+// its symmetric twin for tests and future promotion rules.
 func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
 func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
 
@@ -577,34 +580,32 @@ func (c *MMCharacter) TickStunTurn() {
 	}
 }
 
-// TickPoisonTurn advances poison by one TURN (TB mode) - one damage tick per
-// turn, duration measured in the same frame units ApplyPoison used. Mirrors
+// TickPoisonTurn advances poison by one TB round: the round consumes
+// elapsedFrames of duration and deals the damage that span is worth (one tick
+// per second, so a three-second round bites three times). Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
-func (c *MMCharacter) TickPoisonTurn(framesPerTurn int) {
-	deal, expired := status.TickDoTTurn(&c.PoisonFramesRemaining, &c.poisonTickTimer, framesPerTurn)
+func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int) {
+	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	if deal {
-		c.dotDamage(PoisonDamagePerTick)
-	}
+	c.dotDamage(PoisonDamagePerTick * ticks)
 }
 
-// TickBurnTurn advances ignite by one TURN (TB mode), mirroring TickPoisonTurn.
-func (c *MMCharacter) TickBurnTurn(framesPerTurn int) {
-	deal, expired := status.TickDoTTurn(&c.BurnFramesRemaining, &c.burnTickTimer, framesPerTurn)
+// TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
+func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int) {
+	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	if deal {
-		c.dotDamage(BurnDamagePerTick)
-	}
+	c.dotDamage(BurnDamagePerTick * ticks)
 }
 
-// dotDamage lands one DoT tick on a still-standing character; Unconscious is
-// set by the game loop's knockOut sweep, not here.
+// dotDamage lands DoT damage on a still-standing character; Unconscious is
+// set by the game loop's knockOut sweep, not here. A zero amount (no tick this
+// call) is a no-op.
 func (c *MMCharacter) dotDamage(amount int) {
-	if c.HitPoints <= 0 {
+	if c.HitPoints <= 0 || amount <= 0 {
 		return
 	}
 	c.HitPoints -= amount
@@ -708,7 +709,10 @@ func (c *MMCharacter) CurePoison() {
 
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
 // both can run at once. The tick is desynced (starts half a second in) so burn
-// and poison ticks don't land on the same frame.
+// and poison ticks don't land on the same frame. The banked half second is
+// measured on the SAME clock the ticks run on (GetTargetTPS == the game config's
+// TPS); a shorter ticking clock would make the bank worth a full second and buy
+// the burn an extra tick.
 func (c *MMCharacter) ApplyBurn(frames int) {
 	if frames <= 0 {
 		return
@@ -730,10 +734,8 @@ const (
 )
 
 func (c *MMCharacter) updateBurn(tps int) {
-	deal, expired := status.TickDoTFrame(&c.BurnFramesRemaining, &c.burnTickTimer, tps)
-	if deal {
-		c.dotDamage(BurnDamagePerTick)
-	}
+	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
+	c.dotDamage(BurnDamagePerTick * ticks)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -753,68 +755,11 @@ func (c *MMCharacter) IsStunned() bool {
 }
 
 func (c *MMCharacter) updatePoison(tps int) {
-	deal, expired := status.TickDoTFrame(&c.PoisonFramesRemaining, &c.poisonTickTimer, tps)
-	if deal {
-		c.dotDamage(PoisonDamagePerTick)
-	}
+	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
+	c.dotDamage(PoisonDamagePerTick * ticks)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-}
-
-func (c *MMCharacter) GetDisplayInfo() string {
-	className := c.ClassDisplayName()
-	condition := "OK"
-	if len(c.Conditions) > 0 {
-		condNames := make([]string, 0, len(c.Conditions))
-		for _, cond := range c.Conditions {
-			condNames = append(condNames, cond.String())
-		}
-		condition = strings.Join(condNames, ", ")
-	}
-
-	// Add equipment info
-	weaponInfo := "No weapon"
-	if weapon, hasWeapon := c.Equipment[items.SlotMainHand]; hasWeapon {
-		weaponInfo = weapon.Name
-	}
-
-	spellInfo := "No spell"
-	// Check unified spell slot
-	if spell, hasSpell := c.Equipment[items.SlotSpell]; hasSpell {
-		spellInfo = spell.Name
-	}
-
-	return fmt.Sprintf("%s\n%s Lv.%d\nHP: %d/%d\nSP: %d/%d\n%s\nW:%s\nS:%s",
-		c.Name, className, c.Level,
-		c.HitPoints, c.MaxHitPoints,
-		c.SpellPoints, c.MaxSpellPoints,
-		condition, weaponInfo, spellInfo)
-}
-
-func (c *MMCharacter) GetDetailedInfo() string {
-	info := fmt.Sprintf("%s\n", c.Name)
-	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
-	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
-
-	info += "ATTRIBUTES:\n"
-	info += fmt.Sprintf("Might: %d  Intellect: %d\n", c.Might, c.Intellect)
-	info += fmt.Sprintf("Personality: %d  Endurance: %d\n", c.Personality, c.Endurance)
-	info += fmt.Sprintf("Accuracy: %d  Speed: %d  Luck: %d\n\n", c.Accuracy, c.Speed, c.Luck)
-
-	info += "SKILLS:\n"
-	for skillType, skill := range c.Skills {
-		info += fmt.Sprintf("%s: %d (%s)\n", skillType, skill.Level(), skill.Mastery)
-	}
-
-	info += "\nMAGIC SCHOOLS:\n"
-	for school, magicSkill := range c.MagicSchools {
-		info += fmt.Sprintf("%s: %d (%s) - %d spells\n",
-			school.DisplayName(), magicSkill.Level(),
-			magicSkill.Mastery, len(magicSkill.KnownSpells))
-	}
-
-	return info
 }
 
 // String returns the display name of the class (Stringer interface).

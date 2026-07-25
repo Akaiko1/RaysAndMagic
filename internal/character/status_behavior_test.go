@@ -44,22 +44,36 @@ func TestCharPoisonLifecycle(t *testing.T) {
 	}
 }
 
+// TestCharPoisonTurnBased: a TB round consumes several seconds of duration, so
+// it must deal that many ticks - the total over the whole DoT matches RT.
 func TestCharPoisonTurnBased(t *testing.T) {
 	c := statusTestChar()
-	c.ApplyPoison(100)
-	c.TickPoisonTurn(60)
-	if c.HitPoints != 50-PoisonDamagePerTick {
-		t.Fatalf("TB poison must tick once per turn: HP=%d", c.HitPoints)
+	const tps = 60
+	const round = 3 * tps // one TB round = three seconds of DoT time
+
+	c.ApplyPoison(10 * tps)
+	c.TickPoisonTurn(round, tps)
+	if c.HitPoints != 50-3*PoisonDamagePerTick {
+		t.Fatalf("a 3s TB round must deal 3 poison ticks: HP=%d", c.HitPoints)
 	}
-	c.TickPoisonTurn(60) // 40 remaining -> expires this turn, still ticks
-	if c.HitPoints != 50-2*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
-		t.Fatalf("final TB turn must tick and clear: HP=%d poisoned=%v", c.HitPoints, c.HasCondition(ConditionPoisoned))
+	if c.PoisonFramesRemaining != 7*tps {
+		t.Fatalf("round consumed %d frames, want %d", 10*tps-c.PoisonFramesRemaining, round)
+	}
+	for c.PoisonFramesRemaining > 0 {
+		c.TickPoisonTurn(round, tps)
+	}
+	if c.HitPoints != 50-10*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
+		t.Fatalf("a 10s poison must deal 10 ticks in TB too and clear: HP=%d poisoned=%v",
+			c.HitPoints, c.HasCondition(ConditionPoisoned))
 	}
 }
 
 func TestCharBurnLifecycle(t *testing.T) {
 	c := statusTestChar()
-	const tps = 60 // ApplyBurn desyncs by GetTargetTPS()/2; keep clocks consistent
+	// ApplyBurn banks half a second of cadence off GetTargetTPS; the ticking
+	// clock must be that same one (as it is in the game) or the banked offset
+	// would be worth a whole second and buy an extra tick.
+	tps := config.GetTargetTPS()
 
 	c.ApplyBurn(2 * tps)
 	if !c.HasCondition(ConditionBurning) {
@@ -109,10 +123,14 @@ func TestCharBurnRefreshPreservesTickPhase(t *testing.T) {
 
 func TestCharBurnTurnBased(t *testing.T) {
 	c := statusTestChar()
-	c.ApplyBurn(60)
-	c.TickBurnTurn(60)
-	if c.HitPoints != 50-BurnDamagePerTick || c.HasCondition(ConditionBurning) {
-		t.Fatalf("TB burn must tick %d and clear on expiry: HP=%d", BurnDamagePerTick, c.HitPoints)
+	// ApplyBurn banks half a second of cadence (poison desync) measured in
+	// GetTargetTPS frames, so the test must tick on that same clock.
+	tps := config.GetTargetTPS()
+	c.ApplyBurn(3 * tps)
+	c.TickBurnTurn(3*tps, tps)
+	if c.HitPoints != 50-3*BurnDamagePerTick || c.HasCondition(ConditionBurning) {
+		t.Fatalf("a 3s TB round must deal 3 burn ticks (%d each) and clear on expiry: HP=%d",
+			BurnDamagePerTick, c.HitPoints)
 	}
 }
 

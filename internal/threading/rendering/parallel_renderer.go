@@ -31,14 +31,6 @@ func NewParallelRenderer() *ParallelRenderer {
 	}
 }
 
-// RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
-// Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
-func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (float64, interface{})) []RaycastResult {
-	return pr.RenderRaycastInto(numRays, func(rayIndex int, result *RaycastResult) {
-		result.Distance, result.TileType = raycastFunc(rayIndex)
-	})
-}
-
 // RenderRaycastInto runs raycastFunc in parallel and lets it fill the reused
 // result slot directly. Hot renderers should prefer this form when TileType
 // carries a pointer to caller-owned typed storage: it avoids boxing a value into

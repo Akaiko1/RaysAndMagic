@@ -60,11 +60,6 @@ func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, st
 	return
 }
 
-// wrapText delegates to the standalone wrapText function in ui_dialogs.go
-func (ui *UISystem) wrapText(text string, maxWidth int) []string {
-	return wrapText(text, maxWidth)
-}
-
 // Merchant buy/sell grid geometry. Two side-by-side icon grids (buy left, sell
 // right), each merchantGridColsxmerchantGridRows, mirroring the inventory grid.
 const (
