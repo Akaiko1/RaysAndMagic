@@ -3,7 +3,6 @@ package game
 import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/spells"
 )
 
 // Balance constants are the single source of truth shared by combat formulas
@@ -150,7 +149,7 @@ const (
 	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
 	// TB round for periodic damage effects. Poison and burn still deal one tick
 	// per round; Hot Steam's authored three-second cadence also becomes one tick.
-	TurnBasedPeriodicEffectSeconds = 3
+	TurnBasedPeriodicEffectSeconds = character.TurnBasedTurnSeconds
 
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
@@ -203,10 +202,9 @@ const (
 	RTCooldownMinFrames = 12
 	RTCooldownMaxFrames = 900
 
-	// Spell cooldowns are authored in seconds per spell (spells.yaml
-	// `cooldown_seconds`); see SpellCooldownDefaultSecondsForLevel for the
-	// fallback when a spell omits it. The authored seconds are the cooldown at
-	// the reference Speed below; Speed scales it via spellCooldownSpeedFactor.
+	// Non-buff spell cooldowns are required in spells.yaml as
+	// `cooldown_seconds`. The authored seconds are the cooldown at the reference
+	// Speed below; Speed scales it via spellCooldownSpeedFactor.
 	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
 	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
 	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
@@ -279,10 +277,6 @@ const (
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
 // of attacking. 0.6 = heal anyone at or below 60% HP; healthier party -> attack.
 const SmartHealWoundedPct = 0.6
-
-// SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
-// quotes the same default); this alias keeps game-side call sites unchanged.
-var SpellCooldownDefaultSecondsForLevel = spells.SpellCooldownDefaultSecondsForLevel
 
 // Sprite animation timing.
 const (

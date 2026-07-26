@@ -197,8 +197,8 @@ func buildSpellCards() []contentCard {
 		}
 		sort.SliceStable(keys, func(i, j int) bool {
 			a, b := config.GlobalSpells.Spells[keys[i]], config.GlobalSpells.Spells[keys[j]]
-			if a.Level != b.Level {
-				return a.Level < b.Level
+			if a.SpellPointsCost != b.SpellPointsCost {
+				return a.SpellPointsCost < b.SpellPointsCost
 			}
 			return a.Name < b.Name
 		})
@@ -407,7 +407,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	// Intellect / mastery / crit), so the player-formula card would lie - render
 	// the dedicated monster card instead.
 	if def.MonsterOnly {
-		subtitle := fmt.Sprintf("MONSTER ONLY  %s  Lvl %d", titleCase(def.School), def.Level)
+		subtitle := fmt.Sprintf("MONSTER ONLY  %s", titleCase(def.School))
 		if def.AoeRadiusTiles > 0 {
 			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
 		}
@@ -436,7 +436,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		baseDamage, _, _ = spells.CalculateSpellDamageByID(spells.SpellID(key), 0)
 	}
 
-	subtitle := fmt.Sprintf("SP %d  Lvl %d", def.SpellPointsCost, def.Level)
+	subtitle := fmt.Sprintf("SP %d", def.SpellPointsCost)
 	switch {
 	case baseDamage > 0:
 		subtitle += fmt.Sprintf("  Dmg %d", baseDamage)

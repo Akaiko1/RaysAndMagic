@@ -375,13 +375,29 @@ func TestSpellLectern(t *testing.T) {
 	if !lectern.Visited {
 		t.Fatal("lectern not consumed after teaching")
 	}
-	learned := false
-	for _, id := range []string{"fly", "town_portal"} { // the air-reachable pool spells
-		if reader.KnowsSpell(spells.SpellID(id)) {
-			learned = true
+	// The pool is shuffled and authored in npcs.yaml, so the reachable set is
+	// derived from it: any pool spell Air can learn counts.
+	learned := ""
+	for _, id := range lectern.Lectern.Pool {
+		spellID := spells.SpellID(id)
+		if reader.KnowsSpell(spellID) {
+			learned = id
 		}
 	}
-	if !learned {
-		t.Fatal("reader learned nothing from the lectern")
+	if learned == "" {
+		t.Fatalf("reader learned nothing from the lectern (pool: %v)", lectern.Lectern.Pool)
+	}
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID(learned))
+	if err != nil {
+		t.Fatalf("learned spell %q has no definition: %v", learned, err)
+	}
+	airReachable := false
+	for _, school := range def.SchoolList() {
+		if school == string(character.MagicSchoolAir) {
+			airReachable = true
+		}
+	}
+	if !airReachable {
+		t.Errorf("lectern taught %q (schools %v) to an Air-only reader", learned, def.SchoolList())
 	}
 }

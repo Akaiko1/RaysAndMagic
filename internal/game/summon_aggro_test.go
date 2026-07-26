@@ -362,6 +362,7 @@ func TestCrossfireProjectileHitsSummonOutsidePartyView(t *testing.T) {
 	attacker := monsterPkg.NewMonster3DFromConfig(18*tileSize+tileSize/2, 20*tileSize+tileSize/2, "bandit", game.config)
 	summon := monsterPkg.NewMonster3DFromConfig(16*tileSize+tileSize/2, 20*tileSize+tileSize/2, "masked_huntress", game.config)
 	summon.MaxHitPoints, summon.HitPoints = 5000, 5000
+	summon.PerfectDodge = 0 // this is about world-space targeting, not the dodge roll
 	markCardAlly(summon)
 	game.world.Monsters = []*monsterPkg.Monster3D{attacker, summon}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

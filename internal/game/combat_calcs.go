@@ -61,7 +61,7 @@ func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *charact
 	parts := damagecalc.Parts{Normal: total}
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil || !character.MagicSchoolID(def.School).IsElemental() ||
-		def.MasteryDamagePerTier > 0 || caster == nil {
+		def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
 		return parts
 	}
 	school := caster.MagicSchools[character.MagicSchoolID(def.School)]
@@ -426,8 +426,8 @@ func spellCooldownSpeedFactor(speed int) float64 {
 }
 
 // SpellCooldownFrames is the real-time cooldown after casting spellID: the
-// spell's authored cooldown_seconds (or a level-based default) at reference
-// Speed, scaled by the caster's Speed and any equipped weapon's
+// spell's authored cooldown_seconds at reference Speed, scaled by the caster's
+// Speed and any equipped weapon's
 // spell_cooldown_multiplier (e.g. Archmage Staff -20%). YAML category "buff"
 // is the explicit exception: it has no personal RT cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
@@ -443,11 +443,11 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 			return 0
 		}
 		seconds = def.CooldownSeconds
-		if seconds <= 0 {
-			seconds = SpellCooldownDefaultSecondsForLevel(def.Level)
-		}
 	} else {
-		seconds = SpellCooldownDefaultSecondsForLevel(1)
+		// Unresolvable cast ID: there is no authored cooldown to honor, so only
+		// the global floor applies (spells.yaml validation keeps this unreachable
+		// for real content).
+		return RTCooldownMinFrames
 	}
 	speed := char.GetEffectiveSpeed()
 	frames := seconds * float64(cs.game.config.GetTPS()) * spellCooldownSpeedFactor(speed)

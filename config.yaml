@@ -374,6 +374,10 @@ graphics:
       - lich_king_walking_r
       - forest_spider
       - forest_spider_walking_r
+      # Ice crystal highlights read as violet
+      - frost_elemental
+      - frost_elemental_walking_r
+      - frost_elemental_attacking_r
       # Sorcerer hero art (purple robes)
       - lysander
       - lysander_full

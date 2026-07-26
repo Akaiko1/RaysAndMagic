@@ -313,6 +313,9 @@ type CharacterSave struct {
 	NextTBAttackOffHand bool `json:"next_tb_attack_off_hand,omitempty"`
 }
 
+// SkillEntry persists one skill. Mastery is the truth; Level is the derived
+// label (Mastery+1) written for older builds and read back ONLY through
+// MasteryForLevel, which migrates pre-mastery saves where level WAS the stat.
 type SkillEntry struct {
 	Type    int `json:"type"`
 	Level   int `json:"level"`
@@ -327,6 +330,9 @@ type PendingLevelUpChoiceSave struct {
 	Level     int `json:"level"`
 }
 
+// MagicSchoolEntry persists one magic school. Level is the same derived label as
+// SkillEntry.Level - NOT a spell level and not a stat (spells have no level at
+// all; a school's power is Mastery). Known spells are stored by ID.
 type MagicSchoolEntry struct {
 	School      string   `json:"school"`
 	Level       int      `json:"level"`
@@ -361,18 +367,22 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	ID                      string  `json:"id,omitempty"`
-	Key                     string  `json:"key"`
-	Name                    string  `json:"name"`
-	X                       float64 `json:"x"`
-	Y                       float64 `json:"y"`
-	HitPoints               int     `json:"hit_points"`
-	Bound                   bool    `json:"bound,omitempty"`
-	BoundFramesRemaining    int     `json:"bound_frames_remaining,omitempty"`
-	Pacified                bool    `json:"pacified,omitempty"`
-	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
-	CharmedByParty          bool    `json:"charmed_by_party,omitempty"`
-	WasAttacked             bool    `json:"was_attacked,omitempty"`
+	ID        string  `json:"id,omitempty"`
+	Key       string  `json:"key"`
+	Name      string  `json:"name"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	HitPoints int     `json:"hit_points"`
+	// Pure party summons can replace their YAML stats at runtime from the
+	// summoner's mastery. Keep the snapshot optional so ordinary monsters still
+	// pick up current balance values from monsters.yaml after a load.
+	RuntimeStats            *MonsterRuntimeStatsSave `json:"runtime_stats,omitempty"`
+	Bound                   bool                     `json:"bound,omitempty"`
+	BoundFramesRemaining    int                      `json:"bound_frames_remaining,omitempty"`
+	Pacified                bool                     `json:"pacified,omitempty"`
+	PacifiedFramesRemaining int                      `json:"pacified_frames_remaining,omitempty"`
+	CharmedByParty          bool                     `json:"charmed_by_party,omitempty"`
+	WasAttacked             bool                     `json:"was_attacked,omitempty"`
 	// Normal sight engagement is sticky in TB but non-sticky in RT. Only the TB
 	// semantic case is saved, never the raw runtime flag.
 	TurnBasedSightEngaged bool `json:"turn_based_sight_engaged,omitempty"`
@@ -426,6 +436,13 @@ type MonsterSave struct {
 	SoakRate            int                  `json:"soak_rate,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
 	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+}
+
+type MonsterRuntimeStatsSave struct {
+	MaxHitPoints int `json:"max_hit_points"`
+	ArmorClass   int `json:"armor_class"`
+	DamageMin    int `json:"damage_min"`
+	DamageMax    int `json:"damage_max"`
 }
 
 type EncounterRewardSave struct {
@@ -1091,6 +1108,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
 			}
+			if isPurePartySummon(mon) {
+				saveEntry.RuntimeStats = &MonsterRuntimeStatsSave{
+					MaxHitPoints: mon.MaxHitPoints,
+					ArmorClass:   mon.ArmorClass,
+					DamageMin:    mon.DamageMin,
+					DamageMax:    mon.DamageMax,
+				}
+			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -1242,6 +1267,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			saveAngle = wm.LocalizeAngle(key, saveAngle)
 		}
 	}
+	g.ensureSteamZoneFieldIDs()
 	steamZoneSaves := buildSteamZoneSaves(g.steamZones)
 	trapSaves := buildTrapSaves(g.traps)
 	returnPoses := g.mapReturnPoses
@@ -1555,6 +1581,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					// Mirror at restore (not next frame): the first post-load
 					// input tick must already see tier HP pool and real armor.
 					g.mirrorChampionStats(m)
+				}
+				if ms.RuntimeStats != nil {
+					m.MaxHitPoints = ms.RuntimeStats.MaxHitPoints
+					m.ArmorClass = ms.RuntimeStats.ArmorClass
+					m.DamageMin = ms.RuntimeStats.DamageMin
+					m.DamageMax = ms.RuntimeStats.DamageMax
 				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
@@ -1905,6 +1937,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
 	g.steamZones = restoreSteamZones(save.SteamZones, save.MapKey)
+	g.reseedSteamZoneFieldIDs()
 	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration

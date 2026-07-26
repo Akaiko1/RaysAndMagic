@@ -371,7 +371,7 @@ func armorMasterySkill(item items.Item) (character.SkillType, bool) {
 // ----------------------------------------------------------------- spells ---
 
 func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	subtitle := fmt.Sprintf("%s Magic - Level %d", formatSchoolName(def.School), def.Level)
+	subtitle := fmt.Sprintf("%s Magic", formatSchoolName(def.School))
 
 	casting := ttSection{Title: "CASTING"}
 	cost := def.SpellPointsCost
@@ -489,7 +489,14 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		} else {
 			dmg.Add("Radius: %.0f tiles", def.PartyAoeRadiusTiles)
 		}
-		dmg.Add("Targets: Monsters and Party")
+		if def.SparesParty {
+			dmg.Add("Targets: Monsters only")
+		} else {
+			dmg.Add("Targets: Monsters and Party")
+		}
+		if def.StandeeDestroyChance > 0 {
+			dmg.Add("Topples trees, dunes and rocks: %.0f%% each", def.StandeeDestroyChance*100)
+		}
 	}
 
 	heal := ttSection{Title: "HEALING"}
@@ -527,20 +534,39 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 
 	zone := ttSection{Title: "ZONE"}
 	if def.ZoneRadiusTiles > 0 && cs != nil {
-		zone.Add("Radius: %.0f tiles", def.ZoneRadiusTiles)
+		// Wall zones state their geometry, radial ones their radius - same wording
+		// as the editor card (character/cardtemplate.go) so the two cannot drift.
+		if def.ZoneWidthTiles > 1 {
+			zone.Add("Wall: %d tiles across, %.0f tiles ahead", def.ZoneWidthTiles, def.ZoneAheadTiles)
+		} else {
+			zone.Add("Radius: %.0f tiles", def.ZoneRadiusTiles)
+		}
 		zone.Add("RT: one tick every %.0fs", def.ZoneTickSeconds)
-		zone.Add("TB: one tick per monster turn")
+		if ticks := int(float64(TurnBasedPeriodicEffectSeconds) / def.ZoneTickSeconds); def.ZoneTickSeconds > 0 && ticks > 1 {
+			zone.Add("TB: %d ticks per monster turn", ticks)
+		} else {
+			zone.Add("TB: one tick per monster turn")
+		}
 	}
 	if def.ZoneRadiusTiles > 0 && cs != nil {
 		// Tick damage uses the cast snapshot plus the same live outgoing buff
 		// damageSteamZoneOnce reads on every tick.
-		dmg.AddDetail("Base: %d", def.ZoneTickDamage)
-		if char != nil {
-			statContribDetail(&dmg, "Intellect", char.GetEffectiveIntellect(), spells.SpellIntellectDivisor)
+		ladder := len(def.DamageByMastery) == 4
+		if ladder {
+			// An authored ladder IS the payload: no Intellect, no per-tier bonus and
+			// no Grandmaster true-damage split (Inferno's rule, same reason).
+			dmg.AddDetail("Novice: %d", def.DamageByMastery[0])
+			dmg.AddDetail("Expert / Master / GM: %d / %d / %d",
+				def.DamageByMastery[1], def.DamageByMastery[2], def.DamageByMastery[3])
+		} else {
+			dmg.AddDetail("Base: %d", def.ZoneTickDamage)
+			if char != nil {
+				statContribDetail(&dmg, "Intellect", char.GetEffectiveIntellect(), spells.SpellIntellectDivisor)
+			}
 		}
 		tickTotal := cs.CalculateSteamZoneTickDamage(def, char)
 		tickParts := cs.spellDamageParts(def.ID, char, tickTotal)
-		if mastery > 0 {
+		if mastery > 0 && !ladder {
 			if tickParts.True > 0 {
 				dmg.AddDetail("%s Mastery - %s: +%d %s True Damage",
 					formatSchoolName(def.School), tierName, mastery, formatSchoolName(def.School))

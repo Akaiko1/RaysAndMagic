@@ -71,10 +71,9 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 	}
 }
 
-// Trader catalogs list only spell IDs; backfillTraderSpells must fill
-// name/school/level/cost/requirements from spells.yaml, and the learn gate's
-// min-level must equal the spell's own level (so it can't drift - this is the
-// structural fix for the old Water Breathing level mismatch).
+// Trader catalogs author spell IDs and costs; backfillTraderSpells must fill
+// name, school and description from spells.yaml without inventing a purchase
+// level or mastery gate.
 func TestBackfillTraderSpells(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
@@ -98,15 +97,15 @@ func TestBackfillTraderSpells(t *testing.T) {
 
 	// Lake trader: a Body spell entry given as just an ID is fully backfilled.
 	heal := get("spell_trader_mage", "heal")
-	if heal.Name == "" || heal.School != "body" || heal.Level == 0 || heal.Cost <= 0 || heal.Requirements == nil {
+	if heal.Name == "" || heal.School != "body" || heal.Cost <= 0 {
 		t.Errorf("heal not backfilled: %+v", heal)
 	}
 
-	// Water Breathing's purchase gate equals its spell level (was a hardcoded 5).
+	// Catalog entries carry price + identity only - there is no purchase gate to
+	// backfill, so a bare ID must still resolve its school and cost.
 	wb := get("city_spell_shop", "water_breathing")
-	def, _ := config.GetSpellDefinition("water_breathing")
-	if wb.Requirements == nil || wb.Requirements.MinLevel != def.Level {
-		t.Errorf("water_breathing min-level should equal spell level %d, got %+v", def.Level, wb.Requirements)
+	if wb.Name == "" || wb.School != "water" || wb.Cost <= 0 {
+		t.Errorf("water_breathing not backfilled: %+v", wb)
 	}
 
 	// Corner trader: an explicit cost override is preserved (not replaced by the tier default).

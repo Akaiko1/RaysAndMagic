@@ -86,6 +86,10 @@ const (
 	ArmorMitigationK            = 45
 	ArmorPhysicalMitigationCap  = 75
 	ArmorElementalMitigationCap = 33
+	// TurnBasedTurnSeconds is the real-time equivalent one turn-based round
+	// consumes for periodic effects (DoTs, damage zones). Shared with the game's
+	// TurnBasedPeriodicEffectSeconds so cards can state ticks per turn.
+	TurnBasedTurnSeconds = 3
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing (buff magnitudes stay flat; duration
 	// scales via SpellMasteryDurationBonusPct).

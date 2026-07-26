@@ -11,8 +11,8 @@ import (
 )
 
 // Spells page must group purely BY SCHOOL (no Battle/Utility split) and order
-// each school's spells by ascending level.
-func TestBuildSpellCards_BySchoolByLevel(t *testing.T) {
+// each school's spells by ascending SP cost.
+func TestBuildSpellCards_BySchoolByCost(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestBuildSpellCards_BySchoolByLevel(t *testing.T) {
 	if len(cards) == 0 {
 		t.Fatal("no spell cards built")
 	}
-	lastLevelInSection := map[string]int{}
+	lastCostInSection := map[string]int{}
 	for _, c := range cards {
 		if strings.Contains(c.section, "Battle") || strings.Contains(c.section, "Utility") {
 			t.Fatalf("section %q must be a school name, not a battle/utility split", c.section)
@@ -29,10 +29,10 @@ func TestBuildSpellCards_BySchoolByLevel(t *testing.T) {
 		if !ok || def == nil {
 			continue
 		}
-		if prev, seen := lastLevelInSection[c.section]; seen && def.Level < prev {
-			t.Errorf("section %q not level-ascending: %s (lvl %d) after lvl %d", c.section, c.key, def.Level, prev)
+		if prev, seen := lastCostInSection[c.section]; seen && def.SpellPointsCost < prev {
+			t.Errorf("section %q not cost-ascending: %s (%d SP) after %d SP", c.section, c.key, def.SpellPointsCost, prev)
 		}
-		lastLevelInSection[c.section] = def.Level
+		lastCostInSection[c.section] = def.SpellPointsCost
 	}
 }
 

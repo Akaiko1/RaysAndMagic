@@ -1,10 +1,13 @@
 package game
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/spells"
 )
 
 // lastLevelUpRequest returns the most recently queued level-up choice request.
@@ -265,5 +268,201 @@ func TestLevelUpChoice_AllMaxedRequestDissolves(t *testing.T) {
 
 	if g.currentLevelUpChoice() != nil || len(g.levelUpChoiceQueue) != 0 {
 		t.Fatal("an all-stale request must dissolve instead of opening")
+	}
+}
+
+// level_up.yaml offers the Archer the SAME spell at level 3 and again at level 9.
+// Taking it the first time must not shrink the second menu: the now-dead option
+// is REPLACED by a random mastery upgrade, never left as a gap (user-reported:
+// "3 options instead of 4").
+func TestLevelUpChoice_RepeatedSpellIsReplacedNotDropped(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+
+	idx := -1
+	var archer *character.MMCharacter
+	for i, m := range g.party.Members {
+		if m != nil && m.GetClassKey() == "archer" {
+			idx, archer = i, m
+			break
+		}
+	}
+	if archer == nil {
+		t.Skip("shipped party has no archer")
+	}
+
+	l3 := config.GetLevelUpChoices("archer", 3)
+	l9 := config.GetLevelUpChoices("archer", 9)
+	repeated := ""
+	for _, early := range l3 {
+		if !strings.EqualFold(early.Type, "spell") {
+			continue
+		}
+		for _, late := range l9 {
+			if strings.EqualFold(late.Type, "spell") && late.Spell == early.Spell {
+				repeated = early.Spell
+			}
+		}
+	}
+	if repeated == "" {
+		t.Skip("no spell is offered to the archer twice any more")
+	}
+	repeatedID := spells.SpellID(repeated)
+
+	// Take it at level 3 through the real popup path.
+	g.queueLevelUpChoices(archer, 3, l3)
+	g.openLevelUpChoiceForChar(idx)
+	req := g.currentLevelUpChoice()
+	if req == nil {
+		t.Fatal("level 3 choice must open")
+	}
+	pick := -1
+	for i, opt := range req.options {
+		if opt.spellID == repeatedID {
+			pick = i
+		}
+	}
+	if pick < 0 {
+		t.Fatalf("level 3 menu must offer %s, got %d options", repeated, len(req.options))
+	}
+	g.consumeLevelUpChoice(pick)
+	if !characterKnowsSpellByID(archer, repeatedID) {
+		t.Fatalf("%s should be known after picking it", repeated)
+	}
+
+	// Level 9 repeats the same spell - the menu must still be full and dead-entry free.
+	g.queueLevelUpChoices(archer, 9, l9)
+	g.openLevelUpChoiceForChar(idx)
+	req = g.currentLevelUpChoice()
+	if req == nil {
+		t.Fatal("level 9 choice must open")
+	}
+	if len(req.options) != MinLevelUpOptions {
+		t.Errorf("level 9 offered %d options, want %d", len(req.options), MinLevelUpOptions)
+	}
+	for _, opt := range req.options {
+		if opt.spellID == repeatedID {
+			t.Errorf("already-known %s must not be offered again", repeated)
+		}
+		if !strings.EqualFold(opt.choice.Type, "spell") && !opt.hasMastery {
+			t.Errorf("substituted option %q is not a real upgrade", opt.label)
+		}
+	}
+}
+
+// The spell can also become known AFTER the request was built but BEFORE its
+// popup opens (stacked level-ups, a trader purchase, a lectern between the two).
+// The menu must still be topped back up when it opens.
+func TestLevelUpChoice_SpellLearnedAfterQueueingIsReplaced(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+
+	idx := -1
+	var archer *character.MMCharacter
+	for i, m := range g.party.Members {
+		if m != nil && m.GetClassKey() == "archer" {
+			idx, archer = i, m
+			break
+		}
+	}
+	if archer == nil {
+		t.Skip("shipped party has no archer")
+	}
+
+	l9 := config.GetLevelUpChoices("archer", 9)
+	var offered spells.SpellID
+	for _, c := range l9 {
+		if strings.EqualFold(c.Type, "spell") {
+			offered = spells.SpellID(c.Spell)
+		}
+	}
+	if offered == "" {
+		t.Skip("archer level 9 offers no spell")
+	}
+
+	// Queue while the spell is still unknown: it takes a slot in the request.
+	g.queueLevelUpChoices(archer, 9, l9)
+	req := lastLevelUpRequest(t, g)
+	if len(req.options) != MinLevelUpOptions {
+		t.Fatalf("queued %d options, want %d", len(req.options), MinLevelUpOptions)
+	}
+
+	// Learn it elsewhere before the popup shows (trader/lectern/stacked popup).
+	if !archer.LearnSpell(offered) {
+		t.Fatalf("could not pre-learn %s", offered)
+	}
+
+	g.openLevelUpChoiceForChar(idx)
+	open := g.currentLevelUpChoice()
+	if open == nil {
+		t.Fatal("choice must open")
+	}
+	if len(open.options) != MinLevelUpOptions {
+		t.Errorf("after pruning the known spell the menu offered %d options, want %d",
+			len(open.options), MinLevelUpOptions)
+	}
+	for _, opt := range open.options {
+		if opt.spellID == offered {
+			t.Errorf("already-known %s must not remain in the menu", offered)
+		}
+	}
+}
+
+// Class-agnostic guard: for EVERY class and EVERY authored level, the menu is
+// full and free of dead entries - both fresh and after the character already
+// learned everything that level offers. Today only the Archer repeats a spell
+// (Lightning at 3 and 9), so this also protects future level_up.yaml edits.
+func TestLevelUpChoice_EveryClassAndLevelStaysFull(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+
+	for _, class := range character.PlayableClasses {
+		classKey := class.Key()
+		// Levels are authored sparsely (3, 9, ...); sweep the whole early game.
+		for level := 2; level <= 20; level++ {
+			choices := config.GetLevelUpChoices(classKey, level)
+			if len(choices) == 0 {
+				continue
+			}
+			for _, preLearned := range []bool{false, true} {
+				name := fmt.Sprintf("%s/L%d/prelearned=%v", classKey, level, preLearned)
+				t.Run(name, func(t *testing.T) {
+					g := newTestGame(cfg, newTestWorld(cfg))
+					hero := character.CreateCharacter("Probe", class, cfg)
+					g.party.Members[0] = hero
+
+					if preLearned {
+						for _, c := range choices {
+							if strings.EqualFold(c.Type, "spell") {
+								hero.LearnSpell(spells.SpellID(c.Spell))
+							}
+						}
+					}
+
+					g.queueLevelUpChoices(hero, level, choices)
+					g.openLevelUpChoiceForChar(0)
+					req := g.currentLevelUpChoice()
+					if req == nil {
+						t.Fatalf("%s: no popup opened", name)
+					}
+					if len(req.options) != MinLevelUpOptions {
+						t.Errorf("%s: offered %d options, want %d", name, len(req.options), MinLevelUpOptions)
+					}
+					for _, opt := range req.options {
+						if strings.EqualFold(opt.choice.Type, "spell") {
+							if characterKnowsSpellByID(hero, opt.spellID) {
+								t.Errorf("%s: offers already-known spell %s", name, opt.spellID)
+							}
+							continue
+						}
+						if !opt.hasMastery {
+							t.Errorf("%s: option %q is not a real upgrade", name, opt.label)
+						}
+					}
+				})
+			}
+		}
 	}
 }

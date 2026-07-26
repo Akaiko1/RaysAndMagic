@@ -303,6 +303,24 @@ func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
 }
 
+// spawnHitSparks is the "a hit landed here" burst, anchored on the monster's
+// VISUAL position so sparks land where a pulled monster is drawn, not on its
+// tile. Weapon blows, traps and damage zones share it.
+func (cs *CombatSystem) spawnHitSparks(m *monsterPkg.Monster3D) {
+	if m == nil {
+		return
+	}
+	vx, vy := cs.monsterVisualPos(m)
+	cs.game.spawnImpactSparks(vx, vy)
+}
+
+// spawnWeaponHitImpactFX adds the damage-scaled view kick to the sparks. Only a
+// blow the party lands kicks the camera - a field ticking every second must not.
+func (cs *CombatSystem) spawnWeaponHitImpactFX(m *monsterPkg.Monster3D, damage int) {
+	cs.spawnHitSparks(m)
+	cs.game.addScreenShake(0.05*float64(damage), 2.2)
+}
+
 // spawnImpactSparks throws a quick radial burst of bright white->gold sparks at
 // a world point - the weapon-hit feedback when the party strikes a monster.
 func (g *MMGame) spawnImpactSparks(x, y float64) {

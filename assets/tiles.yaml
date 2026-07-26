@@ -961,7 +961,7 @@ tiles:
     walkable: false
     size_tiles: 2.0
     sprite: "highlands_pine"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [64, 92, 38]
     floor_near_color: [48, 102, 42]
     letter: "T"
@@ -975,7 +975,7 @@ tiles:
     walkable: false
     size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [124, 122, 112]
     floor_near_color: [96, 112, 72]
     letter: "A"
@@ -1229,7 +1229,7 @@ tiles:
     walkable: false
     size_tiles: 2.0
     sprite: "dragon_cliffs_wind_pine"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [62, 88, 48]
     floor_near_color: [64, 102, 52]
     letter: "T"
@@ -1243,7 +1243,7 @@ tiles:
     walkable: false
     size_tiles: 1.6
     sprite: "dragon_cliffs_boulder"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [112, 112, 104]
     floor_near_color: [92, 104, 72]
     letter: "A"
@@ -1257,7 +1257,7 @@ tiles:
     walkable: false
     size_tiles: 1.0
     sprite: "dragon_cliffs_boulder"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [108, 108, 100]
     letter: "R"
     biomes: ["dragon_cliffs"]
@@ -1300,7 +1300,7 @@ tiles:
     walkable: false
     size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
-    render_type: "environment_sprite"
+    render_type: "tree_sprite"
     map_color: [124, 122, 112]
     floor_near_color: [48, 102, 42]
     letter: "K"

@@ -128,6 +128,24 @@ func tbBehaviorGame(t *testing.T, width, height int) (*MMGame, *GameLoop, float6
 	return game, &GameLoop{game: game}, float64(cfg.GetTileSize())
 }
 
+// summonTileWorld is the harness for anything that SPAWNS or MOVES allies: it
+// primes the tile manager the free-tile search needs, and the world is roomy
+// enough to park an ally a dozen tiles out and still be INSIDE the map (out of
+// bounds reads as blocked and opaque, which breaks line of sight and makes an
+// ally close in for the wrong reason - it hid a broken follow rule once).
+func summonTileWorld(t *testing.T) (*MMGame, float64) {
+	t.Helper()
+	prev := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = prev })
+	world.GlobalTileManager = world.NewTileManager()
+	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 8, 10, ts)
+	return game, ts
+}
+
 func placePlayerAtTile(game *MMGame, tx, ty int, tileSize float64) {
 	game.camera.X = float64(tx)*tileSize + tileSize/2
 	game.camera.Y = float64(ty)*tileSize + tileSize/2
@@ -165,4 +183,17 @@ func fillTestParty(t *testing.T, g *MMGame) {
 		g.party.Members = append(g.party.Members, ch)
 	}
 	stripNewClassSkillsForLegacyFixtures(g.party)
+}
+
+// tickZoneSpellOnce fires exactly one tick of every live cell of a spell, through
+// the production billing path.
+func tickZoneSpellOnce(cs *CombatSystem, spellID string) {
+	cs.game.ensureSteamZoneFieldIDs()
+	var firing []firingZoneCell
+	for i := range cs.game.steamZones {
+		if z := &cs.game.steamZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
+			firing = append(firing, firingZoneCell{cell: *z, ticks: 1})
+		}
+	}
+	cs.billZoneTicks(firing)
 }

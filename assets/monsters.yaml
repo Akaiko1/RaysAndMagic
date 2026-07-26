@@ -987,6 +987,40 @@ monsters:
     habitat_preferences:
       - "lich_nexus_floor"
 
+  # Summoned ONLY by the Summon Ice Elemental spell (no map letter, never spawns
+  # from a map). Its HP and damage are overwritten at summon time from the
+  # caster's Water mastery, so the values here are the Novice tier.
+  frost_elemental:
+    type: "elemental"
+    name: "Frost Elemental"
+    level: 12
+    max_hit_points: 250
+    armor_class: 35
+    experience: 0
+    damage_min: 15
+    damage_max: 15
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 11
+    alert_radius: 11
+    attack_radius: 11
+    speed: 1.1
+    gold_min: 0
+    gold_max: 0
+    sprite: "frost_elemental"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: []
+    resistances:
+      water: 100     # it IS ice
+      air: 40
+      physical: 30
+      mind: 100      # elemental: no mind to break
+      body: 100
+      fire: -50      # ice melts
+    habitat_preferences:
+      - "empty"
+
   lich_king:
     type: "undead"
     name: "Lich King"

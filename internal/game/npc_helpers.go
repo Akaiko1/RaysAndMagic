@@ -122,35 +122,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	if !ok {
 		return false
 	}
-	skill := char.MagicSchools[school]
-	if skill == nil {
-		return false
-	}
-
-	if spellData.Requirements != nil {
-		req := spellData.Requirements
-		if req.MinLevel > 0 && char.Level < req.MinLevel {
-			return false
-		}
-		for _, schoolReq := range req.Schools {
-			if strings.TrimSpace(schoolReq.School) == "" {
-				continue
-			}
-			reqSchool, ok := schoolIDFromString(schoolReq.School)
-			if !ok {
-				return false
-			}
-			reqSkill := char.MagicSchools[reqSchool]
-			if reqSkill == nil {
-				return false
-			}
-			if schoolReq.MinLevel > 0 && reqSkill.Level() < schoolReq.MinLevel {
-				return false
-			}
-		}
-	}
-
-	return true
+	return char.MagicSchools[school] != nil
 }
 
 // schoolIDFromString returns the typed school ID for a YAML/dialog string. The

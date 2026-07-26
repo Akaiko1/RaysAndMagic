@@ -94,6 +94,7 @@ func TestDamageSchoolValidationCanonicalizesRuntimeValues(t *testing.T) {
 		School:           " FIRE ",
 		Schools:          []string{" DARK "},
 		ResistBuffSchool: " WATER ",
+		CooldownSeconds:  1,
 	}
 	spells := &SpellSystemConfig{Spells: map[string]*SpellDefinitionConfig{"test": spell}}
 	if err := validateSpellAuthoring(spells); err != nil {

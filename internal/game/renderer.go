@@ -221,6 +221,9 @@ type Renderer struct {
 	// texture for soft ROUND glows - used for spell projectile bodies/halos so a
 	// big fireball reads as a fuzzy ball, not a hard square. Built lazily.
 	softGlowImg *ebiten.Image
+	// bubbleImg is the rim-lit bubble texture (ensureBubbleTex), shared by every
+	// bubbleColumnFx that asks for round bubbles instead of glow rects.
+	bubbleImg *ebiten.Image
 }
 
 // NewRenderer creates a new renderer
@@ -1289,7 +1292,11 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Clear depth buffer for this frame - optimized with slice header manipulation
 	viewDist := r.game.camera.ViewDist
 	depthBuf := r.game.depthBuffer
+	actorBuf := r.game.actorDepthBuffer
 	wallTopBuf := r.game.wallTopBuffer
+	for i := range actorBuf {
+		actorBuf[i] = viewDist
+	}
 	for i := range depthBuf {
 		depthBuf[i] = viewDist
 		// Default wall top = 0 (screen top) = "occlude fully". This is the
@@ -2780,6 +2787,77 @@ var additiveGlowBlend = ebiten.Blend{
 // softGlowSize is the resolution of the radial-gradient glow texture.
 const softGlowSize = 64
 
+// bubbleTexSize is the resolution of the bubble texture (see ensureBubbleTex).
+const bubbleTexSize = 64
+
+// ensureBubbleTex lazily builds a BUBBLE texture: a bright rim, a nearly empty
+// middle and one off-centre specular dot - the three cues that read as a
+// gas bubble rather than a blob. A plain radial glow (ensureSoftGlow) reads as a
+// dot and drawGlowRect reads as a square, which is what Hot Steam looked like.
+func (r *Renderer) ensureBubbleTex() *ebiten.Image {
+	if r.bubbleImg != nil {
+		return r.bubbleImg
+	}
+	const n = bubbleTexSize
+	buf := make([]byte, 4*n*n)
+	c := float64(n-1) / 2
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			dx := (float64(x) - c) / c
+			dy := (float64(y) - c) / c
+			d := math.Hypot(dx, dy)
+			if d > 1 {
+				continue
+			}
+			// Shell: a gaussian ring just inside the silhouette.
+			rim := math.Exp(-((d - 0.82) * (d - 0.82)) / (2 * 0.085 * 0.085))
+			// Interior: a faint fill so the bubble is not a hollow outline.
+			fill := 0.16 * (1 - d*d)
+			// Specular: a small highlight up-left, like a lit soap bubble.
+			hx, hy := dx+0.34, dy+0.34
+			spec := 0.85 * math.Exp(-(hx*hx+hy*hy)/(2*0.13*0.13))
+			f := rim + fill + spec
+			if f > 1 {
+				f = 1
+			}
+			// Fade the outermost pixels so the silhouette stays anti-aliased.
+			if edge := (1 - d) / 0.06; edge < 1 {
+				f *= edge
+			}
+			v := byte(f * 255)
+			i := (y*n + x) * 4
+			buf[i], buf[i+1], buf[i+2], buf[i+3] = v, v, v, v // premultiplied white
+		}
+	}
+	img := ebiten.NewImage(n, n)
+	img.WritePixels(buf)
+	r.bubbleImg = img
+	return img
+}
+
+// drawBubbleSprite draws one bubble of diameter `size` centred at (x,y). Same
+// contract as drawGlowSprite, different texture.
+func (r *Renderer) drawBubbleSprite(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
+	if size <= 0 || alpha <= 0 {
+		return
+	}
+	src := r.ensureBubbleTex()
+	s := size / float64(bubbleTexSize)
+	opts := &r.glowOpts
+	opts.GeoM.Reset()
+	opts.GeoM.Scale(s, s)
+	opts.GeoM.Translate(x-size/2, y-size/2)
+	opts.ColorScale.Reset()
+	opts.ColorScale.Scale(
+		float32(rgb[0])/255,
+		float32(rgb[1])/255,
+		float32(rgb[2])/255,
+		float32(alpha),
+	)
+	opts.Blend = blend
+	screen.DrawImage(src, opts)
+}
+
 // ensureSoftGlow lazily builds the radial-gradient white texture (premultiplied
 // alpha: opaque centre fading smoothly to transparent at the edge).
 func (r *Renderer) ensureSoftGlow() *ebiten.Image {
@@ -2823,6 +2901,29 @@ func (r *Renderer) drawGlowSprite(screen *ebiten.Image, x, y, size float64, rgb 
 	opts.GeoM.Reset()
 	opts.GeoM.Scale(s, s)
 	opts.GeoM.Translate(x-size/2, y-size/2)
+	opts.ColorScale.Reset()
+	opts.ColorScale.Scale(
+		float32(rgb[0])/255,
+		float32(rgb[1])/255,
+		float32(rgb[2])/255,
+		float32(alpha),
+	)
+	opts.Blend = blend
+	screen.DrawImage(src, opts)
+}
+
+// drawGlowSpriteStretched draws the soft round glow with independent width and
+// height - a vertically stretched glow is what separates a flame tongue from a
+// glowing puddle on the ground.
+func (r *Renderer) drawGlowSpriteStretched(screen *ebiten.Image, x, y, w, h float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
+	if w <= 0 || h <= 0 || alpha <= 0 {
+		return
+	}
+	src := r.ensureSoftGlow()
+	opts := &r.glowOpts
+	opts.GeoM.Reset()
+	opts.GeoM.Scale(w/float64(softGlowSize), h/float64(softGlowSize))
+	opts.GeoM.Translate(x-w/2, y-h/2)
 	opts.ColorScale.Reset()
 	opts.ColorScale.Scale(
 		float32(rgb[0])/255,
@@ -3739,6 +3840,34 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	}
 }
 
+// stampActorDepth records this creature's distance across the central band of the
+// columns it covers (the same 7% margin opaque billboards use, so transparent
+// edges do not occlude).
+func (r *Renderer) stampActorDepth(s UnifiedSpriteRenderData) {
+	buf := r.game.actorDepthBuffer
+	if len(buf) == 0 {
+		return
+	}
+	screenXF, sizeF := s.screenXF, s.sizeF
+	if sizeF <= 0 {
+		screenXF, sizeF = float64(s.screenX), float64(s.spriteSize)
+	}
+	margin := sizeF * 0.07
+	left := int(math.Floor(screenXF - sizeF/2 + margin))
+	right := int(math.Ceil(screenXF + sizeF/2 - margin))
+	if left < 0 {
+		left = 0
+	}
+	if right >= len(buf) {
+		right = len(buf) - 1
+	}
+	for x := left; x <= right; x++ {
+		if s.depthPerp < buf[x] {
+			buf[x] = s.depthPerp
+		}
+	}
+}
+
 // spriteDepthBufferVisible returns true if the sprite's screen-X span has at
 // least one pixel where the sprite is in front of the wall depth buffer.
 // Shared by all the floor-anchored sprite drawers (env / loot bag / chest).
@@ -3976,6 +4105,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
+	r.stampActorDepth(s)
 	// drawAllSpritesSorted always stamps the visual position (true or pulled).
 	renderX, renderY := s.monsterRenderX, s.monsterRenderY
 
@@ -4226,6 +4356,10 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	cat := npcRenderCatOf(s.npc)
 	npcName := npcSpriteName(s.npc)
 	npcKeyName := r.prefixedStandeeKeyName("npc", npcName)
+	visibleInRayDepth := r.spriteDepthBufferVisible(s)
+	if cat == catNPC && visibleInRayDepth {
+		r.stampActorDepth(s)
+	}
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -4365,7 +4499,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 	}
 
-	if !r.spriteDepthBufferVisible(s) {
+	if !visibleInRayDepth {
 		return
 	}
 

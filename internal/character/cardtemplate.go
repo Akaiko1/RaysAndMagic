@@ -209,7 +209,9 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 	var out []string
 	for _, ln := range sd.EffectLines() {
-		if strings.HasPrefix(ln, "AoE radius:") ||
+		if strings.HasPrefix(ln, "The party is not caught") ||
+			strings.Contains(ln, "chance to topple each") ||
+			strings.HasPrefix(ln, "AoE radius:") ||
 			strings.HasPrefix(ln, "Damage scales with") ||
 			strings.HasPrefix(ln, "Tick damage scales with") ||
 			strings.HasPrefix(ln, "Healing scales with") {
@@ -336,14 +338,10 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	casting := CardSection{Title: "CASTING"}
 	casting.Add("Cost: %d SP", def.SpellPointsCost)
 	// Buffs have no personal RT cooldown (but still spend a TB action). Match the
-	// game card by omitting a cooldown line entirely instead of displaying the
-	// authored fallback value as if it were active.
+	// game card by omitting the cooldown line entirely rather than printing an
+	// authored value that never applies.
 	if !sd.IsBuff() {
-		cd := def.CooldownSeconds
-		if cd <= 0 {
-			cd = spells.SpellCooldownDefaultSecondsForLevel(def.Level)
-		}
-		casting.Add("%s", CooldownLine(cd))
+		casting.Add("%s", CooldownLine(def.CooldownSeconds))
 		casting.Add("Scales with caster Speed")
 	}
 	if sd.IsProjectile && def.Physics != nil {
@@ -386,22 +384,41 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	}
 	if sd.ZoneRadiusTiles > 0 {
 		dmg.Title = "DAMAGE PER TICK"
-		dmg.Add("Base: %d", sd.ZoneTickDamage)
-		dmg.Add("Intellect / %d: scales", spells.SpellIntellectDivisor)
-		dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
+		if len(sd.DamageByMastery) == 4 {
+			// Authored ladder: the whole payload, no Intellect and no per-tier bonus.
+			dmg.Add("Novice: %d", sd.DamageByMastery[0])
+			dmg.Add("Expert / Master / GM: %d / %d / %d",
+				sd.DamageByMastery[1], sd.DamageByMastery[2], sd.DamageByMastery[3])
+		} else {
+			dmg.Add("Base: %d", sd.ZoneTickDamage)
+			dmg.Add("Intellect / %d: scales", spells.SpellIntellectDivisor)
+			dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
+		}
 	}
 	if sd.PartyAoeRadiusTiles > 0 {
 		dmg.Title = "EFFECT"
-		base := sd.MasteryScaledDamage(0)
-		if sd.MasteryDamagePerTier > 0 {
+		base := sd.DamageForMastery(0)
+		switch {
+		case len(sd.DamageByMastery) == 4:
+			dmg.Add("Novice: %d", base)
+			dmg.Add("Expert / Master / GM: %d / %d / %d",
+				sd.DamageByMastery[1], sd.DamageByMastery[2], sd.DamageByMastery[3])
+		case sd.MasteryDamagePerTier > 0:
 			dmg.Add("Base: %d", base)
 			dmg.Add("Mastery: +%d per tier above Novice", sd.MasteryDamagePerTier)
-			dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
-		} else {
+			dmg.Add("Damage: %d-%d", base, sd.DamageForMastery(3))
+		default:
 			dmg.Add("Damage: %d", base)
 		}
 		dmg.Add("Radius: %.0f tiles", sd.PartyAoeRadiusTiles)
-		dmg.Add("Targets: Monsters and Party")
+		if sd.SparesParty {
+			dmg.Add("Targets: Monsters only")
+		} else {
+			dmg.Add("Targets: Monsters and Party")
+		}
+		if sd.StandeeDestroyChance > 0 {
+			dmg.Add("Topples trees, dunes and rocks: %.0f%% each", sd.StandeeDestroyChance*100)
+		}
 	}
 	if sd.MapWide {
 		dmg.Title = "EFFECT"
@@ -435,9 +452,17 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 
 	zone := CardSection{Title: "ZONE"}
 	if sd.ZoneRadiusTiles > 0 {
-		zone.Add("Radius: %.0f tiles", sd.ZoneRadiusTiles)
+		if sd.ZoneWidthTiles > 1 {
+			zone.Add("Wall: %d tiles across, %.0f tiles ahead", sd.ZoneWidthTiles, sd.ZoneAheadTiles)
+		} else {
+			zone.Add("Radius: %.0f tiles", sd.ZoneRadiusTiles)
+		}
 		zone.Add("RT: one tick every %.0fs", sd.ZoneTickSeconds)
-		zone.Add("TB: one tick per monster turn")
+		if ticks := int(float64(TurnBasedTurnSeconds) / sd.ZoneTickSeconds); sd.ZoneTickSeconds > 0 && ticks > 1 {
+			zone.Add("TB: %d ticks per monster turn", ticks)
+		} else {
+			zone.Add("TB: one tick per monster turn")
+		}
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
@@ -497,7 +522,9 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 		add(SpellRuleGeneral, "All damage remains normal %s damage", strings.ToLower(school))
 		add(SpellRuleGeneral, "Enemy %s Resistance reduces damage", school)
-		add(SpellRuleGeneral, "Party %s Resistance reduces self-damage", school)
+		if !def.SparesParty {
+			add(SpellRuleGeneral, "Party %s Resistance reduces self-damage", school)
+		}
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
 				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
@@ -511,8 +538,13 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
 				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
-			add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: +%d %s true damage",
-				school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school)
+			// A spell whose damage is an authored per-tier ladder gets no mastery
+			// add-ons at all - the ladder IS the payload (same exclusion Inferno
+			// earns through mastery_damage_per_tier), so no GM true-damage split.
+			if len(def.DamageByMastery) != 4 {
+				add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: +%d %s true damage",
+					school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school)
+			}
 		} else {
 			add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: ignores %d%% of enemy %s Resistance",
 				school, SelfMagicGMResistPiercePct, school)

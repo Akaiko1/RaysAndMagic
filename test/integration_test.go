@@ -266,8 +266,8 @@ func testMagicSystemIntegration(cfg *config.Config) {
 					continue
 				}
 				canCast := member.SpellPoints >= def.SpellPointsCost
-				fmt.Printf("    - %s (Level %d, Cost: %d SP) - Available: %v\n",
-					def.Name, def.Level, def.SpellPointsCost, canCast)
+				fmt.Printf("    - %s (Cost: %d SP) - Available: %v\n",
+					def.Name, def.SpellPointsCost, canCast)
 
 				// Test spell casting simulation
 				if canCast {

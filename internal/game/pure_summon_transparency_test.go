@@ -163,12 +163,15 @@ func TestPartyAreaAttacksIgnorePureSummonsButHitBoundUndead(t *testing.T) {
 		{
 			name: "hot steam",
 			apply: func(cs *CombatSystem, _ *monsterPkg.Monster3D) {
-				cs.damageSteamZoneOnce(&SteamZone{
+				cs.game.steamZones = append(cs.game.steamZones[:0], SteamZone{
+					SpellID:    "hot_steam",
 					X:          cs.game.camera.X,
 					Y:          cs.game.camera.Y,
 					Radius:     3 * float64(cs.game.config.GetTileSize()),
 					TickDamage: 100,
+					FramesLeft: 60,
 				})
+				tickZoneSpellOnce(cs, "hot_steam")
 			},
 		},
 		{

@@ -326,11 +326,11 @@ func (ui *UISystem) drawScreenBackdrop(screen *ebiten.Image, w, h int, spriteKey
 }
 
 // drawPanel draws an ornate framed panel using a 9-sliced sprite when present
-// (corners kept crisp), else a procedural dark rect + border. frameKey "" forces
-// the procedural look.
+// (corners kept crisp; periodic pattern art tiles, painted art stretches), else
+// a procedural dark rect + border. frameKey "" forces the procedural look.
 func (ui *UISystem) drawPanel(screen *ebiten.Image, frameKey string, x, y, w, h int) {
 	if frameKey != "" && ui.game.sprites.HasSprite(frameKey) {
-		drawNineSlice(screen, ui.game.sprites.GetSprite(frameKey), x, y, w, h, menuFrameSlice)
+		ui.drawPatternFrame(screen, frameKey, x, y, w, h, menuFrameSlice)
 		return
 	}
 	drawFilledRect(screen, x, y, w, h, color.RGBA{20, 20, 40, 235})

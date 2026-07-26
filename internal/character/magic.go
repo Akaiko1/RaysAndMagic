@@ -89,6 +89,12 @@ type MagicSkill struct {
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
 }
 
+// Level is a DERIVED LABEL, not a stat: Mastery+1, so Novice reads as 1 and
+// Grandmaster as 4. Mastery is the only stored value - there is nothing to set
+// here, and no gameplay rule may read this (mastery gates nothing; see
+// MasterySpellEffectPerLevel for what mastery actually pays out). Kept for the
+// character sheet's "Fire 1 (Novice)" line and for the save's legacy migration
+// (MasteryForLevel). Spells themselves have NO level at all.
 func (ms *MagicSkill) Level() int {
 	return int(ms.Mastery) + 1
 }

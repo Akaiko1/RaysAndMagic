@@ -196,6 +196,9 @@ type Skill struct {
 	Mastery SkillMastery
 }
 
+// MasteryForLevel converts an OLD save's numeric skill level back to a mastery
+// tier. Migration only - current saves carry mastery, and the level they also
+// write is the derived label (see Skill.Level).
 func MasteryForLevel(level int) SkillMastery {
 	if level < MinSkillLevel {
 		return MasteryNovice
@@ -206,6 +209,8 @@ func MasteryForLevel(level int) SkillMastery {
 	return SkillMastery(level - 1)
 }
 
+// Level mirrors MagicSkill.Level: a DERIVED LABEL (Mastery+1) for display and
+// legacy-save migration only. Mastery is the stored truth.
 func (s *Skill) Level() int {
 	return int(s.Mastery) + 1
 }

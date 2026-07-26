@@ -169,6 +169,9 @@ func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, c
 	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
 }
 
+// drawNineSlice: corners 1:1, edges and centre STRETCHED. Right for painted
+// panels drawn near their native size (menu_panel_wide and kin); pattern
+// frames go through drawPatternFrame instead.
 func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
 		return

@@ -26,8 +26,8 @@ npcs:
       success: "The Light settles into %s. Wield it gently, and it will not fail you."
 
     # Self & divine magic - every Body, Mind and Spirit spell. Each entry authors
-    # only its shop price; name/school/level/requirements are backfilled from
-    # spells.yaml (see backfillTraderSpells), so this stays in sync automatically.
+    # only its shop price; name/school/description are backfilled from spells.yaml
+    # (see backfillTraderSpells), so this stays in sync automatically.
     spells:
       # Body
       heal: { cost: 150 }
@@ -1114,8 +1114,8 @@ npcs:
       already_known: "%s already carries this one - I'll not sell you the same page twice."
       success: "There - scribed clean into %s. The ink will hold."
     # The elemental catalog: every Fire, Water, Air and Earth spell (no Light or
-    # Dark). Each entry authors only its shop price; name/school/level/requirements
-    # are backfilled from spells.yaml (see backfillTraderSpells).
+    # Dark). Each entry authors only its shop price; name/school/description are
+    # backfilled from spells.yaml (see backfillTraderSpells).
     spells:
       # Fire
       fireball: { cost: 400 }
@@ -1579,7 +1579,7 @@ npcs:
     size_tiles: 0.7
     hide_when_visited: true
     lectern:
-      pool: [fly, town_portal, fire_shield, stone_blossom]
+      pool: [fly, town_portal, fire_shield, stone_blossom, firewall, jump, earthquake, summon_ice_elemental]
 
   arena_bones:
     name: "Bleached Bones"

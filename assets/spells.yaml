@@ -1,6 +1,6 @@
 # UgaTaima Spell Configuration
 # This file contains ALL spell-related configuration including:
-# - Spell definitions (cost, school, level, effects)
+# - Spell definitions (cost, school, effects)
 # - Projectile physics (speed in tiles/sec, range in tiles)
 # - Visual appearance (colors, sizes, effects)
 #
@@ -20,7 +20,6 @@ spells:
     name: "Fireball"
     description: "Hurls a powerful ball of fire that explodes on impact, splashing nearby foes"
     school: "fire"
-    level: 1
     spell_points_cost: 4
     cooldown_seconds: 1.5
     duration: 0                # 0 for instant spells
@@ -48,7 +47,6 @@ spells:
     name: "Fire Bolt"
     description: "Launches a small, fast bolt of fire"
     school: "fire"
-    level: 1
     spell_points_cost: 3
     cooldown_seconds: 0.8
     duration: 0
@@ -74,7 +72,6 @@ spells:
     name: "Dark Bolt"
     description: "Launches a bolt of shadow energy"
     school: "dark"
-    level: 1
     spell_points_cost: 3
     cooldown_seconds: 1.0
     duration: 0
@@ -100,7 +97,6 @@ spells:
     name: "Alien Dark Bolt"
     description: "A concentrated bolt of void energy"
     school: "dark"
-    level: 2
     spell_points_cost: 2
     cooldown_seconds: 0.8
     duration: 0
@@ -128,7 +124,6 @@ spells:
     name: "Ice Bolt"
     description: "Launches a chilling bolt of ice"
     school: "water"
-    level: 1
     spell_points_cost: 2
     cooldown_seconds: 0.8
     duration: 0
@@ -154,7 +149,6 @@ spells:
     name: "Lightning Bolt"
     description: "Strikes the target with a bolt of lightning that may briefly stun it"
     school: "air"
-    level: 2
     spell_points_cost: 8
     cooldown_seconds: 1.2
     duration: 0
@@ -187,7 +181,6 @@ spells:
     name: "Ray of Light"
     description: "A searing beam of holy light that scales with both Intellect and Personality"
     school: "light"
-    level: 4
     spell_points_cost: 8
     cooldown_seconds: 1.5
     duration: 0
@@ -217,7 +210,6 @@ spells:
     name: "Darkness"
     description: "A shroud of crushing dark that stuns every foe within 5 tiles"
     school: "dark"
-    level: 5
     spell_points_cost: 20
     cooldown_seconds: 4.0
     duration: 0
@@ -234,7 +226,6 @@ spells:
     name: "Disintegrate"
     description: "Unmakes a foe - 15% chance to instantly slay it. No effect on undead or dragons."
     school: "dark"
-    level: 5
     spell_points_cost: 10
     cooldown_seconds: 2.5
     duration: 0
@@ -262,10 +253,8 @@ spells:
     name: "Day of the Gods"
     description: "Blesses the party with scaling resistance against every damage school for 5 minutes"
     school: "light"
-    level: 7
     spell_points_cost: 20
     category: buff
-    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -278,10 +267,8 @@ spells:
     name: "Hour of Power"
     description: "For 10 minutes the party deals more damage and takes less from every hit"
     school: "light"
-    level: 8
     spell_points_cost: 18
     category: buff
-    cooldown_seconds: 5.0
     duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
@@ -295,7 +282,6 @@ spells:
     name: "Bind Undead"
     description: "Binds an undead to your will for 5 minutes - it fights other monsters. No effect on the living. It perishes when you leave the area."
     school: "dark"
-    level: 6
     spell_points_cost: 8
     cooldown_seconds: 2.0
     duration: 0
@@ -323,7 +309,6 @@ spells:
     name: "Resurrect"
     description: "Restores a fallen ally to full health - even one who has been eradicated"
     school: "light"
-    level: 7
     spell_points_cost: 16
     cooldown_seconds: 5.0
     duration: 0
@@ -337,7 +322,6 @@ spells:
     name: "First Aid"
     description: "Restores health to the caster"
     school: "body"
-    level: 1
     spell_points_cost: 8
     cooldown_seconds: 1.0
     duration: 0
@@ -354,7 +338,6 @@ spells:
     name: "Heal"
     description: "Restores health to another party member"
     school: "body"
-    level: 2
     spell_points_cost: 8
     cooldown_seconds: 1.2
     duration: 0
@@ -371,10 +354,8 @@ spells:
     name: "Torch Light"
     description: "Creates a magical light that illuminates the surroundings"
     school: "fire"
-    level: 1
     spell_points_cost: 1
     category: buff
-    cooldown_seconds: 2.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -389,10 +370,8 @@ spells:
     name: "Bless"
     description: "Blesses the party with divine protection"
     school: "spirit"
-    level: 2
     spell_points_cost: 15
     category: buff
-    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     stat_bonus: 5
     stat_bonus_grandmaster: 10
@@ -409,10 +388,8 @@ spells:
     name: "Wizard Eye"
     description: "Extends your vision beyond normal limits"
     school: "air"
-    level: 4
     spell_points_cost: 8
     category: buff
-    cooldown_seconds: 2.5
     duration: 300              # 5 minutes
     vision_radius_tiles: 10  # wizard-eye radar radius
     is_projectile: false
@@ -427,7 +404,6 @@ spells:
     name: "Awaken"
     description: "Rouses every unconscious party member back to 1 HP"
     school: "mind"
-    level: 2
     spell_points_cost: 4
     cooldown_seconds: 2.0
     duration: 0
@@ -443,10 +419,8 @@ spells:
     name: "Walk on Water"
     description: "Allows the party to walk on water surfaces"
     school: "water"
-    level: 3
     spell_points_cost: 6
     category: buff
-    cooldown_seconds: 2.5
     duration: 180              # 3 minutes
     is_projectile: false
     is_utility: true
@@ -461,10 +435,8 @@ spells:
     name: "Water Breathing"
     description: "Allows underwater exploration by enabling breathing underwater"
     school: "water"
-    level: 3
     spell_points_cost: 10
     category: buff
-    cooldown_seconds: 2.5
     duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
@@ -482,7 +454,6 @@ spells:
     name: "Sparks"
     description: "A cheap, fast crackle of electricity"
     school: "air"
-    level: 1
     spell_points_cost: 2
     cooldown_seconds: 0.8
     duration: 0
@@ -503,7 +474,6 @@ spells:
     name: "Rock Blast"
     description: "Hurls a jagged chunk of stone"
     school: "earth"
-    level: 2
     spell_points_cost: 5
     cooldown_seconds: 1.0
     duration: 0
@@ -524,7 +494,6 @@ spells:
     name: "Deadly Swarm"
     description: "A biting swarm that bursts over a small area"
     school: "earth"
-    level: 3
     spell_points_cost: 7
     cooldown_seconds: 1.5
     duration: 0
@@ -546,7 +515,6 @@ spells:
     name: "Stun"
     description: "A shockwave that stuns every foe within 3 tiles"
     school: "earth"
-    level: 4
     spell_points_cost: 12
     cooldown_seconds: 3.0
     duration: 0
@@ -562,7 +530,6 @@ spells:
     name: "Harm"
     description: "Concentrated body energy that wounds a foe"
     school: "body"
-    level: 2
     spell_points_cost: 6
     cooldown_seconds: 1.0
     duration: 0
@@ -584,7 +551,6 @@ spells:
     name: "Mind Blast"
     description: "A lance of raw psychic force"
     school: "mind"
-    level: 2
     spell_points_cost: 5
     cooldown_seconds: 1.0
     duration: 0
@@ -605,7 +571,6 @@ spells:
     name: "Spirit Lash"
     description: "A whip of spirit energy that scourges a foe"
     school: "spirit"
-    level: 2
     spell_points_cost: 6
     cooldown_seconds: 1.0
     duration: 0
@@ -630,10 +595,8 @@ spells:
     name: "Stone Skin"
     description: "Hardens the party's skin to stone, reducing normal damage from each hit"
     school: "earth"
-    level: 3
     spell_points_cost: 10
     category: buff
-    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -647,10 +610,8 @@ spells:
     name: "Heroism"
     description: "Fills the party with valor, boosting physical attacks"
     school: "spirit"
-    level: 3
     spell_points_cost: 12
     category: buff
-    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -665,7 +626,6 @@ spells:
     name: "Raise Dead"
     description: "Restores a fallen ally (not eradicated) to 25% of their health"
     school: "spirit"
-    level: 6
     spell_points_cost: 14
     cooldown_seconds: 4.0
     duration: 0
@@ -678,7 +638,6 @@ spells:
     name: "Mass Heal"
     description: "A wave of healing that mends the whole party at once"
     school: "body"
-    level: 4
     spell_points_cost: 15
     cooldown_seconds: 2.0
     duration: 0
@@ -692,7 +651,6 @@ spells:
     name: "Psychic Shock"
     description: "A jolt of psychic force that wounds and may stun the target"
     school: "mind"
-    level: 5
     spell_points_cost: 10
     cooldown_seconds: 2.0
     duration: 0
@@ -717,7 +675,6 @@ spells:
     name: "Charm"
     description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead."
     school: "mind"
-    level: 5
     spell_points_cost: 10
     cooldown_seconds: 2.0
     duration: 0
@@ -741,7 +698,6 @@ spells:
     name: "Inferno"
     description: "Sets the whole battlefield ablaze - every monster on the map AND the party take heavy fire damage"
     school: "fire"
-    level: 7
     spell_points_cost: 15       # 45 damage (cost x 3) to every monster on the map, and the party
     mastery_damage_per_tier: 15 # Novice/Expert/Master/GM: 45/60/75/90, all normal fire damage
     cooldown_seconds: 3.0
@@ -755,7 +711,6 @@ spells:
     name: "Starburst"
     description: "A bolt that bursts into a rain of falling stars over a wide area"
     school: "air"
-    level: 6
     spell_points_cost: 14       # 42 damage, splashes the AoE
     cooldown_seconds: 3.0
     duration: 0
@@ -779,7 +734,6 @@ spells:
     name: "Hot Steam"
     description: "Fills the area around the party with scalding steam that sears monsters over time"
     school: "water"
-    level: 5
     spell_points_cost: 35
     cooldown_seconds: 3.0
     duration: 120              # 2 minutes
@@ -795,14 +749,79 @@ spells:
   # NEW SPELLS - batch 4 (taught ONLY by spell lecterns, never sold in shops)
   # ===========================================================================
 
+  # --- batch 5: taught ONLY by spell lecterns -------------------------------
+  # Damage ladders here are AUTHORED per mastery tier (damage_by_mastery), not
+  # derived from SP cost: the tiers were dictated, and Earthquake's doubling
+  # ladder cannot be expressed by the cost formula.
+
+  firewall:
+    name: "Firewall"
+    description: "Raises a three-tile wall of flame across the party's line of sight, two tiles ahead"
+    school: "fire"
+    spell_points_cost: 25
+    cooldown_seconds: 3.0
+    duration: 30               # 30 seconds = 10 turns of 3 seconds
+    is_projectile: false
+    is_utility: true
+    zone_radius_tiles: 0.55    # one tile per cell (slight overlap keeps the line solid)
+    zone_ahead_tiles: 2.0      # laid two tiles in front of the party
+    zone_width_tiles: 3        # 3x1, across the facing
+    zone_tick_seconds: 1.0     # 3 ticks per 3-second turn in TB, once a second in RT
+    damage_by_mastery: [15, 30, 45, 60]
+    status_icon: "firewall"
+    message: "A wall of flame roars up ahead!"
+
+  summon_ice_elemental:
+    name: "Summon Ice Elemental"
+    description: "Calls a frost elemental to fight for the party - one at a time"
+    school: "water"
+    spell_points_cost: 30
+    cooldown_seconds: 4.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    deals_no_damage: true
+    summon_monster: "frost_elemental"
+    summon_max: 1
+    summon_hp_by_mastery: [250, 500, 750, 1000]
+    summon_damage_by_mastery: [15, 25, 35, 50]
+    message: "The air freezes - an elemental rises!"
+
+  jump:
+    name: "Jump"
+    description: "Vaults the party two tiles straight ahead, clearing whatever lies between"
+    school: "air"
+    spell_points_cost: 6
+    cooldown_seconds: 1.5
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    deals_no_damage: true
+    jump_tiles: 2.0            # lands two tiles ahead: over the tile between
+    message: "The party vaults forward!"
+
+  earthquake:
+    name: "Earthquake"
+    description: "Shakes the ground for eight tiles around the party, toppling what stands on it. Open ground only"
+    school: "earth"
+    spell_points_cost: 40
+    cooldown_seconds: 5.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    party_aoe_radius_tiles: 8.0
+    spares_party: true         # the party rides the shock out; monsters do not
+    outdoor_only: true         # needs real ground under an open sky (never in dungeons)
+    damage_by_mastery: [50, 100, 200, 400]
+    standee_destroy_chance: 0.05  # 5% to topple each crossed standee (tree/dune/rock) in reach
+    message: "The ground heaves and cracks!"
+
   fly:
     name: "Fly"
     description: "The party takes wing: cross terrain and walls, but not doors or the map's edge. Only under an open sky."
     school: "air"
-    level: 5
     spell_points_cost: 12
     category: buff
-    cooldown_seconds: 3.0
     duration: 120              # 2 minutes
     is_projectile: false
     is_utility: true
@@ -816,7 +835,6 @@ spells:
     description: "Opens a portal to visited taverns, towns, and major landmarks"
     school: "earth"
     schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
-    level: 4
     spell_points_cost: 20
     cooldown_seconds: 5.0
     duration: 0
@@ -829,10 +847,8 @@ spells:
     name: "Fire Shield"
     description: "Wreathes the party in tame flame: +50 Fire resistance for all"
     school: "fire"
-    level: 4
     spell_points_cost: 10
     category: buff
-    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -845,7 +861,6 @@ spells:
     name: "Stone Blossom"
     description: "Lobs a granite bud in a high arc; it lands 7 tiles out and blooms - crushing and stunning everything nearby"
     school: "earth"
-    level: 5
     spell_points_cost: 20      # 60 damage (cost x 3) across the bloom
     cooldown_seconds: 3.0
     duration: 0
@@ -872,7 +887,9 @@ spells:
 # =============================================================================
 # To add a new spell:
 # 1. Add a new entry under 'spells:' with a unique key (spell ID)
-# 2. Fill in all the basic spell properties
+# 2. Fill in all the basic spell properties. cooldown_seconds is REQUIRED for a
+#    castable spell (validated at load) and must be OMITTED for category: buff -
+#    buffs have no real-time cooldown, so a value there would do nothing.
 # 3. For projectile spells (is_projectile: true):
 #    - Add 'physics:' section with:
 #      - speed_tiles: Speed in tiles per second
@@ -892,7 +909,6 @@ spells:
 #   name: "Ice Shard"
 #   description: "Launches a sharp shard of ice"
 #   school: "water"
-#   level: 2
 #   spell_points_cost: 6
 #   duration: 0
 #   projectile_size: 12

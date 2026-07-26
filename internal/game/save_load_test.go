@@ -92,7 +92,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.walkOnWaterDuration = 33
 	game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 60, Bonuses: character.UniformStatBonuses(2)})
 	game.steamZones = []SteamZone{{
-		SpellID: "hot_steam", MapKey: "forest", FramesLeft: 42,
+		SpellID: "hot_steam", FieldID: 77, MapKey: "forest", FramesLeft: 42,
 		IntervalFrames: 360, TickDamage: 3,
 	}}
 	game.waterBreathingActive = true
@@ -196,6 +196,9 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	}
 	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
 		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
+	}
+	if len(loaded.steamZones) != 1 || loaded.steamZones[0].FieldID != 77 || loaded.nextSteamZoneFieldID != 77 {
+		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.steamZones, loaded.nextSteamZoneFieldID)
 	}
 
 }
@@ -1078,6 +1081,96 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 	}
 	if !foundAdd {
 		t.Fatal("summoned add missing after load")
+	}
+}
+
+func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
+	gSave, _ := summonTileWorld(t)
+	cfg := gSave.config
+	wSave := gSave.world
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+
+	oldWM := world.GlobalWorldManager
+	world.GlobalWorldManager = wmSave
+	t.Cleanup(func() { world.GlobalWorldManager = oldWM })
+
+	caster := character.CreateCharacter("Druid", character.ClassDruid, cfg)
+	caster.MaxHitPoints, caster.HitPoints = 250, 250
+	caster.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
+	caster.Skills[character.SkillAnimalBonding].Mastery = character.MasteryGrandMaster
+	caster.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	gSave.party.Members = []*character.MMCharacter{caster}
+
+	if !gSave.combat.summonAnimalBondingBear(caster) {
+		t.Fatal("Animal Bonding could not place a bear")
+	}
+	bear := wSave.Monsters[len(wSave.Monsters)-1]
+	bear.HitPoints = bear.MaxHitPoints - 1
+	wantBear := MonsterRuntimeStatsSave{
+		MaxHitPoints: bear.MaxHitPoints,
+		ArmorClass:   bear.ArmorClass,
+		DamageMin:    bear.DamageMin,
+		DamageMax:    bear.DamageMax,
+	}
+
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID("summon_ice_elemental"))
+	if err != nil {
+		t.Fatalf("summon spell definition: %v", err)
+	}
+	if !gSave.combat.tryCastSummon(def, caster) {
+		t.Fatal("summon spell was not handled")
+	}
+	add := wSave.Monsters[len(wSave.Monsters)-1]
+	if add.MaxHitPoints != 1000 || add.DamageMin != 50 || add.DamageMax != 50 {
+		t.Fatalf("GM summon stats before save = %d HP, %d-%d damage", add.MaxHitPoints, add.DamageMin, add.DamageMax)
+	}
+	add.HitPoints = 777
+	wantElemental := MonsterRuntimeStatsSave{
+		MaxHitPoints: add.MaxHitPoints,
+		ArmorClass:   add.ArmorClass,
+		DamageMin:    add.DamageMin,
+		DamageMax:    add.DamageMax,
+	}
+	save := gSave.buildSave(wmSave)
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	world.GlobalWorldManager = wmLoad
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	wantByKey := map[string]struct {
+		hitPoints int
+		stats     MonsterRuntimeStatsSave
+	}{
+		"bear":            {hitPoints: bear.HitPoints, stats: wantBear},
+		"frost_elemental": {hitPoints: add.HitPoints, stats: wantElemental},
+	}
+	for _, m := range wLoad.Monsters {
+		want, ok := wantByKey[m.Key]
+		if !ok {
+			continue
+		}
+		got := MonsterRuntimeStatsSave{
+			MaxHitPoints: m.MaxHitPoints,
+			ArmorClass:   m.ArmorClass,
+			DamageMin:    m.DamageMin,
+			DamageMax:    m.DamageMax,
+		}
+		if m.HitPoints != want.hitPoints || got != want.stats {
+			t.Errorf("%s stats after load = HP %d, %+v; want HP %d, %+v",
+				m.Key, m.HitPoints, got, want.hitPoints, want.stats)
+		}
+		delete(wantByKey, m.Key)
+	}
+	for key := range wantByKey {
+		t.Errorf("%s missing after load", key)
 	}
 }
 

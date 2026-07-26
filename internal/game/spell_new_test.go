@@ -177,117 +177,11 @@ func TestPartyBuffs_Stack(t *testing.T) {
 }
 
 // Hot Steam must not tick while the player deliberates in TB. One monster round
-// deals one tick and consumes the shared three-second periodic-effect step.
-func TestHotSteam_DamagesInTurnBased(t *testing.T) {
-	game, gl, _ := tbBehaviorGame(t, 7, 7)
-	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
-
-	mon := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
-	mon.MaxHitPoints, mon.HitPoints = 200, 200
-	game.world.Monsters = []*monster.Monster3D{mon}
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	if !game.combat.CastEquippedSpell() { // creates the zone at the party
-		t.Fatalf("hot_steam cast failed")
-	}
-	if len(game.steamZones) == 0 {
-		t.Fatalf("no steam zone created")
-	}
-	framesBefore := game.steamZones[0].FramesLeft
-	// Run a monster turn - the zone should sear the monster inside it.
-	game.turnBasedMode = true
-	for range 30 {
-		gl.updateSteamZonesRT()
-	}
-	if mon.HitPoints != 200 || game.steamZones[0].FramesLeft != framesBefore {
-		t.Fatalf("TB deliberation advanced Hot Steam: HP=%d frames=%d, want 200/%d",
-			mon.HitPoints, game.steamZones[0].FramesLeft, framesBefore)
-	}
-	game.currentTurn = 1
-	game.monsterTurnResolved = false
-	gl.updateMonstersTurnBased()
-
-	if mon.HitPoints >= 200 {
-		t.Errorf("hot_steam should damage the monster in TB (hp still %d)", mon.HitPoints)
-	}
-	wantFrames := framesBefore - turnBasedPeriodicEffectFrames(game.config.GetTPS())
-	if game.steamZones[0].FramesLeft != wantFrames {
-		t.Errorf("Hot Steam TB remainder = %d, want %d", game.steamZones[0].FramesLeft, wantFrames)
-	}
-}
-
-func TestHotSteam_FinalRTIntervalDealsBeforeExpiry(t *testing.T) {
-	game, gl, _ := tbBehaviorGame(t, 7, 7)
-	game.turnBasedMode = false
-	tps := game.config.GetTPS()
-	interval := 3 * tps
-	mon := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
-	mon.MaxHitPoints, mon.HitPoints = 200, 200
-	game.world.Monsters = []*monster.Monster3D{mon}
-	game.steamZones = []SteamZone{{
-		SpellID: "hot_steam", X: game.camera.X, Y: game.camera.Y,
-		Radius: 64, FramesLeft: interval, TickDamage: 3, IntervalFrames: interval,
-	}}
-
-	for range interval {
-		gl.updateSteamZonesRT()
-	}
-	if mon.HitPoints >= 200 {
-		t.Fatalf("final RT interval expired before dealing its due tick: HP=%d", mon.HitPoints)
-	}
-	if len(game.steamZones) != 0 {
-		t.Fatalf("expired Hot Steam zones = %d, want 0", len(game.steamZones))
-	}
-}
-
-func TestHotSteam_GMPiercesResistance(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 7, 7)
-	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
-	caster := game.party.Members[0]
-	caster.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
-	caster.Skills[character.SkillElementalMastery] = &character.Skill{Mastery: character.MasteryGrandMaster}
-
-	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
-	m.MaxHitPoints, m.HitPoints = 1000, 1000
-	m.Resistances[monster.DamageWater] = 60
-	game.world.Monsters = []*monster.Monster3D{m}
-
-	if !game.combat.CastEquippedSpell() {
-		t.Fatal("hot_steam cast failed")
-	}
-	z := &game.steamZones[0]
-	if z.ResistPierce != character.ElementalMasteryPiercePct(3) {
-		t.Fatalf("Hot Steam stored resist pierce %d, want %d", z.ResistPierce, character.ElementalMasteryPiercePct(3))
-	}
-	game.combat.damageSteamZoneOnce(z)
-	want := (z.TickDamage + z.TrueTickDamage) * 70 / 100 // 60% resistance becomes 30% after 50% pierce.
-	if got := 1000 - m.HitPoints; got != want {
-		t.Errorf("GM Hot Steam damage through 60%% water resist = %d, want %d", got, want)
-	}
-}
-
-func TestHotSteam_OutgoingBuffAppliesToZoneTicks(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 7, 7)
-	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
-	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
-
-	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
-	m.MaxHitPoints, m.HitPoints = 1000, 1000
-	m.Resistances[monster.DamageWater] = 0
-	game.world.Monsters = []*monster.Monster3D{m}
-
-	if !game.combat.CastEquippedSpell() {
-		t.Fatal("hot_steam cast failed")
-	}
-	z := &game.steamZones[0]
-	game.combat.damageSteamZoneOnce(z)
-
-	if got, want := 1000-m.HitPoints, z.TickDamage+5; got != want {
-		t.Errorf("Hot Steam tick damage with Hour of Power = %d, want %d", got, want)
-	}
-}
-
-func TestHotSteam_OverlappingZonesReplaceButSeparateZonesRemain(t *testing.T) {
+// Zones merge by TILE, not by overlap (user spec): a re-cast on the same tile is
+// one field, a cast from another tile is its own field even when the two overlap.
+// Overlap changes nothing else - no lifetime refresh, and never double damage
+// (TestZone_IntersectionOfTwoCastsBillsOnce).
+func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 20, 20)
 	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 1000, 30)
 
@@ -296,19 +190,26 @@ func TestHotSteam_OverlappingZonesReplaceButSeparateZonesRemain(t *testing.T) {
 	}
 	radius := game.steamZones[0].Radius
 
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("same-tile hot_steam cast failed")
+	}
+	if got := len(game.steamZones); got != 1 {
+		t.Fatalf("same-tile re-cast = %d zones, want 1", got)
+	}
+
 	game.camera.X += radius
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("overlapping hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 1 {
-		t.Fatalf("overlapping Hot Steam zones = %d, want 1 replacement", got)
+	if got := len(game.steamZones); got != 2 {
+		t.Fatalf("overlapping cast from another tile = %d zones, want 2", got)
 	}
 
 	game.camera.X += radius * 3
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("separate hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 2 {
-		t.Fatalf("separate Hot Steam zones = %d, want 2", got)
+	if got := len(game.steamZones); got != 3 {
+		t.Fatalf("separate cast = %d zones, want 3", got)
 	}
 }

@@ -261,8 +261,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	layout := computeTabbedMenuLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
 
 	// Draw main background and frame
-	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
-	drawNineSlice(screen, menuFrame, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
+	ui.drawPatternFrame(screen, "menu_panel_frame", layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
 
 	for i, tabInfo := range tabbedMenuTabs {
 		tabRect := layout.tabs[i]

@@ -21,6 +21,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -135,6 +136,17 @@ func TestDebugSim_ZoneGallery(t *testing.T) {
 			var a float64
 			if _, err := fmt.Sscanf(v, "%f", &a); err == nil {
 				g.camera.Angle = a
+			}
+		}
+		// RAM_ZONE_STEAM=1 casts Hot Steam at the camera first, so the shot shows
+		// the zone's bubble field (used to eyeball the bubbles themselves).
+		// RAM_ZONE_CAST=<spell id> casts a zone spell at the camera first, so the
+		// shot shows its field (hot_steam bubbles, firewall flames).
+		if id := os.Getenv("RAM_ZONE_CAST"); id != "" {
+			spellID := spells.SpellID(id)
+			if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+				g.steamZones = g.steamZones[:0]
+				g.combat.tryCastSteamZone(spellID, def, g.party.Members[0])
 			}
 		}
 		runOnDrawFrame(func(_ *ebiten.Image) {

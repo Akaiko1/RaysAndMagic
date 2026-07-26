@@ -43,12 +43,11 @@ npcs:
 
 Notes:
 - The YAML key (`fireball`) is the spells.yaml SpellID. A catalog entry only
-  authors the price: `name`, `school`, `level`, `description` and
-  `requirements` are backfilled from spells.yaml at load
+  authors the price: `name`, `school` and `description` are backfilled from
+  spells.yaml at load
   (`backfillTraderSpells`); a missing `cost` fails the load.
-- Default requirement is the spell's own level; author an explicit
-  `requirements:` block (`min_level`, `schools` list) only to override it.
-- A character must already have the matching magic school to learn the spell.
+- There are no spell-level or mastery requirements.
+- A character must already have the matching magic school open to learn the spell.
 - Dialogue strings are used. You can use `{name}`, `{spell}`, `{cost}` or printf-style placeholders.
 
 ### Merchant example (sell + buy)
@@ -167,6 +166,6 @@ The `@` marks the NPC tile; the tag binds it to your NPC key.
 ## Testing checklist
 - NPC appears at intended map location.
 - Interaction works with `T`.
-- Spell trader teaches spells with requirements and proper dialogue.
+- Spell trader teaches priced spells to characters with the matching open school.
 - Merchant buy/sell works as expected.
 - Encounter spawns monsters and rewards properly.

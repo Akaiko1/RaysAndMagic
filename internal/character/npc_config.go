@@ -157,24 +157,10 @@ type EncounterMonster struct {
 
 // NPCSpell represents a spell that an NPC can teach
 type NPCSpell struct {
-	Name         string             `yaml:"name"`
-	School       string             `yaml:"school"`
-	Level        int                `yaml:"level"`
-	Cost         int                `yaml:"cost"`
-	Description  string             `yaml:"description"`
-	Requirements *SpellRequirements `yaml:"requirements,omitempty"`
-}
-
-// SpellRequirements represents requirements to learn a spell
-type SpellRequirements struct {
-	MinLevel int                      `yaml:"min_level,omitempty"`
-	Schools  []SpellSchoolRequirement `yaml:"schools,omitempty"`
-}
-
-// SpellSchoolRequirement represents a required magic school level.
-type SpellSchoolRequirement struct {
-	School   string `yaml:"school"`
-	MinLevel int    `yaml:"min_level,omitempty"`
+	Name        string `yaml:"name"`
+	School      string `yaml:"school"`
+	Cost        int    `yaml:"cost"`
+	Description string `yaml:"description"`
 }
 
 // NPCItem represents an item that an NPC can sell
@@ -314,9 +300,11 @@ func validatePricedChoices() error {
 }
 
 // backfillTraderSpells fills each spell_trader entry's intrinsic data (name,
-// school, level, description, min-level gate) from spells.yaml keyed by the entry
-// ID, so a catalog only authors the price. Cost stays per-entry (a shop property)
-// and is required (fail-fast). Spells must already be loaded.
+// school, description) from spells.yaml keyed by the entry ID, so a catalog only
+// authors the price. Cost stays per-entry (a shop property) and is required
+// (fail-fast), so it must never be guessed. The purchase path separately
+// requires the selected character to have the matching school open.
+// Spells must already be loaded.
 func backfillTraderSpells() error {
 	if NPCConfigInstance == nil {
 		return nil
@@ -343,16 +331,8 @@ func backfillTraderSpells() error {
 			if sp.School == "" {
 				sp.School = def.School
 			}
-			if sp.Level == 0 {
-				sp.Level = def.Level
-			}
 			if sp.Description == "" {
 				sp.Description = def.Description
-			}
-			if sp.Requirements == nil {
-				// Gate purchase on the spell's own level; the school-open check is
-				// already enforced by canCharacterLearnNPCSpell.
-				sp.Requirements = &SpellRequirements{MinLevel: def.Level}
 			}
 		}
 	}

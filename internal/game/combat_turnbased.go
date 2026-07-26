@@ -414,8 +414,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		gl.game.refreshMonsterCollisionState(m)
 	}
 
-	// Monsters finished moving: spring any traps they stepped onto.
+	// Monsters finished moving: spring any traps they stepped onto, and burn
+	// whatever walked into a damage zone. The entry pass must run AFTER the moves
+	// and AFTER this round's periodic ticks stamped everyone already standing
+	// inside, or a mob in a Firewall takes one hit per round too many.
 	gl.game.combat.sweepTrapTriggers()
+	gl.applyZoneEntryDamageAll()
 
 	gl.game.turnBasedMonsterPassesLeft--
 	if gl.game.turnBasedMonsterPassesLeft > 0 {
@@ -594,6 +598,24 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 			gl.moveMonsterOffAttackTargetTileTB(monster, targetX, targetY, tileSize)
 		}
 		return // Already at player position
+	}
+
+	// Escorting ally (Bound, no enemy): holds the follow distance instead of its
+	// attack reach, melee allies included - no adjacent post to claim.
+	if monster.Bound && monster.AIFoe == nil {
+		// Distance alone would let an ally "keep formation" from the far side of a
+		// wall, so it must also SEE the party - the same pair the RT pursuit uses.
+		inFormation := Distance(monster.X, monster.Y, targetX, targetY) <= monster.PursuitReachPixels() &&
+			(gl.game.collisionSystem == nil ||
+				gl.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, targetX, targetY))
+		if inFormation {
+			return
+		}
+		if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
+			wx, wy := TileCenterFromTile(nx, ny, tileSize)
+			gl.commitMonsterMoveTB(monster, wx, wy)
+		}
+		return
 	}
 
 	// A* FIRST. In TB, melee contact is tile-adjacent only, so do not reuse the

@@ -352,9 +352,10 @@ type MMGame struct {
 	combatBuffs []TimedCombatBuff
 
 	// Persistent damage zones (Hot Steam) - see combat_zones.go.
-	steamZones   []SteamZone
-	traps        []PlacedTrap // armed thief traps (map-scoped, persisted)
-	selectedTrap int          // trap-book browse index (selection != equipped quick trap)
+	steamZones           []SteamZone
+	nextSteamZoneFieldID uint64
+	traps                []PlacedTrap // armed thief traps (map-scoped, persisted)
+	selectedTrap         int          // trap-book browse index (selection != equipped quick trap)
 
 	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
@@ -475,6 +476,11 @@ type MMGame struct {
 
 	// Depth buffer for proper 3D rendering (distance per screen column)
 	depthBuffer []float64
+	// actorDepthBuffer is the nearest MONSTER/NPC distance per column, stamped by
+	// the sorted sprite pass. Only the ground-FX families (bubble columns, tile
+	// auras, zone flames) read it: they draw after the sprites, so without it a
+	// distant field paints over a nearer creature.
+	actorDepthBuffer []float64
 	// wallTopBuffer is the screen-Y of the nearest solid wall's TOP per column
 	// (parallel to depthBuffer). Lets tall sprites (tree standees) render the
 	// part that rises ABOVE a shorter wall instead of being culled whole-column.
@@ -800,9 +806,10 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		// Threading components
 		threading: threadingComponents,
 
-		// Initialize depth buffer for proper 3D rendering
-		depthBuffer:   make([]float64, cfg.GetScreenWidth()),
-		wallTopBuffer: make([]int, cfg.GetScreenWidth()),
+		// Initialize depth buffers for proper 3D rendering.
+		depthBuffer:      make([]float64, cfg.GetScreenWidth()),
+		actorDepthBuffer: make([]float64, cfg.GetScreenWidth()),
+		wallTopBuffer:    make([]int, cfg.GetScreenWidth()),
 
 		// Pre-allocate reusable slices to reduce GC pressure
 		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
@@ -1384,6 +1391,17 @@ func (g *MMGame) turnViewFrames() int {
 	return 1
 }
 
+// setPartyPosition is the single point for placing the party: it moves the
+// camera AND the party's collision entity together. Writing the camera alone
+// leaves projectiles, monster reach and habitat checks resolving against the old
+// spot until the next ordinary step.
+func (g *MMGame) setPartyPosition(x, y float64) {
+	g.camera.X, g.camera.Y = x, y
+	if g.collisionSystem != nil {
+		g.collisionSystem.UpdateEntity("player", x, y)
+	}
+}
+
 // snapFacing is the single point for instant heading changes (loads, map
 // arrivals, new-game resets, TB cardinal snaps): it moves the logical angle AND
 // the rendered view together and cancels any in-flight turn glide, so the view
@@ -1497,7 +1515,11 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 	if screenWidth <= 0 || screenHeight <= 0 {
 		return
 	}
-	if screenWidth == g.config.Display.ScreenWidth && screenHeight == g.config.Display.ScreenHeight && len(g.depthBuffer) == screenWidth {
+	if screenWidth == g.config.Display.ScreenWidth &&
+		screenHeight == g.config.Display.ScreenHeight &&
+		len(g.depthBuffer) == screenWidth &&
+		len(g.actorDepthBuffer) == screenWidth &&
+		len(g.wallTopBuffer) == screenWidth {
 		return
 	}
 	g.config.Display.ScreenWidth = screenWidth
@@ -1506,6 +1528,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 	g.camera.FOV = squareProjectionFOV(screenWidth, screenHeight)
 
 	g.depthBuffer = make([]float64, screenWidth)
+	g.actorDepthBuffer = make([]float64, screenWidth)
 	g.wallTopBuffer = make([]int, screenWidth)
 	g.skyImg = ebiten.NewImage(screenWidth, screenHeight/2)
 	g.groundImg = ebiten.NewImage(screenWidth, screenHeight/2)
@@ -2372,7 +2395,7 @@ func (g *MMGame) ensureSelectedCharCanAct() {
 // auto-advances to the next eligible character. If nobody is left with
 // actions, ends the party turn so monsters can move.
 func (g *MMGame) consumeSelectedCharAction() {
-	if !g.turnBasedMode {
+	if !g.turnBasedMode || g.currentTurn != 0 {
 		return
 	}
 	selected := g.party.Members[g.selectedChar]

@@ -456,15 +456,42 @@ type SpellDefinitionConfig struct {
 	// through, and listed under, any of them; it files into whichever open
 	// school the learner has.
 	Schools         []string `yaml:"schools,omitempty"`
-	Level           int      `yaml:"level"`
 	SpellPointsCost int      `yaml:"spell_points_cost"`
 	// Category selects optional cast behavior. "buff" is a beneficial timed
 	// effect with no per-character real-time cooldown.
 	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
-	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
-	// fall back to SpellCooldownDefaultSecondsForLevel(level).
-	CooldownSeconds    float64 `yaml:"cooldown_seconds,omitempty"`
+	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
+	// REQUIRED - validated at load, so no spell can fall back to a guessed cadence.
+	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
+	// DamageByMastery authors the EXACT damage per mastery tier
+	// [Novice, Expert, Master, Grandmaster], for spells whose ladder is dictated
+	// rather than derived from SP cost (Earthquake 50/100/200/400 doubles; the
+	// cost-based MasteryScaledDamage cannot express that). Takes precedence over
+	// the cost formula wherever a spell authors it. Exactly 4 entries.
+	DamageByMastery []int `yaml:"damage_by_mastery,omitempty"`
+	// SummonMonster is the monster key a summon spell brings in as a party ally,
+	// capped at SummonMax live copies per caster-party. SummonHPByMastery and
+	// SummonDamageByMastery are per-tier ladders (Novice..GM) applied to the
+	// spawned monster, so the summon scales with the caster instead of the
+	// monsters.yaml baseline.
+	SummonMonster         string `yaml:"summon_monster,omitempty"`
+	SummonMax             int    `yaml:"summon_max,omitempty"`
+	SummonHPByMastery     []int  `yaml:"summon_hp_by_mastery,omitempty"`
+	SummonDamageByMastery []int  `yaml:"summon_damage_by_mastery,omitempty"`
+	// JumpTiles > 0 makes the spell a short-range self teleport: the party lands
+	// this many tiles straight ahead (blocked destination = refused, no SP).
+	JumpTiles float64 `yaml:"jump_tiles,omitempty"`
+	// Firewall placement: a ZoneWidthTiles-wide line of zone cells laid ACROSS
+	// the party's facing, ZoneAheadTiles in front. Both require zone_radius_tiles.
+	ZoneAheadTiles float64 `yaml:"zone_ahead_tiles,omitempty"`
+	ZoneWidthTiles int     `yaml:"zone_width_tiles,omitempty"`
+	// StandeeDestroyChance is the per-target chance (0..1) that the spell topples
+	// a crossed-standee tile (tree/dune/rock) it damaged.
+	StandeeDestroyChance float64 `yaml:"standee_destroy_chance,omitempty"`
+	// SparesParty exempts the caster's own party from a party-centred nova
+	// (Earthquake shakes the ground under monsters only; Inferno does not).
+	SparesParty        bool    `yaml:"spares_party,omitempty"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
@@ -1225,6 +1252,50 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 				return fmt.Errorf("spell '%s': unsupported resist_buff_school %q", id, def.ResistBuffSchool)
 			}
 			def.ResistBuffSchool = school
+		}
+		if n := len(def.DamageByMastery); n > 0 {
+			if n != 4 {
+				return fmt.Errorf("spell '%s': damage_by_mastery needs exactly 4 entries (Novice..Grandmaster), got %d", id, n)
+			}
+			for i, v := range def.DamageByMastery {
+				if v < 0 {
+					return fmt.Errorf("spell '%s': damage_by_mastery[%d] is negative", id, i)
+				}
+				if i > 0 && v < def.DamageByMastery[i-1] {
+					return fmt.Errorf("spell '%s': damage_by_mastery must not decrease (entry %d)", id, i)
+				}
+			}
+		}
+		if def.SummonMonster != "" {
+			if def.SummonMax <= 0 {
+				return fmt.Errorf("spell '%s': summon_monster requires a positive summon_max", id)
+			}
+			for name, ladder := range map[string][]int{
+				"summon_hp_by_mastery":     def.SummonHPByMastery,
+				"summon_damage_by_mastery": def.SummonDamageByMastery,
+			} {
+				if n := len(ladder); n != 0 && n != 4 {
+					return fmt.Errorf("spell '%s': %s needs exactly 4 entries (Novice..Grandmaster), got %d", id, name, n)
+				}
+			}
+		}
+		if (def.SummonMax > 0 || len(def.SummonHPByMastery) > 0 || len(def.SummonDamageByMastery) > 0) && def.SummonMonster == "" {
+			return fmt.Errorf("spell '%s': summon_max/summon ladders require summon_monster", id)
+		}
+		if (def.ZoneAheadTiles > 0 || def.ZoneWidthTiles > 0) && def.ZoneRadiusTiles <= 0 {
+			return fmt.Errorf("spell '%s': zone_ahead_tiles/zone_width_tiles require zone_radius_tiles", id)
+		}
+		if def.StandeeDestroyChance < 0 || def.StandeeDestroyChance > 1 {
+			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
+		}
+		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
+		switch {
+		case isBuff && def.CooldownSeconds != 0:
+			// Buffs return a zero RT cooldown before this field is read, so an
+			// authored value would silently do nothing.
+			return fmt.Errorf("spell '%s': category buff must not author cooldown_seconds (buffs have no real-time cooldown)", id)
+		case !isBuff && def.CooldownSeconds <= 0:
+			return fmt.Errorf("spell '%s': cooldown_seconds is required and must be > 0", id)
 		}
 		if def.MasteryDamagePerTier < 0 {
 			return fmt.Errorf("spell '%s': mastery_damage_per_tier cannot be negative", id)

@@ -23,10 +23,14 @@ type CombatSystem struct {
 	game *MMGame
 }
 
-// Animal Bonding summons are pure party allies. The owner prefix persists
-// through MonsterSave.SummonedBy and identifies their no-reward/map-exit
-// lifecycle independently of the Druid's display name.
-const animalBondingOwnerPrefix = "animal_bonding:"
+// Owner namespaces of the pure party allies. They persist through
+// MonsterSave.SummonedBy and identify the no-reward/map-exit lifecycle
+// independently of the summoner's display name; each spell also counts only its
+// own allies against summon_max.
+const (
+	animalBondingOwnerPrefix = "animal_bonding:"
+	spellSummonOwnerPrefix   = "spell:"
+)
 
 // NewCombatSystem creates a new combat system
 func NewCombatSystem(game *MMGame) *CombatSystem {
@@ -284,21 +288,10 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 		return false
 	}
 	tier := druid.SkillTier(character.SkillAnimalBonding)
-	tile := float64(cs.game.config.GetTileSize())
-	angle := rand.Float64() * 2 * math.Pi
-	sx, sy, ok := cs.findNearestSummonTile(
-		cs.game.camera.X+math.Cos(angle)*2*tile,
-		cs.game.camera.Y+math.Sin(angle)*2*tile,
-		10,
-	)
-	if !ok {
-		return false
-	}
-	bear := monsterPkg.NewMonster3DFromConfig(sx, sy, "bear", cs.game.config)
+	bear := cs.spawnPartyAlly("bear", animalBondingOwnerPrefix+druid.Name)
 	if bear == nil {
 		return false
 	}
-	markPurePartySummon(bear, animalBondingOwnerPrefix+druid.Name)
 	statPct := character.AnimalBondingStatPct(tier)
 	hpPct := character.AnimalBondingHPPct(tier)
 	bear.MaxHitPoints = druid.MaxHitPoints * hpPct / 100
@@ -320,8 +313,6 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 		attack = 1
 	}
 	bear.DamageMin, bear.DamageMax = attack, attack
-	cs.game.registerSpawnedMonster(bear)
-	cs.game.refreshMonsterCollisionState(bear)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s's Animal Bonding calls a bear ally!", druid.Name))
 	return true
 }
@@ -337,6 +328,37 @@ func markCardAlly(m *monsterPkg.Monster3D) {
 	markPurePartySummon(m, cardSummonOwner)
 }
 
+// spawnPartyAlly is THE spawn path for every pure party ally (card summons, the
+// druid's bear, summon spells): free-tile search near the party, ally tagging and
+// world/collision registration. Callers only override per-source stats on the
+// returned monster. Returns nil when no tile was free.
+func (cs *CombatSystem) spawnPartyAlly(key, owner string) *monsterPkg.Monster3D {
+	if cs.game.GetCurrentWorld() == nil {
+		return nil
+	}
+	tile := float64(cs.game.config.GetTileSize())
+	angle := rand.Float64() * 2 * math.Pi
+	sx, sy, ok := cs.findNearestSummonTile(
+		cs.game.camera.X+math.Cos(angle)*2*tile,
+		cs.game.camera.Y+math.Sin(angle)*2*tile,
+		10,
+	)
+	if !ok {
+		return nil
+	}
+	add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
+	if add == nil {
+		return nil
+	}
+	markPurePartySummon(add, owner)
+	cs.game.registerSpawnedMonster(add)
+	cs.game.refreshMonsterCollisionState(add)
+	return add
+}
+
+// markPurePartySummon tags an ally with its owner NAMESPACE - see
+// isPurePartySummon: an unregistered namespace makes the ally a valid target for
+// the party's own damage.
 func markPurePartySummon(m *monsterPkg.Monster3D, owner string) {
 	m.Bound = true
 	m.BoundFramesRemaining = 0
@@ -359,8 +381,18 @@ func isCardAlly(m *monsterPkg.Monster3D) bool {
 // the party and former enemies controlled by Bind Undead. Pure summons yield no
 // rewards, crumble on map exit, and are transparent to party attacks. Bound
 // undead deliberately satisfy none of those exclusions.
+//
+// A new ally source MUST register its owner namespace here. Missing from this
+// list it silently gets the former-enemy treatment: the party's own spells,
+// zones, splash and traps hit it, and its authored experience/gold/loot pay out
+// on death (the Ice Elemental only looked harmless because those are all 0).
 func isPurePartySummon(m *monsterPkg.Monster3D) bool {
-	return isCardAlly(m) || (m != nil && strings.HasPrefix(m.SummonedBy, animalBondingOwnerPrefix))
+	if m == nil {
+		return false
+	}
+	return isCardAlly(m) ||
+		strings.HasPrefix(m.SummonedBy, animalBondingOwnerPrefix) ||
+		strings.HasPrefix(m.SummonedBy, spellSummonOwnerPrefix)
 }
 
 // crumbleBoundAlliesOnDeparture removes the party's bound allies from the world
@@ -396,23 +428,11 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 // the party. BoundFramesRemaining 0 = never expires (the bind tick only counts
 // down values > 0), so they fight on until slain. Returns how many spawned.
 func (cs *CombatSystem) summonCardAllies(key string, n int) int {
-	tile := float64(cs.game.config.GetTileSize())
-	px, py := cs.game.camera.X, cs.game.camera.Y
 	spawned := 0
 	for attempts := 0; spawned < n && attempts < n*12+12; attempts++ {
-		angle := rand.Float64() * 2 * math.Pi
-		sx, sy, ok := cs.findNearestSummonTile(px+math.Cos(angle)*2*tile, py+math.Sin(angle)*2*tile, 10)
-		if !ok {
-			continue
+		if cs.spawnPartyAlly(key, cardSummonOwner) != nil {
+			spawned++
 		}
-		add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
-		if add == nil {
-			continue
-		}
-		markCardAlly(add)
-		cs.game.registerSpawnedMonster(add)
-		cs.game.refreshMonsterCollisionState(add)
-		spawned++
 	}
 	if spawned > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("The Orc Warlord Card rallies %d ally to your side!", spawned))
@@ -448,8 +468,35 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 }
 
 // bestKnownHealSpell returns the most powerful heal spell the caster knows
-// across all their magic schools, preferring the highest spell Level (ties
-// broken by HealAmount, then by HealParty). Returns false if they know none.
+// across all their magic schools: party heals first (Mass Heal's 10-per-member
+// outvalues a 20 single-target), then the larger HealAmount, then the pricier
+// spell, then ID for a stable pick over map-ordered spellbooks. False if none.
+// healRank orders known heals for bestKnownHealSpell. Party reach dominates raw
+// magnitude, then magnitude, then cost; the ID tail keeps the choice stable.
+type healRankKey struct {
+	party  bool
+	amount int
+	cost   int
+	id     string
+}
+
+func healRank(def spells.SpellDefinition, id spells.SpellID) healRankKey {
+	return healRankKey{party: def.HealParty, amount: def.HealAmount, cost: def.SpellPointsCost, id: string(id)}
+}
+
+func (k healRankKey) beats(other healRankKey) bool {
+	if k.party != other.party {
+		return k.party
+	}
+	if k.amount != other.amount {
+		return k.amount > other.amount
+	}
+	if k.cost != other.cost {
+		return k.cost > other.cost
+	}
+	return k.id < other.id
+}
+
 func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
 	var bestID spells.SpellID
 	var best spells.SpellDefinition
@@ -463,10 +510,7 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 			if err != nil || !def.IsHeal() {
 				continue
 			}
-			better := !found ||
-				def.Level > best.Level ||
-				(def.Level == best.Level && def.HealAmount > best.HealAmount) ||
-				(def.Level == best.Level && def.HealAmount == best.HealAmount && def.HealParty && !best.HealParty)
+			better := !found || healRank(def, id).beats(healRank(best, bestID))
 			if better {
 				bestID, best, found = id, def, true
 			}
@@ -475,8 +519,8 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 	return bestID, found
 }
 
-// CastBestHealOnTarget casts the selected character's strongest known heal (by
-// level) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
+// CastBestHealOnTarget casts the selected character's strongest known heal
+// (see bestKnownHealSpell) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
 // First Aid) ignore the requested target and heal the caster; other heals use
 // targetIndex (resolved from the mouse by the caller). Returns whether a heal
 // fired plus the spell used (for the real-time cooldown).
@@ -1509,14 +1553,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	finalDamage := cs.applyPartyMonsterAttack(monster, attack).Total()
 	cs.markMonsterHit(monster)
 	cs.trySleightOfHand(attacker, monster)
-	// Impact feedback: spark burst + light flash at the monster, plus a small
-	// damage-scaled view kick (well under a fireball's). The monster stays put
-	// and the HitTintFrames timer also drives an in-place sprite shake (see
-	// renderer) - no positional knockback. Anchor on the VISUAL position so a
-	// pulled front-diagonal monster's sparks land where it's drawn, not its tile.
-	vx, vy := cs.monsterVisualPos(monster)
-	cs.game.spawnImpactSparks(vx, vy)
-	cs.game.addScreenShake(0.05*float64(finalDamage), 2.2)
+	cs.spawnWeaponHitImpactFX(monster, finalDamage)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
 		cs.tryCardPoisonProc(monster)
@@ -4227,6 +4264,11 @@ func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCo
 // school mastery. Single source of truth for the cast (tryCastSteamZone) and the
 // tooltip, so the displayed number always matches the damage dealt.
 func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
+	// An authored ladder is the WHOLE payload (Firewall 15/30/45/60): no
+	// Intellect and no per-tier bonus on top, exactly like Inferno.
+	if len(def.DamageByMastery) == 4 {
+		return def.DamageForMastery(spellMasteryTierForSchool(char, def.School))
+	}
 	tick := def.ZoneTickDamage
 	if char != nil {
 		tick += char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
@@ -4239,12 +4281,12 @@ func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition,
 // has explicit YAML mastery scaling and never converts any part to true damage.
 func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
 	tier := 0
-	if char != nil && def.MasteryDamagePerTier > 0 {
+	if char != nil && (def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4) {
 		if school := char.MagicSchools[character.MagicSchoolID(def.School)]; school != nil {
 			tier = int(school.Mastery)
 		}
 	}
-	return def.MasteryScaledDamage(tier)
+	return def.DamageForMastery(tier)
 }
 
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
@@ -4352,6 +4394,8 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 // projectile/utility paths. Single place to register a new effect-spell type.
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	return cs.tryCastAoeStun(spellID, def) ||
+		cs.tryCastJump(def, caster) ||
+		cs.tryCastSummon(def, caster) ||
 		cs.tryCastInferno(def, caster) ||
 		cs.tryCastSteamZone(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
@@ -4406,7 +4450,16 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		}
 	}
 
-	// The party is caught in the blast too (each member's resistances apply).
+	// Ground-shaking novas topple what stands on the shaken ground.
+	if def.StandeeDestroyChance > 0 {
+		cs.topplePropsInRadius(cx, cy, radius, def.StandeeDestroyChance)
+	}
+
+	// Inferno catches the party in its own blast; a spell that spares the party
+	// (Earthquake) says so in YAML rather than in a name check here.
+	if def.SparesParty {
+		return true
+	}
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",

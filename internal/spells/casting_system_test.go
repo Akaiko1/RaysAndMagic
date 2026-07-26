@@ -21,10 +21,28 @@ func TestCalculateHealingAmountByID(t *testing.T) {
 	}
 }
 
+// The colour comes from the spell's authored graphics block, and an unknown
+// spell must report an error rather than hand back an invisible black default.
 func TestGetProjectileColor(t *testing.T) {
-	_, err := GetProjectileColor("fireball")
+	// The colour lives in config.yaml's spell graphics, so GlobalConfig must be
+	// primed; TestMain loads only spells.yaml.
+	if _, err := config.LoadConfig("../../config.yaml"); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	color, err := GetProjectileColor("fireball")
 	if err != nil {
-		t.Skipf("Skipping: GetProjectileColor returned error (likely missing spell config): %v", err)
+		t.Fatalf("fireball colour: %v", err)
+	}
+	if color == [3]int{} {
+		t.Error("fireball resolved to black - authored colour was lost")
+	}
+	for i, c := range color {
+		if c < 0 || c > 255 {
+			t.Errorf("channel %d = %d, outside 0-255", i, c)
+		}
+	}
+	if _, err := GetProjectileColor("no_such_spell"); err == nil {
+		t.Error("an unknown spell must not resolve to a colour")
 	}
 }
 

@@ -979,7 +979,7 @@ func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {
 func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	x, y, w, h := combatLogPanelLayout(ui.game)
 	drawFilledRect(screen, 0, 0, ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight(), color.RGBA{0, 0, 0, 150})
-	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), x, y, w, h, menuPanelFrameSlice)
+	ui.drawPatternFrame(screen, "menu_panel_frame", x, y, w, h, menuPanelFrameSlice)
 	drawCenteredDebugText(screen, "GAME LOG", x, y+18, w, 20)
 
 	closeX, closeY := x+w-30, y+8

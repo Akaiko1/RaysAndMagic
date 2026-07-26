@@ -914,6 +914,25 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 	return attackRange
 }
 
+// AllyFollowDistanceTiles is the escort distance every party ally holds when it
+// has no enemy to hunt. Attack range must not double as follow distance: an ally
+// with 11-tile reach would never take a step.
+const AllyFollowDistanceTiles = 3.0
+
+// PursuitReachPixels is the distance that satisfies pursuit of the current AI
+// target: attack range against a real target, escort distance while following the
+// party. Read by RT pursuit and both A* goal pickers - the one follow-distance
+// knob for every ally.
+func (m *Monster3D) PursuitReachPixels() float64 {
+	if m == nil {
+		return 0
+	}
+	if m.Bound && m.AIFoe == nil {
+		return AllyFollowDistanceTiles * m.tileSize()
+	}
+	return m.GetAttackRangePixels()
+}
+
 func (m *Monster3D) GetSpriteType() string {
 	if m.cachedSprite != "" {
 		return m.cachedSprite

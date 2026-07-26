@@ -37,10 +37,9 @@ func (g *MMGame) syncOpenWorldRegion() {
 		// retains the previous region as well so both sides of the seam render.
 		g.gameLoop.renderer.scheduleMapRenderResourcePrewarm(r.MapKey)
 	}
-	// A region cross IS a map departure: bound undead crumble (XP granted),
-	// card allies vanish - same rules as a split-map switch. Charmed monsters
-	// are Pacified, not Bound, so they stay put untouched.
-	g.crumbleBoundAlliesOnDeparture(g.world)
+	// A region cross is NOT a departure: the world never changes, so every ally
+	// (summons and bound undead alike) simply walks on with the party. Allies
+	// crumble only on a real world switch - switchToMap, e.g. into a dungeon.
 	g.updateSkyAndGroundColorsFaded()
 	g.registerVisitedTownPortalDestination()
 	if g.gameLoop != nil && g.gameLoop.ui != nil {

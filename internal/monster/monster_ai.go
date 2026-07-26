@@ -276,7 +276,7 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 		m.BeginCombatEngagement()
 	}
 	los := checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
-	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.GetAttackRangePixels() && los) ||
+	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.PursuitReachPixels() && los) ||
 		m.meleeTileAdjacent(targetX, targetY, checker)
 	if !inReach || !m.canClaimAttackPost(checker, targetX, targetY) {
 		if m.State != StatePursuing {
@@ -638,7 +638,7 @@ func (m *Monster3D) updateLootGuarding(collisionChecker CollisionChecker) {
 func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
-	attackRange := m.GetAttackRangePixels()
+	attackRange := m.PursuitReachPixels()
 	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
 
 	// Check if close enough to attack (pixel range, or melee tile-adjacency so a
@@ -1334,7 +1334,8 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	// Using only the melee radius made ranged mobs (e.g. dragons) path to melee
 	// distance; when those near tiles were unreachable (party blocking a bridge)
 	// they orbited without ever stopping at firing range.
-	reach := m.GetAttackRangePixels()
+	// An escorting ally's goal ring is the follow distance, not its firing range.
+	reach := m.PursuitReachPixels()
 	melee := !m.HasRangedAttack()
 	attackPosts := m.usesAttackPosts()
 	radiusTiles := int(math.Ceil(reach / m.tileSize()))
@@ -1361,7 +1362,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 				continue
 			}
 			if melee {
-				if adjacent && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
+				if !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
 					continue
 				}
 				if !adjacent && distance(targetX, targetY, centerX, centerY) > reach+0.1 {
@@ -1478,7 +1479,7 @@ func (m *Monster3D) updateAlert(collisionChecker CollisionChecker, playerX, play
 
 		// If close enough to attack, switch to attacking
 		// Use a slightly tighter radius to prevent shaking at the boundary
-		attackRange := m.GetAttackRangePixels()
+		attackRange := m.PursuitReachPixels()
 		enterFraction := 0.9
 		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
 			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
@@ -1557,7 +1558,7 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
 	// at <=0.9xrange, so exiting at >range keeps a clean hysteresis band.)
 	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
-	if m.IsEngagingPlayer && (distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() || !hasLOS) &&
+	if m.IsEngagingPlayer && (distance(m.X, m.Y, playerX, playerY) > m.PursuitReachPixels() || !hasLOS) &&
 		!m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 		m.State = StatePursuing
 		m.StateTimer = 0

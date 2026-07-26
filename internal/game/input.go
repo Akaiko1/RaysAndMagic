@@ -1244,6 +1244,14 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
+	ih.applyLandingTileEffects()
+}
+
+// applyLandingTileEffects runs whatever the tile under the party does on arrival:
+// an auto-teleporter fires, deep water drops them to the underwater map. Every
+// arrival (a step, a TB move, a Jump) must go through it, or the party can stand
+// on a live teleporter doing nothing.
+func (ih *InputHandler) applyLandingTileEffects() {
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }
@@ -1317,9 +1325,7 @@ func (ih *InputHandler) checkTeleporter() {
 	}
 
 	// Same-map teleport: keep the party's heading, no map-change autosave.
-	ih.game.camera.X = newX
-	ih.game.camera.Y = newY
-	ih.game.collisionSystem.UpdateEntity("player", newX, newY)
+	ih.game.setPartyPosition(newX, newY)
 	if ih.game.turnBasedMode {
 		ih.game.snapToCardinalDirection()
 	}
@@ -1440,12 +1446,8 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 // what guarantees the autosave can't capture stale pre-switch coordinates - the
 // ordering invariant lives in one place instead of being copy-pasted per caller.
 func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
-	ih.game.camera.X = x
-	ih.game.camera.Y = y
+	ih.game.setPartyPosition(x, y)
 	ih.game.snapFacing(angle)
-	if ih.game.collisionSystem != nil {
-		ih.game.collisionSystem.UpdateEntity("player", x, y)
-	}
 	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
 	// would otherwise leave the party at 45deg on the new map.
 	if ih.game.turnBasedMode {
@@ -2002,9 +2004,9 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		return
 	}
 
-	// Check if character can learn this spell (class restrictions) - reuse UI logic
+	// The matching magic school must already be open.
 	if !canCharacterLearnNPCSpell(selectedChar, spellData) {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (requirements not met)", selectedChar.Name, spellData.Name))
+		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (matching magic school is not open)", selectedChar.Name, spellData.Name))
 		return
 	}
 
@@ -2512,12 +2514,9 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 
 	// In turn-based mode, if the tile is passable, we should always be able to move there
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
-	ih.game.camera.X = targetX
-	ih.game.camera.Y = targetY
-	ih.game.collisionSystem.UpdateEntity("player", targetX, targetY)
+	ih.game.setPartyPosition(targetX, targetY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
-	ih.checkTeleporter()
-	ih.checkDeepWater()
+	ih.applyLandingTileEffects()
 	return true
 }
 

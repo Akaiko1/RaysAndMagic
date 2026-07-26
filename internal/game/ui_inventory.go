@@ -420,11 +420,11 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	portraitX, portraitY, portraitSize := layout.portrait.x, layout.portrait.y, layout.portrait.w
 	scrollX, scrollY := layout.scroll.x, layout.scroll.y
-	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), layout.scroll.x, layout.scroll.y, layout.scroll.w, layout.scroll.h, 16)
+	ui.drawPatternFrame(screen, "character_scroll_panel", layout.scroll.x, layout.scroll.y, layout.scroll.w, layout.scroll.h, 16)
 
 	portraitName := ui.game.fullPortraitSpriteName(member)
 	portrait := ui.game.sprites.GetSprite(portraitName)
-	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
+	ui.drawPatternFrame(screen, "menu_panel_frame", layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
 	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
 
 	// Light text over a dark outline (drawDebugTextShadowed): white body for
@@ -569,6 +569,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			if !ok || ms == nil {
 				continue
 			}
+			// "Fire 1 (Novice)": the number is the derived mastery label
+			// (Mastery+1), never a spell level - spells have no level.
 			line := fmt.Sprintf("%s %d (%s)",
 				school.DisplayName(), ms.Level(), ms.Mastery)
 			x := col1X
@@ -855,7 +857,7 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
 	}
 	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
+	drawCenteredDebugText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, debugTextCharHeight)
 	if currentChar.SpellPoints < cost {
 		// Red icon outline signals "not enough SP".
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})

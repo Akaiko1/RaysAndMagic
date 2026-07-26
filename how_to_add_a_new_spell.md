@@ -16,8 +16,8 @@ spells:
     name: "Ice Shard"
     description: "Launches a shard of ice"
     school: "water"
-    level: 2
     spell_points_cost: 6   # damage derives from this: cost x 3 (SpellDamagePerSP)
+    cooldown_seconds: 1.0  # required for every castable spell (forbidden on category: buff)
     duration: 0
     projectile_size: 12
     is_projectile: true
@@ -42,8 +42,8 @@ spells:
     name: "Greater Heal"
     description: "Powerful healing magic"
     school: "body"
-    level: 3
     spell_points_cost: 8
+    cooldown_seconds: 1.5
     duration: 0
     heal_amount: 35
     is_projectile: false
@@ -94,23 +94,13 @@ Choose one (or more):
 - Add to `assets/level_up.yaml` as a level-up choice.
 - Add to a spell trader in `assets/npcs.yaml`.
 
-## Spell trader requirements
-A trader catalog entry only needs `cost: N` - name, school, level, description
-and requirements are backfilled from spells.yaml at load
-(`backfillTraderSpells`; a missing `cost` fails the load). When `requirements`
-is omitted it defaults to the spell's own `level` as `min_level`. Author an
-explicit block only to override that:
+## Spell trader availability
+A trader catalog entry only needs `cost: N` - name, school and description are
+backfilled from spells.yaml at load (`backfillTraderSpells`; a missing `cost`
+fails the load).
 
-```yaml
-requirements:
-  min_level: 3
-  schools:
-    - school: "water"
-      min_level: 1
-```
-
-A character must already have the spell's school open (and meet `min_level`)
-to learn from an NPC.
+There are no spell-level or mastery requirements. A character only needs the
+spell's matching magic school to be open before learning it from an NPC.
 
 ## Testing checklist
 - YAML loads without errors.

@@ -763,21 +763,14 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	// Hover tooltip - name + school + cost + requirements.
+	// Hover tooltip - name + school + cost. Buying needs only an open school:
+	// availability is priced and stocked per trader, not gated by level.
 	if hoverSpellIdx >= 0 {
 		spellKey := spellKeys[hoverSpellIdx]
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 		lines := []string{
 			npcSpell.Name,
 			fmt.Sprintf("%s school   %d gold", config.TitleWords(npcSpell.School), npcSpell.Cost),
-		}
-		if npcSpell.Requirements != nil {
-			if npcSpell.Requirements.MinLevel > 0 {
-				lines = append(lines, fmt.Sprintf("Requires char level %d", npcSpell.Requirements.MinLevel))
-			}
-			for _, req := range npcSpell.Requirements.Schools {
-				lines = append(lines, fmt.Sprintf("Requires %s magic L%d", config.TitleWords(req.School), req.MinLevel))
-			}
 		}
 		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}

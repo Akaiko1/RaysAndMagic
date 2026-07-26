@@ -303,10 +303,11 @@ func TestOpenWorldClearedRegionStaysCleared(t *testing.T) {
 	}
 }
 
-// TestOpenWorldRegionCrossCrumblesBoundAllies: crossing a region seam IS a
-// map departure - a bound undead crumbles and pays its XP, a card ally
-// vanishes yielding nothing, and a charmed (pacified) monster stays.
-func TestOpenWorldRegionCrossCrumblesBoundAllies(t *testing.T) {
+// TestOpenWorldRegionCrossKeepsAllies: crossing a region seam is NOT a map
+// departure. Every ally walks on with the party - pure summons, bound undead and
+// charmed monsters alike - and nothing pays out. Allies crumble only on a real
+// world switch (open world -> dungeon).
+func TestOpenWorldRegionCrossKeepsAllies(t *testing.T) {
 	t.Chdir("../..")
 
 	g, wm, cfg := bootOpenWorldGame(t, true)
@@ -327,8 +328,8 @@ func TestOpenWorldRegionCrossCrumblesBoundAllies(t *testing.T) {
 	if bound == nil || ally == nil || charmed == nil {
 		t.Fatal("failed to spawn test monsters")
 	}
-	bound.Bound = true // spell-bound former enemy: crumbles WITH an XP payout
-	markCardAlly(ally) // pure summon: crumbles yielding nothing
+	bound.Bound = true // spell-bound former enemy
+	markCardAlly(ally) // pure summon
 	charmed.Pacified = true
 	wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, bound, ally, charmed)
 
@@ -351,11 +352,11 @@ func TestOpenWorldRegionCrossCrumblesBoundAllies(t *testing.T) {
 	for _, m := range wm.OpenWorld.Monsters {
 		alive[m] = true
 	}
-	if alive[bound] {
-		t.Error("bound undead survived the region cross")
+	if !alive[bound] {
+		t.Error("bound undead crumbled on a region cross - it must follow the party")
 	}
-	if alive[ally] {
-		t.Error("card ally survived the region cross")
+	if !alive[ally] {
+		t.Error("summoned ally crumbled on a region cross - it must follow the party")
 	}
 	if !alive[charmed] {
 		t.Error("charmed monster was removed on region cross - it must stay")
@@ -364,8 +365,8 @@ func TestOpenWorldRegionCrossCrumblesBoundAllies(t *testing.T) {
 	for _, m := range g.party.Members {
 		xpAfter += m.Experience
 	}
-	if xpAfter <= xpBefore {
-		t.Error("bound undead crumbled without its XP payout")
+	if xpAfter != xpBefore {
+		t.Errorf("a region cross paid out XP (%d -> %d): nothing crumbled, nothing is owed", xpBefore, xpAfter)
 	}
 }
 
@@ -404,5 +405,35 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	}
 	if far.HitPoints != farBefore {
 		t.Errorf("cross-region monster burned by MapWide nova (HP %d -> %d)", farBefore, far.HitPoints)
+	}
+}
+
+// Earthquake replaces a toppled prop with the floor of the region that OWNS the
+// tile: an 8-tile radius can straddle a seam, and one biome for the whole blast
+// would drop a neighbour region's ground into this one.
+func TestOpenWorldBiomeIsResolvedPerTile(t *testing.T) {
+	t.Chdir("../..")
+
+	g, wm, _ := bootOpenWorldGame(t, true)
+	ts := float64(g.config.GetTileSize())
+
+	fx, fy, ok := wm.OpenWorldRegionStart("forest")
+	if !ok {
+		t.Fatal("forest region has no start")
+	}
+	hx, hy, ok := wm.OpenWorldRegionStart("highlands")
+	if !ok {
+		t.Fatal("highlands region has no start")
+	}
+	g.camera.X, g.camera.Y = fx, fy
+	g.syncOpenWorldRegion()
+
+	forestBiome := g.biomeAtTile(int(fx/ts), int(fy/ts))
+	highlandsBiome := g.biomeAtTile(int(hx/ts), int(hy/ts))
+	if forestBiome == "" || highlandsBiome == "" {
+		t.Fatalf("biome unresolved: forest=%q highlands=%q", forestBiome, highlandsBiome)
+	}
+	if forestBiome == highlandsBiome {
+		t.Fatalf("both regions resolved to %q - the party's region was used for a foreign tile", forestBiome)
 	}
 }

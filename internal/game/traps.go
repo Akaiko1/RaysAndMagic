@@ -344,9 +344,18 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
 	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
 	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
-	cs.markMonsterHit(m)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
+	cs.reportIndirectHit(m, actual, sourceName)
 	cs.finishIndirectKill(m)
+}
+
+// reportIndirectHit shows a trap/zone hit exactly like a weapon hit minus the
+// view kick: flash, sparks, and a log line with damage and remaining HP. Kill
+// credit stays with finishIndirectKill, which the caller runs next.
+func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
+	cs.markMonsterHit(m)
+	cs.spawnHitSparks(m)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s! (HP: %d/%d)",
+		m.Name, dealt, sourceName, m.HitPoints, m.MaxHitPoints))
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,

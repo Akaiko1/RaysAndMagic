@@ -104,45 +104,11 @@ func TestMapSwitchRemovesCrumbledBoundAllyCollision(t *testing.T) {
 	}
 }
 
-// A card ally with no enemy to hunt tags along with the party (its AI target is
-// the party), rather than parking in place.
-func TestCardAllyFollowsPartyWhenIdle(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 20, 20)
-	placePlayerAtTile(game, 10, 10, ts)
-	huntress := monsterPkg.NewMonster3DFromConfig(float64(3)*ts, float64(3)*ts, "masked_huntress", game.config)
-	markCardAlly(huntress)
-	game.world.Monsters = []*monsterPkg.Monster3D{huntress} // no enemy on the map
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	game.refreshMonsterAIState()
-	if huntress.AIFoe != nil {
-		t.Fatal("no enemy present - the card ally should have no foe")
-	}
-	tx, ty := game.combat.monsterAITargetPoint(huntress)
-	if tx != game.camera.X || ty != game.camera.Y {
-		t.Errorf("idle card ally should target the party (%.0f,%.0f), got (%.0f,%.0f)", game.camera.X, game.camera.Y, tx, ty)
-	}
-}
-
-// Bind Undead uses the same idle-follow fallback as a card ally. It still
-// switches to a hostile target as soon as one is found by the per-frame cache.
-func TestBoundUndeadFollowsPartyWhenIdle(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 20, 20)
-	placePlayerAtTile(game, 10, 10, ts)
-	skel := monsterPkg.NewMonster3DFromConfig(float64(3)*ts, float64(3)*ts, "skeleton", game.config)
-	game.combat.applyBindUndead(skel, 300, "Bind Undead")
-	game.world.Monsters = []*monsterPkg.Monster3D{skel} // no enemy on the map
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	game.refreshMonsterAIState()
-	if skel.AIFoe != nil {
-		t.Fatal("no enemy present - the bound undead should have no foe")
-	}
-	tx, ty := game.combat.monsterAITargetPoint(skel)
-	if tx != game.camera.X || ty != game.camera.Y {
-		t.Errorf("idle bound undead should target the party (%.0f,%.0f), got (%.0f,%.0f)", game.camera.X, game.camera.Y, tx, ty)
-	}
-}
+// Idle-follow used to be pinned here by asserting only that monsterAITargetPoint
+// returns the party. That is the INTENT, not the outcome: an ally can target the
+// party and never take a step (a summon with 11-tile reach did exactly that). The
+// real guard now measures the settled distance per reach class in
+// ally_control_test.go.
 
 // A charmed mob snaps out of the charm and re-aggros both on any hit and when
 // the charm wears off; then, being an ordinary enemy again, it rewards the party
