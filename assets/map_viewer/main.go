@@ -100,6 +100,15 @@ type viewer struct {
 	dragLastX   int
 	dragLastY   int
 
+	// Left-button drag of map content (see drag_objects.go). pendingGrab is a
+	// press on an object that has not moved yet - it only becomes a drag (grab)
+	// once the cursor leaves the cell, so a plain click still reaches the brush
+	// and the eraser. dragPainted remembers the cells a held brush already
+	// painted, so drag-painting writes each cell once.
+	pendingGrab dragState
+	grab        dragState
+	dragPainted map[[2]int]bool
+
 	// gameSprites renders popup sprites through the game's own load pipeline
 	// (color key / despill), so they look exactly as in-game.
 	gameSprites *graphics.SpriteManager
@@ -438,10 +447,74 @@ func (v *viewer) Update() error {
 		}
 	}
 
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		v.handleMouseClick()
-	}
+	v.updateMapDrag()
 	return nil
+}
+
+// updateMapDrag owns the left button over the map: a press on an object grabs
+// it and the release drops it on the hovered cell, while a press on bare ground
+// keeps painting with the current brush (held = paint a stroke).
+func (v *viewer) updateMapDrag() {
+	if len(v.maps) == 0 {
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			v.handleMouseClick()
+		}
+		return
+	}
+	m := &v.maps[v.mapIndex]
+	lay := v.computeLayout(*m)
+	mx, my := ebiten.CursorPosition()
+	tx, ty, overMap := hoveredMapTile(lay, mx, my)
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) && v.grab.active() {
+		v.grab = dragState{}
+		return
+	}
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if overMap {
+			// A press on content only ARMS a drag. The gesture is decided by
+			// movement: releasing on the same cell is a click, so the brush and
+			// the eraser keep working on occupied cells.
+			if g := grabAt(m, tx, ty); g.active() {
+				v.pendingGrab = g
+				return
+			}
+			v.dragPainted = map[[2]int]bool{{tx, ty}: true}
+		}
+		v.handleMouseClick()
+		return
+	}
+
+	held := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	if !held {
+		switch {
+		case v.grab.active():
+			if overMap {
+				v.dropAt(m, v.grab, tx, ty, dragCopyHeld())
+			}
+		case v.pendingGrab.active():
+			v.handleMouseClick() // never left the cell: plain click, brush applies
+		}
+		v.grab, v.pendingGrab, v.dragPainted = dragState{}, dragState{}, nil
+		return
+	}
+
+	// Armed press that has left its cell becomes a real drag.
+	if !v.grab.active() && dragShouldPromote(v.pendingGrab, tx, ty, overMap) {
+		v.grab = v.pendingGrab
+	}
+
+	// Held with nothing grabbed: extend the brush stroke across new cells.
+	// Spawning brushes are excluded - dragging one would litter the stroke with
+	// monsters/NPCs on every cell the cursor crossed.
+	if !v.grab.active() && overMap && v.dragPainted != nil && !v.dragPainted[[2]int{tx, ty}] {
+		switch v.brush.kind {
+		case brushTile, brushGeneral, brushEraser:
+			v.dragPainted[[2]int{tx, ty}] = true
+			v.applyBrush(m, tx, ty)
+		}
+	}
 }
 
 func (v *viewer) Draw(screen *ebiten.Image) {
@@ -498,6 +571,7 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 
 	if !v.saveDialogOpen {
+		v.drawDragGhost(screen, lay)
 		v.drawMapHoverTooltip(screen, m, lay)
 		v.drawShiftSpritePopup(screen, m, lay)
 	}
@@ -692,8 +766,8 @@ func (v *viewer) hoveredSprite(m mapInfo, lay layout) (caption, sprite string) {
 // drawShiftSpritePopup shows the hovered subject's FULL sprite while Shift is
 // held - over a legend row or a map tile.
 func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layout) {
-	if !ebiten.IsKeyPressed(ebiten.KeyShift) {
-		return
+	if !shiftHeld() || v.grab.active() {
+		return // Shift means "copy" mid-drag; the popup would cover the ghost
 	}
 	caption, sprite := v.hoveredSprite(m, lay)
 	if sprite == "" || v.gameSprites == nil || !v.gameSprites.HasSprite(sprite) {
@@ -1641,22 +1715,68 @@ func drawCenteredLabel(screen *ebiten.Image, label string, r rect) {
 	ebitenutil.DebugPrintAt(screen, label, x, y)
 }
 
+// Shared cell primitives. Each of these used to be spelled out at several call
+// sites (the "." letter, the floor_only test, the three-list clear), which is how
+// the drag path and the brush path started drifting apart.
+
+// floorLetter is the map letter for plain ground - what a cleared or vacated
+// cell becomes.
+const floorLetter = "."
+
+// isFloorTile reports plain walkable ground: nothing to pick up, and what an
+// entity stands on. Render class comes from the tile manager, like the game.
+func isFloorTile(tile world.TileType3D) bool {
+	if world.GlobalTileManager == nil {
+		return false
+	}
+	data := world.GlobalTileManager.GetTileData(tile)
+	return data != nil && data.RenderType == renderTypeFloorOnly
+}
+
+const renderTypeFloorOnly = "floor_only"
+
+// tileLabel is the authored tile key, for status lines and tooltips.
+func tileLabel(tile world.TileType3D) string {
+	if world.GlobalTileManager == nil {
+		return "tile"
+	}
+	if key := world.GlobalTileManager.GetTileKey(tile); key != "" {
+		return key
+	}
+	return "tile"
+}
+
+// clearMapCellSpawns drops every spawn bound to (tx, ty). The brush and a drag
+// drop share it - both write one cell and must clear the same three lists.
+func clearMapCellSpawns(m *mapInfo, tx, ty int) {
+	if m == nil || m.Data == nil {
+		return
+	}
+	m.Data.MonsterSpawns = removeMonsterAt(m.Data.MonsterSpawns, tx, ty)
+	m.Data.NPCSpawns = removeNPCAt(m.Data.NPCSpawns, tx, ty)
+	m.Data.SpecialTileSpawns = removeSpecialAt(m.Data.SpecialTileSpawns, tx, ty)
+}
+
+// shiftHeld is the one Shift test in the viewer (sprite popup, drag-copy).
+func shiftHeld() bool {
+	return ebiten.IsKeyPressed(ebiten.KeyShift) ||
+		ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+}
+
 func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 	if m == nil || m.Data == nil || v.tileManager == nil {
 		return
 	}
 
-	m.Data.MonsterSpawns = removeMonsterAt(m.Data.MonsterSpawns, tx, ty)
-	m.Data.NPCSpawns = removeNPCAt(m.Data.NPCSpawns, tx, ty)
-	m.Data.SpecialTileSpawns = removeSpecialAt(m.Data.SpecialTileSpawns, tx, ty)
+	clearMapCellSpawns(m, tx, ty)
 
 	switch v.brush.kind {
 	case brushEraser:
-		v.setTile(m, tx, ty, ".")
+		v.setTile(m, tx, ty, floorLetter)
 	case brushTile:
 		v.setTile(m, tx, ty, v.brush.letter)
 	case brushMonster:
-		v.setTile(m, tx, ty, ".")
+		v.setTile(m, tx, ty, floorLetter)
 		if v.brush.monsterKey != "" {
 			m.Data.MonsterSpawns = append(m.Data.MonsterSpawns, world.MonsterSpawn{
 				X:          tx,
@@ -1666,7 +1786,7 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 		}
 	case brushNPC:
 		// NPC sits on empty ground; saved as an `@` bound to the npc key.
-		v.setTile(m, tx, ty, ".")
+		v.setTile(m, tx, ty, floorLetter)
 		if v.brush.npcKey != "" {
 			m.Data.NPCSpawns = append(m.Data.NPCSpawns, world.NPCSpawn{
 				X:      tx,
@@ -1678,7 +1798,7 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 		// Special tile (teleporter/trap/...) sits on empty ground; saved as an
 		// `@` bound to a [stile:key] def. TileType is resolved so the on-map
 		// overlay + teleporter registration match the game.
-		v.setTile(m, tx, ty, ".")
+		v.setTile(m, tx, ty, floorLetter)
 		if v.brush.tileKey != "" {
 			tileType, ok := v.tileManager.GetTileTypeFromKey(v.brush.tileKey)
 			if ok {
@@ -1941,7 +2061,7 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 		return color.RGBA{200, 70, 70, 255}, true
 	}
 	if data != nil {
-		if data.RenderType == "floor_only" {
+		if data.RenderType == renderTypeFloorOnly {
 			if key == "empty" {
 				return floorColor, true
 			}

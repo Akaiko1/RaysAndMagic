@@ -48,7 +48,10 @@ Controls:
 - Mouse wheel or PgUp/PgDn/Up/Down to scroll legend
 - Mouse wheel to zoom the map; right-drag to pan
 - Click legend entry to choose a brush
-- Click on the map to paint (in-memory only)
+- Click on the map to paint (in-memory only); HOLD to paint a stroke (tile/decor/eraser brushes)
+- Hold the left button on a monster, NPC, special tile or prop to DRAG it to another cell
+  (drop on the source cell changes nothing, Esc cancels the drag)
+- Hold Shift while releasing a drag to COPY instead of move (ghost turns green)
 - E to select the eraser quickly
 - Toolbar buttons for Brush/Eraser/Save (bottom of map panel)
 - Save opens a path prompt; Enter saves, Esc cancels

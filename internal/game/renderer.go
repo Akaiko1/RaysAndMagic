@@ -2954,6 +2954,29 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 	screen.DrawImage(r.whiteImg, opts)
 }
 
+// drawGlowRectRotated draws a solid quad at an angle - what makes a rock chunk
+// angular, a chain link oriented and a crystal facetted instead of a round blob.
+func (r *Renderer) drawGlowRectRotated(screen *ebiten.Image, x, y, w, h, angle float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
+	if w <= 0 || h <= 0 || alpha <= 0 {
+		return
+	}
+	opts := &r.glowOpts
+	opts.GeoM.Reset()
+	opts.GeoM.Translate(-0.5, -0.5) // rotate about the quad's centre
+	opts.GeoM.Scale(w, h)
+	opts.GeoM.Rotate(angle)
+	opts.GeoM.Translate(x, y)
+	opts.ColorScale.Reset()
+	opts.ColorScale.Scale(
+		float32(rgb[0])/255,
+		float32(rgb[1])/255,
+		float32(rgb[2])/255,
+		float32(alpha),
+	)
+	opts.Blend = blend
+	screen.DrawImage(r.whiteImg, opts)
+}
+
 func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, bool) {
 	if vx == 0 && vy == 0 {
 		return 0, false

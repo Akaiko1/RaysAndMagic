@@ -66,6 +66,7 @@ spells:
       min_size: 3
       base_size: 12
       color: [255, 255, 100]   # Bright yellow-orange
+      projectile_fx: fire_dart
 
   darkbolt:
     # Basic spell properties
@@ -91,6 +92,7 @@ spells:
       min_size: 3
       base_size: 12
       color: [140, 80, 200]   # Violet shadow
+      projectile_fx: shadow_bolt
 
   alien_dark_bolt:
     # Basic spell properties
@@ -118,6 +120,7 @@ spells:
       min_size: 3
       base_size: 12
       color: [120, 60, 160]   # Deep violet
+      projectile_fx: void_needle
 
   ice_bolt:
     # Basic spell properties
@@ -143,6 +146,7 @@ spells:
       min_size: 3
       base_size: 12
       color: [150, 200, 255]   # Light blue/cyan
+      projectile_fx: ice_shard
 
   lightning:
     # Basic spell properties
@@ -304,6 +308,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [180, 120, 220]   # pale binding light
+      projectile_fx: shackle
 
   resurrect:
     name: "Resurrect"
@@ -469,6 +474,7 @@ spells:
       min_size: 2
       base_size: 9
       color: [200, 220, 255]   # pale electric blue
+      projectile_fx: sparks
 
   rock_blast:
     name: "Rock Blast"
@@ -488,7 +494,8 @@ spells:
       max_size: 44
       min_size: 3
       base_size: 12
-      color: [150, 100, 50]    # earthy brown
+      color: [150, 100, 50]   # earthy brown
+      projectile_fx: rock
 
   deadly_swarm:
     name: "Deadly Swarm"
@@ -509,7 +516,8 @@ spells:
       max_size: 46
       min_size: 3
       base_size: 13
-      color: [120, 140, 60]    # sickly green-brown
+      color: [120, 140, 60]   # sickly green-brown
+      projectile_fx: swarm
 
   stun:
     name: "Stun"
@@ -566,6 +574,7 @@ spells:
       min_size: 2
       base_size: 11
       color: [170, 190, 255]   # pale mind-blue
+      projectile_fx: psi_lance
 
   spirit_lash:
     name: "Spirit Lash"
@@ -586,6 +595,7 @@ spells:
       min_size: 2
       base_size: 11
       color: [210, 185, 255]   # pale violet
+      projectile_fx: lash
 
   # ===========================================================================
   # NEW SPELLS - batch 2/3 (party buffs, heals, charm, nova, zone, VFX)
@@ -693,6 +703,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [255, 150, 220]   # rosy charm light
+      projectile_fx: charm_bloom
 
   inferno:
     name: "Inferno"
@@ -881,6 +892,7 @@ spells:
       min_size: 4
       base_size: 16
       color: [150, 190, 130]   # mossy granite-green
+      projectile_fx: stone_bud
 
 # =============================================================================
 # SPELL ADDING INSTRUCTIONS
