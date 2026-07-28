@@ -56,7 +56,7 @@
 #   stop; a WAYSTONE (26-28,1) stone-heather-stone, reserved for a future
 #   cross-map thread.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%.T..S..T..HH....T...T.A.TAHAVV.VVVVVVV..VVV%
+%.T@.S..T..HH....T...T.A.TAHAVV.VVVVVVV..VVV%  >[npc:chest_wooden]
 %.AAAS........%%%%%%%%%........y.VVBBBBBB..V%
 %.A@A.S.v...%%..HH.....%%.......VVVB.y@.B.VV%  >[npc:spell_lectern], [npc:dragon_cliffs_bone_lair]
 %.A.A.S..........H....AA.%...eVVV..Be...B..V%
@@ -76,15 +76,15 @@
 %CCCCCCCCMMCCCCCCCCCCCCCCCCJJJJJJJJJJJBNBJJJ%
 %CCCCCCCCMMCCCJJJJJJJJJJJJ..................%
 %JJJJJJJJMMJJJ...A..........................%
-%.......A..A.....A...TT.......A..AA..A......%
+%......@A..A.....A...TT.......A..AA..A......%  >[npc:chest_wooden]
 %.TTTTTT..TT.T.R..............H....WWWW.D...%
 %..........T..T.R.R...H....R.R....WWWWWWW...%
 %...@......T.....R.HH....H.R.R...WWWWWWWWW..%  >[npc:tavern]
 %......@...T.......R.R......R....WQQQ@QQQW..%  >[npc:dragon_cliffs_ranger], [npc:chest_golden]
-%.@........T...TT..R@R...........WQQQQQQQW..%  >[npc:chest_wooden], [npc:dragon_cliffs_bone_hermit]
+%..........T...TT..R@R...........WQQQQQQQW..%  >[npc:dragon_cliffs_bone_hermit]
 %....+.....T...T...RRR...........MMWWWWWW...%
 %.........@...HH.......AA......HH..WWWW.....%  >[stile:vteleporter]
-%.......@....HHHH......Rv.HH........WW...D..%  >[npc:chest_wooden]
+%............HHHH......Rv.HH........WW...D..%
 %.TT.................A...RA...HH.A.....HH...%
 %................H...................H......%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
