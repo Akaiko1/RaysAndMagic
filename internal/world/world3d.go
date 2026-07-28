@@ -353,22 +353,29 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
-	// Fly: the party passes through ANYTHING except the map's border ring -
-	// the edge stays solid so the party can never leave the map. The unified
-	// world adds its void filler (flyBoundary) so flight cannot leave a
-	// region except through a carved passage. MOVEMENT only: projectiles keep
-	// real terrain collision (isTileBlockingTerrain), or every bolt would
-	// sail through walls while the party flies.
 	if w.flyActive {
-		if tileX == 0 || tileY == 0 || tileX == w.Width-1 || tileY == w.Height-1 {
-			return true
-		}
-		if w.flyBoundary != nil && w.flyBoundary(tileX, tileY) {
-			return true
-		}
-		return false
+		return w.IsTileBlockingForFly(tileX, tileY)
 	}
 	return w.isTileBlockingTerrain(tileX, tileY)
+}
+
+// IsTileBlockingForFly is the Fly movement rule: the party passes through
+// ANYTHING except the map's border ring - the edge stays solid so the party
+// can never leave the map. The unified world adds its void filler
+// (flyBoundary) so flight cannot leave a region except through a carved
+// passage. MOVEMENT only: projectiles keep real terrain collision
+// (isTileBlockingTerrain), or every bolt would sail through walls while the
+// party flies. Exported separately from IsTileBlocking so game-side checks
+// that already know Fly is active don't depend on the world's transient fly
+// flag being synced.
+func (w *World3D) IsTileBlockingForFly(tileX, tileY int) bool {
+	if tileX <= 0 || tileY <= 0 || tileX >= w.Width-1 || tileY >= w.Height-1 {
+		return true
+	}
+	if w.flyBoundary != nil && w.flyBoundary(tileX, tileY) {
+		return true
+	}
+	return false
 }
 
 // IsTileBlockingTerrainAt exposes the raw terrain rule (no Fly override) for

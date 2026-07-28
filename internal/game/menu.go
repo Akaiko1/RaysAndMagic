@@ -1978,6 +1978,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}
 
+	// A position saved on an older map layout can sit inside what is now a
+	// wall; clamp it to walkable ground. Runs here, after the buff restore
+	// above, so water/Fly saves keep their legal mid-lake or airborne spot.
+	if sx, sy := g.safePartyDestination(g.camera.X, g.camera.Y); sx != g.camera.X || sy != g.camera.Y {
+		g.setPartyPosition(sx, sy)
+	}
+
 	// Restore ground containers (loot bags + treasure chests).
 	g.groundContainers = make([]GroundContainer, 0, len(save.GroundContainers))
 	for _, c := range save.GroundContainers {

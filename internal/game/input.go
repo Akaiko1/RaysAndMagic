@@ -1446,6 +1446,9 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 // what guarantees the autosave can't capture stale pre-switch coordinates - the
 // ordering invariant lives in one place instead of being copy-pasted per caller.
 func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
+	// Arrival targets can be stale (saved return poses, positions recorded on an
+	// older map layout); never place the party inside terrain.
+	x, y = ih.game.safePartyDestination(x, y)
 	ih.game.setPartyPosition(x, y)
 	ih.game.snapFacing(angle)
 	// Turn-based facing must be cardinal; a restored return-pose / free RT heading

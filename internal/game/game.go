@@ -1060,11 +1060,18 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, 
 
 // FindNearestWalkableTile finds the closest walkable tile to the given position (DRY helper)
 func (g *MMGame) FindNearestWalkableTile(targetX, targetY float64) (float64, float64) {
-	return g.findNearestWalkableTileWithMaxRadius(targetX, targetY, 10)
+	return g.findNearestWalkableTileWithMaxRadius(targetX, targetY, 10, nil)
 }
 
 // FindNearestWalkableTileMustSucceed finds walkable tile with expanding search - MUST find one
 func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (float64, float64) {
+	return g.findNearestWalkableTileMustSucceed(targetX, targetY, nil)
+}
+
+// findNearestWalkableTileMustSucceed is the expanding search with an optional
+// extra filter on candidate tiles (e.g. "legal for Fly" - the border ring is
+// statically walkable yet solid to a flying party).
+func (g *MMGame) findNearestWalkableTileMustSucceed(targetX, targetY float64, accept func(tx, ty int) bool) (float64, float64) {
 	worldInst := g.GetCurrentWorld()
 	if worldInst == nil {
 		fmt.Printf("Error: No world available for walkable tile search\n")
@@ -1073,7 +1080,7 @@ func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (f
 
 	// Start with normal search radius, then expand until we find something
 	for maxRadius := 10; maxRadius <= worldInst.Width && maxRadius <= worldInst.Height; maxRadius += 10 {
-		x, y := g.findNearestWalkableTileWithMaxRadius(targetX, targetY, maxRadius)
+		x, y := g.findNearestWalkableTileWithMaxRadius(targetX, targetY, maxRadius, accept)
 		if x != -1 && y != -1 {
 			fmt.Printf("Found walkable tile at radius %d: (%.1f, %.1f)\n", maxRadius, x, y)
 			return x, y
@@ -1088,6 +1095,9 @@ func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (f
 		for x := 0; x < worldInst.Width; x++ {
 			tile := worldInst.Tiles[y][x]
 			if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
+				if accept != nil && !accept(x, y) {
+					continue
+				}
 				safeX, safeY := TileCenterFromTile(x, y, tileSize)
 				fmt.Printf("Emergency fallback: Found walkable tile at (%.1f, %.1f)\n", safeX, safeY)
 				return safeX, safeY
@@ -1100,8 +1110,9 @@ func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (f
 	return targetX, targetY // Return original position as absolute last resort
 }
 
-// findNearestWalkableTileWithMaxRadius internal helper with configurable search radius
-func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, maxRadius int) (float64, float64) {
+// findNearestWalkableTileWithMaxRadius internal helper with configurable search
+// radius and the same optional candidate filter (nil accepts any walkable tile).
+func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, maxRadius int, accept func(tx, ty int) bool) (float64, float64) {
 	worldInst := g.GetCurrentWorld()
 	if worldInst == nil {
 		return -1, -1
@@ -1132,6 +1143,9 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 
 				// Check if tile is walkable using the global tile manager
 				if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
+					if accept != nil && !accept(checkX, checkY) {
+						continue
+					}
 					// Convert back to world coordinates
 					safeX, safeY := TileCenterFromTile(checkX, checkY, tileSize)
 					return safeX, safeY
@@ -1149,11 +1163,49 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 // repeat because the party ends up on dry land.
 func (g *MMGame) settleAshore(message string) {
 	sx, sy := g.FindNearestWalkableTileMustSucceed(g.camera.X, g.camera.Y)
-	g.camera.X, g.camera.Y = sx, sy
-	if g.collisionSystem != nil {
-		g.collisionSystem.UpdateEntity("player", sx, sy)
-	}
+	g.setPartyPosition(sx, sy)
 	g.AddCombatMessage(message)
+}
+
+// safePartyDestination clamps a scripted party placement to the nearest
+// walkable tile. Stored coordinates outlive map redesigns - a save's position
+// or a remembered per-map entry pose can point inside what is now a wall, and
+// placing the party there leaves it with no legal move out. Legal destinations
+// pass through unchanged (preserving sub-tile precision): walkable ground,
+// water under an active water effect, and - while Fly holds - anything Fly
+// itself may occupy (its expiry runs its own eject). Legality comes from
+// static tile data plus game-side buffs, never the world's transient
+// fly/water flags: callers run before the per-frame flag sync, and a
+// revisited map keeps its flags stale from the previous visit.
+func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return x, y
+	}
+	ts := float64(g.config.GetTileSize())
+	tx, ty := int(x/ts), int(y/ts)
+	if g.flyActive {
+		if !w.IsTileBlockingForFly(tx, ty) {
+			return x, y
+		}
+		// The clamp must land where the flying party may actually stand: the
+		// border ring is statically walkable but solid to Fly.
+		return g.findNearestWalkableTileMustSucceed(x, y, func(ctx, cty int) bool {
+			return !w.IsTileBlockingForFly(ctx, cty)
+		})
+	}
+	if tx >= 0 && tx < w.Width && ty >= 0 && ty < w.Height {
+		tile := w.Tiles[ty][tx]
+		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
+			return x, y
+		}
+		if tile == world.TileWater || tile == world.TileDeepWater {
+			if g.walkOnWaterActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+				return x, y
+			}
+		}
+	}
+	return g.FindNearestWalkableTileMustSucceed(x, y)
 }
 
 // settleAfterWalkOnWater grounds the party when Walk on Water lapses while
@@ -1177,6 +1229,23 @@ func (g *MMGame) settleAfterWalkOnWater() {
 		return
 	}
 	g.settleAshore("Walk on Water fades - the party wades ashore.")
+}
+
+// ejectFromWallAfterFly surfaces the party to the nearest walkable tile when
+// Fly lapses while they hover inside solid terrain (Fly lets movement pass
+// through walls). Without it the party is stuck against a wall bbox with no
+// legal move out. Walkability here is terrain-only, so it works regardless of
+// the world's Fly flag sync order.
+func (g *MMGame) ejectFromWallAfterFly() {
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	ts := float64(g.config.GetTileSize())
+	if !w.IsTileBlockingTerrainAt(int(g.camera.X/ts), int(g.camera.Y/ts)) {
+		return // already on open ground
+	}
+	g.settleAshore("The wings fade - the party settles onto solid ground.")
 }
 
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map

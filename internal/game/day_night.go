@@ -249,31 +249,6 @@ func (g *MMGame) dropFlyWithoutOpenSky() {
 	g.AddCombatMessage("The close air presses down - Fly fades.")
 }
 
-// ejectFromWallAfterFly surfaces the party to the nearest walkable tile when
-// Fly lapses while they hover inside solid terrain (Fly lets movement pass
-// through walls). Without it the party is stuck against a wall bbox with no
-// legal move out. Walkability here is terrain-only, so it works regardless of
-// the world's Fly flag sync order.
-func (g *MMGame) ejectFromWallAfterFly() {
-	w := g.GetCurrentWorld()
-	if w == nil {
-		return
-	}
-	ts := float64(g.config.GetTileSize())
-	if !w.IsTileBlockingTerrainAt(int(g.camera.X/ts), int(g.camera.Y/ts)) {
-		return // already on open ground
-	}
-	sx, sy := g.findNearestWalkableTileWithMaxRadius(g.camera.X, g.camera.Y, 12)
-	if sx < 0 || sy < 0 {
-		return // no walkable tile nearby (shouldn't happen on a real map)
-	}
-	g.camera.X, g.camera.Y = sx, sy
-	if g.collisionSystem != nil {
-		g.collisionSystem.UpdateEntity("player", sx, sy)
-	}
-	g.AddCombatMessage("The wings fade - the party settles onto solid ground.")
-}
-
 // skyTextureForPhase resolves the phase variant when it exists on disk, else
 // the base name (interiors, zones without night art).
 func (g *MMGame) skyTextureForPhase(base string) string {
