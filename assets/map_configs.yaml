@@ -218,8 +218,10 @@ biomes:
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
+      # Ford: the same mossy flagstone as the ruin paving, read as sunken
+      # causeway slabs under the teal shallow-water tint of the tile.
       jungle_ford:
-        - "dragon_cliffs_bridge_1"
+        - "deep_jungle_floor_1"
 
 maps:
   forest:

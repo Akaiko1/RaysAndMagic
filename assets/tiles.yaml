@@ -679,9 +679,9 @@ tiles:
   jungle_fern:
     name: "Fern Clump"
     type: "nature"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_tiles: 1.0
     sprite: "deep_jungle_fern"
     render_type: "environment_sprite"

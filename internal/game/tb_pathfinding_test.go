@@ -259,8 +259,9 @@ func TestMonsterMoveTurnBased_RoutesToOuterRingWhenAttackPostsAreBlocked(t *test
 }
 
 // TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons reproduces the
-// real save1 bundle layout: party at (40,35), Gorilla Titan at (40,40), and the
-// two Masked Huntress summons spawned by that gorilla at (40,41) and (40,46).
+// real save1 bundle layout, anchored one tile south of the Great River's south
+// arm so it sits on open varzea: party at (40,36), Gorilla Titan at (40,41), and
+// the two Masked Huntress summons spawned by that gorilla at (40,42) and (40,47).
 // The direct route is blocked by deep water, and the nearest summon blocks the
 // first southward escape tile; the TB mover must still follow A* around the
 // water instead of greedily bouncing toward the bank and back.
@@ -276,7 +277,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 	g := newTestGame(cfg, w)
 	g.turnBasedMode = true
 	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(40, 35, tile)
+	g.camera.X, g.camera.Y = TileCenterFromTile(40, 36, tile)
 	g.camera.Angle = 1.5707963267948966
 	g.collisionSystem = collision.NewCollisionSystem(w, tile)
 	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
@@ -290,13 +291,13 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 		return m
 	}
 
-	gorilla := at("gorilla_titan", "monster_594", 40, 40)
+	gorilla := at("gorilla_titan", "monster_594", 40, 41)
 	gorilla.HitPoints = 822
 	gorilla.SummonFirstDone = true
 	disableRandomBossSpecialsForTBPathTest(gorilla)
-	nearSummon := at("masked_huntress", "monster_447", 40, 41)
+	nearSummon := at("masked_huntress", "monster_447", 40, 42)
 	nearSummon.SummonedBy = gorilla.ID
-	farSummon := at("masked_huntress", "monster_446", 40, 46)
+	farSummon := at("masked_huntress", "monster_446", 40, 47)
 	farSummon.SummonedBy = gorilla.ID
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
@@ -354,7 +355,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 		return false
 	}
 
-	startTile := [2]int{40, 40}
+	startTile := [2]int{40, 41}
 	leftStart := false
 	visited := make([][2]int, 0, 40)
 	for step := 0; step < 40 && !ready(); step++ {
@@ -394,7 +395,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	g := newTestGame(cfg, w)
 	g.turnBasedMode = true
 	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(40, 35, tile)
+	g.camera.X, g.camera.Y = TileCenterFromTile(40, 36, tile)
 	g.camera.Angle = 1.5707963267948966
 	g.collisionSystem = collision.NewCollisionSystem(w, tile)
 	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
@@ -408,13 +409,13 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 		return m
 	}
 
-	gorilla := at("gorilla_titan", "monster_594", 40, 40)
+	gorilla := at("gorilla_titan", "monster_594", 40, 41)
 	gorilla.HitPoints = 822
 	gorilla.SummonFirstDone = true
 	disableRandomBossSpecialsForTBPathTest(gorilla)
-	nearSummon := at("masked_huntress", "monster_447", 40, 41)
+	nearSummon := at("masked_huntress", "monster_447", 40, 42)
 	nearSummon.SummonedBy = gorilla.ID
-	farSummon := at("masked_huntress", "monster_446", 40, 46)
+	farSummon := at("masked_huntress", "monster_446", 40, 47)
 	farSummon.SummonedBy = gorilla.ID
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
@@ -459,8 +460,8 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	g.partyActionsUsed = 1 // shooting before moving should grant the anti-kite extra monster pass.
 
 	partyPath := [][2]int{
-		{40, 34}, {39, 34}, {38, 34}, {37, 34}, {36, 34}, {36, 35}, {35, 35},
-		{35, 36}, {35, 37}, {35, 38}, {35, 39},
+		{40, 35}, {39, 35}, {38, 35}, {37, 35}, {36, 35}, {36, 36}, {35, 36},
+		{35, 37}, {35, 38}, {35, 39}, {35, 40},
 	}
 	visited := make([][2]int, 0, len(partyPath)*2)
 	stuckOutOfReach := 0
@@ -577,12 +578,12 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	g := newTestGame(cfg, w)
 	g.turnBasedMode = true
 	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(35, 39, tile)
+	g.camera.X, g.camera.Y = TileCenterFromTile(35, 40, tile)
 	g.camera.Angle = 1.5707963267948966
 	g.collisionSystem = collision.NewCollisionSystem(w, tile)
 	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
 
-	gorillaX, gorillaY := TileCenterFromTile(38, 46, tile)
+	gorillaX, gorillaY := TileCenterFromTile(38, 47, tile)
 	gorilla := monsterPkg.NewMonster3DFromConfig(gorillaX, gorillaY, "gorilla_titan", cfg)
 	gorilla.ID = "monster_594"
 	gorilla.HitPoints = 822
@@ -596,7 +597,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	refreshTBMonsterCollisionState(g)
 
 	gl := &GameLoop{game: g}
-	bounce := [][2]int{{34, 39}, {35, 39}}
+	bounce := [][2]int{{34, 40}, {35, 40}}
 	visited := make([][2]int, 0, 20)
 	stuckOutOfReach := 0
 	for turn := 0; turn < 20; turn++ {
@@ -634,11 +635,11 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(
 	g := newTestGame(cfg, w)
 	g.turnBasedMode = true
 	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(35, 39, tile)
+	g.camera.X, g.camera.Y = TileCenterFromTile(35, 40, tile)
 	g.collisionSystem = collision.NewCollisionSystem(w, tile)
 	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
 
-	gorillaX, gorillaY := TileCenterFromTile(38, 46, tile)
+	gorillaX, gorillaY := TileCenterFromTile(38, 47, tile)
 	gorilla := monsterPkg.NewMonster3DFromConfig(gorillaX, gorillaY, "gorilla_titan", cfg)
 	gorilla.ID = "monster_594"
 	gorilla.HitPoints = 822

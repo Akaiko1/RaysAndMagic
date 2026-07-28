@@ -5,38 +5,86 @@
 #   C = chasm bottom v0   F = chasm bottom v1 (impassable pits)
 #   % = cliff wall   # = basalt wall   B = ruin wall   = = slate wall
 #   T = wind pine   A = rock outcrop   R = boulder   D = dragon bones (solid)
+#   W = tarn water   Q = deep tarn (impassable without Walk on Water)
 #   + = start   @ = bound NPC/stile (see >[...])
 # Monster spawns: e = dragon_green  y = dragon_gold  v = mountain_troll  z = archmage
+#
+# Built the way the Xeen surface is built: one continuous mountain RING with
+# named passes encloses the heart of the plateau (the way the Gemstone Range
+# rings the Desert of Doom), the interior stays open with a few island crags,
+# and the dragon country is four separate nests, not one heap.
+#
+# NORTH OF THE CHASM
+#   The Coldspring strip (x1-8): the shrine of the spring (A-ring, a tome) at
+#     the top, the cold stream running its whole length, cliff spurs off the
+#     west wall, trolls; the crevice hoard at (1,12) is a dead end with iron.
+#   THE WARDEN RING (x10-27, y2-13): an unbroken cliff chain around the Green
+#     Basin. Two passes: the WINDGATE (west, enter at (11,4), weave south round
+#     the inner spur at x12-13) and the BASIN GATE (south wall, x18-19, with an
+#     outer spur below it). The ring can also simply be walked AROUND along the
+#     top of the map - it guards the basin, not the region.
+#   The Green Basin (inside the ring): the slate WARDEN VAULT (x16-21, y6-9),
+#     steel door south, a golden hoard inside; archmages walk the basin.
+#   THE EMBER BURN (x28-43): basalt. Four nests - the CINDER SHELF along the
+#     top (a gold in the pocket at (31,2)), the BONE LAIR ruin (x35-40, gate at
+#     (37,5)), the BONE FIELD (dragon bones on open basalt, x30-34 y9-11), and
+#     the EMBER CRATER (x37-41 y9-13, gate south at (39,13)). The basalt vent
+#     lane at x41 (y2-7) is a reserved dead end for a future secret.
+#
+# THE DRAGONMAW - the chasm crosses the whole map in three sheared steps, NE
+#   high to SW low. The RANGER SPAN (x9-10) carries the camp road north; the
+#   OLD SPAN (x39) is one plank between ruined abutments and lands you at the
+#   crater's gate.
+#
+# SOUTH OF THE CHASM
+#   Coldbrook Camp (x1-11): pine palisade with a north gate at x8-9 onto the
+#     span road; tavern, ranger, the start, the violet teleporter, two caches.
+#   The Long Moor: open heather; the HERMIT'S CAIRN ring at (19-21, y25-27),
+#     cairn boulders, a troll prowling the east cairns.
+#   The DROWNED TARN (x33-41): black water in a jagged bowl, two bays biting
+#     north-west, one islet.
+#
+# CAPABILITY GATES - rewards only, never a route; Fly clears both.
+# gate: jump (26,17) spell_lectern - THE PINNACLE, a stack standing in the
+#   chasm itself: from the north rim at (26,15) vault the pit, and again south
+# gate: water (37,25) chest_golden - the tarn islet, wants Walk on Water
+#   Hiding pockets (walk-in, one mouth): the moor horseshoe (28,24), the vault
+#   forecourt behind the twin boulders (16-17,5), the bone scatter (36-38,7-8).
+#   SCENES: THE FALLEN WYRM (x28-38, y7-11) - one dead dragon, skull west,
+#   ribs east, the living greens nesting in its cage; TWIN SENTINELS (8/11,21)
+#   flanking the span road; THE JETTY (33-34,27) - planks into the tarn that
+#   stop; a WAYSTONE (26-28,1) stone-heather-stone, reserved for a future
+#   cross-map thread.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%.@T....S..T................................%  >[npc:chest_wooden]
-%....T..SS....................e.......D.....%
-%.T.....SS.VVVV...................z.@.z..H..%  >[npc:dragon_cliffs_bone_lair]
-%.......SD.VVVV...y.........H.....D...z.....%
-%..T..e.SS.VVVT...A...................D.....%
-%...H...SS.V@TA.R.....e.===.................%  >[npc:chest_iron]
-%....T..S..TTAA.........=@@..A...R....H.....%  >[npc:chest_golden], [npc:steel_door]
-%.......SS.AAAA..T......===.............e...%
-%.T.....SS......H............R.BBB..........%
-%.....T.SA........D............B@.y.........%  >[npc:spell_lectern]
-%.......SS..e...SSS...........HBBB....A...T.%
-%.......SS.....SSR.......D....VVVVVVVV#VVVV.%
-%......RS.....SS..............VVVVVVVVVV#VV.%
-%...y...SS...SS...........H...VVV#VVVVVVVVV.%
-%..T....SSR.SS....H...........VVVVVVVVVVVVV.%
-%.......S..SSR................VVVVVV@VVVVVV.%  >[npc:dragon_cliffs_ember_lair]
-%.......SSSS.....vv...........VVVVVVVVVVVVV.%
-%.......SS.......vv...........VVV#VVVVVVeVV.%
-%.......S.....................VVVVVVVVVV#VV.%
-%EEEEEEEEEEEEEEEEEEEEMMEEEEEEEEEEEEEEEEEBBNBB
-%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
-%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
-%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
-%%%%%%%%%%%%%%%%%%%%%MM%%%%%%%%%%%%%%%%%BBNBB
-%T.........................................T%
-%T..@T..H....H..@.H.....................AT.T%  >[npc:chest_wooden], [npc:tavern]
-%T.TT.........H.@..H..........H....HH......T%  >[npc:dragon_cliffs_ranger]
-%T......T.............@........H......RT...T%  >[stile:vteleporter]
-%T.....T....H....H..........@....H...H.....T%  >[npc:dragon_cliffs_bone_hermit]
-%T....R...T.......H...+........HH.....H..T.T%
-%T......TT.................................T%
+%.T..S..T..HH....T...T.A.TAHAVV.VVVVVVV..VVV%
+%.AAAS........%%%%%%%%%........y.VVBBBBBB..V%
+%.A@A.S.v...%%..HH.....%%.......VVVB.y@.B.VV%  >[npc:spell_lectern], [npc:dragon_cliffs_bone_lair]
+%.A.A.S..........H....AA.%...eVVV..Be...B..V%
+%%%...S....%%%..RR........%...VVV..BB.BBB..V%
+%.v....S..%..z..======....%%.VVVV.........VV%
+%.T....S..%.....=..@.=....%...VVV....D....eV%  >[npc:chest_golden]
+%%%....S..%.....=....=....%%V.....D.D.D..VVV%
+%.T.A..S..%.....==@===.z..%..D.D.D....###..V%  >[npc:steel_door]
+%..Av..S...%..AA.HH.......%.D...D.eD.#...#.V%
+%AA....S...%%..HH...z....%...D.e.....#.@.#.V%  >[npc:dragon_cliffs_ember_lair]
+%@A..A.S.....%%..H..RR.%%............#.ye#.V%  >[npc:chest_iron]
+%...AR.S.......%%%..%%%%..VV....D.....#.#..V%
+%....A..S...A...%%...A.........A...........V%
+%.......S.................EEEEEEEEEEEEBNBEEE%
+%.......S.....EEEEEEEEEEEECCCCCCCCCCCCCNCCCC%
+%EEEEEEEEMMEEECCCCCCCCCCCC@CCCCCCCCCCCCNCCCC%  >[npc:spell_lectern]
+%CCCCCCCCMMCCCCCCCCCCCCCCCCJJJJJJJJJJJBNBJJJ%
+%CCCCCCCCMMCCCJJJJJJJJJJJJ..................%
+%JJJJJJJJMMJJJ...A..........................%
+%.......A..A.....A...TT.......A..AA..A......%
+%.TTTTTT..TT.T.R..............H....WWWW.D...%
+%..........T..T.R.R...H....R.R....WWWWWWW...%
+%...@......T.....R.HH....H.R.R...WWWWWWWWW..%  >[npc:tavern]
+%......@...T.......R.R......R....WQQQ@QQQW..%  >[npc:dragon_cliffs_ranger], [npc:chest_golden]
+%.@........T...TT..R@R...........WQQQQQQQW..%  >[npc:chest_wooden], [npc:dragon_cliffs_bone_hermit]
+%....+.....T...T...RRR...........MMWWWWWW...%
+%.........@...HH.......AA......HH..WWWW.....%  >[stile:vteleporter]
+%.......@....HHHH......Rv.HH........WW...D..%  >[npc:chest_wooden]
+%.TT.................A...RA...HH.A.....HH...%
+%................H...................H......%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
