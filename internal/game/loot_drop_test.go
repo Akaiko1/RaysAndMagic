@@ -41,7 +41,7 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 	counts := make(map[string]int)
 	for _, c := range cs.game.groundContainers {
 		for _, item := range c.Items {
-			counts[item.Name]++
+			counts[item.Name] += item.Count()
 		}
 	}
 	for _, e := range entries {
@@ -67,8 +67,8 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 
 		drops := counts[dropName]
 		observedRate := float64(drops) / float64(trials)
-		expectedRate := e.Chance
-		stdDev := (expectedRate * (1.0 - expectedRate)) / float64(trials)
+		expectedRate := e.Chance * float64(e.RollCount())
+		stdDev := float64(e.RollCount()) * e.Chance * (1.0 - e.Chance) / float64(trials)
 		if stdDev > 0 {
 			stdDev = math.Sqrt(stdDev)
 		}
@@ -85,6 +85,19 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 			t.Fatalf("%s loot rate for %s out of bounds: expected %.2f%% +/- %.2f%%, observed %.2f%%",
 				monsterKey, dropName, expectedRate*100, tolerance*100, observedRate*100)
 		}
+	}
+}
+
+func TestRollLootEntriesHonorsRollCount(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	drops := rollLootEntries([]config.LootEntry{{
+		Type:   "item",
+		Key:    "black_dragon_scale",
+		Chance: 1,
+		Rolls:  3,
+	}})
+	if len(drops) != 3 {
+		t.Fatalf("guaranteed three-roll entry dropped %d items, want 3", len(drops))
 	}
 }
 

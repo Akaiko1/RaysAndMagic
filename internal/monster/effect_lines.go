@@ -47,6 +47,16 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 			add(fmt.Sprintf("Ranged weapon: %s", d.ProjectileWeapon))
 		}
 	}
+	if d.MeleeDamageType != "" {
+		school := normalizeEffectSchool(d.MeleeDamageType)
+		addSchool(school, fmt.Sprintf("Melee strikes as %s damage", school))
+	}
+	if d.hasTrapVolley() {
+		addSchool(damagecalc.Fire.String(), fmt.Sprintf(
+			"Trap field: sows %d fire traps (%.0f dmg) within %.0f tiles every %.0fs / %d turns",
+			d.TrapVolleyCount, float64(d.TrapVolleyDamage), d.TrapVolleyRadiusTiles,
+			d.TrapVolleyIntervalSeconds, d.TrapVolleyIntervalTurns))
+	}
 	if d.PounceRangeTiles > 0 {
 		add(fmt.Sprintf("Pounce: %.1f tiles every %.0fs", d.PounceRangeTiles, d.PounceCooldownSeconds))
 	}

@@ -151,6 +151,31 @@ func TestIronChestFiltersCommons(t *testing.T) {
 	}
 }
 
+func TestCrateIgniteUsesWearerStatusDuration(t *testing.T) {
+	g := crateTestGame(t)
+	for _, member := range g.party.Members {
+		delete(member.Skills, character.SkillDisarmTrap)
+	}
+	protected := g.party.Members[0]
+	protected.Equipment[items.SlotOffHand] = items.CreateItemFromYAML("deathgod_aegis")
+
+	const igniteSeconds = 10
+	g.springCrateTrap(
+		&character.NPC{Name: "Test Chest"},
+		&config.CrateConfig{TrapIgnite: true, TrapIgniteSeconds: igniteSeconds},
+	)
+
+	wantProtected := igniteSeconds * g.config.GetTPS() / 2
+	if protected.BurnFramesRemaining != wantProtected {
+		t.Fatalf("protected burn = %d frames, want %d", protected.BurnFramesRemaining, wantProtected)
+	}
+	unprotected := g.party.Members[1]
+	wantFull := igniteSeconds * g.config.GetTPS()
+	if unprotected.BurnFramesRemaining != wantFull {
+		t.Fatalf("unprotected burn = %d frames, want %d", unprotected.BurnFramesRemaining, wantFull)
+	}
+}
+
 func TestCrateCatalogRollFilters(t *testing.T) {
 	crateTestGame(t)
 

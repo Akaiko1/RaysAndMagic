@@ -164,7 +164,10 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY flo
 // just AI/position behavior) should do the same.
 func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
+	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
+	m.TickSlowFrame()       // Tarn Trident silt decays regardless of stun/root state
+	m.TickWeakenFrame()     // Scalebreaker roar decays regardless of stun/root state
 	m.TickSoakFrame()       // Champion Stone Skin uses the same rated dual-clock contract
 	if !m.IsAlive() {
 		// Match the TB scheduler: a lethal autonomous tick ends this actor's
@@ -1425,9 +1428,9 @@ func (m *Monster3D) speedPerTick() float64 {
 		tps = config.GetTargetTPS()
 	}
 	if tps <= 0 {
-		return m.Speed
+		return m.EffectiveSpeed()
 	}
-	return m.Speed * (60.0 / float64(tps))
+	return m.EffectiveSpeed() * (60.0 / float64(tps))
 }
 
 type movementSpeedMultipliers struct {

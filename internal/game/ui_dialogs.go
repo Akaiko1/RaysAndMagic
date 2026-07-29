@@ -1014,10 +1014,14 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
 			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
-			if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
+			entryCurrency := entry.EffectiveCurrency(ui.game.dialogNPC.Currency)
+			if _, ok := character.CurrencyItemKey(entryCurrency); ok {
+				priceText = fmt.Sprintf("x%d", entry.Cost)
+				if entry.GoldCost > 0 {
+					priceText = fmt.Sprintf("x%d +%dg", entry.Cost, entry.GoldCost)
+				}
+			} else if entryCurrency == character.CurrencyArenaPoints {
 				priceText = fmt.Sprintf("%d ap", entry.Cost) // flat price, victory currency
-			} else if _, ok := character.CurrencyItemKey(ui.game.dialogNPC.Currency); ok {
-				priceText = fmt.Sprintf("x%d", entry.Cost) // flat price, item-backed currency
 			}
 			if soldOut {
 				priceText = "sold out"

@@ -334,7 +334,9 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
-		school := monsterPkg.DamagePhysical.String()
+		// Melee lands in the mob's AUTHORED school (melee_damage_type),
+		// matching production - physical is only the unauthored default.
+		school := monsterMeleeSchool(m)
 		ignoreArmor := m.IgnoresArmor
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
 			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch

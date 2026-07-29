@@ -128,6 +128,25 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 				}
 			}
 		}
+		// Per-entry item currency (Scalewright): the key must exist, the count
+		// must be positive, and a gold surcharge can't be negative.
+		for _, it := range npc.Inventory {
+			if it == nil || it.CurrencyItem == "" {
+				if it != nil && it.GoldCost != 0 {
+					return fmt.Errorf("NPC %q entry %q has gold_cost without currency_item", key, it.Name)
+				}
+				continue
+			}
+			if _, found := config.GetItemDefinition(it.CurrencyItem); !found {
+				return fmt.Errorf("NPC %q entry %q prices in unknown item %q", key, it.Name, it.CurrencyItem)
+			}
+			if it.Cost <= 0 {
+				return fmt.Errorf("NPC %q entry %q needs cost > 0 for currency_item pricing", key, it.Name)
+			}
+			if it.GoldCost < 0 {
+				return fmt.Errorf("NPC %q entry %q has negative gold_cost", key, it.Name)
+			}
+		}
 		if len(npc.Inventory) > 0 {
 			tabbed, untabbed := 0, 0
 			for _, it := range npc.Inventory {

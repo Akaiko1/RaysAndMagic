@@ -152,6 +152,29 @@ func TestClear(t *testing.T) {
 	}
 }
 
+func TestRestoreDoTTickTimer(t *testing.T) {
+	const tps = 60
+	tests := []struct {
+		name      string
+		remaining int
+		saved     int
+		want      int
+	}{
+		{name: "active phase", remaining: 120, saved: 37, want: 37},
+		{name: "inactive effect", remaining: 0, saved: 37, want: 0},
+		{name: "negative phase", remaining: 120, saved: -1, want: 0},
+		{name: "full tick is clamped", remaining: 120, saved: tps, want: tps - 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RestoreDoTTickTimer(tc.remaining, tc.saved, tps); got != tc.want {
+				t.Fatalf("RestoreDoTTickTimer(%d, %d) = %d, want %d",
+					tc.remaining, tc.saved, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRatedDualClockNoModeFarm: the user-reported exploit - a 5s/3turn stun,
 // 2 turns spent in TB, then a switch to RT must NOT hand back the full 5
 // seconds; the frame clock is clamped to the proportional remainder.

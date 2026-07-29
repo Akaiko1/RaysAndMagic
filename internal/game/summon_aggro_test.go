@@ -295,13 +295,20 @@ func TestEveryActiveBossFightsCardSummonsTB(t *testing.T) {
 			// Golden Thief Bug and Samurai Warlord are deliberately inert before
 			// their quests complete. This verifies their active combat behavior.
 			enemy.PassiveUntilQuest = ""
+			// The Brood Mother fights only when provoked; the duel provokes her.
+			enemy.PassiveUntilAttacked = false
+			// A ranged boss holds at firing range and answers with crossfire; a
+			// nest-rooted boss (speed 0) never moves at all. Both must still fight.
+			ranged := enemy.RangedAttackRange > 0
+			stationary := enemy.Speed == 0
 			d0, hp0 := Distance(enemy.X, enemy.Y, ally.X, ally.Y), ally.HitPoints
 			driveCardSummonDuelTB(t, game, gl, enemy, ally, 10)
-			if d := Distance(enemy.X, enemy.Y, ally.X, ally.Y); d >= d0 {
+			if d := Distance(enemy.X, enemy.Y, ally.X, ally.Y); !ranged && !stationary && d >= d0 {
 				t.Fatalf("boss %s did not close on card summon (%.0f -> %.0f)", enemy.Name, d0, d)
 			}
-			if ally.HitPoints >= hp0 {
-				t.Fatalf("boss %s never struck card summon (HP %d -> %d)", enemy.Name, hp0, ally.HitPoints)
+			fired := len(game.arrows) > 0 || len(game.magicProjectiles) > 0
+			if ally.HitPoints >= hp0 && !(ranged && fired) {
+				t.Fatalf("boss %s never fought card summon (HP %d -> %d, fired=%v)", enemy.Name, hp0, ally.HitPoints, fired)
 			}
 		})
 	}
@@ -471,13 +478,19 @@ func TestEveryActiveBossFightsCardSummonsRT(t *testing.T) {
 			game, _, enemy, ally := cardSummonDuelTB(t, key)
 			game.turnBasedMode = false
 			enemy.PassiveUntilQuest = ""
+			enemy.PassiveUntilAttacked = false
+			// Same archetype split as the TB matrix: ranged bosses answer with
+			// crossfire from firing range, a speed-0 boss holds its nest.
+			ranged := enemy.RangedAttackRange > 0
+			stationary := enemy.Speed == 0
 			d0, hp0 := Distance(enemy.X, enemy.Y, ally.X, ally.Y), ally.HitPoints
 			runRTFoeTicks(game, 6*game.config.GetTPS())
-			if d := Distance(enemy.X, enemy.Y, ally.X, ally.Y); d >= d0 {
+			if d := Distance(enemy.X, enemy.Y, ally.X, ally.Y); !ranged && !stationary && d >= d0 {
 				t.Fatalf("boss %s did not close on card summon in RT (%.0f -> %.0f)", enemy.Name, d0, d)
 			}
-			if ally.HitPoints >= hp0 {
-				t.Fatalf("boss %s never struck card summon in RT (HP %d -> %d)", enemy.Name, hp0, ally.HitPoints)
+			fired := len(game.arrows) > 0 || len(game.magicProjectiles) > 0
+			if ally.HitPoints >= hp0 && !(ranged && fired) {
+				t.Fatalf("boss %s never fought card summon in RT (HP %d -> %d, fired=%v)", enemy.Name, hp0, ally.HitPoints, fired)
 			}
 		})
 	}

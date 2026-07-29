@@ -1,6 +1,7 @@
 package game
 
 import (
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 )
 
@@ -18,14 +19,19 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 	if duration <= 0 {
 		return
 	}
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || def.StatusIcon == "" {
+	var iconToken, label string
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		iconToken, label = def.StatusIcon, def.Name
+	} else if def, ok := config.GetItemDefinition(string(spellID)); ok && def.HasTimedBuff() {
+		iconToken, label = def.StatusIcon, def.Name
+	}
+	if iconToken == "" {
 		return
 	}
 	if g.utilitySpellStatuses == nil {
 		g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
 	}
-	icon, fallback := g.resolveStatusIconSprite(def.StatusIcon)
+	icon, fallback := g.resolveStatusIconSprite(iconToken)
 	status, exists := g.utilitySpellStatuses[spellID]
 	if !exists {
 		status = &UtilitySpellStatus{SpellID: spellID}
@@ -33,7 +39,7 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 	}
 	status.Icon = icon
 	status.Fallback = fallback
-	status.Label = def.Name
+	status.Label = label
 	status.Duration = duration
 	status.MaxDuration = duration
 }

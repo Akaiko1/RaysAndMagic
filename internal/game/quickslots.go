@@ -219,7 +219,7 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	// Equipped item dropped anywhere on the grid -> unequip its OWNER (the char it
 	// was dragged from, not the possibly-switched selectedChar) back to the bag.
 	if g.dragSrc == dragFromEquip {
-		g.party.UnequipItemToInventory(g.dragEquipSlot, g.dragEquipChar)
+		g.unequipPartyItemToInventory(g.dragEquipSlot, g.dragEquipChar)
 	}
 	// inventory->inventory (handled per-cell) and spell->inventory are no-ops here.
 	g.clearDrag()
@@ -266,7 +266,7 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 		if equipItemMatchesSlot(ch, g.party.Inventory[g.dragInvIndex], slot) {
 			// Equip into the EXACT slot dropped on (so a ring lands on the finger
 			// under the cursor, not whichever one EquipItem would auto-pick).
-			g.party.EquipItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
+			g.equipPartyItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
 		}
 	}
 	// Equipped item dragged onto ANOTHER compatible slot (e.g. a ring between the
@@ -276,7 +276,7 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	if g.dragSrc == dragFromEquip && g.dragEquipChar == g.selectedChar && g.dragEquipSlot != slot {
 		ch := g.party.Members[g.dragEquipChar]
 		if equipItemMatchesSlot(ch, g.dragItem, slot) {
-			g.party.MoveEquippedSlot(g.dragEquipSlot, slot, g.dragEquipChar)
+			g.movePartyEquipmentSlot(g.dragEquipSlot, slot, g.dragEquipChar)
 		}
 	}
 	g.clearDrag()
@@ -656,7 +656,13 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	// inventory double-click). Handled BEFORE the readiness gate.
 	switch item.Type {
 	case items.ItemWeapon, items.ItemArmor, items.ItemAccessory:
-		prev, had, ok := ch.EquipItem(*item)
+		var prev items.Item
+		var had bool
+		ok := g.applyEquipmentMutation(charIdx, func() bool {
+			var success bool
+			prev, had, success = ch.EquipItem(*item)
+			return success
+		})
 		if !ok {
 			g.AddCombatMessage(fmt.Sprintf("%s cannot use %s!", ch.Name, item.Name))
 			return

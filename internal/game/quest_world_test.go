@@ -1,8 +1,10 @@
 package game
 
 import (
+	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -39,7 +41,11 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 		w.Tiles[y] = make([]world.TileType3D, w.Width)
 	}
 	wm := world.NewWorldManager(cfg)
-	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	// The same stand-in doubles for every map the shipped quest data targets -
+	// validation only needs the key to resolve.
+	wm.LoadedMaps = map[string]*world.World3D{
+		"forest": w, "dragon_cliffs": w, "pyramid_3": w, "water": w,
+	}
 	wm.CurrentMapKey = "forest"
 	world.GlobalWorldManager = wm
 
@@ -51,8 +57,29 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 // The shipped quests.yaml tile changes must reference real tile keys.
 func TestQuestTileChanges_ShippedDataValid(t *testing.T) {
 	g, _ := loadRealQuestTileData(t)
-	if err := validateQuestTileChanges(g.questManager); err != nil {
+	if err := validateQuestWorldReferences(g.questManager); err != nil {
 		t.Fatalf("shipped quest tile data invalid: %v", err)
+	}
+}
+
+func TestQuestWorldReferencesRejectUnknownSummonQuest(t *testing.T) {
+	loadTestConfig(t)
+	previous := character.NPCConfigInstance
+	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
+		"test_statue": {
+			Summons: []*character.NPCSummon{{
+				Statuette: "Black Dragon Statuette",
+				Monster:   "elder_dragon",
+				QuestID:   "missing_quest",
+			}},
+		},
+	}}
+	t.Cleanup(func() { character.NPCConfigInstance = previous })
+
+	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{}})
+	err := validateQuestWorldReferences(qm)
+	if err == nil || !strings.Contains(err.Error(), `unknown quest "missing_quest"`) {
+		t.Fatalf("validator error = %v, want unknown summon quest", err)
 	}
 }
 
@@ -81,6 +108,12 @@ func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {
 	bridgeType, _ := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
 	if g.worldByKey(tc.Map).Tiles[tc.Y][tc.X] != bridgeType {
 		t.Error("bridge should be laid the moment the cleared quest is credited")
+	}
+	if got := countCombatLog(g, "completed!"); got != 1 {
+		t.Fatalf("completion announcements = %d, want exactly 1", got)
+	}
+	if got := countCombatLog(g, "already done"); got != 0 {
+		t.Fatalf("legacy completion announcements = %d, want 0", got)
 	}
 }
 
@@ -124,7 +157,7 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 
 	// Killing the runtime-summoned (ignored) wolf must not advance or complete it.
 	extra.HitPoints = 0
-	g.completeExterminationQuests("wolf")
+	g.completeClearedKillQuestsForTarget("wolf")
 	if q.CurrentCount != 0 {
 		t.Fatalf("ignored wolf changed progress to %d/%d, want 0/2", q.CurrentCount, q.Target())
 	}
@@ -133,7 +166,7 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 	}
 
 	first.HitPoints = 0
-	g.completeExterminationQuests("wolf")
+	g.completeClearedKillQuestsForTarget("wolf")
 	if q.CurrentCount != 1 {
 		t.Fatalf("one real wolf left progress = %d/%d, want 1/2", q.CurrentCount, q.Target())
 	}
@@ -142,12 +175,16 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 	}
 
 	second.HitPoints = 0
-	g.completeExterminationQuests("wolf")
+	g.completeClearedKillQuestsForTarget("wolf")
 	if !q.Completed {
 		t.Fatal("quest should complete after the last real wolf dies")
 	}
 	if q.CurrentCount != q.Target() {
 		t.Fatalf("completed progress = %d/%d, want full", q.CurrentCount, q.Target())
+	}
+	g.completeClearedKillQuestsForTarget("wolf")
+	if got := countCombatLog(g, "completed!"); got != 1 {
+		t.Fatalf("completion announcements after repeated sync = %d, want exactly 1", got)
 	}
 }
 
@@ -172,7 +209,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 	}
 
 	// Wolf alive -> no completion, no bridge.
-	g.completeExterminationQuests("wolf")
+	g.completeClearedKillQuestsForTarget("wolf")
 	g.applyCompletedQuestTiles()
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest completed while a wolf lives")
@@ -183,7 +220,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 
 	// Last wolf dies -> quest completes and the bridge appears.
 	wolf.HitPoints = 0
-	g.completeExterminationQuests("wolf")
+	g.completeClearedKillQuestsForTarget("wolf")
 	g.applyCompletedQuestTiles()
 	if !g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest should complete once the map is cleared")

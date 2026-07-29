@@ -102,13 +102,73 @@ quests:
       gold: 1200
       experience: 1200
 
-  # Main quest - victory condition
+  # The dragon hunt: a rewarded quest that also unseals the reaper
+  # (victory itself now belongs to endgame_triad).
   dragon_slayer:
     name: "Dragon Slayer"
     description: "Elder dragons terrorize the desert. Slay all 4 to become a true hero and save the realm."
     type: "kill"
     target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
     target_count: 4
+    encounter_only: true
     is_starting_quest: true
     rewards:
       arena_points: 5000
+    # The reaper comes to collect ONLY when all four god-machines are dead:
+    # he materializes on the sanctum dais among his Isis handmaidens.
+    on_complete_spawns:
+      - { id: reaper_dais, map: pyramid_3, x: 15, y: 5, monster: ancient_god_of_death }
+
+  # ============ ENDGAME TRIAD GATES ============
+  # Starting quests so they are active on every run AND on loaded old saves
+  # (quest Reset() re-seeds starting quests before a save lays its snapshot).
+
+  # Gate for the Brood Mother: she materializes in the Ember Crater the moment
+  # no dragon is left alive on the cliffs (on_complete_spawns fires once).
+  broodmother_nests:
+    name: "The Silent Nests"
+    description: "The cliff dragons guard more than bones. Rangers swear something vast breathes beneath the Ember Crater, and that it wakes only for silence. Leave no dragon alive on the Dragon Cliffs."
+    type: "kill"
+    target_monster: "dragon"
+    target_count: 7   # nominal; exterminate snapshots the live census at accept
+    target_map: "dragon_cliffs"
+    exterminate: true
+    is_starting_quest: true
+    rewards:
+      gold: 3000
+      experience: 3000
+    on_complete_spawns:
+      - { id: brood_mother_crater, map: dragon_cliffs, x: 39, y: 12, monster: dragon_brood_mother }
+
+  # Gate for the Alien Enforcer: he surfaces in the Ocean Depths only AFTER the
+  # party purges the Pursuer scouts and comes back down (on_entry defers the
+  # spawn past the purge visit - the tavern rumor sends you back).
+  water_purge:
+    name: "The Quiet Deep"
+    description: "Fisherfolk say the drowned lights have multiplied, and that things which are not fish now walk the seabed. Scour the Ocean Depths of the pale strangers - and mind what their silence wakes."
+    type: "kill"
+    target_monster: "alien"
+    target_count: 3   # nominal; exterminate snapshots the live census at accept
+    target_map: "water"
+    exterminate: true
+    is_starting_quest: true
+    rewards:
+      gold: 3000
+      experience: 3500
+    on_complete_spawns:
+      - { id: enforcer_depths, map: water, x: 28, y: 43, monster: alien_enforcer, on_entry: true }
+
+  # THE endgame quest - the VICTORY CONDITION (checkVictory watches it).
+  # Its only reward is the victory itself (user decree): no gold, no xp.
+  endgame_triad:
+    name: "The Last Reckoning"
+    description: "Three shadows crown the age: the mother brooding in her crater, the horned court risen under the sand, and the iron thing beneath the tide. End all three, and the realm is saved."
+    type: "kill"
+    target_monsters: ["brood_mother", "ancient_god_of_death", "alien_enforcer"]
+    target_count: 3
+    is_starting_quest: true
+    auto_claim: true
+    victory: true
+    rewards:
+      gold: 0
+      experience: 0

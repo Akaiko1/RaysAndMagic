@@ -157,10 +157,12 @@ func avgIncomingPerHit(cs *CombatSystem, mobKey string, target *character.MMChar
 	sum := 0
 	for i := 0; i < trials; i++ {
 		// Honour the attacker's armor-pierce and keep typed true separate so
-		// physical resistance applies to both while flat reduction touches normal.
+		// school resistance applies to both while flat reduction touches normal.
+		// The school is the mob's AUTHORED melee school (melee_damage_type) -
+		// production melee stopped being uniformly physical.
 		sum += cs.mitigateCharacterDamageParts(
 			damagecalc.Parts{Normal: mob.GetAttackDamage(), True: mob.TrueDamage},
-			monsterPkg.DamagePhysical.String(),
+			monsterMeleeSchool(mob),
 			target,
 			mob.IgnoresArmor,
 		).Total()

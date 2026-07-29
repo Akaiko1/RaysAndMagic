@@ -196,6 +196,8 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 }
 
 func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, damage int) monsterCharacterHit {
+	// Champion melee uses the equipped weapon as its damage-school SSOT.
+	// Monster config rejects melee_damage_type on champion definitions.
 	damageType := monster.DamagePhysical.String()
 	armorPiercePct := 0
 	if wd != nil && wd.DamageType != "" {
@@ -363,6 +365,9 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 // roll through championSwingDamage with their main hand (the ranged weapon);
 // plain monsters keep their authored damage band.
 func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) int {
+	// Weaken is NOT applied here: hitFromMonster owns it for every direct hit,
+	// while projectile constructors snapshot it when the shot is committed.
+	// Applying it here as well would double-dip.
 	if m != nil && m.IsChampion() && cs.game != nil {
 		if ch := cs.game.championTemplateFor(m); ch != nil {
 			_, total := cs.championSwingDamage(m, ch, ch.Equipment[items.SlotMainHand])

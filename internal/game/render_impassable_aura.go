@@ -21,6 +21,8 @@ const (
 	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]xbase period
 )
 
+var auraCardinalDirections = [...][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+
 // auraEdgeParams returns the edge-bubble tuning from the impassable-aura
 // config with defaults applied - shared by the impassable aura, trap borders,
 // and the spawn tile marker.
@@ -39,6 +41,19 @@ func (r *Renderer) auraEdgeParams() (baseAlpha float64, perEdge, radius int) {
 		radius = 7
 	}
 	return baseAlpha, perEdge, radius
+}
+
+func (r *Renderer) emitAuraTileEdges(
+	screen *ebiten.Image,
+	tx, ty int,
+	ts float64,
+	perEdge int,
+	baseAlpha, maxDepth float64,
+	rgb [3]int,
+) {
+	for _, direction := range auraCardinalDirections {
+		r.emitAuraEdge(screen, tx, ty, direction, ts, perEdge, baseAlpha, maxDepth, rgb)
+	}
 }
 
 // drawImpassableTileAura draws a subtle stream of rising "bubble" pixels along
@@ -61,8 +76,6 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 
 	// Cardinal neighbours: a bubble edge is drawn only where the blocker faces a
 	// walkable tile, so the aura outlines the boundary instead of filling clusters.
-	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-
 	for ty := camTY - radius; ty <= camTY+radius; ty++ {
 		if ty < 0 || ty >= r.game.world.Height {
 			continue
@@ -85,7 +98,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 			// Interior tiles of a blocker cluster (all four neighbours also
 			// block) have no walkable-facing edge - skip before the colour work.
 			interior := true
-			for _, d := range dirs {
+			for _, d := range auraCardinalDirections {
 				if !r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					interior = false
 					break
@@ -107,7 +120,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				clampColor(int(float64(base[2]) * auraColorBoost)),
 			}
 			r.statAuraTiles++
-			for _, d := range dirs {
+			for _, d := range auraCardinalDirections {
 				if r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					continue // edge faces another blocker -> interior, skip
 				}

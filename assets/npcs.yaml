@@ -198,6 +198,7 @@ npcs:
       - statuette: "Black Dragon Statuette"
         monster: "elder_dragon"
         label: "Black"
+        quest_id: "dragon_slayer"
 
   dragon_statue_red:
     name: "Red Dragon Statue"
@@ -218,6 +219,7 @@ npcs:
       - statuette: "Red Dragon Statuette"
         monster: "elder_dragon_red"
         label: "Red"
+        quest_id: "dragon_slayer"
 
   dragon_statue_green:
     name: "Green Dragon Statue"
@@ -238,6 +240,7 @@ npcs:
       - statuette: "Green Dragon Statuette"
         monster: "elder_dragon_green"
         label: "Green"
+        quest_id: "dragon_slayer"
 
   dragon_statue_gold:
     name: "Gold Dragon Statue"
@@ -258,6 +261,7 @@ npcs:
       - statuette: "Gold Dragon Statuette"
         monster: "elder_dragon_gold"
         label: "Gold"
+        quest_id: "dragon_slayer"
 
   prison:
     name: "Mountain Prison"
@@ -1793,3 +1797,32 @@ npcs:
     transparent: true
     size_tiles: 0.8
     hide_when_visited: true
+
+  # The Scalewright: Coldbrook's dragon-smith. Every Drakeforged piece costs
+  # dragon scales of its own colour PLUS a 20000 gold forging fee.
+  scalewright:
+    name: "Maruna the Scalewright"
+    type: "merchant"
+    description: "A smith who works nothing but dragonscale, and grieves every sheet of it she cannot save"
+    sprite: "scalewright"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Maruna turns a scale to the light. 'Cliff dragons shed the finest plate in the world and the world burns it for sport. Bring me SCALES - red, green, gold, and the black if you dare - and twenty thousand in coin for the forge. I will make you something the fire itself respects.'"
+    inventory:
+      # Red scale pieces (2 red scale + 20000g)
+      - { type: "weapon", name: "Drakefang, the Broodmother's Tooth",  cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { type: "weapon", name: "Ember Egg",                           cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { type: "weapon", name: "Scalebreaker, the Sundering Roar",    cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { type: "weapon", name: "Wyrmspine Wing",                      cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { type: "weapon", name: "Nest Arbalest",                       cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      # Green scale pieces (5 green scales + 20000g)
+      - { type: "weapon", name: "Hatchling Fang",                      cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { type: "weapon", name: "Tarn Trident",                        cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { type: "weapon", name: "Verdant Eye",                         cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { type: "weapon", name: "Broodspike",                          cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      # Gold scale pieces (5 gold scales + 20000g)
+      - { type: "weapon", name: "Wyrmcleaver, the Closing Jaws",       cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
+      - { type: "item",   name: "Drakehide Gauntlets",                 cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
+      # The black piece (4 black scale + 20000g - the Brood Mother's own flank)
+      - { type: "item",   name: "Broodscale Aegis",                    cost: 3, gold_cost: 20000, currency_item: "black_dragon_scale", quantity: -1, tab: "Black" }

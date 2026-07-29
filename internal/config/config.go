@@ -36,6 +36,21 @@ func cooldownMultLine(label string, mult float64) string {
 	return fmt.Sprintf("%s %+.0f%%", label, pct)
 }
 
+const weaponStatusSecondsPerTurn = 2
+
+// WeaponStatusTurns converts the shared authored seconds field used by weapon
+// shred/root/slow/weaken into its turn-based clock.
+func WeaponStatusTurns(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	return (seconds + weaponStatusSecondsPerTurn - 1) / weaponStatusSecondsPerTurn
+}
+
+func weaponStatusDurationLabel(seconds int) string {
+	return fmt.Sprintf("%ds RT / %d turns TB", seconds, WeaponStatusTurns(seconds))
+}
+
 func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w == nil {
 		return nil
@@ -82,10 +97,18 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		lines = append(lines, fmt.Sprintf("Bonus vs stunned targets: x%.1f", w.BonusVsStunned))
 	}
 	if w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Sunder: hits strip %d%% of the target's armor for %ds", w.ArmorShredPct, w.ArmorShredSeconds))
+		lines = append(lines, fmt.Sprintf(
+			"Sunder: hits strip %d%% of the target's armor for %s",
+			w.ArmorShredPct,
+			weaponStatusDurationLabel(w.ArmorShredSeconds),
+		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Root Chance: %.0f%% (pins in place %ds - not a stun)", w.RootChance*100, w.RootSeconds))
+		lines = append(lines, fmt.Sprintf(
+			"Root Chance: %.0f%% (pins in place %s - not a stun)",
+			w.RootChance*100,
+			weaponStatusDurationLabel(w.RootSeconds),
+		))
 	}
 	if w.ArmorClassBonus > 0 {
 		lines = append(lines, fmt.Sprintf("Armor Class %+d while wielded", w.ArmorClassBonus))
@@ -104,6 +127,57 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	}
 	if w.EquipPersonalityMin > 0 {
 		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
+	}
+	// Drakeforged tier signature riders.
+	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Ignite Chance: %.0f%% (burns %ds)", w.IgniteChance*100, w.IgniteSeconds))
+	}
+	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Brood Venom: %.0f%% chance to poison (%ds)", w.PoisonChance*100, w.PoisonSeconds))
+	}
+	if w.ExecuteBelowPct > 0 {
+		lines = append(lines, fmt.Sprintf("The Maw: targets left under %d%% HP are devoured outright", w.ExecuteBelowPct))
+	}
+	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
+		lines = append(lines, fmt.Sprintf("Clutchburst: kills explode for %d fire within %.0f tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+	}
+	if w.TrueDamage > 0 {
+		lines = append(lines, fmt.Sprintf("True Damage: +%d (ignores armor and dodge)", w.TrueDamage))
+	}
+	if w.SlowPct > 0 && w.SlowSeconds > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"Silt: hits slow the target %d%% for %s",
+			w.SlowPct,
+			weaponStatusDurationLabel(w.SlowSeconds),
+		))
+	}
+	if w.WeakenPct > 0 && w.WeakenSeconds > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"Sundering Roar: the target deals %d%% less damage for %s",
+			w.WeakenPct,
+			weaponStatusDurationLabel(w.WeakenSeconds),
+		))
+	}
+	if w.RicochetTargets > 0 {
+		targetLabel := "enemies"
+		if w.RicochetTargets == 1 {
+			targetLabel = "enemy"
+		}
+		lines = append(lines, fmt.Sprintf(
+			"Ricochet: the bolt leaps to %d further %s within %.0f tiles",
+			w.RicochetTargets,
+			targetLabel,
+			w.RicochetRangeTiles,
+		))
+	}
+	if w.SpellEchoPct > 0 {
+		lines = append(lines, fmt.Sprintf("Echo: %d%% chance your offensive spell repeats itself, free", w.SpellEchoPct))
+	}
+	if w.PartyFireWhileRunning {
+		lines = append(lines, "On the Wing: the whole party may attack while running")
+	}
+	if w.TBActionsPerRound > 0 {
+		lines = append(lines, fmt.Sprintf("Autofire: at least %d actions per turn-based round for the wielder", w.TBActionsPerRound))
 	}
 	lines = append(lines, w.SetLines()...)
 	return lines
@@ -1102,6 +1176,44 @@ type WeaponDefinitionConfig struct {
 	// Personality wield the weapon even without its category skill (Lanista's Scepter).
 	EquipPersonalityMin int `yaml:"equip_personality_min,omitempty"`
 
+	// --- Drakeforged tier signature riders ---
+	// IgniteChance sets the struck monster burning for IgniteSeconds (Drakefang).
+	IgniteChance  float64 `yaml:"ignite_chance,omitempty"`
+	IgniteSeconds int     `yaml:"ignite_seconds,omitempty"`
+	// PoisonChance envenoms the struck monster for PoisonSeconds (Hatchling Fang).
+	PoisonChance  float64 `yaml:"poison_chance,omitempty"`
+	PoisonSeconds int     `yaml:"poison_seconds,omitempty"`
+	// ExecuteBelowPct: a surviving target left at or under this % of max HP dies
+	// outright - the jaws close (Wyrmcleaver).
+	ExecuteBelowPct int `yaml:"execute_below_pct,omitempty"`
+	// DeathBurst: a target KILLED by this weapon bursts, dealing fire damage to
+	// monsters within the radius (Ember Egg).
+	DeathBurstDamage      int     `yaml:"death_burst_damage,omitempty"`
+	DeathBurstRadiusTiles float64 `yaml:"death_burst_radius_tiles,omitempty"`
+	// TrueDamage adds a flat component that bypasses armor and dodge, resisted
+	// only by the school (Broodspike).
+	TrueDamage int `yaml:"true_damage,omitempty"`
+	// Slow drags the target's movement by SlowPct for SlowSeconds (Tarn Trident).
+	SlowPct     int `yaml:"slow_pct,omitempty"`
+	SlowSeconds int `yaml:"slow_seconds,omitempty"`
+	// Weaken cuts the target's outgoing damage by WeakenPct for WeakenSeconds
+	// (Scalebreaker roar).
+	WeakenPct     int `yaml:"weaken_pct,omitempty"`
+	WeakenSeconds int `yaml:"weaken_seconds,omitempty"`
+	// Ricochet: after impact the bolt leaps to further enemies within the
+	// authored seek radius - unlike the straight-line pierce.
+	RicochetTargets    int     `yaml:"ricochet_targets,omitempty"`
+	RicochetRangeTiles float64 `yaml:"ricochet_range_tiles,omitempty"`
+	// SpellEchoPct: spells cast by the wielder repeat once, free, this % of the
+	// time (Verdant Eye).
+	SpellEchoPct int `yaml:"spell_echo_pct,omitempty"`
+	// PartyFireWhileRunning: while ANY party member wields this, the whole party
+	// may attack on the move (Wyrmspine Wing).
+	PartyFireWhileRunning bool `yaml:"party_fire_while_running,omitempty"`
+	// TBActionsPerRound is the wielder's personal turn-based action floor.
+	// Speed bonus actions stack on top.
+	TBActionsPerRound int `yaml:"tb_actions_per_round,omitempty"`
+
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
 
@@ -1433,6 +1545,38 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
 		}
+		if err := validateChanceDuration(key, "ignite", def.IgniteChance, def.IgniteSeconds); err != nil {
+			return err
+		}
+		if err := validateChanceDuration(key, "poison", def.PoisonChance, def.PoisonSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "slow", def.SlowPct, def.SlowSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "weaken", def.WeakenPct, def.WeakenSeconds); err != nil {
+			return err
+		}
+		if def.ExecuteBelowPct < 0 || def.ExecuteBelowPct > 100 {
+			return fmt.Errorf("weapon '%s': execute_below_pct must be in [0,100]", key)
+		}
+		if def.DeathBurstDamage < 0 || def.DeathBurstRadiusTiles < 0 ||
+			(def.DeathBurstDamage == 0) != (def.DeathBurstRadiusTiles == 0) {
+			return fmt.Errorf("weapon '%s': death_burst_damage and death_burst_radius_tiles must both be positive or both be zero", key)
+		}
+		if def.TrueDamage < 0 {
+			return fmt.Errorf("weapon '%s': true_damage must not be negative", key)
+		}
+		if def.RicochetTargets < 0 || def.RicochetRangeTiles < 0 ||
+			(def.RicochetTargets == 0) != (def.RicochetRangeTiles == 0) {
+			return fmt.Errorf("weapon '%s': ricochet_targets and ricochet_range_tiles must both be positive or both be zero", key)
+		}
+		if def.SpellEchoPct < 0 || def.SpellEchoPct > 100 {
+			return fmt.Errorf("weapon '%s': spell_echo_pct must be in [0,100]", key)
+		}
+		if def.TBActionsPerRound < 0 {
+			return fmt.Errorf("weapon '%s': tb_actions_per_round must not be negative", key)
+		}
 		if isProjectileWeapon(def) {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
@@ -1444,6 +1588,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)
 			}
 		} else {
+			if def.RicochetTargets > 0 {
+				return fmt.Errorf("melee weapon '%s' defines ricochet fields (projectile-only)", key)
+			}
 			if def.Physics != nil {
 				return fmt.Errorf("melee weapon '%s' should not define projectile physics", key)
 			}
@@ -1457,6 +1604,26 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
 			}
 		}
+	}
+	return nil
+}
+
+func validateChanceDuration(weaponKey, effect string, chance float64, seconds int) error {
+	if chance < 0 || chance > 1 {
+		return fmt.Errorf("weapon '%s': %s_chance must be in [0,1]", weaponKey, effect)
+	}
+	if seconds < 0 || (chance == 0) != (seconds == 0) {
+		return fmt.Errorf("weapon '%s': %s_chance and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
+	}
+	return nil
+}
+
+func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
+	if pct < 0 || pct > 100 {
+		return fmt.Errorf("weapon '%s': %s_pct must be in [0,100]", weaponKey, effect)
+	}
+	if seconds < 0 || (pct == 0) != (seconds == 0) {
+		return fmt.Errorf("weapon '%s': %s_pct and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
 	}
 	return nil
 }
@@ -1506,6 +1673,9 @@ type ItemSetConfig struct {
 	// BonusCritChance adds flat percentage points to every critical-hit roll:
 	// weapon attacks and damage spells alike.
 	BonusCritChance int `yaml:"bonus_crit_chance,omitempty"`
+	// FieryRipostePct: melee attackers take this share of the damage they deal
+	// the wearer back as FIRE (the Drakeforged pair answering in kind).
+	FieryRipostePct int `yaml:"fiery_riposte_pct,omitempty"`
 }
 
 // RequiredPieceCount is the player-facing size of a set. Exact-piece sets
@@ -1606,6 +1776,16 @@ type ItemDefinitionConfig struct {
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
 	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
+	// ProjectileReflectPct: chance an incoming monster projectile is turned
+	// back at its shooter (Broodscale Aegis mirror-scale).
+	ProjectileReflectPct int `yaml:"projectile_reflect_pct,omitempty"`
+	// StatusDurationPct shifts the duration of every hostile status suffered by
+	// the wearer. It is deliberately broader than set-level stun_duration_pct.
+	StatusDurationPct int `yaml:"status_duration_pct,omitempty"`
+	// Scale stacks: each damaging hit grows one stack worth ScaleStackAC, up to
+	// ScaleStackMax; stacks shed once combat ends.
+	ScaleStackAC  int `yaml:"scale_stack_ac,omitempty"`
+	ScaleStackMax int `yaml:"scale_stack_max,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`
@@ -1619,6 +1799,30 @@ type ItemDefinitionConfig struct {
 	// restores mana_base + Personality/mana_personality_divisor spell points.
 	ManaBase               int `yaml:"mana_base,omitempty"`
 	ManaPersonalityDivisor int `yaml:"mana_personality_divisor,omitempty"`
+	// Elemental draughts: a timed party-wide school resist (Fire Shield's buff
+	// slot) or a flat armor-class buff; both need buff_duration_seconds.
+	ResistBuffSchool string `yaml:"resist_buff_school,omitempty"`
+	// DeprecatedResistBuffPct catches the spell-only key in item YAML instead
+	// of letting yaml.v3 ignore it and silently create a draught with no ward.
+	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
+	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
+	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
+	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
+	StatusIcon              string `yaml:"status_icon,omitempty"`
+}
+
+// MinHostileStatusDurationPct is the strongest combined duration reduction
+// allowed for hostile timed statuses. A landed status always keeps at least
+// 10% of its authored duration.
+const MinHostileStatusDurationPct = -90
+
+// HasTimedBuff reports whether this definition carries a complete timed combat
+// buff payload. Validation guarantees that published item configs also have the
+// required consumable type and status icon.
+func (d *ItemDefinitionConfig) HasTimedBuff() bool {
+	return d != nil &&
+		d.BuffDurationSeconds > 0 &&
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -1680,6 +1884,9 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 // typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
+		if def == nil {
+			return fmt.Errorf("item '%s' has empty definition", key)
+		}
 		resistances, err := canonicalDamageIntMap(def.Resistances)
 		if err != nil {
 			return fmt.Errorf("item '%s' has invalid resistances: %w", key, err)
@@ -1697,6 +1904,47 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if def.Set != "" && cfg.Sets[def.Set] == nil {
 			return fmt.Errorf("item '%s' references unknown set %q", key, def.Set)
+		}
+		if def.ProjectileReflectPct < 0 || def.ProjectileReflectPct > 100 {
+			return fmt.Errorf("item '%s': projectile_reflect_pct must be in [0,100]", key)
+		}
+		if def.StatusDurationPct < MinHostileStatusDurationPct {
+			return fmt.Errorf("item '%s': status_duration_pct must be at least %d", key, MinHostileStatusDurationPct)
+		}
+		if def.ScaleStackAC < 0 || def.ScaleStackMax < 0 ||
+			(def.ScaleStackAC == 0) != (def.ScaleStackMax == 0) {
+			return fmt.Errorf("item '%s': scale_stack_ac and scale_stack_max must both be positive or both be zero", key)
+		}
+		if def.DeprecatedResistBuffPct != 0 {
+			return fmt.Errorf("item '%s': resist_buff_pct is spell-only; use resist_buff_school_pct with resist_buff_school", key)
+		}
+		if def.ResistBuffSchool != "" {
+			school, err := canonicalMagicSchool(def.ResistBuffSchool)
+			if err != nil {
+				return fmt.Errorf("item '%s' has invalid resist_buff_school %q", key, def.ResistBuffSchool)
+			}
+			def.ResistBuffSchool = school
+		}
+		if def.ResistBuffSchoolPct < 0 || def.ResistBuffSchoolPct > 100 {
+			return fmt.Errorf("item '%s': resist_buff_school_pct must be in [0,100]", key)
+		}
+		if (def.ResistBuffSchool == "") != (def.ResistBuffSchoolPct == 0) {
+			return fmt.Errorf("item '%s': resist_buff_school and resist_buff_school_pct must be set together", key)
+		}
+		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
+			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
+		}
+		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0
+		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
+		if hasBuffEffect && def.Type != "consumable" {
+			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
+		}
+		if hasBuffEffect && (def.BuffDurationSeconds <= 0 || def.StatusIcon == "") {
+			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
+		}
+		if hasBuffMetadata && !hasBuffEffect {
+			return fmt.Errorf("item '%s': buff metadata has no resist or armor effect", key)
 		}
 		switch def.Type {
 		case "consumable":
@@ -1723,6 +1971,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for name, set := range cfg.Sets {
 		if set == nil || set.Name == "" || set.PiecesRequired <= 0 {
 			return fmt.Errorf("item set '%s': name and positive pieces_required are required", name)
+		}
+		if set.FieryRipostePct < 0 || set.FieryRipostePct > 100 {
+			return fmt.Errorf("item set '%s': fiery_riposte_pct must be in [0,100]", name)
 		}
 	}
 	return nil
@@ -1879,6 +2130,14 @@ type LootEntry struct {
 	Type   string  `yaml:"type"` // weapon|item
 	Key    string  `yaml:"key"`
 	Chance float64 `yaml:"chance"`
+	Rolls  int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+}
+
+func (e LootEntry) RollCount() int {
+	if e.Rolls > 0 {
+		return e.Rolls
+	}
+	return 1
 }
 
 type WeightedLootTable struct {
@@ -1903,6 +2162,9 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := yaml.Unmarshal(data, &loots); err != nil {
 		return nil, err
 	}
+	if err := validateMonsterLoot(&loots); err != nil {
+		return nil, err
+	}
 	if err := validateWeightedLootTables(&loots); err != nil {
 		return nil, err // don't publish invalid data to the process global
 	}
@@ -1916,30 +2178,56 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	return &loots, nil
 }
 
+func validateLootEntry(scope string, index int, e LootEntry) error {
+	if e.Chance < 0 || e.Chance > 1 {
+		return fmt.Errorf("%s[%d] %q: chance must be in [0,1]", scope, index, e.Key)
+	}
+	if e.Rolls < 0 {
+		return fmt.Errorf("%s[%d] %q: rolls must not be negative", scope, index, e.Key)
+	}
+	return validateLootCatalogReference(fmt.Sprintf("%s[%d]", scope, index), e.Type, e.Key)
+}
+
+func validateLootCatalogReference(scope, entryType, key string) error {
+	switch entryType {
+	case "weapon":
+		if GlobalWeapons == nil {
+			return fmt.Errorf("%s %q: weapons not loaded", scope, key)
+		}
+		if _, ok := GlobalWeapons.Weapons[key]; !ok {
+			return fmt.Errorf("%s: unknown weapon key %q", scope, key)
+		}
+	case "item":
+		if GlobalItems == nil {
+			return fmt.Errorf("%s %q: items not loaded", scope, key)
+		}
+		if _, ok := GetItemDefinition(key); !ok {
+			return fmt.Errorf("%s: unknown item key %q", scope, key)
+		}
+	default:
+		return fmt.Errorf("%s %q has bad type %q (want weapon|item)", scope, key, entryType)
+	}
+	return nil
+}
+
+func validateMonsterLoot(lt *LootTablesConfig) error {
+	for monsterKey, entries := range lt.Loots {
+		scope := fmt.Sprintf("loots.%s", monsterKey)
+		for i, entry := range entries {
+			if err := validateLootEntry(scope, i, entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // validateBossLoot validates the global entries appended to every boss table.
 // They use the same independent-chance contract as normal monster loot.
 func validateBossLoot(lt *LootTablesConfig) error {
 	for i, e := range lt.BossLoot {
-		if e.Chance < 0 || e.Chance > 1 {
-			return fmt.Errorf("boss_loot[%d] %q: chance must be in [0,1]", i, e.Key)
-		}
-		switch e.Type {
-		case "weapon":
-			if GlobalWeapons == nil {
-				return fmt.Errorf("boss_loot[%d] %q: weapons not loaded", i, e.Key)
-			}
-			if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
-				return fmt.Errorf("boss_loot[%d]: unknown weapon key %q", i, e.Key)
-			}
-		case "item":
-			if GlobalItems == nil {
-				return fmt.Errorf("boss_loot[%d] %q: items not loaded", i, e.Key)
-			}
-			if _, ok := GetItemDefinition(e.Key); !ok {
-				return fmt.Errorf("boss_loot[%d]: unknown item key %q", i, e.Key)
-			}
-		default:
-			return fmt.Errorf("boss_loot[%d] %q has bad type %q (want weapon|item)", i, e.Key, e.Type)
+		if err := validateLootEntry("boss_loot", i, e); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1967,23 +2255,8 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 			if e.Weight <= 0 {
 				return fmt.Errorf("loot_table %q: entry %q weight must be > 0", name, e.Key)
 			}
-			switch e.Type {
-			case "weapon":
-				if GlobalWeapons == nil {
-					return fmt.Errorf("loot_table %q: weapons not loaded for entry %q", name, e.Key)
-				}
-				if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
-					return fmt.Errorf("loot_table %q: unknown weapon key %q", name, e.Key)
-				}
-			case "item":
-				if GlobalItems == nil {
-					return fmt.Errorf("loot_table %q: items not loaded for entry %q", name, e.Key)
-				}
-				if _, ok := GetItemDefinition(e.Key); !ok {
-					return fmt.Errorf("loot_table %q: unknown item key %q", name, e.Key)
-				}
-			default:
-				return fmt.Errorf("loot_table %q: entry %q has bad type %q (want weapon|item)", name, e.Key, e.Type)
+			if err := validateLootCatalogReference(fmt.Sprintf("loot_table %q entry", name), e.Type, e.Key); err != nil {
+				return err
 			}
 		}
 	}
@@ -2031,10 +2304,15 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
 		}
+		totalWeight := 0
 		for i, src := range c.RollSources {
 			if err := validateCrateRollSource(key, "roll_sources", i, src, true); err != nil {
 				return err
 			}
+			totalWeight += src.Weight
+		}
+		if len(c.RollSources) > 0 && totalWeight != 100 {
+			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %d", key, totalWeight)
 		}
 		for i, src := range c.SpecialRolls {
 			if err := validateCrateRollSource(key, "special_rolls", i, src, false); err != nil {
@@ -2049,8 +2327,21 @@ func validateCrates(lt *LootTablesConfig) error {
 }
 
 func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {
-	if requireWeight && src.Weight <= 0 {
-		return fmt.Errorf("crate %q %s[%d]: weight must be > 0", crate, sourceName, idx)
+	if requireWeight {
+		if src.Weight < 1 || src.Weight > 100 {
+			return fmt.Errorf("crate %q %s[%d]: weight must be 1..100", crate, sourceName, idx)
+		}
+		if src.ChancePct != 0 {
+			return fmt.Errorf("crate %q %s[%d]: chance_pct is only valid in special_rolls", crate, sourceName, idx)
+		}
+	} else if src.Weight != 0 {
+		return fmt.Errorf("crate %q %s[%d]: weight is only valid in roll_sources", crate, sourceName, idx)
+	}
+	if src.LegendaryPct < 0 || src.LegendaryPct > 100 {
+		return fmt.Errorf("crate %q %s[%d]: legendary_pct must be 0..100", crate, sourceName, idx)
+	}
+	if src.Pool != "rare" && src.LegendaryPct != 0 {
+		return fmt.Errorf("crate %q %s[%d]: legendary_pct is only valid for pool rare", crate, sourceName, idx)
 	}
 	switch src.Pool {
 	case "nothing":
@@ -2077,7 +2368,7 @@ func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSou
 		}
 		return nil
 	default:
-		return fmt.Errorf("crate %q %s[%d]: pool must be \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
+		return fmt.Errorf("crate %q %s[%d]: pool must be \"nothing\", \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
 	}
 }
 

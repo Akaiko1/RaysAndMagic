@@ -1,0 +1,39 @@
+# Tavern rumors - the guide-rail hint system. Shown at every tavern via the
+# "Listen for rumors" branch; ONE rumor at a time, rotating with each day/night
+# flip. `quest` = the goal it points at (rumor retires when it completes);
+# `after` = prerequisite quest (hidden until that completes); a rumor with no
+# `quest` is aftermath flavor and never retires. Written in the mythic
+# register - the truth beneath is never stated outright.
+rumors:
+  # Early guidance
+  - quest: "culverts_valves"
+    text: "Old Garran swears the Seabright culverts flood from BELOW. Seven valves, he says, and something golden swimming between them."
+  - quest: "castle_armory"
+    text: "The eastern castle keeps its swords behind paper screens - and its lord behind something stronger. Steel taken is steel answered, they say."
+  - quest: "forest_wolf_cull"
+    text: "Trader Aldric will lay planks over the lake the day the last wolf of the Elvish Forest stops howling."
+
+  # The dragon arc
+  - quest: "dragon_slayer"
+    text: "Four sleepers under the desert, four seals, four little statues. Runes say a statuette wakes what sleeps in the stone - if you truly want it woken."
+  - quest: "broodmother_nests"
+    text: "Rangers say the cliff dragons sing to something under the Ember Crater - and that the mother of them all wakes only for silence. Leave no dragon alive up there, if you dare learn what answers."
+  - after: "dragon_slayer"
+    text: "Since the fourth elder fell, pilgrims will not enter the pyramid. They say the dais hums now, and the Isis kneel to a horned shadow that was not there before."
+
+  # The drowned arc
+  - quest: "water_purge"
+    text: "Fisherfolk mark pale lights walking the seabed off Seabright. Things that are not fish. Scour them out - and mind what their silence wakes."
+  - after: "water_purge"
+    text: "The deep went quiet after you cleaned it, they say. Quiet like held breath. Go back down, if you must know what draws one."
+
+  # The crown arc
+  - quest: "archmage_trial"
+    text: "The white tower's throne stands empty while the mad king rots on his. Break the Lich King at his nexus and the Light will crown one of YOURS - so the robes whisper."
+
+  # The reckoning itself
+  - quest: "endgame_triad"
+    text: "Three shadows crown the age, the old song goes - the mother in her crater, the horned court under the sand, the iron thing beneath the tide. Whoever ends all three writes the next verse."
+
+  # Standing flavor
+  - text: "A smith at Coldbrook pays in miracles for dragon scale - red, green, gold, and black if you can get it. Bring coin for her forge besides."

@@ -210,7 +210,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 		}
 		dmg.AddDetail("Cards: +%d%% %s damage", preview.CardDamagePct, mode)
 	}
-	masteryTrue := preview.True - preview.CardTrue
+	masteryTrue := preview.True - preview.AuthoredTrue - preview.CardTrue
 	if masteryTrue > 0 {
 		if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 			_, tierName := masteryTier(char, skill)
@@ -315,16 +315,7 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 
 	effects := ttSection{Title: "EFFECTS"}
 	if ok && def != nil {
-		for _, ln := range def.StatBonusLines() {
-			effects.Add("%s", ln)
-		}
-		for _, ln := range def.ResistLines() {
-			effects.Add("%s", ln)
-		}
-		if ln := def.PartyArmorLine(); ln != "" {
-			effects.Add("%s", ln)
-		}
-		for _, ln := range def.SetLines() {
+		for _, ln := range character.FilteredItemEffectLines(def) {
 			effects.Add("%s", ln)
 		}
 	}

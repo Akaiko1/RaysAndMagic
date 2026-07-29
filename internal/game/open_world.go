@@ -61,17 +61,25 @@ func mapKeyOnCurrentWorld(mapKey string) bool {
 	return true
 }
 
+// mapKeyAtTile resolves a runtime tile to its logical map. On split maps this
+// is the current map; on the unified world the tile's region is authoritative.
+func (g *MMGame) mapKeyAtTile(tx, ty int) string {
+	if g.openWorldActive() {
+		if r := world.GlobalWorldManager.OpenWorldRegionAtTile(tx, ty); r != nil {
+			return r.MapKey
+		}
+	}
+	return currentMapKey()
+}
+
 // questKillMapKey attributes a kill to a map for quest scoping: the region
 // the monster died in on the unified world (a projectile fired across a seam
 // must credit the victim's region, not the party's), the current map key
 // otherwise.
 func (g *MMGame) questKillMapKey(m *monster.Monster3D) string {
-	wm := world.GlobalWorldManager
-	if m != nil && g.openWorldActive() {
+	if m != nil {
 		ts := g.config.GetTileSize()
-		if r := wm.OpenWorldRegionAtTile(int(m.X/ts), int(m.Y/ts)); r != nil {
-			return r.MapKey
-		}
+		return g.mapKeyAtTile(int(m.X/ts), int(m.Y/ts))
 	}
 	return currentMapKey()
 }

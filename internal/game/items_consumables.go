@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -253,6 +254,36 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			return false
 		}
 		return g.applyHealTo(itemIndex, selectedChar)
+	}
+
+	// Timed consumable buffs keep their static mechanics in items.yaml. The
+	// item key is also the replace-on-recast and save identity.
+	if def, itemKey, ok := config.GetItemDefinitionByName(item.Name); ok && def.HasTimedBuff() {
+		buff, valid := timedCombatBuffFromItem(itemKey, def, def.BuffDurationSeconds*g.config.GetTPS())
+		if !valid {
+			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (buff attributes)", item.Name))
+			return false
+		}
+		g.addCombatBuff(buff)
+		g.party.ConsumeOneAt(itemIndex)
+		switch {
+		case buff.ResistSchoolPct > 0 && buff.ArmorBonus > 0:
+			g.AddCombatMessage(fmt.Sprintf(
+				"The party drinks %s - %s ward +%d%% and armor +%d for %ds.",
+				item.Name, buff.ResistSchool, buff.ResistSchoolPct, buff.ArmorBonus, def.BuffDurationSeconds,
+			))
+		case buff.ResistSchoolPct > 0:
+			g.AddCombatMessage(fmt.Sprintf(
+				"The party drinks %s - %s ward +%d%% for %ds.",
+				item.Name, buff.ResistSchool, buff.ResistSchoolPct, def.BuffDurationSeconds,
+			))
+		default:
+			g.AddCombatMessage(fmt.Sprintf(
+				"The party drinks %s - armor +%d for %ds.",
+				item.Name, buff.ArmorBonus, def.BuffDurationSeconds,
+			))
+		}
+		return true
 	}
 
 	// Mana consumable (mana potion): restores mana_base + Personality/divisor SP.

@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/mathutil"
@@ -158,7 +159,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 		if tickTurnStatuses {
 			m.TickPoisonTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
+			m.TickBurnTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))   // Drakefang ignite; stacks with poison
 			m.TickArmorShredTurn()                                                   // Pit Labrys shred decays regardless of stun
+			m.TickSlowTurn()                                                         // Tarn Trident silt decays regardless of stun
+			m.TickWeakenTurn()                                                       // Scalebreaker roar decays regardless of stun
 			m.TickSoakTurn()                                                         // Champion Stone Skin rated dual clock
 			if !m.IsAlive() {
 				// Matches RT: HandleMonsterInteractions skips a monster the parallel
@@ -317,6 +321,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// from anywhere). TB gets ONE nova roll per monster pass; RT rolls it on the
 		// BossInfernoRangedRollSeconds cooldown.
 		if m.IsBoss() {
+			gl.game.combat.tryBossTrapVolley(m, true) // Brood Mother field, TB cadence
 			if gl.game.combat.updateBoss(m, m.BossCD == 0, true, true) {
 				if !gl.game.combat.bossEvasive(m) {
 					gl.game.combat.armMonsterRTAttackCooldowns(m)
@@ -576,6 +581,13 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
 	// lives in TickRootTurn (root != stun - attacks still happen).
 	if monster.RootHeld() {
+		return
+	}
+	// Slowed (Tarn Trident silt): TB movement is tile-stepped, so the RT speed
+	// drag converts to skipping this turn's step SlowPct% of the time - the
+	// same average ground lost per turn, attacks unaffected. ActiveSlowPct
+	// keeps the latched value for the turn that consumed the final tick.
+	if pct := monster.ActiveSlowPct(); pct > 0 && rand.Intn(100) < pct {
 		return
 	}
 	tileSize := float64(gl.game.config.GetTileSize())

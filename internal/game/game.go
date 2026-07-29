@@ -114,7 +114,10 @@ type Arrow struct {
 	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	// Pierce-through (Arena Arbalest): a hit with PierceLeft > 0 consumes this
 	// arrow and spawns a continuation bolt that skips the monster it went through.
-	PierceLeft     int
+	PierceLeft int
+	// Ricochet (Nest Arbalest): a hit with RicochetLeft > 0 spawns a bolt AIMED
+	// at the nearest other living enemy near the victim - seeking, not straight.
+	RicochetLeft   int
 	SkipMonster    *monster.Monster3D
 	RenderAngle    float64 // Render-only: smoothed on-screen shaft angle
 	RenderAngleSet bool    // Render-only: RenderAngle initialised
@@ -495,6 +498,17 @@ type MMGame struct {
 	// position, captured once (maps always load pristine from disk) so
 	// syncQuestTiles can REVERT a change when its quest isn't completed.
 	questTileOriginals map[string]world.TileType3D
+	// questSpawnsDone: stable quest/spawn IDs that already fired this
+	// playthrough (persisted). Spawns are one-shot events, never re-applied.
+	questSpawnsDone map[string]bool
+	// bossFireTraps: the Brood Mother's armed fire-trap field (persisted) and
+	// the collision ID of the boss that sowed it. See boss_fire_traps.go.
+	bossFireTraps      []bossFireTrap
+	bossFireTrapsOwner string
+	// pendingQuestSpawns: quest spawns deferred to the frame boundary (never
+	// mid-attack), each pinned to its TARGET world - a map switch between the
+	// queue and the flush must not teleport the boss to the destination map.
+	pendingQuestSpawns []pendingQuestSpawn
 
 	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
 	reusableMonsterWrappers     []entities.MonsterUpdateInterface
@@ -842,7 +856,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Connect global quest manager
 	game.questManager = quests.GlobalQuestManager
-	if err := validateQuestTileChanges(game.questManager); err != nil {
+	if err := validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
 
@@ -1633,7 +1647,8 @@ func (g *MMGame) checkGameOver() {
 	}
 }
 
-// checkVictory checks if the dragon_slayer quest is completed
+// checkVictory enters the victory state when the data-authored victory quest
+// completes.
 func (g *MMGame) checkVictory() {
 	if g.gameVictory || g.victoryAcknowledged || g.gameOver {
 		return
@@ -1641,11 +1656,7 @@ func (g *MMGame) checkVictory() {
 	if g.questManager == nil {
 		return
 	}
-	quest := g.questManager.GetQuest("dragon_slayer")
-	if quest != nil && quest.Status == quests.QuestStatusCompleted {
-		if !quest.RewardsClaimed {
-			g.claimQuestReward("dragon_slayer")
-		}
+	if g.questManager.VictoryCompleted() {
 		g.enterPostVictoryFreeMode()
 		g.gameVictory = true
 		g.victoryTime = time.Now()
@@ -2311,18 +2322,16 @@ func (g *MMGame) startPartyTurn() {
 	}
 	for _, m := range g.party.Members {
 		m.NextTBAttackOffHand = false // fresh round: next swing starts on the main hand
+		m.TBRoundActionFloor = 0
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
 			m.ActionsRemaining = 0
 		} else if m.CanAct() {
-			// Dual Wielding grants a PERSONAL extra action (two weapons, two
-			// swings) - separate from the party-wide Speed bonus pool assigned
-			// below, so a fast dual-wielder can get both.
-			if m.IsDualWielding() {
-				m.ActionsRemaining = 2
-			} else {
-				m.ActionsRemaining = 1
-			}
+			// The personal action floor combines dual wielding with any
+			// weapon-authored floor. The party-wide Speed pool below stacks on
+			// top of it.
+			m.TBRoundActionFloor = tbPersonalActionFloor(m)
+			m.ActionsRemaining = m.TBRoundActionFloor
 		} else {
 			m.ActionsRemaining = 0
 		}
@@ -2355,7 +2364,10 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 		bestIdx := -1
 		bestSpeed := -1
 		for i, m := range g.party.Members {
-			if m == nil || !m.CanAct() || m.IsStunned() || m.ActionsRemaining > 1 {
+			// Eligible until they exceed their PERSONAL floor: a dual-wielder
+			// or Suppressor gunner keeps their floor AND can earn Speed
+			// bonuses on top (each member gets at most one per round).
+			if m == nil || !m.CanAct() || m.IsStunned() || m.ActionsRemaining > m.TBRoundActionFloor {
 				continue
 			}
 			speed := m.GetEffectiveSpeed()
@@ -2369,6 +2381,71 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 		}
 		g.party.Members[bestIdx].ActionsRemaining++
 		bonusActions--
+	}
+}
+
+// applyEquipmentMutation is the game-side entry point for live equipment
+// changes. Character/Party own inventory legality; the game owns combat-state
+// reconciliation that must run after every successful UI gear mutation.
+func (g *MMGame) applyEquipmentMutation(characterIndex int, mutate func() bool) bool {
+	if g == nil || g.party == nil || mutate == nil ||
+		characterIndex < 0 || characterIndex >= len(g.party.Members) {
+		return false
+	}
+	if !mutate() {
+		return false
+	}
+	g.reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex)
+	return true
+}
+
+func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int) bool {
+	return g.applyEquipmentMutation(characterIndex, func() bool {
+		return g.party.EquipItemFromInventory(itemIndex, characterIndex)
+	})
+}
+
+func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
+	return g.applyEquipmentMutation(characterIndex, func() bool {
+		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot)
+	})
+}
+
+func (g *MMGame) movePartyEquipmentSlot(srcSlot, dstSlot items.EquipSlot, characterIndex int) bool {
+	return g.applyEquipmentMutation(characterIndex, func() bool {
+		return g.party.MoveEquippedSlot(srcSlot, dstSlot, characterIndex)
+	})
+}
+
+func (g *MMGame) unequipPartyItemToInventory(slot items.EquipSlot, characterIndex int) bool {
+	return g.applyEquipmentMutation(characterIndex, func() bool {
+		return g.party.UnequipItemToInventory(slot, characterIndex)
+	})
+}
+
+// reconcileTBRoundActionFloorAfterEquipmentChange withdraws only the portion
+// of the personal floor that was credited at round start and is no longer
+// supported by the equipped weapons. Raising the floor mid-round never grants
+// actions, so swapping gear cannot refill or transfer Autofire.
+func (g *MMGame) reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex int) {
+	if g == nil || g.party == nil || g.currentTurn != 0 ||
+		(!g.turnBasedMode && !g.turnBasedTurnSuspended) ||
+		characterIndex < 0 || characterIndex >= len(g.party.Members) {
+		return
+	}
+	member := g.party.Members[characterIndex]
+	if member == nil || member.TBRoundActionFloor <= 0 {
+		return
+	}
+	currentFloor := tbPersonalActionFloor(member)
+	if currentFloor >= member.TBRoundActionFloor {
+		return
+	}
+	withdrawn := member.TBRoundActionFloor - currentFloor
+	member.TBRoundActionFloor = currentFloor
+	member.ActionsRemaining = max(0, member.ActionsRemaining-withdrawn)
+	if g.turnBasedMode {
+		g.skipTurnBasedPartyTurnWithoutActor()
 	}
 }
 

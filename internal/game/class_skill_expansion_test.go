@@ -215,12 +215,16 @@ func TestImpenetrableDefenseAndSacrificeUsePostMitigationDamage(t *testing.T) {
 	victim.HitPoints, victim.MaxHitPoints = 1000, 1000
 	protector.HitPoints, protector.MaxHitPoints = 1000, 1000
 	protector.Skills[character.SkillSacrifice].Mastery = character.MasteryGrandMaster
+	protector.Equipment[items.SlotGauntlets] = items.CreateItemFromYAML("drakehide_gauntlets")
 	cs.game.party.Members = []*character.MMCharacter{victim, protector}
 	if remaining := cs.redirectDamageThroughSacrifice(victim, 100); remaining != 50 {
 		t.Fatalf("victim retained %d damage, want 50", remaining)
 	}
 	if protector.HitPoints != 950 {
 		t.Fatalf("protector HP = %d, want 950", protector.HitPoints)
+	}
+	if protector.ScaleStacks != 1 {
+		t.Fatalf("protector scale stacks = %d, want 1 after redirected damage", protector.ScaleStacks)
 	}
 }
 

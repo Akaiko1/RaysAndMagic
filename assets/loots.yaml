@@ -11,6 +11,12 @@ loots:
       chance: 0.01
 
   dragon:
+    - type: "item"
+      key: "flame_ward_draught"
+      chance: 0.12
+    - type: "item"
+      key: "red_dragon_scale"
+      chance: 0.6
     - type: "weapon"
       key: "bow_of_hellfire"
       chance: 0.05
@@ -385,6 +391,12 @@ loots:
   # Elemental dragons - each hoards a signature gem (base dragon: ruby, above).
   dragon_red:
     - type: "item"
+      key: "gloom_ward_draught"
+      chance: 0.12
+    - type: "item"
+      key: "red_dragon_scale"
+      chance: 0.6
+    - type: "item"
       key: "diamond"
       chance: 0.15
     - type: "weapon"
@@ -395,6 +407,12 @@ loots:
       chance: 0.01
 
   dragon_green:
+    - type: "item"
+      key: "stoneskin_draught"
+      chance: 0.12
+    - type: "item"
+      key: "green_dragon_scale"
+      chance: 0.6
     - type: "item"
       key: "emerald"
       chance: 0.15
@@ -413,6 +431,12 @@ loots:
 
   dragon_gold:
     - type: "item"
+      key: "storm_ward_draught"
+      chance: 0.12
+    - type: "item"
+      key: "gold_dragon_scale"
+      chance: 0.6
+    - type: "item"
       key: "diamond"
       chance: 0.15
     - type: "item"
@@ -430,20 +454,32 @@ loots:
 
   elder_dragon:
     - type: "item"
+      key: "red_dragon_scale"
+      chance: 1.0
+    - type: "item"
       key: "elder_dragon_card"
       chance: 0.01
 
   elder_dragon_red:
+    - type: "item"
+      key: "red_dragon_scale"
+      chance: 1.0
     - type: "item"
       key: "elder_dragon_red_card"
       chance: 0.01
 
   elder_dragon_green:
     - type: "item"
+      key: "green_dragon_scale"
+      chance: 1.0
+    - type: "item"
       key: "elder_dragon_green_card"
       chance: 0.01
 
   elder_dragon_gold:
+    - type: "item"
+      key: "gold_dragon_scale"
+      chance: 1.0
     - type: "item"
       key: "elder_dragon_gold_card"
       chance: 0.01
@@ -668,6 +704,9 @@ loots:
   # --- Clock Tower (2026-07-16): every tower horror can shed a clock hand ---
   dust_slime:
     - type: "item"
+      key: "stoneskin_draught"
+      chance: 0.12
+    - type: "item"
       key: "clock_hand"
       chance: 0.30
     - type: "item"
@@ -693,6 +732,9 @@ loots:
 
   alarm_clock:
     - type: "item"
+      key: "storm_ward_draught"
+      chance: 0.12
+    - type: "item"
       key: "clock_hand"
       chance: 0.45
     - type: "item"
@@ -709,6 +751,9 @@ loots:
       chance: 0.03
 
   grandfather_clock:
+    - type: "item"
+      key: "flame_ward_draught"
+      chance: 0.12
     - type: "item"
       key: "clock_hand"
       chance: 0.65
@@ -728,6 +773,60 @@ loots:
 # Boss loot is appended to the normal loot table of every monsters.yaml entry
 # authored with boss: true. Every ordinary loot consumer uses the same resolved
 # table, including kills, Sleight of Hand, map crates, and the map viewer.
+  # ============ ENDGAME BOSS TRIAD ============
+  # The Brood Mother: 3 black scales guaranteed (the Scalewright's top coin)
+  # + a 25% roll on each other colour.
+  dragon_brood_mother:
+    - type: "item"
+      key: "black_dragon_scale"
+      chance: 1.0
+      rolls: 3
+    - type: "item"
+      key: "red_dragon_scale"
+      chance: 0.25
+    - type: "item"
+      key: "green_dragon_scale"
+      chance: 0.25
+    - type: "item"
+      key: "gold_dragon_scale"
+      chance: 0.25
+    - type: "item"
+      key: "diamond"
+      chance: 0.5
+
+  # The Ancient God of Death: the Still Court regalia (independent rolls).
+  ancient_god_of_death:
+    - type: "item"
+      key: "deathgod_helm"
+      chance: 0.6
+    - type: "item"
+      key: "deathgod_greaves"
+      chance: 0.6
+    - type: "item"
+      key: "deathgod_aegis"
+      chance: 0.6
+    - type: "item"
+      key: "diamond"
+      chance: 0.4
+
+  # The Alien Enforcer: the Pursuer arsenal (blasters need no skill).
+  alien_enforcer:
+    - type: "weapon"
+      key: "suppressor_gun"
+      chance: 0.15
+    - type: "weapon"
+      key: "longlance_rifle"
+      chance: 0.12
+    - type: "weapon"
+      key: "vibro_blade"
+      chance: 0.15
+    - type: "weapon"
+      key: "compound_bow"
+      chance: 0.15
+    - type: "item"
+      key: "diamond"
+      chance: 0.4
+
 boss_loot:
   - type: "item"
     key: "skeleton_key"
@@ -751,7 +850,7 @@ crates:
     roll_sources:
       - pool: "gold"
         amount: 500
-        weight: 1
+        weight: 100
   barrel_red:
     bonus_stat: "might"
     bonus_amount: 1
@@ -823,7 +922,7 @@ crates:
       # Every roll is a catalog rare, upgraded to a legendary at legendary_pct.
       - pool: "rare"
         legendary_pct: 15
-        weight: 1
+        weight: 100
     special_rolls:
       - pool: "arena_points"
         amount: 5000

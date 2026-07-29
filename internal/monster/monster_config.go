@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"ugataima/internal/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,7 +39,8 @@ type MonsterDefinition struct {
 	SizeClass string `yaml:"size_class"`
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
-	// damage, attack cadence, HP and armor onto this monster at spawn.
+	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
+	// damage school comes from that weapon, so melee_damage_type is invalid.
 	Champion string `yaml:"champion,omitempty"`
 	// size_game and size_multiplier are retired. The fields exist only so content
 	// still authoring them FAILS LOUD in validation instead of silently rendering
@@ -58,6 +61,7 @@ type MonsterDefinition struct {
 	FireburstDamageMax       int            `yaml:"fireburst_damage_max"`
 	DragonBreathChance       float64        `yaml:"dragon_breath_chance,omitempty"`
 	DragonBreathType         string         `yaml:"dragon_breath_damage_type,omitempty"`
+	MeleeDamageType          string         `yaml:"melee_damage_type,omitempty"`
 	PiercingShotChance       float64        `yaml:"piercing_shot_chance,omitempty"`
 	PiercingShotTargets      int            `yaml:"piercing_shot_targets,omitempty"`
 	AllyHealChance           float64        `yaml:"ally_heal_chance,omitempty"`
@@ -100,6 +104,14 @@ type MonsterDefinition struct {
 	EnrageAtHP         int     `yaml:"enrage_at_hp,omitempty"`
 	EnrageDamageMult   float64 `yaml:"enrage_damage_mult,omitempty"`
 	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
+	// Trap volley (Brood Mother): every interval the boss re-sows a field of
+	// fire traps on random walkable tiles around itself; the new volley replaces
+	// the old one. Party members standing on a trap tile take fire damage.
+	TrapVolleyCount           int     `yaml:"trap_volley_count,omitempty"`
+	TrapVolleyRadiusTiles     float64 `yaml:"trap_volley_radius_tiles,omitempty"`
+	TrapVolleyIntervalSeconds float64 `yaml:"trap_volley_interval_seconds,omitempty"` // RT cadence
+	TrapVolleyIntervalTurns   int     `yaml:"trap_volley_interval_turns,omitempty"`   // TB cadence
+	TrapVolleyDamage          int     `yaml:"trap_volley_damage,omitempty"`
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
 	WardedByIdols     bool    `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
@@ -174,6 +186,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))
 		}
+		if strings.TrimSpace(monster.Champion) != "" && strings.TrimSpace(monster.MeleeDamageType) != "" {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' sets both champion and melee_damage_type - champion melee damage school comes from its equipped weapon", key))
+		}
 		if monster.requiresBossClassification() && !monster.Boss {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' authors boss-only behavior but lacks boss: true", key))
 		}
@@ -215,6 +230,14 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
 			} else {
 				monster.DragonBreathType = damageType.String()
+			}
+		}
+		meleeType := strings.ToLower(strings.TrimSpace(monster.MeleeDamageType))
+		if meleeType != "" {
+			if damageType, err := ParseDamageType(meleeType); err != nil {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown melee_damage_type %q", key, monster.MeleeDamageType))
+			} else {
+				monster.MeleeDamageType = damageType.String()
 			}
 		}
 		if monster.Resistances != nil {
@@ -263,6 +286,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.RallyMaxTargets < 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative rally_max_targets", key))
 		}
+		if monster.hasTrapVolley() {
+			if monster.TrapVolleyCount <= 0 || monster.TrapVolleyRadiusTiles <= 0 || monster.TrapVolleyDamage <= 0 ||
+				monster.TrapVolleyIntervalSeconds <= 0 || monster.TrapVolleyIntervalTurns <= 0 {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' trap volley needs positive count, radius_tiles, damage, interval_seconds and interval_turns", key))
+			}
+		}
 		if monster.RallyMaxTargets > 0 && monster.RallyOnAggroTiles <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has rally_max_targets but no rally_on_aggro_tiles", key))
 		}
@@ -301,7 +330,59 @@ func (m MonsterDefinition) requiresBossClassification() bool {
 		m.PassiveUntilQuest != "" || m.EvadeRadiusTiles > 0 || m.BossCooldownSecs > 0 ||
 		m.SummonChance > 0 || m.SummonFirstGuaranteed || len(m.SummonMonsters) > 0 || m.SummonCount > 0 || m.SummonMax > 0 ||
 		m.EnrageAtHP > 0 || m.EnrageDamageMult > 0 || m.EnrageCooldownMult > 0 ||
+		m.hasTrapVolley() ||
 		m.WardedByIdols || m.AggroWholeMap || m.DeathRalliesType != ""
+}
+
+func (m MonsterDefinition) hasTrapVolley() bool {
+	return m.TrapVolleyCount != 0 ||
+		m.TrapVolleyRadiusTiles != 0 ||
+		m.TrapVolleyDamage != 0 ||
+		m.TrapVolleyIntervalSeconds != 0 ||
+		m.TrapVolleyIntervalTurns != 0
+}
+
+// ValidateCatalogReferences checks monster links that can only resolve after
+// the spell, weapon and loot catalogs have loaded.
+func ValidateCatalogReferences(monsters *MonsterYAMLConfig, gameConfig *config.Config) error {
+	if monsters == nil {
+		return fmt.Errorf("monster catalog is nil")
+	}
+	for key, def := range monsters.Monsters {
+		if def.ProjectileSpell != "" {
+			if spell, ok := config.GetSpellDefinition(def.ProjectileSpell); !ok || spell == nil {
+				return fmt.Errorf("monster %q references unknown projectile_spell %q", key, def.ProjectileSpell)
+			}
+			if gameConfig == nil {
+				return fmt.Errorf("monster %q projectile_spell %q cannot be validated without game config", key, def.ProjectileSpell)
+			}
+			if _, err := gameConfig.GetSpellConfig(def.ProjectileSpell); err != nil {
+				return fmt.Errorf("monster %q projectile_spell %q has no projectile physics: %w", key, def.ProjectileSpell, err)
+			}
+		}
+		if def.ProjectileWeapon != "" {
+			weapon, ok := config.GetWeaponDefinition(def.ProjectileWeapon)
+			if !ok || weapon == nil {
+				return fmt.Errorf("monster %q references unknown projectile_weapon %q", key, def.ProjectileWeapon)
+			}
+			if weapon.Physics == nil {
+				return fmt.Errorf("monster %q projectile_weapon %q has no projectile physics", key, def.ProjectileWeapon)
+			}
+		}
+		for i, summonKey := range def.SummonMonsters {
+			if _, ok := monsters.Monsters[summonKey]; !ok {
+				return fmt.Errorf("monster %q summon_monsters[%d] references unknown monster %q", key, i, summonKey)
+			}
+		}
+	}
+	if config.GlobalLoots != nil {
+		for monsterKey := range config.GlobalLoots.Loots {
+			if _, ok := monsters.Monsters[monsterKey]; !ok {
+				return fmt.Errorf("loots.%s has no matching monster definition", monsterKey)
+			}
+		}
+	}
+	return nil
 }
 
 // LoadMonsterConfig loads monster configuration from YAML file
@@ -445,6 +526,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	m.DragonBreathChance = def.DragonBreathChance
 	m.DragonBreathDamageType = def.DragonBreathType
+	m.MeleeDamageType = def.MeleeDamageType
 	m.PiercingShotChance = def.PiercingShotChance
 	m.PiercingShotTargets = def.PiercingShotTargets
 	m.AllyHealChance = def.AllyHealChance
@@ -473,6 +555,11 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.InfernoChance = def.InfernoChance
 	m.InfernoDamage = def.InfernoDamage
 	m.InfernoRangeTiles = def.InfernoRangeTiles
+	m.TrapVolleyCount = def.TrapVolleyCount
+	m.TrapVolleyRadiusTiles = def.TrapVolleyRadiusTiles
+	m.TrapVolleyIntervalSeconds = def.TrapVolleyIntervalSeconds
+	m.TrapVolleyIntervalTurns = def.TrapVolleyIntervalTurns
+	m.TrapVolleyDamage = def.TrapVolleyDamage
 	m.TeleportAtHP = def.TeleportAtHP
 	m.TeleportChance = def.TeleportChance
 	m.PassiveUntilQuest = def.PassiveUntilQuest

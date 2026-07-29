@@ -350,10 +350,11 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
+		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
 		dealt := cs.damagePartyMemberParts(
 			idx,
 			member,
-			damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage},
+			parts,
 			monsterPkg.DamageFire.String(),
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",

@@ -1049,8 +1049,8 @@ weapons:
     damage: 10
     range: 7
     bonus_stat: "Accuracy"
-    crit_chance: 16
-    cooldown_multiplier: 0.8    # a third faster than the bow baseline (1.2) - the 5000-point prize shoots like it
+    crit_chance: 33
+    cooldown_multiplier: 0.6    # a third faster than the bow baseline (1.2) - the 5000-point prize shoots like it
     rarity: "unique"
     value: 1500
     flavor: "Loose, step, loose - the sand never sees you plant your feet."
@@ -1310,6 +1310,334 @@ weapons:
 # unlisted skill such as Blaster stays neutral 1.0). Lighter weapons
 # swing faster, heavy weapons slower. Legendaries override via their own
 # `cooldown_multiplier`.
+  # ================= DRAKEFORGED TIER =================
+  # Endgame smith-tier traded by the Scalewright at Coldbrook. Exact scale
+  # counts and gold surcharges live only in npcs.yaml. Legendary, no_loot:
+  # never rolls as loot or joins rarity racks. Every piece carries a signature
+  # rider no arena or clock-tower weapon has.
+
+  drakefang_blade:
+    name: "Drakefang, the Broodmother's Tooth"
+    description: "A sword of layered black scale that remembers the fire it grew in"
+    category: "sword"
+    damage: 24
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 15
+    damage_type: "fire"
+    ignite_chance: 0.35
+    ignite_seconds: 12
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "What it bites, it brands."
+    melee:
+      arc_type: 2
+      animation_frames: 12
+    graphics:
+      slash_color: [235, 120, 60]
+      slash_width: 44
+      slash_length: 62
+
+  wyrmcleaver:
+    name: "Wyrmcleaver, the Closing Jaws"
+    description: "A greataxe of fused jawbone and scale; the wounded should not be near it"
+    category: "axe"
+    damage: 34
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 12
+    cooldown_multiplier: 1.5
+    execute_below_pct: 15
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "It does not finish fights. It swallows them."
+    melee:
+      arc_type: 3
+      animation_frames: 14
+    graphics:
+      slash_color: [200, 70, 50]
+      slash_width: 52
+      slash_length: 68
+
+  ember_egg_mace:
+    name: "Ember Egg"
+    description: "A spiked mace around a core that never cooled; whatever it kills goes off"
+    category: "mace"
+    damage: 22
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 12
+    damage_type: "fire"
+    aoe_radius_tiles: 1.5
+    death_burst_damage: 45
+    death_burst_radius_tiles: 2.0
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "Hatch, little one."
+    melee:
+      arc_type: 1
+      animation_frames: 12
+    graphics:
+      slash_color: [255, 140, 40]
+      slash_width: 46
+      slash_length: 58
+
+  broodspike:
+    name: "Broodspike"
+    description: "A lance ground from a wing-spur; no scale ever forged keeps it out"
+    category: "spear"
+    damage: 26
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 12
+    true_damage: 10
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "Armor is a rumor it declines to believe."
+    melee:
+      arc_type: 1
+      animation_frames: 11
+    graphics:
+      slash_color: [180, 200, 210]
+      slash_width: 30
+      slash_length: 84
+
+  tarn_trident:
+    name: "Tarn Trident"
+    description: "Three tines of drowned bronze; the silt it carries never washes off"
+    category: "spear"
+    damage: 25
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 12
+    slow_pct: 30
+    slow_seconds: 5
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "The tarn keeps what slows down."
+    melee:
+      arc_type: 1
+      animation_frames: 11
+    graphics:
+      slash_color: [90, 160, 150]
+      slash_width: 34
+      slash_length: 80
+
+  hatchling_fang:
+    name: "Hatchling Fang"
+    description: "A green-glassed dagger milked from the brood's first venom"
+    category: "dagger"
+    damage: 18
+    range: 1
+    bonus_stat: "Speed"
+    crit_chance: 25
+    cooldown_multiplier: 0.7
+    damage_type: "earth"
+    poison_chance: 0.35
+    poison_seconds: 30
+    rarity: "legendary"
+    value: 4500
+    no_loot: true
+    flavor: "Small teeth teach long lessons."
+    melee:
+      arc_type: 1
+      animation_frames: 9
+    graphics:
+      slash_color: [120, 220, 90]
+      slash_width: 24
+      slash_length: 48
+
+  scalebreaker_maul:
+    name: "Scalebreaker, the Sundering Roar"
+    description: "A warhammer with a dragon's cry caught in the head; what it hits swings softer"
+    category: "mace"
+    damage: 28
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 10
+    weaken_pct: 25
+    weaken_seconds: 8
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "The roar breaks what the steel forgives."
+    melee:
+      arc_type: 1
+      animation_frames: 13
+    graphics:
+      slash_color: [200, 170, 120]
+      slash_width: 50
+      slash_length: 60
+
+  wyrmspine_bow:
+    name: "Wyrmspine Wing"
+    description: "A bow strung on wing-tendon; the whole line moves like it is airborne"
+    category: "bow"
+    damage: 22
+    range: 8
+    bonus_stat: "Accuracy"
+    crit_chance: 15
+    cooldown_multiplier: 0.9
+    party_fire_while_running: true
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "Feet on the ground is a suggestion."
+    physics:
+      speed_tiles: 15.0
+      range_tiles: 8.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 9
+      color: [180, 220, 170]
+
+  nest_arbalest:
+    name: "Nest Arbalest"
+    description: "A scaled crossbow whose bolts hunt the clutch, not the line"
+    category: "bow"
+    damage: 26
+    range: 9
+    bonus_stat: "Accuracy"
+    crit_chance: 18
+    cooldown_multiplier: 1.4
+    ricochet_targets: 1
+    ricochet_range_tiles: 6.0
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "The first kill is just the introduction."
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 9.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 26
+      min_size: 2
+      base_size: 10
+      color: [170, 200, 120]
+
+  verdant_eye_scepter:
+    name: "Verdant Eye"
+    description: "A scepter around a green dragon's lens; it watches your casting and approves"
+    category: "staff"
+    damage: 15
+    range: 1
+    bonus_stat: "Intellect"
+    crit_chance: 10
+    damage_type: "earth"
+    spell_cooldown_multiplier: 0.85
+    aoe_radius_tiles: 2.0
+    spell_echo_pct: 15
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "Say it again. The eye liked it."
+    melee:
+      arc_type: 1
+      animation_frames: 10
+    graphics:
+      slash_color: [110, 230, 120]
+      slash_width: 28
+      slash_length: 50
+
+  # ================= PURSUER ARSENAL (Alien Enforcer drops) =================
+  # Field kit of the ocean strangers. Blasters need no weapon skill.
+
+  suppressor_gun:
+    name: "Suppressor"
+    description: "A drum-fed slug thrower; it argues in bursts and rarely loses"
+    category: "blaster"
+    damage: 15
+    range: 5
+    crit_chance: 12
+    cooldown_multiplier: 0.4
+    tb_actions_per_round: 3   # drum autofire: the wielder's TB action floor
+    rarity: "legendary"
+    value: 6000
+    flavor: "Diplomacy, sustained."
+    physics:
+      speed_tiles: 18.0
+      range_tiles: 5.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 22
+      min_size: 2
+      base_size: 8
+      color: [200, 200, 210]
+
+  longlance_rifle:
+    name: "Longlance"
+    description: "A scoped energy rifle; it ends discussions two streets away"
+    category: "blaster"
+    damage: 50
+    range: 20
+    crit_chance: 25
+    cooldown_multiplier: 1.8
+    pierce_count: 1
+    damage_type: "spirit"
+    rarity: "legendary"
+    value: 7000
+    flavor: "You will not hear the argument you lost."
+    physics:
+      speed_tiles: 22.0
+      range_tiles: 20.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 8
+      color: [120, 230, 230]
+
+  vibro_blade:
+    name: "Vibroblade"
+    description: "A humming edge that treats plate like an opinion"
+    category: "sword"
+    damage: 21
+    range: 1
+    bonus_stat: "Speed"
+    crit_chance: 20
+    armor_pierce_pct: 35
+    damage_type: "spirit"
+    rarity: "legendary"
+    value: 6000
+    flavor: "It does not cut. It disagrees."
+    melee:
+      arc_type: 2
+      animation_frames: 10
+    graphics:
+      slash_color: [130, 235, 235]
+      slash_width: 40
+      slash_length: 60
+
+  compound_bow:
+    name: "Tidehunter Compound Bow"
+    description: "A cam-drawn bow of grey alloy; the sea sent it hunting inland"
+    category: "bow"
+    damage: 50
+    range: 11
+    bonus_stat: "Accuracy"
+    crit_chance: 18
+    cooldown_multiplier: 1.2
+    rarity: "legendary"
+    value: 6500
+    flavor: "Strung with patience from another sky."
+    physics:
+      speed_tiles: 17.0
+      range_tiles: 11.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 9
+      color: [160, 190, 210]
+
 weapon_cooldown_multipliers:
   dagger: 0.6
   staff: 0.9

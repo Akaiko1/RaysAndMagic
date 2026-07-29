@@ -366,6 +366,10 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		quests.GlobalQuestManager.Reset()
 	}
 	g.questManager = quests.GlobalQuestManager
+	// Fresh run: completion spawns may fire again (wm.Reset reloads maps
+	// pristine, so the old run's spawned bosses are gone with them).
+	g.questSpawnsDone = nil
+	g.pendingQuestSpawns = nil
 	// Fresh run must not inherit the old run's quest world-changes (e.g. the
 	// wolf-cull bridge). wm.Reset below reloads maps pristine anyway; this
 	// revert is the belt-and-suspenders for any world instance that survives.
@@ -383,6 +387,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		g.world = wm.GetCurrentWorld()
 	}
 	g.registerVisitedTownPortalDestination() // the fresh run's start map may be a Town Portal destination
+	// Anchor starting exterminate quests to the fresh rosters (they never pass
+	// through handleGiveQuest, the only other DynamicTarget assigner).
+	g.reconcileExterminationQuests()
 
 	// Move player to start position (fallback to nearest walkable tile if map has no '+')
 	if currentWorld := g.GetCurrentWorld(); currentWorld != nil {
@@ -918,7 +925,8 @@ func (ih *InputHandler) handleCombatInput() {
 	hHeld := ebiten.IsKeyPressed(ebiten.KeyH)
 
 	// No attacks/casts/shots while running - you must stop sprinting to act.
-	running := ih.isRunning()
+	// Exception: Wyrmspine Wing in ANY member's hands frees the whole party.
+	running := ih.isRunning() && !ih.game.partyFireWhileRunning()
 
 	// The guard holds only for the duration of one press AFTER it acted: a fresh
 	// press (spaceJust) or a released key clears it.
@@ -1301,8 +1309,8 @@ func (ih *InputHandler) moveSpeed() float64 {
 }
 
 // isRunning reports whether the party is sprinting (run key held) in real time.
-// All attacks/casts/shots are disabled while running - you must stop to act.
-// Always false in turn-based mode (movement there is tile-stepped, not sprinted).
+// Combat input normally blocks actions while this is true; an equipped weapon
+// may explicitly override that policy. Always false in turn-based mode.
 func (ih *InputHandler) isRunning() bool {
 	return !ih.game.turnBasedMode &&
 		(ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight))
@@ -1449,6 +1457,12 @@ func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
 	// Arrival targets can be stale (saved return poses, positions recorded on an
 	// older map layout); never place the party inside terrain.
 	x, y = ih.game.safePartyDestination(x, y)
+	// A fresh arrival is the moment deferred (on_entry) quest spawns may fire
+	// on this map - the Enforcer surfaces on the return trip. Flush the queue
+	// immediately: the arrival is a frame boundary (no attack in flight), and
+	// the Autosave below must snapshot the boss ALREADY in the roster.
+	ih.game.spawnQuestCompletionMonsters(true)
+	ih.game.flushPendingQuestSpawns()
 	ih.game.setPartyPosition(x, y)
 	ih.game.snapFacing(angle)
 	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
@@ -2210,18 +2224,30 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					}
 					// Arena-points merchants trade at flat prices in the victory
 					// currency; gold merchants keep the Merchant-skill discount.
-					if name, ok := currencyItemName(ih.game.dialogNPC.Currency); ok {
+					// A per-entry currency_item (Scalewright) overrides the shop
+					// currency and may add a flat gold surcharge.
+					entryCurrency := entry.EffectiveCurrency(ih.game.dialogNPC.Currency)
+					if name, ok := currencyItemName(entryCurrency); ok {
+						if entry.GoldCost > ih.game.party.Gold {
+							ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold on top of the %ss for %s.", entry.GoldCost, name, entry.Item.Name))
+							return
+						}
 						if !ih.game.party.RemoveItemsByName(name, entry.Cost) {
 							ih.game.AddCombatMessage(fmt.Sprintf("Need %d %ss to trade for %s.", entry.Cost, name, entry.Item.Name))
 							return
 						}
+						ih.game.party.Gold -= entry.GoldCost
 						ih.game.party.AddItem(entry.Item)
 						entry.Take()
-						ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost, name, entry.Item.Name))
+						if entry.GoldCost > 0 {
+							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss and %d gold for %s.", entry.Cost, name, entry.GoldCost, entry.Item.Name))
+						} else {
+							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost, name, entry.Item.Name))
+						}
 						ih.resetDialogDoubleClick()
 						return
 					}
-					if ih.game.dialogNPC.Currency == character.CurrencyArenaPoints {
+					if entryCurrency == character.CurrencyArenaPoints {
 						if entry.Cost > ih.game.party.ArenaPoints {
 							ih.game.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", entry.Cost, entry.Item.Name))
 							return
@@ -2861,113 +2887,6 @@ func (ih *InputHandler) executeEncounterChoice() {
 	}
 }
 
-// countLivingQuestTargets returns living, quest-eligible monsters whose name maps
-// to target (the same name->key normalization quest kills use). Dead monsters are
-// dropped from the world slice, so HP>0 means alive. targetMap scopes the search
-// to one map; empty scans every loaded map (suits a unique boss). Runtime/ad-hoc
-// summons can opt out so they do not distort map-clear quest progress.
-func (g *MMGame) countLivingQuestTargets(target, targetMap string) int {
-	scan := func(w *world.World3D) int {
-		if w == nil {
-			return 0
-		}
-		count := 0
-		for _, m := range w.Monsters {
-			if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
-				continue
-			}
-			if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
-				count++
-			}
-		}
-		return count
-	}
-	wm := world.GlobalWorldManager
-	if wm == nil {
-		return scan(g.world)
-	}
-	if targetMap != "" {
-		// A merged region scopes the census to its rect of the unified world -
-		// same-typed monsters in neighbouring regions must not count.
-		if r := wm.OpenWorldRegionByKey(targetMap); r != nil {
-			ts := g.config.GetTileSize()
-			count := 0
-			for _, m := range wm.OpenWorld.Monsters {
-				if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
-					continue
-				}
-				if wm.OpenWorldRegionAtTile(int(m.X/ts), int(m.Y/ts)) != r {
-					continue
-				}
-				if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
-					count++
-				}
-			}
-			return count
-		}
-		return scan(wm.LoadedMaps[targetMap])
-	}
-	total := 0
-	wm.EachWorld(func(_ string, w *world.World3D) {
-		total += scan(w)
-	})
-	return total
-}
-
-// syncExterminationQuestProgress refreshes an active exterminate quest's counter
-// to (target - living) and returns the living target count, so callers can reuse
-// it for the completion check instead of scanning the world a second time.
-// Returns -1 when the quest isn't an active exterminate kill (no sync done).
-func (g *MMGame) syncExterminationQuestProgress(questID string) int {
-	if g.questManager == nil {
-		return -1
-	}
-	q := g.questManager.GetQuest(questID)
-	if q == nil || q.Completed || q.Definition.Type != quests.QuestTypeKill || !q.Definition.Exterminate {
-		return -1
-	}
-	living := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
-	g.questManager.SetCurrentCount(q.ID, q.Target()-living)
-	return living
-}
-
-func (g *MMGame) syncExterminationQuestProgressForTarget(target string) {
-	if g.questManager == nil || target == "" {
-		return
-	}
-	for _, q := range g.questManager.GetActiveQuests() {
-		if q.Definition.Type == quests.QuestTypeKill &&
-			q.Definition.Exterminate &&
-			q.Definition.TargetMonster == target {
-			g.syncExterminationQuestProgress(q.ID)
-		}
-	}
-}
-
-// creditQuestIfCleared marks an active kill quest completed when none of its
-// targets remain alive - a quest taken (or held) after the killing was already
-// done can be turned in instead of showing 0/N forever. Returns whether it
-// completed the quest just now.
-func (g *MMGame) creditQuestIfCleared(questID string) bool {
-	if g.questManager == nil {
-		return false
-	}
-	q := g.questManager.GetQuest(questID)
-	if q == nil || q.Completed ||
-		q.Definition.Type != quests.QuestTypeKill || q.Definition.TargetMonster == "" {
-		return false
-	}
-	living := g.syncExterminationQuestProgress(questID)
-	if living < 0 { // not an exterminate quest - sync didn't scan, so do it here
-		living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
-	}
-	if living > 0 {
-		return false
-	}
-	g.questManager.MarkCompleted(questID)
-	return true
-}
-
 // creditClearedKillQuests completes any of the NPC's active kill quests whose
 // targets are all already dead - so a quest taken after its targets were slain
 // (or one whose remaining targets number fewer than its quota) can still be
@@ -3023,13 +2942,6 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	name := questID
 	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
 		name = q.Definition.Name
-		// Exterminate quests count the map's live target population at accept time,
-		// so the goal tracks the real census instead of a hand-maintained number
-		// (and an already-empty map completes instantly via creditQuestIfCleared).
-		if q.Definition.Exterminate {
-			census := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
-			quests.GlobalQuestManager.SetDynamicTarget(questID, census)
-		}
 	}
 	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
 
@@ -3038,7 +2950,6 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	// chat - the journal should never say "0/21" on a finished job.
 	if g.creditQuestIfCleared(questID) {
 		g.applyCompletedQuestTiles()
-		g.AddCombatMessage(fmt.Sprintf("'%s' is already done! Return to claim your reward.", name))
 	}
 }
 
@@ -3266,9 +3177,10 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 		spawnX, spawnY = npc.X, npc.Y // walled corner: spawn on the statue's tile
 	}
 	m := monster.NewMonster3DFromConfig(spawnX, spawnY, s.Monster, g.config)
-	// Flag so updateQuestProgress credits dragon_slayer for THIS dragon only.
+	// The authored quest source lets encounter-only kill quests reject ordinary
+	// monsters with the same display name.
 	m.IsEncounterMonster = true
-	m.EncounterRewards = &monster.EncounterRewards{QuestID: "dragon_slayer"}
+	m.EncounterRewards = &monster.EncounterRewards{QuestID: s.QuestID}
 	g.registerSpawnedMonster(m)
 
 	// Mark spent (hide_when_visited makes it vanish from render + interaction).

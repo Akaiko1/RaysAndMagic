@@ -164,19 +164,22 @@ func mainMenuTipsTopY() int {
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	MapKey           string                   `json:"map_key"`
-	PlayerX          float64                  `json:"player_x"`
-	PlayerY          float64                  `json:"player_y"`
-	PlayerAngle      float64                  `json:"player_angle"`
-	TurnBased        bool                     `json:"turn_based"`
-	SaveName         string                   `json:"save_name,omitempty"`
-	SavedAt          string                   `json:"saved_at"`
-	Party            PartySave                `json:"party"`
-	Monsters         []MonsterSave            `json:"monsters"`
-	MapMonsters      map[string][]MonsterSave `json:"map_monsters,omitempty"`
-	NPCStates        []NPCSave                `json:"npc_states"`
-	Quests           []QuestSave              `json:"quests,omitempty"`
-	GroundContainers []GroundContainerSave    `json:"ground_containers,omitempty"`
+	MapKey             string                   `json:"map_key"`
+	PlayerX            float64                  `json:"player_x"`
+	PlayerY            float64                  `json:"player_y"`
+	PlayerAngle        float64                  `json:"player_angle"`
+	TurnBased          bool                     `json:"turn_based"`
+	SaveName           string                   `json:"save_name,omitempty"`
+	SavedAt            string                   `json:"saved_at"`
+	Party              PartySave                `json:"party"`
+	Monsters           []MonsterSave            `json:"monsters"`
+	MapMonsters        map[string][]MonsterSave `json:"map_monsters,omitempty"`
+	NPCStates          []NPCSave                `json:"npc_states"`
+	Quests             []QuestSave              `json:"quests,omitempty"`
+	QuestSpawnsDone    []string                 `json:"quest_spawns_done,omitempty"`
+	BossFireTraps      []bossFireTrap           `json:"boss_fire_traps,omitempty"`
+	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`
+	GroundContainers   []GroundContainerSave    `json:"ground_containers,omitempty"`
 	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
 	// level-ups. Options are rebuilt from class+level on load, so we only
 	// need to remember which character is owed a choice at which level.
@@ -294,7 +297,9 @@ type CharacterSave struct {
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
+	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty"`
 	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
+	BurnTickTimer         int                `json:"burn_tick_timer,omitempty"`
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	StunRate              int                `json:"stun_rate,omitempty"`
@@ -302,6 +307,10 @@ type CharacterSave struct {
 	// can't be used to refill action slots. It also survives an RT save made
 	// while a Tab-suspended TB turn is waiting to resume.
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
+	// TBRoundActionFloor is the equipment-derived floor credited when this
+	// round began. It prevents save/load plus a gear swap from transferring
+	// Autofire actions to another weapon.
+	TBRoundActionFloor int `json:"tb_round_action_floor,omitempty"`
 	// RTCooldown preserves the real-time action cooldown - reload must not
 	// reset the party's swing timers mid-fight.
 	RTCooldown int `json:"rt_cooldown,omitempty"`
@@ -405,6 +414,7 @@ type MonsterSave struct {
 	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
 	StunRate                int `json:"stun_rate,omitempty"`
 	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
+	PoisonTickTimer         int `json:"poison_tick_timer,omitempty"`
 	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
@@ -417,6 +427,21 @@ type MonsterSave struct {
 	ArmorShredFrames    int                  `json:"armor_shred_frames,omitempty"`
 	ArmorShredTurns     int                  `json:"armor_shred_turns,omitempty"`
 	ArmorShredRate      int                  `json:"armor_shred_rate,omitempty"`
+	BurnFramesRemaining int                  `json:"burn_frames_remaining,omitempty"`
+	BurnTickTimer       int                  `json:"burn_tick_timer,omitempty"`
+	TrapVolleyCD        int                  `json:"trap_volley_cd,omitempty"`
+	TrapVolleyTurnCD    int                  `json:"trap_volley_turn_cd,omitempty"`
+	TrapVolleyCDRate    int                  `json:"trap_volley_cd_rate,omitempty"`
+	SlowPct             int                  `json:"slow_pct,omitempty"`
+	SlowFrames          int                  `json:"slow_frames,omitempty"`
+	SlowTurns           int                  `json:"slow_turns,omitempty"`
+	SlowRate            int                  `json:"slow_rate,omitempty"`
+	SlowPctThisTurn     int                  `json:"slow_pct_this_turn,omitempty"`
+	WeakenPct           int                  `json:"weaken_pct,omitempty"`
+	WeakenFrames        int                  `json:"weaken_frames,omitempty"`
+	WeakenTurns         int                  `json:"weaken_turns,omitempty"`
+	WeakenRate          int                  `json:"weaken_rate,omitempty"`
+	WeakenPctThisTurn   int                  `json:"weaken_pct_this_turn,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
 	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
@@ -593,6 +618,12 @@ func (g *MMGame) clearTransientCombatState() {
 	g.impactLights = g.impactLights[:0]
 	g.hitEffectsMu.Unlock()
 	g.deadMonsterIDs = g.deadMonsterIDs[:0]
+	g.clearPartyScaleStacks()
+	// The Brood Mother's field is map-local. Save loading restores the loaded
+	// field after this cleaner; an ordinary map switch must leave no old tiles
+	// to render, detonate, or leak into the destination autosave.
+	g.bossFireTraps = nil
+	g.bossFireTrapsOwner = ""
 	// A suspended TB turn belongs to the old world. applySave restores the
 	// suspension from its own snapshot after this cleaner returns.
 	g.turnBasedTurnSuspended = false
@@ -899,10 +930,17 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
+	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
 	m.StunFramesRemaining = cs.StunFramesRemaining
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.StunRate = cs.StunRate
 	m.ActionsRemaining = cs.ActionsRemaining
+	m.TBRoundActionFloor = cs.TBRoundActionFloor
+	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
+		// Legacy saves predate the credited-floor field. Recover the floor
+		// from their restored equipment without refilling any action.
+		m.TBRoundActionFloor = tbPersonalActionFloor(m)
+	}
 	m.RTCooldown = cs.RTCooldown
 	m.OffHandRTCooldown = cs.OffHandRTCooldown
 	m.NextTBAttackOffHand = cs.NextTBAttackOffHand
@@ -963,10 +1001,12 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
+	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()
 	cs.StunFramesRemaining = m.StunFramesRemaining
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.StunRate = m.StunRate
 	cs.ActionsRemaining = m.ActionsRemaining
+	cs.TBRoundActionFloor = m.TBRoundActionFloor
 	cs.RTCooldown = m.RTCooldown
 	cs.OffHandRTCooldown = m.OffHandRTCooldown
 	cs.NextTBAttackOffHand = m.NextTBAttackOffHand
@@ -979,6 +1019,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// remaining gameplay phase transitions before taking the snapshot rather
 	// than persisting a transient renderer queue with the save.
 	g.finishDayNightSkipImmediately()
+	// A queued quest spawn is already marked done in questSpawnsDone - land it
+	// NOW or the snapshot records "spawned" with no monster in the roster and
+	// a later load loses the boss forever (arrival autosave raced the flush).
+	g.flushPendingQuestSpawns()
 	// Legacy bless_* fields mirror the registry's bless entry so an older
 	// binary can still read this save.
 	legacyBless, _ := g.statBuffByID("bless")
@@ -1059,6 +1103,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
+			slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
+			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
@@ -1087,6 +1133,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
 				StunRate:                mon.StunRate,
 				PoisonedFramesRemaining: mon.PoisonedFramesRemaining,
+				PoisonTickTimer:         poisonTickTimer,
 				StunDRStacks:            mon.StunDRStacks,
 				StunDRMemoryTurns:       mon.StunDRMemoryTurns,
 				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
@@ -1097,6 +1144,21 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
 				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
 				ArmorShredRate:          mon.ArmorShredRate,
+				BurnFramesRemaining:     mon.BurnFramesRemaining,
+				BurnTickTimer:           burnTickTimer,
+				TrapVolleyCD:            mon.TrapVolleyCDFrames,
+				TrapVolleyTurnCD:        mon.TrapVolleyTurnCD,
+				TrapVolleyCDRate:        mon.TrapVolleyCDRate,
+				SlowPct:                 mon.SlowPct,
+				SlowFrames:              mon.SlowFramesRemaining,
+				SlowTurns:               mon.SlowTurnsRemaining,
+				SlowRate:                mon.SlowRate,
+				SlowPctThisTurn:         slowPctThisTurn,
+				WeakenPct:               mon.WeakenPct,
+				WeakenFrames:            mon.WeakenFramesRemaining,
+				WeakenTurns:             mon.WeakenTurnsRemaining,
+				WeakenRate:              mon.WeakenRate,
+				WeakenPctThisTurn:       weakenPctThisTurn,
 				Pilfered:                mon.Pilfered,
 				PounceCDFrames:          mon.PounceCDFrames,
 				PounceCDTurns:           mon.PounceCDTurns,
@@ -1234,6 +1296,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			})
 		}
 	}
+	var questSpawnsDone []string
+	for id, done := range g.questSpawnsDone {
+		if done {
+			questSpawnsDone = append(questSpawnsDone, id)
+		}
+	}
+	sort.Strings(questSpawnsDone) // deterministic save bytes
 
 	// Calculate played time
 	playedTime := time.Since(g.sessionStartTime)
@@ -1270,6 +1339,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	g.ensureSteamZoneFieldIDs()
 	steamZoneSaves := buildSteamZoneSaves(g.steamZones)
 	trapSaves := buildTrapSaves(g.traps)
+	bossFireTrapSaves := buildBossFireTrapSaves(g.bossFireTraps, saveMapKey, wm)
 	returnPoses := g.mapReturnPoses
 	uwX, uwY := g.underwaterReturnX, g.underwaterReturnY
 	if wm != nil && wm.OpenWorld != nil {
@@ -1323,6 +1393,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		MapRespawnDay:              mapRespawnDays,
 		NPCStates:                  nstates,
 		Quests:                     questSaves,
+		QuestSpawnsDone:            questSpawnsDone,
+		BossFireTraps:              bossFireTrapSaves,
+		BossFireTrapsOwner:         g.bossFireTrapsOwner,
 		GroundContainers:           groundContainerSaves,
 		PendingLevelUpChoices:      pendingChoices,
 		PlayedTimeNs:               playedTime.Nanoseconds(),
@@ -1393,6 +1466,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Update world reference and visuals
 	g.world = wm.GetCurrentWorld()
 
+	// Deferred quest spawns belong to the timeline being replaced. Unlike a
+	// normal map switch, loading another slot must discard them before the
+	// loaded quest snapshot can enqueue its own completion spawns.
+	g.pendingQuestSpawns = nil
 	g.clearTransientCombatState()
 
 	// Restore the day/night clock BEFORE the sky refresh below so the panorama
@@ -1625,6 +1702,32 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					m.ArmorShredFramesRemaining = 0
 					m.ArmorShredTurnsRemaining = 0
 					m.ArmorShredRate = 0
+				}
+				m.BurnFramesRemaining = ms.BurnFramesRemaining
+				m.RestoreDoTTickTimers(ms.PoisonTickTimer, ms.BurnTickTimer)
+				m.TrapVolleyCDFrames = ms.TrapVolleyCD
+				m.TrapVolleyTurnCD = ms.TrapVolleyTurnCD
+				m.TrapVolleyCDRate = ms.TrapVolleyCDRate
+				m.SlowPct = ms.SlowPct
+				m.SlowFramesRemaining = ms.SlowFrames
+				m.SlowTurnsRemaining = ms.SlowTurns
+				m.SlowRate = ms.SlowRate
+				if (!save.TurnBased && m.SlowFramesRemaining <= 0) ||
+					(save.TurnBased && m.SlowTurnsRemaining <= 0) {
+					m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, m.SlowRate = 0, 0, 0, 0
+				}
+				m.WeakenPct = ms.WeakenPct
+				m.WeakenFramesRemaining = ms.WeakenFrames
+				m.WeakenTurnsRemaining = ms.WeakenTurns
+				m.WeakenRate = ms.WeakenRate
+				if (!save.TurnBased && m.WeakenFramesRemaining <= 0) ||
+					(save.TurnBased && m.WeakenTurnsRemaining <= 0) {
+					m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.WeakenRate = 0, 0, 0, 0
+				}
+				if save.TurnBased {
+					m.RestoreTurnDebuffLatches(ms.SlowPctThisTurn, ms.WeakenPctThisTurn)
+				} else {
+					m.RestoreTurnDebuffLatches(0, 0)
 				}
 				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames
@@ -2077,6 +2180,18 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.syncSteamZoneStatuses()
 
+	// The Brood Mother's armed field is combat state, independent of quests.
+	// Positions live here; her cadence cooldowns live in MonsterSave.
+	g.bossFireTraps = restoreBossFireTraps(save.BossFireTraps, save.MapKey, wm)
+	g.bossFireTrapsOwner = save.BossFireTrapsOwner
+
+	// Completion-spawn history is save state even when quest content is
+	// temporarily unavailable; never retain it from the replaced timeline.
+	g.questSpawnsDone = make(map[string]bool, len(save.QuestSpawnsDone))
+	for _, id := range save.QuestSpawnsDone {
+		g.questSpawnsDone[id] = true
+	}
+
 	// Restore quest progress. Reset to the baseline (starting quests only) first
 	// so quests taken AFTER this save - and therefore absent from it - don't
 	// linger on the live manager; then lay the saved snapshot back on top.
@@ -2085,12 +2200,19 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
+		// Completion spawns already fired in this save's timeline must not fire
+		// again (the spawned boss returns through the per-map monster restore).
 		// Sync world changes to the LOADED quest state, both ways: completed
 		// quests re-lay their tiles, and tiles of quests NOT completed in this
 		// save revert to pristine. Loading does NOT reload maps from disk
 		// (SwitchToMap flips a key on the shared instances), so a bridge laid
 		// earlier this session must be actively taken back out here.
 		g.syncQuestTiles()
+		g.spawnQuestCompletionMonsters(false) // self-heal: a completed-but-unspawned quest fires now
+		// Starting exterminate quests never pass through handleGiveQuest, so
+		// anchor them to the restored rosters here - a save whose targets are
+		// already all dead completes (and spawns its boss) right now.
+		g.reconcileExterminationQuests()
 	}
 
 	// Restore played time by adjusting session start

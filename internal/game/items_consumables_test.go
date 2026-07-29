@@ -93,3 +93,56 @@ func TestHealthPotion_IncapacitatedOwnerHealsEligibleAlly(t *testing.T) {
 		})
 	}
 }
+
+func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.party.Inventory = []items.Item{items.CreateItemFromYAML("flame_ward_draught")}
+
+	if !g.UseConsumableFromInventory(0, 0) {
+		t.Fatal("flame ward draught was not consumed")
+	}
+	buff, ok := g.combatBuffByID("flame_ward_draught")
+	if !ok {
+		t.Fatal("draught did not use its YAML item key as buff identity")
+	}
+	if buff.ResistSchool != "fire" || buff.ResistSchoolPct != 50 || buff.Frames != 60*g.config.GetTPS() {
+		t.Fatalf("draught buff = %+v", buff)
+	}
+
+	saves := buildCombatBuffSaves(g.combatBuffs)
+	if len(saves) != 1 {
+		t.Fatalf("saved buffs = %d, want 1", len(saves))
+	}
+	if saves[0].ResistSchool != "" || saves[0].ResistSchoolPct != 0 || saves[0].ArmorBonus != 0 {
+		t.Fatalf("save duplicated static item data: %+v", saves[0])
+	}
+	restored := restoreCombatBuffs(saves)
+	if len(restored) != 1 || restored[0].ResistSchool != "fire" || restored[0].ResistSchoolPct != 50 {
+		t.Fatalf("restored draught did not re-derive YAML data: %+v", restored)
+	}
+
+	g.setUtilityStatus("flame_ward_draught", buff.Frames)
+	status := g.utilitySpellStatuses["flame_ward_draught"]
+	if status == nil || status.Icon != "fire_shield" || status.Label != "Flame Ward Draught" {
+		t.Fatalf("draught status did not use YAML metadata: %+v", status)
+	}
+}
+
+func TestLegacyDraughtSaveMigratesToItemKey(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	restored := restoreCombatBuffs([]CombatBuffSave{{
+		SpellID:         "draught_fire",
+		Frames:          123,
+		ResistSchool:    "fire",
+		ResistSchoolPct: 50,
+	}})
+	if len(restored) != 1 {
+		t.Fatalf("restored buffs = %d, want 1", len(restored))
+	}
+	if restored[0].SpellID != "flame_ward_draught" ||
+		restored[0].ResistSchool != "fire" ||
+		restored[0].ResistSchoolPct != 50 {
+		t.Fatalf("legacy draught migration = %+v", restored[0])
+	}
+}

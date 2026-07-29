@@ -54,6 +54,31 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 	return parts
 }
 
+// ItemMechanicLines lists the per-item special-mechanic rows - projectile
+// reflection, hostile-status duration, growing scales, draught wards. ONE
+// formatter shared by EffectLines (editor) and the unified in-game tooltip,
+// so the two can never drift (tooltip parity contract).
+func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
+	var lines []string
+	hasTimedBuff := d.HasTimedBuff()
+	if d.ProjectileReflectPct > 0 {
+		lines = append(lines, fmt.Sprintf("Mirror scales: %d%% chance to turn a projectile back at its shooter", d.ProjectileReflectPct))
+	}
+	if d.StatusDurationPct != 0 {
+		lines = append(lines, fmt.Sprintf("Hostile statuses on the wearer last %d%% as long", 100+d.StatusDurationPct))
+	}
+	if d.ScaleStackAC > 0 {
+		lines = append(lines, fmt.Sprintf("Growing scales: +%d AC per hit taken (max +%d), shed after combat", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
+	}
+	if hasTimedBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+		lines = append(lines, fmt.Sprintf("Party ward: %s resistance +%d%% for %ds", TitleWords(d.ResistBuffSchool), d.ResistBuffSchoolPct, d.BuffDurationSeconds))
+	}
+	if hasTimedBuff && d.BuffArmorClass > 0 {
+		lines = append(lines, fmt.Sprintf("Party stoneskin: armor class +%d for %ds", d.BuffArmorClass, d.BuffDurationSeconds))
+	}
+	return lines
+}
+
 // PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
 // the item grants none. One formatter for the wording, shared by EffectLines
 // and the unified armor tooltip (which builds its own EFFECTS section).
@@ -131,6 +156,7 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if ln := d.PartyArmorLine(); ln != "" {
 		lines = append(lines, ln)
 	}
+	lines = append(lines, d.ItemMechanicLines()...)
 	if d.CurePoison {
 		lines = append(lines, "Cures poison")
 	}
@@ -204,6 +230,9 @@ func EquipmentSetLines(setKey string) []string {
 	}
 	if set.BonusCritChance != 0 {
 		parts = append(parts, fmt.Sprintf("critical chance %+d%%", set.BonusCritChance))
+	}
+	if set.FieryRipostePct != 0 {
+		parts = append(parts, fmt.Sprintf("melee attackers take %d%% back as fire", set.FieryRipostePct))
 	}
 	if len(parts) > 0 {
 		lines = append(lines, "Set bonus: "+strings.Join(parts, ", "))

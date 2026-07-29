@@ -34,6 +34,18 @@ item_sets:
     bonus_might: 6
     stun_duration_pct: -50
 
+  # Drakeforged pair (Scalewright tier): shield + gauntlets answer in fire.
+  drakeforged:
+    name: "Drakeforged"
+    pieces_required: 2
+    required_pieces: ["broodscale_aegis", "drakehide_gauntlets"]
+    fiery_riposte_pct: 50   # melee attackers take half the damage they deal back as fire
+  # Regalia of the Still Court (Ancient God of Death drops; 4th piece reserved).
+  still_court:
+    name: "Regalia of the Still Court"
+    pieces_required: 3
+    bonus_endurance: 20
+
 items:
   # Armor Endurance AC scaling is category-wide by design:
   # leather = END/10, chain = END/7, plate = END/5.
@@ -1517,7 +1529,7 @@ items:
     description: "A filigreed hand pried from a tower mechanism - the Clockmaker pays for these"
     flavor: "Time, broken off at the wrist."
     rarity: "uncommon"
-    value: 40
+    value: 320
 
   brass_gear:
     name: "Brass Gear"
@@ -1525,7 +1537,7 @@ items:
     description: "A toothy cog still warm from turning"
     flavor: "Somewhere in the tower, a hole shaped like this."
     rarity: "common"
-    value: 25
+    value: 200
 
   mainspring_coil:
     name: "Mainspring Coil"
@@ -1533,7 +1545,7 @@ items:
     description: "A tempered spiral wound tight with stubborn energy"
     flavor: "It remembers every hour it was never allowed to strike."
     rarity: "uncommon"
-    value: 60
+    value: 480
 
   pocket_watch:
     name: "Pocket Watch"
@@ -1541,7 +1553,7 @@ items:
     description: "A gentleman's watch, still keeping somebody's time"
     flavor: "The second hand runs backwards when nobody watches."
     rarity: "rare"
-    value: 220
+    value: 1760
 
   clock_oil:
     name: "Clock Oil"
@@ -1819,3 +1831,169 @@ items:
     personality_scaling_divisor: 5
     rarity: "rare"
     value: 3400
+
+  # ================= DRAKEFORGED ARMOR (Scalewright tier) =================
+  broodscale_aegis:
+    name: "Broodscale Aegis"
+    type: "armor"
+    armor_category: "shield"
+    description: "A round shield of black brood-scale; bolts remember the way home"
+    flavor: "The mother's own flank, and it still refuses arrows."
+    equip_slot: "offhand"
+    armor_class_base: 7
+    projectile_reflect_pct: 20
+    resistances:
+      fire: 40
+    set: "drakeforged"
+    rarity: "legendary"
+    value: 6000
+
+  drakehide_gauntlets:
+    name: "Drakehide Gauntlets"
+    type: "armor"
+    armor_category: "leather"
+    description: "Gauntlets of green-edged hide that thicken with every blow taken"
+    flavor: "Hit them. Go on. They like it."
+    equip_slot: "gauntlets"
+    armor_class_base: 5
+    endurance_scaling_divisor: 10
+    bonus_might: 5
+    scale_stack_ac: 1
+    scale_stack_max: 8
+    resistances:
+      fire: 25
+    set: "drakeforged"
+    rarity: "legendary"
+    value: 5500
+
+  # ================= REGALIA OF THE STILL COURT (god drops) =================
+  deathgod_helm:
+    name: "Helm of the Still Court"
+    type: "armor"
+    armor_category: "plate"
+    description: "A horned mask of black iron and gold; it watches the living politely"
+    flavor: "Wearing a god's face is only rude if he minds."
+    equip_slot: "helmet"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    bonus_intellect: 10
+    resistances:
+      dark: 50
+    set: "still_court"
+    rarity: "legendary"
+    value: 6500
+
+  deathgod_greaves:
+    name: "Greaves of the Still Court"
+    type: "armor"
+    armor_category: "plate"
+    description: "Leg plates chased with gold scripture that no one living can read"
+    flavor: "They walk the quiet halls whether you do or not."
+    equip_slot: "boots"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    resistances:
+      body: 50
+    set: "still_court"
+    rarity: "legendary"
+    value: 6500
+
+  deathgod_aegis:
+    name: "Aegis of the Still Court"
+    type: "armor"
+    armor_category: "shield"
+    description: "A black-gold ward with a cyan heart; misfortune slides off it"
+    flavor: "The court does not take appointments. It takes shields."
+    equip_slot: "offhand"
+    armor_class_base: 7
+    status_duration_pct: -50
+    resistances:
+      dark: 30
+    set: "still_court"
+    rarity: "legendary"
+    value: 7000
+
+  # ================= DRAGON SCALES (Scalewright currency) =================
+  # Trophy trinkets and the Scalewright's crafting currency. Exact scale counts
+  # and gold surcharges live only in the merchant inventory in npcs.yaml.
+  black_dragon_scale:
+    name: "Black Dragon Scale"
+    type: "trinket"
+    description: "A palm-wide scale of the Brood Mother, still warm"
+    flavor: "The Scalewright will not say what he pays for these. He pays."
+    rarity: "legendary"
+    value: 1200
+
+  red_dragon_scale:
+    name: "Red Dragon Scale"
+    type: "trinket"
+    description: "A red scale edged in gold, shed by desert fire"
+    flavor: "Smells faintly of a very bad afternoon."
+    rarity: "rare"
+    value: 350
+
+  green_dragon_scale:
+    name: "Green Dragon Scale"
+    type: "trinket"
+    description: "A green scale slick as riverglass"
+    flavor: "The venom wiped off. Probably."
+    rarity: "rare"
+    value: 350
+
+  gold_dragon_scale:
+    name: "Gold Dragon Scale"
+    type: "trinket"
+    description: "A gold scale that hums faintly in a storm"
+    flavor: "Worth its weight. Weighs a lot."
+    rarity: "rare"
+    value: 600
+
+  # ================= ELEMENTAL DRAUGHTS =================
+  # Counterplay potions for the endgame triad: each wards one school for a
+  # minute, party-wide. Dropped by dragons and the clock tower's works.
+  flame_ward_draught:
+    name: "Flame Ward Draught"
+    type: "consumable"
+    description: "A red draught that drinks the heat out of dragonfire"
+    flavor: "Brewed against the Brood Mother's breath."
+    resist_buff_school: "fire"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "fire_shield"
+    rarity: "rare"
+    value: 300
+
+  storm_ward_draught:
+    name: "Storm Ward Draught"
+    type: "consumable"
+    description: "A pale blue swirl that grounds the lightning around you"
+    flavor: "The tide-warden's arcs slide right off."
+    resist_buff_school: "air"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "lightning"
+    rarity: "rare"
+    value: 300
+
+  gloom_ward_draught:
+    name: "Gloom Ward Draught"
+    type: "consumable"
+    description: "A violet dark that swallows darker things"
+    flavor: "The Still Court finds nothing to reap in you."
+    resist_buff_school: "dark"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "darkbolt"
+    rarity: "rare"
+    value: 300
+
+  stoneskin_draught:
+    name: "Stoneskin Draught"
+    type: "consumable"
+    description: "Earth and ore in suspension; your skin remembers the mountain"
+    flavor: "Chew before swallowing."
+    buff_armor_class: 15
+    buff_duration_seconds: 60
+    status_icon: "stone_skin"
+    rarity: "rare"
+    value: 350

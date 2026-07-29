@@ -222,6 +222,22 @@ func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 	return out
 }
 
+// FilteredItemEffectLines returns the shared item mechanics list minus armor
+// values already decomposed into the DEFENSE section by item card renderers.
+func FilteredItemEffectLines(def *config.ItemDefinitionConfig) []string {
+	if def == nil {
+		return nil
+	}
+	var out []string
+	for _, ln := range def.EffectLines() {
+		if strings.HasPrefix(ln, "Armor class") || strings.HasPrefix(ln, "AC +Endurance") {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return out
+}
+
 // --------------------- character-independent card builders (map editor) -----
 //
 // Why these exist as a SECOND set of builders, parallel to the game's
@@ -300,7 +316,6 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	if hasWeaponSkill {
 		dmg.Add("Weapon Mastery: +%d True per tier above Novice", MasteryWeaponTrueDamagePerTier)
 	}
-
 	crit := CardSection{Title: "CRITICAL"}
 	crit.Add("Base Chance: %d%%", def.CritChance)
 	crit.Add("Luck / %d: adds to chance", LuckToCritDivisor)
@@ -322,7 +337,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	}
 
 	rules := CardSection{Title: "RULES"}
-	ArmorInteractionLines(&rules, def.DamageType, def.Physics != nil, hasWeaponSkill)
+	ArmorInteractionLines(&rules, def.DamageType, def.Physics != nil, hasWeaponSkill || def.TrueDamage > 0)
 	if def.AoeRadiusTiles > 0 {
 		rules.Add("%s", SplashCritRule)
 	}
@@ -694,24 +709,11 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
-	for _, ln := range def.StatBonusLines() {
-		effects.Add("%s", ln)
-	}
-	for _, ln := range def.ResistLines() {
+	for _, ln := range FilteredItemEffectLines(def) {
 		effects.Add("%s", ln)
 	}
 	if def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0 {
 		effects.Add("Armor reduces normal hit damage: physical up to %d%%, non-physical up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
-	}
-	// Consumable / quest behavior shares the item formatter.
-	for _, ln := range def.EffectLines() {
-		if strings.HasPrefix(ln, "Armor class") || strings.HasPrefix(ln, "AC +Endurance") {
-			continue // already decomposed in DEFENSE
-		}
-		if effects.containsText(ln) {
-			continue
-		}
-		effects.Add("%s", ln)
 	}
 
 	usage := CardSection{Title: "USAGE"}
@@ -729,13 +731,4 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 	}
 
 	return []CardSection{defense, effects, usage, rules}
-}
-
-func (s *CardSection) containsText(t string) bool {
-	for _, l := range s.lines {
-		if l.text == t {
-			return true
-		}
-	}
-	return false
 }

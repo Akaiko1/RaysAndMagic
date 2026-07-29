@@ -915,7 +915,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
 			} else if item.Type == items.ItemWeapon {
 				if currentChar.CanEquipWeaponByName(item.Name) {
-					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 							currentChar.Name, item.Name))
 					}
@@ -925,7 +925,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 				}
 			} else if item.Type == items.ItemArmor {
 				if currentChar.CanEquipArmor(item) {
-					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 							currentChar.Name, item.Name))
 					}
@@ -934,7 +934,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 						currentChar.Name, item.Name))
 				}
 			} else if item.Type == items.ItemAccessory {
-				if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 						currentChar.Name, item.Name))
 				}
@@ -975,7 +975,7 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 			if item, exists := currentChar.Equipment[slot]; exists {
 				itemName := item.Name
-				if ui.game.party.UnequipItemToInventory(slot, ui.game.selectedChar) {
+				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar) {
 					ui.game.AddCombatMessage(fmt.Sprintf("%s unequipped %s!",
 						currentChar.Name, itemName))
 				} else {

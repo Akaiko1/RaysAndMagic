@@ -17,8 +17,8 @@ import (
 )
 
 // LoadGameData resolves the runtime working directory and fail-fast loads the
-// shared content configs. Binary-specific configs (loot tables, quests,
-// level-up choices, maps) stay with their binary's main.
+// shared content configs. Binary-specific configs (quests, level-up choices,
+// maps) stay with their binary's main.
 func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	storage.EnsureRuntimeCWD()
 
@@ -45,6 +45,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 		log.Fatalf("Size class config: %v", err)
 	}
 	monsterCfg := monster.MustLoadMonsterConfig("assets/monsters.yaml")
+	if err := monster.ValidateCatalogReferences(monsterCfg, cfg); err != nil {
+		log.Fatalf("Monster catalog links: %v", err)
+	}
 	character.MustLoadNPCConfig("assets/npcs.yaml")
 	config.MustLoadChampionConfig("assets/champions.yaml")
 

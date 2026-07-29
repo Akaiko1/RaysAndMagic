@@ -2,8 +2,12 @@ package game
 
 import (
 	"fmt"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 )
+
+var equippedWeaponSlots = [...]items.EquipSlot{items.SlotMainHand, items.SlotOffHand}
 
 // lookupWeaponConfigByName resolves a weapon by display name. Returns nil and
 // logs a warning if the weapon is missing from weapons.yaml.
@@ -25,4 +29,19 @@ func lookupWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
 		return nil
 	}
 	return weaponDef
+}
+
+// equippedWeaponDefinitions resolves both hands through the canonical
+// name-indexed weapon catalog without allocating a slice.
+func equippedWeaponDefinitions(member *character.MMCharacter) [2]*config.WeaponDefinitionConfig {
+	var defs [2]*config.WeaponDefinitionConfig
+	if member == nil {
+		return defs
+	}
+	for i, slot := range equippedWeaponSlots {
+		if weapon, ok := member.Equipment[slot]; ok && weapon.Type == items.ItemWeapon {
+			defs[i] = lookupWeaponConfigByName(weapon.Name)
+		}
+	}
+	return defs
 }

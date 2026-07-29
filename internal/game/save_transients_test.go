@@ -26,6 +26,9 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true})
 	g.impactLights = append(g.impactLights, ImpactLight{X: 64, Y: 64, Radius: 2})
 	g.deadMonsterIDs = append(g.deadMonsterIDs, "monster_1")
+	g.bossFireTraps = []bossFireTrap{{TX: 1, TY: 2}}
+	g.bossFireTrapsOwner = "monster_1"
+	g.party.Members[0].ScaleStacks = 5
 	g.turnBasedTurnSuspended = true
 
 	g.clearTransientCombatState()
@@ -40,6 +43,12 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	}
 	if len(g.deadMonsterIDs) != 0 {
 		t.Fatalf("deadMonsterIDs not cleared: %d", len(g.deadMonsterIDs))
+	}
+	if len(g.bossFireTraps) != 0 || g.bossFireTrapsOwner != "" {
+		t.Fatalf("boss fire field not cleared: %v owner=%q", g.bossFireTraps, g.bossFireTrapsOwner)
+	}
+	if g.party.Members[0].ScaleStacks != 0 {
+		t.Fatalf("scale stacks not cleared: %d", g.party.Members[0].ScaleStacks)
 	}
 	if g.turnBasedTurnSuspended {
 		t.Error("a world swap must discard a suspended turn-based turn")

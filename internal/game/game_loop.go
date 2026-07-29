@@ -126,6 +126,8 @@ func (gl *GameLoop) updateExploration() {
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 	gl.game.combat.knockOutLethalDoTVictims()
+	gl.game.flushPendingQuestSpawns() // deferred boss arrivals land between frames
+	gl.game.checkBossFireTraps()      // Brood Mother field: detonate under the party, both modes
 
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()

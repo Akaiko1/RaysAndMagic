@@ -124,7 +124,7 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		}
 		burnFrames := g.config.GetTPS() * igniteSeconds
 		g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-			member.ApplyBurn(burnFrames)
+			member.ApplyBurn(g.combat.scaledStatusFrames(member, burnFrames))
 			g.TriggerPartyFlame(idx)
 		})
 		return
@@ -323,7 +323,7 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 			if maxRarity != "" && tier > maxTier {
 				continue
 			}
-			w := int(e.Chance * 1000)
+			w := int(e.Chance*1000) * e.RollCount()
 			if w <= 0 {
 				continue
 			}

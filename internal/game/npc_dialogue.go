@@ -309,5 +309,11 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 			out = append(out, c)
 		}
 	}
+	// Every tavern carries the rumor branch (top level only - not inside an
+	// info node). Synthetic view, rebuilt per call: today's rumor text rides
+	// the day/night clock.
+	if g.currentDialogNode() == nil && npcOffersTavernRest(npc) {
+		out = append(out, g.rumorDialogueChoice())
+	}
 	return out
 }

@@ -35,10 +35,14 @@ func main() {
 	// Load quest configuration and initialize quest manager
 	questConfig, err := quests.LoadQuestConfig("assets/quests.yaml")
 	if err != nil {
-		log.Printf("Warning: Failed to load quest config: %v", err)
-	} else {
-		quests.GlobalQuestManager = quests.NewQuestManager(questConfig)
-		quests.GlobalQuestManager.InitializeStartingQuests()
+		log.Fatalf("Failed to load quest config: %v", err)
+	}
+	quests.GlobalQuestManager = quests.NewQuestManager(questConfig)
+	quests.GlobalQuestManager.InitializeStartingQuests()
+
+	// Tavern rumors: the guide-rail hints shown at every tavern.
+	if err := game.LoadRumorConfig("assets/rumors.yaml", quests.GlobalQuestManager); err != nil {
+		log.Fatalf("Failed to load rumors: %v", err)
 	}
 
 	// Initialize and load world manager

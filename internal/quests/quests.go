@@ -51,15 +51,45 @@ type QuestTileChange struct {
 	Tile string `yaml:"tile"`
 }
 
+// QuestSpawn places a monster the moment its quest completes (the Brood Mother
+// materializing in the emptied crater). Coordinates are map-local tiles; the
+// open-world projection resolves them at runtime. Applied exactly once per
+// playthrough - the spawned monster then lives and dies through the normal
+// per-map monster save, never re-applied.
+type QuestSpawn struct {
+	// ID is the stable save identity of this spawn within its quest. It must not
+	// depend on list order: reordering YAML must not re-fire a completed spawn.
+	ID      string `yaml:"id"`
+	Map     string `yaml:"map"`
+	X       int    `yaml:"x"`
+	Y       int    `yaml:"y"`
+	Monster string `yaml:"monster"`
+	// OnEntry defers the spawn while the party stands on the target map: it
+	// fires on the next ARRIVAL there instead (the Enforcer surfaces only when
+	// you come back down - the tavern rumor sends you).
+	OnEntry bool `yaml:"on_entry,omitempty"`
+}
+
 // QuestDefinition is the YAML configuration for a quest
 type QuestDefinition struct {
-	Name            string    `yaml:"name"`
-	Description     string    `yaml:"description"`
-	Type            QuestType `yaml:"type"`
-	TargetMonster   string    `yaml:"target_monster"`
-	TargetCount     int       `yaml:"target_count"`
-	Exterminate     bool      `yaml:"exterminate,omitempty"`
-	IsStartingQuest bool      `yaml:"is_starting_quest"`
+	Name          string    `yaml:"name"`
+	Description   string    `yaml:"description"`
+	Type          QuestType `yaml:"type"`
+	TargetMonster string    `yaml:"target_monster"`
+	// TargetMonsters extends TargetMonster to several normalized names when one
+	// quest hunts a mixed roster (the cliff nests hold green AND gold dragons).
+	TargetMonsters  []string `yaml:"target_monsters,omitempty"`
+	TargetCount     int      `yaml:"target_count"`
+	Exterminate     bool     `yaml:"exterminate,omitempty"`
+	IsStartingQuest bool     `yaml:"is_starting_quest"`
+	// AutoClaim marks objective-only quests whose completion is itself the
+	// reward. They finish without presenting an empty journal claim action.
+	AutoClaim bool `yaml:"auto_claim,omitempty"`
+	// EncounterOnly requires the kill source to name this quest. It is used for
+	// authored encounter summons that share a display name with ordinary mobs.
+	EncounterOnly bool `yaml:"encounter_only,omitempty"`
+	// Victory marks the single quest whose completion wins the game.
+	Victory bool `yaml:"victory,omitempty"`
 	// TargetMap scopes the "no living targets left -> complete" check to one map,
 	// for region quests whose monster type also lives elsewhere (e.g. the cliff
 	// troll cull - trolls also roam the highlands). Empty = search every map,
@@ -69,10 +99,41 @@ type QuestDefinition struct {
 	// OnCompleteTiles are applied to the world the moment the quest completes
 	// (and re-applied on save load), independent of turn-in.
 	OnCompleteTiles []QuestTileChange `yaml:"on_complete_tiles,omitempty"`
+	// OnCompleteSpawns place monsters once at the completion event (never
+	// re-applied; see QuestSpawn).
+	OnCompleteSpawns []QuestSpawn `yaml:"on_complete_spawns,omitempty"`
 	// Optional location marker for quest objectives (tile coordinates)
 	MarkerX   int    `yaml:"marker_x,omitempty"`   // X tile coordinate for quest marker
 	MarkerY   int    `yaml:"marker_y,omitempty"`   // Y tile coordinate for quest marker
 	MarkerMap string `yaml:"marker_map,omitempty"` // Map key where marker should appear (empty = current map)
+}
+
+// NormalizeTarget converts a display name or interaction tag to the canonical
+// quest-target key used by loaded definitions.
+func NormalizeTarget(target string) string {
+	return strings.ToLower(strings.Join(strings.Fields(target), "_"))
+}
+
+// MatchesTarget reports whether a monster name / interaction tag is one of
+// this quest's targets: the single TargetMonster or any TargetMonsters entry.
+// Every target-matching site must go through here.
+func (d *QuestDefinition) MatchesTarget(tag string) bool {
+	if d == nil {
+		return false
+	}
+	tag = NormalizeTarget(tag)
+	if tag == "" {
+		return false
+	}
+	if d.TargetMonster == tag {
+		return true
+	}
+	for _, t := range d.TargetMonsters {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // Quest represents an active quest with progress tracking
@@ -88,6 +149,14 @@ type Quest struct {
 	DynamicTarget  int
 	Completed      bool
 	RewardsClaimed bool
+}
+
+func (q *Quest) complete(autoClaim bool) {
+	q.Completed = true
+	q.Status = QuestStatusCompleted
+	if autoClaim || (q.Definition != nil && q.Definition.AutoClaim) {
+		q.RewardsClaimed = true
+	}
 }
 
 // Target is the effective goal count: the per-instance DynamicTarget snapshot
@@ -125,8 +194,95 @@ func LoadQuestConfig(filepath string) (*QuestConfig, error) {
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse quest config: %w", err)
 	}
+	if err := validateQuestConfig(&config); err != nil {
+		return nil, err
+	}
 
 	return &config, nil
+}
+
+func validateQuestConfig(config *QuestConfig) error {
+	if config == nil || config.Quests == nil {
+		return fmt.Errorf("quests config has no quests")
+	}
+	victoryQuest := ""
+	for id, def := range config.Quests {
+		if def == nil {
+			return fmt.Errorf("quest %q has empty definition", id)
+		}
+		switch def.Type {
+		case QuestTypeKill, QuestTypeEncounter, QuestTypeInteract:
+		default:
+			return fmt.Errorf("quest %q has unknown type %q", id, def.Type)
+		}
+		def.TargetMonster = NormalizeTarget(def.TargetMonster)
+		seenTargets := make(map[string]bool, len(def.TargetMonsters)+1)
+		if def.TargetMonster != "" {
+			seenTargets[def.TargetMonster] = true
+		}
+		for i, target := range def.TargetMonsters {
+			target = NormalizeTarget(target)
+			if target == "" {
+				return fmt.Errorf("quest %q target_monsters[%d] is empty", id, i)
+			}
+			if seenTargets[target] {
+				return fmt.Errorf("quest %q repeats target %q", id, target)
+			}
+			seenTargets[target] = true
+			def.TargetMonsters[i] = target
+		}
+		if def.Type != QuestTypeEncounter {
+			if len(seenTargets) == 0 {
+				return fmt.Errorf("quest %q has no target", id)
+			}
+			if def.TargetCount <= 0 {
+				return fmt.Errorf("quest %q target_count must be positive", id)
+			}
+		}
+		def.TargetMap = strings.TrimSpace(def.TargetMap)
+		if def.Exterminate && (def.Type != QuestTypeKill || def.TargetMap == "") {
+			return fmt.Errorf("quest %q: exterminate requires type kill and target_map", id)
+		}
+		if def.EncounterOnly && def.Type != QuestTypeKill {
+			return fmt.Errorf("quest %q: encounter_only requires type kill", id)
+		}
+		for i, change := range def.OnCompleteTiles {
+			change.Map = strings.TrimSpace(change.Map)
+			change.Tile = strings.TrimSpace(change.Tile)
+			if change.Map == "" || change.Tile == "" {
+				return fmt.Errorf("quest %q on_complete_tiles[%d] needs map and tile", id, i)
+			}
+			def.OnCompleteTiles[i] = change
+		}
+		spawnIDs := make(map[string]bool, len(def.OnCompleteSpawns))
+		for i, spawn := range def.OnCompleteSpawns {
+			spawn.ID = strings.TrimSpace(spawn.ID)
+			spawn.Map = strings.TrimSpace(spawn.Map)
+			spawn.Monster = strings.TrimSpace(spawn.Monster)
+			if spawn.ID == "" || spawn.Map == "" || spawn.Monster == "" {
+				return fmt.Errorf("quest %q on_complete_spawns[%d] needs id, map and monster", id, i)
+			}
+			if spawnIDs[spawn.ID] {
+				return fmt.Errorf("quest %q repeats on_complete_spawns id %q", id, spawn.ID)
+			}
+			spawnIDs[spawn.ID] = true
+			def.OnCompleteSpawns[i] = spawn
+		}
+		if def.AutoClaim && (def.Rewards.Gold != 0 || def.Rewards.Experience != 0 || def.Rewards.ArenaPoints != 0) {
+			return fmt.Errorf("quest %q: auto_claim is reserved for rewardless objective quests", id)
+		}
+		if !def.Victory {
+			continue
+		}
+		if victoryQuest != "" {
+			return fmt.Errorf("quests %q and %q are both marked victory", victoryQuest, id)
+		}
+		if !def.AutoClaim {
+			return fmt.Errorf("victory quest %q must be auto_claim", id)
+		}
+		victoryQuest = id
+	}
+	return nil
 }
 
 // NewQuestManager creates a new quest manager with loaded config
@@ -208,8 +364,7 @@ func (qm *QuestManager) MarkCompleted(questID string) {
 
 	if quest, ok := qm.activeQuests[questID]; ok {
 		quest.CurrentCount = quest.Target()
-		quest.Completed = true
-		quest.Status = QuestStatusCompleted
+		quest.complete(false)
 	}
 }
 
@@ -248,20 +403,26 @@ func (qm *QuestManager) SetCurrentCount(questID string, count int) {
 // everywhere (callers without map context).
 // Returns a list of quests that were completed by this kill.
 func (qm *QuestManager) OnMonsterKilled(monsterType, mapKey string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey)
+	return qm.OnMonsterKilledFromSource(monsterType, mapKey, "")
+}
+
+// OnMonsterKilledFromSource updates kill quests and supplies the authored
+// encounter quest ID, if any. EncounterOnly quests ignore all other kills.
+func (qm *QuestManager) OnMonsterKilledFromSource(monsterType, mapKey, sourceQuestID string) []*Quest {
+	return qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey, sourceQuestID)
 }
 
 // OnInteract advances active interact-quests whose tag (TargetMonster) matches -
 // e.g. closing a valve calls OnInteract("valve"). Mirrors OnMonsterKilled: bumps
 // CurrentCount and completes at TargetCount. Returns the quests that completed.
 func (qm *QuestManager) OnInteract(tag string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeInteract, tag, "")
+	return qm.advanceCountedQuests(QuestTypeInteract, tag, "", "")
 }
 
 // advanceCountedQuests bumps CurrentCount on every active quest of the given type
 // whose TargetMonster tag matches, completing it at TargetCount. Shared by the
 // kill and interact progress hooks (OnMonsterKilled / OnInteract).
-func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey string) []*Quest {
+func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourceQuestID string) []*Quest {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -270,7 +431,10 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey string
 		if quest.Status != QuestStatusActive || quest.Definition.Type != qType {
 			continue
 		}
-		if quest.Definition.TargetMonster != tag {
+		if !quest.Definition.MatchesTarget(tag) {
+			continue
+		}
+		if quest.Definition.EncounterOnly && quest.ID != sourceQuestID {
 			continue
 		}
 		if quest.Definition.TargetMap != "" && mapKey != "" && quest.Definition.TargetMap != mapKey {
@@ -278,15 +442,26 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey string
 		}
 		quest.CurrentCount++
 		// Exterminate quests never complete on the kill quota - completion is
-		// owned by the living-count check (completeExterminationQuests at 0 alive),
+		// owned by the living-count check (completeKillQuestIfCleared at 0 alive),
 		// so killing N of M never finishes early when M != the static target.
 		if !quest.Definition.Exterminate && quest.CurrentCount >= quest.Target() {
-			quest.Completed = true
-			quest.Status = QuestStatusCompleted
+			quest.complete(false)
 			completedQuests = append(completedQuests, quest)
 		}
 	}
 	return completedQuests
+}
+
+// VictoryCompleted reports whether the data-authored victory quest is complete.
+func (qm *QuestManager) VictoryCompleted() bool {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+	for _, quest := range qm.activeQuests {
+		if quest.Definition != nil && quest.Definition.Victory && quest.Status == QuestStatusCompleted {
+			return true
+		}
+	}
+	return false
 }
 
 // ClaimRewards marks a quest's rewards as claimed and returns the rewards
@@ -368,6 +543,9 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 // TargetMonster is a content KEY ("elder_dragon"); player-facing text must
 // never show underscores.
 func (q *Quest) GetProgressString() string {
+	if len(q.Definition.TargetMonsters) > 0 {
+		return fmt.Sprintf("%d/%d targets killed", q.CurrentCount, q.Target())
+	}
 	target := strings.ReplaceAll(q.Definition.TargetMonster, "_", " ")
 	switch q.Definition.Type {
 	case QuestTypeKill:
@@ -450,9 +628,7 @@ func (qm *QuestManager) CompleteEncounterQuest(questID string) *QuestRewards {
 	}
 
 	// Mark as completed and auto-claim
-	quest.Completed = true
-	quest.Status = QuestStatusCompleted
-	quest.RewardsClaimed = true
+	quest.complete(true)
 
 	return &quest.Definition.Rewards
 }
@@ -486,6 +662,6 @@ func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus,
 	quest.Status = status
 	quest.CurrentCount = currentCount
 	quest.DynamicTarget = dynamicTarget
-	quest.RewardsClaimed = rewardsClaimed
 	quest.Completed = (status == QuestStatusCompleted)
+	quest.RewardsClaimed = rewardsClaimed || (quest.Completed && quest.Definition.AutoClaim)
 }

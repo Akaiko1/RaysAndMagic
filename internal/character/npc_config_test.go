@@ -71,6 +71,19 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 	}
 }
 
+func TestMerchantStockItemEffectiveCurrency(t *testing.T) {
+	plain := &MerchantStockItem{}
+	if got := plain.EffectiveCurrency(CurrencyArenaPoints); got != CurrencyArenaPoints {
+		t.Fatalf("shop currency = %q, want %q", got, CurrencyArenaPoints)
+	}
+
+	override := &MerchantStockItem{CurrencyItem: "black_dragon_scale"}
+	want := CurrencyItemPrefix + "black_dragon_scale"
+	if got := override.EffectiveCurrency(""); got != want {
+		t.Fatalf("entry currency = %q, want %q", got, want)
+	}
+}
+
 // Trader catalogs author spell IDs and costs; backfillTraderSpells must fill
 // name, school and description from spells.yaml without inventing a purchase
 // level or mastery gate.

@@ -87,6 +87,7 @@ type NPCSummon struct {
 	Statuette string `yaml:"statuette"`
 	Monster   string `yaml:"monster"`
 	Label     string `yaml:"label"`
+	QuestID   string `yaml:"quest_id,omitempty"`
 }
 
 // NPCDialogue represents the dialogue options for an NPC
@@ -173,6 +174,11 @@ type NPCItem struct {
 	// sets). All-or-nothing per merchant: mixed tabbed/untabbed stock fails
 	// validation, an untabbed shop keeps the classic single grid.
 	Tab string `yaml:"tab,omitempty"`
+	// CurrencyItem prices THIS entry in an item key (Scalewright: per-colour
+	// scales), overriding the shop currency; GoldCost is a gold surcharge paid
+	// on top of it.
+	CurrencyItem string `yaml:"currency_item,omitempty"`
+	GoldCost     int    `yaml:"gold_cost,omitempty"`
 }
 
 // Global NPC configuration
@@ -441,10 +447,12 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 			qty = 1 // authored without quantity: single copy; negative = unlimited
 		}
 		stock = append(stock, &MerchantStockItem{
-			Item:     item,
-			Cost:     cost,
-			Quantity: qty,
-			Tab:      entry.Tab,
+			Item:         item,
+			Cost:         cost,
+			Quantity:     qty,
+			Tab:          entry.Tab,
+			CurrencyItem: entry.CurrencyItem,
+			GoldCost:     entry.GoldCost,
 		})
 	}
 	return stock

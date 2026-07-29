@@ -141,6 +141,22 @@ func TickDoT(remaining, tickTimer *int, elapsedFrames, tps int) (ticks int, expi
 	return ticks, expired
 }
 
+// RestoreDoTTickTimer validates a persisted sub-second DoT cadence phase.
+// Inactive effects cannot retain a phase, and malformed/future saves are
+// clamped below the next full tick instead of receiving immediate damage.
+func RestoreDoTTickTimer(remaining, savedTimer, tps int) int {
+	if remaining <= 0 || savedTimer <= 0 {
+		return 0
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	if savedTimer >= tps {
+		return tps - 1
+	}
+	return savedTimer
+}
+
 // Clear ends a DoT outright (cure): both the duration and the cadence timer.
 // RemoveCondition/flag cleanup stays with the caller.
 func Clear(remaining, tickTimer *int) {

@@ -133,6 +133,9 @@ type MMCharacter struct {
 	StunFramesRemaining int
 	StunTurnsRemaining  int
 	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// ScaleStacks: equipped scale-growth armor accumulated this combat.
+	// Runtime-only - stacks shed the moment combat ends (never saved).
+	ScaleStacks int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -157,6 +160,12 @@ type MMCharacter struct {
 	// decremented on each attack/spell, set to 0 on party movement (which
 	// immediately ends the round). Unused in real-time.
 	ActionsRemaining int
+
+	// TBRoundActionFloor is the personal action floor actually credited at the
+	// start of the current TB round. Equipment changes may withdraw that
+	// credited portion, but equipping an action-floor weapon mid-round cannot
+	// mint fresh actions. Persisted through CharacterSave for suspended rounds.
+	TBRoundActionFloor int
 
 	// RTCooldown is this character's remaining real-time action cooldown in
 	// frames. While > 0 the member is "busy" (grayed in the HUD, skipped by
@@ -599,6 +608,26 @@ func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int) {
 		c.RemoveCondition(ConditionBurning)
 	}
 	c.dotDamage(BurnDamagePerTick * ticks)
+}
+
+// DoTTickTimers exposes the persisted sub-second cadence phase for poison and
+// burn without making the runtime timers mutable outside this package.
+func (c *MMCharacter) DoTTickTimers() (poison, burn int) {
+	if c == nil {
+		return 0, 0
+	}
+	return c.poisonTickTimer, c.burnTickTimer
+}
+
+// RestoreDoTTickTimers restores cadence only for active effects. Validation is
+// shared with monsters through the status package.
+func (c *MMCharacter) RestoreDoTTickTimers(poison, burn int) {
+	if c == nil {
+		return
+	}
+	tps := config.GetTargetTPS()
+	c.poisonTickTimer = status.RestoreDoTTickTimer(c.PoisonFramesRemaining, poison, tps)
+	c.burnTickTimer = status.RestoreDoTTickTimer(c.BurnFramesRemaining, burn, tps)
 }
 
 // dotDamage lands DoT damage on a still-standing character; Unconscious is
@@ -1322,16 +1351,14 @@ func setPieceKey(item items.Item) string {
 	return ""
 }
 
-// SetStunDurationPct sums stun-duration shifts from completed armor sets
-// (padded quilt: -50 halves stuns suffered by the wearer). Clamped at -90.
+// SetStunDurationPct sums stun-duration shifts from completed armor sets.
+// The combat layer combines this with per-item shifts before applying the
+// single global duration floor.
 func (c *MMCharacter) SetStunDurationPct() int {
 	total := 0
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
 		total += set.StunDurationPct
 	})
-	if total < -90 {
-		total = -90
-	}
 	return total
 }
 
@@ -1344,6 +1371,64 @@ func (c *MMCharacter) SetCritChanceBonus() int {
 		total += set.BonusCritChance
 	})
 	return total
+}
+
+// SetFieryRipostePct sums fiery-riposte shares from completed sets (the
+// Drakeforged pair): melee attackers take this % of dealt damage back as fire.
+func (c *MMCharacter) SetFieryRipostePct() int {
+	total := 0
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		total += set.FieryRipostePct
+	})
+	return total
+}
+
+// forEachEquippedItemDefinition visits typed items.yaml definitions for the
+// current equipment. New item mechanics use this path instead of duplicating
+// definition lookups in each combat subsystem.
+func (c *MMCharacter) forEachEquippedItemDefinition(fn func(*config.ItemDefinitionConfig)) {
+	if c == nil {
+		return
+	}
+	for _, it := range c.Equipment {
+		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok && def != nil {
+			fn(def)
+		}
+	}
+}
+
+// ProjectileReflectPct returns the strongest equipped projectile reflection
+// chance. Multiple mirror shields do not stack into guaranteed reflection.
+func (c *MMCharacter) ProjectileReflectPct() int {
+	best := 0
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		if def.ProjectileReflectPct > best {
+			best = def.ProjectileReflectPct
+		}
+	})
+	return best
+}
+
+// ItemStatusDurationPct sums per-item shifts applied to every hostile status.
+func (c *MMCharacter) ItemStatusDurationPct() int {
+	total := 0
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		total += def.StatusDurationPct
+	})
+	return total
+}
+
+// ScaleStackParams returns the strongest scale growth contract on the equipped
+// items. Per-stack value and cap always come from the same YAML definition.
+func (c *MMCharacter) ScaleStackParams() (perStack, maxStacks int) {
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		if def.ScaleStackAC > perStack ||
+			(def.ScaleStackAC == perStack && def.ScaleStackMax > maxStacks) {
+			perStack = def.ScaleStackAC
+			maxStacks = def.ScaleStackMax
+		}
+	})
+	return perStack, maxStacks
 }
 
 // GearResistPct sums the character's % resistance to a damage school from equipped gear.

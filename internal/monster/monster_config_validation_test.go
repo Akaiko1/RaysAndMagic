@@ -47,3 +47,19 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMonsterConfiguration_ChampionRejectsMeleeDamageType(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"arena_champion": {
+			Name:            "Arena Champion",
+			SizeClass:       "person",
+			Champion:        "arena_champion",
+			MeleeDamageType: "fire",
+		},
+	}}
+
+	err := validateMonsterConfiguration(cfg)
+	if err == nil || !strings.Contains(err.Error(), "equipped weapon") {
+		t.Fatalf("champion melee_damage_type conflict should fail clearly, got: %v", err)
+	}
+}

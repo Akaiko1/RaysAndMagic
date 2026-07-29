@@ -79,7 +79,7 @@
 %......@A..A.....A...TT.......A..AA..A......%  >[npc:chest_wooden]
 %.TTTTTT..TT.T.R..............H....WWWW.D...%
 %..........T..T.R.R...H....R.R....WWWWWWW...%
-%...@......T.....R.HH....H.R.R...WWWWWWWWW..%  >[npc:tavern]
+%...@.@....T.....R.HH....H.R.R...WWWWWWWWW..%  >[npc:tavern], [npc:scalewright]
 %......@...T.......R.R......R....WQQQ@QQQW..%  >[npc:dragon_cliffs_ranger], [npc:chest_golden]
 %..........T...TT..R@R...........WQQQQQQQW..%  >[npc:dragon_cliffs_bone_hermit]
 %....+.....T...T...RRR...........MMWWWWWW...%

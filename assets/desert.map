@@ -14,14 +14,14 @@
 # dragon statuette (looted from the pyramid) to SUMMON an ELITE Elder Dragon;
 # the statue then vanishes. Black->elder_dragon(fire), Red->elder_dragon_red(dark),
 # Green->elder_dragon_green(poison), Gold->elder_dragon_gold(air). These are the
-# buffed, tinted "Elder Dragon" variants — distinct from the ordinary dragons that
+# buffed, tinted "Elder Dragon" variants - distinct from the ordinary dragons that
 # roam dragon_cliffs and its lair caves.
 #
 # Layout: a central oasis (desert merchant + red teleporter) plus two small
 # palm oases, each guarded by 5 bandits (clearing an oasis's bandits drops a
-# 500-gold chest at its water — see desert.clear_encounters in map_configs.yaml).
+# 500-gold chest at its water - see desert.clear_encounters in map_configs.yaml).
 # MAIN QUEST: only these statue-summoned Elder Dragons count toward "dragon_slayer"
-# (combat.go updateQuestProgress: target "elder_dragon" + the summoned-dragon flag),
+# because each summon names that encounter-only quest in npcs.yaml,
 # so ordinary wild dragons never win the game.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 T.@ARTRTA................@...............ATRTRTAAT  >[npc:chest_golden], [npc:pyramid_entrance]

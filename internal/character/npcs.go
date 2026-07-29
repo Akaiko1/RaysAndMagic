@@ -124,6 +124,20 @@ type MerchantStockItem struct {
 	Cost     int
 	Quantity int    // UnlimitedStock (negative) = never sells out
 	Tab      string // shop tab label ("" = the classic single grid)
+	// CurrencyItem overrides the SHOP currency for this entry with an item key
+	// (the Scalewright prices each piece in its own scale colour).
+	CurrencyItem string
+	// GoldCost is charged IN ADDITION to the item currency (scale + gold).
+	GoldCost int
+}
+
+// EffectiveCurrency resolves the one currency contract shared by merchant UI
+// and purchase execution. Per-entry item pricing overrides the shop default.
+func (m *MerchantStockItem) EffectiveCurrency(shopCurrency string) string {
+	if m != nil && m.CurrencyItem != "" {
+		return CurrencyItemPrefix + m.CurrencyItem
+	}
+	return shopCurrency
 }
 
 // MerchantTabs lists the distinct shop tab labels in authored stock order;

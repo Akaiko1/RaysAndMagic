@@ -253,21 +253,30 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 		}
 	}
 	// Hasta: an equipped weapon can grant its bearer flat AC (either hand).
-	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
-		if w, ok := char.Equipment[slot]; ok && w.Type == items.ItemWeapon {
-			if def := lookupWeaponConfigByName(w.Name); def != nil {
-				total += def.ArmorClassBonus
-			}
+	for _, def := range equippedWeaponDefinitions(char) {
+		if def != nil {
+			total += def.ArmorClassBonus
 		}
 	}
 	if cs.game.isPartyMember(char) {
-		total += cs.game.cardArmorBonus() // Treant Card: flat PARTY Armor Class
+		total += cs.game.cardArmorBonus()       // Treant Card: flat PARTY Armor Class
+		total += cs.game.combatBuffArmorBonus() // stoneskin draught: timed flat AC
 	}
 	total += cs.game.partyArmorAuraBonusFor(char) // Parma shield wall: aura from OTHER members' gear
 	if char.HasSkill(character.SkillIronBody) {
 		// Iron Body: flat AC per tier, Novice included - a Monk's only AC
 		// source besides Endurance, since they wear no armor at all.
 		total += (char.SkillTier(character.SkillIronBody) + 1) * character.IronBodyACPerTier
+	}
+	// Drakehide Gauntlets: scales grown by taking hits this combat.
+	if char.ScaleStacks > 0 {
+		if per, capMax := char.ScaleStackParams(); per > 0 {
+			stacks := char.ScaleStacks
+			if stacks > capMax {
+				stacks = capMax
+			}
+			total += stacks * per
+		}
 	}
 	return total
 }

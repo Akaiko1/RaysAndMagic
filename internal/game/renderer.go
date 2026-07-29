@@ -1354,6 +1354,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// its quest unseals it.
 		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
+		// Brood Mother's smouldering field: tiny ember edges on armed tiles.
+		r.drawBossFireTrapBorders(screen)
 		// Red bubble border around the player's start tile (floor inherited).
 		r.drawSpawnTileBorder(screen)
 		// Coloured glow filling every teleporter tile (floor inherited).

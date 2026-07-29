@@ -70,7 +70,7 @@ func TestNewGame_RevertsQuestBridge(t *testing.T) {
 	// a full census, NOT the instant "already done" credit (which would lay the
 	// bridge at accept time on a wolf-less map).
 	g.world = freshForest
-	living := g.countLivingQuestTargets("wolf", "forest")
+	living := g.countLivingQuestTargets(&quests.QuestDefinition{TargetMonster: "wolf", TargetMap: "forest"})
 	if living == 0 {
 		t.Fatal("no living wolves after new game - accept would instantly credit the cull")
 	}

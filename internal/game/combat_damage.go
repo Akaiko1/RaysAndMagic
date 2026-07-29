@@ -232,6 +232,7 @@ type weaponDamagePreview struct {
 	FormulaNormal int
 	Normal        int
 	True          int
+	AuthoredTrue  int
 	Total         int
 	CriticalTotal int
 	CardDamagePct int
@@ -249,7 +250,11 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		_, _, normal = cs.CalculateWeaponDamage(item, char)
 	}
 
-	preview := weaponDamagePreview{FormulaNormal: normal}
+	preview := weaponDamagePreview{
+		FormulaNormal: normal,
+		True:          def.TrueDamage,
+		AuthoredTrue:  def.TrueDamage,
+	}
 	if char != nil && cs != nil && cs.game != nil {
 		preview.True, _ = cs.weaponMasteryStrike(char, def)
 		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
