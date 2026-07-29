@@ -130,6 +130,29 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 	}
 }
 
+// tileEdgeSamplePoint is the world position of sample s (of perEdge) along
+// tile (tx,ty)'s edge in direction d, inset from the corners. THE shared
+// sampling for every tile-edge emitter, so aura bubbles and trap flames stand
+// on exactly the same line.
+func tileEdgeSamplePoint(tx, ty int, d [2]int, ts float64, s, perEdge int) (wx, wy float64) {
+	f := (float64(s) + 0.5) / float64(perEdge)
+	if d[0] != 0 { // east/west edge: fixed X, vary Y
+		if d[0] > 0 {
+			wx = float64(tx+1) * ts
+		} else {
+			wx = float64(tx) * ts
+		}
+		return wx, (float64(ty) + f) * ts
+	}
+	// north/south edge: fixed Y, vary X
+	if d[1] > 0 {
+		wy = float64(ty+1) * ts
+	} else {
+		wy = float64(ty) * ts
+	}
+	return (float64(tx) + f) * ts, wy
+}
+
 // emitAuraEdge samples points along the shared border between blocker tile
 // (tx,ty) and its walkable neighbour in direction d, then draws rising bubbles
 // at each sample.
@@ -158,25 +181,7 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 	edgeKey := d[0]*2 + d[1]
 
 	for s := 0; s < perEdge; s++ {
-		// Fractional position along the edge (0..1), inset from the corners.
-		f := (float64(s) + 0.5) / float64(perEdge)
-
-		var wx, wy float64
-		if d[0] != 0 { // east/west edge: fixed X, vary Y
-			if d[0] > 0 {
-				wx = float64(tx+1) * ts
-			} else {
-				wx = float64(tx) * ts
-			}
-			wy = (float64(ty) + f) * ts
-		} else { // north/south edge: fixed Y, vary X
-			if d[1] > 0 {
-				wy = float64(ty+1) * ts
-			} else {
-				wy = float64(ty) * ts
-			}
-			wx = (float64(tx) + f) * ts
-		}
+		wx, wy := tileEdgeSamplePoint(tx, ty, d, ts, s, perEdge)
 
 		// Per-stream brightness so the wall of bubbles shimmers unevenly instead
 		// of being a flat band.

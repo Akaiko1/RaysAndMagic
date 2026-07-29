@@ -144,38 +144,139 @@ func computeCardsContentLayout(content layoutRect) cardsContentLayout {
 
 const (
 	questCardW   = 520
-	questCardH   = 95
 	questCardGap = 8
 	questPagerH  = 22
+	// Quest card chrome, measured from the card's own top: the name row sits
+	// above the description, the progress row / bar / claim button below it.
+	// A card's HEIGHT is these plus however many description rows it needs.
+	questCardDescTop      = 22
+	questCardProgressGap  = 18 // description bottom -> progress bar
+	questCardBarH         = 14
+	questCardBottomPad    = 9
+	questCardBottomChrome = questCardProgressGap + questCardBarH + questCardBottomPad
+	questCardMaxDescRows  = 6 // sanity cap; hovering shows anything beyond it
 )
 
-type questContentLayout struct {
-	title      layoutRect
-	rows       []layoutRect
-	pager      layoutRect
-	pageSize   int
-	totalPages int
+// questCardHeight is the height a card needs to draw descRows description
+// lines. THE one card-height formula, used by the page packer and the renderer.
+func questCardHeight(descRows int) int {
+	if descRows < 1 {
+		descRows = 1
+	}
+	return questCardDescTop + descRows*debugTextCharHeight + questCardBottomChrome
 }
 
-func computeQuestContentLayout(content layoutRect, questCount int) questContentLayout {
-	listTop := content.y + 40
-	pager := layoutRect{content.x + 20, content.bottom() - questPagerH, questCardW, questPagerH}
-	pageSize := (pager.y - listTop) / (questCardH + questCardGap)
-	if pageSize < 1 {
-		pageSize = 1
+// questCardCopy is one card's wrapped description plus the height it needs.
+// Computed ONCE and handed to both the layout (which packs pages by height)
+// and the renderer (which draws these exact lines), so a card can never be
+// sized for a different amount of text than it shows.
+type questCardCopy struct {
+	descLines []string // what fits and is drawn
+	fullLines []string // the whole wrapped description (hover tooltip source)
+	height    int
+}
+
+func (c questCardCopy) descClipped() bool { return len(c.fullLines) > len(c.descLines) }
+
+// questCardCopyFor wraps a description to the card's text width and clips it to
+// maxDescRows.
+func questCardCopyFor(description string, cardW, maxDescRows int) questCardCopy {
+	textW := cardW - 20
+	full := wrapDebugText(description, textW)
+	if len(full) == 0 {
+		full = []string{""}
 	}
-	totalPages := pageCount(questCount, pageSize)
-	rows := make([]layoutRect, pageSize)
-	for i := range rows {
-		rows[i] = layoutRect{content.x + 20, listTop + i*(questCardH+questCardGap), questCardW, questCardH}
+	if maxDescRows < 1 {
+		maxDescRows = 1
 	}
-	return questContentLayout{
-		title:      layoutRect{content.x + 20, content.y + 10, content.w - 40, debugTextCharHeight},
-		rows:       rows,
-		pager:      pager,
-		pageSize:   pageSize,
-		totalPages: totalPages,
+	shown := truncateWrappedLines(full, maxDescRows, textW)
+	return questCardCopy{descLines: shown, fullLines: full, height: questCardHeight(len(shown))}
+}
+
+type questContentLayout struct {
+	title layoutRect
+	rows  []layoutRect
+	pager layoutRect
+	// pageStart is the index of the first card ON THIS PAGE; rows[i] belongs to
+	// card pageStart+i. Pages hold a VARIABLE number of cards, so a caller must
+	// never derive the offset from a page size.
+	pageStart    int
+	totalPages   int
+	maxDescRows  int
+	listAvailabl int
+}
+
+// questCardListAvailable is the vertical space the card list may use.
+func questCardListAvailable(content layoutRect) (listTop, avail int, pager layoutRect) {
+	listTop = content.y + 40
+	pager = layoutRect{content.x + 20, content.bottom() - questPagerH, questCardW, questPagerH}
+	return listTop, pager.y - listTop, pager
+}
+
+// questCardMaxDescRowsFor is how many description rows a single card may show
+// without outgrowing the whole list area.
+func questCardMaxDescRowsFor(avail int) int {
+	rows := (avail - questCardDescTop - questCardBottomChrome) / debugTextCharHeight
+	if rows < 1 {
+		rows = 1
 	}
+	if rows > questCardMaxDescRows {
+		rows = questCardMaxDescRows
+	}
+	return rows
+}
+
+// computeQuestContentLayout packs variable-height cards into pages: a page
+// takes as many cards as fit its available height, so a page of terse quests
+// shows more of them than a page of wordy ones.
+func computeQuestContentLayout(content layoutRect, copies []questCardCopy, page int) questContentLayout {
+	listTop, avail, pager := questCardListAvailable(content)
+	layout := questContentLayout{
+		title:        layoutRect{content.x + 20, content.y + 10, content.w - 40, debugTextCharHeight},
+		pager:        pager,
+		maxDescRows:  questCardMaxDescRowsFor(avail),
+		listAvailabl: avail,
+	}
+
+	// Greedy packing: every page holds at least one card even if it is taller
+	// than the list, so an over-long entry still renders instead of vanishing.
+	type pageRange struct{ start, end int }
+	var pages []pageRange
+	for start := 0; start < len(copies); {
+		used, end := 0, start
+		for end < len(copies) {
+			need := copies[end].height
+			if end > start {
+				need += questCardGap
+			}
+			if used+need > avail && end > start {
+				break
+			}
+			used += need
+			end++
+		}
+		pages = append(pages, pageRange{start, end})
+		start = end
+	}
+	if len(pages) == 0 {
+		layout.totalPages = 1
+		return layout
+	}
+	layout.totalPages = len(pages)
+	if page < 0 {
+		page = 0
+	}
+	if page >= len(pages) {
+		page = len(pages) - 1
+	}
+	current := pages[page]
+	layout.pageStart = current.start
+	y := listTop
+	for i := current.start; i < current.end; i++ {
+		layout.rows = append(layout.rows, layoutRect{content.x + 20, y, questCardW, copies[i].height})
+		y += copies[i].height + questCardGap
+	}
+	return layout
 }
 
 type mapOverlayLayout struct {

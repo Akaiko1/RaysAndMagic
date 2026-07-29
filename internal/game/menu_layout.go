@@ -125,7 +125,13 @@ func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 func questsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, screenH)
-	l := computeQuestContentLayout(menu.content, 100)
+	// Layout-overlay probe: a page of default-height cards is enough to draw
+	// the debug boxes; real cards size themselves to their own copy.
+	probe := make([]questCardCopy, 100)
+	for i := range probe {
+		probe[i] = questCardCopy{descLines: []string{""}, fullLines: []string{""}, height: questCardHeight(2)}
+	}
+	l := computeQuestContentLayout(menu.content, probe, 0)
 	boxes := []uiBox{namedLayoutBox("title", l.title)}
 	for i, row := range l.rows {
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("quest-%d", i), row))

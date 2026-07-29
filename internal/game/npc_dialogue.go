@@ -144,12 +144,22 @@ const (
 )
 
 type dialogueContentLayout struct {
-	bodyLines   []string
-	promptY     int
-	choiceY     int
-	exitY       int
-	firstChoice int
-	choiceCount int
+	bodyLines []string
+	// bodyFullLines is the UNCLIPPED wrapped copy; bodyLines may be a truncated
+	// view of it. bodyClipped() reports whether anything was cut.
+	bodyFullLines []string
+	bodyWidth     int
+	promptY       int
+	choiceY       int
+	exitY         int
+	firstChoice   int
+	choiceCount   int
+}
+
+// bodyClipped reports whether the rendered body is a truncated view of the
+// authored copy - the cue for offering the full text on hover.
+func (l dialogueContentLayout) bodyClipped() bool {
+	return len(l.bodyFullLines) > len(l.bodyLines)
 }
 
 // dialogueLayout is the single geometry source for encounter text, rendered
@@ -178,10 +188,20 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 	if maxBodyLines < 1 {
 		maxBodyLines = 1
 	}
-	bodyLines := truncateWrappedLines(wrapDebugText(g.npcDialogueText(npc), textWidth), maxBodyLines, textWidth)
+	fullLines := wrapDebugText(g.npcDialogueText(npc), textWidth)
+	bodyLines := truncateWrappedLines(fullLines, maxBodyLines, textWidth)
 
 	cursorY := dialogueBodyTextY + len(bodyLines)*dialogueLineHeight + 20
-	layout := dialogueContentLayout{bodyLines: bodyLines, promptY: -1, exitY: cursorY, choiceCount: visibleChoices}
+	layout := dialogueContentLayout{
+		bodyLines: bodyLines,
+		// The full copy travels with the layout so the renderer can offer it on
+		// hover: long greetings are clipped to fit, never silently lost.
+		bodyFullLines: fullLines,
+		bodyWidth:     textWidth,
+		promptY:       -1,
+		exitY:         cursorY,
+		choiceCount:   visibleChoices,
+	}
 	if len(choices) == 0 {
 		return layout
 	}

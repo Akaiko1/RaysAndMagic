@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"sort"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -107,6 +108,41 @@ func (g *MMGame) completeKillQuestIfCleared(q *quests.Quest) bool {
 	g.questManager.MarkCompleted(q.ID)
 	g.announceQuestCompletion(q)
 	return true
+}
+
+// Journal ordering ranks. The player's next action decides the order: first
+// what can be HANDED IN (there is a reward waiting), then what is still being
+// worked on, then what is finished and closed.
+const (
+	questRankTurnIn = iota // completed, reward not yet claimed
+	questRankActive        // still in progress
+	questRankDone          // completed and claimed (auto-claimed quests land here)
+)
+
+// questJournalRank is THE ordering policy for the quest journal.
+func questJournalRank(q *quests.Quest) int {
+	switch {
+	case q == nil:
+		return questRankDone
+	case q.Completed && !q.RewardsClaimed:
+		return questRankTurnIn
+	case !q.Completed:
+		return questRankActive
+	default:
+		return questRankDone
+	}
+}
+
+// sortQuestJournal orders quests in place for display: by rank, then by name so
+// the list is stable frame to frame.
+func sortQuestJournal(qs []*quests.Quest) {
+	sort.SliceStable(qs, func(i, j int) bool {
+		ri, rj := questJournalRank(qs[i]), questJournalRank(qs[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return qs[i].Definition.Name < qs[j].Definition.Name
+	})
 }
 
 // creditQuestIfCleared credits an active kill quest when its targets were

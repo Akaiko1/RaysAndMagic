@@ -1,9 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"log"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -71,7 +73,39 @@ const (
 	merchantRowGap   = 10
 	merchantPriceH   = 14 // price line drawn under each icon
 	merchantGridW    = merchantGridCols*merchantIconSize + (merchantGridCols-1)*merchantIconGapX
+	// merchantPriceBoxW is the width the price line may occupy. It is derived
+	// from the COLUMN PITCH (icon + gap), not the icon, because the label is
+	// centred under its icon and must stop short of the neighbouring cell: at
+	// pitch 56 a wider box let a compound price ("x3 +20000g") overlap the
+	// price beside it.
+	merchantPriceBoxW = merchantIconSize + merchantIconGapX - 2
 )
+
+// merchantPriceLabel is the ONE place a merchant price line is fitted to its
+// box. Both grids (buy and sell) pass their composed label through it, so no
+// currency form can overrun the cell no matter how it is worded.
+func merchantPriceLabel(text string) string {
+	return clipDebugText(text, merchantPriceBoxW)
+}
+
+// merchantPriceRect is the drawn box for a cell's price line: centred on the
+// icon, one pixel clear of each neighbour.
+func merchantPriceRect(cellX, cellY, cellW, cellH int) (x, y, w, h int) {
+	return cellX - (merchantPriceBoxW-cellW)/2, cellY + cellH, merchantPriceBoxW, merchantPriceH
+}
+
+// compactCoinAmount renders a gold amount for a NARROW label: exact below
+// 10000, k-suffixed above it (20000 -> "20k", 12500 -> "12.5k"). Used only
+// where a price shares its line with another currency.
+func compactCoinAmount(n int) string {
+	if n < 10000 {
+		return strconv.Itoa(n)
+	}
+	if n%1000 == 0 {
+		return strconv.Itoa(n/1000) + "k"
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1000), ".0") + "k"
+}
 
 // merchantGridLayout returns the two grid origins, the grid top, and the pager
 // row Y. Single source for both the renderer and the click handler so cell rects
@@ -417,6 +451,39 @@ func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 	ui.tooltipIcon = ""
 	ui.tooltipX = x
 	ui.tooltipY = y
+}
+
+// drawWrappedTextWithOverflow draws wrapped copy into area (clipped to
+// maxLines) and, when anything had to be cut, offers the WHOLE text on hover.
+// Every panel showing authored NPC copy should use this instead of the bare
+// drawWrappedDebugText, so a long greeting is never silently swallowed by a
+// fixed-height box.
+func (ui *UISystem) drawWrappedTextWithOverflow(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
+	full := wrapDebugText(text, area.w)
+	shown := truncateWrappedLines(full, maxLines, area.w)
+	for i, line := range shown {
+		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
+	}
+	rows := len(shown)
+	if rows < 1 {
+		rows = 1
+	}
+	ui.offerClippedTextTooltip(full, len(full) > len(shown), area.x, area.y, area.w, rows*lineHeight)
+}
+
+// offerClippedTextTooltip is THE mechanism for "the box was too small": any
+// panel that had to truncate authored copy passes the full wrapped text and
+// the rect it drew the clipped version in, and hovering that rect pops the
+// whole thing as a tooltip. No-op when nothing was cut.
+func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x, y, w, h int) {
+	if !clipped || len(fullLines) == 0 || w <= 0 || h <= 0 {
+		return
+	}
+	mouseX, mouseY := ebiten.CursorPosition()
+	if !isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+		return
+	}
+	ui.queueTooltip(fullLines, mouseX+12, mouseY+8)
 }
 
 func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {

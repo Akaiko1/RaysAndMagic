@@ -38,23 +38,65 @@ func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
 	}
 }
 
+// Brood-fire trap edging. The tongues are FIREWALL's flames (emitFlameColumn's
+// profile: soft tapered columns, white-hot base to ember tip, source-over so
+// they occlude), scaled down and packed dense - the earlier version borrowed
+// the aura's BUBBLE profile and read as glowing dots, not fire.
+const (
+	trapFlamePerEdge     = 7    // tongues per tile edge: many and small
+	trapFlamePerColumn   = 2    // staggered tongues per sample point
+	trapFlameRiseMult    = 0.85 // ~a third of a tile: ground fire, not a wall
+	trapFlameBaseAlpha   = 0.8
+	trapFlameSizeFloor   = 2.2
+	trapFlameSizeCoef    = 0.1
+	trapFlameFadeTiles   = 14.0
+	trapFlameTongueRatio = 2.4 // taller than wide, like the firewall tongues
+)
+
 // drawBossFireTrapBorders marks the Brood Mother's field: every armed tile is
-// edged with MANY SMALL fire-glows - the same edge emitter as trap borders,
-// tuned dense and dim so the ground reads as smouldering, not bubbling (user
-// spec: many tiny flames along the tile edges).
+// edged with small flame tongues on the SAME sample line the aura/trap borders
+// use, so the smouldering ground reads as fire without becoming a firewall.
 func (r *Renderer) drawBossFireTrapBorders(screen *ebiten.Image) {
 	field := r.game.bossFireTraps
 	if len(field) == 0 {
 		return
 	}
-	baseAlpha, perEdge, radius := r.auraEdgeParams()
-	baseAlpha *= 0.8
-	perEdge = perEdge*2 + 2 // many small embers instead of a few bubbles
-
 	ts := float64(r.game.config.GetTileSize())
-	maxDepth := float64(radius) * ts
-	ember := [3]int{255, 130, 40}
+	maxDepth := trapFlameFadeTiles * ts
 	for _, t := range field {
-		r.emitAuraTileEdges(screen, t.TX, t.TY, ts, perEdge, baseAlpha, maxDepth, ember)
+		for _, d := range auraCardinalDirections {
+			for s := 0; s < trapFlamePerEdge; s++ {
+				wx, wy := tileEdgeSamplePoint(t.TX, t.TY, d, ts, s, trapFlamePerEdge)
+				r.emitTrapFlameColumn(screen, wx, wy, t.TX, t.TY, d[0]*2+d[1], s, maxDepth)
+			}
+		}
 	}
+}
+
+// emitTrapFlameColumn draws one small flame tongue stack at a sampled point on
+// a trap tile's edge. Same machinery and colour ramp as the Firewall tongues,
+// tuned short and thin.
+func (r *Renderer) emitTrapFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, edgeKey, sIdx int, maxDepth float64) {
+	r.emitBubbleColumn(screen, bubbleColumnFx{
+		wx: wx, wy: wy,
+		hx: tx, hy: ty, salt: edgeKey + 31, hi: sIdx,
+		maxDepth:     maxDepth,
+		riseFraction: auraRiseFraction * trapFlameRiseMult,
+		baseAlpha:    trapFlameBaseAlpha,
+		colBright:    1.0,
+		perColumn:    trapFlamePerColumn,
+		periodTick:   flamePeriodTick,
+		jitterMin:    auraSpeedJitterMin,
+		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
+		sizeFloor:    trapFlameSizeFloor,
+		sizeCoef:     trapFlameSizeCoef,
+		wobbleCoef:   0.5,
+		sizeJitter:   flameSizeJitter,
+		soft:         true,
+		sizeTaper:    flameTipSizeScale,
+		color:        flameCoreColor,
+		heightScale:  trapFlameTongueRatio,
+		srcOver:      true,
+		colorTop:     flameTipColor,
+	})
 }
