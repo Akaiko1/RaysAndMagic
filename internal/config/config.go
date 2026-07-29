@@ -1078,6 +1078,10 @@ type MapTreasureChestRewardConfig struct {
 type MapConfigs struct {
 	Maps   map[string]MapConfig   `yaml:"maps"`
 	Biomes map[string]BiomeConfig `yaml:"biomes"`
+	// SharedFloorTextureGroups are floor-texture groups every biome gets for
+	// free, for universal tiles (water) that can appear on any map. A biome
+	// listing the same group name overrides the shared one.
+	SharedFloorTextureGroups map[string][]string `yaml:"shared_floor_texture_groups,omitempty"`
 }
 
 // WeaponSystemConfig contains the complete weapon system configuration

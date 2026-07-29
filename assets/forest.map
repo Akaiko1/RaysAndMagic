@@ -47,7 +47,7 @@
 %.T.....T.......T.....T...w...T.....T...PP....P..%
 %....T.........T.....T.....ww..T.....T...........%
 %...ww.....T.......T.....T.......T............P..%
-%@T@@@..T....TTTTT....T.......T.....T............%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue]
+%@T@@@..T....TTTTT....T.......T.....T.......@....%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue], [npc:abandoned_church]
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
@@ -61,6 +61,6 @@ T.M..T.......P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]
 T......T...T.......CCCCCC.....CCCCCC.........Pn@R%  >[npc:barrel_red]
 T.T.....TT......T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
 TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
-TpFFp...FF.TM....................................%
-T@TTTTTTTT..Tg.TTP......PP......................@%  >[npc:spell_lectern], [npc:abandoned_church]
+TpFFp...FF.TM...................................R%
+T@TTTTTTTT..Tg.TTP......PP.....................RR%  >[npc:spell_lectern]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

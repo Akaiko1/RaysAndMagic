@@ -38,6 +38,49 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 	return q == nil || q.Status != quests.QuestStatusCompleted
 }
 
+// runBossSpecials is the ONE boss rider for every combat path: RT and TB, party
+// fight and summon fight alike. Owns the special cadences (BossCD, the at-range
+// nova cooldown), the trap field and updateBoss; true = a special consumed the
+// action. Bosses previously lost the WHOLE kit whenever a summon out-competed
+// the party for aggro.
+func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, turnBased bool) bool {
+	if m == nil || !m.IsBoss() {
+		return false
+	}
+	ready := m.BossCD == 0
+	if m.BossCD > 0 {
+		m.BossCD--
+	}
+	// TB gets one at-range nova roll per monster pass; RT rolls when the
+	// per-monster cooldown elapses.
+	infernoRollDue := true
+	if !turnBased {
+		if m.InfernoCDFrames > 0 {
+			m.InfernoCDFrames--
+		}
+		infernoRollDue = m.InfernoCDFrames == 0
+	}
+	cs.tryBossTrapVolley(m, turnBased)
+	return cs.updateBoss(m, ready, attackTick, infernoRollDue)
+}
+
+// bossActionTick is the boss's RT once-per-attack moment against whatever it
+// fights: contact with the party, or the reach tick on a summon it was lured
+// onto. TB passes the tick directly (one turn is one action).
+func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
+	if m == nil || m.AttackCDFrames != 0 {
+		return false
+	}
+	if foe := m.AIFoe; foe != nil && foe.IsAlive() {
+		return cs.monsterCanAttackMonster(m, foe)
+	}
+	// Same reach gate as the normal attack: an adjacent melee boss is in contact
+	// at >1 tile of pixel distance.
+	dist := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y)
+	return m.State == monsterPkg.StateAttacking && m.StateTimer == 1 &&
+		cs.monsterCanAttackParty(m, dist, m.GetAttackRangePixels())
+}
+
 // updateBoss runs the boss's special behaviour. `ready` gates the evasive blink to
 // the boss's own special cooldown (RT: BossCD; TB: every turn). `attackTick` marks the
 // once-per-attack moment when an aggressive boss may blink (low HP) or cast
@@ -297,6 +340,12 @@ func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
 // monster turn, so a full party round of focused hits could kill the boss
 // before it ever dodged. Aggressive-phase specials still fire only on the
 // boss's own TB turn.
+//
+// DELIBERATELY the one direct updateBoss caller - do NOT route it through
+// runBossSpecials: this loop owns the per-frame BossCD tick, so the rider's own
+// tick would consume the blink cooldown twice per frame and halve its cadence.
+// The rider's other work is dead weight here anyway (an evasive boss sows no
+// traps and updateBoss returns before reading attackTick/infernoRollDue).
 func (cs *CombatSystem) tickEvasiveBossesTB() {
 	w := cs.game.GetCurrentWorld()
 	if w == nil {

@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/quests"
+	"ugataima/internal/spells"
 )
 
 // Every merchant price form must FIT the box it is drawn in, and the box must
@@ -233,5 +234,302 @@ func TestQuestJournalOrder(t *testing.T) {
 	auto.Definition.AutoClaim = true
 	if questJournalRank(auto) != questRankDone {
 		t.Fatalf("auto-claimed quest ranked %d, want done (%d)", questJournalRank(auto), questRankDone)
+	}
+}
+
+// A paid NPC cast grants the buff for its AUTHORED span (not a mastery curve),
+// charges the gold, and refuses when the purse is short.
+func TestCastBuffServiceGrantsAuthoredDuration(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.gameLoop = &GameLoop{game: g}
+	ih := &InputHandler{game: g}
+	tps := cfg.GetTPS()
+
+	// Too poor: nothing happens, nothing is charged.
+	g.party.Gold = 100
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if g.walkOnWaterActive || g.party.Gold != 100 {
+		t.Fatalf("an unaffordable cast must not fire: active=%v gold=%d", g.walkOnWaterActive, g.party.Gold)
+	}
+
+	g.party.Gold = 8000
+	g.dialogNPC = &character.NPC{Name: "Apprentice Mira"}
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if !g.walkOnWaterActive || g.walkOnWaterDuration != 300*tps {
+		t.Fatalf("walk on water: active=%v duration=%d frames, want %d", g.walkOnWaterActive, g.walkOnWaterDuration, 300*tps)
+	}
+	if g.party.Gold != 6000 {
+		t.Fatalf("gold after the 2000 cast = %d, want 6000", g.party.Gold)
+	}
+	if countCombatLog(g, "Apprentice Mira casts Walk on Water over the party for 5 min (-2000 gold).") != 1 {
+		t.Fatal("paid cast did not log the NPC, canonical buff name, duration, and charged cost")
+	}
+
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Give us the deep breath", Action: "cast_buff",
+		Buff: "water_breathing", DurationSeconds: 600, Cost: 5000,
+	})
+	if !g.waterBreathingActive || g.waterBreathingDuration != 600*tps {
+		t.Fatalf("water breathing: active=%v duration=%d frames, want %d", g.waterBreathingActive, g.waterBreathingDuration, 600*tps)
+	}
+
+	// Refreshing never shortens a longer span already running.
+	g.party.Gold = 9000
+	g.walkOnWaterDuration = 600 * tps
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Again", Action: "cast_buff", Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if g.walkOnWaterDuration != 600*tps {
+		t.Fatalf("a shorter re-cast cut the running buff to %d frames", g.walkOnWaterDuration)
+	}
+	if g.party.Gold != 9000 {
+		t.Fatalf("a shorter no-op re-cast charged the party: gold = %d, want 9000", g.party.Gold)
+	}
+	if countCombatLog(g, "no gold was spent") != 1 {
+		t.Fatal("a shorter no-op re-cast did not explain that no gold was spent")
+	}
+
+	// An unknown buff name is refused outright (validated at boot, guarded here).
+	g.party.Gold = 9000
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Nonsense", Action: "cast_buff", Buff: "not_a_buff", DurationSeconds: 60, Cost: 10,
+	})
+	if g.party.Gold != 9000 {
+		t.Fatalf("an unknown buff must not charge the party (gold %d)", g.party.Gold)
+	}
+}
+
+func TestSwitchDialogTabClearsPendingBuffService(t *testing.T) {
+	pending := &character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	}
+	g := &MMGame{
+		dialogTab:            0,
+		selectedChoice:       3,
+		merchantBuyPage:      2,
+		pendingBuffService:   pending,
+		dialogLastClickedIdx: 4,
+		dialogLastClickZone:  "service",
+	}
+
+	g.switchDialogTab(1)
+
+	if g.dialogTab != 1 || g.selectedChoice != 0 || g.merchantBuyPage != 0 {
+		t.Fatalf("tab transition left stale selection state: tab=%d choice=%d page=%d",
+			g.dialogTab, g.selectedChoice, g.merchantBuyPage)
+	}
+	if g.pendingBuffService != nil {
+		t.Fatal("tab transition retained a deferred paid service")
+	}
+	if g.dialogLastClickedIdx != -1 || g.dialogLastClickZone != "" {
+		t.Fatal("tab transition retained the previous tab's click tracker")
+	}
+}
+
+func TestUtilityTimedBuffActivationUsesAuthoredFlags(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.gameLoop = &GameLoop{game: g}
+	combat := NewCombatSystem(g)
+	frames := 60 * cfg.GetTPS()
+
+	// A canonical ID without its authored effect flag must not activate by name.
+	if got := combat.activateUtilityTimedBuff(
+		"walk_on_water",
+		spells.SpellDefinition{},
+		spells.UtilitySpellResult{Success: true},
+		frames,
+	); got != timedBuffNotHandled {
+		t.Fatalf("flagless canonical spell activation = %d, want not handled", got)
+	}
+	if g.walkOnWaterActive {
+		t.Fatal("canonical spell ID activated water walking without water_walk: true")
+	}
+
+	// An alternate spell ID with the authored flag must activate the shared
+	// water-walking runtime effect.
+	if got := combat.activateUtilityTimedBuff(
+		"alternate_water_stride",
+		spells.SpellDefinition{},
+		spells.UtilitySpellResult{Success: true, WaterWalk: true},
+		frames,
+	); got != timedBuffApplied {
+		t.Fatalf("authored water-walk activation = %d, want applied", got)
+	}
+	if !g.walkOnWaterActive || g.walkOnWaterDuration != frames {
+		t.Fatalf("authored water_walk flag did not control runtime state: active=%v duration=%d",
+			g.walkOnWaterActive, g.walkOnWaterDuration)
+	}
+}
+
+func TestCastBuffServiceRunsTimedBuffActivationHooks(t *testing.T) {
+	cases := []struct {
+		id        string
+		isActive  func(*MMGame) bool
+		getRadius func(*MMGame) float64
+	}{
+		{
+			id:        "torch_light",
+			isActive:  func(g *MMGame) bool { return g.torchLightActive },
+			getRadius: func(g *MMGame) float64 { return g.torchLightRadius },
+		},
+		{
+			id:        "wizard_eye",
+			isActive:  func(g *MMGame) bool { return g.wizardEyeActive },
+			getRadius: func(g *MMGame) float64 { return g.wizardEyeRadiusTiles },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			g := newTestGame(cfg, newTestWorld(cfg))
+			g.gameLoop = &GameLoop{game: g}
+			g.party.Gold = 100
+			ih := &InputHandler{game: g}
+			def, ok := config.GetSpellDefinition(tc.id)
+			if !ok {
+				t.Fatalf("spell %q missing", tc.id)
+			}
+
+			ih.handleCastBuff(&character.NPCDialogueChoice{
+				Text: tc.id, Action: "cast_buff", Buff: tc.id,
+				DurationSeconds: 60, Cost: 10,
+			})
+
+			if !tc.isActive(g) {
+				t.Fatalf("%s service did not activate its timed buff", tc.id)
+			}
+			if got := tc.getRadius(g); got != def.VisionRadiusTiles {
+				t.Fatalf("%s radius = %v, want authored %v", tc.id, got, def.VisionRadiusTiles)
+			}
+			if g.party.Gold != 90 {
+				t.Fatalf("%s service left %d gold, want 90", tc.id, g.party.Gold)
+			}
+		})
+	}
+}
+
+// Mira's dialog is a TABBED service: paid casts live as icon rows on their own
+// tab (with icons that exist), and never leak into the Talk tab's choice list.
+func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
+	cfg := loadTestConfig(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatalf("load npcs: %v", err)
+	}
+	data := character.NPCConfigInstance.NPCs["mtrader0"]
+	if data == nil {
+		t.Fatal("mtrader0 missing from the catalog")
+	}
+	npc := &character.NPC{Name: data.Name, DialogueData: data.Dialogue}
+
+	if got := npcDialogKindFor(npc); got != dialogKindBuffService {
+		t.Fatalf("Mira resolves to dialog kind %d, want dialogKindBuffService (%d)", got, dialogKindBuffService)
+	}
+	services := buffServiceChoices(npc)
+	if len(services) != 2 {
+		t.Fatalf("service rows = %d, want 2 (walk on water, water breathing)", len(services))
+	}
+	g := newTestGame(cfg, newTestWorld(cfg))
+	for _, service := range services {
+		if strings.Contains(strings.ToLower(service.Text), "gold") {
+			t.Errorf("service label %q duplicates its authored cost", service.Text)
+		}
+		if label := g.dialogueChoiceLabel(service); !strings.Contains(label, fmt.Sprintf("%d gold", service.Cost)) {
+			t.Errorf("generic dialogue label %q does not derive cost %d", label, service.Cost)
+		}
+	}
+	if !buffServiceHasQuestTab(npc) {
+		t.Fatal("Mira still has quest dialogue, so the Talk tab must exist")
+	}
+
+	// The service rows must not also appear as text choices on the Talk tab.
+	for _, c := range g.visibleNPCChoices(npc) {
+		if c.Action == "cast_buff" {
+			t.Errorf("cast_buff %q leaked into the choice list", c.Text)
+		}
+	}
+
+	// Geometry: rows fit between greeting and footer, and never overlap.
+	dialog := npcDialogLayout(g)
+	layout := computeNPCDialogSectionLayout(layoutRect{dialog.x, dialog.y, dialog.w, dialog.h}, true)
+	maxRows := buffServiceMaxRows(dialog.x, dialog.y, dialog.w, dialog.h)
+	if len(services) > maxRows {
+		t.Fatalf("%d service rows authored but only %d fit the dialog", len(services), maxRows)
+	}
+	var prevBottom int
+	for i := range services {
+		x, y, w, h := buffServiceRowRect(dialog.x, dialog.y, dialog.w, i)
+		if y < layout.greeting.bottom() {
+			t.Errorf("row %d starts inside the greeting block", i)
+		}
+		if y+h > layout.footer[0].y {
+			t.Errorf("row %d bottom %d runs into the footer at %d", i, y+h, layout.footer[0].y)
+		}
+		if x < dialog.x || x+w > dialog.x+dialog.w {
+			t.Errorf("row %d escapes the dialog horizontally", i)
+		}
+		if i > 0 && y < prevBottom {
+			t.Errorf("row %d overlaps row %d", i, i-1)
+		}
+		prevBottom = y + h
+	}
+
+	// Every offered buff must have a real party buff id and a label.
+	for _, c := range services {
+		if !g.isTimedBuffID(c.Buff) {
+			t.Errorf("service %q names unknown buff %q", c.Text, c.Buff)
+		}
+		if buffServiceLabel(c.Buff) == c.Buff {
+			t.Errorf("buff %q has no spells.yaml display name for the row/tooltip", c.Buff)
+		}
+	}
+}
+
+func TestValidateNPCCastBuffsRejectsCatalogBeyondDialogCapacity(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	maxRows := buffServiceMaxRows(0, 0, npcDialogWidth, npcDialogHeight)
+
+	makeChoices := func(count int) []*character.NPCDialogueChoice {
+		choices := make([]*character.NPCDialogueChoice, count)
+		for i := range choices {
+			choices[i] = &character.NPCDialogueChoice{
+				Text: "Water charm", Action: "cast_buff",
+				Buff: "walk_on_water", DurationSeconds: 60, Cost: 1,
+			}
+		}
+		return choices
+	}
+
+	previous := character.NPCConfigInstance
+	t.Cleanup(func() { character.NPCConfigInstance = previous })
+	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
+		"full_service": {Dialogue: &character.NPCDialogue{Choices: makeChoices(maxRows)}},
+	}}
+	if err := g.validateNPCCastBuffs(); err != nil {
+		t.Fatalf("%d service rows should fit capacity %d: %v", maxRows, maxRows, err)
+	}
+
+	choices := makeChoices(maxRows + 1)
+	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
+		"overfull_service": {Dialogue: &character.NPCDialogue{Choices: choices}},
+	}}
+
+	err := g.validateNPCCastBuffs()
+	if err == nil {
+		t.Fatalf("%d service rows passed validation with capacity %d", len(choices), maxRows)
+	}
+	want := fmt.Sprintf("%d cast_buff service rows exceed dialog capacity %d", len(choices), maxRows)
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("capacity error = %q, want it to contain %q", err, want)
 	}
 }

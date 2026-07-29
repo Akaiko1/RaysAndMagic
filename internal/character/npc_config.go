@@ -129,11 +129,55 @@ type NPCDialogueChoice struct {
 	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
 	Cost   int `yaml:"cost,omitempty"`
 	Amount int `yaml:"amount,omitempty"`
+	// cast_buff: the NPC casts a party buff for Cost gold. Buff names a timed
+	// party buff (walk_on_water, water_breathing, ...) and DurationSeconds is
+	// the authored span - a paid service, NOT a spell the party learns.
+	Buff            string `yaml:"buff,omitempty"`
+	DurationSeconds int    `yaml:"duration_seconds,omitempty"`
 	// RuntimeOptionIndex is set only on choices synthesized at runtime. It
 	// indexes the action-specific source for that choice (for example
 	// NPC.Summons or a derived door-unlock list); authored YAML choices must not
 	// depend on it.
 	RuntimeOptionIndex int `yaml:"-"`
+}
+
+// walkDialogueChoices is the single depth-first traversal for authored choices.
+// Returning true stops the walk early.
+func walkDialogueChoices(choices []*NPCDialogueChoice, visit func(*NPCDialogueChoice) bool) bool {
+	for _, choice := range choices {
+		if choice == nil {
+			continue
+		}
+		if visit(choice) || walkDialogueChoices(choice.Choices, visit) {
+			return true
+		}
+	}
+	return false
+}
+
+// WalkChoices visits every authored choice in depth-first order. Configuration
+// validators share this traversal so a nested action cannot bypass rules that a
+// root action must obey.
+func (d *NPCDialogue) WalkChoices(visit func(*NPCDialogueChoice) error) error {
+	if d == nil || visit == nil {
+		return nil
+	}
+	var visitErr error
+	walkDialogueChoices(d.Choices, func(choice *NPCDialogueChoice) bool {
+		visitErr = visit(choice)
+		return visitErr != nil
+	})
+	return visitErr
+}
+
+// HasAction reports whether any authored choice at any depth uses action.
+func (d *NPCDialogue) HasAction(action string) bool {
+	if d == nil || action == "" {
+		return false
+	}
+	return walkDialogueChoices(d.Choices, func(choice *NPCDialogueChoice) bool {
+		return choice.Action == action
+	})
 }
 
 // NPCEncounter represents an encounter definition
@@ -279,13 +323,10 @@ func validateCratesAndLecterns(cfg *NPCConfig) error {
 // their price data (a free rest / zero-food ration is a content bug).
 func validatePricedChoices() error {
 	for npcKey, npc := range NPCConfigInstance.NPCs {
-		if npc.Dialogue == nil {
+		if npc == nil || npc.Dialogue == nil {
 			continue
 		}
-		for _, c := range npc.Dialogue.Choices {
-			if c == nil {
-				continue
-			}
+		if err := npc.Dialogue.WalkChoices(func(c *NPCDialogueChoice) error {
 			switch c.Action {
 			case "tavern_rest":
 				if c.Cost <= 0 {
@@ -299,7 +340,16 @@ func validatePricedChoices() error {
 				if c.Cost <= 0 || c.Amount <= 0 {
 					return fmt.Errorf("npc %q: buy_food choice requires cost > 0 and amount > 0", npcKey)
 				}
+			case "cast_buff":
+				// The buff NAME is checked against the live buff registry at game
+				// construction (validateNPCCastBuffs) - this layer owns the numbers.
+				if c.Cost <= 0 || c.DurationSeconds <= 0 || c.Buff == "" {
+					return fmt.Errorf("npc %q: cast_buff choice requires buff, cost > 0 and duration_seconds > 0", npcKey)
+				}
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	return nil

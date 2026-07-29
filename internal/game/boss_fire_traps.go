@@ -73,9 +73,9 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased boo
 	if m == nil || m.TrapVolleyCount <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
 		return
 	}
-	// The field belongs to a provoked boss - a passive nesting mother sows
-	// nothing until struck (passive_until_attacked gates her aggro).
-	if !m.IsEngagingPlayer {
+	// A provoked boss owns the field; a passive nesting mother sows nothing until
+	// struck. Fighting a SUMMON counts - IsEngagingPlayer alone read that as calm.
+	if !m.IsEngagingPlayer && !m.IsInCombat() {
 		return
 	}
 	if turnBased {

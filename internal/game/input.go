@@ -205,7 +205,7 @@ func (ih *InputHandler) HandleInput() {
 				ih.game.dialogActive = false
 				ih.game.dialogNPC = nil
 				ih.game.skillTrainerPopup = false
-				ih.game.dialogTab = 0 // never leak the Quests tab into the next dialog
+				ih.game.switchDialogTab(0) // never leak tab or queued input into the next dialog
 			}
 			return
 		}
@@ -1846,7 +1846,7 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	ih.game.applyCompletedQuestTiles() // dialogue-time credit can complete a world-changing quest
 	ih.game.dialogActive = true
 	ih.game.dialogNPC = npc
-	ih.game.dialogTab = 0           // spell traders with quests open on the Spells tab
+	ih.game.switchDialogTab(0)      // tabbed dialogs always open on their primary tab
 	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
 	ih.game.selectedCharIdx = 0     // Default to first character
 	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
@@ -1903,6 +1903,8 @@ func (ih *InputHandler) handleDialogInput() {
 			ih.handleEncounterInput()
 		case dialogKindArenaGladiator:
 			ih.handleArenaGladiatorInput()
+		case dialogKindBuffService:
+			ih.handleBuffServiceInput()
 		}
 	}
 
@@ -2600,8 +2602,7 @@ func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) 
 // tab only reads (Shift detail at draw time).
 func (ih *InputHandler) handleArenaGladiatorInput() {
 	if ih.keys.Consume(ebiten.KeyTab) {
-		ih.game.dialogTab = (ih.game.dialogTab + 1) % 3
-		ih.game.selectedChoice = 0
+		ih.game.switchDialogTab((ih.game.dialogTab + 1) % 3)
 	}
 	switch ih.game.dialogTab {
 	case 0:
@@ -2628,8 +2629,7 @@ func (ih *InputHandler) handleSpellTraderInput() {
 	// switches, and on that tab the encounter-style choice input takes over.
 	if npcHasChoiceDialog(ih.game.dialogNPC) {
 		if ih.keys.Consume(ebiten.KeyTab) {
-			ih.game.dialogTab = 1 - ih.game.dialogTab
-			ih.game.selectedChoice = 0
+			ih.game.switchDialogTab(1 - ih.game.dialogTab)
 		}
 		if ih.game.dialogTab == 1 {
 			ih.handleEncounterInput()
@@ -2865,6 +2865,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 
 	case "buy_food":
 		ih.handleBuyFood(choice)
+
+	case "cast_buff":
+		ih.handleCastBuff(choice)
 
 	case "summon_dragon":
 		ih.summonDragonFromStatue(npc, choice.RuntimeOptionIndex)
@@ -3120,6 +3123,55 @@ func (ih *InputHandler) handleBuyFood(choice *character.NPCDialogueChoice) {
 	g.party.Gold -= choice.Cost
 	g.party.Food += choice.Amount
 	g.AddCombatMessage(fmt.Sprintf("Bought %d rations for %d gold (food: %d).", choice.Amount, choice.Cost, g.party.Food))
+}
+
+// handleBuffServiceInput drives the paid-cast dialog: Tab flips between the
+// service rows and the NPC's ordinary talk, the Talk tab uses the normal choice
+// input, and a service row clicked in the draw pass is resolved here (never
+// mid-draw, so the dialog can close cleanly).
+func (ih *InputHandler) handleBuffServiceInput() {
+	g := ih.game
+	if buffServiceHasQuestTab(g.dialogNPC) && ih.keys.Consume(ebiten.KeyTab) {
+		g.switchDialogTab(1 - g.dialogTab)
+		return
+	}
+	if g.dialogTab == 1 {
+		ih.handleEncounterInput()
+		return
+	}
+	if choice := g.pendingBuffService; choice != nil {
+		g.pendingBuffService = nil
+		ih.handleCastBuff(choice)
+	}
+}
+
+// handleCastBuff pays an NPC to CAST a party buff for its authored span - a
+// service, not a spell the party learns, so the duration comes from the
+// dialogue entry rather than any caster's mastery.
+func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
+	g := ih.game
+	if g.party.Gold < choice.Cost {
+		g.AddCombatMessage(fmt.Sprintf("That casting costs %d gold - your purse is too light.", choice.Cost))
+		return
+	}
+	switch g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) {
+	case timedBuffNotHandled:
+		g.AddCombatMessage("Nothing happens.") // unknown buff: validated at load
+		return
+	case timedBuffUnchanged:
+		g.AddCombatMessage(fmt.Sprintf("%s already lasts at least %s - no gold was spent.",
+			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds)))
+		return
+	}
+	casterName := "The caster"
+	if g.dialogNPC != nil && g.dialogNPC.Name != "" {
+		casterName = g.dialogNPC.Name
+	}
+	g.party.Gold -= choice.Cost
+	g.dialogActive = false
+	g.dialogNPC = nil
+	g.AddCombatMessage(fmt.Sprintf("%s casts %s over the party for %s (-%d gold).",
+		casterName, buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost))
 }
 
 // buildStatueChoices rebuilds a dragon statue's dialogue choices at open time:

@@ -426,8 +426,12 @@ type MMGame struct {
 	// dialogNodePath is the chain of "info" choices the player has descended into
 	// this conversation (empty = root). It drives the body text and choice list so
 	// "ask about X" branches into a real reply instead of closing. Reset on open.
-	dialogNodePath       []*character.NPCDialogueChoice
-	dialogTab            int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
+	dialogNodePath []*character.NPCDialogueChoice
+	dialogTab      int // Tabbed dialogs: 0 = shop/service, 1 = quests/talk
+	// pendingBuffService is a service row clicked during the draw pass; the
+	// input handler resolves it next tick so a cast cannot mutate dialog state
+	// mid-render.
+	pendingBuffService   *character.NPCDialogueChoice
 	merchantBuyPage      int // Merchant buy-grid page (0-based); read by both renderer and input
 	merchantSellPage     int // Merchant sell-grid page (0-based)
 	spellTraderPage      int // Spell-trader icon-grid page (0-based); shared by renderer and input
@@ -857,6 +861,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Connect global quest manager
 	game.questManager = quests.GlobalQuestManager
 	if err := validateQuestWorldReferences(game.questManager); err != nil {
+		panic(err)
+	}
+
+	// A paid cast_buff service must name a real party buff; the registry only
+	// exists once the game does, so this check lives here.
+	if err := game.validateNPCCastBuffs(); err != nil {
 		panic(err)
 	}
 

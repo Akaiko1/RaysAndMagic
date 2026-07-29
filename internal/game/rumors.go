@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"hash/fnv"
 	"os"
 
 	"ugataima/internal/character"
@@ -69,8 +70,9 @@ func (g *MMGame) questCompleted(id string) bool {
 	return q != nil && q.Completed
 }
 
-// currentRumorText picks today's rumor from the eligible pool.
-func (g *MMGame) currentRumorText() string {
+// eligibleRumors is the pool a tavern may draw from: prerequisite met, goal
+// not yet completed. Authored order, so an offset indexes it reproducibly.
+func (g *MMGame) eligibleRumors() []string {
 	var pool []string
 	for _, r := range globalRumors {
 		if r.After != "" && !g.questCompleted(r.After) {
@@ -81,6 +83,56 @@ func (g *MMGame) currentRumorText() string {
 		}
 		pool = append(pool, r.Text)
 	}
+	return pool
+}
+
+// tavernRumorSeed identifies the tavern doing the talking - its OWN region plus
+// its tile, so each taproom rolls its own deck and two taverns in one region
+// still differ. Derived, never saved.
+func tavernRumorSeed(npc *character.NPC, mapKey string) uint64 {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "%s|%s|%d,%d", mapKey, npc.Key, int(npc.X), int(npc.Y))
+	return h.Sum64()
+}
+
+// tavernRegionKey is the region the TAVERN stands in, not the party's. A
+// corridor lands tight at some taverns, so the party can be inside the
+// neighbouring region while talking - keying on CurrentMapKey there would hand
+// one taproom two different decks.
+func (g *MMGame) tavernRegionKey(npc *character.NPC) string {
+	ts := float64(g.config.GetTileSize())
+	if ts <= 0 {
+		return currentMapKey()
+	}
+	return g.mapKeyAtTile(int(npc.X/ts), int(npc.Y/ts))
+}
+
+// rumorOrder is one tavern's private shuffle of the pool - its deck. Walking it
+// by day visits every rumor once before any repeats.
+func rumorOrder(n int, seed uint64) []int {
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	s := seed
+	for i := n - 1; i > 0; i-- {
+		s += 0x9e3779b97f4a7c15 // splitmix64
+		x := s
+		x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+		x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+		x ^= x >> 31
+		j := int(x % uint64(i+1))
+		order[i], order[j] = order[j], order[i]
+	}
+	return order
+}
+
+// currentRumorText picks this tavern's rumor for today. One shared pool, but
+// each taproom rolls it independently - its own deck order, walked by the
+// day/night clock. Two taverns landing on one hint is fine; they part ways the
+// next flip.
+func (g *MMGame) currentRumorText(seed uint64) string {
+	pool := g.eligibleRumors()
 	if len(pool) == 0 {
 		return "The taproom is quiet tonight. Even the liars have nothing."
 	}
@@ -88,16 +140,17 @@ func (g *MMGame) currentRumorText() string {
 	if day < 0 {
 		day = 0
 	}
-	return pool[day%len(pool)]
+	order := rumorOrder(len(pool), seed)
+	return pool[order[day%len(order)]]
 }
 
 // rumorDialogueChoice builds the synthetic view-only tavern branch (never
 // written into DialogueData - the YAML dialogue pointer is shared).
-func (g *MMGame) rumorDialogueChoice() *character.NPCDialogueChoice {
+func (g *MMGame) rumorDialogueChoice(npc *character.NPC) *character.NPCDialogueChoice {
 	return &character.NPCDialogueChoice{
 		Text:     "Listen for rumors",
 		Action:   "info",
-		Response: g.currentRumorText(),
+		Response: g.currentRumorText(tavernRumorSeed(npc, g.tavernRegionKey(npc))),
 		Choices: []*character.NPCDialogueChoice{
 			{Text: "Enough gossip", Action: "back"},
 		},

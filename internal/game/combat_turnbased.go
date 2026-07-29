@@ -297,6 +297,24 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
 
+		// Boss specials; each TB turn is one action tick. BEFORE the bound-undead
+		// check (matching RT order): a boss lured at a summon still sows traps,
+		// rallies adds, enrages and blinks.
+		// DESIGN: specials roll BEFORE range/movement checks, so an aggressive TB
+		// boss may spend its turn on a special instead of closing in. The Inferno
+		// nova is the exception with a real gate - bound to its authored
+		// inferno_range_tiles in BOTH modes (it used to be map-wide here, which with
+		// aggro_whole_map let the Golden Thief Bug burn the party from anywhere).
+		if m.IsBoss() {
+			if gl.game.combat.runBossSpecials(m, true, true) {
+				if !gl.game.combat.bossEvasive(m) {
+					gl.game.combat.armMonsterRTAttackCooldowns(m)
+				}
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
+		}
+
 		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
 		// a bolt from within range, melee strike from an adjacent tile), else step
 		// toward it; never touch the party.
@@ -308,27 +326,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-
-		// Boss specials (blink / Inferno); each TB turn is one action tick.
-		// Runs AFTER the bound-undead check (matching RT order): a boss lured
-		// at a bound foe spends its turn on that fight, not on party novas.
-		// DESIGN: specials are rolled BEFORE range/movement checks, so in TB an
-		// aggressive boss may spend its turn on a special instead of closing in.
-		// The Inferno nova is the exception that needed a real gate: it is bound to
-		// its authored inferno_range_tiles in BOTH modes (it used to be map-wide
-		// here, which with aggro_whole_map let the Golden Thief Bug burn the party
-		// from anywhere). TB gets ONE nova roll per monster pass; RT rolls it on the
-		// BossInfernoRangedRollSeconds cooldown.
-		if m.IsBoss() {
-			gl.game.combat.tryBossTrapVolley(m, true) // Brood Mother field, TB cadence
-			if gl.game.combat.updateBoss(m, m.BossCD == 0, true, true) {
-				if !gl.game.combat.bossEvasive(m) {
-					gl.game.combat.armMonsterRTAttackCooldowns(m)
-				}
-				gl.game.refreshMonsterCollisionState(m)
-				continue
-			}
 		}
 
 		// Work in tile space: monsters never enter the player's tile. Melee can

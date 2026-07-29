@@ -1959,7 +1959,7 @@ items:
     resist_buff_school: "fire"
     resist_buff_school_pct: 50
     buff_duration_seconds: 60
-    status_icon: "fire_shield"
+    status_icon: "flame_ward_draught"
     rarity: "rare"
     value: 300
 
@@ -1971,7 +1971,7 @@ items:
     resist_buff_school: "air"
     resist_buff_school_pct: 50
     buff_duration_seconds: 60
-    status_icon: "lightning"
+    status_icon: "storm_ward_draught"
     rarity: "rare"
     value: 300
 
@@ -1983,7 +1983,7 @@ items:
     resist_buff_school: "dark"
     resist_buff_school_pct: 50
     buff_duration_seconds: 60
-    status_icon: "darkbolt"
+    status_icon: "gloom_ward_draught"
     rarity: "rare"
     value: 300
 
@@ -1994,6 +1994,6 @@ items:
     flavor: "Chew before swallowing."
     buff_armor_class: 15
     buff_duration_seconds: 60
-    status_icon: "stone_skin"
+    status_icon: "stoneskin_draught"
     rarity: "rare"
     value: 350

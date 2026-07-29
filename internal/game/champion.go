@@ -579,6 +579,9 @@ func (g *MMGame) dialogueChoiceLabel(choice *character.NPCDialogueChoice) string
 	if choice == nil {
 		return ""
 	}
+	if choice.Action == "cast_buff" && choice.Cost > 0 {
+		return fmt.Sprintf("%s (%d gold)", choice.Text, choice.Cost)
+	}
 	if choice.Action == "start_arena_duel" && g.arenaTierSpentToday(choice.Tier) {
 		if g.dayNightIsNight {
 			return choice.Text + " - spent, returns at dawn"

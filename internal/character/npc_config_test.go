@@ -121,13 +121,25 @@ func TestBackfillTraderSpells(t *testing.T) {
 		t.Errorf("water_breathing not backfilled: %+v", wb)
 	}
 
-	// Corner trader: an explicit cost override is preserved (not replaced by the tier default).
-	wow := get("mtrader0", "walk_on_water")
+	// An explicit cost override is preserved (not replaced by a tier default).
+	wow := get("city_spell_shop", "walk_on_water")
 	if wow.Cost != 500 {
-		t.Errorf("corner walk_on_water cost should be 500, got %d", wow.Cost)
+		t.Errorf("city walk_on_water cost should be its authored 500, got %d", wow.Cost)
 	}
-	if len(NPCConfigInstance.NPCs["mtrader0"].Spells) != 1 {
-		t.Errorf("corner trader should sell exactly one spell, got %d", len(NPCConfigInstance.NPCs["mtrader0"].Spells))
+
+	// Mira CASTS her water charms for gold instead of teaching them, so she
+	// carries no shop stock at all - the service lives in her dialogue.
+	if got := len(NPCConfigInstance.NPCs["mtrader0"].Spells); got != 0 {
+		t.Errorf("Mira should sell no spells (she casts them), got %d", got)
+	}
+	casts := map[string]int{}
+	for _, c := range NPCConfigInstance.NPCs["mtrader0"].Dialogue.Choices {
+		if c != nil && c.Action == "cast_buff" {
+			casts[c.Buff] = c.DurationSeconds
+		}
+	}
+	if casts["walk_on_water"] != 300 || casts["water_breathing"] != 600 {
+		t.Errorf("Mira's paid casts = %v, want walk_on_water 300s and water_breathing 600s", casts)
 	}
 
 	// City sells elemental only - no Light/Dark.
@@ -135,6 +147,53 @@ func TestBackfillTraderSpells(t *testing.T) {
 		if sp.School == "light" || sp.School == "dark" {
 			t.Errorf("city shop must not sell light/dark, found %q (%s)", sp.Name, sp.School)
 		}
+	}
+}
+
+func TestValidatePricedChoicesWalksNestedDialogue(t *testing.T) {
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+	NPCConfigInstance = &NPCConfig{NPCs: map[string]*NPCData{
+		"nested_service": {
+			Dialogue: &NPCDialogue{Choices: []*NPCDialogueChoice{
+				{
+					Text:   "Ask about magic",
+					Action: "info",
+					Choices: []*NPCDialogueChoice{
+						{
+							Text:            "Cast it",
+							Action:          "cast_buff",
+							Buff:            "walk_on_water",
+							DurationSeconds: 300,
+							Cost:            -100,
+						},
+					},
+				},
+			}},
+		},
+	}}
+
+	if err := validatePricedChoices(); err == nil {
+		t.Fatal("nested cast_buff with negative cost passed priced-choice validation")
+	}
+}
+
+func TestNPCDialogueHasActionWalksNestedChoices(t *testing.T) {
+	dialogue := &NPCDialogue{Choices: []*NPCDialogueChoice{
+		{
+			Text:   "Ask about services",
+			Action: "info",
+			Choices: []*NPCDialogueChoice{
+				{Text: "Rest", Action: "tavern_rest"},
+			},
+		},
+	}}
+
+	if !dialogue.HasAction("tavern_rest") {
+		t.Fatal("nested tavern_rest action was not found")
+	}
+	if dialogue.HasAction("start_arena_duel") {
+		t.Fatal("missing action was reported as present")
 	}
 }
 

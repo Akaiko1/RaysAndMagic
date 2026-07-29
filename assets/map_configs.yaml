@@ -3,6 +3,17 @@
 # `floor_texture_group` field (see tiles.yaml); the renderer builds one atlas
 # per biome. The "beach" group is selected dynamically by the renderer for
 # empty tiles bordering water.
+
+# Groups every biome inherits, for universal tiles that can turn up on any map.
+# Water (W) and deep water (Q) live in half the maps in the game, so their
+# texture is defined here once instead of copied into each biome - a biome that
+# forgot the copy used to render flat blue. A biome may still override a shared
+# group by naming it in its own floor_texture_groups.
+shared_floor_texture_groups:
+  water:
+    - "water_0"
+    - "water_1"
+
 biomes:
   forest:
     floor_texture_groups:
@@ -14,9 +25,6 @@ biomes:
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
-      water:
-        - "water_0"
-        - "water_1"
       forest_stream:
         - "forest_stream_0"
         - "forest_stream_1"
@@ -41,9 +49,6 @@ biomes:
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
-      water:
-        - "water_0"
-        - "water_1"
 
   water:
     floor_texture_groups:
@@ -52,9 +57,6 @@ biomes:
         - "underwater_floor_1"
         - "underwater_floor_2"
         - "underwater_floor_3"
-      water:
-        - "water_0"
-        - "water_1"
 
   church:
     floor_texture_groups:
@@ -212,9 +214,6 @@ biomes:
       # Wet flooded floodplain ground - varzea (tile letter ',').
       varzea:
         - "deep_jungle_floor_2"
-      water:
-        - "water_0"
-        - "water_1"
       beach:
         - "beach_sand_0"
         - "beach_sand_1"

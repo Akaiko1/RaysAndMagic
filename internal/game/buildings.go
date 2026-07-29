@@ -181,6 +181,33 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 	return nil
 }
 
+// validateNPCCastBuffs fails fast when a paid cast_buff service names a buff
+// the party has no registry entry for, or when its top-level service catalog
+// cannot fit in the dialog. Buff IDs are validated in nested choices too.
+func (g *MMGame) validateNPCCastBuffs() error {
+	if character.NPCConfigInstance == nil {
+		return nil
+	}
+	maxRows := buffServiceMaxRows(0, 0, npcDialogWidth, npcDialogHeight)
+	for key, npc := range character.NPCConfigInstance.NPCs {
+		if npc == nil || npc.Dialogue == nil {
+			continue
+		}
+		if count := len(buffServiceChoicesFromDialogue(npc.Dialogue)); count > maxRows {
+			return fmt.Errorf("npc %q: %d cast_buff service rows exceed dialog capacity %d", key, count, maxRows)
+		}
+		if err := npc.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if c.Action == "cast_buff" && !g.isTimedBuffID(c.Buff) {
+				return fmt.Errorf("npc %q: cast_buff names unknown party buff %q", key, c.Buff)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // currencyItemName resolves the display name of an item-backed currency.
 func currencyItemName(currency string) (string, bool) {
 	key, ok := character.CurrencyItemKey(currency)

@@ -83,6 +83,12 @@ func (g *MMGame) resolveStatusIconSprite(token string) (icon, fallback string) {
 		if spellIcon := "icon_spell_" + token; g.sprites.HasSprite(spellIcon) {
 			return spellIcon, fallback
 		}
+		// An ITEM-backed buff (a draught) shows its own bottle: without this the
+		// only match left was a spell icon, so a fire-resist potion sat in the
+		// status bar wearing the Fire Shield spell's icon.
+		if itemIcon := "icon_item_" + token; g.sprites.HasSprite(itemIcon) {
+			return itemIcon, fallback
+		}
 	}
 	return icon, fallback
 }

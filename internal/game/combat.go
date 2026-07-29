@@ -1882,6 +1882,7 @@ func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef s
 		if spellDef.Duration > 0 {
 			duration = cs.CalculateSpellDurationFrames(spellID, caster)
 		}
+		timedBuffActivated := cs.activateUtilityTimedBuff(spellID, spellDef, result, duration) == timedBuffApplied
 
 		// Stat-buff spells (Bless, ...) announce the ACTUAL granted bonus -
 		// mastery-scaled and caster-dependent - so the chat can never drift from
@@ -1909,44 +1910,10 @@ func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef s
 			}
 		}
 
-		// Apply vision effects - the RADIUS comes from spells.yaml
-		// (vision_radius_tiles), not a hardcoded constant.
-		if result.VisionRadiusTiles > 0 {
-			switch string(spellID) {
-			case "torch_light":
-				cs.game.torchLightActive = true
-				cs.game.torchLightDuration = duration
-				cs.game.torchLightRadius = result.VisionRadiusTiles
-			case "wizard_eye":
-				cs.game.wizardEyeActive = true
-				cs.game.wizardEyeDuration = duration
-				cs.game.wizardEyeRadiusTiles = result.VisionRadiusTiles
-			}
-		}
-
-		// Apply movement effects
-		if result.WaterWalk {
-			cs.game.walkOnWaterActive = true
-			cs.game.walkOnWaterDuration = duration
-		}
-		if spellDef.Fly {
-			cs.game.flyActive = true
-			cs.game.flyDuration = duration
-		}
 		// Town Portal: open the visited-destination picker; the teleport happens
 		// on confirm. The no-destination case was already refused before the SP spend.
 		if spellDef.TownPortal {
 			cs.game.townPortalPickerOpen = true
-		}
-		if result.WaterBreathing {
-			cs.game.waterBreathingActive = true
-			cs.game.waterBreathingDuration = duration
-			// Store current position and map for return teleportation when effect expires
-			cs.game.underwaterReturnX = cs.game.camera.X
-			cs.game.underwaterReturnY = cs.game.camera.Y
-			if world.GlobalWorldManager != nil {
-				cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-			}
 		}
 
 		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID -
@@ -1957,7 +1924,9 @@ func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef s
 			cs.applyStatBuffSpell(spellID, duration, statBuff)
 		}
 
-		cs.game.setUtilityStatus(spellID, duration)
+		if !timedBuffActivated {
+			cs.game.setUtilityStatus(spellID, duration)
+		}
 		cs.playSpellBuffFx(spellID)
 		return true
 	}
@@ -1972,6 +1941,38 @@ func (cs *CombatSystem) playSpellBuffFx(spellID spells.SpellID) {
 	if cfgDef, ok := config.GetSpellDefinition(string(spellID)); ok && cfgDef != nil {
 		cs.game.playBuffFx(cfgDef.BuffFxSprite)
 	}
+}
+
+// activateUtilityTimedBuff maps authored utility-effect flags to the runtime
+// state they control. The YAML flags decide whether an effect exists; the timed
+// buff registry owns only its active flag, duration, and lifecycle hooks.
+func (cs *CombatSystem) activateUtilityTimedBuff(
+	spellID spells.SpellID,
+	spellDef spells.SpellDefinition,
+	result spells.UtilitySpellResult,
+	duration int,
+) timedBuffActivation {
+	activation := timedBuffNotHandled
+	activate := func(id spells.SpellID) {
+		if cs.game.activateTimedBuffFrames(id, duration, false) == timedBuffApplied {
+			activation = timedBuffApplied
+		}
+	}
+	if result.WaterWalk {
+		activate("walk_on_water")
+	}
+	if spellDef.Fly {
+		activate("fly")
+	}
+	if result.WaterBreathing {
+		activate("water_breathing")
+	}
+	if result.VisionRadiusTiles > 0 {
+		// Torch Light and Wizard Eye have distinct runtime state, so their
+		// authored spell ID selects the matching registry entry.
+		activate(spellID)
+	}
+	return activation
 }
 
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
@@ -2053,17 +2054,28 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 			continue
 		}
-		// An evasive quest boss is not dormant (it must still blink away from
-		// the PARTY), but it is just as inactive toward summons. This stays after
-		// the shared stun/charm/bind gates, preserving their suppression of boss
-		// actions, while still running before the crossfire branch below.
-		if behavior == monsterPkg.AIBehaviorEvasive {
-			ready := monster.BossCD == 0
-			if monster.BossCD > 0 {
-				monster.BossCD--
-			}
-			cs.updateBoss(monster, ready, false, false)
+		// The frame's crossfire target can die when an earlier actor resolves.
+		// Reject it before the boss rider too: otherwise a boss can spend that
+		// stale frame casting a party special before the crossfire branch gets a
+		// chance to wait for the next shared retarget.
+		if behavior == monsterPkg.AIBehaviorFightFoe &&
+			(monster.AIFoe == nil || !monster.AIFoe.IsAlive()) {
+			cs.game.releaseMonsterAttackPost(monster)
 			continue
+		}
+		// Boss specials ride EVERY fight - party or a summon that out-competed it
+		// for aggro. After the stun/charm/bind and bound-ally gates (they still
+		// suppress boss actions), BEFORE the crossfire branch that used to swallow
+		// the kit. Evasive quest bosses resolve here too: updateBoss owns their
+		// blink and always consumes the action.
+		if monster.IsBoss() {
+			attackTick := cs.bossActionTick(monster)
+			if cs.runBossSpecials(monster, attackTick, false) {
+				if attackTick && !cs.bossEvasive(monster) {
+					cs.armMonsterRTAttackCooldowns(monster)
+				}
+				continue
+			}
 		}
 
 		// Lured at a bound undead instead of the party: attack it on the monster's
@@ -2072,10 +2084,6 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// waits for the next shared retarget instead of falling into party combat.
 		if behavior == monsterPkg.AIBehaviorFightFoe {
 			foe := monster.AIFoe
-			if foe == nil || !foe.IsAlive() {
-				cs.game.releaseMonsterAttackPost(monster)
-				continue
-			}
 			if monster.IsChampion() {
 				if cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
 					monster.State = monsterPkg.StateAttacking
@@ -2101,34 +2109,6 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		attackRange := monster.GetAttackRangePixels()
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
-
-		// Boss behaviour (Golden Thief Bug): evade-until-quest blink, low-HP blink,
-		// Inferno casts. Returns true when it has handled the action this tick.
-		if monster.IsBoss() {
-			ready := monster.BossCD == 0
-			if monster.BossCD > 0 {
-				monster.BossCD--
-			}
-			// Same reach gate as the normal attack below: a melee boss on an
-			// adjacent tile is in real contact at >1 tile of pixel distance.
-			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 &&
-				monster.AttackCDFrames == 0 &&
-				cs.monsterCanAttackParty(monster, dist, attackRange)
-			// The nova also reaches from range (inferno_range_tiles): tick its own
-			// cooldown here and let updateBoss roll when it elapses, so a boss the
-			// party is out-ranging still fights back instead of only closing in.
-			if monster.InfernoCDFrames > 0 {
-				monster.InfernoCDFrames--
-			}
-			// Brood Mother: the trap field re-sows independently of attacks.
-			cs.tryBossTrapVolley(monster, false)
-			if cs.updateBoss(monster, ready, attackTick, monster.InfernoCDFrames == 0) {
-				if attackTick {
-					cs.armMonsterRTAttackCooldowns(monster)
-				}
-				continue
-			}
-		}
 
 		// Pounce (real-time): from within pounce range but beyond melee, leap
 		// to melee contact and strike immediately, then go on cooldown.

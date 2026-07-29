@@ -74,9 +74,11 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		wm.MapConfigs[key] = &configCopy
 	}
 
-	// Store biome definitions (floor texture groups etc.) shared by maps.
+	// Store biome definitions (floor texture groups etc.) shared by maps, each
+	// with the shared groups folded in.
 	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
 	for name, biome := range mapConfigs.Biomes {
+		biome.FloorTextureGroups = mergeSharedFloorTextureGroups(biome.FloorTextureGroups, mapConfigs.SharedFloorTextureGroups)
 		wm.Biomes[name] = biome
 	}
 
@@ -102,17 +104,33 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	}
 
 	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
-	// named group must be defined by at least one biome (we don't require
-	// every biome to define it - universal tiles like water legitimately
-	// fall back to base color in biomes that omit the group). The dynamic
-	// "beach"/"default" fallbacks are resolved in the renderer, not from a
-	// tile field, so they need no entry here.
+	// named group must be defined by at least one biome; groups for tiles that
+	// can appear on any map belong in shared_floor_texture_groups so no biome
+	// can omit them. The dynamic "beach"/"default" fallbacks are resolved in
+	// the renderer, not from a tile field, so they need no entry here.
 	if err := wm.validateTileFloorTextureGroups(); err != nil {
 		return err
 	}
 
 	fmt.Printf("Loaded %d map configurations, %d biomes\n", len(wm.MapConfigs), len(wm.Biomes))
 	return nil
+}
+
+// mergeSharedFloorTextureGroups gives a biome the shared groups it doesn't
+// define itself, so a universal tile (water) is textured in every biome from a
+// single definition. A biome naming the same group keeps its own art.
+func mergeSharedFloorTextureGroups(biomeGroups, shared map[string][]string) map[string][]string {
+	if len(shared) == 0 {
+		return biomeGroups
+	}
+	merged := make(map[string][]string, len(biomeGroups)+len(shared))
+	for name, texs := range shared {
+		merged[name] = texs
+	}
+	for name, texs := range biomeGroups {
+		merged[name] = texs
+	}
+	return merged
 }
 
 // validateTileFloorTextureGroups ensures every floor_texture_group named by a

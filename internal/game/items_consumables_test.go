@@ -1,9 +1,12 @@
 package game
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -124,8 +127,21 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 
 	g.setUtilityStatus("flame_ward_draught", buff.Frames)
 	status := g.utilitySpellStatuses["flame_ward_draught"]
-	if status == nil || status.Icon != "fire_shield" || status.Label != "Flame Ward Draught" {
-		t.Fatalf("draught status did not use YAML metadata: %+v", status)
+	// The draught wears its OWN bottle, not a spell's icon: pointing status_icon
+	// at "fire_shield" once put the Fire Shield spell icon in the status bar for
+	// a fire-resist potion. The token is the item key; resolveStatusIconSprite
+	// turns it into icon_item_<key> when that sprite is present.
+	if status == nil || status.Icon != "flame_ward_draught" || status.Label != "Flame Ward Draught" {
+		t.Fatalf("draught status did not use its own YAML metadata: %+v", status)
+	}
+	for _, key := range []string{"flame_ward_draught", "storm_ward_draught", "gloom_ward_draught", "stoneskin_draught"} {
+		def, ok := config.GetItemDefinition(key)
+		if !ok || def.StatusIcon != key {
+			t.Errorf("draught %q must carry its own status_icon, got %q", key, def.StatusIcon)
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", "assets", "sprites", "interface", "items", "icon_item_"+key+".png")); err != nil {
+			t.Errorf("draught %q has no icon art for the status bar: %v", key, err)
+		}
 	}
 }
 

@@ -516,6 +516,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindArenaGladiator:
 		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindBuffService:
+		ui.drawBuffServiceDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindCardCollector:
 		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogHeight)
 	default:
@@ -651,12 +653,7 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
 		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
 		if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
-			ui.game.dialogTab = i
-			ui.game.selectedChoice = 0
-			// A tab switch re-indexes the buy grid: fresh page, and any
-			// in-flight double-click must not buy across tabs.
-			ui.game.merchantBuyPage = 0
-			ui.game.resetDialogClickTracker()
+			ui.game.switchDialogTab(i)
 		}
 	}
 }

@@ -651,11 +651,20 @@ func (gl *GameLoop) updateSpecialEffects() {
 // ticked each frame and surfaced as a HUD status; onExpire (optional) undoes the
 // buff's effect when it runs out.
 type timedBuff struct {
-	id       spells.SpellID
-	active   *bool
-	duration *int
-	onExpire func()
+	id         spells.SpellID
+	active     *bool
+	duration   *int
+	onActivate func()
+	onExpire   func()
 }
+
+type timedBuffActivation uint8
+
+const (
+	timedBuffNotHandled timedBuffActivation = iota
+	timedBuffUnchanged
+	timedBuffApplied
+)
 
 // timedBuffs returns the SINGLE registry of duration-based buffs. Its pointers
 // are stable for the MMGame lifetime, so the registry is built once and cached
@@ -675,26 +684,120 @@ func (g *MMGame) timedBuffs() []timedBuff {
 // entry here - it then ticks, shows its HUD icon, and is restored on load
 // automatically, with no other code changes.
 func (g *MMGame) buildTimedBuffs() []timedBuff {
-	return []timedBuff{
-		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
-		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
-		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, func() {
-			// Lapsing mid-lake strands the party on a blocking water tile;
-			// wade ashore unless another effect still handles the water.
-			g.settleAfterWalkOnWater()
-		}},
-		{"fly", &g.flyActive, &g.flyDuration, func() {
-			// Fly let the party pass through walls; if it lapses while they hover
-			// inside solid terrain, surface them or movement stays wall-locked.
-			g.ejectFromWallAfterFly()
-		}},
-		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
-			// If still underwater when it lapses, surface the party.
-			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
-				g.gameLoop.returnFromUnderwater()
+	activateVisionRadius := func(id spells.SpellID, radius *float64) func() {
+		return func() {
+			if def, err := spells.GetSpellDefinitionByID(id); err == nil {
+				*radius = def.VisionRadiusTiles
 			}
-		}},
+		}
 	}
+	return []timedBuff{
+		{
+			id:         "torch_light",
+			active:     &g.torchLightActive,
+			duration:   &g.torchLightDuration,
+			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius),
+		},
+		{
+			id:         "wizard_eye",
+			active:     &g.wizardEyeActive,
+			duration:   &g.wizardEyeDuration,
+			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles),
+		},
+		{
+			id:       "walk_on_water",
+			active:   &g.walkOnWaterActive,
+			duration: &g.walkOnWaterDuration,
+			onExpire: func() {
+				// Lapsing mid-lake strands the party on a blocking water tile;
+				// wade ashore unless another effect still handles the water.
+				g.settleAfterWalkOnWater()
+			},
+		},
+		{
+			id:       "fly",
+			active:   &g.flyActive,
+			duration: &g.flyDuration,
+			onExpire: func() {
+				// Fly let the party pass through walls; if it lapses while they hover
+				// inside solid terrain, surface them or movement stays wall-locked.
+				g.ejectFromWallAfterFly()
+			},
+		},
+		{
+			id:       "water_breathing",
+			active:   &g.waterBreathingActive,
+			duration: &g.waterBreathingDuration,
+			onActivate: func() {
+				g.underwaterReturnX = g.camera.X
+				g.underwaterReturnY = g.camera.Y
+				if world.GlobalWorldManager != nil {
+					g.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
+				}
+			},
+			onExpire: func() {
+				// If still underwater when it lapses, surface the party.
+				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+					g.gameLoop.returnFromUnderwater()
+				}
+			},
+		},
+	}
+}
+
+func (g *MMGame) timedBuffByID(id spells.SpellID) (timedBuff, bool) {
+	for _, buff := range g.timedBuffs() {
+		if buff.id == id {
+			return buff, true
+		}
+	}
+	return timedBuff{}, false
+}
+
+// activateTimedBuffFrames is the single activation path for flag-based timed
+// buffs. Exact refresh is used by spells; preserveLonger is used by paid
+// services so buying a shorter span never cuts an existing longer one.
+func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserveLonger bool) timedBuffActivation {
+	if frames <= 0 {
+		return timedBuffNotHandled
+	}
+	buff, ok := g.timedBuffByID(id)
+	if !ok {
+		return timedBuffNotHandled
+	}
+	if preserveLonger && *buff.active && frames <= *buff.duration {
+		return timedBuffUnchanged
+	}
+	*buff.active = true
+	*buff.duration = frames
+	if buff.onActivate != nil {
+		buff.onActivate()
+	}
+	if preserveLonger {
+		g.updateUtilityStatus(buff.id, *buff.duration, true)
+	} else {
+		g.setUtilityStatus(buff.id, *buff.duration)
+	}
+	return timedBuffApplied
+}
+
+// grantTimedBuffSeconds activates a registry buff for a FIXED span - the path
+// for effects granted by something other than a cast (a paid NPC service), so
+// the duration is the authored one rather than the caster's mastery curve.
+// Refreshing never shortens a longer span already running. The result separates
+// an unknown id from a recognized no-op so callers never charge for no benefit.
+func (g *MMGame) grantTimedBuffSeconds(id string, seconds int) timedBuffActivation {
+	if seconds <= 0 {
+		return timedBuffNotHandled
+	}
+	frames := seconds * g.config.GetTPS()
+	return g.activateTimedBuffFrames(spells.SpellID(id), frames, true)
+}
+
+// isTimedBuffID reports whether id names a registry buff (content validation).
+func (g *MMGame) isTimedBuffID(id string) bool {
+	_, ok := g.timedBuffByID(spells.SpellID(id))
+	return ok
 }
 
 // tickBuff decrements the duration of an active timed buff and runs onExpire

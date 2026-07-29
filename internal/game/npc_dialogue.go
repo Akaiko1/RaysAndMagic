@@ -15,22 +15,9 @@ const (
 )
 
 // npcDialogueHasAction reports whether the NPC's dialogue tree contains a
-// choice with the given action, at any nesting depth. One recursive walker for
-// every "does this NPC offer capability X" test (duel grounds, tavern rest).
+// choice with the given action, at any nesting depth.
 func npcDialogueHasAction(npc *character.NPC, action string) bool {
-	if npc == nil || npc.DialogueData == nil {
-		return false
-	}
-	var walk func([]*character.NPCDialogueChoice) bool
-	walk = func(choices []*character.NPCDialogueChoice) bool {
-		for _, c := range choices {
-			if c != nil && (c.Action == action || walk(c.Choices)) {
-				return true
-			}
-		}
-		return false
-	}
-	return walk(npc.DialogueData.Choices)
+	return npc != nil && npc.DialogueData != nil && npc.DialogueData.HasAction(action)
 }
 
 // linkedQuestID returns the quest_id of the NPC's give_quest / turn_in_quest
@@ -232,6 +219,16 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 	}
 }
 
+// switchDialogTab is the shared transition for mouse and keyboard tab changes.
+// It also invalidates input queued against the previous tab.
+func (g *MMGame) switchDialogTab(tab int) {
+	g.dialogTab = tab
+	g.selectedChoice = 0
+	g.merchantBuyPage = 0
+	g.pendingBuffService = nil
+	g.resetDialogClickTracker()
+}
+
 // npcDialogKind classifies which dialog UI/input an NPC gets. The input
 // dispatcher, the dialog renderer and the HUD interaction prompt all switch on
 // THIS, so the priority order (a spell trader with quest choices is still a
@@ -246,6 +243,7 @@ const (
 	dialogKindMerchant
 	dialogKindCardCollector
 	dialogKindArenaGladiator
+	dialogKindBuffService
 )
 
 // npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
@@ -257,6 +255,10 @@ func npcDialogKindFor(npc *character.NPC) npcDialogKind {
 	switch {
 	case npcIsCardCollector(npc):
 		return dialogKindCardCollector
+	case npcHasBuffService(npc):
+		// A paid-cast service is its own tabbed dialog (service rows + Talk),
+		// checked before the generic choice dialog that would swallow it.
+		return dialogKindBuffService
 	case npcHasSpellTrading(npc):
 		return dialogKindSpellTrader
 	case npcHasSkillTraining(npc):
@@ -329,11 +331,24 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 			out = append(out, c)
 		}
 	}
+	// A buff-service NPC shows its paid casts as ICON ROWS on its own tab, so
+	// they must not also appear as text choices in the Talk tab list. Filtered
+	// at the top level only - a cast authored deeper in a conversation stays a
+	// normal choice and reachable.
+	if g.currentDialogNode() == nil && npcHasBuffService(npc) {
+		kept := out[:0]
+		for _, c := range out {
+			if c.Action != "cast_buff" {
+				kept = append(kept, c)
+			}
+		}
+		out = kept
+	}
 	// Every tavern carries the rumor branch (top level only - not inside an
-	// info node). Synthetic view, rebuilt per call: today's rumor text rides
-	// the day/night clock.
+	// info node). Synthetic view, rebuilt per call: the text rides the day/night
+	// clock and this tavern's own draw order.
 	if g.currentDialogNode() == nil && npcOffersTavernRest(npc) {
-		out = append(out, g.rumorDialogueChoice())
+		out = append(out, g.rumorDialogueChoice(npc))
 	}
 	return out
 }

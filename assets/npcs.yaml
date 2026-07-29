@@ -45,25 +45,33 @@ npcs:
       heroism: { cost: 900 }
       raise_dead: { cost: 1500 }
 
-  # Spell trader for testing
+  # Forest waterside service: she does not TEACH her water charms, she casts
+  # them over the party for gold (cast_buff, fixed spans).
   mtrader0:
     name: "Apprentice Mira"
-    type: "spell_trader"
-    description: "An eager young hedge-mage camped at the forest's edge, peddling the few charms she has mastered while she dreams of greater teaching"
+    type: "quest_giver"
+    description: "An eager young hedge-mage camped at the forest's edge, casting her two water charms for coin while she dreams of greater teaching"
     sprite: "beginner_spell_merchant"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Oh - a real adventuring party! I'm Mira. I've not mastered much yet, but what I have I'll gladly sell. Pick a companion and I'll show you my one good trick."
-      insufficient_gold: "Ah - that's %d gold, and your purse is a little light. Come back when it's heavier."
-      already_known: "%s already knows that one! You're ahead of me there."
-      success: "There - %s has it. Mind the gestures; I botched that spell for a month."
+      greeting: "Oh - a real adventuring party! I'm Mira. Two charms is all I have, and I cannot teach them yet - but I can lay them ON you, here and now, for coin. The lake will not mind you at all for a while."
       quest_greeting: "Between us? I'm only camped out here because I'm trying to reach Priestess Liora's shrine across the lake - and I can't finish my bridge with wolves at my back every night. Lend a hand?"
       active_message: "The wolves are still out there - you can hear them at dusk. Quiet every last one and I'll have the lake bridge finished, I swear it."
       completed_message: "The forest's gone silent - you did it! The bridge is laid at last, all the way to Priestess Liora's shrine across the water. Here's your reward, and my thanks. Go meet her - tell her Mira sent you!"
       visited_message: "Cross my bridge whenever you like. Give Priestess Liora my respects - one day I'll study under her myself."
       choice_prompt: "Mira fidgets with a half-finished plank."
       choices:
+        - text: "Walk us over the water"
+          action: "cast_buff"
+          buff: "walk_on_water"
+          duration_seconds: 300
+          cost: 2000
+        - text: "Give us the deep breath"
+          action: "cast_buff"
+          buff: "water_breathing"
+          duration_seconds: 600
+          cost: 5000
         - text: "Why are you building a bridge?"
           action: "info"
           response: "Across the lake there's a shrine - Priestess Liora teaches the divine arts there, body and mind and spirit. Real magic, not my hedge-tricks. I've been trying to reach her for a season. But the only crossing is this bridge I'm building, and I can't lay a plank with wolves at my back every night."
@@ -87,11 +95,6 @@ npcs:
           quest_id: "forest_wolf_cull"
         - text: "Leave"
           action: "leave"
-    # Corner trader: sells only Walk on Water, at a flat 500 gold.
-    spells:
-      walk_on_water:
-        cost: 500
-
   # Example of other NPC types for future expansion
   merchant_general:
     name: "Trader Aelwen"
