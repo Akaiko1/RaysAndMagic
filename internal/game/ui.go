@@ -48,6 +48,7 @@ type UISystem struct {
 	inventoryContextIndex int
 	stackSplitPicker      stackSplitPickerState
 	inventoryPage         int    // current inventory grid page (0-based)
+	inventoryTab          int    // active inventory category filter (index into inventoryTabs)
 	questPage             int    // current quest log page (0-based)
 	characterPage         int    // current character-info page (0-based)
 	campNotice            string // result line under the Camp button

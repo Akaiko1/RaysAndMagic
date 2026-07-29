@@ -4,31 +4,33 @@ import (
 	"testing"
 )
 
-// The analysis must measure the REAL art: menu_panel_frame edges are 5px caps
-// around a 24px brick period, its centre 6px margins around an 8x8 weave.
-// character_scroll_panel is not periodic (centre nail ornament) and must fall
-// back to stretch.
+// Every generated 512px frame has 32px caps around a 128px periodic core in
+// each edge and both centre axes.
 func TestPatternFrame_MeasuresTheRealArt(t *testing.T) {
 	t.Chdir("../..")
-	pf := analyzePatternFrame("menu_panel_frame", 16)
-	if pf == nil {
-		t.Fatal("menu_panel_frame did not analyze as a pattern frame")
-	}
-	wantEdge := stripPattern{capA: 5, capB: 5, period: 24}
-	for name, got := range map[string]stripPattern{
-		"top": pf.top, "bottom": pf.bottom, "left": pf.left, "right": pf.right,
+	want := stripPattern{capA: 32, capB: 32, period: 128}
+	for _, name := range []string{
+		"menu_panel_frame",
+		"menu_panel_slot",
+		"menu_panel_tall",
+		"menu_panel_wide",
+		"menu_panel_slatted",
+		"menu_panel_parchment",
+		"character_scroll_panel",
 	} {
-		if got != wantEdge {
-			t.Errorf("%s edge = %+v, want %+v", name, got, wantEdge)
+		pf := analyzePatternFrame(name, generatedPatternFrameSlice)
+		if pf == nil {
+			t.Errorf("%s did not analyze as a pattern frame", name)
+			continue
 		}
-	}
-	wantCentre := stripPattern{capA: 6, capB: 6, period: 8}
-	if pf.centreH != wantCentre || pf.centreV != wantCentre {
-		t.Errorf("centre = %+v / %+v, want %+v", pf.centreH, pf.centreV, wantCentre)
-	}
-
-	if got := analyzePatternFrame("character_scroll_panel", 16); got != nil {
-		t.Errorf("character_scroll_panel analyzed as periodic %+v, must stretch instead", got)
+		for stripName, got := range map[string]stripPattern{
+			"top": pf.top, "bottom": pf.bottom, "left": pf.left, "right": pf.right,
+			"centreH": pf.centreH, "centreV": pf.centreV,
+		} {
+			if got != want {
+				t.Errorf("%s %s = %+v, want %+v", name, stripName, got, want)
+			}
+		}
 	}
 }
 
@@ -37,15 +39,19 @@ func TestPatternFrame_MeasuresTheRealArt(t *testing.T) {
 // move it to the tiling list here - it starts tiling automatically in game.
 func TestPatternFrame_UIFrameInventory(t *testing.T) {
 	t.Chdir("../..")
-	tiling := map[string]int{"menu_panel_frame": menuPanelFrameSlice}
+	tiling := map[string]int{
+		"menu_panel_frame":       generatedPatternFrameSlice,
+		"menu_panel_slot":        generatedPatternFrameSlice,
+		"menu_panel_tall":        generatedPatternFrameSlice,
+		"menu_panel_wide":        generatedPatternFrameSlice,
+		"menu_panel_slatted":     generatedPatternFrameSlice,
+		"menu_panel_parchment":   generatedPatternFrameSlice,
+		"character_scroll_panel": generatedPatternFrameSlice,
+	}
 	painted := map[string]int{
-		"character_scroll_panel": 16,
-		"menu_btn":               menuFrameSlice,
-		"menu_panel_wide":        menuFrameSlice,
-		"menu_panel_slot":        menuFrameSlice,
-		"menu_panel_tall":        menuFrameSlice,
-		"inventory_grid_panel":   16,
-		"party_member_panel":     16,
+		"menu_btn":             menuFrameSlice,
+		"inventory_grid_panel": 16,
+		"party_member_panel":   16,
 	}
 	for name, slice := range tiling {
 		if analyzePatternFrame(name, slice) == nil {
@@ -63,12 +69,45 @@ func TestPatternFrame_UIFrameInventory(t *testing.T) {
 // no double-drawn pixels, no source reads outside the sprite.
 func TestPatternFramePlan_CoversEveryPixelExactlyOnce(t *testing.T) {
 	t.Chdir("../..")
-	pf := analyzePatternFrame("menu_panel_frame", 16)
+	pf := analyzePatternFrame("menu_panel_frame", generatedPatternFrameSlice)
 	if pf == nil {
 		t.Fatal("menu_panel_frame did not analyze")
 	}
 	for _, size := range [][2]int{{520, 360}, {800, 120}, {130, 130}, {521, 363}, {97, 97}} {
-		assertPlanCoverage(t, pf, size[0], size[1], true)
+		assertPlanCoverage(t, pf, size[0], size[1], generatedCompactFrameSourceScale, true)
+	}
+}
+
+func TestGeneratedFrameInsetsClearUIContent(t *testing.T) {
+	compactCorner := scaledFrameLength(generatedPatternFrameSlice, generatedCompactFrameSourceScale)
+	slotCorner := scaledFrameLength(generatedPatternFrameSlice, generatedSlotFrameSourceScale)
+	tallCorner := scaledFrameLength(generatedPatternFrameSlice, generatedTallPanelFrameSourceScale)
+
+	if compactCorner != 16 || slotCorner != 12 || tallCorner > partyHeroDetailPortraitInset {
+		t.Fatalf("frame geometry = compact:%d slot:%d tall:%d", compactCorner, slotCorner, tallCorner)
+	}
+
+	menu := computeTabbedMenuLayout(1280, 720)
+	for i, tab := range menu.tabs {
+		if tab.y-menu.panel.y < compactCorner {
+			t.Errorf("tab %d starts inside the %dpx frame", i, compactCorner)
+		}
+	}
+	if menu.close.y-menu.panel.y < compactCorner {
+		t.Errorf("close button starts inside the %dpx frame", compactCorner)
+	}
+
+	character := computeCharacterContentLayout(menu.content)
+	if character.portrait.x-character.portraitFrame.x < compactCorner ||
+		character.portrait.y-character.portraitFrame.y < compactCorner {
+		t.Errorf("character portrait does not clear the %dpx frame", compactCorner)
+	}
+	if character.portraitFrame.y != character.scroll.y {
+		t.Errorf("character portrait frame top %d does not align with stats top %d",
+			character.portraitFrame.y, character.scroll.y)
+	}
+	if partyHeroCardPortraitInset < slotCorner {
+		t.Errorf("party card portrait inset %d is smaller than its %dpx frame", partyHeroCardPortraitInset, slotCorner)
 	}
 }
 
@@ -95,7 +134,7 @@ func TestPatternFramePlan_GeometryHoldsForArbitraryPatterns(t *testing.T) {
 						{spriteRun, spriteRun}, {spriteRun + 1, spriteRun + 13},
 						{3 * spriteRun, spriteRun}, {257, 121}, {2*slice + capA*2 + 2, 2*slice + capA*2 + 2},
 					} {
-						assertPlanCoverage(t, pf, size[0], size[1], false)
+						assertPlanCoverage(t, pf, size[0], size[1], 1, false)
 					}
 				}
 			}
@@ -105,9 +144,9 @@ func TestPatternFramePlan_GeometryHoldsForArbitraryPatterns(t *testing.T) {
 
 // assertPlanCoverage checks the exactly-once contract; mustPlan fails the test
 // when the plan refuses (a refusal is a legal stretch fallback otherwise).
-func assertPlanCoverage(t *testing.T, pf *patternFrame, w, h int, mustPlan bool) {
+func assertPlanCoverage(t *testing.T, pf *patternFrame, w, h, sourceScale int, mustPlan bool) {
 	t.Helper()
-	ops, ok := planPatternFrame(pf, w, h)
+	ops, ok := planPatternFrame(pf, w, h, sourceScale)
 	if !ok {
 		if mustPlan {
 			t.Errorf("%dx%d: plan refused", w, h)
@@ -116,14 +155,14 @@ func assertPlanCoverage(t *testing.T, pf *patternFrame, w, h int, mustPlan bool)
 	}
 	cover := make([]int, w*h)
 	for _, op := range ops {
-		if op.sw <= 0 || op.sh <= 0 {
+		if op.sw <= 0 || op.sh <= 0 || op.dw <= 0 || op.dh <= 0 {
 			t.Fatalf("%dx%d: empty op %+v", w, h, op)
 		}
 		if op.sx < 0 || op.sy < 0 || op.sx+op.sw > pf.w || op.sy+op.sh > pf.h {
 			t.Fatalf("%dx%d: op reads outside the sprite: %+v", w, h, op)
 		}
-		for y := op.dy; y < op.dy+op.sh; y++ {
-			for x := op.dx; x < op.dx+op.sw; x++ {
+		for y := op.dy; y < op.dy+op.dh; y++ {
+			for x := op.dx; x < op.dx+op.dw; x++ {
 				if x < 0 || y < 0 || x >= w || y >= h {
 					t.Fatalf("%dx%d: op draws outside the panel: %+v", w, h, op)
 				}

@@ -439,8 +439,8 @@ type mapRenderPrewarmer struct {
 	uploads           map[*ebiten.Image]struct{}
 	standees          map[standeeCoreKey]struct{}
 	animations        map[[2]string]struct{}
-	shaderStickerMips *standeeMipChain
-	shaderCoreMips    *standeeMipChain
+	shaderStickerMips *mipChain
+	shaderCoreMips    *mipChain
 	stats             mapRenderPrewarmStats
 }
 
@@ -644,6 +644,7 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 		allKeys[key.frame] = struct{}{}
 	}
 	r.deallocateStandeeKeys(allKeys, nil)
+	r.clearWallRipmaps()
 	r.standeeCoreCache = nil
 	r.standeeMipCache = nil
 	r.mapRenderResidentMapKeys = nil
@@ -740,8 +741,13 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 			if sprite == nil {
 				continue
 			}
-			repeated := r.repeatedWallTexture(sprite)
-			p.addUpload(repeated)
+			// Every ripmap level is uploaded here: a level built mid-frame would
+			// cost a GPU sync exactly when a distant wall first comes into view.
+			if rm := r.wallRipmapFor(sprite); rm != nil {
+				for _, level := range rm.owned {
+					p.addUpload(level)
+				}
+			}
 			bounds := sprite.Bounds()
 			for x := 0; x < bounds.Dx(); x++ {
 				r.spriteColumn(sprite, x, bounds.Dx(), bounds.Dy())

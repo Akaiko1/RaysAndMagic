@@ -28,8 +28,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
 	// Items counts UNITS (stacks summed); slots = grid entries, so the label
 	// can't read as a bug when a 5-stack fills one cell.
-	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Items: %d (%d slots)",
-		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems(), len(ui.game.party.Inventory)),
+	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Items: %d (%d slots, %d shown)",
+		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems(),
+		len(ui.game.party.Inventory), len(ui.game.inventoryViewIndices(ui.inventoryTab))),
 		paperX, contentY+29)
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
@@ -79,20 +80,23 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		}
 	}
 
-	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
+	ui.drawInventoryTabs(screen, gridX, gridY-24, gridSize)
 	pageSize := len(inventoryGridSlots)
-	totalPages := pageCount(len(ui.game.party.Inventory), pageSize)
+	// The active tab decides WHICH bag entries are on show; the cells still carry
+	// their absolute bag index, which is what every handler below acts on.
+	view := ui.game.inventoryViewIndices(ui.inventoryTab)
+	totalPages := pageCount(len(view), pageSize)
 	// Clamp every frame so the page stays valid when the inventory shrinks
 	// (equip/discard) out from under the current page.
 	clampPage(&ui.inventoryPage, totalPages)
-	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
-		idx := pageStart + slot
+		idx := inventoryCellIndex(view, ui.inventoryPage, pageSize, slot)
 		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
 		// Empty cell (guard against the LIVE length - a double-click below can
-		// equip/use mid-loop and shrink the bag). Dropping a dragged item on an
-		// empty cell moves it to the end (bag is a packed slice).
-		if idx >= len(ui.game.party.Inventory) {
+		// equip/use mid-loop and shrink the bag, staling the view). Dropping a
+		// dragged item on an empty cell moves it to the end (bag is a packed
+		// slice), whichever tab is showing.
+		if idx < 0 || idx >= len(ui.game.party.Inventory) {
 			if !ui.inventoryContextOpen {
 				if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
 					isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {

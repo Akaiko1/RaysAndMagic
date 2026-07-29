@@ -103,7 +103,7 @@ type Renderer struct {
 	// Standee mip chains are immutable, normalized copies of immutable sprite
 	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
 	// integer mip selection cannot make a whole token flash sharp/soft at range.
-	standeeMipCache        map[standeeMipKey]*standeeMipChain
+	standeeMipCache        map[standeeMipKey]*mipChain
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
 	standeeVolumeShader    *ebiten.Shader
@@ -185,19 +185,18 @@ type Renderer struct {
 	// SubImage allocates a new *ebiten.Image per call (one per wall column per
 	// frame). Sprites come from the SpriteManager and live for the whole game.
 	wallSliceColumns map[*ebiten.Image][]*ebiten.Image
-	// Tileable source copies for the minified wall path. Ebiten builds mipmaps
-	// before address-repeat is applied, so the source itself must contain the
-	// neighbouring tiles to keep a seam-free mip chain.
-	wallTextureRepeats map[*ebiten.Image]*ebiten.Image
-	wallSliceVerts     [4]ebiten.Vertex
-	wallSliceTriOpts   ebiten.DrawTrianglesOptions
+	// Ripmap grids of the tileable wall textures, keyed by sprite - see
+	// render_wall_mip.go for why walls need their own anisotropic levels.
+	wallRipmaps      map[*ebiten.Image]*wallRipmap
+	wallSliceVerts   [4]ebiten.Vertex
+	wallSliceTriOpts ebiten.DrawTrianglesOptions
 	// Minified opaque wall slices are independent screen columns, so slices
 	// sharing a source can be submitted in one draw. This preserves the exact
 	// per-column rectangle geometry while avoiding one DrawTriangles call per
 	// ray on long distant walls.
-	wallMipBatchSource  *ebiten.Image
-	wallMipBatchVerts   []ebiten.Vertex
-	wallMipBatchIndices []uint16
+	// Slot order (base, crossX, crossY) is the flush order - the crossover
+	// levels of a slice mid-fade always land on top of its base level.
+	wallMipBatches [wallMipBatchSlots]wallMipBatch
 	// Per-sprite animation-frame SubImages (see selectAnimatedSpriteFrame),
 	// same per-frame SubImage churn for animated NPC sheets.
 	animFrameCache map[*ebiten.Image][]*ebiten.Image
@@ -1459,16 +1458,6 @@ func wallTextureIntervalFromSurface(left, right float64, mirrored bool) (float64
 	return left - base, right - base
 }
 
-// wallTextureUsesMipmappedSlice leaves close pixel art on the legacy nearest
-// path. Once either source axis is minified, a quad with true source bounds
-// lets Ebiten select a mip level instead of hopping between full-res columns.
-func wallTextureUsesMipmappedSlice(textureWidth, textureHeight, screenWidth int, leftU, rightU, wallHeight float64) bool {
-	if screenWidth <= 0 {
-		screenWidth = 1
-	}
-	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || wallHeight < float64(textureHeight)*0.5
-}
-
 // MultiRaycastHit contains multiple hits for a single ray (for transparency support)
 type MultiRaycastHit struct {
 	Hits []RaycastHit
@@ -1741,9 +1730,10 @@ func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileTy
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
-	r.wallMipBatchSource = nil
-	r.wallMipBatchVerts = r.wallMipBatchVerts[:0]
-	r.wallMipBatchIndices = r.wallMipBatchIndices[:0]
+	for slot := range r.wallMipBatches {
+		b := &r.wallMipBatches[slot]
+		*b = wallMipBatch{verts: b.verts[:0], indices: b.indices[:0]}
+	}
 
 	for columnIndex, rayResult := range results {
 		screenX := columnIndex * rayWidth
@@ -2428,124 +2418,6 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	screen.DrawImage(src, opts)
-}
-
-// drawMipmappedSpriteWallSlice is the direct fallback for a transparent wall:
-// those hits must remain in the ray's back-to-front order. Opaque minified
-// walls use queueMipmappedSpriteWallSlice instead.
-func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) {
-	repeated, texW, texH, ok := r.mipmappedWallTexture(sprite)
-	if !ok {
-		return
-	}
-	brightness := r.wallPointBrightness(screenX, distance)
-	if wallSide == 1 {
-		brightness *= 0.7
-	}
-	vertices := appendMipmappedWallSliceVertices(r.wallSliceVerts[:0], texW, texH, screenX, width, wallTop, wallHeight, leftU, rightU, brightness)
-	r.drawMipmappedWallTriangles(screen, vertices, wallSliceTriangleIndices[:], repeated)
-}
-
-var wallSliceTriangleIndices = [...]uint16{0, 1, 2, 1, 3, 2}
-
-const wallMipBatchVertexLimit = 1 << 16
-
-// queueMipmappedSpriteWallSlice gathers independent opaque ray slices that
-// share the same repeated source. Each rectangle retains its original four
-// vertices, so batching changes submission cost only, not wall geometry.
-func (r *Renderer) queueMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) bool {
-	repeated, texW, texH, ok := r.mipmappedWallTexture(sprite)
-	if !ok {
-		return false
-	}
-	if r.wallMipBatchSource != nil && (r.wallMipBatchSource != repeated || len(r.wallMipBatchVerts)+4 > wallMipBatchVertexLimit) {
-		r.flushMipmappedWallBatch(screen)
-	}
-	if r.wallMipBatchSource == nil {
-		r.wallMipBatchSource = repeated
-	}
-	brightness := r.wallPointBrightness(screenX, distance)
-	if wallSide == 1 {
-		brightness *= 0.7
-	}
-	base := uint16(len(r.wallMipBatchVerts))
-	r.wallMipBatchVerts = appendMipmappedWallSliceVertices(r.wallMipBatchVerts, texW, texH, screenX, width, wallTop, wallHeight, leftU, rightU, brightness)
-	r.wallMipBatchIndices = append(r.wallMipBatchIndices, base, base+1, base+2, base+1, base+3, base+2)
-	return true
-}
-
-func (r *Renderer) flushMipmappedWallBatch(screen *ebiten.Image) {
-	if len(r.wallMipBatchVerts) == 0 {
-		r.wallMipBatchSource = nil
-		return
-	}
-	r.drawMipmappedWallTriangles(screen, r.wallMipBatchVerts, r.wallMipBatchIndices, r.wallMipBatchSource)
-	r.wallMipBatchSource = nil
-	r.wallMipBatchVerts = r.wallMipBatchVerts[:0]
-	r.wallMipBatchIndices = r.wallMipBatchIndices[:0]
-}
-
-// mipmappedWallTexture returns a tileable source and its original tile bounds.
-// Mipmaps are built from the repeated source, while U coordinates remain in
-// original-tile units so every wall slice uses the same projection contract.
-func (r *Renderer) mipmappedWallTexture(sprite *ebiten.Image) (repeated *ebiten.Image, textureWidth, textureHeight float64, ok bool) {
-	repeated = r.repeatedWallTexture(sprite)
-	if repeated == nil {
-		return nil, 0, 0, false
-	}
-	bounds := sprite.Bounds()
-	textureWidth = float64(bounds.Dx())
-	textureHeight = float64(bounds.Dy())
-	if textureWidth <= 0 || textureHeight <= 0 {
-		return nil, 0, 0, false
-	}
-	return repeated, textureWidth, textureHeight, true
-}
-
-// appendMipmappedWallSliceVertices emits the same axis-aligned source-mapped
-// rectangle used by the direct path. Keeping this shared makes batch and
-// direct rendering pixel-equivalent.
-func appendMipmappedWallSliceVertices(vertices []ebiten.Vertex, textureWidth, textureHeight float64, screenX, width int, wallTop, wallHeight, leftU, rightU, brightness float64) []ebiten.Vertex {
-	leftSourceX := float32(textureWidth + leftU*textureWidth + 0.5)
-	rightSourceX := float32(textureWidth + rightU*textureWidth + 0.5)
-	bottomSourceY := float32(textureHeight - 0.5)
-	color := float32(brightness)
-	return append(vertices,
-		ebiten.Vertex{DstX: float32(screenX), DstY: float32(wallTop), SrcX: leftSourceX, SrcY: 0.5, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
-		ebiten.Vertex{DstX: float32(screenX + width), DstY: float32(wallTop), SrcX: rightSourceX, SrcY: 0.5, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
-		ebiten.Vertex{DstX: float32(screenX), DstY: float32(wallTop + wallHeight), SrcX: leftSourceX, SrcY: bottomSourceY, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
-		ebiten.Vertex{DstX: float32(screenX + width), DstY: float32(wallTop + wallHeight), SrcX: rightSourceX, SrcY: bottomSourceY, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
-	)
-}
-
-func (r *Renderer) drawMipmappedWallTriangles(screen *ebiten.Image, vertices []ebiten.Vertex, indices []uint16, source *ebiten.Image) {
-	r.wallSliceTriOpts = ebiten.DrawTrianglesOptions{
-		Blend:  ebiten.BlendSourceOver,
-		Filter: ebiten.FilterLinear,
-	}
-	screen.DrawTriangles(vertices, indices, source, &r.wallSliceTriOpts)
-}
-
-func (r *Renderer) repeatedWallTexture(sprite *ebiten.Image) *ebiten.Image {
-	if cached := r.wallTextureRepeats[sprite]; cached != nil {
-		return cached
-	}
-	bounds := sprite.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
-	if width <= 0 || height <= 0 {
-		return nil
-	}
-	repeated := ebiten.NewImage(width*3, height)
-	for copyIndex := 0; copyIndex < 3; copyIndex++ {
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(copyIndex*width), 0)
-		repeated.DrawImage(sprite, opts)
-	}
-	if r.wallTextureRepeats == nil {
-		r.wallTextureRepeats = make(map[*ebiten.Image]*ebiten.Image)
-	}
-	r.wallTextureRepeats[sprite] = repeated
-	return repeated
 }
 
 // spriteColumn returns the cached 1px-wide column SubImage of a wall sprite.

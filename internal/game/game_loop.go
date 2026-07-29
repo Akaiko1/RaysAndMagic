@@ -358,16 +358,25 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	gl.ui.Draw(screen)
 }
 
-// Layout returns the actual outside window dimensions, mutating runtime
-// screen size + reallocating screen-sized buffers when the viewport changes
-// (e.g. fullscreen on first frame). Returning fixed config dims would
-// letterbox the game; returning outside dims renders at native resolution
-// and lets UI anchors stick to actual screen edges.
-func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	if outsideWidth > 0 && outsideHeight > 0 {
-		gl.game.handleResize(outsideWidth, outsideHeight)
+const maxLogicalScreenHeight = 1080
+
+func logicalScreenSize(outsideWidth, outsideHeight int) (int, int) {
+	if outsideWidth <= 0 || outsideHeight <= 0 || outsideHeight <= maxLogicalScreenHeight {
+		return outsideWidth, outsideHeight
 	}
-	return outsideWidth, outsideHeight
+	scale := float64(maxLogicalScreenHeight) / float64(outsideHeight)
+	return max(1, int(math.Round(float64(outsideWidth)*scale))), maxLogicalScreenHeight
+}
+
+// Layout keeps common resolutions native and caps larger windows at a 1080px
+// logical height. Ebiten scales that complete frame to the physical display,
+// including mouse coordinates, so UI proportions stay usable on 1440p and 4K.
+func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	screenWidth, screenHeight = logicalScreenSize(outsideWidth, outsideHeight)
+	if screenWidth > 0 && screenHeight > 0 {
+		gl.game.handleResize(screenWidth, screenHeight)
+	}
+	return screenWidth, screenHeight
 }
 
 // updateMonstersParallel updates all monsters using parallel processing

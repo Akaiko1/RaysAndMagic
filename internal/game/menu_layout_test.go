@@ -32,9 +32,13 @@ func assertNoCollisions(t *testing.T, menu string, region uiBox, boxes []uiBox) 
 // or leaves the menu's bounds. Add a builder to the menus slice to cover a new one.
 func TestMenuLayout_NoCollisions(t *testing.T) {
 	resolutions := []struct{ w, h int }{
-		{1280, 720},
 		{1024, 768},
+		{1280, 720},
+		{1366, 768},
 		{1920, 1080},
+		{2560, 1440},
+		{3440, 1440},
+		{3840, 2160},
 	}
 
 	type menuCase struct {
@@ -124,8 +128,9 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 	}
 
 	for _, res := range resolutions {
+		logicalW, logicalH := logicalScreenSize(res.w, res.h)
 		for _, m := range menus {
-			for _, build := range m.build(res.w, res.h) {
+			for _, build := range m.build(logicalW, logicalH) {
 				name, region, boxes := build()
 				t.Run(fmt.Sprintf("%dx%d/%s", res.w, res.h, name), func(t *testing.T) {
 					assertNoCollisions(t, name, region, boxes)

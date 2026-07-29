@@ -28,12 +28,6 @@ const (
 	standeeStaticYaw       = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
 	standeeTurnDefault     = 270.0         // deg/sec token swivel when config omits it
 	containerSpinDegSec    = 60.0          // deg/sec idle spin for loot-bag / chest tokens
-	standeeMaxMipLevel     = 6             // matches Ebitengine's own mipmap depth cap
-	// Blend only around the nearest-mip crossover. Outside this band one
-	// bilinearly sampled level is already stable, avoiding a second four-tap
-	// sample across most distant standee pixels.
-	standeeMipBlendStart = 0.35
-	standeeMipBlendEnd   = 0.65
 )
 
 var standeeWoodTone = [3]float64{0.62, 0.45, 0.27}
@@ -82,16 +76,6 @@ const (
 type standeeMipKey struct {
 	frame standeeCoreKey
 	layer standeeMipLayer
-}
-
-// standeeMipChain owns normalized immutable copies of one standee texture.
-// Ebitengine exposes no way to address its internal mip levels, so adjacent
-// levels must be explicit images for true trilinear filtering.
-type standeeMipChain struct {
-	levels []*ebiten.Image
-	// owned lists only images generated for this chain. Level 0 often aliases
-	// immutable SpriteManager art and must survive region-cache eviction.
-	owned []*ebiten.Image
 }
 
 // standeeCoreSilhouette returns (building and caching on first use) the sprite
@@ -243,141 +227,24 @@ func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWid
 	return projectedWidth < textureWidth || projectedHeight < textureHeight
 }
 
-// standeeMipBlend selects the nearest mip level with a short trilinear crossover.
-// The crossover is continuous: its upper endpoint is exactly the next level,
-// which is also the pure image selected immediately after the band. Keeping the
-// blend narrower than the full octave avoids paying eight texture taps where a
-// single stable level is visually indistinguishable.
-func standeeMipBlend(footprint float32, maxLevel int) (level int, blend float32) {
-	if footprint <= 1 || maxLevel <= 0 || math.IsNaN(float64(footprint)) {
-		return 0, 0
-	}
-	lod := math.Log2(float64(footprint))
-	level = int(math.Floor(lod))
-	if level < 0 {
-		return 0, 0
-	}
-	if level >= maxLevel {
-		return maxLevel, 0
-	}
-	fraction := lod - float64(level)
-	if fraction <= standeeMipBlendStart {
-		return level, 0
-	}
-	if fraction >= standeeMipBlendEnd {
-		return level + 1, 0
-	}
-	return level, float32((fraction - standeeMipBlendStart) / (standeeMipBlendEnd - standeeMipBlendStart))
-}
-
-func standeeMipSizes(width, height int) []image.Point {
-	if width <= 0 || height <= 0 {
-		return nil
-	}
-	sizes := make([]image.Point, 0, standeeMaxMipLevel+1)
-	for level := 0; level <= standeeMaxMipLevel; level++ {
-		sizes = append(sizes, image.Pt(width, height))
-		if width == 1 && height == 1 {
-			break
-		}
-		if width > 1 {
-			width /= 2
-		}
-		if height > 1 {
-			height /= 2
-		}
-	}
-	return sizes
-}
-
-// downsampleStandeeMip builds one premultiplied-alpha area-filtered mip on the
-// CPU. Besides making transparent edges correct, CPU construction is important
-// for batching: an ebiten.Image drawn into another ebiten.Image becomes a render
-// target and is unlikely to share Ebitengine's automatic source atlas. A dense
-// tree corridor then turns hundreds of otherwise compatible standee draws into
-// separate GPU commands.
-func downsampleStandeeMip(src *image.RGBA, size image.Point) *image.RGBA {
-	if src == nil || size.X <= 0 || size.Y <= 0 {
-		return nil
-	}
-	srcBounds := src.Bounds()
-	srcW, srcH := srcBounds.Dx(), srcBounds.Dy()
-	if srcW <= 0 || srcH <= 0 {
-		return nil
-	}
-	dst := image.NewRGBA(image.Rect(0, 0, size.X, size.Y))
-	if srcW == size.X*2 && srcH == size.Y*2 {
-		// Every normal mip step is exactly 2x. Keep this hot load-time path
-		// branch-free inside each 2x2 footprint; the generic area reducer below
-		// only handles odd terminal dimensions.
-		for y := 0; y < size.Y; y++ {
-			srcRow0 := src.PixOffset(srcBounds.Min.X, srcBounds.Min.Y+y*2)
-			srcRow1 := srcRow0 + src.Stride
-			dstOff := y * dst.Stride
-			for x := 0; x < size.X; x++ {
-				s0 := srcRow0 + x*8
-				s1 := srcRow1 + x*8
-				for channel := 0; channel < 4; channel++ {
-					sum := int(src.Pix[s0+channel]) + int(src.Pix[s0+4+channel]) +
-						int(src.Pix[s1+channel]) + int(src.Pix[s1+4+channel])
-					dst.Pix[dstOff+channel] = byte((sum + 2) / 4)
-				}
-				dstOff += 4
-			}
-		}
-		return dst
-	}
-	for y := 0; y < size.Y; y++ {
-		sy0 := y * srcH / size.Y
-		sy1 := (y + 1) * srcH / size.Y
-		if sy1 <= sy0 {
-			sy1 = sy0 + 1
-		}
-		for x := 0; x < size.X; x++ {
-			sx0 := x * srcW / size.X
-			sx1 := (x + 1) * srcW / size.X
-			if sx1 <= sx0 {
-				sx1 = sx0 + 1
-			}
-			var sums [4]int
-			for sy := sy0; sy < sy1; sy++ {
-				off := src.PixOffset(srcBounds.Min.X+sx0, srcBounds.Min.Y+sy)
-				for sx := sx0; sx < sx1; sx++ {
-					sums[0] += int(src.Pix[off])
-					sums[1] += int(src.Pix[off+1])
-					sums[2] += int(src.Pix[off+2])
-					sums[3] += int(src.Pix[off+3])
-					off += 4
-				}
-			}
-			count := (sx1 - sx0) * (sy1 - sy0)
-			off := y*dst.Stride + x*4
-			for channel := range sums {
-				dst.Pix[off+channel] = byte((sums[channel] + count/2) / count)
-			}
-		}
-	}
-	return dst
-}
-
 // cacheStandeeMipChain builds each level by one 2x area reduction from pixels
 // already resident on the CPU. Every reduced level enters Ebitengine as a
 // managed source image, allowing mip levels from different standees to share
 // the automatic texture atlas. Level 0 is normalized to (0,0,w,h) only when
 // the source is a sheet SubImage.
-func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *standeeMipChain {
+func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
 	if src == nil || cpuLevel == nil {
 		return nil
 	}
-	sizes := standeeMipSizes(cpuLevel.Bounds().Dx(), cpuLevel.Bounds().Dy())
+	sizes := mipSizesUniform(cpuLevel.Bounds().Dx(), cpuLevel.Bounds().Dy())
 	if len(sizes) == 0 {
 		return nil
 	}
 
-	chain := &standeeMipChain{levels: make([]*ebiten.Image, 0, len(sizes))}
+	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(sizes))}
 	base := src
 	if src.Bounds().Min != (image.Point{}) {
 		// The shader's full-size coordinate reference is normalized. Most sprite
@@ -389,13 +256,13 @@ func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cp
 	}
 	chain.levels = append(chain.levels, base)
 	for _, size := range sizes[1:] {
-		cpuLevel = downsampleStandeeMip(cpuLevel, size)
+		cpuLevel = downsampleMip(cpuLevel, size)
 		level := ebiten.NewImageFromImage(cpuLevel)
 		chain.levels = append(chain.levels, level)
 		chain.owned = append(chain.owned, level)
 	}
 	if r.standeeMipCache == nil {
-		r.standeeMipCache = make(map[standeeMipKey]*standeeMipChain)
+		r.standeeMipCache = make(map[standeeMipKey]*mipChain)
 	}
 	r.standeeMipCache[key] = chain
 	return chain
@@ -405,7 +272,7 @@ func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cp
 // standeeCoreSilhouette (mainly focused shader tests). Normal rendering builds
 // both sticker/core chains from the CPU buffers already present there and never
 // takes this GPU-readback path.
-func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *standeeMipChain {
+func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
@@ -1079,7 +946,7 @@ func canUseStandeeVolume(slab standeeSlab) bool {
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
-func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *standeeMipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool) bool {
+func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool) bool {
 	shader, err := r.ensureStandeeVolumeShader()
 	if err != nil {
 		return false
@@ -1292,7 +1159,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	filtered := standeeUsesMinificationSampling(projectedWidth, projectedHeight, texW, texH)
 	mipLevel, mipBlend := 0, float32(0)
 	if filtered {
-		mipLevel, mipBlend = standeeMipBlend(
+		mipLevel, mipBlend = mipLevelBlend(
 			standeeProjectedFootprint(projectedWidth, projectedHeight, texW, texH),
 			len(stickerMips.levels)-1,
 		)
@@ -1488,7 +1355,7 @@ func (r *Renderer) reserveStandeeBuffers() {
 // WritePixels uploads land once here instead of stalling the first frame that
 // draws each image; reading every source instead would pay that stall - plus a
 // full-image GPU readback - per sprite.
-func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *standeeMipChain) {
+func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *mipChain) {
 	if len(images) == 0 {
 		return
 	}

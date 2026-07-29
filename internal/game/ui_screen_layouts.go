@@ -35,18 +35,19 @@ type tabbedMenuLayout struct {
 
 func computeTabbedMenuLayout(screenW, screenH int) tabbedMenuLayout {
 	panel := layoutRect{(screenW - tabbedMenuPanelW) / 2, (screenH - tabbedMenuPanelH) / 2, tabbedMenuPanelW, tabbedMenuPanelH}
-	tabY := panel.y + 10
+	const frameInset = 18
+	tabY := panel.y + frameInset
 	tabs := make([]layoutRect, len(tabbedMenuTabs))
 	for i := range tabs {
 		tabs[i] = layoutRect{panel.x + 20 + i*(tabbedMenuTabW+5), tabY, tabbedMenuTabW, tabbedMenuTabH}
 	}
 	closeSize := 20
-	contentY := tabY + tabbedMenuTabH + 10
+	contentY := panel.y + 55
 	return tabbedMenuLayout{
 		panel:   panel,
 		tabs:    tabs,
-		close:   layoutRect{panel.right() - closeSize - 5, panel.y + 5, closeSize, closeSize},
-		content: layoutRect{panel.x, contentY, panel.w, panel.h - tabbedMenuTabH - 40},
+		close:   layoutRect{panel.right() - closeSize - frameInset, panel.y + frameInset, closeSize, closeSize},
+		content: layoutRect{panel.x, contentY, panel.w, panel.bottom() - 20 - contentY},
 	}
 }
 
@@ -112,8 +113,8 @@ func computeCharacterContentLayout(content layoutRect) characterContentLayout {
 	blockW := portraitSize + portraitGap + scrollW
 	cardX := content.x + (content.w-blockW)/2
 	cardY := content.y + 40
-	portrait := layoutRect{cardX, cardY + 8, portraitSize, portraitSize}
-	const framePad = 6
+	const framePad = 16
+	portrait := layoutRect{cardX, cardY + framePad, portraitSize, portraitSize}
 	return characterContentLayout{
 		title:         layoutRect{content.x + 20, content.y + 10, content.w - 40, debugTextCharHeight},
 		portraitFrame: layoutRect{portrait.x - framePad, portrait.y - framePad, portrait.w + 2*framePad, portrait.h + 2*framePad},

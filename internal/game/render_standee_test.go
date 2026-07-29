@@ -204,26 +204,26 @@ func TestStandeeMipBlendIsContinuousAcrossLevels(t *testing.T) {
 		{name: "pure upper mip", footprint: float32(math.Pow(2, 0.75)), wantLevel: 1, wantBlend: 0},
 		{name: "level one", footprint: 2, wantLevel: 1, wantBlend: 0},
 		{name: "halfway to level two", footprint: float32(2 * math.Sqrt2), wantLevel: 1, wantBlend: 0.5},
-		{name: "clamped", footprint: 256, wantLevel: standeeMaxMipLevel, wantBlend: 0},
+		{name: "clamped", footprint: 256, wantLevel: maxMipLevel, wantBlend: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			level, blend := standeeMipBlend(tt.footprint, standeeMaxMipLevel)
+			level, blend := mipLevelBlend(tt.footprint, maxMipLevel)
 			if level != tt.wantLevel || math.Abs(float64(blend-tt.wantBlend)) > 1e-5 {
-				t.Fatalf("standeeMipBlend(%g) = (%d, %.4f), want (%d, %.4f)", tt.footprint, level, blend, tt.wantLevel, tt.wantBlend)
+				t.Fatalf("mipLevelBlend(%g) = (%d, %.4f), want (%d, %.4f)", tt.footprint, level, blend, tt.wantLevel, tt.wantBlend)
 			}
 		})
 	}
 }
 
 func TestStandeeMipSizesMatchEngineDepthCap(t *testing.T) {
-	got := standeeMipSizes(128, 64)
+	got := mipSizesUniform(128, 64)
 	want := []image.Point{
 		image.Pt(128, 64), image.Pt(64, 32), image.Pt(32, 16),
 		image.Pt(16, 8), image.Pt(8, 4), image.Pt(4, 2), image.Pt(2, 1),
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("standeeMipSizes(128, 64) = %v, want %v", got, want)
+		t.Fatalf("mipSizesUniform(128, 64) = %v, want %v", got, want)
 	}
 }
 
@@ -233,9 +233,9 @@ func TestDownsampleStandeeMipAveragesPremultipliedPixels(t *testing.T) {
 		0, 20, 40, 60, 40, 60, 80, 100,
 		80, 100, 120, 140, 120, 140, 160, 180,
 	}
-	got := downsampleStandeeMip(src, image.Pt(1, 1))
+	got := downsampleMip(src, image.Pt(1, 1))
 	if got == nil {
-		t.Fatal("downsampleStandeeMip returned nil")
+		t.Fatal("downsampleMip returned nil")
 	}
 	want := []byte{60, 80, 100, 120}
 	if !reflect.DeepEqual(got.Pix, want) {
@@ -252,9 +252,9 @@ func TestDownsampleStandeeMipCoversOddSourceEdge(t *testing.T) {
 			src.Pix[off+3] = 255
 		}
 	}
-	got := downsampleStandeeMip(src, image.Pt(1, 1))
+	got := downsampleMip(src, image.Pt(1, 1))
 	if got == nil {
-		t.Fatal("downsampleStandeeMip returned nil")
+		t.Fatal("downsampleMip returned nil")
 	}
 	if got.Pix[0] != 5 || got.Pix[3] != 255 {
 		t.Fatalf("odd 3x3 average = %v, want [5 _ _ 255]", got.Pix)
