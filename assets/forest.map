@@ -15,7 +15,7 @@
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %@@..T...T....T.PPPPP...T.....fffT....T.@@WQQQQQ@%  >[npc:campfire], [npc:mtrader0], [npc:barrel_green], [npc:barrel_blue], [npc:chest_iron]
-%..........T......................T.....PP.WQQQQQ%
+%..........T......................T.....PP@WQQQQQ%  >[npc:lake_bather_ilsa]
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%
 %..........T.CCCCCCl..T.........T.....T........WW%
@@ -30,10 +30,10 @@
 %t...T...ww....T.....T.....M...T.....T..........P-
 %..........T.......T.....T.......T..............P-
 %.T.....T.M.....T.....T.......T...T.............@D  >[stile:rteleporter]
-%t...T....M....T.....T.........T.....T..........P-
-%..........T.......Tww...T..ww...T..............P-
-%.T.....T.......T..T@@TT......T.....T.....PP....P=  >[npc:campfire], [npc:barrel_red]
-%....T.........T..TTTTT.T......T.....T....PP...P.=
+%t...T....M....T...............T.....T..........P-
+%..........T.......TwwT..T..ww...T..............P-
+%.T.....T.......T..T@@T.......T.....T.....PP....P=  >[npc:campfire], [npc:barrel_red]
+%....T.........T..TTTTTTT......T.....T....PP...P.=
 %t.........T......TAWWWAT...T.......T............%
 %.T.....T.......T.TWWWWWT..MM...T..ww.T....P.....%
 %....T.........TTTTWWWWWTf....ww..T.w...T........%
@@ -41,9 +41,9 @@
 %.T.....T.......TTTWWWWWTf......T.....T..........%
 %....T.........T..TWWWWWT...MM....T.....T........%
 %t...M.....T......TAWWWAT...T.......T.......P....%
-%.T.....T...ww..T.T.T.T.T.....T.....T.....P......%
-%....T.........T...T.T.T.......T.....T...........%
-%......M.M.T.......T.....T.......T...............%
+%.T.....T...ww..T.TTTTTTT.....T.....T.....P......%
+%....T.........T....T..........T.....T...........%
+%......M.M.T.............T.......T...............%
 %.T.....T.......T.....T...w...T.....T...PP....P..%
 %....T.........T.....T.....ww..T.....T...........%
 %...ww.....T.......T.....T.......T............P..%
@@ -61,6 +61,6 @@ T.M..T.......P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]
 T......T...T.......CCCCCC.....CCCCCC.........Pn@R%  >[npc:barrel_red]
 T.T.....TT......T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
 TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
-TpFFp...FF.TM...................................R%
+TpFFp...FF.TM......................@............R%  >[npc:forest_peasant_wenna]
 T@TTTTTTTT..Tg.TTP......PP.....................RR%  >[npc:spell_lectern]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -97,6 +97,7 @@ type Arrow struct {
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
+	DistanceTraveled   float64 // Runtime-only path length used by release projection
 	Damage             int
 	TrueDamage         int                    // typed true component snapshotted when the projectile is fired
 	IgnoresDodge       bool                   // snapshotted attack rider; shooter state may change in flight
@@ -984,7 +985,7 @@ func (g *MMGame) updateFocusedNPC() {
 	band := halfW * 0.4 // "roughly centred": middle 40% of the screen
 	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
-		if npc.HideWhenVisited && npc.Visited {
+		if g.npcAbsent(npc) {
 			continue
 		}
 		if g.npcDoorOpen(npc) { // raised portcullis: nothing to interact with
@@ -1007,6 +1008,21 @@ func (g *MMGame) updateFocusedNPC() {
 // findNPCAtScreen returns the visible NPC whose rendered sprite is under the
 // given screen point (nearest wins). inRange reports whether it is close
 // enough to interact (InteractionDistance) - a hit beyond that only prompts.
+// npcAbsent reports whether an NPC is not in the world right now: a spent
+// hide_when_visited prop, or a night_only NPC during the day. ONE predicate for
+// interaction focus, click targeting and rendering - a gate applied at only two
+// of the three sites leaves an invisible NPC still talkable (or a talkable one
+// invisible).
+func (g *MMGame) npcAbsent(npc *character.NPC) bool {
+	if npc == nil {
+		return true
+	}
+	if npc.HideWhenVisited && npc.Visited {
+		return true
+	}
+	return npc.NightOnly && !g.dayNightIsNight
+}
+
 func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
 	currentWorld := g.GetCurrentWorld()
 	if currentWorld == nil || g.renderHelper == nil {
@@ -1014,7 +1030,7 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 	}
 	bestDist := math.MaxFloat64
 	for _, n := range currentWorld.NPCs {
-		if n.HideWhenVisited && n.Visited {
+		if g.npcAbsent(n) {
 			continue
 		}
 		if n.Sprite == "" || n.Sprite == "none" {
@@ -3187,6 +3203,7 @@ func (aw *ArrowWrapper) GetPosition() (float64, float64) {
 }
 
 func (aw *ArrowWrapper) SetPosition(x, y float64) {
+	aw.Arrow.DistanceTraveled += math.Hypot(x-aw.Arrow.X, y-aw.Arrow.Y)
 	aw.Arrow.X = x
 	aw.Arrow.Y = y
 	// Update collision system position

@@ -37,6 +37,79 @@ func linkedQuestID(npc *character.NPC) string {
 	return ""
 }
 
+// questChainStepDone reports whether a quest is finished AND paid out - the
+// condition a chained follow-up waits on.
+func (g *MMGame) questChainStepDone(questID string) bool {
+	if questID == "" {
+		return true
+	}
+	if g.questManager == nil {
+		return false
+	}
+	q := g.questManager.GetQuest(questID)
+	return q != nil && q.Completed && q.RewardsClaimed
+}
+
+// partyHoldsQuest reports whether the party has taken a quest at all - active,
+// done, or already paid out. Gates content that a quest is the licence for
+// (the dragon seals answer only to someone who swore the hunt).
+func (g *MMGame) partyHoldsQuest(questID string) bool {
+	if questID == "" {
+		return true
+	}
+	return g.questManager != nil && g.questManager.GetQuest(questID) != nil
+}
+
+// questAwaitingTurnIn reports whether this specific quest is done but unpaid -
+// the only one of a giver's errands whose turn-in row should be live.
+func (g *MMGame) questAwaitingTurnIn(questID string) bool {
+	if g.questManager == nil {
+		return false
+	}
+	q := g.questManager.GetQuest(questID)
+	return q != nil && q.Completed && !q.RewardsClaimed
+}
+
+// choiceAvailable applies a choice's requires_quest gate: a chained offer stays
+// hidden until its prerequisite has been turned in.
+func (g *MMGame) choiceAvailable(c *character.NPCDialogueChoice) bool {
+	return c != nil && g.questChainStepDone(c.RequiresQuest)
+}
+
+// activeChainQuestID is the quest an NPC is CURRENTLY about: the first of its
+// quest choices whose prerequisite is met and which is not yet finished. A
+// giver that hands out two errands in order (goblins, then wolves) would
+// otherwise stay pinned to the first one forever and fall silent after it -
+// linkedQuestID alone reads only the first choice in the list.
+func (g *MMGame) activeChainQuestID(npc *character.NPC) string {
+	choices := questChoicesOf(npc)
+	last := ""
+	for _, c := range choices {
+		if !g.choiceAvailable(c) {
+			continue
+		}
+		last = c.QuestID
+		if !g.questChainStepDone(c.QuestID) {
+			return c.QuestID
+		}
+	}
+	return last // every step done: the last one keeps the NPC concluded
+}
+
+// npcHasPendingChainStep reports whether the NPC still has an unfinished quest
+// step after the given one - i.e. turning that step in must NOT conclude them.
+func (g *MMGame) npcHasPendingChainStep(npc *character.NPC, justFinished string) bool {
+	for _, c := range questChoicesOf(npc) {
+		if c.QuestID == justFinished {
+			continue
+		}
+		if !g.questChainStepDone(c.QuestID) {
+			return true
+		}
+	}
+	return false
+}
+
 // npcDialogueState computes an NPC's dialogue state from its linked quest and the
 // Visited flag (set when an encounter is cleared or a quest is turned in).
 func (g *MMGame) npcDialogueState(npc *character.NPC) npcDialogState {
@@ -50,7 +123,7 @@ func (g *MMGame) npcDialogueState(npc *character.NPC) npcDialogState {
 		}
 		return npcStateConcluded
 	}
-	qid := linkedQuestID(npc)
+	qid := g.activeChainQuestID(npc)
 	if qid == "" || g.questManager == nil {
 		return npcStateOffer // pure encounter / door NPC: offer until Visited
 	}
@@ -315,16 +388,18 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 	}
 	var out []*character.NPCDialogueChoice
 	for _, c := range source {
-		if c == nil {
+		if c == nil || !g.choiceAvailable(c) {
 			continue
 		}
 		switch c.Action {
 		case "give_quest":
-			if state == npcStateOffer {
+			// Per CHOICE, not just per NPC state: a giver with several errands
+			// must not keep offering one the party already took or finished.
+			if state == npcStateOffer && !g.partyHoldsQuest(c.QuestID) {
 				out = append(out, c)
 			}
 		case "turn_in_quest":
-			if state == npcStateCompleted {
+			if state == npcStateCompleted && g.questAwaitingTurnIn(c.QuestID) {
 				out = append(out, c)
 			}
 		default:

@@ -39,7 +39,10 @@ type QuestRewards struct {
 	Gold        int `yaml:"gold"`
 	ArenaPoints int `yaml:"arena_points,omitempty"`
 	Experience  int `yaml:"experience"`
-	// Future: Items []string `yaml:"items"`
+	// ItemPool is a set of items.yaml keys; claiming rolls ONE of them at
+	// random. A repeatable errand pays a different draught each night without
+	// needing a full loot table.
+	ItemPool []string `yaml:"item_pool,omitempty"`
 }
 
 // QuestTileChange swaps one map tile when its quest completes (e.g. a bridge
@@ -82,6 +85,10 @@ type QuestDefinition struct {
 	TargetCount     int      `yaml:"target_count"`
 	Exterminate     bool     `yaml:"exterminate,omitempty"`
 	IsStartingQuest bool     `yaml:"is_starting_quest"`
+	// Repeatable errands are cleared again at every nightfall once claimed, so
+	// their giver offers the same task the next night (see
+	// refreshRepeatableQuests). Progress restarts from zero.
+	Repeatable bool `yaml:"repeatable,omitempty"`
 	// AutoClaim marks objective-only quests whose completion is itself the
 	// reward. They finish without presenting an empty journal claim action.
 	AutoClaim bool `yaml:"auto_claim,omitempty"`

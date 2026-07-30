@@ -414,28 +414,28 @@ items:
     name: "Black Dragon Statuette"
     type: "quest"
     description: "An obsidian statuette of the black desert dragon"
-    flavor: "Cold stone holds the shape of a sleeping wyrm."
+    flavor: "Not stone. Cold metal, seamed, with a row of small marks stamped inside the mouth."
     rarity: "legendary"
 
   red_dragon_statuette:
     name: "Red Dragon Statuette"
     type: "quest"
     description: "A ruby-red statuette of the red dragon"
-    flavor: "Its scales catch the light like banked embers."
+    flavor: "The seams are riveted. No carver made this, whatever the priests say."
     rarity: "legendary"
 
   green_dragon_statuette:
     name: "Green Dragon Statuette"
     type: "quest"
     description: "An emerald-green statuette of the green dragon"
-    flavor: "A small serpent of stone and jungle venom."
+    flavor: "Turn it over and something inside clicks across into a new position."
     rarity: "legendary"
 
   gold_dragon_statuette:
     name: "Gold Dragon Statuette"
     type: "quest"
     description: "A golden statuette of the storm dragon"
-    flavor: "Tiny wings of hammered gold seem ready to stir."
+    flavor: "It warms in your hand, and a bead of light crosses the eye once."
     rarity: "legendary"
 
   ancient_linen_wrap:
@@ -791,7 +791,7 @@ items:
     name: "Thief King Signet"
     type: "accessory"
     description: "A stolen signet ring crowned with a golden beetle"
-    flavor: "The bug's stolen signet; fortune favours whoever wears a thief's crown."
+    flavor: "Warm, and a green spark crosses it now and then. The gold beetle was soldered on later."
     equip_slot: "ring"
     bonus_luck: 12
     rarity: "rare"
@@ -1074,7 +1074,7 @@ items:
     name: "Golden Idol"
     type: "trinket"
     description: "A small solid-gold idol from the lost city's hoard"
-    flavor: "Heavier than it looks, and worth a small fortune in any port."
+    flavor: "Heavier than it looks, and it grows warm whenever the warlord's men come near."
     rarity: "legendary"
     value: 1300
 
@@ -1920,7 +1920,7 @@ items:
     name: "Black Dragon Scale"
     type: "trinket"
     description: "A palm-wide scale of the Brood Mother, still warm"
-    flavor: "The Scalewright will not say what he pays for these. He pays."
+    flavor: "Bolt holes along one edge, where it was fastened to something bigger. The Scalewright pays and does not discuss it."
     rarity: "legendary"
     value: 1200
 
@@ -1943,8 +1943,8 @@ items:
   gold_dragon_scale:
     name: "Gold Dragon Scale"
     type: "trinket"
-    description: "A gold scale that hums faintly in a storm"
-    flavor: "Worth its weight. Weighs a lot."
+    description: "A gold scale that sparks faintly in a storm"
+    flavor: "Worth its weight, and it throws sparks at steel indoors too."
     rarity: "rare"
     value: 600
 

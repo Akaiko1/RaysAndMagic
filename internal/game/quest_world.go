@@ -11,6 +11,94 @@ import (
 	"ugataima/internal/world"
 )
 
+// refreshRepeatableQuests clears every finished repeatable errand at nightfall
+// so its giver offers the same task again. The quest is dropped rather than
+// rewound: an absent quest is exactly the "never taken" state the NPC dialogue
+// machine already reads as an offer. The giver's Visited flag is cleared with
+// it - turn-in sets Visited to conclude a giver, and a nightly errand must not
+// stay concluded.
+func (g *MMGame) refreshRepeatableQuests() {
+	if g.questManager == nil {
+		return
+	}
+	refreshed := make(map[string]bool)
+	for id, def := range g.questManager.Definitions() {
+		if def == nil || !def.Repeatable {
+			continue
+		}
+		q := g.questManager.GetQuest(id)
+		if q == nil || !q.Completed || !q.RewardsClaimed {
+			continue
+		}
+		g.questManager.RemoveQuest(id)
+		refreshed[id] = true
+	}
+	if len(refreshed) == 0 {
+		return
+	}
+	for _, npc := range g.allLoadedNPCs() {
+		if npc == nil || !npc.Visited {
+			continue
+		}
+		for _, c := range questChoicesOf(npc) {
+			if refreshed[c.QuestID] {
+				npc.Visited = false
+				break
+			}
+		}
+	}
+}
+
+// allLoadedNPCs walks every loaded world's NPCs (split maps and the unified
+// world alike), so a state sweep cannot miss the map the party is not on.
+func (g *MMGame) allLoadedNPCs() []*character.NPC {
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return nil
+	}
+	var out []*character.NPC
+	seen := make(map[*character.NPC]bool)
+	add := func(w *world.World3D) {
+		if w == nil {
+			return
+		}
+		for _, npc := range w.NPCs {
+			if npc != nil && !seen[npc] {
+				seen[npc] = true
+				out = append(out, npc)
+			}
+		}
+	}
+	for _, w := range wm.LoadedMaps {
+		add(w)
+	}
+	add(wm.OpenWorld)
+	return out
+}
+
+// questChoicesOf lists an NPC's quest-bearing choices at any nesting depth -
+// a give_quest often sits two "info" branches deep.
+func questChoicesOf(npc *character.NPC) []*character.NPCDialogueChoice {
+	if npc == nil || npc.DialogueData == nil {
+		return nil
+	}
+	var out []*character.NPCDialogueChoice
+	var walk func(cs []*character.NPCDialogueChoice)
+	walk = func(cs []*character.NPCDialogueChoice) {
+		for _, c := range cs {
+			if c == nil {
+				continue
+			}
+			if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != "" {
+				out = append(out, c)
+			}
+			walk(c.Choices)
+		}
+	}
+	walk(npc.DialogueData.Choices)
+	return out
+}
+
 func questMonsterTag(m *monster.Monster3D) string {
 	if m == nil {
 		return ""
@@ -84,6 +172,7 @@ func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 func (g *MMGame) syncKillQuestCensus(q *quests.Quest) (int, bool) {
 	if g.questManager == nil || q == nil || q.Completed || q.Definition == nil ||
 		q.Definition.Type != quests.QuestTypeKill ||
+		q.Definition.EncounterOnly ||
 		(q.Definition.TargetMonster == "" && len(q.Definition.TargetMonsters) == 0) {
 		return 0, false
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/quests"
@@ -11,11 +12,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Tavern rumors: the guide-rail hint system. Every tavern-capable NPC offers a
-// "Listen for rumors" branch showing ONE rumor - the pool is every rumor whose
-// prerequisite quest is complete and whose goal quest is not, and the shown
-// entry rotates with the day/night clock (dayNightDay bumps on every phase
-// flip), so a crowded pool cycles by itself with no timers or save fields.
+// Tavern rumors are objective story guide rails. Every tavern-capable NPC
+// offers a "Listen for rumors" branch showing one actionable rumor. General
+// quest leads share the daily rotation; unlocked boss follow-ups temporarily
+// take over the pool until their named monster objective is complete.
 
 // RumorDef is one authored rumor (assets/rumors.yaml).
 type RumorDef struct {
@@ -24,7 +24,16 @@ type RumorDef struct {
 	Quest string `yaml:"quest,omitempty"`
 	// After hides the rumor until that quest completes ("" = always eligible).
 	After string `yaml:"after,omitempty"`
-	Text  string `yaml:"text"`
+	// UntilMonster retires the rumor once this unique story target is no longer
+	// alive. TargetMap scopes the lookup. Spawn optionally names the stable
+	// "quest#spawn" event that must fire before absence can mean death.
+	UntilMonster string `yaml:"until_monster,omitempty"`
+	TargetMap    string `yaml:"target_map,omitempty"`
+	Spawn        string `yaml:"spawn,omitempty"`
+	// Priority orders simultaneous boss follow-ups. General quest leads remain
+	// in the same daily deck regardless of priority so none become unreachable.
+	Priority int    `yaml:"priority,omitempty"`
+	Text     string `yaml:"text"`
 }
 
 type rumorConfig struct {
@@ -48,6 +57,23 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 		if r.Text == "" {
 			return fmt.Errorf("rumors: entry %d has no text", i)
 		}
+		if r.Priority < 0 {
+			return fmt.Errorf("rumors: entry %d has negative priority", i)
+		}
+		if r.Quest == "" && r.UntilMonster == "" {
+			return fmt.Errorf("rumors: entry %d has no retirement condition", i)
+		}
+		if r.UntilMonster != "" && r.After == "" {
+			return fmt.Errorf("rumors: entry %d until_monster requires after", i)
+		}
+		if r.Spawn != "" {
+			if r.UntilMonster == "" {
+				return fmt.Errorf("rumors: entry %d spawn requires until_monster", i)
+			}
+			if !validRumorSpawnReference(r.Spawn, questManager) {
+				return fmt.Errorf("rumors: entry %d references unknown quest spawn %q", i, r.Spawn)
+			}
+		}
 		for _, ref := range []string{r.Quest, r.After} {
 			if ref == "" {
 				continue
@@ -61,6 +87,23 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 	return nil
 }
 
+func validRumorSpawnReference(ref string, questManager *quests.QuestManager) bool {
+	questID, spawnID, ok := strings.Cut(ref, "#")
+	if !ok || questID == "" || spawnID == "" || questManager == nil {
+		return false
+	}
+	def := questManager.Definitions()[questID]
+	if def == nil {
+		return false
+	}
+	for _, spawn := range def.OnCompleteSpawns {
+		if spawn.ID == spawnID {
+			return true
+		}
+	}
+	return false
+}
+
 // questCompleted reports whether a quest is completed in the current run.
 func (g *MMGame) questCompleted(id string) bool {
 	if g.questManager == nil {
@@ -70,20 +113,93 @@ func (g *MMGame) questCompleted(id string) bool {
 	return q != nil && q.Completed
 }
 
-// eligibleRumors is the pool a tavern may draw from: prerequisite met, goal
-// not yet completed. Authored order, so an offset indexes it reproducibly.
-func (g *MMGame) eligibleRumors() []string {
-	var pool []string
-	for _, r := range globalRumors {
-		if r.After != "" && !g.questCompleted(r.After) {
-			continue
-		}
-		if r.Quest != "" && g.questCompleted(r.Quest) {
-			continue
-		}
-		pool = append(pool, r.Text)
+// rumorSpawnFired recognizes current stable spawn keys plus both legacy save
+// forms used before spawn IDs became authoritative.
+func (g *MMGame) rumorSpawnFired(ref string) bool {
+	if g.questSpawnsDone[ref] {
+		return true
 	}
-	return pool
+	questID, spawnID, ok := strings.Cut(ref, "#")
+	if !ok || g.questManager == nil {
+		return false
+	}
+	if g.questSpawnsDone[questID] {
+		return true
+	}
+	def := g.questManager.Definitions()[questID]
+	if def == nil {
+		return false
+	}
+	for i, spawn := range def.OnCompleteSpawns {
+		if spawn.ID == spawnID {
+			return g.questSpawnsDone[fmt.Sprintf("%s#%d", questID, i)]
+		}
+	}
+	return false
+}
+
+func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {
+	if r.UntilMonster == "" {
+		return false
+	}
+	// A deferred boss is absent before its first arrival too. Only treat
+	// absence as death after its authored spawn event has actually fired.
+	if r.Spawn != "" && !g.rumorSpawnFired(r.Spawn) {
+		return false
+	}
+	def := &quests.QuestDefinition{
+		TargetMonster: quests.NormalizeTarget(r.UntilMonster),
+		TargetMap:     r.TargetMap,
+	}
+	for _, pending := range g.pendingQuestSpawns {
+		if pending.monster != nil && pending.monster.HitPoints > 0 &&
+			def.MatchesTarget(questMonsterTag(pending.monster)) {
+			return false
+		}
+	}
+	return g.countLivingQuestTargets(def) == 0
+}
+
+func (g *MMGame) rumorAvailable(r RumorDef) bool {
+	if r.After != "" && !g.questCompleted(r.After) {
+		return false
+	}
+	if r.Quest != "" && g.questCompleted(r.Quest) {
+		return false
+	}
+	return !g.rumorMonsterObjectiveComplete(r)
+}
+
+// eligibleRumors returns every actionable general quest lead unless an
+// immediate boss follow-up is active. Boss follow-ups are deliberately
+// exclusive: once a quest has spawned or unlocked its named target, that exact
+// next step is more useful than another destination. If several such steps are
+// active, only the highest-priority tier shares the daily deck.
+func (g *MMGame) eligibleRumors() []string {
+	var general []string
+	var followups []string
+	bestFollowupPriority := -1
+	for _, r := range globalRumors {
+		if !g.rumorAvailable(r) {
+			continue
+		}
+		if r.UntilMonster == "" {
+			general = append(general, r.Text)
+			continue
+		}
+		if r.Priority < bestFollowupPriority {
+			continue
+		}
+		if r.Priority > bestFollowupPriority {
+			followups = followups[:0]
+			bestFollowupPriority = r.Priority
+		}
+		followups = append(followups, r.Text)
+	}
+	if len(followups) > 0 {
+		return followups
+	}
+	return general
 }
 
 // tavernRumorSeed identifies the tavern doing the talking - its OWN region plus

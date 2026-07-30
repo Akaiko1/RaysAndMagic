@@ -2,33 +2,59 @@
 # This file defines all quests in the game
 
 quests:
-  # Starting quests - given at the beginning of the game
+  # The opening chain: Wenna the herb-picker stands by the forest clearing where
+  # the party begins. She asks for the goblins first and only mentions the wolves
+  # once that is done (requires_quest in npcs.yaml), so a new party is handed one
+  # errand at a time instead of a full journal on turn one.
   goblin_hunt:
     name: "Goblin Hunt"
-    description: "The local village has been plagued by goblins. Hunt down 5 of them to make the area safer."
+    description: "Kill 5 Goblins on the herb paths south of the forest clearing for Wenna the Herb-Picker and report back to her."
     type: "kill"
     target_monster: "goblin"
     target_count: 5
-    is_starting_quest: true
+    is_starting_quest: false
     rewards:
       gold: 50
       experience: 100
 
   wolf_pack:
     name: "Wolf Pack"
-    description: "A pack of wolves has been attacking travelers on the road. Eliminate 3 wolves to protect the trade routes."
+    description: "Kill 3 Wolves on the north forest road for Wenna the Herb-Picker and report back to her."
     type: "kill"
     target_monster: "wolf"
     target_count: 3
-    is_starting_quest: true
+    is_starting_quest: false
     rewards:
       gold: 75
       experience: 150
 
+  # The bather's nightly errand: the lake spiders come with the dark, so this one
+  # is repeatable - cleared again at every nightfall (see refreshRepeatableQuests)
+  # and paid in whatever draught she has on her.
+  lake_spiders:
+    name: "The Lake at Night"
+    description: "Kill 5 Forest Spiders at the forest lake for Ilsa and report back to her. She asks again each night."
+    type: "kill"
+    target_monster: "forest_spider"
+    target_count: 5
+    target_map: "forest"
+    is_starting_quest: false
+    repeatable: true
+    rewards:
+      gold: 60
+      experience: 120
+      item_pool:
+        - "health_potion"
+        - "mana_potion"
+        - "flame_ward_draught"
+        - "storm_ward_draught"
+        - "gloom_ward_draught"
+        - "stoneskin_draught"
+
   # Archmage trial - given by the Mage Tower; turning it in promotes a member.
   archmage_trial:
     name: "The Archmage's Trial"
-    description: "Prove your mastery of Light: slay the Lich King, then return to the Mage Tower."
+    description: "Slay the Lich King in the Lich Nexus and report back to the Mage Tower to be raised to Archmage. The raising is not a title. They put something into the one raised, and it stays in there."
     type: "kill"
     target_monster: "lich_king"
     target_count: 1
@@ -39,7 +65,7 @@ quests:
 
   dragon_cliffs_troll_cull:
     name: "Cliffwatch Troll Cull"
-    description: "Maera Cliffwatch wants the mountain trolls thinned before they overrun the bridge approaches."
+    description: "Kill 3 Mountain Trolls on the Dragon Cliffs for Maera Cliffwatch and report back to her."
     type: "kill"
     target_monster: "mountain_troll"
     target_count: 3
@@ -51,7 +77,7 @@ quests:
 
   culverts_valves:
     name: "Stem the Flow"
-    description: "Old Sewerman Garran wants the seven sluice valves in the Seabright culverts shut to flush out the Golden Thief Bug's lair."
+    description: "Shut the 7 sluice valves in the Seabright Culverts for Sewerman Garran and report back to him. Shutting them opens the Golden Thief Bug's lair. It hoards rings and crowns, and things that are neither: small warm cases that spark when pried at."
     type: "interact"
     target_monster: "valve"   # interaction tag matched by OnInteract
     target_count: 7
@@ -62,7 +88,7 @@ quests:
 
   castle_armory:
     name: "The Warlord's Armoury"
-    description: "An old retainer at the eastern castle bids you strip the five katana racks hidden behind the keep's shoji screens. Only when the castle's own steel is taken will the sealed Samurai Warlord stir to face you."
+    description: "Strip the 5 katana racks behind the shoji screens of the eastern castle for the old retainer and report back to him. Taking the castle's steel wakes the Samurai Warlord. The temple sealed him for what the eastern rot put inside him. It is still in there, and it works his arms for him."
     type: "interact"
     target_monster: "sword_rack"   # interaction tag matched by OnInteract
     target_count: 5
@@ -76,7 +102,7 @@ quests:
   # water tiles east of the lake trader for bridge planks.
   forest_wolf_cull:
     name: "Wolves of the Lakeshore"
-    description: "Mystic Trader Aldric will lay a bridge to his colleague on the lake once every wolf in the Elvish Forest is dead."
+    description: "Kill every Wolf in the Elvish Forest for Mystic Trader Aldric and report back to him. He will lay a bridge across the lake."
     type: "kill"
     target_monster: "wolf"
     target_count: 21
@@ -92,7 +118,7 @@ quests:
 
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
-    description: "Old Varric says the cliff mages have begun listening to something beneath the dragon bones. Slay two archmages to break the rite."
+    description: "Kill 2 Archmages on the Dragon Cliffs for Old Varric and report back to him. They chant over the dragon bones, and lately a light answers back from inside the rock, blinking slow."
     type: "kill"
     target_monster: "archmage"
     target_count: 2
@@ -106,12 +132,15 @@ quests:
   # (victory itself now belongs to endgame_triad).
   dragon_slayer:
     name: "Dragon Slayer"
-    description: "Elder dragons terrorize the desert. Slay all 4 to become a true hero and save the realm."
+    description: "Slay all 4 Elder Dragons at the desert seals for Sylwen the Pilgrim and report back to her. The seals will not open until you swear the hunt. The dragons do not bleed. Cut one and it sparks, and the hide under the scorch is riveted plate."
     type: "kill"
     target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
     target_count: 4
     encounter_only: true
-    is_starting_quest: true
+    # Taken from Sylwen, the pilgrim keeping vigil at the desert seals. The
+    # statues refuse a statuette until this oath is sworn (buildStatueChoices),
+    # so the hunt can never be finished by a party that never accepted it.
+    is_starting_quest: false
     rewards:
       arena_points: 5000
     # The reaper comes to collect ONLY when all four god-machines are dead:
@@ -127,7 +156,7 @@ quests:
   # no dragon is left alive on the cliffs (on_complete_spawns fires once).
   broodmother_nests:
     name: "The Silent Nests"
-    description: "The cliff dragons guard more than bones. Rangers swear something vast breathes beneath the Ember Crater, and that it wakes only for silence. Leave no dragon alive on the Dragon Cliffs."
+    description: "Leave no Dragon alive on the Dragon Cliffs. The Brood Mother wakes in the Ember Crater when the cliffs fall silent. The cliff dragons vent smoke without drawing breath, and their eyes light up before they turn."
     type: "kill"
     target_monster: "dragon"
     target_count: 7   # nominal; exterminate snapshots the live census at accept
@@ -145,7 +174,7 @@ quests:
   # spawn past the purge visit - the tavern rumor sends you back).
   water_purge:
     name: "The Quiet Deep"
-    description: "Fisherfolk say the drowned lights have multiplied, and that things which are not fish now walk the seabed. Scour the Ocean Depths of the pale strangers - and mind what their silence wakes."
+    description: "Kill every Alien in the Ocean Depths, then dive again. The Alien Enforcer surfaces on your return. They do not drown and they do not surface, and their lamps burn steady down there in rows."
     type: "kill"
     target_monster: "alien"
     target_count: 3   # nominal; exterminate snapshots the live census at accept
@@ -162,7 +191,7 @@ quests:
   # Its only reward is the victory itself (user decree): no gold, no xp.
   endgame_triad:
     name: "The Last Reckoning"
-    description: "Three shadows crown the age: the mother brooding in her crater, the horned court risen under the sand, and the iron thing beneath the tide. End all three, and the realm is saved."
+    description: "Slay the Brood Mother in the Ember Crater, the Ancient God of Death beneath the pyramid, the Alien Enforcer in the Ocean Depths, and save the realm."
     type: "kill"
     target_monsters: ["brood_mother", "ancient_god_of_death", "alien_enforcer"]
     target_count: 3

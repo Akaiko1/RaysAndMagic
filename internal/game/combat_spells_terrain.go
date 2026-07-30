@@ -152,12 +152,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		return false
 	}
 	owner := summonSpellOwner(def.ID)
-	live := 0
-	for _, m := range cs.game.world.Monsters {
-		if m != nil && m.IsAlive() && m.SummonedBy == owner {
-			live++
-		}
-	}
+	live := cs.countLiveSummonsByOwner(owner)
 	if live >= def.SummonMax {
 		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s already serves you.", def.Name))

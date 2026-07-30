@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"math/rand"
 	"strings"
 
 	"ugataima/internal/character"
@@ -1477,6 +1478,9 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	// NPCs overlay
 	npcColor := color.RGBA{255, 220, 0, 255}
 	for _, npc := range ui.game.world.NPCs {
+		if ui.game.npcAbsent(npc) {
+			continue
+		}
 		nx := int(npc.X / float64(ui.game.config.GetTileSize()))
 		ny := int(npc.Y / float64(ui.game.config.GetTileSize()))
 		if nx < 0 || nx >= worldW || ny < 0 || ny >= worldH {
@@ -1822,7 +1826,23 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
 			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
 	}
+	g.awardQuestPoolItem(rewards.ItemPool)
 	return true
+}
+
+// awardQuestPoolItem rolls ONE item from a quest's item_pool into the party
+// pack. Announced separately from the gold/xp line so a nightly errand that
+// pays only an item still reports what was handed over.
+func (g *MMGame) awardQuestPoolItem(pool []string) {
+	if len(pool) == 0 {
+		return
+	}
+	it, err := items.TryCreateItemFromYAML(pool[rand.Intn(len(pool))])
+	if err != nil {
+		return
+	}
+	g.party.AddItem(it)
+	g.AddCombatMessage(fmt.Sprintf("She presses a %s into your hands.", it.Name))
 }
 
 // truncateName truncates a name to maxLen displayed characters.

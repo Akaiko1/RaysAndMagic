@@ -1,39 +1,73 @@
-# Tavern rumors - the guide-rail hint system. Shown at every tavern via the
-# "Listen for rumors" branch; ONE rumor at a time, rotating with each day/night
-# flip. `quest` = the goal it points at (rumor retires when it completes);
-# `after` = prerequisite quest (hidden until that completes); a rumor with no
-# `quest` is aftermath flavor and never retires. Written in the mythic
-# register - the truth beneath is never stated outright.
+# Tavern rumors are objective story guide rails. Every entry names a real next
+# step and has an explicit retirement condition, so completed directions leave
+# the pool.
+#
+# `quest` retires the rumor when that quest completes.
+# `after` hides it until the prerequisite quest completes.
+# `until_monster` retires it when that unique target is dead.
+# `spawn` distinguishes a not-yet-spawned story boss from a dead one.
+# `priority` makes an unlocked follow-up outrank general leads.
 rumors:
-  # Early guidance
+  # Optional authored arcs. These point at their real giver or interaction and
+  # retire as soon as the stated objective is complete.
   - quest: "culverts_valves"
-    text: "Old Garran swears the Seabright culverts flood from BELOW. Seven valves, he says, and something golden swimming between them."
+    priority: 10
+    text: "Grist the Sluice-Rat waits inside the Seabright Culverts. Help him shut all seven valves and drain the Golden Thief Bug's flooded lair."
+  - after: "culverts_valves"
+    until_monster: "golden_thief_bug"
+    target_map: "culverts"
+    priority: 80
+    text: "The seven culvert valves are shut. The Golden Thief Bug can no longer escape through the water; hunt it in the drained depths and kill it."
+
   - quest: "castle_armory"
-    text: "The eastern castle keeps its swords behind paper screens - and its lord behind something stronger. Steel taken is steel answered, they say."
+    priority: 10
+    text: "Shozo the Ronin waits at the Eastern Isle Castle. Take the weapons from all five katana racks behind its paper screens to wake the Samurai Warlord."
+  - after: "castle_armory"
+    until_monster: "samurai_warlord"
+    target_map: "japanese_castle"
+    priority: 80
+    text: "All five katana racks in the Eastern Isle Castle are bare. The Samurai Warlord is awake in the high keep; climb to him and end the old curse."
+
   - quest: "forest_wolf_cull"
-    text: "Trader Aldric will lay planks over the lake the day the last wolf of the Elvish Forest stops howling."
+    priority: 10
+    text: "Mystic Trader Aldric will lay a bridge over the lake when every Wolf in the Elvish Forest is dead."
 
-  # The dragon arc
-  - quest: "dragon_slayer"
-    text: "Four sleepers under the desert, four seals, four little statues. Runes say a statuette wakes what sleeps in the stone - if you truly want it woken."
-  - quest: "broodmother_nests"
-    text: "Rangers say the cliff dragons sing to something under the Ember Crater - and that the mother of them all wakes only for silence. Leave no dragon alive up there, if you dare learn what answers."
-  - after: "dragon_slayer"
-    text: "Since the fourth elder fell, pilgrims will not enter the pyramid. They say the dais hums now, and the Isis kneel to a horned shadow that was not there before."
-
-  # The drowned arc
-  - quest: "water_purge"
-    text: "Fisherfolk mark pale lights walking the seabed off Seabright. Things that are not fish. Scour them out - and mind what their silence wakes."
-  - after: "water_purge"
-    text: "The deep went quiet after you cleaned it, they say. Quiet like held breath. Go back down, if you must know what draws one."
-
-  # The crown arc
   - quest: "archmage_trial"
-    text: "The white tower's throne stands empty while the mad king rots on his. Break the Lich King at his nexus and the Light will crown one of YOURS - so the robes whisper."
+    priority: 20
+    text: "The Mage Tower will raise one party member to Archmage. Accept its trial, kill the Lich King in the Lich Nexus, then return to the tower."
 
-  # The reckoning itself
-  - quest: "endgame_triad"
-    text: "Three shadows crown the age, the old song goes - the mother in her crater, the horned court under the sand, the iron thing beneath the tide. Whoever ends all three writes the next verse."
+  # Main story gates. These outrank optional leads.
+  - quest: "dragon_slayer"
+    priority: 50
+    text: "Find Sylwen the Pilgrim beside the four desert dragon seals and swear her hunt. Each seal also needs its matching colored dragon statuette from the reliquaries in the Pyramid Sanctum."
 
-  # Standing flavor
-  - text: "A smith at Coldbrook pays in miracles for dragon scale - red, green, gold, and black if you can get it. Bring coin for her forge besides."
+  - quest: "broodmother_nests"
+    priority: 50
+    text: "Kill every Dragon on the Dragon Cliffs. When the last one falls, the Brood Mother will wake in the Ember Crater."
+
+  - quest: "water_purge"
+    priority: 50
+    text: "Enter the Ocean Depths off Seabright and kill every Alien there. Leave after the purge, then listen for what the silence draws from deeper water."
+
+  # Immediate boss follow-ups. These stay at the top of the rumor pool until
+  # their exact spawned boss is dead.
+  - after: "dragon_slayer"
+    until_monster: "ancient_god_of_death"
+    target_map: "pyramid_3"
+    spawn: "dragon_slayer#reaper_dais"
+    priority: 100
+    text: "The fourth Elder Dragon is dead, and an Ancient God of Death now stands on the dais in the Pyramid Sanctum. Return there and kill it."
+
+  - after: "broodmother_nests"
+    until_monster: "brood_mother"
+    target_map: "dragon_cliffs"
+    spawn: "broodmother_nests#brood_mother_crater"
+    priority: 100
+    text: "The Dragon Cliffs have fallen silent. The Brood Mother has awakened in the Ember Crater on those same cliffs; find the crater and kill her."
+
+  - after: "water_purge"
+    until_monster: "alien_enforcer"
+    target_map: "water"
+    spawn: "water_purge#enforcer_depths"
+    priority: 100
+    text: "The purge drew an Alien Enforcer upward from deeper water. Dive into the Ocean Depths again, find it there, and kill it."

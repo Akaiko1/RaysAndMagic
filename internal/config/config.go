@@ -249,9 +249,12 @@ type DayNightPackConfig struct {
 }
 
 // PackMemberConfig is one monster kind and its count within a mixed pack phase.
+// QuestProgress opts this member into normal kill-quest tracking. Ambient pack
+// members are ignored by default so they do not block map-clear objectives.
 type PackMemberConfig struct {
-	Monster string `yaml:"monster"`
-	Count   int    `yaml:"count"`
+	Monster       string `yaml:"monster"`
+	Count         int    `yaml:"count"`
+	QuestProgress bool   `yaml:"quest_progress,omitempty"`
 }
 
 // PhaseMembers resolves the monster kinds this pack spawns for the given phase:

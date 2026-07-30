@@ -2996,7 +2996,9 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 		g.AddCombatMessage("That task isn't finished yet - return when it's done.")
 		return
 	}
-	if g.claimQuestReward(questID) && npc != nil {
+	if g.claimQuestReward(questID) && npc != nil && !g.npcHasPendingChainStep(npc, questID) {
+		// A chain giver stays available: concluding here would silence the
+		// peasant right before she can hand out the second errand.
 		npc.Visited = true
 	}
 }
@@ -3184,6 +3186,17 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 	var choices []*character.NPCDialogueChoice
 	if !npc.Visited {
 		for i, s := range npc.Summons {
+			// The rite is the pilgrim's: without her hunt taken, a statuette is
+			// just carved stone and the seal stays shut. She is the one who
+			// explains why - the statue only refuses.
+			if !ih.game.partyHoldsQuest(s.QuestID) {
+				choices = append(choices, &character.NPCDialogueChoice{
+					Text:     fmt.Sprintf("Study the runes around the %s seal", s.Label),
+					Action:   "info",
+					Response: "The runes coil into a name you cannot pronounce, and the statuette in your pack stays cold against them. Whoever wakes a sleeper this way must first have sworn to see it dead - and you have sworn nothing. Pilgrims who read this script keep vigil out among the dunes.",
+				})
+				continue
+			}
 			for _, it := range ih.game.party.Inventory {
 				if it.Name == s.Statuette {
 					choices = append(choices, &character.NPCDialogueChoice{

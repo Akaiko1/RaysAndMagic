@@ -280,6 +280,34 @@ func TestAnimalBondingBearCopiesDruidStatsAndIsPureSummon(t *testing.T) {
 	}
 }
 
+func TestAnimalBondingCapsLivingBearsPerDruid(t *testing.T) {
+	game, _ := summonTileWorld(t)
+	druid := character.CreateCharacter("Druid", character.ClassDruid, game.config)
+	druid.Skills[character.SkillAnimalBonding].Mastery = character.MasteryGrandMaster
+	game.party.Members = []*character.MMCharacter{druid}
+
+	for i := 0; i < character.AnimalBondingSummonMax; i++ {
+		if !game.combat.summonAnimalBondingBear(druid) {
+			t.Fatalf("Animal Bonding bear %d/%d was rejected", i+1, character.AnimalBondingSummonMax)
+		}
+	}
+	if game.combat.summonAnimalBondingBear(druid) {
+		t.Fatalf("Animal Bonding exceeded its %d-bear live cap", character.AnimalBondingSummonMax)
+	}
+	owner := animalBondingOwner(druid)
+	if got := game.combat.countLiveSummonsByOwner(owner); got != character.AnimalBondingSummonMax {
+		t.Fatalf("living Animal Bonding bears = %d, want %d", got, character.AnimalBondingSummonMax)
+	}
+
+	game.world.Monsters[0].HitPoints = 0
+	if !game.combat.summonAnimalBondingBear(druid) {
+		t.Fatal("a dead Animal Bonding bear did not release its summon slot")
+	}
+	if got := game.combat.countLiveSummonsByOwner(owner); got != character.AnimalBondingSummonMax {
+		t.Fatalf("living bears after replacement = %d, want %d", got, character.AnimalBondingSummonMax)
+	}
+}
+
 func TestExistingCharacterAddsOnlyMissingCurrentKitSkills(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	thief := &character.MMCharacter{

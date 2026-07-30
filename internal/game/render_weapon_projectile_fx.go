@@ -10,16 +10,222 @@ import (
 // the normal arrow or spell orb. The base projectile remains intact, preserving
 // the readable silhouette shared by all ranged attacks.
 var weaponProjectileFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, float64, float64, float64, float64, float64, float64, int){
-	"arena_recurve":  (*Renderer).drawWeaponProjectileFxArenaRecurve,
-	"arena_arbalest": (*Renderer).drawWeaponProjectileFxArenaArbalest,
-	"arena_lanista":  (*Renderer).drawWeaponProjectileFxArenaLanista,
-	"clock_pistol":   (*Renderer).drawWeaponProjectileFxClockPistol,
+	"arena_recurve":     (*Renderer).drawWeaponProjectileFxArenaRecurve,
+	"arena_arbalest":    (*Renderer).drawWeaponProjectileFxArenaArbalest,
+	"arena_lanista":     (*Renderer).drawWeaponProjectileFxArenaLanista,
+	"clock_pistol":      (*Renderer).drawWeaponProjectileFxClockPistol,
+	"dragon_wing":       (*Renderer).drawWeaponProjectileFxDragonWing,
+	"dragon_nest":       (*Renderer).drawWeaponProjectileFxDragonNest,
+	"tech_suppressor":   (*Renderer).drawWeaponProjectileFxTechSuppressor,
+	"tech_longlance":    (*Renderer).drawWeaponProjectileFxTechLonglance,
+	"tech_compound_bow": (*Renderer).drawWeaponProjectileFxTechCompound,
 }
 
 func (r *Renderer) drawWeaponProjectileFx(style string, screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
 	if draw, ok := weaponProjectileFxStyleDraw[style]; ok {
 		draw(r, screen, cx, cy, size, dirX, dirY, critBoost, id)
 	}
+}
+
+// drawBlasterWeaponProjectileFx keeps a blaster's signature aligned with the
+// same projection used by drawBulletTracer. Side-on shots use the authored
+// directional overlay; shots travelling along the camera axis use a compact
+// radial signature instead of inventing a horizontal +X flight direction.
+// The return value reports whether the head-on path was selected.
+func (r *Renderer) drawBlasterWeaponProjectileFx(style string, screen *ebiten.Image, cx, cy, size, vx, vy, critBoost float64, id int) bool {
+	dirX, ok := r.projectileScreenDir(vx, vy)
+	if ok {
+		r.drawWeaponProjectileFx(style, screen, cx, cy, size, dirX, 0, critBoost, id)
+		return false
+	}
+	r.drawWeaponProjectileFxHeadOn(style, screen, cx, cy, size, critBoost, id)
+	return true
+}
+
+func (r *Renderer) drawWeaponProjectileFxHeadOn(style string, screen *ebiten.Image, cx, cy, size, critBoost float64, id int) {
+	fc := float64(r.game.frameCount)
+	switch style {
+	case "arena_recurve":
+		// Rear view of the enchanted arrow: loose feathers orbit its fletching.
+		gold, feather := [3]int{220, 166, 82}, [3]int{255, 238, 182}
+		for k := 0; k < 8; k++ {
+			angle := fc*0.08 + 2*math.Pi*float64(k)/8
+			radius := size * (0.75 + 0.38*float64(k%2))
+			r.drawGlowRectRotated(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+				size*0.38, math.Max(2, size*0.1), angle, mixColor(gold, feather, float64(k%2)*0.5),
+				0.5*critBoost, additiveGlowBlend)
+		}
+	case "arena_arbalest":
+		// Its pressure cage is already radial; collapse only the depth axis.
+		r.drawWeaponProjectileFxArenaArbalest(screen, cx, cy, size, 0, 0, critBoost, id)
+	case "arena_lanista":
+		// The scepter's solar ring is naturally readable end-on.
+		r.drawWeaponProjectileFxArenaLanista(screen, cx, cy, size, 0, 0, critBoost, id)
+	case "clock_pistol":
+		// The cog is seen face-on around the muzzle flash.
+		const teeth = 8
+		for i := 0; i < teeth; i++ {
+			angle := fc*0.28 + 2*math.Pi*float64(i)/teeth
+			radius := size * 1.15
+			if i%2 == 0 {
+				radius *= 1.25
+			}
+			r.drawGlowRect(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+				math.Max(2, size*0.14), mixColor(clockBrass, clockWhite, float64(i%2)*0.5),
+				0.5*critBoost, additiveGlowBlend)
+		}
+	case "dragon_wing":
+		// Four membrane vanes seen around the arrow tail, beating in and out.
+		beat := 0.62 + 0.28*math.Sin(fc*0.34)
+		wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
+		for k := 0; k < 4; k++ {
+			angle := fc*0.025 + 2*math.Pi*float64(k)/4
+			rootX, rootY := cx+math.Cos(angle)*size*0.35, cy+math.Sin(angle)*size*0.35
+			tipX, tipY := cx+math.Cos(angle)*size*1.6*beat, cy+math.Sin(angle)*size*1.6*beat
+			r.fxSegment(screen, rootX, rootY, tipX, tipY, math.Max(2.5, size*0.17), wing, 0.58*critBoost, additiveGlowBlend)
+			r.fxSegment(screen, rootX, rootY, tipX, tipY, math.Max(2, size*0.07), vein, 0.78*critBoost, additiveGlowBlend)
+		}
+	case "dragon_nest":
+		// The seeker head becomes a ring of inward-facing clutch hooks.
+		hunt, bone := [3]int{178, 208, 122}, dragonBone
+		for k := 0; k < 6; k++ {
+			angle := fc*0.04 + 2*math.Pi*float64(k)/6
+			outerX, outerY := cx+math.Cos(angle)*size*1.35, cy+math.Sin(angle)*size*1.35
+			innerX, innerY := cx+math.Cos(angle+0.45)*size*0.62, cy+math.Sin(angle+0.45)*size*0.62
+			r.fxSegment(screen, outerX, outerY, innerX, innerY, math.Max(2.5, size*0.18), hunt, 0.65*critBoost, additiveGlowBlend)
+			r.fxSegment(screen, outerX, outerY, innerX, innerY, math.Max(2, size*0.08), bone, 0.82*critBoost, additiveGlowBlend)
+		}
+	case "tech_suppressor":
+		// End-on rifling reads as two counter-rotating gas rings.
+		for ring := 0; ring < 2; ring++ {
+			radius := size * (0.75 + 0.55*float64(ring))
+			spin := fc * 0.5 * (1 - 2*float64(ring))
+			for i := 0; i < 10; i++ {
+				angle := spin + 2*math.Pi*float64(i)/10
+				r.drawGlowRect(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+					math.Max(2, size*(0.16-0.03*float64(ring))),
+					mixColor(techWhite, techCyan, 0.35+0.3*float64(ring)),
+					(0.5-0.12*float64(ring))*critBoost, additiveGlowBlend)
+			}
+		}
+	case "tech_longlance":
+		// The lance collapses into its scope reticle when viewed down-axis.
+		pulse := 0.75 + 0.25*math.Sin(fc*0.5)
+		for ring := 0; ring < 2; ring++ {
+			radius := size * (0.8 + 0.55*float64(ring))
+			for i := 0; i < 12; i++ {
+				angle := 2 * math.Pi * float64(i) / 12
+				r.drawGlowRect(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+					math.Max(2, size*0.1), techCyan,
+					(0.5-0.16*float64(ring))*pulse*critBoost, additiveGlowBlend)
+			}
+		}
+		for _, offset := range []float64{-1, 1} {
+			r.drawGlowRect(screen, cx+offset*size*1.8, cy, math.Max(2, size*0.11),
+				techWhite, 0.55*pulse*critBoost, additiveGlowBlend)
+			r.drawGlowRect(screen, cx, cy+offset*size*1.8, math.Max(2, size*0.11),
+				techWhite, 0.55*pulse*critBoost, additiveGlowBlend)
+		}
+	case "tech_compound_bow":
+		// The two cams remain visible as counter-rotating rings around the nock.
+		alloy := [3]int{168, 196, 214}
+		for ring := 0; ring < 2; ring++ {
+			radius := size * (0.82 + 0.5*float64(ring))
+			spin := fc * 0.22 * (1 - 2*float64(ring))
+			for k := 0; k < 10; k++ {
+				angle := spin + 2*math.Pi*float64(k)/10
+				r.drawGlowRectRotated(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+					size*0.3, math.Max(2, size*0.1), angle+math.Pi/2,
+					mixColor(alloy, techWhite, 0.4*float64(ring)),
+					(0.5-0.12*float64(ring))*critBoost, additiveGlowBlend)
+			}
+		}
+	}
+}
+
+func (r *Renderer) drawBowWeaponProjectileFxHeadOn(style string, screen *ebiten.Image, cx, cy, size, critBoost float64, id int, incoming bool) {
+	if !incoming {
+		r.drawWeaponProjectileFxHeadOn(style, screen, cx, cy, size, critBoost, id)
+		return
+	}
+
+	fc := float64(r.game.frameCount)
+	switch style {
+	case "arena_recurve":
+		// A compact pressure crown surrounds the approaching arrowhead.
+		gold, white := [3]int{220, 166, 82}, [3]int{255, 238, 182}
+		for k := 0; k < 8; k++ {
+			angle := fc*0.08 + 2*math.Pi*float64(k)/8
+			inner := size * 0.68
+			outer := size * (1.05 + 0.12*float64(k%2))
+			r.fxSegment(screen,
+				cx+math.Cos(angle)*inner, cy+math.Sin(angle)*inner,
+				cx+math.Cos(angle)*outer, cy+math.Sin(angle)*outer,
+				math.Max(2, size*0.12), mixColor(gold, white, float64(k%2)*0.45),
+				0.55*critBoost, additiveGlowBlend)
+		}
+	case "dragon_wing":
+		// Folded wing energy frames the approaching point without exposing
+		// the rear membrane vanes.
+		wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
+		pulse := 0.82 + 0.14*math.Sin(fc*0.34)
+		for k := 0; k < 4; k++ {
+			angle := fc*0.025 + math.Pi/4 + 2*math.Pi*float64(k)/4
+			inner := size * 0.72
+			outer := size * 1.25 * pulse
+			r.fxSegment(screen,
+				cx+math.Cos(angle)*inner, cy+math.Sin(angle)*inner,
+				cx+math.Cos(angle)*outer, cy+math.Sin(angle)*outer,
+				math.Max(2, size*0.12), wing, 0.55*critBoost, additiveGlowBlend)
+			r.drawGlowRect(screen, cx+math.Cos(angle)*outer, cy+math.Sin(angle)*outer,
+				math.Max(2, size*0.13), vein, 0.72*critBoost, additiveGlowBlend)
+		}
+	case "tech_compound_bow":
+		// The approaching broadhead is bracketed by a rotating targeting ring;
+		// the rear nock and cams stay hidden behind it.
+		alloy := [3]int{168, 196, 214}
+		spin := fc * 0.22
+		for k := 0; k < 12; k++ {
+			angle := spin + 2*math.Pi*float64(k)/12
+			radius := size * 1.02
+			r.drawGlowRectRotated(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
+				size*0.24, math.Max(2, size*0.09), angle+math.Pi/2,
+				mixColor(alloy, techWhite, float64(k%2)*0.45),
+				0.48*critBoost, additiveGlowBlend)
+		}
+	default:
+		// These signatures are radial or already describe the projectile head.
+		r.drawWeaponProjectileFxHeadOn(style, screen, cx, cy, size, critBoost, id)
+	}
+}
+
+// drawOutgoingBowFromHand renders the short screen-space convergence between
+// the party's right hand and the centered line of fire. The side silhouette is
+// progressively foreshortened into the rear view at one shared moving anchor.
+func (r *Renderer) drawOutgoingBowFromHand(style string, screen *ebiten.Image, cx, cy, size float64, col [3]int, critBoost float64, id int, convergence float64) bool {
+	if convergence <= 0 {
+		return false
+	}
+	convergence = math.Min(1, convergence)
+	anchorX := cx + float64(screen.Bounds().Dx())*0.055*convergence
+	anchorY := cy + float64(screen.Bounds().Dy())*0.025*convergence
+	sideAngle := -math.Pi + 0.10 + 0.08*convergence
+	profileAlpha := math.Sqrt(convergence)
+	rearAlpha := 1 - convergence
+
+	if style != "" {
+		r.drawWeaponProjectileFx(style, screen, anchorX, anchorY, size,
+			math.Cos(sideAngle), math.Sin(sideAngle), critBoost*profileAlpha, id)
+		if rearAlpha > 0 {
+			r.drawBowWeaponProjectileFxHeadOn(style, screen, anchorX, anchorY, size,
+				critBoost*rearAlpha, id, false)
+		}
+	}
+	r.drawArrowQuadForeshortened(screen, anchorX, anchorY, size, sideAngle, convergence, col, profileAlpha)
+	if rearAlpha > 0 {
+		r.drawArrowHeadOn(screen, anchorX, anchorY, size, col, rearAlpha, false)
+	}
+	return true
 }
 
 func (r *Renderer) drawWeaponProjectileFxArenaRecurve(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {

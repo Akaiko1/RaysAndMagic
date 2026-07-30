@@ -484,6 +484,7 @@ weapons:
     bonus_stat: "Intellect"
     damage_type: "dark"
     crit_chance: 20
+    execute_below_pct: 15
     rarity: "rare"
     value: 600
     projectile_school: "dark"
@@ -508,7 +509,7 @@ weapons:
     range: 1  # 1 tile reach for axe
     bonus_stat: "Might"
     crit_chance: 16
-    rarity: "uncommon"
+    rarity: "common"
     value: 210
 
     # Melee-specific configuration
@@ -620,7 +621,7 @@ weapons:
     description: "A heavy matchlock that fires a single thunderous ball"
     category: "blaster"
     cooldown_multiplier: 1.7
-    damage: 14
+    damage: 28
     range: 7
     bonus_stat: "Accuracy"
     crit_chance: 18
@@ -1338,6 +1339,7 @@ weapons:
       slash_color: [235, 120, 60]
       slash_width: 44
       slash_length: 62
+      slash_fx: dragon_fang
 
   wyrmcleaver:
     name: "Wyrmcleaver, the Closing Jaws"
@@ -1360,6 +1362,7 @@ weapons:
       slash_color: [200, 70, 50]
       slash_width: 52
       slash_length: 68
+      slash_fx: dragon_jaws
 
   ember_egg_mace:
     name: "Ember Egg"
@@ -1384,6 +1387,7 @@ weapons:
       slash_color: [255, 140, 40]
       slash_width: 46
       slash_length: 58
+      slash_fx: dragon_ember_egg
 
   broodspike:
     name: "Broodspike"
@@ -1405,6 +1409,7 @@ weapons:
       slash_color: [180, 200, 210]
       slash_width: 30
       slash_length: 84
+      slash_fx: dragon_broodspike
 
   tarn_trident:
     name: "Tarn Trident"
@@ -1427,6 +1432,7 @@ weapons:
       slash_color: [90, 160, 150]
       slash_width: 34
       slash_length: 80
+      slash_fx: dragon_tarn
 
   hatchling_fang:
     name: "Hatchling Fang"
@@ -1451,6 +1457,7 @@ weapons:
       slash_color: [120, 220, 90]
       slash_width: 24
       slash_length: 48
+      slash_fx: dragon_hatchling
 
   scalebreaker_maul:
     name: "Scalebreaker, the Sundering Roar"
@@ -1473,6 +1480,7 @@ weapons:
       slash_color: [200, 170, 120]
       slash_width: 50
       slash_length: 60
+      slash_fx: dragon_roar
 
   wyrmspine_bow:
     name: "Wyrmspine Wing"
@@ -1497,6 +1505,7 @@ weapons:
       min_size: 2
       base_size: 9
       color: [180, 220, 170]
+      projectile_fx: dragon_wing
 
   nest_arbalest:
     name: "Nest Arbalest"
@@ -1522,6 +1531,7 @@ weapons:
       min_size: 2
       base_size: 10
       color: [170, 200, 120]
+      projectile_fx: dragon_nest
 
   verdant_eye_scepter:
     name: "Verdant Eye"
@@ -1546,6 +1556,7 @@ weapons:
       slash_color: [110, 230, 120]
       slash_width: 28
       slash_length: 50
+      slash_fx: dragon_eye
 
   # ================= PURSUER ARSENAL (Alien Enforcer drops) =================
   # Field kit of the ocean strangers. Blasters need no weapon skill.
@@ -1556,6 +1567,7 @@ weapons:
     category: "blaster"
     damage: 15
     range: 5
+    bonus_stat: "Accuracy"
     crit_chance: 12
     cooldown_multiplier: 0.4
     tb_actions_per_round: 3   # drum autofire: the wielder's TB action floor
@@ -1571,6 +1583,7 @@ weapons:
       min_size: 2
       base_size: 8
       color: [200, 200, 210]
+      projectile_fx: tech_suppressor
 
   longlance_rifle:
     name: "Longlance"
@@ -1578,6 +1591,7 @@ weapons:
     category: "blaster"
     damage: 50
     range: 20
+    bonus_stat: "Accuracy"
     crit_chance: 25
     cooldown_multiplier: 1.8
     pierce_count: 1
@@ -1594,6 +1608,7 @@ weapons:
       min_size: 2
       base_size: 8
       color: [120, 230, 230]
+      projectile_fx: tech_longlance
 
   vibro_blade:
     name: "Vibroblade"
@@ -1615,6 +1630,7 @@ weapons:
       slash_color: [130, 235, 235]
       slash_width: 40
       slash_length: 60
+      slash_fx: tech_vibro
 
   compound_bow:
     name: "Tidehunter Compound Bow"
@@ -1637,6 +1653,7 @@ weapons:
       min_size: 2
       base_size: 9
       color: [160, 190, 210]
+      projectile_fx: tech_compound_bow
 
 weapon_cooldown_multipliers:
   dagger: 0.6

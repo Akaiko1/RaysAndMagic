@@ -2,9 +2,11 @@ package game
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 )
 
@@ -144,5 +146,172 @@ func TestRumors_TavernsDrawIndependently(t *testing.T) {
 	first := g.currentRumorText(seeds[0])
 	if again := g.currentRumorText(seeds[0]); again != first {
 		t.Fatalf("same tavern gave %q then %q on one day", first, again)
+	}
+}
+
+func TestRumors_ShippedStoryStepsHaveExactRetirementConditions(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	questManager := quests.NewQuestManager(questCfg)
+	if err := LoadRumorConfig("../../assets/rumors.yaml", questManager); err != nil {
+		t.Fatalf("load rumors: %v", err)
+	}
+
+	wantSpawnedBosses := map[string]string{
+		"dragon_slayer#reaper_dais":             "ancient_god_of_death",
+		"broodmother_nests#brood_mother_crater": "brood_mother",
+		"water_purge#enforcer_depths":           "alien_enforcer",
+	}
+	found := make(map[string]string)
+	for i, rumor := range globalRumors {
+		if rumor.Quest == "" && rumor.UntilMonster == "" {
+			t.Errorf("rumor %d has no retirement condition: %q", i, rumor.Text)
+		}
+		if rumor.Quest == "lake_spiders" || rumor.After == "lake_spiders" ||
+			strings.Contains(strings.ToLower(rumor.Text), "ilsa") {
+			t.Errorf("nightly bather errand leaked into story rumors: %+v", rumor)
+		}
+		if rumor.Quest == "endgame_triad" {
+			t.Errorf("non-specific triad rumor remains: %q", rumor.Text)
+		}
+		if rumor.Spawn != "" {
+			found[rumor.Spawn] = rumor.UntilMonster
+		}
+	}
+	for spawn, monster := range wantSpawnedBosses {
+		if found[spawn] != monster {
+			t.Errorf("spawn follow-up %q retires on %q, want %q", spawn, found[spawn], monster)
+		}
+	}
+}
+
+func TestRumors_SpawnedBossFollowupSurvivesUntilBossDies(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	setTestWorldManager(t, nil)
+
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	g.questManager = quests.NewQuestManager(questCfg)
+	if err := g.questManager.ActivateQuest("water_purge"); err != nil {
+		t.Fatalf("activate water purge: %v", err)
+	}
+	globalRumors = []RumorDef{{
+		After:        "water_purge",
+		UntilMonster: "alien_enforcer",
+		Spawn:        "water_purge#enforcer_depths",
+		Text:         "Return to the depths.",
+	}}
+
+	if got := g.eligibleRumors(); len(got) != 0 {
+		t.Fatalf("follow-up before prerequisite = %v, want hidden", got)
+	}
+	g.questManager.MarkCompleted("water_purge")
+	if got := g.eligibleRumors(); len(got) != 1 {
+		t.Fatalf("follow-up before deferred spawn = %v, want visible", got)
+	}
+
+	g.questSpawnsDone = map[string]bool{"water_purge#enforcer_depths": true}
+	boss := &monsterPkg.Monster3D{Name: "Alien Enforcer", HitPoints: 100}
+	g.pendingQuestSpawns = []pendingQuestSpawn{{world: w, monster: boss}}
+	if got := g.eligibleRumors(); len(got) != 1 {
+		t.Fatalf("follow-up while boss is pending = %v, want visible", got)
+	}
+	g.pendingQuestSpawns = nil
+	w.Monsters = []*monsterPkg.Monster3D{boss}
+	if got := g.eligibleRumors(); len(got) != 1 {
+		t.Fatalf("follow-up while boss lives = %v, want visible", got)
+	}
+
+	boss.HitPoints = 0
+	if got := g.eligibleRumors(); len(got) != 0 {
+		t.Fatalf("follow-up after boss death = %v, want retired", got)
+	}
+}
+
+func TestRumors_StaticBossFollowupRetiresOnDeath(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	setTestWorldManager(t, nil)
+
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	g.questManager = quests.NewQuestManager(questCfg)
+	if err := g.questManager.ActivateQuest("culverts_valves"); err != nil {
+		t.Fatalf("activate culvert quest: %v", err)
+	}
+	g.questManager.MarkCompleted("culverts_valves")
+	globalRumors = []RumorDef{{
+		After:        "culverts_valves",
+		UntilMonster: "golden_thief_bug",
+		Text:         "Finish the bug.",
+	}}
+
+	boss := &monsterPkg.Monster3D{Name: "Golden Thief Bug", HitPoints: 100}
+	w.Monsters = []*monsterPkg.Monster3D{boss}
+	if got := g.eligibleRumors(); len(got) != 1 {
+		t.Fatalf("follow-up while static boss lives = %v, want visible", got)
+	}
+	boss.HitPoints = 0
+	if got := g.eligibleRumors(); len(got) != 0 {
+		t.Fatalf("follow-up after static boss death = %v, want retired", got)
+	}
+}
+
+func TestRumors_GeneralLeadsRemainInRotationAcrossPriorities(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	globalRumors = []RumorDef{
+		{Quest: "side", Priority: 10, Text: "optional lead"},
+		{Quest: "story", Priority: 50, Text: "main story"},
+	}
+	g := &MMGame{}
+	got := g.eligibleRumors()
+	if len(got) != 2 || got[0] != "optional lead" || got[1] != "main story" {
+		t.Fatalf("general rumor pool = %v, want both priority tiers", got)
+	}
+}
+
+func TestRumors_HighestPriorityBossFollowupLeadsThePlayer(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	questManager := quests.NewQuestManager(questCfg)
+	if err := questManager.ActivateQuest("water_purge"); err != nil {
+		t.Fatalf("activate water purge: %v", err)
+	}
+	questManager.MarkCompleted("water_purge")
+
+	globalRumors = []RumorDef{
+		{Quest: "side", Priority: 10, Text: "optional lead"},
+		{
+			After:        "water_purge",
+			UntilMonster: "alien_enforcer",
+			Spawn:        "water_purge#enforcer_depths",
+			Priority:     100,
+			Text:         "unlocked boss",
+		},
+	}
+	g := &MMGame{questManager: questManager}
+	got := g.eligibleRumors()
+	if len(got) != 1 || got[0] != "unlocked boss" {
+		t.Fatalf("urgent rumor pool = %v, want only unlocked boss", got)
 	}
 }

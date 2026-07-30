@@ -229,19 +229,24 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 	return hit
 }
 
-// countCardSummons counts living allies summoned by the card collection.
-func (cs *CombatSystem) countCardSummons() int {
+// countLiveSummonsByOwner is the shared live-cap counter for every summon
+// source. SummonedBy is the ownership SSOT for cards, skills, spells and bosses.
+func (cs *CombatSystem) countLiveSummonsByOwner(owner string) int {
 	w := cs.game.GetCurrentWorld()
-	if w == nil {
+	if w == nil || owner == "" {
 		return 0
 	}
 	n := 0
 	for _, m := range w.Monsters {
-		if m != nil && m.IsAlive() && m.SummonedBy == cardSummonOwner {
+		if m != nil && m.IsAlive() && m.SummonedBy == owner {
 			n++
 		}
 	}
 	return n
+}
+
+func (cs *CombatSystem) countCardSummons() int {
+	return cs.countLiveSummonsByOwner(cardSummonOwner)
 }
 
 // tryCardSummonOnAction rolls the Orc Warlord Card on a party action: a chance to
@@ -279,7 +284,7 @@ func (cs *CombatSystem) tryPartyActionSummons(actor *character.MMCharacter) {
 }
 
 func (cs *CombatSystem) tryAnimalBondingOnAction(druid *character.MMCharacter) {
-	if druid == nil || !druid.HasSkill(character.SkillAnimalBonding) || cs.game.GetCurrentWorld() == nil {
+	if !cs.canSummonAnimalBondingBear(druid) {
 		return
 	}
 	tier := druid.SkillTier(character.SkillAnimalBonding)
@@ -289,12 +294,26 @@ func (cs *CombatSystem) tryAnimalBondingOnAction(druid *character.MMCharacter) {
 	cs.summonAnimalBondingBear(druid)
 }
 
+func animalBondingOwner(druid *character.MMCharacter) string {
+	if druid == nil {
+		return ""
+	}
+	return animalBondingOwnerPrefix + druid.Name
+}
+
+func (cs *CombatSystem) canSummonAnimalBondingBear(druid *character.MMCharacter) bool {
+	return druid != nil &&
+		druid.HasSkill(character.SkillAnimalBonding) &&
+		cs.game.GetCurrentWorld() != nil &&
+		cs.countLiveSummonsByOwner(animalBondingOwner(druid)) < character.AnimalBondingSummonMax
+}
+
 func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bool {
-	if druid == nil || !druid.HasSkill(character.SkillAnimalBonding) || cs.game.GetCurrentWorld() == nil {
+	if !cs.canSummonAnimalBondingBear(druid) {
 		return false
 	}
 	tier := druid.SkillTier(character.SkillAnimalBonding)
-	bear := cs.spawnPartyAlly("bear", animalBondingOwnerPrefix+druid.Name)
+	bear := cs.spawnPartyAlly("bear", animalBondingOwner(druid))
 	if bear == nil {
 		return false
 	}

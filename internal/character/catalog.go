@@ -117,6 +117,8 @@ const (
 	// ((tier+1)*this), that a melee hit also fires the slotted quick-spell for
 	// free (0 SP), mirroring the Pixie Card's free Fire Bolt proc.
 	SpiritualTrainingProcPctPerTier = 10
+	// AnimalBondingSummonMax: maximum living Animal Bonding bears per Druid.
+	AnimalBondingSummonMax = 2
 	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
 	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.
 	DoorForceChancePct    = 20
@@ -460,8 +462,9 @@ func (s SkillType) Description() string {
 			ElementalMasteryPiercePct(2), ElementalMasteryPiercePct(3))
 	case SkillAnimalBonding:
 		return fmt.Sprintf("Animal Bonding: each successful attack or spell cast has a %d/%d/%d/%d%% chance to summon one allied bear. "+
-			"The bear has %d/%d/%d/%d%% of the Druid's maximum HP and copies %d/%d/%d/%d%% of their current Armor Class and attack damage.",
+			"A Druid can have up to %d living bears at once. The bear has %d/%d/%d/%d%% of the Druid's maximum HP and copies %d/%d/%d/%d%% of their current Armor Class and attack damage.",
 			AnimalBondingProcPct(0), AnimalBondingProcPct(1), AnimalBondingProcPct(2), AnimalBondingProcPct(3),
+			AnimalBondingSummonMax,
 			AnimalBondingHPPct(0), AnimalBondingHPPct(1), AnimalBondingHPPct(2), AnimalBondingHPPct(3),
 			AnimalBondingStatPct(0), AnimalBondingStatPct(1), AnimalBondingStatPct(2), AnimalBondingStatPct(3))
 	case SkillSacrifice:

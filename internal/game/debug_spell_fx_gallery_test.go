@@ -123,12 +123,12 @@ func TestDebugSim_SpellFxGallery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Real in-game scales, one row each: a close bolt caps at spellParticleMaxSize
-	// and a distant one floors at spellFxMinClusterSize. Judging at one flattering
-	// size is how a body that reads as coloured fog in play passes review.
+	// Real in-game scales in both projections: side-on first, then head-on for
+	// each size. Judging only the side profile misses fake horizontal trails on
+	// shots travelling directly away from the camera.
 	sizes := []float64{spellParticleMaxSize, 24, spellFxMinClusterSize}
-	const cell, frames = 180, 4
-	sheetW, sheetH := cell*frames, cell*len(sizes)
+	const cell, frames, views = 180, 4, 2
+	sheetW, sheetH := cell*frames, cell*len(sizes)*views
 	screen := ebiten.NewImage(cell, cell)
 	for _, key := range keys {
 		def := config.GlobalSpells.Spells[key]
@@ -139,15 +139,22 @@ func TestDebugSim_SpellFxGallery(t *testing.T) {
 		profile := r.spellFxProfile(key, base)
 		sheet := image.NewNRGBA(image.Rect(0, 0, sheetW, sheetH))
 		for si, size := range sizes {
-			for f := 0; f < frames; f++ {
-				g.frameCount += 7 // spread the animation clock across the strip
-				runOnDrawFrame(func(_ *ebiten.Image) {
-					screen.Fill(color.RGBA{18, 16, 22, 255})
-					r.drawSpellProjectileFx(screen, cell/2, cell/2, size, 1, 0, base, profile, 1.0, 3)
-				})
-				for y := 0; y < cell; y++ {
-					for x := 0; x < cell; x++ {
-						sheet.Set(f*cell+x, si*cell+y, screen.At(x, y))
+			for view := 0; view < views; view++ {
+				for f := 0; f < frames; f++ {
+					g.frameCount += 7 // spread the animation clock across the strip
+					runOnDrawFrame(func(_ *ebiten.Image) {
+						screen.Fill(color.RGBA{18, 16, 22, 255})
+						if view == 0 {
+							r.drawSpellProjectileFx(screen, cell/2, cell/2, size, 1, 0, base, profile, 1.0, 3)
+						} else {
+							r.drawSpellProjectileFxHeadOn(screen, cell/2, cell/2, size, base, profile, 1.0, 3)
+						}
+					})
+					row := si*views + view
+					for y := 0; y < cell; y++ {
+						for x := 0; x < cell; x++ {
+							sheet.Set(f*cell+x, row*cell+y, screen.At(x, y))
+						}
 					}
 				}
 			}

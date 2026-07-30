@@ -45,6 +45,15 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"clock_minute":      (*Renderer).drawMeleeFxClockMinute,
 	"clock_mainspring":  (*Renderer).drawMeleeFxClockMainspring,
 	"clock_escapement":  (*Renderer).drawMeleeFxClockEscapement,
+	"dragon_fang":       (*Renderer).drawMeleeFxDragonFang,
+	"dragon_jaws":       (*Renderer).drawMeleeFxDragonJaws,
+	"dragon_ember_egg":  (*Renderer).drawMeleeFxDragonEmberEgg,
+	"dragon_broodspike": (*Renderer).drawMeleeFxDragonBroodspike,
+	"dragon_tarn":       (*Renderer).drawMeleeFxDragonTarn,
+	"dragon_hatchling":  (*Renderer).drawMeleeFxDragonHatchling,
+	"dragon_roar":       (*Renderer).drawMeleeFxDragonRoar,
+	"dragon_eye":        (*Renderer).drawMeleeFxDragonEye,
+	"tech_vibro":        (*Renderer).drawMeleeFxTechVibro,
 }
 
 // validateWeaponFxStyles fails fast when a weapon effect names a style with no

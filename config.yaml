@@ -432,8 +432,9 @@ day_night:
   packs:
     - map: forest
       day_monster: wolf
-      night_monster: forest_spider
       count: 8
+      night_monsters:
+        - { monster: forest_spider, count: 8, quest_progress: true }
       min_player_dist_tiles: 8
     - map: desert
       night_monster: mummy

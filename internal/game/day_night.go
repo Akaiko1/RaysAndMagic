@@ -108,6 +108,7 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 	g.syncDayNightPacks(night)
 	g.dayNightDay++
 	if night {
+		g.refreshRepeatableQuests()
 		g.AddCombatMessage("Night falls.")
 		return
 	}
@@ -346,7 +347,8 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			if mem.Monster == "" || mem.Count <= 0 {
 				continue
 			}
-			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, pack.MinPlayerDistTilesOrDefault(), bx, by, bw, bh)
+			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress,
+				pack.MinPlayerDistTilesOrDefault(), bx, by, bw, bh)
 		}
 	}
 }
@@ -398,7 +400,7 @@ func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 // min_player_dist_tiles away from the party and register collision
 // immediately; on other loaded maps collision registers in bulk on map
 // arrival (RegisterMonstersWithCollisionSystem).
-func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, minPlayerDistTiles float64, bx, by, bw, bh int) {
+func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, questProgress bool, minPlayerDistTiles float64, bx, by, bw, bh int) {
 	if world.GlobalTileManager == nil || bw <= 0 || bh <= 0 {
 		return
 	}
@@ -433,7 +435,7 @@ func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, cou
 			continue
 		}
 		m.PackKey = tag
-		m.QuestProgressIgnored = true // ambient packs never advance kill quests
+		m.QuestProgressIgnored = !questProgress
 		if current {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)

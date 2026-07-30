@@ -322,17 +322,10 @@ func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 
 // countLiveSummons counts living monsters this boss has summoned (for SummonMax).
 func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
-	w := cs.game.GetCurrentWorld()
-	if w == nil {
+	if m == nil {
 		return 0
 	}
-	n := 0
-	for _, o := range w.Monsters {
-		if o != nil && o.IsAlive() && o.SummonedBy == m.ID {
-			n++
-		}
-	}
-	return n
+	return cs.countLiveSummonsByOwner(m.ID)
 }
 
 // tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based

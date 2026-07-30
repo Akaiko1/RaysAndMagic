@@ -48,6 +48,14 @@ func TestDisarmTrapTooltipMatchesChestMechanic(t *testing.T) {
 	}
 }
 
+func TestAnimalBondingTooltipQuotesLiveSummonCap(t *testing.T) {
+	tip := masteryTooltipTextForSkill(character.SkillAnimalBonding)
+	want := fmt.Sprintf("up to %d living bears", character.AnimalBondingSummonMax)
+	if !strings.Contains(tip, want) {
+		t.Errorf("Animal Bonding tooltip %q should contain %q", tip, want)
+	}
+}
+
 // TestSpeedTooltip_NoTurnBasedLie: Speed grants party-wide turn-based bonus
 // action slots, so its tooltip must not claim it has no turn-based effect.
 func TestSpeedTooltip_NoTurnBasedLie(t *testing.T) {

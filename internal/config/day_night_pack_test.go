@@ -24,10 +24,13 @@ func TestDayNightPackPhaseMembers(t *testing.T) {
 	mixed := DayNightPackConfig{
 		NightMonster:  "ignored",
 		Count:         99,
-		NightMonsters: []PackMemberConfig{{Monster: "ningyo", Count: 4}, {Monster: "vengeful_ningyo", Count: 1}},
+		NightMonsters: []PackMemberConfig{{Monster: "ningyo", Count: 4, QuestProgress: true}, {Monster: "vengeful_ningyo", Count: 1}},
 	}
 	got := mixed.PhaseMembers(true)
 	if len(got) != 2 || got[0].Monster != "ningyo" || got[0].Count != 4 || got[1].Monster != "vengeful_ningyo" || got[1].Count != 1 {
 		t.Fatalf("mixed night = %+v, want ningyo x4 + vengeful_ningyo x1", got)
+	}
+	if !got[0].QuestProgress || got[1].QuestProgress {
+		t.Fatalf("mixed night quest flags = %+v, want only ningyo quest-eligible", got)
 	}
 }

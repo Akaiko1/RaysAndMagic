@@ -39,6 +39,7 @@ type NPCData struct {
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	NightOnly        bool                 `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
 	RejectsLich      bool                 `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
@@ -118,7 +119,11 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
-	Tier    string `yaml:"tier,omitempty"`     // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
+	// RequiresQuest gates this choice behind another quest being finished and
+	// paid out. It is what makes a quest CHAIN on one giver: the second offer
+	// stays hidden until the first is turned in.
+	RequiresQuest string `yaml:"requires_quest,omitempty"`
+	Tier          string `yaml:"tier,omitempty"` // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
 	// Branching dialogue (action "info"): when this choice is picked the dialog
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
@@ -436,6 +441,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
+		NightOnly:        data.NightOnly,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
 		GridSpanTiles:    data.GridSpanTiles,
