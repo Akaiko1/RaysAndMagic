@@ -24,7 +24,7 @@ func TestWallStickPose_AnchorClearsNearCullAtTileCentre(t *testing.T) {
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	t.Cleanup(func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM })
 
-	tm := world.NewTileManager()
+	tm := world.NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

@@ -25,7 +25,7 @@ func newSpecialsTestGame(t *testing.T) (*MMGame, *GameLoop) {
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	t.Cleanup(func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM })
 	world.GlobalWorldManager = nil // GetCurrentWorld falls back to g.world
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

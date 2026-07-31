@@ -7,7 +7,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     # No floor_color on purpose: empty ground is tinted per-map by
     # default_floor_color (map_configs.yaml); a color here is never read.
     floor_texture_group: "default"  # overridden to "beach" near water at runtime
@@ -21,7 +21,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: ""
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [64, 64, 64]  # Gray stone wall
     letter: "#"
 
@@ -32,7 +32,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [100, 150, 255]  # Blue water
     floor_near_color: [205, 175, 149]  # Sandy shore near water
     floor_texture_group: "water"
@@ -45,7 +45,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [30, 80, 180]  # Darker blue deep water
     floor_near_color: [205, 175, 149]  # Sandy shore near deep water
     floor_texture_group: "water"
@@ -59,7 +59,7 @@ tiles:
     walkable: false  # Can be changed to true when opened
     wall_height_multiplier: 1.0
     sprite: "forest_gate"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [139, 69, 19]  # Brown wooden door
     letter: "D"
 
@@ -70,12 +70,15 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 2.0
     sprite: "forest_oak"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [101, 67, 33]  # Brown tree bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
     excluded_under_floor_tiles: ["forest_stream"]
+    night_motes:
+      glow_color: [55, 145, 255]
+      core_color: [190, 225, 255]
     letter: "T"
     biomes: ["forest"]
 
@@ -85,12 +88,15 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 2.0
     sprite: "old_platan"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [69, 39, 19]  # Darker brown ancient bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
     excluded_under_floor_tiles: ["forest_stream"]
+    night_motes:
+      glow_color: [55, 145, 255]
+      core_color: [190, 225, 255]
     letter: "A"
     biomes: ["forest"]
 
@@ -101,9 +107,9 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 1.5
     sprite: "sand_dune"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [238, 203, 173]  # Sandy brown
     floor_near_color: [205, 175, 149]  # Lighter sand near dunes
     letter: "T"
@@ -115,9 +121,9 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 2.0
     sprite: "large_dune"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [222, 184, 135]  # Burlywood
     floor_near_color: [205, 175, 149]  # Lighter sand near dunes
     letter: "A"
@@ -129,9 +135,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
     sprite: "palm"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [96, 128, 56]  # Palm-frond green
     letter: "P"
     biomes: ["desert", "jungle"]  # reused along jungle riverbanks (letter P)
@@ -143,9 +149,9 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 1.8
     sprite: "coral_reef"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [255, 127, 80]  # Coral orange
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "T"
@@ -157,9 +163,9 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    size_tiles: 2.2
     sprite: "large_coral"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [220, 20, 60]  # Crimson coral
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "A"
@@ -173,7 +179,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "thicket"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [34, 80, 34]  # Dark green thicket
     letter: "%"
 
@@ -189,7 +195,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "seaview"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [70, 130, 170]  # Sea blue fallback
 
   # Universal off-map backdrop used when a biome sets no out_of_bounds_tile.
@@ -201,7 +207,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "highlands_cliff_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [82, 86, 80]
 
   church_floor:
@@ -211,7 +217,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [74, 68, 61]
     floor_near_color: [92, 84, 73]
     floor_texture_group: "default"
@@ -226,7 +232,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "church_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [72, 72, 72]
     letter: "%"
     biomes: ["church"]
@@ -238,7 +244,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [196, 164, 98]
     floor_near_color: [214, 182, 112]
     floor_texture_group: "default"
@@ -253,7 +259,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "arena_grandstand_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [168, 140, 96]
     letter: "%"
     biomes: ["arena"]
@@ -266,7 +272,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "arena_corridor_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [142, 122, 92]
     letter: "&"
     biomes: ["arena"]
@@ -278,7 +284,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [154, 125, 76]
     floor_near_color: [178, 142, 86]
     floor_texture_group: "default"
@@ -293,7 +299,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "pyramid_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [128, 94, 52]
     letter: "%"
     biomes: ["pyramid"]
@@ -305,7 +311,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [32, 28, 42]
     floor_near_color: [55, 45, 72]
     floor_texture_group: "default"
@@ -320,7 +326,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "lich_nexus_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [28, 24, 36]
     letter: "%"
     biomes: ["lich_nexus"]
@@ -332,7 +338,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [58, 54, 48]
     floor_near_color: [92, 86, 72]
     floor_texture_group: "default"
@@ -347,7 +353,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "culverts_wall_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [44, 44, 52]
     letter: "%"
     biomes: ["culverts"]
@@ -360,7 +366,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "culverts_wall_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [50, 46, 50]
     letter: "#"
     biomes: ["culverts"]
@@ -373,7 +379,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "culverts_wall_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [42, 48, 46]
     letter: "B"
     biomes: ["culverts"]
@@ -386,7 +392,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "culverts_wall_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [48, 44, 40]
     letter: "="
     biomes: ["culverts"]
@@ -401,7 +407,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [78, 78, 84]
     floor_near_color: [118, 118, 126]
     floor_texture_group: "cobble"
@@ -415,7 +421,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [66, 48, 32]
     floor_near_color: [108, 82, 54]
     floor_texture_group: "wood"
@@ -429,7 +435,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [150, 130, 82]
     floor_near_color: [196, 176, 120]
     floor_texture_group: "tatami"
@@ -443,7 +449,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [66, 56, 46]
     floor_near_color: [104, 90, 74]
     floor_texture_group: "garden"
@@ -458,7 +464,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 110, 96]
     letter: "%"
     biomes: ["japanese_castle"]
@@ -471,7 +477,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 42, 40]
     letter: "#"
     biomes: ["japanese_castle"]
@@ -484,7 +490,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [96, 74, 52]
     letter: "B"
     biomes: ["japanese_castle"]
@@ -497,7 +503,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [80, 84, 76]
     letter: "="
     biomes: ["japanese_castle"]
@@ -512,9 +518,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.3
+    size_class: tall_prop
     sprite: "stone_lantern"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "L"
     biomes: ["japanese_castle"]
 
@@ -524,9 +530,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
+    size_class: full_tile
     sprite: "bonsai_tree"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "Y"
     biomes: ["japanese_castle"]
 
@@ -536,9 +542,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.4
+    size_class: tall_prop
     sprite: "shoji_screen"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "H"
     biomes: ["japanese_castle"]
 
@@ -554,7 +560,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [70, 80, 58]
     floor_near_color: [108, 118, 88]
     floor_texture_group: "ruin"
@@ -568,7 +574,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [48, 78, 58]
     floor_near_color: [92, 120, 92]
     floor_texture_group: "varzea"
@@ -582,7 +588,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [0, 120, 110]
     floor_near_color: [205, 175, 149]
     floor_texture_group: "jungle_ford"
@@ -600,7 +606,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [38, 76, 38]
     letter: "#"
     biomes: ["jungle"]
@@ -613,7 +619,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [96, 96, 78]
     letter: "R"
     biomes: ["jungle"]
@@ -626,7 +632,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [92, 70, 48]
     letter: "T"
     biomes: ["jungle"]
@@ -639,12 +645,12 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [70, 76, 80]
     letter: "K"
     biomes: ["jungle"]
 
-  # Jungle tree billboards: tall two-tile tree_sprites (crossed-standee render).
+  # Jungle tree billboards: tall two-tile crossed_standees (crossed-standee render).
   # NEW tiles with their own letters so the old trunk wall (T) and desert palm
   # (P) stay placeable in the editor; the deep_jungle map uses V/Y in their place.
   jungle_vine_tree:
@@ -653,9 +659,9 @@ tiles:
     solid: true
     transparent: false        # dense canopy: blocks sight, like the trunk wall it replaces
     walkable: false
-    size_tiles: 2.0
     sprite: "tropical_vine_tree"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [92, 70, 48]
     floor_near_color: [20, 70, 30]
     letter: "V"
@@ -667,9 +673,9 @@ tiles:
     solid: true
     transparent: true         # see-through like the desert palm - scattered decor, not a sight wall
     walkable: false
-    size_tiles: 2.0
     sprite: "three_intertwined_palms"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [96, 128, 56]
     floor_near_color: [20, 70, 30]
     letter: "Y"
@@ -682,9 +688,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: medium_prop
     sprite: "deep_jungle_fern"
-    render_type: "environment_sprite"
+    render_type: "standee"
     map_color: [50, 110, 45]
     letter: "G"
     biomes: ["jungle"]
@@ -695,9 +701,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
+    size_class: small_prop
     sprite: "deep_jungle_log"
-    render_type: "environment_sprite"
+    render_type: "standee"
     map_color: [92, 70, 46]
     letter: "O"
     biomes: ["jungle"]
@@ -709,7 +715,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [108, 102, 88]
     floor_near_color: [128, 120, 104]
     floor_texture_group: "default"
@@ -724,7 +730,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [110, 104, 94]
     letter: "%"
     biomes: ["city"]
@@ -737,7 +743,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [124, 96, 66]
     letter: "A"
     biomes: ["city"]
@@ -750,7 +756,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [150, 128, 96]
     letter: "B"
     biomes: ["city"]
@@ -763,7 +769,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 118, 112]
     letter: "C"
     biomes: ["city"]
@@ -776,7 +782,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [130, 70, 46]
     letter: "D"
     biomes: ["city"]
@@ -789,7 +795,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_4"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [132, 102, 70]
     letter: "E"
     biomes: ["city"]
@@ -802,7 +808,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_house_5"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [90, 116, 72]
     letter: "F"
     biomes: ["city"]
@@ -815,7 +821,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_shop_weapon"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [110, 88, 70]
     # M (not W) so the universal water tile letter stays usable in city maps.
     letter: "M"
@@ -829,7 +835,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_shop_potions"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [96, 70, 110]
     letter: "P"
     biomes: ["city"]
@@ -842,7 +848,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_shop_spells"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [64, 96, 112]
     letter: "S"
     biomes: ["city"]
@@ -855,7 +861,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_shop_trainer"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [80, 110, 70]
     letter: "R"
     biomes: ["city"]
@@ -868,7 +874,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "city_gate"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 115, 106]
     letter: "G"
     biomes: ["city"]
@@ -879,9 +885,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.0
+    size_class: structure
     sprite: "city_fountain"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [120, 120, 110]
     floor_texture_group: "default"
     letter: "O"
@@ -896,16 +902,11 @@ tiles:
   #   O water landmark     F water prop        I light prop
   #   N rest prop          T goods prop        Y board prop   Z planted tree
   #
-  # size_tiles here is NOT the object's height - the renderer scales the whole
-  # SQUARE sprite frame to size_tiles and puts the frame's bottom on the floor,
-  # so a wide object (bench, carpet roll) whose art fills only part of its frame
-  # renders that fraction shorter. Author it as
-  #     size_tiles = wanted_height_in_tiles / content_h
-  # where content_h is printed by tmp/imagegen/elf_nomad_cities_20260730/
-  # slice_city_objects.py as `x_for_height`. Yardsticks: a person is 0.60 tiles
-  # (config.yaml size_classes), a house wall is exactly 1.0. The same square
-  # frame rule means any transparent row UNDER the art lifts the object off the
-  # ground - the slicer plants every prop flush on the frame bottom.
+  # size_class targets the visible, color-keyed alpha height. The renderer
+  # compensates for transparent frame padding, so props no longer need custom
+  # decimal scale values. Class heights live once in config.yaml. Tree sprites
+  # are the intentional exception: render_type crossed_standee has one shared
+  # 2-tile frame width and derives height from the source texture aspect.
   elf_city_floor:
     name: "Silverbough Mosaic"
     type: "floor"
@@ -913,7 +914,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [146, 150, 140]
     floor_near_color: [176, 180, 168]
     floor_texture_group: "default"
@@ -927,7 +928,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [138, 148, 138]
     floor_near_color: [168, 178, 166]
     floor_texture_group: "court"
@@ -942,7 +943,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "elf_city_wall_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [196, 190, 176]
     letter: "%"
     biomes: ["elf_city"]
@@ -955,7 +956,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "elf_city_wall_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [150, 180, 178]
     letter: "A"
     biomes: ["elf_city"]
@@ -968,7 +969,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "elf_city_wall_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 132, 110]
     letter: "B"
     biomes: ["elf_city"]
@@ -981,7 +982,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "elf_city_wall_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [130, 160, 158]
     letter: "C"
     biomes: ["elf_city"]
@@ -992,9 +993,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.2
+    size_class: structure
     sprite: "elf_library"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [186, 196, 206]
     floor_texture_group: "court"
     letter: "L"
@@ -1006,9 +1007,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.52
+    size_class: structure
     sprite: "elf_ranger_hall"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [140, 160, 130]
     floor_texture_group: "default"
     letter: "H"
@@ -1020,9 +1021,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.94
+    size_class: structure
     sprite: "elf_moon_pavilion"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [150, 190, 180]
     floor_texture_group: "court"
     letter: "O"
@@ -1034,9 +1035,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.9
+    size_class: medium_prop
     sprite: "elf_moon_fountain"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "F"
     biomes: ["elf_city"]
 
@@ -1046,9 +1047,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.1
+    size_class: full_tile
     sprite: "elf_lamp_post"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "I"
     biomes: ["elf_city"]
 
@@ -1058,9 +1059,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.56
+    size_class: tiny_prop
     sprite: "elf_ivy_bench"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "N"
     biomes: ["elf_city"]
 
@@ -1070,9 +1071,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.55
+    size_class: tiny_prop
     sprite: "elf_planter"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "T"
     biomes: ["elf_city"]
 
@@ -1082,9 +1083,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.8
+    size_class: medium_prop
     sprite: "elf_notice_board"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "Y"
     biomes: ["elf_city"]
 
@@ -1094,9 +1095,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.4
+    size_class: tall_prop
     sprite: "elf_sapling"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "Z"
     biomes: ["elf_city"]
 
@@ -1107,7 +1108,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [182, 150, 100]
     floor_near_color: [206, 172, 120]
     floor_texture_group: "default"
@@ -1121,7 +1122,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [196, 158, 102]
     floor_near_color: [214, 178, 124]
     floor_texture_group: "sand"
@@ -1136,7 +1137,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "nomad_city_wall_0"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [190, 150, 86]
     letter: "%"
     biomes: ["nomad_city"]
@@ -1149,7 +1150,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "nomad_city_wall_1"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [160, 120, 80]
     letter: "A"
     biomes: ["nomad_city"]
@@ -1162,7 +1163,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "nomad_city_wall_2"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [186, 146, 84]
     letter: "B"
     biomes: ["nomad_city"]
@@ -1175,7 +1176,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "nomad_city_wall_3"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [170, 150, 110]
     letter: "C"
     biomes: ["nomad_city"]
@@ -1186,9 +1187,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.31
+    size_class: structure
     sprite: "nomad_bazaar_tent"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [170, 120, 90]
     floor_texture_group: "sand"
     letter: "L"
@@ -1200,9 +1201,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.3
+    size_class: structure
     sprite: "nomad_windmill_house"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [176, 156, 116]
     floor_texture_group: "default"
     letter: "H"
@@ -1214,9 +1215,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.0
+    size_class: structure
     sprite: "nomad_oasis_shrine"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     map_color: [110, 150, 180]
     floor_texture_group: "default"
     letter: "O"
@@ -1228,9 +1229,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.8
+    size_class: tiny_prop
     sprite: "nomad_well"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "F"
     biomes: ["nomad_city"]
 
@@ -1240,11 +1241,10 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    # Same on-screen height as elf_lamp_post: both frames are 98% art, so equal
-    # size_tiles means equal rendered height (1.08 tiles, ~1.8x a person).
-    size_tiles: 1.1
+    # Same visible-height class as elf_lamp_post; transparent padding is ignored.
+    size_class: full_tile
     sprite: "nomad_lantern"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "I"
     biomes: ["nomad_city"]
 
@@ -1254,9 +1254,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.39
+    size_class: tiny_prop
     sprite: "nomad_carpet_roll"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "N"
     biomes: ["nomad_city"]
 
@@ -1266,9 +1266,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.54
+    size_class: small_prop
     sprite: "nomad_spice_stall"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "T"
     biomes: ["nomad_city"]
 
@@ -1278,9 +1278,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.69
+    size_class: small_prop
     sprite: "nomad_saddle_pile"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "Y"
     biomes: ["nomad_city"]
 
@@ -1290,9 +1290,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.63
+    size_class: large_prop
     sprite: "nomad_palm_planter"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "Z"
     biomes: ["nomad_city"]
 
@@ -1303,7 +1303,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [88, 150, 48]
     floor_near_color: [104, 166, 62]
     floor_texture_group: "default"
@@ -1318,7 +1318,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "highlands_cliff_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [82, 86, 80]
     letter: "%"
     biomes: ["highlands"]
@@ -1331,7 +1331,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "highlands_granite_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [118, 122, 118]
     letter: "#"
     biomes: ["highlands"]
@@ -1344,7 +1344,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "highlands_ruin_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [96, 98, 88]
     letter: "B"
     biomes: ["highlands"]
@@ -1357,7 +1357,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "highlands_slate_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [74, 78, 74]
     letter: "="
     biomes: ["highlands"]
@@ -1368,11 +1368,14 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.0
     sprite: "highlands_pine"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [64, 92, 38]
     floor_near_color: [48, 102, 42]
+    night_motes:
+      glow_color: [166, 76, 255]
+      core_color: [235, 190, 255]
     letter: "T"
     biomes: ["highlands"]
 
@@ -1382,9 +1385,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [124, 122, 112]
     floor_near_color: [96, 112, 72]
     letter: "A"
@@ -1396,9 +1399,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
     sprite: "highlands_boulder"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [116, 116, 104]
     letter: "R"
     biomes: ["highlands"]
@@ -1409,9 +1412,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: medium_prop
     sprite: "highlands_heather"
-    render_type: "environment_sprite"
+    render_type: "standee"
     floor_near_color: [116, 158, 64]
     letter: "H"
     biomes: ["highlands"]
@@ -1423,7 +1426,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [54, 136, 144]
     floor_near_color: [116, 158, 72]
     floor_texture_group: "highlands_stream"
@@ -1437,7 +1440,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [92, 112, 64]
     floor_near_color: [120, 132, 72]
     floor_texture_group: "default"
@@ -1451,7 +1454,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [54, 50, 44]
     floor_near_color: [92, 58, 40]
     floor_texture_group: "basalt"
@@ -1465,7 +1468,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [64, 124, 132]
     floor_near_color: [112, 132, 88]
     floor_texture_group: "dragon_cliffs_stream"
@@ -1486,7 +1489,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [96, 72, 48]
     floor_near_color: [124, 94, 62]
     floor_texture_group: "quest_bridge"
@@ -1499,7 +1502,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [92, 70, 48]
     floor_near_color: [124, 94, 62]
     floor_texture_group: "bridge_0"
@@ -1513,7 +1516,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [126, 96, 58]
     floor_near_color: [150, 116, 72]
     floor_texture_group: "bridge_1"
@@ -1527,7 +1530,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [78, 76, 70]
     floor_near_color: [104, 98, 82]
     floor_texture_group: "chasm_edge_0"
@@ -1541,7 +1544,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [112, 104, 88]
     floor_near_color: [136, 126, 104]
     floor_texture_group: "chasm_edge_1"
@@ -1555,7 +1558,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [28, 38, 48]
     floor_near_color: [42, 54, 62]
     floor_texture_group: "chasm_floor_0"
@@ -1570,7 +1573,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [44, 58, 70]
     floor_near_color: [60, 74, 86]
     floor_texture_group: "chasm_floor_1"
@@ -1586,7 +1589,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_cliff_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [78, 82, 78]
     letter: "%"
     biomes: ["dragon_cliffs"]
@@ -1599,7 +1602,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_basalt_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [46, 44, 42]
     letter: "#"
     biomes: ["dragon_cliffs"]
@@ -1612,7 +1615,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_ruin_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [88, 88, 78]
     letter: "B"
     biomes: ["dragon_cliffs"]
@@ -1625,7 +1628,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_slate_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [56, 58, 60]
     letter: "="
     biomes: ["dragon_cliffs"]
@@ -1636,9 +1639,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.0
     sprite: "dragon_cliffs_wind_pine"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [62, 88, 48]
     floor_near_color: [64, 102, 52]
     letter: "T"
@@ -1650,9 +1653,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.6
     sprite: "dragon_cliffs_boulder"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [112, 112, 104]
     floor_near_color: [92, 104, 72]
     letter: "A"
@@ -1664,9 +1667,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
     sprite: "dragon_cliffs_boulder"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [108, 108, 100]
     letter: "R"
     biomes: ["dragon_cliffs"]
@@ -1677,9 +1680,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: small_prop
     sprite: "dragon_cliffs_heather"
-    render_type: "environment_sprite"
+    render_type: "standee"
     floor_near_color: [118, 118, 64]
     letter: "H"
     biomes: ["dragon_cliffs"]
@@ -1690,9 +1693,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.35
     sprite: "dragon_cliffs_dragon_bones"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [178, 158, 132]
     floor_near_color: [92, 84, 70]
     letter: "D"
@@ -1707,9 +1710,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [124, 122, 112]
     floor_near_color: [48, 102, 42]
     letter: "K"
@@ -1722,7 +1725,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [54, 136, 144]
     floor_near_color: [48, 102, 42]
     floor_texture_group: "highlands_stream"
@@ -1735,9 +1738,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.0
+    size_class: tiny_prop
     sprite: "wooden_planks"
-    render_type: "landmark"
+    render_type: "landmark_standee"
     no_spin: true
     map_color: [124, 94, 55]
     short_label: "planks"
@@ -1748,9 +1751,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 2.0
     sprite: "moss_rock"
-    render_type: "tree_sprite"
+    size_class: tree
+    render_type: "crossed_standee"
     map_color: [105, 105, 105]  # Gray rock
     letter: "R"
 
@@ -1761,9 +1764,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: small_prop
     sprite: "mushroom_ring"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "M"
 
   forest_stream:
@@ -1773,7 +1776,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [0, 139, 139]  # Teal water
     floor_near_color: [205, 175, 149]  # Sandy banks near streams
     floor_texture_group: "forest_stream"
@@ -1785,9 +1788,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: medium_prop
     sprite: "fern_patch"
-    render_type: "environment_sprite"
+    render_type: "standee"
     letter: "P"
 
   firefly_swarm:
@@ -1796,9 +1799,10 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: full_tile
     sprite: "firefly_swarm"
-    render_type: "environment_sprite"
+    render_type: "standee"
+    procedural_effect: "firefly_swarm"
     alpha_from_brightness: 0.85
     light:
       enabled: true
@@ -1812,9 +1816,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 1.0
+    size_class: small_prop
     sprite: "grass"
-    render_type: "environment_sprite"
+    render_type: "standee"
     floor_color: [95, 220, 65]  # Bright salad-green clearing floor
     floor_near_color: [125, 245, 95]  # Lighter grass around clearings
     floor_texture_group: "clearing"
@@ -1828,7 +1832,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [255, 0, 0]  # Red - now used only as the spawn-tile border tint
     inherit_floor: true       # ground takes the surrounding biome floor; red shows as a border
     letter: "+"
@@ -1842,7 +1846,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "low_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 120, 120]  # Light gray low wall
     letter: "-"
 
@@ -1854,7 +1858,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "high_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [40, 40, 40]  # Dark gray high wall
     letter: "="
 
@@ -1868,9 +1872,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_lever"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "lever"
   wall_portrait:
@@ -1879,9 +1883,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_portrait"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "portrait"
   wall_landscape:
@@ -1890,9 +1894,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_landscape"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "landscape"
   wall_dragon:
@@ -1901,9 +1905,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_dragon"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "dragon_art"
   wall_sigil:
@@ -1912,9 +1916,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_sigil"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "sigil"
   wall_skull:
@@ -1923,9 +1927,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_skull"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "skull"
   wall_anim_portrait:
@@ -1934,9 +1938,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_anim_portrait"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "portrait_live"
   wall_anim_landscape:
@@ -1945,9 +1949,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_anim_landscape"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "vista_live"
 
@@ -1960,7 +1964,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "clocktower_gearstone_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [88, 92, 100]
     letter: "I"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -1973,7 +1977,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "clocktower_pipework_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [96, 78, 62]
     letter: "U"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -1986,7 +1990,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "clocktower_timber_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [120, 104, 82]
     letter: "X"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -1999,7 +2003,7 @@ tiles:
     walkable: false
     wall_height_multiplier: 1.0
     sprite: "clocktower_plaster_wall"
-    render_type: "textured_wall"
+    render_type: "wall"
     wall_color: [140, 132, 118]
     letter: "Z"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2011,7 +2015,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [70, 72, 80]
     floor_texture_group: "clocktower_slate"
     letter: "1"
@@ -2024,7 +2028,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [96, 88, 66]
     floor_texture_group: "clocktower_mosaic"
     letter: "2"
@@ -2037,7 +2041,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [104, 82, 58]
     floor_texture_group: "clocktower_planks"
     letter: "3"
@@ -2050,7 +2054,7 @@ tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [92, 74, 48]
     floor_texture_group: "clocktower_grate"
     letter: "4"
@@ -2063,9 +2067,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.6
+    size_class: large_prop
     sprite: "broken_grandfather_clock"
-    render_type: "environment_sprite"
+    render_type: "standee"
     no_spin: true
     map_color: [96, 74, 52]
     short_label: "brokenclock"
@@ -2077,9 +2081,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     sprite: "gear_pile"
-    render_type: "environment_sprite"
+    render_type: "standee"
     no_spin: true
     short_label: "gearpile"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2090,9 +2094,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 1.2
+    size_class: tall_prop
     sprite: "steam_boiler"
-    render_type: "environment_sprite"
+    render_type: "standee"
     no_spin: true
     map_color: [98, 70, 54]
     short_label: "boiler"
@@ -2104,9 +2108,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_tiles: 0.8
+    size_class: small_prop
     sprite: "parts_crate"
-    render_type: "environment_sprite"
+    render_type: "standee"
     no_spin: true
     map_color: [110, 84, 56]
     short_label: "partscrate"
@@ -2119,9 +2123,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.6
+    size_class: small_prop
     sprite: "wall_pendulum_clock"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "wallclock"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2132,9 +2136,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.6
+    size_class: small_prop
     sprite: "wall_gear_cluster"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "gearcluster"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2145,9 +2149,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_pipe_valve"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "pipevalve"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2158,9 +2162,9 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_tiles: 0.5
+    size_class: small_prop
     sprite: "wall_blueprint"
-    render_type: "environment_sprite"
+    render_type: "standee"
     wall_mounted: true
     short_label: "blueprint"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]

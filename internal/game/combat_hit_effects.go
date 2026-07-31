@@ -368,8 +368,8 @@ func (g *MMGame) spawnTileScatterFx(cx, cy, radiusTiles float64, perTile func(wx
 	tile := float64(g.config.GetTileSize())
 	reach := radiusTiles * tile
 	r := int(radiusTiles + 0.999)
-	ctx := int(cx / tile)
-	cty := int(cy / tile)
+	ctx := TileIndex(cx, tile)
+	cty := TileIndex(cy, tile)
 
 	type tilePos struct {
 		wx, wy    float64

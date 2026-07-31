@@ -230,7 +230,7 @@ func TestImpenetrableDefenseAndSacrificeUsePostMitigationDamage(t *testing.T) {
 
 func TestAnimalBondingBearCopiesDruidStatsAndIsPureSummon(t *testing.T) {
 	oldTiles := world.GlobalTileManager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatal(err)
 	}

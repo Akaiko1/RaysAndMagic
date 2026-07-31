@@ -805,8 +805,8 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	}
 
 	tileSize := ui.game.config.GetTileSize()
-	playerTileX := int(ui.game.camera.X / tileSize)
-	playerTileY := int(ui.game.camera.Y / tileSize)
+	playerTileX := TileIndex(ui.game.camera.X, tileSize)
+	playerTileY := TileIndex(ui.game.camera.Y, tileSize)
 
 	// Number of tiles to show in each direction from center
 	viewRange := 5
@@ -834,8 +834,8 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		if ui.game.npcAbsent(npc) {
 			continue
 		}
-		npcTileX := int(npc.X / tileSize)
-		npcTileY := int(npc.Y / tileSize)
+		npcTileX := TileIndex(npc.X, tileSize)
+		npcTileY := TileIndex(npc.Y, tileSize)
 		dx := npcTileX - playerTileX
 		dy := npcTileY - playerTileY
 

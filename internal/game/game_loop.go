@@ -582,6 +582,12 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
+	// Renderer-owned ambient motes still advance in Update, never Draw: their
+	// lifecycle and RNG therefore follow simulation ticks even on dropped frames.
+	if gl.renderer != nil {
+		gl.renderer.updateNightMotes()
+	}
+
 	// Update spellbook input cooldown
 	if gl.game.spellInputCooldown > 0 {
 		gl.game.spellInputCooldown--

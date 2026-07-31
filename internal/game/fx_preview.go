@@ -324,7 +324,7 @@ func (p *FxPreview) spawn() {
 	case FxTrap:
 		if def, ok := config.GetTrapDefinition(p.sel.Key); ok && def != nil {
 			ts := float64(g.config.GetTileSize())
-			tx, ty := int(p.stageX/ts), int(p.stageY/ts)
+			tx, ty := TileIndex(p.stageX, ts), TileIndex(p.stageY, ts)
 			g.traps = append(g.traps, PlacedTrap{
 				Key: p.sel.Key, MapKey: fxStageMapKey,
 				TileX: tx, TileY: ty,

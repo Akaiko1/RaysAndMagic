@@ -74,6 +74,56 @@ func TestGetSpriteVariants(t *testing.T) {
 	}
 }
 
+func TestSpriteVisibleFrameBoundsFromImage(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 16, 4)) // four 4x4 frames
+	for frame := 0; frame < 4; frame++ {
+		// The visible body occupies the same two rows but shifts horizontally.
+		x := frame*4 + frame%2
+		img.SetNRGBA(x, 1, color.NRGBA{R: 255, A: 255})
+		img.SetNRGBA(x+1, 2, color.NRGBA{R: 255, A: 255})
+	}
+	// A nearly invisible fringe must not change authored visual scale.
+	img.SetNRGBA(15, 3, color.NRGBA{R: 255, A: 8})
+
+	want := image.Rect(0, 1, 3, 3)
+	compact := spriteVisibleFrameBoundsFromImage(img)
+	if !compact.known || compact.bounds != want || compact.frameWidth != 4 || compact.frameHeight != 4 {
+		t.Fatalf("compact visible bounds = %+v, want bounds=%v frame=4x4", compact, want)
+	}
+}
+
+func TestSpriteVisibleFrameBoundsDoesNotRetainAlphaMask(t *testing.T) {
+	tempDir := t.TempDir()
+	spritePath := filepath.Join(tempDir, "bounds_only.png")
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	img.SetNRGBA(2, 3, color.NRGBA{R: 20, G: 180, B: 40, A: 255})
+	file, err := os.Create(spritePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{"bounds_only": spritePath}
+	sm.spriteDirType = map[string]string{"bounds_only": "environment"}
+	bounds, frameWidth, frameHeight, known := sm.SpriteVisibleFrameBounds("bounds_only")
+	if !known || bounds != image.Rect(2, 3, 3, 4) || frameWidth != 8 || frameHeight != 8 {
+		t.Fatalf("visible bounds = %v frame=%dx%d known=%v", bounds, frameWidth, frameHeight, known)
+	}
+	if len(sm.alphaMasks) != 0 {
+		t.Fatalf("visible-bounds lookup retained %d pixel alpha masks", len(sm.alphaMasks))
+	}
+	if len(sm.visibleFrameBounds) != 1 {
+		t.Fatalf("compact visible-bounds cache has %d entries, want 1", len(sm.visibleFrameBounds))
+	}
+}
+
 func TestSpriteNamesWithPrefixUsesIndexedAssetsInStableOrder(t *testing.T) {
 	sm := NewSpriteManager()
 	sm.spritePaths = map[string]string{

@@ -208,8 +208,19 @@ func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 
 	champion.TrueDamage = 99
 	champion.IgnoresDodge = true
+	// A crit doubles BOTH damage parts (rollSpellCritParts), so a random crit
+	// turns the expected true rider into 2x and flakes this assertion. The test
+	// is about WHICH riders apply, so take the roll out. Cast with an OWN COPY of
+	// the template: championTemplateFor hands back the shared champion template,
+	// and zeroing crit on it would leak into whatever test runs next.
+	caster := *template
+	caster.Luck = 0
+	caster.Equipment = nil // gear luck (Sonar Pendant +5) is the last crit source
+	if total := cs.totalCriticalChance(0, &caster); total != 0 {
+		t.Fatalf("champion crit chance = %d%%, want 0 so the rider assertion is deterministic", total)
+	}
 	before := len(cs.game.magicProjectiles)
-	cs.championCastSpell(champion, template, spells.SpellID("fireball"))
+	cs.championCastSpell(champion, &caster, spells.SpellID("fireball"))
 	if len(cs.game.magicProjectiles) != before+1 {
 		t.Fatal("champion spell did not spawn a projectile")
 	}

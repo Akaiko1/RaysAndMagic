@@ -94,7 +94,7 @@ func (g *MMGame) refreshDoors() {
 		}
 		id := fmt.Sprintf("door:%.0f:%.0f", npc.X, npc.Y)
 		if !g.doorEntityIDs[id] {
-			g.collisionSystem.RegisterEntity(collision.NewEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
+			g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
 			g.doorEntityIDs[id] = true
 		}
 	}

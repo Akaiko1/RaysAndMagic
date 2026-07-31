@@ -28,6 +28,11 @@ func SaveRowsTotal() int { return saveRowCount + 1 }
 // SaveRowFilePath is the save file backing a global save-row index.
 func SaveRowFilePath(row int) string { return saveRowPath(row) }
 
+// SaveRowFileName is the bare slot file name for a global save-row index, for
+// callers that hold their own save directory - the bundle and plain-binary
+// layouts resolve it differently, so they must not go through AppSaveDir.
+func SaveRowFileName(row int) string { return saveRowFileName(row) }
+
 // SaveRowDisplayName is the slot's display name ("Autosave" or "Slot N").
 func SaveRowDisplayName(row int) string { return saveRowLabel(row) }
 

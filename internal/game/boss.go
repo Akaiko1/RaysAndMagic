@@ -263,8 +263,8 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 		return 0, 0, false
 	}
 	tile := float64(cs.game.config.GetTileSize())
-	targetTX := int(targetX / tile)
-	targetTY := int(targetY / tile)
+	targetTX := TileIndex(targetX, tile)
+	targetTY := TileIndex(targetY, tile)
 
 	for radius := 0; radius < maxRadius; radius++ {
 		for dx := -radius; dx <= radius; dx++ {
@@ -300,7 +300,7 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 
 func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 	tile := float64(cs.game.config.GetTileSize())
-	tx, ty := int(x/tile), int(y/tile)
+	tx, ty := TileIndex(x, tile), TileIndex(y, tile)
 	ptx, pty := cs.game.GetPlayerTilePosition()
 	if tx == ptx && ty == pty {
 		return true
@@ -313,7 +313,7 @@ func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 		if o == nil || !o.IsAlive() {
 			continue
 		}
-		if int(o.X/tile) == tx && int(o.Y/tile) == ty {
+		if TileIndex(o.X, tile) == tx && TileIndex(o.Y, tile) == ty {
 			return true
 		}
 	}

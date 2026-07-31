@@ -24,14 +24,19 @@ func TestDebugSim_LoadAllSavesOpenWorld(t *testing.T) {
 	}
 	t.Chdir("../..")
 
-	paths, _ := filepath.Glob("bin/saves/*.json")
+	// Enumerate the slot files by the game's own naming instead of globbing the
+	// directory: highscores, the stash and arena_leaderboard.json live there too,
+	// and a blacklist breaks again on the next sibling artifact.
 	var saves []string
-	for _, p := range paths {
-		base := filepath.Base(p)
-		if base == "highscores.json" || base == "stash.json" || base == "stash-transfer.json" {
+	for row := 0; row < SaveRowsTotal(); row++ {
+		// Slot NAME from the one source of truth, directory hardcoded on purpose:
+		// this checks the saves the BUILT game wrote next to its exe in bin/, and
+		// AppSaveDir would resolve somewhere else under `go test` (and create it).
+		path := filepath.Join("bin", "saves", SaveRowFileName(row))
+		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		saves = append(saves, p)
+		saves = append(saves, path)
 	}
 	if len(saves) == 0 {
 		t.Skip("no save files under bin/saves")

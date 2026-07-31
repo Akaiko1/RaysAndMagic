@@ -106,7 +106,7 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 		return
 	}
 	ts := float64(g.config.GetTileSize())
-	cx, cy := int(m.X/ts), int(m.Y/ts)
+	cx, cy := TileIndex(m.X, ts), TileIndex(m.Y, ts)
 	radius := m.TrapVolleyRadiusTiles
 	extent := int(math.Ceil(radius))
 	seen := make(map[[2]int]bool, m.TrapVolleyCount)
@@ -150,7 +150,7 @@ func (g *MMGame) checkBossFireTraps() {
 		return
 	}
 	ts := float64(g.config.GetTileSize())
-	ptx, pty := int(g.camera.X/ts), int(g.camera.Y/ts)
+	ptx, pty := TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)
 	for i, t := range g.bossFireTraps {
 		if t.TX != ptx || t.TY != pty {
 			continue

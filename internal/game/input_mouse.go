@@ -29,14 +29,12 @@ func (g *MMGame) consumeLeftClick() bool {
 	return true
 }
 
-// consumeClickIn consumes the oldest click in the queue that falls inside the
-// bounds, recording its position/time into the given destination fields. Shared
-// by the left and right click queues. Bounds are inclusive-exclusive: [x1,x2)
-// and [y1,y2).
-func consumeClickIn(queue *[]queuedClick, dstX, dstY *int, dstAt *int64, x1, y1, x2, y2 int) bool {
+// consumeClickMatching consumes the oldest click accepted by match and records
+// its position and timestamp in the destination fields.
+func consumeClickMatching(queue *[]queuedClick, dstX, dstY *int, dstAt *int64, match func(queuedClick) bool) bool {
 	clicks := *queue
 	for i, click := range clicks {
-		if click.x >= x1 && click.x < x2 && click.y >= y1 && click.y < y2 {
+		if match(click) {
 			*queue = append(clicks[:i], clicks[i+1:]...)
 			*dstX, *dstY = click.x, click.y
 			*dstAt = click.at
@@ -44,6 +42,14 @@ func consumeClickIn(queue *[]queuedClick, dstX, dstY *int, dstAt *int64, x1, y1,
 		}
 	}
 	return false
+}
+
+// consumeClickIn consumes the oldest click inside the inclusive-exclusive
+// bounds [x1,x2) and [y1,y2).
+func consumeClickIn(queue *[]queuedClick, dstX, dstY *int, dstAt *int64, x1, y1, x2, y2 int) bool {
+	return consumeClickMatching(queue, dstX, dstY, dstAt, func(click queuedClick) bool {
+		return click.x >= x1 && click.x < x2 && click.y >= y1 && click.y < y2
+	})
 }
 
 // consumeLeftClickIn consumes the oldest queued left-click inside the bounds.
@@ -54,6 +60,12 @@ func (g *MMGame) consumeLeftClickIn(x1, y1, x2, y2 int) bool {
 // consumeRightClickIn consumes the oldest queued right-click inside the bounds.
 func (g *MMGame) consumeRightClickIn(x1, y1, x2, y2 int) bool {
 	return consumeClickIn(&g.mouseRightClicks, &g.mouseRightClickX, &g.mouseRightClickY, &g.mouseRightClickAt, x1, y1, x2, y2)
+}
+
+// consumeRightClickMatching consumes the oldest queued right-click accepted by
+// match while preserving unrelated right-clicks for their context handlers.
+func (g *MMGame) consumeRightClickMatching(match func(queuedClick) bool) bool {
+	return consumeClickMatching(&g.mouseRightClicks, &g.mouseRightClickX, &g.mouseRightClickY, &g.mouseRightClickAt, match)
 }
 
 func (g *MMGame) pruneClickQueues(now int64) {

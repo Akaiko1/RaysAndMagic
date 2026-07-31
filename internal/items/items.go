@@ -479,6 +479,9 @@ type WeaponDefinitionFromYAML struct {
 // getGlobalWeaponDef accesses the global weapon configuration
 func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 	// We'll use an external accessor to avoid circular imports
+	if GlobalWeaponAccessor == nil {
+		return nil, false
+	}
 	return GlobalWeaponAccessor(weaponKey)
 }
 

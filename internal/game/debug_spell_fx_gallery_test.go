@@ -60,7 +60,7 @@ func bootFxGalleryGame(t *testing.T) (*MMGame, *Renderer) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	t.Cleanup(func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM })
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

@@ -906,7 +906,7 @@ func (g *MMGame) GetCurrentWorld() *world.World3D {
 // GetPlayerTilePosition returns the tile coordinates the player is currently in
 func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 	tileSize := float64(g.config.GetTileSize())
-	return int(g.camera.X / tileSize), int(g.camera.Y / tileSize)
+	return TileIndex(g.camera.X, tileSize), TileIndex(g.camera.Y, tileSize)
 }
 
 // registerSpawnedMonster appends a freshly-created monster to the world and
@@ -1168,8 +1168,8 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 	}
 
 	tileSize := float64(g.config.GetTileSize())
-	targetTX := int(targetX / tileSize)
-	targetTY := int(targetY / tileSize)
+	targetTX := TileIndex(targetX, tileSize)
+	targetTY := TileIndex(targetY, tileSize)
 
 	// Search in expanding spiral from target position
 	for radius := 0; radius < maxRadius; radius++ {
@@ -1232,7 +1232,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 		return x, y
 	}
 	ts := float64(g.config.GetTileSize())
-	tx, ty := int(x/ts), int(y/ts)
+	tx, ty := TileIndex(x, ts), TileIndex(y, ts)
 	if g.flyActive {
 		if !w.IsTileBlockingForFly(tx, ty) {
 			return x, y
@@ -1270,7 +1270,7 @@ func (g *MMGame) settleAfterWalkOnWater() {
 		return
 	}
 	ts := float64(g.config.GetTileSize())
-	tx, ty := int(g.camera.X/ts), int(g.camera.Y/ts)
+	tx, ty := TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)
 	if tx < 0 || ty < 0 || tx >= w.Width || ty >= w.Height {
 		return
 	}
@@ -1291,7 +1291,7 @@ func (g *MMGame) ejectFromWallAfterFly() {
 		return
 	}
 	ts := float64(g.config.GetTileSize())
-	if !w.IsTileBlockingTerrainAt(int(g.camera.X/ts), int(g.camera.Y/ts)) {
+	if !w.IsTileBlockingTerrainAt(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)) {
 		return // already on open ground
 	}
 	g.settleAshore("The wings fade - the party settles onto solid ground.")
@@ -2032,7 +2032,7 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 		return
 	}
 	tileSize := float64(g.config.GetTileSize())
-	ptx, pty := int(g.camera.X/tileSize), int(g.camera.Y/tileSize)
+	ptx, pty := TileIndex(g.camera.X, tileSize), TileIndex(g.camera.Y, tileSize)
 	// The cardinal tiles are preferred to keep an attacker in a readable melee
 	// ring; diagonals provide a fallback. When that entire ring is claimed, the
 	// displaced mob becomes transit and is placed on the next free outer ring.
@@ -2158,8 +2158,8 @@ func (g *MMGame) combatActorAllowed(idx int) bool {
 }
 
 // handlePartyPortraitClick keeps ordinary selection independent from focus.
-// Shift-click toggles the transient RT actor set only in the unobstructed game
-// HUD; menus retain their existing portrait-selection behavior.
+// The input layer passes toggleFocus only for Shift+right-click on the
+// unobstructed gameplay HUD.
 func (g *MMGame) handlePartyPortraitClick(idx int, focusModifier bool) bool {
 	if !g.selectPartyMemberManually(idx) {
 		return false
@@ -2727,8 +2727,8 @@ func (g *MMGame) snapToTileCenter() {
 	tileSize := float64(g.config.GetTileSize())
 
 	// Get current tile coordinates
-	currentTileX := int(g.camera.X / tileSize)
-	currentTileY := int(g.camera.Y / tileSize)
+	currentTileX := TileIndex(g.camera.X, tileSize)
+	currentTileY := TileIndex(g.camera.Y, tileSize)
 
 	// Calculate exact center of current tile
 	centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
@@ -2796,8 +2796,8 @@ func (g *MMGame) snapMonstersToTileCenters() {
 		}
 
 		// Get current tile coordinates for this monster
-		currentTileX := int(monster.X / tileSize)
-		currentTileY := int(monster.Y / tileSize)
+		currentTileX := TileIndex(monster.X, tileSize)
+		currentTileY := TileIndex(monster.Y, tileSize)
 
 		// Calculate exact center of current tile
 		centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
@@ -3054,7 +3054,7 @@ func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
 		return false
 	}
 	tileSize := float64(g.config.GetTileSize())
-	if tileSize <= 0 || (int(m.X/tileSize) == int(targetX/tileSize) && int(m.Y/tileSize) == int(targetY/tileSize)) {
+	if tileSize <= 0 || (TileIndex(m.X, tileSize) == TileIndex(targetX, tileSize) && TileIndex(m.Y, tileSize) == TileIndex(targetY, tileSize)) {
 		return false
 	}
 	if g.collisionSystem != nil && g.collisionSystem.IsMonsterAttackPostReserved(m.ID, m.X, m.Y) {

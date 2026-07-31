@@ -486,7 +486,7 @@ func (g *MMGame) ensureContainerFanOffsets() {
 	groups := make(map[tileKey][]int, len(g.groundContainers))
 	for i := range g.groundContainers {
 		o := &g.groundContainers[i]
-		k := tileKey{o.MapKey, int(o.X / tile), int(o.Y / tile)}
+		k := tileKey{o.MapKey, TileIndex(o.X, tile), TileIndex(o.Y, tile)}
 		groups[k] = append(groups[k], i)
 	}
 	g.containerFanOffsets = make(map[*GroundContainer][2]float64)

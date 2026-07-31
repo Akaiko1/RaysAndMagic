@@ -34,8 +34,8 @@ func (r *Renderer) drawClosedValveSteam(screen *ebiten.Image) {
 		if n == nil || !n.SteamWhenVisited || !n.Visited {
 			continue
 		}
-		tx := int(n.X / ts)
-		ty := int(n.Y / ts)
+		tx := TileIndex(n.X, ts)
+		ty := TileIndex(n.Y, ts)
 		for gy := 0; gy < valveSteamGrid; gy++ {
 			for gx := 0; gx < valveSteamGrid; gx++ {
 				fx := (float64(gx) + 0.5) / float64(valveSteamGrid)

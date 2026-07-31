@@ -781,7 +781,7 @@ func (cs *CombatSystem) partyEntombed() bool {
 		return false
 	}
 	ts := g.config.GetTileSize()
-	if !w.IsTileBlockingTerrainAt(int(g.camera.X/ts), int(g.camera.Y/ts)) {
+	if !w.IsTileBlockingTerrainAt(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)) {
 		return false
 	}
 	if g.frameCount-g.entombedMsgFrame > int64(g.config.GetTPS()) {
@@ -1097,9 +1097,9 @@ type meleeHitCandidate struct {
 // angle normalization are the ONE definition shared by the party's PvE swing
 // and a champion's swing at summons.
 func meleeReachAngle(ox, oy, facing float64, rangeTiles int, tileSize, tx, ty float64) (ang float64, inReach bool) {
-	otx, oty := int(ox/tileSize), int(oy/tileSize)
-	cheb := mathutil.IntAbs(int(tx/tileSize) - otx)
-	if dy := mathutil.IntAbs(int(ty/tileSize) - oty); dy > cheb {
+	otx, oty := TileIndex(ox, tileSize), TileIndex(oy, tileSize)
+	cheb := mathutil.IntAbs(TileIndex(tx, tileSize) - otx)
+	if dy := mathutil.IntAbs(TileIndex(ty, tileSize) - oty); dy > cheb {
 		cheb = dy
 	}
 	if cheb > rangeTiles {
@@ -1444,8 +1444,8 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 	// Logical (un-shaken) camera: the pull decision, its gates, and its LOS must
 	// not flip with the per-frame +/- shake jitter (see logicalCameraXY).
 	camX, camY := cs.logicalCameraXY()
-	ptx, pty := int(camX/tileSize), int(camY/tileSize)
-	mtx, mty := int(mon.X/tileSize), int(mon.Y/tileSize)
+	ptx, pty := TileIndex(camX, tileSize), TileIndex(camY, tileSize)
+	mtx, mty := TileIndex(mon.X, tileSize), TileIndex(mon.Y, tileSize)
 	mdx, mdy := mtx-ptx, mty-pty
 	fx, fy := cardinalForwardFromAngle(cs.game.camera.Angle)
 
@@ -2217,7 +2217,7 @@ func (cs *CombatSystem) monsterCanPounceParty(m *monsterPkg.Monster3D) bool {
 // only resolve the strike when it returns true. Shared by RT and TB pounce hooks.
 func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) bool {
 	tileSize := float64(cs.game.config.GetTileSize())
-	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
+	ptx, pty := TileIndex(playerX, tileSize), TileIndex(playerY, tileSize)
 
 	cands := [8][2]int{
 		{ptx + 1, pty}, {ptx - 1, pty}, {ptx, pty + 1}, {ptx, pty - 1},
@@ -2297,8 +2297,8 @@ func (cs *CombatSystem) monsterMeleeAdjacentToPoint(monster *monsterPkg.Monster3
 	if tileSize <= 0 {
 		return false
 	}
-	mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
-	ptx, pty := int(targetX/tileSize), int(targetY/tileSize)
+	mtx, mty := TileIndex(monster.X, tileSize), TileIndex(monster.Y, tileSize)
+	ptx, pty := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 	dx, dy := mathutil.IntAbs(mtx-ptx), mathutil.IntAbs(mty-pty)
 	if dx == 0 && dy == 0 {
 		return false
@@ -5150,7 +5150,7 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 	}
 	if cs != nil && cs.game != nil && cs.game.config != nil {
 		tileSize := float64(cs.game.config.GetTileSize())
-		if tileSize > 0 && int(attacker.X/tileSize) == int(target.X/tileSize) && int(attacker.Y/tileSize) == int(target.Y/tileSize) {
+		if tileSize > 0 && TileIndex(attacker.X, tileSize) == TileIndex(target.X, tileSize) && TileIndex(attacker.Y, tileSize) == TileIndex(target.Y, tileSize) {
 			return false
 		}
 	}

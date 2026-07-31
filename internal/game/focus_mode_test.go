@@ -13,14 +13,14 @@ func focusModeTestGame(t *testing.T) *MMGame {
 	return newTestGame(cfg, newTestWorld(cfg))
 }
 
-func TestFocusModeShiftClickTogglesPartyMembers(t *testing.T) {
+func TestFocusModeShiftRightClickTogglesPartyMembers(t *testing.T) {
 	g := focusModeTestGame(t)
 
 	if !g.handlePartyPortraitClick(1, true) {
-		t.Fatal("Shift-click did not select party member 1")
+		t.Fatal("Shift+right-click did not select party member 1")
 	}
 	if !g.focusModeActive() || !g.partyMemberFocused(1) || g.selectedChar != 1 {
-		t.Fatalf("first Shift-click = mask %04b selected %d", g.focusedPartyMask, g.selectedChar)
+		t.Fatalf("first Shift+right-click = mask %04b selected %d", g.focusedPartyMask, g.selectedChar)
 	}
 
 	g.handlePartyPortraitClick(3, true)
@@ -36,6 +36,114 @@ func TestFocusModeShiftClickTogglesPartyMembers(t *testing.T) {
 	g.handlePartyPortraitClick(3, true)
 	if g.focusModeActive() {
 		t.Fatalf("removing the final member left mask %04b", g.focusedPartyMask)
+	}
+}
+
+func TestFocusModePortraitInputConsumesMatchingQueuedRightClickOnce(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	ih := NewInputHandler(g)
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	portraitX := baseLeft + portraitWidth + portraitWidth/2
+	portraitY := startY + portraitHeight/2
+	g.mouseRightClicks = []queuedClick{
+		{x: 1, y: 1, at: 1},
+		{x: portraitX, y: portraitY, at: 2},
+	}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if !g.partyMemberFocused(1) {
+		t.Fatal("queued portrait right-click behind a world click did not toggle focus")
+	}
+	if len(g.mouseRightClicks) != 1 || g.mouseRightClicks[0].x != 1 {
+		t.Fatalf("portrait consumer left queue %+v, want only the world click", g.mouseRightClicks)
+	}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if !g.partyMemberFocused(1) {
+		t.Fatal("consumed portrait click fired a second time")
+	}
+}
+
+func TestFocusModePortraitInputDoesNotConsumeNonPortraitRightClicks(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	g.party.Members = g.party.Members[:2]
+	ih := NewInputHandler(g)
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	emptySlotX := baseLeft + 3*portraitWidth + portraitWidth/2
+	portraitY := startY + portraitHeight/2
+	g.mouseRightClicks = []queuedClick{{x: emptySlotX, y: portraitY, at: 1}}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if len(g.mouseRightClicks) != 1 {
+		t.Fatal("right-click on an empty party slot was consumed")
+	}
+	if g.focusModeActive() {
+		t.Fatal("right-click on an empty party slot enabled focus mode")
+	}
+}
+
+func TestFocusModePortraitInputDoesNotConsumeStatButtonRightClick(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	g.party.Members[0].FreeStatPoints = 1
+	ih := NewInputHandler(g)
+	_, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	plusX := baseLeft + 21
+	plusY := startY + portraitHeight - 27
+	g.mouseRightClicks = []queuedClick{{x: plusX, y: plusY, at: 1}}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if len(g.mouseRightClicks) != 1 {
+		t.Fatal("right-click on the stat button was consumed as portrait focus")
+	}
+	if g.focusModeActive() {
+		t.Fatal("right-click on the stat button enabled focus mode")
+	}
+}
+
+func TestFocusModePortraitInputKeepsLeftClickAsSelection(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	ih := NewInputHandler(g)
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	g.mouseLeftClicks = []queuedClick{{
+		x:  baseLeft + 2*portraitWidth + portraitWidth/2,
+		y:  startY + portraitHeight/2,
+		at: 1,
+	}}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if g.selectedChar != 2 {
+		t.Fatalf("left portrait click selected %d, want 2", g.selectedChar)
+	}
+	if g.focusModeActive() {
+		t.Fatalf("left portrait click enabled focus mask %04b", g.focusedPartyMask)
+	}
+	if len(g.mouseLeftClicks) != 0 {
+		t.Fatal("left portrait click was not consumed")
+	}
+}
+
+func TestFocusModePortraitInputRespectsWorldClickGate(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	g.menuOpen = true
+	ih := NewInputHandler(g)
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	g.mouseRightClicks = []queuedClick{{
+		x:  baseLeft + portraitWidth/2,
+		y:  startY + portraitHeight/2,
+		at: 1,
+	}}
+
+	ih.handlePartyPortraitMouseInput(true)
+	if g.focusModeActive() {
+		t.Fatal("blocked portrait click enabled focus mode")
+	}
+	if len(g.mouseRightClicks) != 1 {
+		t.Fatal("blocked portrait click was consumed")
 	}
 }
 
@@ -55,7 +163,7 @@ func TestFocusModeLeavesOrdinarySelectionIndependent(t *testing.T) {
 	g.menuOpen = true
 	g.handlePartyPortraitClick(3, true)
 	if g.focusModeActive() {
-		t.Fatal("Shift-click inside a menu enabled combat focus")
+		t.Fatal("Shift+right-click inside a menu enabled combat focus")
 	}
 }
 

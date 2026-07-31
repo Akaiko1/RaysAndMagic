@@ -62,7 +62,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	defer func() {
 		world.GlobalTileManager, world.GlobalWorldManager, quests.GlobalQuestManager = prevTM, prevWM, prevQM
 	}()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

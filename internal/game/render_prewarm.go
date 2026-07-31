@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
@@ -30,9 +31,10 @@ type mapRenderPrewarmPlan struct {
 }
 
 type mapNPCPrewarmResource struct {
-	name        string
-	prefix      string
-	stableImage bool
+	name              string
+	prefix            string
+	stableImage       bool
+	warmVisibleBounds bool
 }
 
 type mapMonsterPrewarmResource struct {
@@ -178,7 +180,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 			renderType := tm.GetRenderType(tileType)
 			switch renderType {
-			case "textured_wall", "tree_sprite", "environment_sprite", "landmark":
+			case config.TileRenderWall, config.TileRenderCrossedStandee, config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			default:
 				continue
 			}
@@ -187,7 +189,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 				continue
 			}
 			tileSprites[name] = struct{}{}
-			if renderType == "textured_wall" {
+			if renderType == config.TileRenderWall {
 				wallSprites[name] = struct{}{}
 			}
 		}
@@ -223,10 +225,12 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		baseName := normalizedAuthoredSpriteName(npc.Sprite)
 		visitedName := normalizedAuthoredSpriteName(npc.VisitedSprite)
 		if baseName != "" || visitedName != "" {
+			category := npcRenderCatOf(npc)
 			prefix, stableImage := "npc", false
-			if npc.GridSpanTiles < 2 && npcRenderCatOf(npc) == catLandmark {
+			if npc.GridSpanTiles < 2 && category == catLandmark {
 				prefix, stableImage = "landmark", true
 			}
+			warmBounds := npc.SizeClass != "" && category != catNPC
 			for _, name := range []string{baseName, visitedName} {
 				if name == "" {
 					continue
@@ -237,6 +241,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 				}
 				npcSprites[mapNPCPrewarmResource{
 					name: name, prefix: prefix, stableImage: stableImage,
+					warmVisibleBounds: warmBounds,
 				}] = struct{}{}
 			}
 		}
@@ -730,6 +735,15 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 	}
 	plan := r.collectMapRenderPrewarmPlan(mapKey)
 	p := newMapRenderPrewarmer(r)
+	warmVisibleBounds := func(name string) {
+		names := r.game.sprites.GetSpriteVariants(name)
+		if len(names) == 0 {
+			names = []string{name}
+		}
+		for _, candidate := range names {
+			r.game.sprites.SpriteVisibleFrameBounds(candidate)
+		}
+	}
 
 	buildShared := !r.mapRenderSharedResourcesReady
 	if buildShared {
@@ -761,6 +775,9 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 			}
 		}
 		for _, resource := range plan.environmentSprites {
+			// Size classes target visible alpha height. Decode/cache the CPU bounds
+			// during map load so the first rendered frame never pays file IO.
+			warmVisibleBounds(resource.spriteName)
 			sprite := r.getProcessedSpriteByName(resource.tileType, resource.spriteName)
 			p.addUpload(sprite)
 			if sprite == nil || !r.game.config.Graphics.Standee.Enabled {
@@ -770,7 +787,7 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 			renderType := world.GlobalTileManager.GetRenderType(resource.tileType)
 			for _, frame := range frames {
 				switch {
-				case renderType == "landmark":
+				case renderType == config.TileRenderLandmarkStandee:
 					p.standee("landmark", resource.spriteName, frame, true)
 				case world.GlobalTileManager.IsWallMounted(resource.tileType):
 					// The wall-mounted path falls back to a centered tile standee if
@@ -807,6 +824,9 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 	}
 
 	for _, resource := range plan.npcSprites {
+		if resource.warmVisibleBounds {
+			warmVisibleBounds(resource.name)
+		}
 		sprite := p.sprite(resource.name)
 		if sprite == nil || !r.game.config.Graphics.Standee.Enabled {
 			continue

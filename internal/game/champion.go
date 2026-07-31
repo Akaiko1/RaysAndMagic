@@ -96,6 +96,12 @@ func (g *MMGame) championTemplate(key, tierName string) *character.MMCharacter {
 }
 
 // championTemplateFor resolves the template for a live champion mob.
+//
+// READ-ONLY: this is the SHARED cached build for that key+tier, not a per-mob
+// copy - every champion of the tier and every later caller sees the same object.
+// Callers that need to tweak stats must copy first (note that a shallow copy
+// still shares Equipment / MagicSchools / Skills, so replace those fields rather
+// than writing into them).
 func (g *MMGame) championTemplateFor(m *monster.Monster3D) *character.MMCharacter {
 	return g.championTemplate(m.ChampionKey, championTierOf(m))
 }

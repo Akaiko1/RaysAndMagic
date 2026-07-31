@@ -16,7 +16,7 @@ func TestWolfRoutesAroundTreeToParty(t *testing.T) {
 
 	prevTM := world.GlobalTileManager
 	defer func() { world.GlobalTileManager = prevTM }()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

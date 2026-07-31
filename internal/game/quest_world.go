@@ -148,7 +148,7 @@ func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 				if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
 					continue
 				}
-				if wm.OpenWorldRegionAtTile(int(m.X/ts), int(m.Y/ts)) != r {
+				if wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) != r {
 					continue
 				}
 				if matches(m) {

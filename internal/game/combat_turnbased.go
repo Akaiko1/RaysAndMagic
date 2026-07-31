@@ -24,7 +24,7 @@ func (g *MMGame) separateStackedMonstersTB() {
 	tile := float64(g.config.GetTileSize())
 	separationRadius := tile * TurnBasedCalmStackSeparationRadiusTiles
 	px, py := g.camera.X, g.camera.Y
-	playerTile := [2]int{int(px / tile), int(py / tile)}
+	playerTile := [2]int{TileIndex(px, tile), TileIndex(py, tile)}
 	byTile := map[[2]int][]*monster.Monster3D{}
 	// Only byTile actors may be repaired, but every live actor reserves its
 	// current tile. Otherwise a legacy stack can scatter onto a combat transit
@@ -34,7 +34,7 @@ func (g *MMGame) separateStackedMonstersTB() {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		key := [2]int{int(m.X / tile), int(m.Y / tile)}
+		key := [2]int{TileIndex(m.X, tile), TileIndex(m.Y, tile)}
 		used[key] = true
 		if combatStackParticipant(g, m) {
 			continue
@@ -331,7 +331,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Work in tile space: monsters never enter the player's tile. Melee can
 		// attack from any adjacent tile (including diagonals); ranged attackers
 		// still need a row/column firing lane.
-		mtx, mty := int(m.X/tileSize), int(m.Y/tileSize)
+		mtx, mty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
 		ptx, pty := gl.game.GetPlayerTilePosition()
 		dxT, dyT := ptx-mtx, pty-mty
 		adX, adY := dxT, dyT
@@ -538,7 +538,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
-	movedTile := tileSize > 0 && (int(m.X/tileSize) != int(wx/tileSize) || int(m.Y/tileSize) != int(wy/tileSize))
+	movedTile := tileSize > 0 && (TileIndex(m.X, tileSize) != TileIndex(wx, tileSize) || TileIndex(m.Y, tileSize) != TileIndex(wy, tileSize))
 	if movedTile {
 		gl.game.releaseMonsterAttackPost(m)
 	}
@@ -558,7 +558,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 // occupies, so turn-based movement stays strictly tile-to-tile. No-op if the
 // tile center isn't reachable for this monster (wall/occupied).
 func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) {
-	cx, cy := TileCenterFromTile(int(m.X/tileSize), int(m.Y/tileSize), tileSize)
+	cx, cy := TileCenterFromTile(TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize), tileSize)
 	if cx == m.X && cy == m.Y {
 		return
 	}
@@ -591,10 +591,10 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 
 	// Step toward the monster's AI target (party by default; a charmed monster is
 	// redirected - bound undead toward its enemy, pacified toward itself = no move).
-	monsterTileX := int(monster.X / tileSize)
-	monsterTileY := int(monster.Y / tileSize)
+	monsterTileX := TileIndex(monster.X, tileSize)
+	monsterTileY := TileIndex(monster.Y, tileSize)
 	targetX, targetY := gl.game.combat.monsterAITargetPoint(monster)
-	playerTileX, playerTileY := int(targetX/tileSize), int(targetY/tileSize)
+	playerTileX, playerTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 
 	dxTiles := playerTileX - monsterTileX
 	dyTiles := playerTileY - monsterTileY
@@ -691,7 +691,7 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		return nil
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
-	targetTileX, targetTileY := int(targetX/tileSize), int(targetY/tileSize)
+	targetTileX, targetTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 
 	goals := make([]monster.TileCoord, 0, 24)
 	addGoal := func(tx, ty int, requireLOS bool) {
@@ -732,7 +732,7 @@ func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D,
 	if tileSize <= 0 {
 		return nil
 	}
-	targetTileX, targetTileY := int(targetX/tileSize), int(targetY/tileSize)
+	targetTileX, targetTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 	const approachRing = 2
 	goals := make([]monster.TileCoord, 0, approachRing*8)
 	for dy := -approachRing; dy <= approachRing; dy++ {
@@ -759,7 +759,7 @@ func (gl *GameLoop) moveMonsterOffAttackTargetTileTB(m *monster.Monster3D, targe
 	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil || tileSize <= 0 {
 		return false
 	}
-	tx, ty := int(targetX/tileSize), int(targetY/tileSize)
+	tx, ty := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 	for _, offset := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
 		x, y := TileCenterFromTile(tx+offset[0], ty+offset[1], tileSize)
 		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) {

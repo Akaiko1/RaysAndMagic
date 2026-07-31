@@ -21,7 +21,7 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 		world.GlobalTileManager, world.GlobalWorldManager, quests.GlobalQuestManager = prevTM, prevWM, prevQM
 	})
 
-	tm := world.NewTileManager()
+	tm := world.NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

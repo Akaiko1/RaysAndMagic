@@ -610,16 +610,21 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 // ValidSizeClasses is the fixed set of monster size-class names. The tile-height
 // per class is data-driven (config graphics.monster_size_classes); the NAMES are
 // the enum, so content validation can reject a typo without the config loaded.
-var ValidSizeClasses = map[string]bool{"small": true, "medium": true, "person": true, "large": true, "huge": true}
+var ValidSizeClasses = func() map[string]bool {
+	classes := make(map[string]bool)
+	for _, name := range config.ActorSizeClassNames() {
+		classes[name] = true
+	}
+	return classes
+}()
 
 // sizeClassHeights maps size class -> sprite height in tiles, wired from config
 // at boot via SetSizeClassHeights (monster package must not import the loaded
 // config instance, so the values are pushed in).
 var sizeClassHeights = map[string]float64{}
 
-// SetSizeClassHeights installs the class -> tile-height table (config
-// graphics.size_classes). Call once after loading config. It is the single
-// runtime source both monster AND NPC sizing resolve through (SizeClassTiles).
+// SetSizeClassHeights installs the monster view of the shared class -> tile
+// span table from config graphics.size_classes. Call once after loading config.
 func SetSizeClassHeights(m map[string]float64) {
 	sizeClassHeights = map[string]float64{}
 	for k, v := range m {
@@ -627,9 +632,8 @@ func SetSizeClassHeights(m map[string]float64) {
 	}
 }
 
-// SizeClassTiles returns the sprite height (tiles) for a size class and whether
-// it is defined. The one lookup shared by monster and NPC sizing, so the two
-// never resolve the same class differently.
+// SizeClassTiles returns the monster sprite height (tiles) for a size class and
+// whether it is defined.
 func SizeClassTiles(class string) (float64, bool) {
 	h, ok := sizeClassHeights[class]
 	return h, ok
@@ -659,7 +663,7 @@ func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
 	if h, ok := sizeClassHeights[def.SizeClass]; ok {
 		return h
 	}
-	if h, ok := sizeClassHeights["person"]; ok {
+	if h, ok := sizeClassHeights[config.SizeClassPerson]; ok {
 		return h
 	}
 	return 0.8

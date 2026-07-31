@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 )
 
 // npcRenderCat is the single enum describing HOW an NPC renders - the one
@@ -82,6 +83,47 @@ func ValidateNPCRenderCategories(npcs map[string]*character.NPCData) error {
 				got = npc.RenderCategory
 			}
 			return fmt.Errorf("NPC %q has missing or unknown render_category %q (valid: npc|wall_mounted|landmark|scenery|door|invisible)", key, got)
+		}
+	}
+	return nil
+}
+
+// ValidateNPCVisualSizes keeps authored NPC/prop scale on the same quantized
+// class table as monsters and tile standees. Grid-span facades own their size,
+// while invisible anchors have no visual size at all.
+func ValidateNPCVisualSizes(npcs map[string]*character.NPCData, classes map[string]float64) error {
+	for key, npc := range npcs {
+		if npc == nil {
+			continue
+		}
+		if npc.GridSpanTiles >= 2 {
+			if npc.SizeClass != "" {
+				return fmt.Errorf("NPC %q grid_span_tiles owns facade size; omit size_class", key)
+			}
+			continue
+		}
+		category, ok := npcCatByName[npc.RenderCategory]
+		if !ok {
+			continue // ValidateNPCRenderCategories owns the category error.
+		}
+		if category == catInvisible {
+			if npc.SizeClass != "" {
+				return fmt.Errorf("NPC %q is invisible and must not set size_class", key)
+			}
+			continue
+		}
+		if npc.SizeClass == "" {
+			return fmt.Errorf("NPC %q render_category %q requires size_class", key, npc.RenderCategory)
+		}
+		if _, found := config.ResolveSizeClassTiles(classes, npc.SizeClass); !found {
+			return fmt.Errorf("NPC %q has unknown size_class %q", key, npc.SizeClass)
+		}
+		if category == catNPC {
+			if npc.SizeClass != config.SizeClassPerson {
+				return fmt.Errorf("NPC %q is a person and must use size_class %q, got %q", key, config.SizeClassPerson, npc.SizeClass)
+			}
+		} else if !config.IsPropSizeClass(npc.SizeClass) {
+			return fmt.Errorf("NPC %q render_category %q requires a prop size_class, got %q", key, npc.RenderCategory, npc.SizeClass)
 		}
 	}
 	return nil

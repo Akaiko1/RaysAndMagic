@@ -24,12 +24,14 @@ import (
 
 // TransparentSpriteData holds cached data for transparent environment sprites
 type TransparentSpriteData struct {
-	tileX      int
-	tileY      int
-	worldX     float64
-	worldY     float64
-	tileType   world.TileType3D
-	spriteName string
+	tileX            int
+	tileY            int
+	worldX           float64
+	worldY           float64
+	tileType         world.TileType3D
+	spriteName       string
+	nightMotePalette nightMotePalette
+	emitsNightMotes  bool
 }
 
 type LightSource struct {
@@ -165,6 +167,16 @@ type Renderer struct {
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
 	activeLights []LightSource
+	// Short-lived solitary motes emitted by actual forest/highland tree tiles at
+	// night. They are visual-only renderer state and reset on every map switch.
+	nightMotes          []nightMote
+	nightMoteNextByTree map[nightMoteTreeID]int64
+	nightMoteScanTick   int64
+	nightMoteLastTick   int64
+	nightMoteDraws      []nightMoteDraw
+	nightMoteCandidates []nightMoteCandidate
+	nightMoteActive     map[nightMoteTreeID]int
+	nightMoteSeen       map[nightMoteTreeID]struct{}
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
@@ -231,6 +243,7 @@ func NewRenderer(game *MMGame) *Renderer {
 		game:                     game,
 		renderedSpritesThisFrame: make(map[[2]int]bool),
 		processedSpriteCache:     make(map[processedSpriteKey]*ebiten.Image),
+		nightMotes:               make([]nightMote, 0, game.config.Graphics.NightMotes.MaxActive),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -304,6 +317,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 		r.mapRenderResourcePrewarmPending = false
 		r.mapRenderResourcePrewarmMapKey = ""
 		r.tileLightCache = nil
+		r.resetNightMotes()
 		r.clearCanopyShadeCache()
 		return
 	}
@@ -349,18 +363,20 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			}
 
 			// Tree tiles: cache one entry per tile for the crossed-standee mode.
-			if world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+			if world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
 				spriteName := world.GlobalTileManager.GetSprite(tileType)
+				palette, emitsNightMotes := nightMotePaletteForConfig(world.GlobalTileManager.GetTileData(tileType))
 				treeCache = append(treeCache, TransparentSpriteData{
 					tileX: tileX, tileY: tileY, worldX: worldX, worldY: worldY,
 					tileType: tileType, spriteName: spriteName,
+					nightMotePalette: palette, emitsNightMotes: emitsNightMotes,
 				})
 			}
 
 			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting).
 			// Landmark tiles (e.g. the city fountain) share this sprite pass - they're
 			// drawn as a tall crossed standee in drawEnvironmentSprite.
-			if rt := world.GlobalTileManager.GetRenderType(tileType); (rt == "environment_sprite" || rt == "landmark") &&
+			if rt := world.GlobalTileManager.GetRenderType(tileType); (rt == config.TileRenderStandee || rt == config.TileRenderLandmarkStandee) &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
 				// Pick a stable variant now; load/process the image lazily in Draw.
@@ -385,6 +401,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	r.treeTilesCache = treeCache
 	r.mapRenderTileTypes = tileTypes
 	r.tileLightCache = lights
+	r.resetNightMotes()
 	// Defer heavyweight PNG decode/mip/upload work until the game has actually
 	// entered play. GameLoop.Update consumes this once after map load/switch.
 	r.scheduleMapRenderResourcePrewarm(currentMapKey())
@@ -1345,6 +1362,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		ts := time.Now()
 		r.drawAllSpritesSorted(screen)
 		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
+		r.drawNightMotes(screen)
 
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
@@ -1554,8 +1572,8 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 
 	// Convert world coordinates to tile/grid coordinates for DDA algorithm
 	tileSize := r.game.config.GetTileSize()
-	currentTileX := int(startWorldX / tileSize)
-	currentTileY := int(startWorldY / tileSize)
+	currentTileX := TileIndex(startWorldX, tileSize)
+	currentTileY := TileIndex(startWorldY, tileSize)
 
 	// Calculate position within the current tile (normalized to 0.0-1.0 range)
 	positionInTileX := (startWorldX / tileSize) - float64(currentTileX)
@@ -1627,7 +1645,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		// sprite pass (drawCrossedTreeStandees), so the forest shows through the
 		// gaps between the planes. Skip the tile entirely.
 		if r.game.config.Graphics.TreesAsBillboards && world.GlobalTileManager != nil &&
-			world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+			world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
 			continue
 		}
 
@@ -1668,7 +1686,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 			// Skip transparent tiles that are floor-only (they never render in the ray pass).
 			if world.GlobalTileManager != nil {
 				renderType := world.GlobalTileManager.GetRenderType(tileType)
-				if renderType == "floor_only" {
+				if renderType == config.TileRenderFloor {
 					continue
 				}
 			}
@@ -1763,7 +1781,7 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			r.writeWallColumns(screenX, currentRayWidth, rayResult.Distance, hitInfo.TileType)
 
 			// Collect tree hits for later sorted rendering
-			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == "tree_sprite" {
+			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == config.TileRenderCrossedStandee {
 				r.treeHits = append(r.treeHits, treeHitData{
 					screenX:  screenX,
 					distance: hitInfo.Distance,
@@ -1791,7 +1809,7 @@ func (r *Renderer) renderRaycastHitStack(screen *ebiten.Image, screenX, width in
 		}
 
 		// Collect tree hits for later sorted rendering.
-		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == "tree_sprite" {
+		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == config.TileRenderCrossedStandee {
 			r.treeHits = append(r.treeHits, treeHitData{
 				screenX:  screenX,
 				distance: hit.Distance,
@@ -1817,10 +1835,10 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	if world.GlobalTileManager != nil {
 		renderType := world.GlobalTileManager.GetRenderType(tileType)
 		switch renderType {
-		case "tree_sprite":
+		case config.TileRenderCrossedStandee:
 			r.flushMipmappedWallBatch(screen)
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
-		case "environment_sprite", "landmark":
+		case config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
 			// Use both hit.IsTransparent flag and tile manager check for safety
 			if hit.IsTransparent {
@@ -1828,10 +1846,10 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 			}
 			r.flushMipmappedWallBatch(screen)
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
-		case "textured_wall":
+		case config.TileRenderWall:
 			r.drawTexturedWallSlice(screen, screenX, hit.Distance, tileType, rayWidth,
 				hit.WallSide, hit.TextureCoord, hit.WallGridLine, hit.HasWallGridLine, !hit.IsTransparent)
-		case "floor_only":
+		case config.TileRenderFloor:
 			// Floor-only tiles don't render anything here, just floor
 			// These should be transparent so rays continue through them
 			return
@@ -2001,10 +2019,10 @@ func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
 	return s, nil
 }
 
-// drawTreeSprite draws tree sprites in the 3D world
-func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	screenHeight := r.game.config.GetScreenHeight()
+const flatTreeFallbackWidthTiles = 1.0
 
+// drawTreeSprite draws tree sprites in the 3D world.
+func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
 	// Division guard only (collision keeps the camera farther out). A larger
 	// clamp freezes the projection for near rays and creases against the
 	// still-perspective far ones - same fix as walls.
@@ -2012,43 +2030,22 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 		distance = 1.0
 	}
 
-	// Calculate tree height and position
-	// distance is already perpendicular distance from the raycast
-	sizeTiles := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	// Get the source before sizing: the flat fallback interprets a tree class as
+	// frame width, then derives height from the source aspect just like the
+	// crossed-standee path.
+	spriteName := treeStandeeSpriteName(tileType)
+	sprite := r.game.sprites.GetSprite(spriteName)
+	widthTiles := flatTreeFallbackWidthTiles
 	if world.GlobalTileManager != nil {
-		sizeTiles = world.GlobalTileManager.GetSizeTiles(tileType)
+		widthTiles = world.GlobalTileManager.GetSizeTiles(tileType)
 	}
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeTiles)
-	if spriteHeight < 8 {
-		spriteHeight = 8
-	}
-
-	// Sanity bound, reachable only inside the epsilon above; the GPU clips
-	// off-screen geometry, so huge heights cost nothing.
-	if spriteHeight > screenHeight*64 {
-		spriteHeight = screenHeight * 64
-	}
-
-	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
+	spriteWidth, spriteHeight := r.flatTreeFallbackSize(distance, widthTiles, sprite)
 
 	// Anchor tree's bottom to the floor at its distance
 	// Use the same floor projection formula as other sprites for consistency
 	floorScreenY := r.game.renderHelper.calculateFloorScreenY(distance)
 	spriteTop := floorScreenY - spriteHeight
 	spriteLeft := x - spriteWidth/2
-
-	// Get appropriate tree sprite using tile manager
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
-	}
-
-	// Fallback to default sprite if not configured
-	if spriteName == "" {
-		spriteName = "tree"
-	}
-
-	sprite := r.game.sprites.GetSprite(spriteName)
 
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
@@ -2065,6 +2062,25 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(sprite, opts)
+}
+
+func (r *Renderer) flatTreeFallbackSize(distance, widthTiles float64, sprite *ebiten.Image) (int, int) {
+	width := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, widthTiles)
+	if width < 1 {
+		width = 1
+	}
+	bounds := sprite.Bounds()
+	height := max(1, int(math.Round(float64(width)*float64(bounds.Dy())/float64(bounds.Dx()))))
+	if height < 8 {
+		width = max(1, int(math.Round(float64(width)*8/float64(height))))
+		height = 8
+	}
+	maxHeight := r.game.config.GetScreenHeight() * 64
+	if height > maxHeight {
+		width = max(1, int(math.Round(float64(width)*float64(maxHeight)/float64(height))))
+		height = maxHeight
+	}
+	return width, height
 }
 
 // processedSpriteKey identifies a (tileType, spriteName) pair without the
@@ -2150,10 +2166,19 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	sizeTiles := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	// Resolve the source before sizing: the authored class is this billboard's
+	// visible HEIGHT, and the width follows the texture aspect - same contract as
+	// the crossed-standee and flat-tree paths.
+	var spriteName string
 	if world.GlobalTileManager != nil {
-		sizeTiles = world.GlobalTileManager.GetSizeTiles(tileType)
+		spriteName = world.GlobalTileManager.GetSprite(tileType)
 	}
+	if spriteName == "" {
+		return // No sprite defined for this tile type
+	}
+	sprite := r.game.sprites.GetSprite(spriteName)
+
+	sizeTiles := r.game.renderHelper.flatEnvHeightMultiplier(tileType, 1)
 	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeTiles)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
@@ -2162,7 +2187,8 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		spriteHeight = 8
 	}
 
-	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
+	spriteWidth := max(1, int(math.Round(spriteWidthForHeight(
+		float64(spriteHeight), sprite.Bounds().Dx(), sprite.Bounds().Dy()))))
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
 	// Update depth buffer for central 85% of sprite width only if this tile is opaque
@@ -2191,15 +2217,6 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 			}
 		}
 	}
-
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
-	}
-	if spriteName == "" {
-		return // No sprite defined for this tile type
-	}
-	sprite := r.game.sprites.GetSprite(spriteName)
 
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
@@ -3965,7 +3982,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// Landmark tiles (e.g. the city fountain) render as a TALL crossed standee
 		// spinning in place - same monument treatment as the landmark NPCs (they
 		// spin, unlike ordinary scenery which only faces the camera).
-		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(s.tileType) == "landmark" {
+		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(s.tileType) == config.TileRenderLandmarkStandee {
 			td := world.GlobalTileManager.GetTileData(s.tileType)
 			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 && (td == nil || !td.NoSpin) {
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi

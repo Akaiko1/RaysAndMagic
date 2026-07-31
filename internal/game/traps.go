@@ -199,12 +199,12 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	ts := float64(cs.game.config.GetTileSize())
 	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
-	curX, curY := int(cs.game.camera.X/ts), int(cs.game.camera.Y/ts)
+	curX, curY := TileIndex(cs.game.camera.X, ts), TileIndex(cs.game.camera.Y, ts)
 	lastX, lastY := curX, curY
 
 	for step := 1; step <= TrapPlaceRangeTiles; step++ {
-		tx := int((cs.game.camera.X + dirX*float64(step)*ts) / ts)
-		ty := int((cs.game.camera.Y + dirY*float64(step)*ts) / ts)
+		tx := TileIndex((cs.game.camera.X + dirX*float64(step)*ts), ts)
+		ty := TileIndex((cs.game.camera.Y + dirY*float64(step)*ts), ts)
 		if tx == lastX && ty == lastY {
 			continue
 		}
@@ -222,7 +222,7 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	// world-space; the sweep fires on the monster's true position). Closest
 	// pulled flank wins - mirrors the melee front->side priority.
 	if mon := cs.nearestPulledFlankMonster(); mon != nil {
-		return int(mon.X / ts), int(mon.Y / ts), true
+		return TileIndex(mon.X, ts), TileIndex(mon.Y, ts), true
 	}
 	if lastX == curX && lastY == curY {
 		return 0, 0, false // facing straight into a wall
@@ -259,7 +259,7 @@ func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
 		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
 			continue
 		}
-		if int(m.X/ts) == tileX && int(m.Y/ts) == tileY {
+		if TileIndex(m.X, ts) == tileX && TileIndex(m.Y, ts) == tileY {
 			return m
 		}
 	}

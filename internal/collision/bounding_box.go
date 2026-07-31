@@ -75,6 +75,7 @@ type Entity struct {
 	CollisionType CollisionType
 	ID            string
 	Solid         bool // Whether this entity blocks movement
+	blocksSight   bool // Set only by NewSightBlockingEntity before registration
 }
 
 // NewEntity creates a new collision entity
@@ -85,4 +86,14 @@ func NewEntity(id string, x, y, width, height float64, collisionType CollisionTy
 		ID:            id,
 		Solid:         solid,
 	}
+}
+
+// NewSightBlockingEntity creates an entity whose occupied tiles also block
+// line of sight while the entity is registered. Keeping this property private
+// ensures the CollisionSystem's sight index cannot drift through direct field
+// mutation after registration.
+func NewSightBlockingEntity(id string, x, y, width, height float64, collisionType CollisionType, solid bool) *Entity {
+	entity := NewEntity(id, x, y, width, height, collisionType, solid)
+	entity.blocksSight = true
+	return entity
 }

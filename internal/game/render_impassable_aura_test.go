@@ -1,16 +1,20 @@
 package game
 
-import "testing"
+import (
+	"testing"
+
+	"ugataima/internal/config"
+)
 
 // TestAuraBillboardRenderType: the aura targets ambiguous impassable billboards
 // (rocks/cliffs) and skips trees, textured walls, and non-blocking floor tiles.
 func TestAuraBillboardRenderType(t *testing.T) {
 	cases := map[string]bool{
-		"environment_sprite": true,
-		"tree_sprite":        false,
-		"textured_wall":      false,
-		"floor_only":         false,
-		"":                   false,
+		config.TileRenderStandee:        true,
+		config.TileRenderCrossedStandee: false,
+		config.TileRenderWall:           false,
+		config.TileRenderFloor:          false,
+		"":                              false,
 	}
 	for rt, want := range cases {
 		if got := isAuraBillboardRenderType(rt); got != want {

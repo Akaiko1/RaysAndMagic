@@ -23,7 +23,7 @@ func bootSplitMapsForFloorTest(t *testing.T) *WorldManager {
 		GlobalTileManager, GlobalWorldManager, monster.MonsterConfig = prevTM, prevWM, prevMC
 	})
 
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

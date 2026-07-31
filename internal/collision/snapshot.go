@@ -26,9 +26,10 @@ type EntitySnapshot struct {
 // applies each monster's resulting position + collision type to the LIVE
 // system afterward, serially, once all workers have finished).
 type CollisionSnapshot struct {
-	tileChecker TileChecker
-	tileSize    float64
-	entities    map[string]EntitySnapshot
+	tileChecker       TileChecker
+	tileSize          float64
+	entities          map[string]EntitySnapshot
+	sightBlockerTiles map[sightTileKey]int
 	// Spatial index over the SOLID entities: tileSize-sided cells -> indices
 	// into solids. Entity passability queries (A* expands thousands of nodes
 	// per tick) test only the buckets the probe box overlaps instead of
@@ -57,14 +58,21 @@ func bucketCoord(v, size float64) int32 {
 }
 
 // Snapshot copies the current entity state into an immutable view. O(entities)
-// - call once per tick, never per query; a fresh copy per call is what makes
-// concurrent reads free of locks afterward.
+// - call once per tick, never per query, while no registration or sight-blocking
+// UpdateEntity is running. A fresh copy per call is what makes concurrent reads
+// free of locks afterward.
 func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 	snap := &CollisionSnapshot{
 		tileChecker: cs.tileChecker,
 		tileSize:    cs.tileSize,
 		entities:    make(map[string]EntitySnapshot, len(cs.entities)),
 	}
+	cs.sightMu.RLock()
+	snap.sightBlockerTiles = make(map[sightTileKey]int, len(cs.sightBlockerTiles))
+	for tile, count := range cs.sightBlockerTiles {
+		snap.sightBlockerTiles[tile] = count
+	}
+	cs.sightMu.RUnlock()
 	if snap.tileSize > 0 {
 		snap.solids = make([]snapEntity, 0, len(cs.entities))
 		snap.buckets = make(map[bucketKey][]int32, len(cs.entities)*2)
@@ -146,12 +154,10 @@ func (cs *CollisionSnapshot) CanOccupyTilesWithHabitat(entityID string, x, y flo
 	return tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, tempBox, habitatPrefs, flying)
 }
 
-// CheckLineOfSight mirrors CollisionSystem.CheckLineOfSight. Rays only ever
-// consult tiles (never entities), so this was already race-free against the
-// live system too - implemented here for interface parity and so callers
-// don't need to special-case which collision source they're holding.
+// CheckLineOfSight mirrors CollisionSystem.CheckLineOfSight against the frozen
+// tile and dynamic sight-blocker state captured for this tick.
 func (cs *CollisionSnapshot) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
-	hit, _ := castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, true)
+	hit, _ := castRayTiles(cs.tileChecker, cs.tileSize, cs.sightBlockerTiles, x1, y1, x2, y2, true)
 	return !hit.Hit
 }
 

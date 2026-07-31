@@ -57,7 +57,7 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 		world.GlobalWorldManager = previousWorldManager
 	})
 	world.GlobalWorldManager = nil
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -86,6 +86,7 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 		Sprite:         "chest_wooden",
 		VisitedSprite:  "chest_iron",
 		RenderCategory: "scenery",
+		SizeClass:      "small_prop",
 		Summons:        []*character.NPCSummon{{Monster: "dragon_red"}},
 		EncounterData: &character.NPCEncounter{
 			Monsters: []*character.EncounterMonster{{Type: "goblin"}},
@@ -93,6 +94,9 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 				TreasureChest: &monster.TreasureChestReward{Sprite: "clockwork_chest"},
 			},
 		},
+	})
+	w.NPCs = append(w.NPCs, &character.NPC{
+		Sprite: "innkeeper_female", RenderCategory: "npc", SizeClass: "person",
 	})
 
 	g := newTestGame(cfg, w)
@@ -131,8 +135,9 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 		t.Error("procedural firefly tile entered the image-backed environment plan")
 	}
 	for _, want := range []mapNPCPrewarmResource{
-		{name: "chest_wooden", prefix: "npc"},
-		{name: "chest_iron", prefix: "npc"},
+		{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true},
+		{name: "chest_iron", prefix: "npc", warmVisibleBounds: true},
+		{name: "innkeeper_female", prefix: "npc", warmVisibleBounds: false},
 	} {
 		if !containsNPCResource(plan.npcSprites, want) {
 			t.Errorf("NPC resource %+v missing from plan: %+v", want, plan.npcSprites)
@@ -170,7 +175,7 @@ func TestOpenWorldPrewarmKeepsStaticDecodeGlobalAndStandeesRegionScoped(t *testi
 		world.GlobalWorldManager = previousWorldManager
 	})
 	world.GlobalWorldManager = nil
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -192,8 +197,8 @@ func TestOpenWorldPrewarmKeepsStaticDecodeGlobalAndStandeesRegionScoped(t *testi
 	rightMonster := monster.NewMonster3DFromConfig(160, 32, "forest_spider", cfg)
 	w.Monsters = []*monster.Monster3D{leftMonster, rightMonster}
 	w.NPCs = []*character.NPC{
-		{X: 32, Y: 32, Sprite: "chest_wooden", RenderCategory: "scenery"},
-		{X: 160, Y: 32, Sprite: "chest_iron", RenderCategory: "scenery"},
+		{X: 32, Y: 32, Sprite: "chest_wooden", RenderCategory: "scenery", SizeClass: "small_prop"},
+		{X: 160, Y: 32, Sprite: "chest_iron", RenderCategory: "scenery", SizeClass: "small_prop"},
 	}
 
 	g := newTestGame(cfg, w)
@@ -225,10 +230,10 @@ func TestOpenWorldPrewarmKeepsStaticDecodeGlobalAndStandeesRegionScoped(t *testi
 			t.Errorf("global NPC decode %q missing: %v", name, plan.npcDecodeSprites)
 		}
 	}
-	if !containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc"}) {
+	if !containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true}) {
 		t.Errorf("left NPC standee missing: %+v", plan.npcSprites)
 	}
-	if containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_iron", prefix: "npc"}) {
+	if containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_iron", prefix: "npc", warmVisibleBounds: true}) {
 		t.Errorf("right NPC leaked into left standee plan: %+v", plan.npcSprites)
 	}
 	for _, key := range []string{"wolf", "forest_spider"} {

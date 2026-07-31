@@ -1716,7 +1716,7 @@ func drawCenteredLabel(screen *ebiten.Image, label string, r rect) {
 }
 
 // Shared cell primitives. Each of these used to be spelled out at several call
-// sites (the "." letter, the floor_only test, the three-list clear), which is how
+// sites (the "." letter, the floor render-class test, the three-list clear), which is how
 // the drag path and the brush path started drifting apart.
 
 // floorLetter is the map letter for plain ground - what a cleared or vacated
@@ -1730,10 +1730,8 @@ func isFloorTile(tile world.TileType3D) bool {
 		return false
 	}
 	data := world.GlobalTileManager.GetTileData(tile)
-	return data != nil && data.RenderType == renderTypeFloorOnly
+	return data != nil && data.RenderType == config.TileRenderFloor
 }
-
-const renderTypeFloorOnly = "floor_only"
 
 // tileLabel is the authored tile key, for status lines and tooltips.
 func tileLabel(tile world.TileType3D) string {
@@ -2061,7 +2059,7 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 		return color.RGBA{200, 70, 70, 255}, true
 	}
 	if data != nil {
-		if data.RenderType == renderTypeFloorOnly {
+		if data.RenderType == config.TileRenderFloor {
 			if key == "empty" {
 				return floorColor, true
 			}
@@ -2070,7 +2068,7 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 			}
 			return floorColor, true
 		}
-		if data.RenderType == "environment_sprite" && data.Walkable {
+		if data.RenderType == config.TileRenderStandee && data.Walkable {
 			return floorColor, true
 		}
 		if data.Solid || !data.Walkable {

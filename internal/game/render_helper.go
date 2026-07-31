@@ -5,7 +5,7 @@ import (
 	"image/color"
 	"math"
 	"ugataima/internal/character"
-	"ugataima/internal/monster"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -15,15 +15,33 @@ import (
 
 // RenderingHelper provides common rendering operations
 type RenderingHelper struct {
-	game         *MMGame
-	textureCache map[string]*ebiten.Image // Cache for procedural textures
+	game                    *MMGame
+	textureCache            map[string]*ebiten.Image // Cache for procedural textures
+	visibleHeightScaleCache map[visibleHeightScaleKey]float64
+}
+
+type visibleHeightScaleKey struct {
+	spriteName      string
+	aspectFromWidth bool
+}
+
+func visibleHeightScaleForFrame(frameWidth, frameHeight, visibleHeight int, aspectFromWidth bool) (float64, bool) {
+	if frameWidth <= 0 || frameHeight <= 0 || visibleHeight <= 0 {
+		return 0, false
+	}
+	frameSpan := frameHeight
+	if aspectFromWidth {
+		frameSpan = frameWidth
+	}
+	return float64(frameSpan) / float64(visibleHeight), true
 }
 
 // NewRenderingHelper creates a new rendering helper
 func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	return &RenderingHelper{
-		game:         game,
-		textureCache: make(map[string]*ebiten.Image),
+		game:                    game,
+		textureCache:            make(map[string]*ebiten.Image),
+		visibleHeightScaleCache: make(map[visibleHeightScaleKey]float64),
 	}
 }
 
@@ -191,7 +209,7 @@ func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D
 	// Check if this is a textured wall type that needs special procedural patterns
 	if world.GlobalTileManager != nil {
 		renderType := world.GlobalTileManager.GetRenderType(tileType)
-		if renderType == "textured_wall" {
+		if renderType == config.TileRenderWall {
 			// Use appropriate procedural texture based on tile type
 			switch tileType {
 			case world.TileThicket:
@@ -374,15 +392,67 @@ func (rh *RenderingHelper) CalculateGroundContainerSpriteMetricsF(entityX, entit
 	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
-// npcSizeTiles resolves an NPC's sprite height in tiles: a shared size_class
-// (same table as monsters) wins, else the raw size_tiles number.
+// npcSizeTiles resolves an NPC's quantized frame span from the same config
+// table used by monsters and tile standees. A real content load validates every
+// class; 1.0 is only a defensive fallback for hand-built test NPCs.
 func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
-	if npc.SizeClass != "" {
-		if h, ok := monster.SizeClassTiles(npc.SizeClass); ok {
-			return h
+	if rh != nil && rh.game != nil && rh.game.config != nil {
+		if value, ok := config.ResolveSizeClassTiles(rh.game.config.Graphics.SizeClasses, npc.SizeClass); ok {
+			category := npcRenderCatOf(npc)
+			if category == catNPC {
+				return value
+			}
+			aspectFromWidth := category == catLandmark && rh.game.config.Graphics.Standee.Enabled
+			return value * rh.visibleHeightFrameScale(npcSpriteName(npc), aspectFromWidth)
 		}
 	}
-	return npc.SizeTiles
+	return 1.0
+}
+
+// visibleHeightFrameScale converts a class's target VISIBLE height into the
+// full-frame span consumed by the projection code. Transparent source padding
+// therefore cannot force content authors back to per-object decimal sizes.
+// Crossed landmarks author projected width and derive full height from texture
+// aspect, so their conversion uses frame width. Flat fallback sprites and
+// ordinary props use frame height.
+func (rh *RenderingHelper) visibleHeightFrameScale(spriteName string, aspectFromWidth bool) float64 {
+	if rh == nil || rh.game == nil || rh.game.sprites == nil || spriteName == "" {
+		return 1
+	}
+	key := visibleHeightScaleKey{spriteName: spriteName, aspectFromWidth: aspectFromWidth}
+	if value, ok := rh.visibleHeightScaleCache[key]; ok {
+		return value
+	}
+	resolveFraction := func(name string) (float64, bool) {
+		bounds, frameWidth, frameHeight, known := rh.game.sprites.SpriteVisibleFrameBounds(name)
+		visibleHeight := bounds.Dy()
+		if !known {
+			return 0, false
+		}
+		scale, ok := visibleHeightScaleForFrame(frameWidth, frameHeight, visibleHeight, aspectFromWidth)
+		if !ok || scale <= 0 {
+			return 0, false
+		}
+		return 1 / scale, true
+	}
+	names := rh.game.sprites.GetSpriteVariants(spriteName)
+	if len(names) == 0 {
+		names = []string{spriteName}
+	}
+	fractionSum := 0.0
+	resolved := 0
+	for _, name := range names {
+		if fraction, ok := resolveFraction(name); ok {
+			fractionSum += fraction
+			resolved++
+		}
+	}
+	value := 1.0
+	if resolved > 0 && fractionSum > 0 {
+		value = float64(resolved) / fractionSum
+	}
+	rh.visibleHeightScaleCache[key] = value
+	return value
 }
 
 // NPCSpriteMetrics projects an NPC billboard through the correct path
@@ -411,12 +481,41 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetricsF(entityX, entityY, 
 // envHeightMultiplier is the visual size multiplier from the tile definition
 // (trees = 2.0, ferns = 1.0, ...), scaled by the caller's factor.
 func (rh *RenderingHelper) envHeightMultiplier(tileType world.TileType3D, sizeScale float64) float64 {
+	aspectFromWidth := false
+	if world.GlobalTileManager != nil {
+		aspectFromWidth = world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderLandmarkStandee &&
+			rh.game.config.Graphics.Standee.Enabled
+	}
+	return rh.envHeightMultiplierForMode(tileType, sizeScale, aspectFromWidth)
+}
+
+// flatEnvHeightMultiplier resolves the same authored visible-height contract
+// for the legacy raycast fallback. It never uses the crossed-landmark width
+// interpretation because this path draws one flat sprite.
+func (rh *RenderingHelper) flatEnvHeightMultiplier(tileType world.TileType3D, sizeScale float64) float64 {
+	return rh.envHeightMultiplierForMode(tileType, sizeScale, false)
+}
+
+func (rh *RenderingHelper) envHeightMultiplierForMode(tileType world.TileType3D, sizeScale float64, aspectFromWidth bool) float64 {
 	if sizeScale <= 0 {
 		sizeScale = 1
 	}
-	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
+	// 1.0 mirrors TileManager.GetSizeTiles' own defensive default: content
+	// validation guarantees a class in a real load, so this only covers an
+	// ad-hoc test manager with no tile database.
+	heightMultiplier := 1.0
 	if world.GlobalTileManager != nil {
 		heightMultiplier = world.GlobalTileManager.GetSizeTiles(tileType)
+		renderType := world.GlobalTileManager.GetRenderType(tileType)
+		// Static swarm tiles draw their authored fixed mote layout procedurally;
+		// night motes are separate moving emissions. Both paths are selected
+		// by tile content rather than by a hardcoded tile key.
+		if renderType != config.TileRenderCrossedStandee && !isFireflySwarmTile(tileType) {
+			heightMultiplier *= rh.visibleHeightFrameScale(
+				world.GlobalTileManager.GetSprite(tileType),
+				aspectFromWidth,
+			)
+		}
 	}
 	return heightMultiplier * sizeScale
 }

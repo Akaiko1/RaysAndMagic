@@ -288,10 +288,15 @@ graphics:
   trees_as_billboards: true
   tree_standee_lod_tiles: 25
 
-  # Sprite sizes
-  sprite:
-    tree_height_multiplier: 1.5
-    tree_width_multiplier: 0.8
+  # Moving motes emitted by authored tree tiles at night. They are local
+  # visual effects rather than world lights, so dense forests stay cheap.
+  night_motes:
+    emission_radius_tiles: 10
+    emission_interval_seconds: 2
+    emission_chance: 0.20
+    max_per_tree: 3
+    lifetime_seconds: 7
+    max_active: 96
 
   # Distance effects
   brightness_min: 0.3
@@ -319,14 +324,26 @@ graphics:
   npc:
     min_sprite_size: 16
 
-  # Monster size classes -> sprite height in tile units (1.0 == a 1-tile wall).
-  # Monsters set size_class instead of a raw number so sizes stay quantized.
+  # Shared visual-size classes in tile units (1.0 == a 1-tile wall).
+  # Actors use frame height. Props and landmarks use visible alpha height, so
+  # transparent texture padding is ignored. crossed_standee interprets its selected
+  # class as frame width and preserves the source texture aspect. Existing trees
+  # use tree; a smaller tree can select another class such as full_tile.
+  # Content never authors a raw per-object size.
   size_classes:
     small: 0.35    # rat, bat, pixie
     medium: 0.45   # wolf, spider, goblin and other beasts
     person: 0.60   # all humanoids alike - enemy people/undead/orcs AND human NPCs
     large: 0.85    # bear, minotaur, giant beasts
     huge: 1.20     # dragons, trolls, treants, bosses
+    tiny_prop: 0.30
+    small_prop: 0.50
+    medium_prop: 0.80
+    full_tile: 1.00
+    tall_prop: 1.25
+    large_prop: 1.60
+    structure: 2.00
+    tree: 2.00      # standard crossed-tree width; height follows texture aspect
 
   # Ground container sprite heights in tile units (dropped loot / reward chests).
   # Fixed - not scaled by the dropping monster. Chests read bigger than bags.

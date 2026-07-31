@@ -2,9 +2,24 @@ package world
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"ugataima/internal/config"
+	"ugataima/internal/testutil"
 )
+
+func testTileSizeClasses() map[string]float64 {
+	return testutil.UniformVisualSizeClasses(1)
+}
+
+func TestNewTileManagerRequiresExplicitSizeClasses(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewTileManager(nil) did not panic")
+		}
+	}()
+	NewTileManager(nil)
+}
 
 func TestTileManager(t *testing.T) {
 	// Create a temporary tiles.yaml for testing
@@ -17,7 +32,7 @@ func TestTileManager(t *testing.T) {
     walkable: false
     wall_height_multiplier: 1.0
     sprite: ""
-    render_type: "textured_wall"
+    render_type: "wall"
     letter: "W"
     biomes: ["universal"]
   test_stream:
@@ -27,7 +42,8 @@ func TestTileManager(t *testing.T) {
     transparent: true
     walkable: true
     sprite: "water"
-    render_type: "environment_sprite"
+    render_type: "standee"
+    size_class: full_tile
     floor_color: [100, 150, 200]
     letter: "S"
     biomes: ["universal"]
@@ -46,7 +62,7 @@ func TestTileManager(t *testing.T) {
 	tmpFile.Close()
 
 	// Test tile manager
-	tm := NewTileManager()
+	tm := NewTileManager(map[string]float64{"full_tile": 1, "tree": 2})
 	err = tm.LoadTileConfig(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load tile config: %v", err)
@@ -85,7 +101,7 @@ func TestTileManager(t *testing.T) {
 
 func TestTileManagerProperties(t *testing.T) {
 	// Test with actual tile types
-	tm := NewTileManager()
+	tm := NewTileManager(map[string]float64{"full_tile": 1, "tall_prop": 1.25, "tree": 2})
 
 	// Create some default tile data for testing
 	tm.tileData = map[string]*config.TileData{
@@ -94,9 +110,9 @@ func TestTileManagerProperties(t *testing.T) {
 			Solid:       true,
 			Transparent: false,
 			Walkable:    false,
-			SizeTiles:   2.0,
 			Sprite:      "tree",
-			RenderType:  "tree_sprite",
+			RenderType:  "crossed_standee",
+			SizeClass:   "tree",
 		},
 		"forest_stream": {
 			Name:        "Flowing Water",
@@ -104,7 +120,8 @@ func TestTileManagerProperties(t *testing.T) {
 			Transparent: true,
 			Walkable:    true,
 			Sprite:      "forest_stream",
-			RenderType:  "environment_sprite",
+			RenderType:  "standee",
+			SizeClass:   "full_tile",
 		},
 	}
 
@@ -139,49 +156,35 @@ func TestTileManagerProperties(t *testing.T) {
 		t.Errorf("Expected forest stream to be walkable")
 	}
 
-	// Test dynamic property modification
-	err := tm.SetTileProperty(TileTree, "walkable", true)
-	if err != nil {
-		t.Errorf("Failed to set tile property: %v", err)
-	}
-
-	if !tm.IsWalkable(TileTree) {
-		t.Errorf("Expected tree to be walkable after setting property")
-	}
-
-	err = tm.SetTileProperty(TileTree, "size_tiles", 2.5)
-	if err != nil {
-		t.Errorf("Failed to set tile size multiplier: %v", err)
-	}
-	if tm.GetSizeTiles(TileTree) != 2.5 {
-		t.Errorf("Expected tree size multiplier to be 2.5, got %f", tm.GetSizeTiles(TileTree))
-	}
-
-	// Test invalid property
-	err = tm.SetTileProperty(TileTree, "invalid_property", true)
-	if err == nil {
-		t.Errorf("Expected error when setting invalid property")
-	}
 }
 
-func TestTileSizeTilesFallback(t *testing.T) {
-	tm := NewTileManager()
+func TestTileSizeClassesResolveWithoutLegacyFallback(t *testing.T) {
+	tm := NewTileManager(map[string]float64{"tree": 2, "full_tile": 1})
 	tm.tileData = map[string]*config.TileData{
 		"tree": {
-			Name:             "Legacy Tree",
-			HeightMultiplier: 2.25,
-			RenderType:       "tree_sprite",
+			Name:       "Tree",
+			RenderType: "crossed_standee",
+			SizeClass:  "tree",
+		},
+		"prop": {
+			Name:       "Prop",
+			RenderType: "standee",
+			SizeClass:  "full_tile",
 		},
 		"wall": {
 			Name:                 "Wall",
 			WallHeightMultiplier: 1.5,
-			RenderType:           "textured_wall",
+			RenderType:           "wall",
 		},
 	}
 	tm.createTypeMapping()
 
-	if got := tm.GetSizeTiles(TileTree); got != 2.25 {
-		t.Fatalf("expected legacy billboard height_multiplier fallback 2.25, got %f", got)
+	if got := tm.GetSizeTiles(TileTree); got != 2 {
+		t.Fatalf("tree shared size = %f, want 2", got)
+	}
+	tm.tileData["tree"].SizeClass = "full_tile"
+	if got := tm.GetSizeTiles(TileTree); got != 1 {
+		t.Fatalf("tree alternate size class = %f, want 1", got)
 	}
 	if got := tm.GetSizeTiles(TileWall); got != 1.0 {
 		t.Fatalf("expected wall size multiplier default 1.0, got %f", got)
@@ -192,12 +195,12 @@ func TestTileSizeTilesFallback(t *testing.T) {
 }
 
 func TestTileWallHeightMultiplierFallback(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	tm.tileData = map[string]*config.TileData{
 		"wall": {
 			Name:             "Legacy Wall",
 			HeightMultiplier: 0.75,
-			RenderType:       "textured_wall",
+			RenderType:       "wall",
 		},
 	}
 	tm.createTypeMapping()
@@ -207,36 +210,150 @@ func TestTileWallHeightMultiplierFallback(t *testing.T) {
 	}
 }
 
+func TestTileVisualSizeValidation(t *testing.T) {
+	classes := map[string]float64{"person": 0.6, "small_prop": 0.5, "tree": 2}
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name: "known prop class",
+			body: "size_class: small_prop\n    sprite: prop\n    render_type: standee",
+		},
+		{
+			name:    "missing prop class",
+			body:    "sprite: prop\n    render_type: standee",
+			wantErr: "requires size_class",
+		},
+		{
+			name:    "missing sprite",
+			body:    "size_class: small_prop\n    sprite: \"\"\n    render_type: standee",
+			wantErr: "requires a sprite",
+		},
+		{
+			name:    "unknown prop class",
+			body:    "size_class: typo\n    sprite: prop\n    render_type: standee",
+			wantErr: "unknown size_class",
+		},
+		{
+			name:    "removed raw size",
+			body:    "size_tiles: 0.5\n    sprite: prop\n    render_type: standee",
+			wantErr: "removed size_tiles",
+		},
+		{
+			name: "tree shared size",
+			body: "size_class: tree\n    sprite: tree\n    render_type: crossed_standee",
+		},
+		{
+			name:    "tree missing class",
+			body:    "sprite: tree\n    render_type: crossed_standee",
+			wantErr: "requires size_class",
+		},
+		{
+			name: "tree alternate width class",
+			body: "size_class: small_prop\n    sprite: tree\n    render_type: crossed_standee",
+		},
+		{
+			name:    "actor class on tree",
+			body:    "size_class: person\n    sprite: tree\n    render_type: crossed_standee",
+			wantErr: "cannot use size_class",
+		},
+		{
+			name:    "actor class on prop",
+			body:    "size_class: person\n    sprite: prop\n    render_type: standee",
+			wantErr: "cannot use size_class",
+		},
+		{
+			name:    "floor class",
+			body:    "size_class: small_prop\n    sprite: \"\"\n    render_type: floor",
+			wantErr: "must not set size_class",
+		},
+		{
+			name:    "retired render class",
+			body:    "size_class: small_prop\n    sprite: prop\n    render_type: environment_sprite",
+			wantErr: "unknown render_type",
+		},
+		{
+			name:    "night motes require crossed standee",
+			body:    "size_class: small_prop\n    sprite: prop\n    render_type: standee\n    night_motes:\n      glow_color: [1, 2, 3]\n      core_color: [4, 5, 6]",
+			wantErr: "want crossed_standee",
+		},
+		{
+			name:    "night motes require both colors",
+			body:    "size_class: tree\n    sprite: tree\n    render_type: crossed_standee\n    night_motes:\n      glow_color: [1, 2, 3]",
+			wantErr: "require non-zero glow_color and core_color",
+		},
+		{
+			name:    "unknown procedural effect",
+			body:    "size_class: small_prop\n    sprite: prop\n    render_type: standee\n    procedural_effect: typo",
+			wantErr: "unknown procedural_effect",
+		},
+		{
+			name:    "swarm effect requires standee",
+			body:    "size_class: tree\n    sprite: tree\n    render_type: crossed_standee\n    procedural_effect: firefly_swarm",
+			wantErr: "requires render_type",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contents := "tiles:\n  subject:\n    name: Subject\n    type: prop\n    solid: false\n    transparent: true\n    walkable: true\n    " + tt.body + "\n"
+			file, err := os.CreateTemp("", "visual_size_*.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(file.Name())
+			if _, err := file.WriteString(contents); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			tm := NewTileManager(classes)
+			err = tm.LoadTileConfig(file.Name())
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("valid tile rejected: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestTileOpaqueTreatsSolidSpritesAsSightBlockers(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	tm.tileData = map[string]*config.TileData{
 		"solid_palm": {
 			Name:        "Solid Palm",
 			Solid:       true,
 			Transparent: true,
 			Walkable:    false,
-			RenderType:  "environment_sprite",
+			RenderType:  "standee",
 		},
 		"walkable_fern": {
 			Name:        "Walkable Fern",
 			Solid:       false,
 			Transparent: true,
 			Walkable:    true,
-			RenderType:  "environment_sprite",
+			RenderType:  "standee",
 		},
 		"ground_hazard": {
 			Name:        "Ground Hazard",
 			Solid:       true,
 			Transparent: true,
 			Walkable:    false,
-			RenderType:  "floor_only",
+			RenderType:  "floor",
 		},
 		"stone_wall": {
 			Name:        "Stone Wall",
 			Solid:       true,
 			Transparent: false,
 			Walkable:    false,
-			RenderType:  "textured_wall",
+			RenderType:  "wall",
 		},
 	}
 	tm.createTypeMapping()

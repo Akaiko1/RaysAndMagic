@@ -33,7 +33,7 @@ func TestInitialMonsterKeysPersistAfterMapMonstersAreRemoved(t *testing.T) {
 
 func TestWorldGeneration(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestWorldGeneration(t *testing.T) {
 
 func TestWorldMovement(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestWorldMovement(t *testing.T) {
 
 func TestWorldMonsters(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		GlobalTileManager = prevTileManager
 	})
 
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("Failed to load tile config: %v", err)
 	}

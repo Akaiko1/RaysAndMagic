@@ -11,8 +11,13 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/testutil"
 	"ugataima/internal/world"
 )
+
+func testTileSizeClasses() map[string]float64 {
+	return testutil.UniformVisualSizeClasses(1)
+}
 
 // Shared fixtures for internal/game tests. Keep scenario-specific setup next to
 // its test; only reusable game, world, party, and champion setup belongs here.
@@ -137,7 +142,7 @@ func summonTileWorld(t *testing.T) (*MMGame, float64) {
 	t.Helper()
 	prev := world.GlobalTileManager
 	t.Cleanup(func() { world.GlobalTileManager = prev })
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

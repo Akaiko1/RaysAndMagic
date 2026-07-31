@@ -26,7 +26,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 	}
 	wm := world.GlobalWorldManager
 	ts := g.config.GetTileSize()
-	r := wm.OpenWorldRegionAtTile(int(g.camera.X/ts), int(g.camera.Y/ts))
+	r := wm.OpenWorldRegionAtTile(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts))
 	if r == nil || r.MapKey == wm.CurrentMapKey {
 		return
 	}
@@ -79,7 +79,7 @@ func (g *MMGame) mapKeyAtTile(tx, ty int) string {
 func (g *MMGame) questKillMapKey(m *monster.Monster3D) string {
 	if m != nil {
 		ts := g.config.GetTileSize()
-		return g.mapKeyAtTile(int(m.X/ts), int(m.Y/ts))
+		return g.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts))
 	}
 	return currentMapKey()
 }
@@ -119,7 +119,7 @@ func (g *MMGame) npcOnMapRegion(npc *character.NPC, mapKey string) bool {
 		return true
 	}
 	ts := g.config.GetTileSize()
-	return wm.OpenWorldRegionAtTile(int(npc.X/ts), int(npc.Y/ts)) == r
+	return wm.OpenWorldRegionAtTile(TileIndex(npc.X, ts), TileIndex(npc.Y, ts)) == r
 }
 
 // projectTileToCurrentWorld converts an authored map-local tile position

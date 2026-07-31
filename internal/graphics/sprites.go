@@ -26,6 +26,9 @@ type SpriteManager struct {
 	// *ebiten.Image with At/ReadPixels flushes the GPU command queue, and At
 	// reads the WHOLE image back - a stall per interaction probe.
 	alphaMasks map[string]*spriteAlphaMask
+	// Compact visible-frame geometry used by visual-size normalization. Unlike
+	// alphaMasks, each entry retains only a rectangle and frame dimensions.
+	visibleFrameBounds map[string]spriteVisibleFrameBounds
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built
 	// once by walking the sprite roots recursively (see ensureIndex). Lets
@@ -52,6 +55,12 @@ type SpriteManager struct {
 type spriteAlphaMask struct {
 	width, height int
 	alpha         []uint8
+}
+
+type spriteVisibleFrameBounds struct {
+	bounds                  image.Rectangle
+	frameWidth, frameHeight int
+	known                   bool
 }
 
 type animationCacheKey struct {
@@ -190,11 +199,12 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 
 func NewSpriteManager() *SpriteManager {
 	return &SpriteManager{
-		sprites:          make(map[string]*ebiten.Image),
-		spriteTypeCache:  make(map[string]string),
-		animations:       make(map[animationCacheKey]*SpriteAnimation),
-		animationMissing: make(map[animationCacheKey]bool),
-		alphaMasks:       make(map[string]*spriteAlphaMask),
+		sprites:            make(map[string]*ebiten.Image),
+		spriteTypeCache:    make(map[string]string),
+		animations:         make(map[animationCacheKey]*SpriteAnimation),
+		animationMissing:   make(map[animationCacheKey]bool),
+		alphaMasks:         make(map[string]*spriteAlphaMask),
+		visibleFrameBounds: make(map[string]spriteVisibleFrameBounds),
 	}
 }
 
@@ -380,6 +390,86 @@ func (sm *SpriteManager) SpriteOpaqueAt(name string, x, y int) (opaque, known bo
 		return false, true
 	}
 	return mask.alpha[y*mask.width+x] != 0, true
+}
+
+// SpriteVisibleFrameBounds returns the visible alpha bounds inside one logical
+// animation frame. A horizontal 4-frame sheet is folded into one union bound,
+// keeping its scale stable while frames animate. The data comes from the same
+// CPU-side, color-keyed source. The compact cache deliberately does not retain
+// the per-pixel alpha bytes needed only by SpriteOpaqueAt.
+func (sm *SpriteManager) SpriteVisibleFrameBounds(name string) (bounds image.Rectangle, frameWidth, frameHeight int, known bool) {
+	if sm == nil || name == "" {
+		return image.Rectangle{}, 0, 0, false
+	}
+	if sm.visibleFrameBounds == nil {
+		sm.visibleFrameBounds = make(map[string]spriteVisibleFrameBounds)
+	}
+	entry, cached := sm.visibleFrameBounds[name]
+	if !cached {
+		entry = sm.loadSpriteVisibleFrameBounds(name)
+		sm.visibleFrameBounds[name] = entry
+	}
+	if !entry.known {
+		return image.Rectangle{}, 0, 0, false
+	}
+	return entry.bounds, entry.frameWidth, entry.frameHeight, true
+}
+
+func (sm *SpriteManager) loadSpriteVisibleFrameBounds(name string) spriteVisibleFrameBounds {
+	sm.ensureIndex()
+	spritePath, ok := sm.spritePaths[name]
+	if !ok {
+		return spriteVisibleFrameBounds{}
+	}
+	file, err := os.Open(spritePath)
+	if err != nil {
+		return spriteVisibleFrameBounds{}
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return spriteVisibleFrameBounds{}
+	}
+	return spriteVisibleFrameBoundsFromImage(sm.applyColorKey(name, img))
+}
+
+func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds {
+	if img == nil {
+		return spriteVisibleFrameBounds{}
+	}
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return spriteVisibleFrameBounds{}
+	}
+	frameWidth := width
+	if width == height*4 {
+		frameWidth = height
+	}
+	const visibleAlphaThreshold = uint8(24)
+	minX, minY := frameWidth, height
+	maxX, maxY := -1, -1
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			_, _, _, alpha := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+			if uint8(alpha>>8) < visibleAlphaThreshold {
+				continue
+			}
+			frameX := x % frameWidth
+			minX = min(minX, frameX)
+			minY = min(minY, y)
+			maxX = max(maxX, frameX)
+			maxY = max(maxY, y)
+		}
+	}
+	if maxX < minX || maxY < minY {
+		return spriteVisibleFrameBounds{}
+	}
+	return spriteVisibleFrameBounds{
+		bounds:     image.Rect(minX, minY, maxX+1, maxY+1),
+		frameWidth: frameWidth, frameHeight: height, known: true,
+	}
 }
 
 func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {

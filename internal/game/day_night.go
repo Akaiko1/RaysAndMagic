@@ -363,7 +363,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		tx, ty := int(m.X/tileSize), int(m.Y/tileSize)
+		tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
 		if tx >= bx && tx < bx+bw && ty >= by && ty < by+bh {
 			return true
 		}

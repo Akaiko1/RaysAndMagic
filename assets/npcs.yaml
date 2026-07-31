@@ -151,7 +151,7 @@ npcs:
     type: "encounter"
     description: "An old shipwreck that appears abandoned, but sounds come from within"
     sprite: "shipwreck"
-    size_tiles: 1.0
+    size_class: medium_prop
     render_category: scenery
     transparent: true
     dialogue:
@@ -189,7 +189,7 @@ npcs:
     sprite: "dragon_statue"
     render_category: scenery
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -211,7 +211,7 @@ npcs:
     sprite: "dragon_statue"
     render_category: scenery
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -233,7 +233,7 @@ npcs:
     sprite: "dragon_statue"
     render_category: scenery
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -255,7 +255,7 @@ npcs:
     sprite: "dragon_statue"
     render_category: scenery
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -278,7 +278,7 @@ npcs:
     render_category: scenery
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: medium_prop
     dialogue:
       greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
       visited_message: "The cages hang open and empty - the freed champions have gone to await you at the tavern."
@@ -309,7 +309,7 @@ npcs:
     render_category: scenery
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: medium_prop
     dialogue:
       greeting: "The keeper nods. 'Beds upstairs, stew on the fire, and your benched companions at the corner table. What'll it be?'"
       choice_prompt: "The keeper waits."
@@ -336,7 +336,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
+    size_class: structure
     rejects_lich: true
     dialogue:
       greeting: "A voice rings down from the tower's heights, neither man's nor woman's: 'You feel the wards part for you. Few do. Speak, then - there is a trial here for those bold enough to be raised.'"
@@ -453,7 +453,7 @@ npcs:
     render_category: scenery
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
       visited_message: "The Bone-Maw is silent now - only scorched bones and a cold draft remain."
@@ -487,7 +487,7 @@ npcs:
     render_category: scenery
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
       visited_message: "The Ember-Heart has cooled to black stone - the cavern lies dark and still."
@@ -521,7 +521,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
+    size_class: structure
     dialogue:
       greeting: "The abandoned church stands silent among the trees. Villagers say the old priest locked the doors after the crypt bells rang by themselves, and no one who entered after dusk returned unchanged."
       choice_prompt: "What do you want to do?"
@@ -537,7 +537,7 @@ npcs:
     type: "encounter"
     description: "The cold doorway back to the forest"
     sprite: "church_exit"
-    size_tiles: 1.0
+    size_class: full_tile
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
@@ -579,7 +579,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Warm daylight spills down the sandstone stairs behind you."
       choice_prompt: "What do you want to do?"
@@ -598,7 +598,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The stairs climb toward the upper chambers."
       choice_prompt: "What do you want to do?"
@@ -617,7 +617,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: medium_prop
     dialogue:
       greeting: "The stairs descend into a colder, darker level of the pyramid."
       choice_prompt: "What do you want to do?"
@@ -636,7 +636,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: medium_prop
     dialogue:
       greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
       choice_prompt: "What do you want to do?"
@@ -655,7 +655,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
+    size_class: structure
     dialogue:
       greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
       choice_prompt: "What do you want to do?"
@@ -674,7 +674,7 @@ npcs:
     render_category: scenery
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The portal flickers with a path away from the liches' hall."
       choice_prompt: "What do you want to do?"
@@ -693,7 +693,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
+    size_class: structure
     dialogue:
       greeting: "Seabright's gate stands open beyond the forest road. An eastbound ship takes on water for the far isles, and a riverboat at the slip hires crew for the green river into the deep jungle."
       choice_prompt: "What do you want to do?"
@@ -719,7 +719,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
       choice_prompt: "Descend into the culverts?"
@@ -738,7 +738,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Daylight filters down through the outflow grate - the way back up to Seabright."
       choice_prompt: "Leave the culverts?"
@@ -802,7 +802,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: &valve_dialogue
       greeting: "A rust-caked sluice valve, half-open. Water roars through the channel below."
@@ -820,7 +820,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_3:
@@ -829,7 +829,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_4:
@@ -838,7 +838,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_5:
@@ -847,7 +847,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_6:
@@ -856,7 +856,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_7:
@@ -865,7 +865,7 @@ npcs:
     sprite: "culvert_valve"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     steam_when_visited: true
     dialogue: *valve_dialogue
 
@@ -878,7 +878,7 @@ npcs:
     render_category: scenery
     prompt_verb: board
     transparent: true
-    size_tiles: 1.8
+    size_class: large_prop
     dialogue:
       greeting: "Your ship rocks at the dock, ready to bear you back across the eastern sea to the forest road."
       choice_prompt: "Set sail for home?"
@@ -947,7 +947,7 @@ npcs:
     sprite: "sword_rack"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     dialogue: &rack_dialogue
       greeting: "A lacquered rack of katana and castle gear, half-hidden behind a paper screen."
       visited_message: "The rack stands stripped and bare."
@@ -964,7 +964,7 @@ npcs:
     sprite: "sword_rack"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_3:
     name: "Katana Rack"
@@ -972,7 +972,7 @@ npcs:
     sprite: "sword_rack"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_4:
     name: "Katana Rack"
@@ -980,7 +980,7 @@ npcs:
     sprite: "sword_rack"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_5:
     name: "Katana Rack"
@@ -988,7 +988,7 @@ npcs:
     sprite: "sword_rack"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
     dialogue: *rack_dialogue
 
   # Invisible gate NPCs for the forest<->highlands portal. sprite "" renders
@@ -1003,7 +1003,6 @@ npcs:
     prompt_verb: take
     ground_tile: "forest_portal_stream"
     transparent: true
-    size_tiles: 0.2
     dialogue:
       greeting: "The water shimmers with a cold mountain light. A path to the misty highlands opens beyond."
       choice_prompt: "What do you want to do?"
@@ -1023,7 +1022,6 @@ npcs:
     prompt_verb: take
     ground_tile: "highlands_stream"
     transparent: true
-    size_tiles: 0.2
     dialogue:
       greeting: "The mountain mist parts, revealing the green path back down to the forest."
       choice_prompt: "What do you want to do?"
@@ -1042,7 +1040,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The gate opens back onto the forest path."
       choice_prompt: "What do you want to do?"
@@ -1170,13 +1168,13 @@ npcs:
     type: "encounter"
     description: "The root-grown arch that closes Silverbough against the pinewood"
     sprite: "elf_city_gate"
-    # The way OUT sits flush on the town wall, like Seabright's city_exit - the
-    # cross standee is for the way IN, out on the overworld. size_tiles fills the
-    # 1-tile wall face; divided by the art's content_h (0.92), see tiles.yaml.
+    # The way OUT sits flush on the town wall, like Seabright's city_exit. The
+    # cross standee is the overworld entrance; full_tile targets one visible
+    # wall-tile height without a texture-specific decimal.
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.09
+    size_class: full_tile
     dialogue:
       greeting: "The arch opens back onto the highland track."
       choice_prompt: "What do you want to do?"
@@ -1268,7 +1266,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.25
+    size_class: full_tile
     dialogue:
       greeting: "The gate stands open on the sand road."
       choice_prompt: "What do you want to do?"
@@ -1353,7 +1351,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.27
+    size_class: structure
     dialogue:
       greeting: "The elven town of Silverbough stands behind the arch, up in the pinewood. A ranger on the step waves you through: bows and potions inside, and an archive that copies spells."
       choice_prompt: "What do you want to do?"
@@ -1372,7 +1370,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.63
+    size_class: structure
     dialogue:
       greeting: "The caravan town of Dunehold sits inside the wall, around its oasis. The guard leans on the gatepost: armour for sale, a drill master, and spells at the shrine."
       choice_prompt: "What do you want to do?"
@@ -1394,7 +1392,7 @@ npcs:
     render_category: scenery
     prompt_verb: board
     transparent: true
-    size_tiles: 1.0
+    size_class: medium_prop
     dialogue:
       greeting: "The riverboat rocks against the muddy landing, ready to carry you back down the green river to Seabright."
       choice_prompt: "Cast off downriver?"
@@ -1415,7 +1413,7 @@ npcs:
     render_category: landmark
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
+    size_class: structure
     dialogue:
       greeting: "The arena's iron gates tower above you, banners snapping in the wind. From within comes the clash of steel and the roar of a crowd."
       choice_prompt: "What do you want to do?"
@@ -1624,7 +1622,7 @@ npcs:
     sprite: "arena_gate"
     render_category: door
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The portcullis is bolted down. Beyond the bars, the duel must end before it rises."
       choice_prompt: "What do you do?"
@@ -1645,7 +1643,7 @@ npcs:
     sprite: "door_wood"
     render_category: door
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     lock_label: "wooden"
     door_key_items: ["ordinary_key"]
     door_stat_reqs:
@@ -1664,7 +1662,7 @@ npcs:
     sprite: "door_reinforced"
     render_category: door
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     lock_label: "reinforced"
     door_key_items: ["inlaid_key"]
     door_stat_reqs:
@@ -1685,7 +1683,7 @@ npcs:
     sprite: "door_steel"
     render_category: door
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     lock_label: "steel"
     door_key_items: ["inlaid_key"]
     dialogue:
@@ -1702,7 +1700,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Beyond the barred gateway, the desert glare waits."
       choice_prompt: "What do you want to do?"
@@ -1725,7 +1723,7 @@ npcs:
     render_category: landmark
     prompt_verb: search
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
 
   campfire:
     name: "Abandoned Campfire"
@@ -1735,7 +1733,7 @@ npcs:
     render_category: scenery
     prompt_verb: rest at
     transparent: true
-    size_tiles: 0.5
+    size_class: tiny_prop
 
   barrel_red:
     name: "Red Barrel"
@@ -1746,7 +1744,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
 
   barrel_green:
     name: "Green Barrel"
@@ -1757,7 +1755,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
 
   barrel_blue:
     name: "Blue Barrel"
@@ -1768,7 +1766,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
 
   chest_wooden:
     name: "Wooden Chest"
@@ -1777,7 +1775,7 @@ npcs:
     sprite: "chest_wooden"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     hide_when_visited: true
 
   chest_iron:
@@ -1787,7 +1785,7 @@ npcs:
     sprite: "chest_iron"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     hide_when_visited: true
 
   chest_golden:
@@ -1797,7 +1795,7 @@ npcs:
     sprite: "chest_golden"
     render_category: scenery
     transparent: true
-    size_tiles: 0.5
+    size_class: small_prop
     hide_when_visited: true
 
   # Spell lectern: a book on a stone stand that teaches ONE spell to the first
@@ -1811,7 +1809,7 @@ npcs:
     render_category: scenery
     prompt_verb: study
     transparent: true
-    size_tiles: 0.7
+    size_class: medium_prop
     hide_when_visited: true
     lectern:
       pool: [fly, town_portal, fire_shield, stone_blossom, firewall, jump, earthquake, summon_ice_elemental]
@@ -1823,7 +1821,7 @@ npcs:
     sprite: "arena_bones"
     render_category: scenery
     transparent: true
-    size_tiles: 0.4
+    size_class: small_prop
     dialogue:
       greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike - and, strangely, the hollow they left looks almost comfortable. A pit hand materializes at your elbow: 'Undisturbed rest on the sand costs coin.'"
       choice_prompt: "What do you do?"
@@ -1868,7 +1866,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: leave
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Cold air seeps through the gate seam. The hills are waiting outside."
       choice_prompt: "What do you want to do?"
@@ -1887,7 +1885,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Grease-dark steps spiral up toward a floor that never stops grinding."
       choice_prompt: "What do you want to do?"
@@ -1906,7 +1904,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "Below, the workshop lamps still burn. The Clockmaker keeps them lit."
       choice_prompt: "What do you want to do?"
@@ -1925,7 +1923,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The stair narrows; above, the great bells hang silent - and something paces beneath them."
       choice_prompt: "What do you want to do?"
@@ -1944,7 +1942,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_tiles: 1.0
+    size_class: full_tile
     dialogue:
       greeting: "The grinding of the gearworks rises up the stairwell."
       choice_prompt: "What do you want to do?"
@@ -2004,7 +2002,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.6
+    size_class: small_prop
     hide_when_visited: true
 
   chest_chrono:
@@ -2015,7 +2013,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.7
+    size_class: small_prop
     hide_when_visited: true
 
   chest_regal:
@@ -2026,7 +2024,7 @@ npcs:
     render_category: scenery
     prompt_verb: open
     transparent: true
-    size_tiles: 0.8
+    size_class: medium_prop
     hide_when_visited: true
 
   # The Scalewright: Coldbrook's dragon-smith. Every Drakeforged piece costs

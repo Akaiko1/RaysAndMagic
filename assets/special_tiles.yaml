@@ -8,7 +8,7 @@ special_tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [138, 43, 226]  # Violet - now the teleporter-glow tint, not the floor
     inherit_floor: true          # ground takes the surrounding biome floor; colour shows as a glow
     properties:
@@ -28,7 +28,7 @@ special_tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [220, 20, 60]  # Crimson - now the teleporter-glow tint, not the floor
     inherit_floor: true          # ground takes the surrounding biome floor; colour shows as a glow
     properties:
@@ -48,7 +48,7 @@ special_tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [139, 69, 19]  # Saddle brown RGB
     # NOTE: no properties yet - the engine only consumes the teleporter keys
     # above (teleporter_group/cooldown_seconds/auto_activate/random_destination/
@@ -63,7 +63,7 @@ special_tiles:
     transparent: true
     walkable: true
     sprite: ""
-    render_type: "floor_only"
+    render_type: "floor"
     floor_color: [65, 105, 225]  # Royal blue RGB
     # NOTE: no properties yet - see the spike_trap note above. Stepping on this
     # tile triggers nothing until an event reader exists.

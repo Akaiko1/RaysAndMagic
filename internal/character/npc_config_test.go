@@ -1,10 +1,26 @@
 package character
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"ugataima/internal/config"
 )
+
+func TestLoadNPCConfigRejectsRemovedSizeTiles(t *testing.T) {
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+	path := filepath.Join(t.TempDir(), "npcs.yaml")
+	data := []byte("npcs:\n  legacy:\n    name: Legacy\n    type: quest_giver\n    size_tiles: 0.75\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := LoadNPCConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "removed size_tiles") {
+		t.Fatalf("LoadNPCConfig error = %v, want removed size_tiles rejection", err)
+	}
+}
 
 func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 	if _, err := config.LoadItemConfig(filepath.Join("..", "..", "assets", "items.yaml")); err != nil {

@@ -1327,6 +1327,28 @@ func treeStandeeSpriteName(tileType world.TileType3D) string {
 	return "tree"
 }
 
+// standeeHeightForWidth preserves the source texture aspect when a crossed
+// standee's authored size is its projected width. This is shared by trees and
+// landmarks so a portrait texture (for example 512x1024) becomes 2x4 rather
+// than being stretched into a 2x2 square.
+func standeeHeightForWidth(width float64, textureWidth, textureHeight int) float64 {
+	if width <= 0 || textureWidth <= 0 || textureHeight <= 0 {
+		return width
+	}
+	return width * float64(textureHeight) / float64(textureWidth)
+}
+
+// spriteWidthForHeight is standeeHeightForWidth's twin for the flat billboard
+// path, where the authored size is the projected HEIGHT (a prop's visible-height
+// class) and the width follows the source aspect. A wide texture stays wide
+// instead of being squeezed into one hardcoded ratio for every prop.
+func spriteWidthForHeight(height float64, textureWidth, textureHeight int) float64 {
+	if height <= 0 || textureWidth <= 0 || textureHeight <= 0 {
+		return height
+	}
+	return height * float64(textureWidth) / float64(textureHeight)
+}
+
 // reserveStandeeBuffers allocates the worst normal fallback geometry once at
 // map load instead of repeatedly growing it as the party approaches a token.
 func (r *Renderer) reserveStandeeBuffers() {
@@ -1433,10 +1455,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 
 	// HEIGHT scales by the sprite aspect (the platan, 1:2, is twice as tall as
 	// the square oak); floor anchor unchanged so feet stay grounded.
-	heightF := s.sizeF
-	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
-		heightF = s.sizeF * float64(sprite.Bounds().Dy()) / texW
-	}
+	heightF := standeeHeightForWidth(s.sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 	bottomF := s.bottomF
 	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
@@ -1624,7 +1643,7 @@ func (r *Renderer) spriteFootprintWorld(spriteSizePx, depthPerp float64) float64
 	return footprint
 }
 
-// drawLandmarkStandee renders a render_type:"landmark" entity (mage tower, church,
+// drawLandmarkStandee renders a render_type:"landmark_standee" entity (mage tower, church,
 // city gate, lich nexus, fountain) as a TALL crossed standee that slowly spins in
 // place - the static-token showcase spin, but as a perpendicular cross so it reads
 // as a 3D monument from any angle. spinYaw is the showcase yaw the caller already
@@ -1634,10 +1653,7 @@ func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName str
 	if sprite == nil || sizeF <= 0 || depthPerp <= 0 {
 		return false
 	}
-	heightF := sizeF
-	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
-		heightF = sizeF * float64(sprite.Bounds().Dy()) / texW
-	}
+	heightF := standeeHeightForWidth(sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 	key := makeStandeeCoreKey(keyName, sprite, true)
 	footprint := r.spriteFootprintWorld(sizeF, depthPerp)
 	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b, false)

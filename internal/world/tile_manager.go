@@ -12,6 +12,7 @@ import (
 // TileManager handles tile configuration and properties
 type TileManager struct {
 	tileData     map[string]*config.TileData
+	sizeClasses  map[string]float64
 	typeToKey    map[TileType3D]string
 	keyToType    map[string]TileType3D // Map from key to tile type
 	letterToType map[string]TileType3D // Map from letter to tile type
@@ -29,34 +30,80 @@ type TileManager struct {
 }
 
 // NewTileManager creates a new tile manager
-func NewTileManager() *TileManager {
-	return &TileManager{
+func NewTileManager(sizeClasses map[string]float64) *TileManager {
+	if sizeClasses == nil {
+		panic("world: NewTileManager requires an explicit size-class table")
+	}
+	tm := &TileManager{
 		tileData:        make(map[string]*config.TileData),
+		sizeClasses:     sizeClasses,
 		typeToKey:       make(map[TileType3D]string),
 		keyToType:       make(map[string]TileType3D),
 		letterToType:    make(map[string]TileType3D),
 		typeToLetter:    make(map[TileType3D]string),
 		nextDynamicType: 1000, // Start dynamic types at 1000 to avoid conflicts
 	}
+	return tm
 }
 
 // validateTileConfiguration checks for conflicts in tile letters.
 // ASCII map contract: lowercase a-z belongs exclusively to monster spawns.
 // Lettered terrain/props therefore use uppercase letters (or punctuation and
 // digits); free-standing decor uses the letterless [tile:short_label] form.
-// validTileRenderTypes is the closed set of render_type values the renderer
-// actually dispatches on. An unknown value would load fine and then render
-// NOTHING (the legacy "flooring_object" died exactly that way), so it is a
-// load-time error, never a silent invisible tile.
-var validTileRenderTypes = map[string]bool{
-	"floor_only": true, "textured_wall": true, "environment_sprite": true,
-	"tree_sprite": true, "landmark": true,
-}
-
 func (tm *TileManager) validateTileConfiguration() error {
 	for key, data := range tm.tileData {
-		if !validTileRenderTypes[data.RenderType] {
-			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: floor_only|textured_wall|environment_sprite|tree_sprite|landmark)", key, data.RenderType)
+		if !config.IsTileRenderType(data.RenderType) {
+			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: %s)", key, data.RenderType, strings.Join(config.TileRenderTypes(), "|"))
+		}
+		if !config.IsTileProceduralEffect(data.ProceduralEffect) {
+			return fmt.Errorf("tile %q has unknown procedural_effect %q", key, data.ProceduralEffect)
+		}
+		if data.ProceduralEffect == config.TileEffectFireflySwarm && data.RenderType != config.TileRenderStandee {
+			return fmt.Errorf("tile %q procedural_effect %q requires render_type %q", key, data.ProceduralEffect, config.TileRenderStandee)
+		}
+		isClassedSprite := data.RenderType == config.TileRenderStandee ||
+			data.RenderType == config.TileRenderCrossedStandee ||
+			data.RenderType == config.TileRenderLandmarkStandee
+		if data.RemovedSizeTiles != nil {
+			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
+		}
+		if isClassedSprite {
+			// A sprite-drawn class with no sprite loads fine and then renders
+			// NOTHING - the same silent-invisible-tile trap the render_type check
+			// above exists for. Its size and width also come from the source
+			// texture, so the art is not optional.
+			if data.Sprite == "" {
+				return fmt.Errorf("tile %q render_type %q requires a sprite", key, data.RenderType)
+			}
+			if data.HeightMultiplier != 0 {
+				return fmt.Errorf("tile %q uses removed billboard height_multiplier - use size_class", key)
+			}
+			if data.SizeClass == "" {
+				return fmt.Errorf("tile %q render_type %q requires size_class", key, data.RenderType)
+			}
+			if _, ok := config.ResolveSizeClassTiles(tm.sizeClasses, data.SizeClass); !ok {
+				return fmt.Errorf("tile %q has unknown size_class %q", key, data.SizeClass)
+			}
+			if !config.IsTileSizeClass(data.RenderType, data.SizeClass) {
+				return fmt.Errorf("tile %q render_type %q cannot use size_class %q", key, data.RenderType, data.SizeClass)
+			}
+		} else if data.SizeClass != "" {
+			return fmt.Errorf("tile %q render_type %q must not set size_class", key, data.RenderType)
+		}
+		if nightMotes := data.NightMotes; nightMotes != nil {
+			if data.RenderType != config.TileRenderCrossedStandee {
+				return fmt.Errorf("tile %q uses night_motes but render_type is %q, want crossed_standee", key, data.RenderType)
+			}
+			if nightMotes.GlowColor == [3]int{} || nightMotes.CoreColor == [3]int{} {
+				return fmt.Errorf("tile %q night_motes require non-zero glow_color and core_color", key)
+			}
+			for _, color := range [][3]int{nightMotes.GlowColor, nightMotes.CoreColor} {
+				for _, channel := range color {
+					if channel < 0 || channel > 255 {
+						return fmt.Errorf("tile %q night_motes color channel %d is outside 0..255", key, channel)
+					}
+				}
+			}
 		}
 		for _, excludedKey := range data.ExcludedUnderFloorTiles {
 			if _, ok := tm.tileData[excludedKey]; !ok {
@@ -355,7 +402,7 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case "tree_sprite", "environment_sprite", "landmark":
+		case config.TileRenderStandee, config.TileRenderCrossedStandee, config.TileRenderLandmarkStandee:
 			return true
 		}
 	}
@@ -378,23 +425,16 @@ func (tm *TileManager) GetHeightMultiplier(tileType TileType3D) float64 {
 	return data.HeightMultiplier
 }
 
-// GetSizeTiles returns the visual sprite scale for billboard-style tiles.
-// size_tiles is the canonical content key. height_multiplier remains as a
-// fallback for older tile YAML where billboard scale and wall height shared one
-// field.
+// GetSizeTiles resolves the visual frame span for billboard-style tiles from
+// the shared class table. Content validation guarantees the class exists in a
+// real game load; 1.0 is only a defensive fallback for ad-hoc test managers.
 func (tm *TileManager) GetSizeTiles(tileType TileType3D) float64 {
 	data := tm.GetTileData(tileType)
 	if data == nil {
 		return 1.0
 	}
-	if data.SizeTiles > 0 {
-		return data.SizeTiles
-	}
-	switch data.RenderType {
-	case "tree_sprite", "environment_sprite", "landmark":
-		if data.HeightMultiplier > 0 {
-			return data.HeightMultiplier
-		}
+	if value, ok := config.ResolveSizeClassTiles(tm.sizeClasses, data.SizeClass); ok {
+		return value
 	}
 	return 1.0
 }
@@ -419,7 +459,7 @@ func (tm *TileManager) GetSprite(tileType TileType3D) string {
 func (tm *TileManager) GetRenderType(tileType TileType3D) string {
 	data := tm.GetTileData(tileType)
 	if data == nil {
-		return "textured_wall" // Default render type
+		return config.TileRenderWall // Default render type
 	}
 	return data.RenderType
 }
@@ -481,7 +521,7 @@ func (tm *TileManager) dominantNeighbourFloorForTile(owner TileType3D, tiles [][
 				}
 			}
 		}
-		return tm.GetRenderType(t) == "floor_only" &&
+		return tm.GetRenderType(t) == config.TileRenderFloor &&
 			tm.IsWalkable(t) && !tm.IsSolid(t) && !tm.InheritsFloor(t)
 	}
 	counts := make(map[TileType3D]int)
@@ -535,77 +575,6 @@ func (tm *TileManager) GetWallColor(tileType TileType3D) [3]int {
 func (tm *TileManager) HasFloorNearColor(tileType TileType3D) bool {
 	color := tm.GetFloorNearColor(tileType)
 	return color[0] != 0 || color[1] != 0 || color[2] != 0
-}
-
-// SetTileProperty allows dynamic modification of tile properties at runtime.
-// TESTS ONLY: shipped content is authored in tiles.yaml, and no gameplay path
-// mutates tile definitions - keep it that way (a live edit would desync the
-// renderer caches built from these properties).
-func (tm *TileManager) SetTileProperty(tileType TileType3D, property string, value interface{}) error {
-	key, ok := tm.typeToKey[tileType]
-	if !ok {
-		return fmt.Errorf("unknown tile type: %d", tileType)
-	}
-
-	data := tm.tileData[key]
-	if data == nil {
-		return fmt.Errorf("no data found for tile type: %d", tileType)
-	}
-
-	switch property {
-	case "solid":
-		if val, ok := value.(bool); ok {
-			data.Solid = val
-		} else {
-			return fmt.Errorf("solid property requires boolean value")
-		}
-	case "transparent":
-		if val, ok := value.(bool); ok {
-			data.Transparent = val
-		} else {
-			return fmt.Errorf("transparent property requires boolean value")
-		}
-	case "walkable":
-		if val, ok := value.(bool); ok {
-			data.Walkable = val
-		} else {
-			return fmt.Errorf("walkable property requires boolean value")
-		}
-	case "height_multiplier":
-		if val, ok := value.(float64); ok {
-			data.HeightMultiplier = val
-		} else {
-			return fmt.Errorf("height_multiplier property requires float64 value")
-		}
-	case "wall_height_multiplier":
-		if val, ok := value.(float64); ok {
-			data.WallHeightMultiplier = val
-		} else {
-			return fmt.Errorf("wall_height_multiplier property requires float64 value")
-		}
-	case "size_tiles":
-		if val, ok := value.(float64); ok {
-			data.SizeTiles = val
-		} else {
-			return fmt.Errorf("size_tiles property requires float64 value")
-		}
-	case "sprite":
-		if val, ok := value.(string); ok {
-			data.Sprite = val
-		} else {
-			return fmt.Errorf("sprite property requires string value")
-		}
-	case "render_type":
-		if val, ok := value.(string); ok {
-			data.RenderType = val
-		} else {
-			return fmt.Errorf("render_type property requires string value")
-		}
-	default:
-		return fmt.Errorf("unknown property: %s", property)
-	}
-
-	return nil
 }
 
 // GetTileKey returns the configuration key for a tile type

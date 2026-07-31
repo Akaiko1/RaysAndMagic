@@ -38,6 +38,40 @@ func TestNPCRenderCategoryValidation(t *testing.T) {
 	}
 }
 
+func TestNPCVisualSizeValidation(t *testing.T) {
+	classes := map[string]float64{
+		"person": 0.6, "small_prop": 0.5, "structure": 2,
+	}
+	tests := []struct {
+		name    string
+		npc     *character.NPCData
+		wantErr bool
+	}{
+		{name: "person", npc: &character.NPCData{RenderCategory: "npc", SizeClass: "person"}},
+		{name: "prop", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "small_prop"}},
+		{name: "landmark", npc: &character.NPCData{RenderCategory: "landmark", SizeClass: "structure"}},
+		{name: "grid span", npc: &character.NPCData{RenderCategory: "landmark", GridSpanTiles: 4}},
+		{name: "invisible", npc: &character.NPCData{RenderCategory: "invisible"}},
+		{name: "missing class", npc: &character.NPCData{RenderCategory: "scenery"}, wantErr: true},
+		{name: "unknown class", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "typo"}, wantErr: true},
+		{name: "actor class on prop", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "person"}, wantErr: true},
+		{name: "wrong person class", npc: &character.NPCData{RenderCategory: "npc", SizeClass: "small_prop"}, wantErr: true},
+		{name: "invisible class", npc: &character.NPCData{RenderCategory: "invisible", SizeClass: "small_prop"}, wantErr: true},
+		{name: "grid class", npc: &character.NPCData{RenderCategory: "landmark", GridSpanTiles: 4, SizeClass: "structure"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateNPCVisualSizes(map[string]*character.NPCData{"subject": tt.npc}, classes)
+			if tt.wantErr && err == nil {
+				t.Fatal("invalid visual size accepted")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("valid visual size rejected: %v", err)
+			}
+		})
+	}
+}
+
 // An unvalidated value reaching the render path must fail loud, not guess.
 func TestResolveNPCRenderCatPanicsOnUnknown(t *testing.T) {
 	defer func() {

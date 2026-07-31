@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -27,7 +28,11 @@ var fireflySwarmMotes = [...]struct {
 }
 
 func isFireflySwarmTile(tileType world.TileType3D) bool {
-	return world.GlobalTileManager != nil && world.GlobalTileManager.GetTileKey(tileType) == "firefly_swarm"
+	if world.GlobalTileManager == nil {
+		return false
+	}
+	tile := world.GlobalTileManager.GetTileData(tileType)
+	return tile != nil && tile.ProceduralEffect == config.TileEffectFireflySwarm
 }
 
 func fireflySwarmSeed(tileX, tileY int) int {
@@ -94,9 +99,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		x := drawLeft + mote.u*size + driftX
 		y := drawTop + mote.v*size + driftY
 		// Per-mote occlusion: the whole-swarm visibility gate is ANY-column, so a
-		// swarm only peeking past a wall/tree edge would still draw every mote -
-		// including ones deep behind the wall (looked like walls didn't occlude).
-		// Skip a mote whose own screen column is behind a nearer wall/tree.
+		// swarm only peeking past a wall/tree edge would still draw every mote.
 		if col := int(x); col >= 0 && col < len(depthBuf) && s.depthPerp >= depthBuf[col] {
 			continue
 		}
@@ -114,10 +117,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		drawCount++
 	}
 
-	// Keep DrawImage's exact subpixel geometry, but make calls with the same
-	// source successive. Ebitengine then automatically batches the N halos into
-	// one GPU command and the N cores into another; the old alternating order
-	// forced 2*N commands. Additive composition is order-independent.
+	// Group equal sources so Ebitengine can batch halos and cores separately.
 	for i := 0; i < drawCount; i++ {
 		d := draws[i]
 		r.drawGlowSprite(screen, d.x, d.y, d.glowSize, [3]int{255, 218, 80}, d.glowAlpha, additiveGlowBlend)

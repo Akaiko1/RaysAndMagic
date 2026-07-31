@@ -4,6 +4,16 @@ import (
 	"testing"
 )
 
+func TestTryCreateWeaponWithoutAccessorReturnsError(t *testing.T) {
+	oldAccessor := GlobalWeaponAccessor
+	GlobalWeaponAccessor = nil
+	t.Cleanup(func() { GlobalWeaponAccessor = oldAccessor })
+
+	if _, err := TryCreateWeaponFromYAML("missing"); err == nil {
+		t.Fatal("TryCreateWeaponFromYAML succeeded without a configured accessor")
+	}
+}
+
 func TestCreateWeaponFromYAML_UsesFlavorWhenPresent(t *testing.T) {
 	oldAccessor := GlobalWeaponAccessor
 	defer func() { GlobalWeaponAccessor = oldAccessor }()

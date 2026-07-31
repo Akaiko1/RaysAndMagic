@@ -15,7 +15,7 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

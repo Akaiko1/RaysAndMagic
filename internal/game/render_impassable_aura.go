@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -70,8 +71,8 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 	baseAlpha, perEdge, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
-	camTX := int(r.game.camera.X / ts)
-	camTY := int(r.game.camera.Y / ts)
+	camTX := TileIndex(r.game.camera.X, ts)
+	camTY := TileIndex(r.game.camera.Y, ts)
 	maxDepth := float64(radius) * ts
 
 	// Cardinal neighbours: a bubble edge is drawn only where the blocker faces a
@@ -211,10 +212,10 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 
 // isAuraBillboardRenderType reports whether a tile's render type is an
 // "ambiguous" impassable billboard (rock/cliff/bush) that benefits from the
-// ground-bubble hint. Trees (tree_sprite) and textured walls already read as
-// solid, and floor_only tiles aren't blockers.
+// ground-bubble hint. Crossed standees and walls already read as solid, and
+// floor tiles aren't blockers.
 func isAuraBillboardRenderType(rt string) bool {
-	return rt == "environment_sprite"
+	return rt == config.TileRenderStandee
 }
 
 // auraTileColor returns the average RGB of a tile's billboard sprite texture

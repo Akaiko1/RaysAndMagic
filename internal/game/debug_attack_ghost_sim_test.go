@@ -16,6 +16,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"ugataima/internal/bridge"
@@ -55,7 +56,7 @@ func TestDebugSim_AttackGhost(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -88,9 +89,15 @@ func TestDebugSim_AttackGhost(t *testing.T) {
 	w.NPCs = nil
 	g.groundContainers = nil
 
+	// Frame dumps go OUTSIDE the repo, like the other debug galleries
+	// (~/Downloads/zone_gallery, door_render_check, melee_fx_gallery): the sim
+	// chdirs to the repo root, so a "." default littered the working tree.
 	outDir := os.Getenv("RAM_GHOST_OUT")
 	if outDir == "" {
-		outDir = "."
+		outDir = filepath.Join(os.Getenv("HOME"), "Downloads", "attack_ghost")
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", outDir, err)
 	}
 
 	// TEMPORAL sweep, like live play: AttackAnimFrames ticks down one per draw

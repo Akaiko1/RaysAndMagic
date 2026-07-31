@@ -85,12 +85,22 @@ func menuRowRect(px, py, panelW, startY, pitch, i int) (box pagerRect, textX, te
 	return pagerRect{px + 16, y - 4, px + panelW - 16, y - 4 + menuRowHeight}, px + 28, y
 }
 
+// saveRowFileName maps a global save-row index to its bare file name: the ONE
+// place the autosave.json / save%d.json naming lives, so anything enumerating
+// slot files can tell a save apart from a sibling runtime artifact in the same
+// directory like arena_leaderboard.json. Name only, NO directory resolution -
+// AppSaveDir picks between the bundle data root, the exe folder and the cwd, and
+// creates the directory as a side effect.
+func saveRowFileName(row int) string {
+	if row == 0 {
+		return autosaveFile
+	}
+	return fmt.Sprintf("save%d.json", row)
+}
+
 // saveRowPath maps a global save-row index to its file. Row 0 is the autosave.
 func saveRowPath(row int) string {
-	if row == 0 {
-		return storage.AppSavePath(autosaveFile)
-	}
-	return storage.AppSavePath(fmt.Sprintf("save%d.json", row))
+	return storage.AppSavePath(saveRowFileName(row))
 }
 
 // saveRowIsAutosave reports whether a row is the load-only autosave slot.
@@ -1357,7 +1367,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			if wm.IsOpenWorldRegion(t.MapKey) {
 				if key, lx, ly, ok := wm.LocalizeWorldPos(t.X, t.Y); ok {
 					t.MapKey, t.X, t.Y = key, lx, ly
-					t.TileX, t.TileY = int(lx/tileSize), int(ly/tileSize)
+					t.TileX, t.TileY = TileIndex(lx, tileSize), TileIndex(ly, tileSize)
 				}
 			}
 		}
@@ -1861,7 +1871,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 						if mon == nil {
 							continue
 						}
-						r := wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize))
+						r := wm.OpenWorldRegionAtTile(TileIndex(mon.X, tileSize), TileIndex(mon.Y, tileSize))
 						if r != nil && !restoredRegions[r.MapKey] {
 							keepFresh = append(keepFresh, mon)
 						}
@@ -1892,7 +1902,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					if mon == nil {
 						continue
 					}
-					if r := wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize)); r != nil && r != saveRegion {
+					if r := wm.OpenWorldRegionAtTile(TileIndex(mon.X, tileSize), TileIndex(mon.Y, tileSize)); r != nil && r != saveRegion {
 						keepFresh = append(keepFresh, mon)
 					}
 				}
@@ -2144,7 +2154,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			t := &g.traps[i]
 			if wm.IsOpenWorldRegion(t.MapKey) {
 				t.X, t.Y = wm.ProjectWorldPos(t.MapKey, t.X, t.Y)
-				t.TileX, t.TileY = int(t.X/tileSize), int(t.Y/tileSize)
+				t.TileX, t.TileY = TileIndex(t.X, tileSize), TileIndex(t.Y, tileSize)
 			}
 		}
 		for key, pose := range g.mapReturnPoses {
@@ -2235,7 +2245,7 @@ func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster
 	}
 	tileSize := float64(g.config.GetTileSize())
 	isDaisIsis := func(m *monster.Monster3D) bool {
-		return m != nil && m.Key == "isis" && int(m.Y/tileSize) == 5
+		return m != nil && m.Key == "isis" && TileIndex(m.Y, tileSize) == 5
 	}
 	isReliquaryReward := func(rewards *monster.EncounterRewards) bool {
 		if rewards == nil || len(rewards.TreasureChests) != 4 {

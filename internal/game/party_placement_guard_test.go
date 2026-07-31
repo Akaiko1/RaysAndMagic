@@ -13,7 +13,7 @@ func placementGuardGame(t *testing.T) (*MMGame, float64) {
 	setTestWorldManager(t, nil)
 	prev := world.GlobalTileManager
 	t.Cleanup(func() { world.GlobalTileManager = prev })
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

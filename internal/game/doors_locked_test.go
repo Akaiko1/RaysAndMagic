@@ -142,6 +142,9 @@ func TestOpenLockedDoor_ConsumesKeyButNotSkeleton(t *testing.T) {
 		g := makeDoorGame(t, npc)
 		g.party.AddItem(items.CreateItemFromYAML("ordinary_key"))
 		g.dialogNPC = npc
+		if g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, g.camera.X+2*64, g.camera.Y) {
+			t.Fatal("closed locked door does not block line of sight")
+		}
 		g.openLockedDoor(npc, 0)
 		if !npc.Visited {
 			t.Fatal("door did not open")
@@ -151,6 +154,9 @@ func TestOpenLockedDoor_ConsumesKeyButNotSkeleton(t *testing.T) {
 		}
 		if g.lockedDoorEntityIDs[lockedDoorEntityID(npc)] {
 			t.Error("opened door must drop its collision block")
+		}
+		if !g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, g.camera.X+2*64, g.camera.Y) {
+			t.Fatal("opened locked door still blocks line of sight")
 		}
 	})
 	t.Run("skeleton key is never spent", func(t *testing.T) {

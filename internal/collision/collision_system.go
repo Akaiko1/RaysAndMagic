@@ -3,6 +3,7 @@ package collision
 import (
 	"fmt"
 	"math"
+	"sync"
 )
 
 // DebugCanMoveTo runs the same checks as CanMoveTo but returns a human-readable reason
@@ -86,7 +87,10 @@ type TileChecker interface {
 // projectile movement only checks TILES (world.CanProjectileMoveTo), never
 // other entities, so this holds - and (3) the entities map itself is never
 // mutated (Register/Unregister) inside a parallel phase. Breaking any of these
-// requires adding a lock here first.
+// entity-registry invariants requires adding a lock around the registry first.
+// The smaller dynamic sight overlay has its own RWMutex: CastRay may read it
+// while a sight-blocking entity moves, without putting ordinary projectile
+// UpdateEntity calls behind a global collision lock.
 //
 // The parallel MONSTER updater does NOT qualify for the above: a monster's
 // movement/AI decision reads OTHER entities' bounding boxes and collision types
@@ -100,6 +104,11 @@ type TileChecker interface {
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity
+	// sightBlockerTiles is a reference-counted overlay of tiles occupied by
+	// explicitly sight-blocking entities. Registration is the single state
+	// transition for both movement collision and dynamic LOS occlusion.
+	sightBlockerTiles map[sightTileKey]int
+	sightMu           sync.RWMutex
 	// engagedPosts indexes the (few) CollisionTypeMonsterEngaged entities so
 	// attack-post reservation queries scan a handful, not every entity.
 	// Maintained by RegisterEntity/UnregisterEntity/SetEntityCollisionType.
@@ -110,27 +119,44 @@ type CollisionSystem struct {
 // NewCollisionSystem creates a new collision system
 func NewCollisionSystem(tileChecker TileChecker, tileSize float64) *CollisionSystem {
 	return &CollisionSystem{
-		tileChecker:  tileChecker,
-		entities:     make(map[string]*Entity),
-		engagedPosts: make(map[string]*Entity),
-		tileSize:     tileSize,
+		tileChecker:       tileChecker,
+		entities:          make(map[string]*Entity),
+		sightBlockerTiles: make(map[sightTileKey]int),
+		engagedPosts:      make(map[string]*Entity),
+		tileSize:          tileSize,
 	}
 }
 
 // RegisterEntity adds an entity to the collision system
 func (cs *CollisionSystem) RegisterEntity(entity *Entity) {
+	if entity == nil {
+		panic("collision: RegisterEntity called with nil")
+	}
+	previous := cs.entities[entity.ID]
 	cs.entities[entity.ID] = entity
 	if entity.CollisionType == CollisionTypeMonsterEngaged {
 		cs.engagedPosts[entity.ID] = entity
 	} else {
 		delete(cs.engagedPosts, entity.ID)
 	}
+	if (previous != nil && previous.blocksSight) || entity.blocksSight {
+		cs.sightMu.Lock()
+		cs.indexEntitySightTiles(previous, -1)
+		cs.indexEntitySightTiles(entity, 1)
+		cs.sightMu.Unlock()
+	}
 }
 
 // UnregisterEntity removes an entity from the collision system
 func (cs *CollisionSystem) UnregisterEntity(id string) {
+	entity := cs.entities[id]
 	delete(cs.entities, id)
 	delete(cs.engagedPosts, id)
+	if entity != nil && entity.blocksSight {
+		cs.sightMu.Lock()
+		cs.indexEntitySightTiles(entity, -1)
+		cs.sightMu.Unlock()
+	}
 }
 
 // SetEntityCollisionType flips an entity's collision type, keeping the
@@ -153,6 +179,16 @@ func (cs *CollisionSystem) SetEntityCollisionType(id string, t CollisionType) {
 // UpdateEntity updates an entity's position in the collision system
 func (cs *CollisionSystem) UpdateEntity(id string, x, y float64) {
 	if entity, exists := cs.entities[id]; exists {
+		if entity.blocksSight {
+			cs.sightMu.Lock()
+			cs.indexEntitySightTiles(entity, -1)
+			entity.BoundingBox.MoveTo(x, y)
+			cs.indexEntitySightTiles(entity, 1)
+			cs.sightMu.Unlock()
+			return
+		}
+		// Parallel projectile updates take this path: they touch only their own
+		// bounding box and never the shared sight index.
 		entity.BoundingBox.MoveTo(x, y)
 	}
 }
@@ -388,22 +424,25 @@ type RaycastHit struct {
 
 // CastRay performs a DDA-based raycast between two points
 func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
-	return castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, sightOnly)
+	cs.sightMu.RLock()
+	defer cs.sightMu.RUnlock()
+	return castRayTiles(cs.tileChecker, cs.tileSize, cs.sightBlockerTiles, x1, y1, x2, y2, sightOnly)
 }
 
-// castRayTiles is CastRay's body, parametrized over (tileChecker, tileSize) -
-// both immutable for the lifetime of a map, so it needs no entity access and is
-// shared verbatim by CollisionSnapshot.CheckLineOfSight.
-func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
+// castRayTiles is CastRay's body, parametrized over the authored tiles and the
+// compact dynamic sight overlay. It needs no entity access and is shared
+// verbatim by CollisionSnapshot.CheckLineOfSight.
+func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles map[sightTileKey]int, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
 	inv := 1.0 / tileSize
+	hasSightBlockers := sightOnly && len(sightBlockerTiles) > 0
 
 	// Current tile
-	tx := int(x1 * inv)
-	ty := int(y1 * inv)
+	tx := tileCoord(x1, inv)
+	ty := tileCoord(y1, inv)
 
 	// Target tile
-	gx := int(x2 * inv)
-	gy := int(y2 * inv)
+	gx := tileCoord(x2, inv)
+	gy := tileCoord(y2, inv)
 
 	dx := x2 - x1
 	dy := y2 - y1
@@ -484,7 +523,7 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 floa
 		}
 
 		// Check for hit based on mode
-		if sightOnly && tileChecker.IsTileOpaque(tx, ty) {
+		if sightOnly && (tileChecker.IsTileOpaque(tx, ty) || hasSightBlockers && sightBlockerTiles[sightTileKey{x: tx, y: ty}] > 0) {
 			hitX := x1 + dx*t
 			hitY := y1 + dy*t
 			dist := math.Hypot(hitX-x1, hitY-y1)

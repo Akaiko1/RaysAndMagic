@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -46,9 +47,9 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	return true
 }
 
-// topplePropsInRadius rolls `chance` for every CROSSED-STANDEE tile (tree_sprite:
+// topplePropsInRadius rolls `chance` for every crossed-standee tile:
 // trees, dunes, rocks) inside the radius and replaces the ones that fail with
-// plain floor - the ground shook them down. Only tree_sprite tiles are eligible:
+// plain floor - the ground shook them down. Only crossed standees are eligible:
 // walls, doors and buildings do not fall over.
 //
 // The floor is resolved PER TILE from the region that tile belongs to: on the
@@ -62,7 +63,7 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 	}
 	ts := float64(g.config.GetTileSize())
 	reach := int(radius/ts) + 1
-	ctx, cty := int(cx/ts), int(cy/ts)
+	ctx, cty := TileIndex(cx, ts), TileIndex(cy, ts)
 	toppled := map[[2]int]bool{}
 	for ty := cty - reach; ty <= cty+reach; ty++ {
 		if ty < 0 || ty >= len(g.world.Tiles) {
@@ -73,7 +74,7 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 				continue
 			}
 			tile := g.world.Tiles[ty][tx]
-			if world.GlobalTileManager.GetRenderType(tile) != "tree_sprite" {
+			if world.GlobalTileManager.GetRenderType(tile) != config.TileRenderCrossedStandee {
 				continue
 			}
 			wx, wy := TileCenterFromTile(tx, ty, ts)

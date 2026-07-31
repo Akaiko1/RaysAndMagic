@@ -220,7 +220,7 @@ func (g *MMGame) tavernRegionKey(npc *character.NPC) string {
 	if ts <= 0 {
 		return currentMapKey()
 	}
-	return g.mapKeyAtTile(int(npc.X/ts), int(npc.Y/ts))
+	return g.mapKeyAtTile(TileIndex(npc.X, ts), TileIndex(npc.Y, ts))
 }
 
 // rumorOrder is one tavern's private shuffle of the pool - its deck. Walking it

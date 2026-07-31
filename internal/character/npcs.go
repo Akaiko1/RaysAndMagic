@@ -20,8 +20,7 @@ type NPC struct {
 	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
 	Transparent      bool
 	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
-	SizeClass        string // shared size tier (person, etc.); wins over SizeTiles
-	SizeTiles        float64
+	SizeClass        string // shared quantized visual-size tier
 	MerchantStock    []*MerchantStockItem
 	Currency         string // "" = gold; "arena_points" = arena victory currency
 	ArenaBoard       bool   // carries the champions' leaderboard dialog tab

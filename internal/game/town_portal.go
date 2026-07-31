@@ -110,7 +110,7 @@ func (g *MMGame) townPortalTeleport(mapKey string) {
 // the given world position (4-neighborhood first, then diagonals).
 func (g *MMGame) nearestWalkableNeighbor(px, py float64) (float64, float64, bool) {
 	tileSize := float64(g.config.GetTileSize())
-	tx, ty := int(px/tileSize), int(py/tileSize)
+	tx, ty := TileIndex(px, tileSize), TileIndex(py, tileSize)
 	offsets := [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 	for _, o := range offsets {
 		nx, ny := tx+o[0], ty+o[1]

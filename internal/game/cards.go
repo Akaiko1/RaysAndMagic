@@ -522,7 +522,7 @@ func (g *MMGame) maybeCardMoveBurst() {
 	if ts <= 0 {
 		return
 	}
-	tx, ty := int(g.camera.X/ts), int(g.camera.Y/ts)
+	tx, ty := TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)
 	if tx == g.cardBurstTileX && ty == g.cardBurstTileY {
 		return
 	}

@@ -55,6 +55,10 @@ func summonAggroWorld(t *testing.T, mobKey string) (*MMGame, *GameLoop, *monster
 	mob.MaxHitPoints, mob.HitPoints = 4000, 4000 // survive the whole exchange
 	huntress := monsterPkg.NewMonster3DFromConfig(float64(24)*ts+ts/2, float64(10)*ts+ts/2, "masked_huntress", game.config)
 	huntress.MaxHitPoints, huntress.HitPoints = 4000, 4000
+	// These tests ask whether the mob AGGROES and reaches the summon, not whether
+	// it beats her defenses. Authored perfect_dodge (10 on the huntress) would let
+	// a dodged swing read as "never struck" and flake the RT assertion.
+	huntress.PerfectDodge = 0
 	markCardAlly(huntress)
 	game.world.Monsters = []*monsterPkg.Monster3D{mob, huntress}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

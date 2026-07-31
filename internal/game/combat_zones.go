@@ -118,11 +118,11 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinition, tile float64) []SteamZone {
 	g := cs.game
 	snap := func(cell SteamZone) SteamZone {
-		cell.X, cell.Y = TileCenterFromTile(int(cell.X/tile), int(cell.Y/tile), tile)
+		cell.X, cell.Y = TileCenterFromTile(TileIndex(cell.X, tile), TileIndex(cell.Y, tile), tile)
 		return cell
 	}
 	blocked := func(cell SteamZone) bool {
-		return g.world != nil && g.world.IsTileBlockingTerrainAt(int(cell.X/tile), int(cell.Y/tile))
+		return g.world != nil && g.world.IsTileBlockingTerrainAt(TileIndex(cell.X, tile), TileIndex(cell.Y, tile))
 	}
 	if def.ZoneWidthTiles <= 1 {
 		cell := snap(proto)
@@ -148,8 +148,8 @@ func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinitio
 	if (stepX == 1 && rx < 0) || (stepY == 1 && ry < 0) {
 		stepX, stepY = -stepX, -stepY
 	}
-	centerTX := int((g.camera.X + fx*ahead*tile) / tile)
-	centerTY := int((g.camera.Y + fy*ahead*tile) / tile)
+	centerTX := TileIndex((g.camera.X + fx*ahead*tile), tile)
+	centerTY := TileIndex((g.camera.Y + fy*ahead*tile), tile)
 	half := (def.ZoneWidthTiles - 1) / 2
 	cells := make([]SteamZone, 0, def.ZoneWidthTiles)
 	for i := 0; i < def.ZoneWidthTiles; i++ {
@@ -182,7 +182,7 @@ func (cs *CombatSystem) mergeZoneCast(cells []SteamZone) {
 		return a == b
 	}
 	sameTile := func(a, b SteamZone) bool {
-		return int(a.X/tile) == int(b.X/tile) && int(a.Y/tile) == int(b.Y/tile)
+		return TileIndex(a.X, tile) == TileIndex(b.X, tile) && TileIndex(a.Y, tile) == TileIndex(b.Y, tile)
 	}
 
 	live := cs.game.steamZones
@@ -282,7 +282,7 @@ func (z *SteamZone) isWallCell() bool { return z.AxisX != 0 || z.AxisY != 0 }
 // field covers its circle.
 func (z *SteamZone) coversMonster(mx, my, tile float64) bool {
 	if z.isWallCell() {
-		return int(mx/tile) == int(z.X/tile) && int(my/tile) == int(z.Y/tile)
+		return TileIndex(mx, tile) == TileIndex(z.X, tile) && TileIndex(my, tile) == TileIndex(z.Y, tile)
 	}
 	dx, dy := z.X-mx, z.Y-my
 	return dx*dx+dy*dy <= z.Radius*z.Radius // squared: runs cells x monsters every frame
@@ -361,11 +361,11 @@ func (cs *CombatSystem) zoneTickView(spellID string, firingCells []*SteamZone) [
 	fired := map[cellKey]bool{}
 	view := append([]*SteamZone(nil), firingCells...)
 	for _, z := range firingCells {
-		fired[cellKey{z.FieldID, int(z.X / tile), int(z.Y / tile)}] = true
+		fired[cellKey{z.FieldID, TileIndex(z.X, tile), TileIndex(z.Y, tile)}] = true
 	}
 	for i := range cs.game.steamZones {
 		z := &cs.game.steamZones[i]
-		if z.SpellID != spellID || fired[cellKey{z.FieldID, int(z.X / tile), int(z.Y / tile)}] {
+		if z.SpellID != spellID || fired[cellKey{z.FieldID, TileIndex(z.X, tile), TileIndex(z.Y, tile)}] {
 			continue
 		}
 		view = append(view, z)
@@ -384,7 +384,7 @@ func (cs *CombatSystem) syncZoneStamps(firing []firingZoneCell) {
 			if live.SpellID != src.SpellID || live.FieldID != src.FieldID {
 				continue
 			}
-			if int(live.X/tile) == int(src.X/tile) && int(live.Y/tile) == int(src.Y/tile) {
+			if TileIndex(live.X, tile) == TileIndex(src.X, tile) && TileIndex(live.Y, tile) == TileIndex(src.Y, tile) {
 				live.entered = src.entered
 				break
 			}

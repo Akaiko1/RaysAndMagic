@@ -286,7 +286,7 @@ func (g *MMGame) clearMapAndTally(mapKey string) (perMemberXP, gold int) {
 		if mon == nil {
 			continue
 		}
-		if region != nil && wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize)) != region {
+		if region != nil && wm.OpenWorldRegionAtTile(TileIndex(mon.X, tileSize), TileIndex(mon.Y, tileSize)) != region {
 			kept = append(kept, mon)
 			continue
 		}

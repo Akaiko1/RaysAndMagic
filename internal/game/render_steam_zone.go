@@ -58,7 +58,7 @@ func (r *Renderer) drawSteamZoneBubbles(screen *ebiten.Image) {
 		if flame {
 			maxDepth = z.Radius + flameFadeTiles*ts
 		}
-		ctx, cty := int(z.X/ts), int(z.Y/ts)
+		ctx, cty := TileIndex(z.X, ts), TileIndex(z.Y, ts)
 		rt := int(z.Radius/ts) + 1
 		for ty := cty - rt; ty <= cty+rt; ty++ {
 			if ty < 0 || ty >= r.game.world.Height {

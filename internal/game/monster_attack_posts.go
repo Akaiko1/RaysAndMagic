@@ -43,8 +43,8 @@ func (gl *GameLoop) reconcileMonsterAttackPosts() {
 
 	sort.Slice(posts, func(i, j int) bool {
 		a, b := posts[i], posts[j]
-		atx, aty := int(a.X/tileSize), int(a.Y/tileSize)
-		btx, bty := int(b.X/tileSize), int(b.Y/tileSize)
+		atx, aty := TileIndex(a.X, tileSize), TileIndex(a.Y, tileSize)
+		btx, bty := TileIndex(b.X, tileSize), TileIndex(b.Y, tileSize)
 		if aty != bty {
 			return aty < bty
 		}
@@ -61,12 +61,12 @@ func (gl *GameLoop) reconcileMonsterAttackPosts() {
 
 	for i := 0; i < len(posts); {
 		winner := posts[i]
-		key := attackPostTile{x: int(winner.X / tileSize), y: int(winner.Y / tileSize)}
+		key := attackPostTile{x: TileIndex(winner.X, tileSize), y: TileIndex(winner.Y, tileSize)}
 		gl.game.applyMonsterCollisionType(winner.ID, desiredMonsterCollisionType(winner))
 		i++
 		for i < len(posts) {
 			candidate := posts[i]
-			candidateKey := attackPostTile{x: int(candidate.X / tileSize), y: int(candidate.Y / tileSize)}
+			candidateKey := attackPostTile{x: TileIndex(candidate.X, tileSize), y: TileIndex(candidate.Y, tileSize)}
 			if candidateKey != key {
 				break
 			}
@@ -134,12 +134,12 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 		m.TransitStackIndex = 0
 		m.TransitStackCount = 0
 		if m.IsAlive() && combatStackParticipant(gl.game, m) {
-			gl.combatTransitTileBuf[attackPostTile{x: int(m.X / tileSize), y: int(m.Y / tileSize)}] = struct{}{}
+			gl.combatTransitTileBuf[attackPostTile{x: TileIndex(m.X, tileSize), y: TileIndex(m.Y, tileSize)}] = struct{}{}
 		}
 	}
 	for _, m := range gl.game.world.Monsters {
 		if m != nil && m.IsAlive() {
-			key := attackPostTile{x: int(m.X / tileSize), y: int(m.Y / tileSize)}
+			key := attackPostTile{x: TileIndex(m.X, tileSize), y: TileIndex(m.Y, tileSize)}
 			if _, active := gl.combatTransitTileBuf[key]; !active {
 				continue
 			}
@@ -148,8 +148,8 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 	}
 	sort.Slice(stacks, func(i, j int) bool {
 		a, b := stacks[i], stacks[j]
-		atx, aty := int(a.X/tileSize), int(a.Y/tileSize)
-		btx, bty := int(b.X/tileSize), int(b.Y/tileSize)
+		atx, aty := TileIndex(a.X, tileSize), TileIndex(a.Y, tileSize)
+		btx, bty := TileIndex(b.X, tileSize), TileIndex(b.Y, tileSize)
 		if aty != bty {
 			return aty < bty
 		}
@@ -163,9 +163,9 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 	})
 
 	for first := 0; first < len(stacks); {
-		key := attackPostTile{x: int(stacks[first].X / tileSize), y: int(stacks[first].Y / tileSize)}
+		key := attackPostTile{x: TileIndex(stacks[first].X, tileSize), y: TileIndex(stacks[first].Y, tileSize)}
 		last := first + 1
-		for last < len(stacks) && int(stacks[last].X/tileSize) == key.x && int(stacks[last].Y/tileSize) == key.y {
+		for last < len(stacks) && TileIndex(stacks[last].X, tileSize) == key.x && TileIndex(stacks[last].Y, tileSize) == key.y {
 			last++
 		}
 		if count := last - first; count > 1 {

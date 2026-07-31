@@ -20,7 +20,7 @@ func loadRealWorldForTest(t *testing.T, cfg *config.Config, mapKey string) (*wor
 	})
 	t.Chdir("../..")
 
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

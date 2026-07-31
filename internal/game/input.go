@@ -1349,7 +1349,7 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 		return "", x, y, false
 	}
 	tileSize := float64(ih.game.config.GetTileSize())
-	tx, ty := int(x/tileSize), int(y/tileSize)
+	tx, ty := TileIndex(x, tileSize), TileIndex(y, tileSize)
 	if tx < 0 || tx >= worldInst.Width || ty < 0 || ty >= worldInst.Height {
 		return "", x, y, false
 	}
@@ -1481,7 +1481,7 @@ func (ih *InputHandler) checkDeepWater() {
 	}
 
 	tileSize := float64(ih.game.config.GetTileSize())
-	tx, ty := int(x/tileSize), int(y/tileSize)
+	tx, ty := TileIndex(x, tileSize), TileIndex(y, tileSize)
 
 	// Check bounds
 	if tx < 0 || tx >= worldInst.Width || ty < 0 || ty >= worldInst.Height {
@@ -1578,18 +1578,7 @@ func (ih *InputHandler) handleMouseInput() {
 	// Heal targeting (H/C key) is handled in the combat input handlers
 	// (handleCombatInput / handleTurnBasedInput) so it shares the new
 	// per-character cooldown + auto-advance, instead of a separate path here.
-
-	// Handle party character selection clicks (works both in and out of menu).
-	// Selection is allowed even when the member is out of TB actions; combat
-	// actions remain gated separately.
-	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
-		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
-		if targetCharIndex >= 0 {
-			if ih.game.consumeLeftClick() {
-				ih.game.handlePartyPortraitClick(targetCharIndex, shiftModifierHeld())
-			}
-		}
-	}
+	ih.handlePartyPortraitMouseInput(shiftModifierHeld())
 
 	// World-object clicks (only during gameplay, no overlays). Containers get
 	// first claim - they're small and usually in front of whoever dropped them.
@@ -1614,6 +1603,32 @@ func (ih *InputHandler) handleMouseInput() {
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// handlePartyPortraitMouseInput resolves only the portrait-strip clicks. Shift
+// is injected so queue wiring can be tested without synthesizing OS key state.
+func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
+	// Left-click only selects. Focus is deliberately on Shift+right-click so a
+	// player can inspect another portrait without changing the RT actor filter.
+	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
+		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
+		if targetCharIndex >= 0 {
+			if ih.game.consumeLeftClick() {
+				ih.game.handlePartyPortraitClick(targetCharIndex, false)
+			}
+		}
+	}
+	// Shift+right-click toggles focus only on the unobstructed gameplay HUD.
+	// Plain right-click remains available to every existing context action.
+	if shift && ih.game.worldClickAllowed() && ih.game.showPartyStats {
+		targetCharIndex := -1
+		if ih.game.consumeRightClickMatching(func(click queuedClick) bool {
+			targetCharIndex = ih.getPartyMemberUnderMouse(click.x, click.y)
+			return targetCharIndex >= 0
+		}) {
+			ih.game.handlePartyPortraitClick(targetCharIndex, true)
+		}
+	}
 }
 
 // worldClickAllowed reports whether a click can reach world objects (no menu,
@@ -2536,8 +2551,8 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	tileSize := float64(ih.game.config.GetTileSize())
 
 	// Get current tile coordinates
-	currentTileX := int(ih.game.camera.X / tileSize)
-	currentTileY := int(ih.game.camera.Y / tileSize)
+	currentTileX := TileIndex(ih.game.camera.X, tileSize)
+	currentTileY := TileIndex(ih.game.camera.Y, tileSize)
 
 	// Calculate target tile
 	targetTileX := currentTileX + deltaX
@@ -3448,8 +3463,8 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 		return false // negative positions are out of bounds
 	}
 	tileSize := float64(ih.game.config.GetTileSize())
-	tileX := int(x / tileSize)
-	tileY := int(y / tileSize)
+	tileX := TileIndex(x, tileSize)
+	tileY := TileIndex(y, tileSize)
 	if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
 		tile := worldInst.Tiles[tileY][tileX]
 		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)

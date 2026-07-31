@@ -27,15 +27,15 @@ type NPCData struct {
 	NoSpin        bool   `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
-	// mutually exclusive with size_tiles, size_class, and no_spin.
+	// mutually exclusive with size_class and no_spin.
 	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"`
 	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
 	RenderCategory   string               `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string               `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
-	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
-	SizeTiles        float64              `yaml:"size_tiles,omitempty"`
+	SizeClass        string               `yaml:"size_class,omitempty"` // shared quantized visual-size tier
+	RemovedSizeTiles *float64             `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
@@ -273,6 +273,11 @@ func LoadNPCConfig(filename string) error {
 	if err := validateCratesAndLecterns(&config); err != nil {
 		return err
 	}
+	for key, npc := range config.NPCs {
+		if npc != nil && npc.RemovedSizeTiles != nil {
+			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
+		}
+	}
 	return nil
 }
 
@@ -438,7 +443,6 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Transparent:      data.Transparent,
 		GroundTile:       data.GroundTile,
 		SizeClass:        data.SizeClass,
-		SizeTiles:        data.SizeTiles,
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,

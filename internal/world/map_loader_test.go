@@ -23,7 +23,7 @@ func hasNPCKey(spawns []NPCSpawn, key string) bool {
 }
 
 func TestMapLoader_SpecialTileByKey(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestMapLoader_SpecialTileByKey(t *testing.T) {
 // placed entity ('@') matches the dominant FLOOR variant around it, not the bare
 // biome '.' default - and stays the '.' default when neighbours are uniform.
 func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
 
-	// 'W' (water) is render_type "floor_only" but NOT walkable: it must never be
+	// 'W' (water) is render_type "floor" but NOT walkable: it must never be
 	// voted as floor. '@' ringed only by water -> no floor neighbour -> biome '.'
 	// fallback (cobble), never the impassable water tile.
 	water, ok := tm.GetTileTypeFromLetterForBiome("W", "japanese_castle")
@@ -122,7 +122,7 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 }
 
 func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -162,11 +162,13 @@ func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.
 }
 
 func TestTileConfigurationRejectsUnknownExcludedUnderFloorTile(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	tm.tileData = map[string]*config.TileData{
 		"tree": {
 			Type:                    "nature",
-			RenderType:              "tree_sprite",
+			RenderType:              "crossed_standee",
+			SizeClass:               "tree",
+			Sprite:                  "tree",
 			ExcludedUnderFloorTiles: []string{"missing_floor"},
 		},
 	}
@@ -176,15 +178,15 @@ func TestTileConfigurationRejectsUnknownExcludedUnderFloorTile(t *testing.T) {
 }
 
 func TestMapContractRejectsWrongLetterCase(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	tm.tileData = map[string]*config.TileData{
-		"bad_tile": {Letter: "b", Type: "floor", RenderType: "floor_only"},
+		"bad_tile": {Letter: "b", Type: "floor", RenderType: "floor"},
 	}
 	if err := tm.validateTileConfiguration(); err == nil || !strings.Contains(err.Error(), "reserved for monster") {
 		t.Fatalf("lowercase tile letter must fail clearly, got: %v", err)
 	}
 
-	goodTiles := NewTileManager()
+	goodTiles := NewTileManager(testTileSizeClasses())
 	if err := goodTiles.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -203,7 +205,7 @@ func TestMapContractRejectsWrongLetterCase(t *testing.T) {
 // Map content tests pin QUEST NPCs and MERCHANTS only - monster spawns are
 // balance-tuned live and must never be pinned by count.
 func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -249,7 +251,7 @@ func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
 // only reason to walk there (bows, potions, armour, the two archives and the
 // drill master).
 func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

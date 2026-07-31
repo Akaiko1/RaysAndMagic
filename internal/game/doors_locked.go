@@ -123,7 +123,7 @@ func (g *MMGame) registerLockedDoors() {
 			continue
 		}
 		g.lockedDoorEntityIDs[id] = true
-		g.collisionSystem.RegisterEntity(collision.NewEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
+		g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
 	}
 }
 

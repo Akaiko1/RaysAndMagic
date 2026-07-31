@@ -48,7 +48,7 @@ func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 		default:
 			continue
 		}
-		tx, ty := int(m.X/ts), int(m.Y/ts)
+		tx, ty := TileIndex(m.X, ts), TileIndex(m.Y, ts)
 		// Self-cull plane: columns behind the boss billboard are hidden by it.
 		_, centerDepth, centerOK := r.game.renderHelper.projectToScreenX(m.X, m.Y)
 		for k := 0; k < sealedAuraColumns; k++ {

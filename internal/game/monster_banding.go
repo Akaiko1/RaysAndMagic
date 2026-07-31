@@ -350,7 +350,7 @@ func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float6
 	}
 	cx /= float64(len(group))
 	cy /= float64(len(group))
-	ctx, cty := int(cx/tile), int(cy/tile)
+	ctx, cty := TileIndex(cx, tile), TileIndex(cy, tile)
 
 	used := map[[2]int]bool{}
 	ri := 0

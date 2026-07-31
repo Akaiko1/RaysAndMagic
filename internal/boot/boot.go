@@ -31,7 +31,7 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
 
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		log.Fatalf("Failed to load tile config: %v", err)
 	}
@@ -87,17 +87,13 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 		}
 	}
 
-	// Fail fast on an NPC naming a size_class the config doesn't define (a typo
-	// would otherwise silently render it at fallback wall height).
 	for key, npc := range character.NPCConfigInstance.NPCs {
-		if npc.SizeClass != "" {
-			if _, ok := monster.SizeClassTiles(npc.SizeClass); !ok {
-				log.Fatalf("NPC %q has unknown size_class %q", key, npc.SizeClass)
-			}
-		}
 		validateDuelChoices(key, npc.Dialogue, monsterCfg)
 	}
 	if err := game.ValidateNPCRenderCategories(character.NPCConfigInstance.NPCs); err != nil {
+		log.Fatalf("%v", err)
+	}
+	if err := game.ValidateNPCVisualSizes(character.NPCConfigInstance.NPCs, cfg.Graphics.SizeClasses); err != nil {
 		log.Fatalf("%v", err)
 	}
 	if err := game.ValidateNPCCommerce(character.NPCConfigInstance.NPCs); err != nil {

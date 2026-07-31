@@ -742,15 +742,18 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig        `yaml:"colors"`
-	Sprite             SpriteConfig        `yaml:"sprite"`
-	BrightnessMin      float64             `yaml:"brightness_min"`
-	Monster            MonsterRenderConfig `yaml:"monster"`
-	NPC                NPCRenderConfig     `yaml:"npc"`
-	// SizeClasses maps a size class (small/medium/person/large/huge) to sprite
-	// height in tile units (1.0 == a 1-tile wall). Monsters and person-NPCs pick
-	// a class instead of a raw number so sizes stay quantized and readable.
+	RaysPerScreenWidth int          `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig `yaml:"colors"`
+	// RemovedSprite catches the retired graphics.sprite block so a stale config
+	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
+	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
+	BrightnessMin float64             `yaml:"brightness_min"`
+	Monster       MonsterRenderConfig `yaml:"monster"`
+	NPC           NPCRenderConfig     `yaml:"npc"`
+	// SizeClasses is the single quantized visual-scale table for world sprites.
+	// Actor classes set frame height; prop/landmark classes set visible alpha
+	// height; tree sprites interpret their selected class as frame width and keep
+	// source aspect. Content names a class instead of a raw per-object number.
 	SizeClasses map[string]float64 `yaml:"size_classes"`
 	// ContainerSizeTiles maps a ground-container kind (loot_bag/treasure_chest)
 	// to sprite height in tile units.
@@ -772,6 +775,42 @@ type GraphicsConfig struct {
 	// standee degrades to a single (non-crossed) standee plane. <=0 disables the
 	// distant LOD. Close trees always retain the full slab.
 	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
+
+	// NightMotes controls the moving motes emitted by authored tree tiles at night.
+	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+}
+
+// NightMoteRenderConfig controls the shared runtime budget and timing for
+// moving night motes. Per-tile night_motes data only selects the palette.
+type NightMoteRenderConfig struct {
+	EmissionRadiusTiles     float64 `yaml:"emission_radius_tiles"`
+	EmissionIntervalSeconds float64 `yaml:"emission_interval_seconds"`
+	EmissionChance          float64 `yaml:"emission_chance"`
+	MaxPerTree              int     `yaml:"max_per_tree"`
+	LifetimeSeconds         float64 `yaml:"lifetime_seconds"`
+	MaxActive               int     `yaml:"max_active"`
+}
+
+func validateNightMoteRenderConfig(nightMotes NightMoteRenderConfig) error {
+	if nightMotes.EmissionRadiusTiles <= 0 {
+		return fmt.Errorf("graphics.night_motes.emission_radius_tiles must be > 0")
+	}
+	if nightMotes.EmissionIntervalSeconds <= 0 {
+		return fmt.Errorf("graphics.night_motes.emission_interval_seconds must be > 0")
+	}
+	if nightMotes.EmissionChance < 0 || nightMotes.EmissionChance > 1 {
+		return fmt.Errorf("graphics.night_motes.emission_chance must be in [0, 1]")
+	}
+	if nightMotes.MaxPerTree <= 0 {
+		return fmt.Errorf("graphics.night_motes.max_per_tree must be > 0")
+	}
+	if nightMotes.LifetimeSeconds <= 0 {
+		return fmt.Errorf("graphics.night_motes.lifetime_seconds must be > 0")
+	}
+	if nightMotes.MaxActive < nightMotes.MaxPerTree {
+		return fmt.Errorf("graphics.night_motes.max_active must be >= max_per_tree")
+	}
+	return nil
 }
 
 // StandeeConfig tunes the board-game standee rendering mode.
@@ -833,6 +872,12 @@ type ColorsConfig struct {
 	ForestBg [3]int `yaml:"forest_bg"`
 }
 
+// SpriteConfig is the RETIRED graphics.sprite block. Both of its knobs were
+// tree-named but scaled every flat billboard: height came from
+// tree_height_multiplier and width was a single hardcoded ratio of it. Flat
+// sprites now take their size from the tile's own size_class and their width
+// from the source texture aspect, so the block only exists to reject stale
+// content instead of silently ignoring it.
 type SpriteConfig struct {
 	TreeHeightMultiplier float64 `yaml:"tree_height_multiplier"`
 	TreeWidthMultiplier  float64 `yaml:"tree_width_multiplier"`
@@ -878,6 +923,13 @@ type TileLightConfig struct {
 	Intensity   float64 `yaml:"intensity"`
 }
 
+// TileNightMoteConfig opts one authored tree tile into the night-mote effect.
+// Presence is the allowlist; colours stay in content instead of render code.
+type TileNightMoteConfig struct {
+	GlowColor [3]int `yaml:"glow_color"`
+	CoreColor [3]int `yaml:"core_color"`
+}
+
 // ValidTileTypes is the closed set of authored tile `type` values: a purely
 // organizational taxonomy the map editor groups its palette by. REQUIRED on
 // every tiles.yaml entry (special_tiles.yaml has its own palette section and
@@ -904,21 +956,25 @@ type TileData struct {
 	Transparent bool   `yaml:"transparent"`
 	Walkable    bool   `yaml:"walkable"`
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
-	// HeightMultiplier is a legacy fallback for old tile YAML.
+	// HeightMultiplier remains only to reject legacy billboard authoring.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
 	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
-	SizeTiles            float64 `yaml:"size_tiles,omitempty"`
-	Sprite               string  `yaml:"sprite"`
-	RenderType           string  `yaml:"render_type"`
-	FloorColor           [3]int  `yaml:"floor_color"`
-	FloorNearColor       [3]int  `yaml:"floor_near_color"`
+	SizeClass            string  `yaml:"size_class,omitempty"`
+	// RemovedSizeTiles catches the retired raw YAML key so a stale or mistyped
+	// content entry fails loudly instead of silently falling back to 1 tile.
+	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
+	Sprite           string   `yaml:"sprite"`
+	RenderType       string   `yaml:"render_type"`
+	ProceduralEffect string   `yaml:"procedural_effect,omitempty"`
+	FloorColor       [3]int   `yaml:"floor_color"`
+	FloorNearColor   [3]int   `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Objects without a group or floor_color inherit the
 	// dominant neighbouring floor; floor-only tiles fall back to the map base.
 	// The "beach" group is picked dynamically for empty tiles bordering water.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
-	// InheritFloor forces a floor_only marker (spawn point, teleporter) to take
+	// InheritFloor forces a floor marker (spawn point, teleporter) to take
 	// the surrounding biome floor even when it has a floor_color. Regular
 	// non-floor objects without an authored floor inherit automatically; see
 	// InheritsNeighbourFloor.
@@ -930,7 +986,7 @@ type TileData struct {
 	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
 	// not rotate; a fountain keeps the showcase spin).
 	NoSpin bool `yaml:"no_spin,omitempty"`
-	// WallColor paints a textured_wall's 3D surface fallback (and doubles as
+	// WallColor paints a wall's 3D surface fallback (and doubles as
 	// its schematic map swatch). Non-wall solid tiles author MapColor instead:
 	// it is ONLY the schematic map/minimap obstacle color (a tree is not a wall).
 	WallColor [3]int   `yaml:"wall_color,omitempty"`
@@ -942,7 +998,7 @@ type TileData struct {
 	// def at an '@' position, like NPCs/special tiles. Frees such tiles from the
 	// scarce single-char letter space; the map editor's "general" palette uses it.
 	ShortLabel string `yaml:"short_label,omitempty"`
-	// WallMounted makes an ordinary standee tile (render_type environment_sprite)
+	// WallMounted makes an ordinary standee tile
 	// stick flush to the nearest solid neighbour and orient along that wall - the
 	// tile-side twin of NPC wall_mounted, for decorations (banners, paintings, a
 	// mounted skull). Placed on a walkable floor cell adjacent to a wall; falls
@@ -950,13 +1006,57 @@ type TileData struct {
 	// (w == h*4) cycle frames like any standee.
 	WallMounted bool `yaml:"wall_mounted,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
-	// (render_type floor_only) that blocks movement but reads like walkable
+	// (render_type floor) that blocks movement but reads like walkable
 	// ground - e.g. a chasm pit. Wall/billboard blockers get the aura
 	// automatically; ordinary impassable floors (water) leave this false.
 	ImpassableAura      bool                   `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
+	NightMotes          *TileNightMoteConfig   `yaml:"night_motes,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
+}
+
+// Tile render classes describe HOW a tile is drawn, never WHAT the content is.
+// Keep the authored YAML values and every runtime dispatcher on these constants.
+const (
+	TileRenderFloor           = "floor"
+	TileRenderWall            = "wall"
+	TileRenderStandee         = "standee"
+	TileRenderCrossedStandee  = "crossed_standee"
+	TileRenderLandmarkStandee = "landmark_standee"
+)
+
+// TileEffectFireflySwarm selects the procedural fixed-swarm renderer.
+const TileEffectFireflySwarm = "firefly_swarm"
+
+var tileRenderTypes = [...]string{
+	TileRenderFloor,
+	TileRenderWall,
+	TileRenderStandee,
+	TileRenderCrossedStandee,
+	TileRenderLandmarkStandee,
+}
+
+// TileRenderTypes returns the closed authored render-class set. The copy keeps
+// callers from mutating the renderer's source of truth.
+func TileRenderTypes() []string {
+	return append([]string(nil), tileRenderTypes[:]...)
+}
+
+// IsTileRenderType reports whether value belongs to the closed render-class set.
+func IsTileRenderType(value string) bool {
+	for _, candidate := range tileRenderTypes {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// IsTileProceduralEffect reports whether effect belongs to the closed authored
+// procedural-effect set. Empty means no procedural effect.
+func IsTileProceduralEffect(effect string) bool {
+	return effect == "" || effect == TileEffectFireflySwarm
 }
 
 // HasExplicitFloor reports whether a tile authors the ground beneath itself.
@@ -970,7 +1070,7 @@ func (td *TileData) HasExplicitFloor() bool {
 // Floor-only marker tiles opt in with inherit_floor because their floor_color is
 // usually an effect tint rather than a real ground surface.
 func (td *TileData) InheritsNeighbourFloor() bool {
-	return td != nil && (td.InheritFloor || (td.RenderType != "floor_only" && !td.HasExplicitFloor()))
+	return td != nil && (td.InheritFloor || (td.RenderType != TileRenderFloor && !td.HasExplicitFloor()))
 }
 
 type SpecialTileConfig struct {
@@ -992,7 +1092,7 @@ type MapConfig struct {
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.
 	AmbientLight float64 `yaml:"ambient_light,omitempty"`
-	// CanopyShade locally lowers ambient light where tree_sprite tiles are dense.
+	// CanopyShade locally lowers ambient light where crossed standees are dense.
 	// It keeps open areas at normal map ambient while making forests feel shaded.
 	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
 	// WallTorches places a flickering torch (particle flame + point light) at
@@ -1257,6 +1357,80 @@ var GlobalWeapons *WeaponSystemConfig
 var GlobalItems *ItemSystemConfig
 var GlobalLoots *LootTablesConfig
 
+// ResolveSizeClassTiles resolves one authored visual-size class from the
+// supplied config table. Zero/negative values are never valid visual scales.
+// Keeping this lookup here lets monsters, NPCs, and tile standees share one
+// data source without importing one another's packages.
+func ResolveSizeClassTiles(classes map[string]float64, class string) (float64, bool) {
+	value, ok := classes[class]
+	return value, ok && class != "" && value > 0
+}
+
+// SizeClassPerson is the shared humanoid actor frame-height class.
+const SizeClassPerson = "person"
+
+var actorSizeClassNames = []string{"small", "medium", SizeClassPerson, "large", "huge"}
+
+var propSizeClassNames = []string{
+	"tiny_prop", "small_prop", "medium_prop", "full_tile",
+	"tall_prop", "large_prop", "structure",
+}
+
+// SizeClassTree is the standard crossed-standee width class.
+const SizeClassTree = "tree"
+
+func sizeClassSet(names []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+var actorSizeClasses = sizeClassSet(actorSizeClassNames)
+var propSizeClasses = sizeClassSet(propSizeClassNames)
+
+// ActorSizeClassNames returns the closed actor frame-height class set.
+func ActorSizeClassNames() []string {
+	return append([]string(nil), actorSizeClassNames...)
+}
+
+// VisualSizeClassNames returns every valid authored visual-size class.
+func VisualSizeClassNames() []string {
+	names := make([]string, 0, len(actorSizeClassNames)+len(propSizeClassNames)+1)
+	names = append(names, actorSizeClassNames...)
+	names = append(names, propSizeClassNames...)
+	return append(names, SizeClassTree)
+}
+
+// IsActorSizeClass reports whether class is valid for actor frame height.
+func IsActorSizeClass(class string) bool {
+	_, ok := actorSizeClasses[class]
+	return ok
+}
+
+// IsPropSizeClass reports whether class is valid for visible-height props.
+func IsPropSizeClass(class string) bool {
+	_, ok := propSizeClasses[class]
+	return ok
+}
+
+// IsCrossedStandeeSizeClass reports whether class is valid as a crossed-
+// standee frame width.
+func IsCrossedStandeeSizeClass(class string) bool {
+	return class == SizeClassTree || IsPropSizeClass(class)
+}
+
+// IsTileSizeClass reports whether a class has the right sizing semantics for
+// the tile render type that consumes it.
+func IsTileSizeClass(renderType, class string) bool {
+	if renderType == TileRenderCrossedStandee {
+		return IsCrossedStandeeSizeClass(class)
+	}
+	return (renderType == TileRenderStandee || renderType == TileRenderLandmarkStandee) &&
+		IsPropSizeClass(class)
+}
+
 // LoadConfig loads the configuration from config.yaml
 func LoadConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
@@ -1270,8 +1444,38 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
 	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
 	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
+	config.Graphics.NightMotes = NightMoteRenderConfig{
+		EmissionRadiusTiles:     10,
+		EmissionIntervalSeconds: 2,
+		EmissionChance:          0.20,
+		MaxPerTree:              3,
+		LifetimeSeconds:         7,
+		MaxActive:               96,
+	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if config.World.TileSize <= 0 {
+		return nil, fmt.Errorf("world.tile_size must be > 0")
+	}
+	if config.Graphics.RemovedSprite != nil {
+		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
+	}
+	for class, value := range config.Graphics.SizeClasses {
+		if class == "" || value <= 0 {
+			return nil, fmt.Errorf("graphics.size_classes contains invalid class %q = %v", class, value)
+		}
+		if !IsActorSizeClass(class) && !IsPropSizeClass(class) && class != SizeClassTree {
+			return nil, fmt.Errorf("graphics.size_classes contains unknown class %q", class)
+		}
+	}
+	for _, class := range VisualSizeClassNames() {
+		if _, ok := ResolveSizeClassTiles(config.Graphics.SizeClasses, class); !ok {
+			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
+		}
+	}
+	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
 	}
 

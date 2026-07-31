@@ -54,7 +54,7 @@ func (gl *GameLoop) activeLootGuardTargets() (map[lootGuardTargetID]lootGuardTar
 		if !isLootGuardTarget(npc) {
 			continue
 		}
-		id := lootGuardTargetID{key: npc.Key, tileX: int(npc.X / tile), tileY: int(npc.Y / tile)}
+		id := lootGuardTargetID{key: npc.Key, tileX: TileIndex(npc.X, tile), tileY: TileIndex(npc.Y, tile)}
 		target := lootGuardTarget{id: id, npc: npc}
 		byID[id] = target
 		targets = append(targets, target)
@@ -410,7 +410,7 @@ func (gl *GameLoop) lootGuardMembersAtTile(members []*monster.Monster3D, tileX, 
 	}
 	tile := float64(gl.game.config.GetTileSize())
 	for _, m := range members {
-		if m == nil || int(m.X/tile) != tileX || int(m.Y/tile) != tileY {
+		if m == nil || TileIndex(m.X, tile) != tileX || TileIndex(m.Y, tile) != tileY {
 			return false
 		}
 	}
