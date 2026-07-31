@@ -239,9 +239,18 @@ const BoundAllySeekTiles = 10.0
 // (~0.1s at 120 TPS) makes the reaction read clearly.
 const MonsterHitFlashFrames = 12
 
-// MonsterAttackAnimFrames: how long a striking monster plays its movement
-// cycle (a readable lunge) - without it attackers froze on the rest pose.
+// MonsterAttackAnimFrames is the legacy strike window for monsters without a
+// dedicated attack sheet. Keep it stable: their walk-sheet lunge already has
+// the intended timing.
 const MonsterAttackAnimFrames = 18
+
+// AuthoredMonsterAttackFPS is the playback rate for a dedicated attack sheet.
+// Four frames at 10 FPS make a readable 0.4-second one-shot instead of squeezing
+// the whole attack into the 0.15-second fallback lunge.
+const AuthoredMonsterAttackFPS = 10
+
+// NPCIdleAnimationFPS keeps four-frame standing NPC loops calm and unobtrusive.
+const NPCIdleAnimationFPS = 4
 
 // volleySpacingFrac: tiles between successive darts of a volley (party bows and
 // monster/champion projectiles trail their darts by the same stream spacing).

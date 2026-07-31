@@ -506,7 +506,7 @@ func (gl *GameLoop) forEachMonsterAttackTurnBased(attacker *monster.Monster3D, t
 	if attacker == nil || targetAlive == nil || attack == nil {
 		return
 	}
-	attacker.AttackAnimFrames = MonsterAttackAnimFrames
+	gl.game.armMonsterAttackAnimation(attacker)
 	attacker.LastMoveTick = gl.game.frameCount
 	attacked := false
 	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && targetAlive(); hit++ {

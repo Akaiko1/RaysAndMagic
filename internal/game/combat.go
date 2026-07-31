@@ -2114,7 +2114,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
 				monster.State = monsterPkg.StateAttacking
-				monster.AttackAnimFrames = MonsterAttackAnimFrames
+				cs.game.armMonsterAttackAnimation(monster)
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
 				} else {
@@ -2163,7 +2163,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			// grants a free hit. On a hit, arm the cooldown for the next interval.
 			if monster.StateTimer == 1 && monster.AttackCDFrames == 0 {
 				monster.AttackCDFrames = monster.AttackCooldownFrames()
-				monster.AttackAnimFrames = MonsterAttackAnimFrames
+				cs.game.armMonsterAttackAnimation(monster)
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttack(monster)
 				} else {
@@ -2252,7 +2252,7 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	m.StateTimer = 0
 	m.ResetPathfinding()
 	cs.game.refreshMonsterCollisionState(m)
-	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
+	cs.game.armMonsterAttackAnimation(m)
 	return true
 }
 
@@ -4872,6 +4872,15 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		cs.topplePropsInRadius(cx, cy, radius, def.StandeeDestroyChance)
 	}
 
+	// The nova's own ground FX (graphics.nova_fx). Without one the cast is only
+	// the per-monster bursts above, which is nothing at all when it hits empty
+	// ground. Map-wide spells paint out to a visible reach, not the whole map.
+	fxRadiusTiles := def.PartyAoeRadiusTiles
+	if def.MapWide {
+		fxRadiusTiles = mapWideNovaFxRadiusTiles
+	}
+	cs.game.spawnNovaFx(string(def.ID), cx, cy, fxRadiusTiles)
+
 	// Inferno catches the party in its own blast; a spell that spares the party
 	// (Earthquake) says so in YAML rather than in a name check here.
 	if def.SparesParty {
@@ -5167,13 +5176,30 @@ func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3
 		!cs.bossEvasive(candidate)
 }
 
+// canAcquireCrossfireFoe is the crossfire twin of the party's sight gate
+// (CanStartPlayerEngagement): nothing aggros through a wall, summons included.
+// A NEW target must be in line of sight; the one already being fought is kept
+// regardless, so a chase does not drop every time the quarry rounds a corner -
+// exactly the sticky-once-engaged rule party pursuit uses. A nil collision
+// system (isolated AI tests) means unobstructed sight, as everywhere else.
+func (cs *CombatSystem) canAcquireCrossfireFoe(m, candidate *monsterPkg.Monster3D) bool {
+	if m == nil || candidate == nil {
+		return false
+	}
+	if m.AIFoe == candidate {
+		return true // already its fight - see through cover until it ends
+	}
+	return cs.game == nil || cs.game.collisionSystem == nil ||
+		cs.game.collisionSystem.CheckLineOfSight(m.X, m.Y, candidate.X, candidate.Y)
+}
+
 // nearestEnemyMonster returns the closest monster a bound ally may damage
-// within maxDist (pixels), or nil.
+// within maxDist (pixels) and can see, or nil.
 func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist float64) *monsterPkg.Monster3D {
 	var target *monsterPkg.Monster3D
 	best := maxDist
 	for _, other := range cs.game.world.Monsters {
-		if other == m || !cs.boundAllyCanDamageMonster(other) {
+		if other == m || !cs.boundAllyCanDamageMonster(other) || !cs.canAcquireCrossfireFoe(m, other) {
 			continue
 		}
 		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
@@ -5208,6 +5234,8 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 	// competes with the party for aggro. A mob attacks whichever is closer; ties
 	// stay with the party. A mob's own alert_radius is deliberately NOT used here:
 	// it is often tiny while a ranged summon peppers it from beyond that radius.
+	// Sight IS required to pick one up (canAcquireCrossfireFoe) - a summon must
+	// not pull mobs through walls the party could never pull them through.
 	// All monster-vs-summon pursuit/attack then flows through the shared crossfire
 	// path (plain mob or champion alike).
 	var foe *monsterPkg.Monster3D
@@ -5216,7 +5244,7 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 		best = seek
 	}
 	for _, u := range cs.game.boundAllies {
-		if u == nil || !u.IsAlive() {
+		if u == nil || !u.IsAlive() || !cs.canAcquireCrossfireFoe(m, u) {
 			continue
 		}
 		if d := Distance(m.X, m.Y, u.X, u.Y); d < best {
@@ -5351,7 +5379,7 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit
 	// is resolved on impact in CheckProjectileMonsterCollisions. Melee ones strike
 	// directly.
-	m.AttackAnimFrames = MonsterAttackAnimFrames
+	cs.game.armMonsterAttackAnimation(m)
 	if m.HasRangedAttack() {
 		cs.spawnMonsterRangedAttackAtMonster(m, target, ProjectileOwnerBoundUndead)
 	} else {

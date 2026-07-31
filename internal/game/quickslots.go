@@ -137,7 +137,7 @@ func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
 		g.dragInvIndex = invIndex
 		g.dragItem = g.party.Inventory[invIndex]
 		g.dragSplitQuantity = 0
-		if g.dragItem.Stackable() && g.dragItem.Count() > 1 && stackSplitModifierHeld() {
+		if g.dragItem.Stackable() && g.dragItem.Count() > 1 && shiftModifierHeld() {
 			g.dragSplitQuantity = 1
 			g.dragItem.Quantity = 1
 		}

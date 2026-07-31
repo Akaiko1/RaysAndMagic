@@ -148,8 +148,7 @@ func (ih *InputHandler) HandleInput() {
 	// menu-open handler below on the next frame.
 	if ih.game.rosterScreenOpen {
 		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.rosterScreenOpen = false
-			ih.game.rosterSelectedActive = -1
+			ih.game.closeRosterScreen()
 		}
 		return
 	}
@@ -157,8 +156,7 @@ func (ih *InputHandler) HandleInput() {
 	// Tavern stash screen: drag + clicks handled inside its Draw; suppress gameplay.
 	if ih.game.stashScreenOpen {
 		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.stashScreenOpen = false
-			ih.game.clearStashDrag()
+			ih.game.closeStashScreen()
 		}
 		return
 	}
@@ -270,6 +268,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.party = party
 	g.selectedChar = 0
 	g.parkSelection = false
+	g.clearFocusMode()
 
 	// Reset victory/high score state and session timer
 	g.gameOver = false
@@ -1006,7 +1005,7 @@ func (ih *InputHandler) handleCombatInput() {
 		// Explicit F with nothing castable: say WHY once per fresh press (the
 		// TB path announces through the cast itself; holds stay silent so a
 		// held key can't spam). Space keeps its silent weapon fallback.
-		if kind == rtActCast && fJust {
+		if kind == rtActCast && fJust && ih.game.combatActorAllowed(ih.game.selectedChar) {
 			ih.announceCastShortfall(ih.game.selectedChar)
 		}
 		ih.game.advanceRTActor(kind)
@@ -1587,7 +1586,7 @@ func (ih *InputHandler) handleMouseInput() {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
 		if targetCharIndex >= 0 {
 			if ih.game.consumeLeftClick() {
-				ih.game.selectPartyMemberManually(targetCharIndex)
+				ih.game.handlePartyPortraitClick(targetCharIndex, shiftModifierHeld())
 			}
 		}
 	}
@@ -1860,6 +1859,13 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	ih.game.spellTraderPage = 0
 	ih.game.skillTrainerPage = 0
 	ih.game.cardCollectorInvPage = 0
+	if npcDialogKindFor(npc) == dialogKindTavern {
+		ih.game.stashInvPage = 0
+		ih.game.stashShowCards = false
+		if !ih.game.ensureStashLoaded() {
+			ih.game.AddCombatMessage("Could not load the shared stash.")
+		}
+	}
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1905,6 +1911,8 @@ func (ih *InputHandler) handleDialogInput() {
 			ih.handleArenaGladiatorInput()
 		case dialogKindBuffService:
 			ih.handleBuffServiceInput()
+		case dialogKindTavern:
+			ih.handleTavernInput()
 		}
 	}
 
@@ -2873,21 +2881,29 @@ func (ih *InputHandler) executeEncounterChoice() {
 		ih.summonDragonFromStatue(npc, choice.RuntimeOptionIndex)
 
 	case "open_roster":
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-		ih.game.rosterScreenOpen = true
-		ih.game.rosterSelectedActive = -1
+		ih.handleOpenRoster()
 
 	case "manage_stash":
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-		ih.game.openStash()
+		ih.handleManageStash()
 
 	default:
 		// Unknown action - just close dialog
 		ih.game.dialogActive = false
 		ih.game.dialogNPC = nil
 	}
+}
+
+func (ih *InputHandler) handleOpenRoster() {
+	ih.game.dialogActive = false
+	ih.game.dialogNPC = nil
+	ih.game.rosterScreenOpen = true
+	ih.game.rosterSelectedActive = -1
+}
+
+func (ih *InputHandler) handleManageStash() {
+	ih.game.dialogActive = false
+	ih.game.dialogNPC = nil
+	ih.game.openStash()
 }
 
 // creditClearedKillQuests completes any of the NPC's active kill quests whose
@@ -3193,7 +3209,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 				choices = append(choices, &character.NPCDialogueChoice{
 					Text:     fmt.Sprintf("Study the runes around the %s seal", s.Label),
 					Action:   "info",
-					Response: "The runes coil into a name you cannot pronounce, and the statuette in your pack stays cold against them. Whoever wakes a sleeper this way must first have sworn to see it dead - and you have sworn nothing. Pilgrims who read this script keep vigil out among the dunes.",
+					Response: s.LockedResponse,
 				})
 				continue
 			}

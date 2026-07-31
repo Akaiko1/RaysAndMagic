@@ -87,7 +87,8 @@ func TestEndgameWeaponSetsAuthorBespokeFx(t *testing.T) {
 		if def.Graphics.ProjectileFx != want {
 			t.Errorf("weapon %q projectile_fx = %q, want %q", key, def.Graphics.ProjectileFx, want)
 		}
-		if _, ok := weaponProjectileFxStyleDraw[want]; !ok {
+		fx, ok := weaponProjectileFxStyles[want]
+		if !ok || fx.side == nil || fx.headOn == nil {
 			t.Errorf("style %q has no renderer", want)
 		}
 	}
@@ -106,6 +107,17 @@ func TestEndgameWeaponSetsAuthorBespokeFx(t *testing.T) {
 			t.Errorf("style %q shared by %q and %q", style, prev, key)
 		}
 		seen[style] = key
+	}
+}
+
+func TestProjectileFxRegistryDefinesSideAndHeadOnRenderers(t *testing.T) {
+	for style, fx := range weaponProjectileFxStyles {
+		if fx.side == nil {
+			t.Errorf("projectile FX style %q has no side-on renderer", style)
+		}
+		if fx.headOn == nil {
+			t.Errorf("projectile FX style %q has no head-on renderer", style)
+		}
 	}
 }
 

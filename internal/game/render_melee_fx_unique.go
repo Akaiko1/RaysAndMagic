@@ -72,7 +72,8 @@ func validateWeaponFxStyles() {
 			}
 		}
 		if def.Graphics.ProjectileFx != "" {
-			if _, ok := weaponProjectileFxStyleDraw[def.Graphics.ProjectileFx]; !ok {
+			fx, ok := weaponProjectileFxStyles[def.Graphics.ProjectileFx]
+			if !ok || fx.side == nil || fx.headOn == nil {
 				panic(fmt.Sprintf("weapon %q: unknown weapon projectile_fx style %q", key, def.Graphics.ProjectileFx))
 			}
 		}

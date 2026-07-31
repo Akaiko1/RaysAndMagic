@@ -242,3 +242,55 @@ func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
 		})
 	}
 }
+
+// Silverbough and Dunehold are service towns behind a one-way landmark: drop
+// the overworld gate and the town is unreachable, drop the inside gate and the
+// party is stuck in it. Both ends must exist, along with the trades that are the
+// only reason to walk there (bows, potions, armour, the two archives and the
+// drill master).
+func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
+	tm := NewTileManager()
+	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	GlobalTileManager = tm
+	defer func() { GlobalTileManager = nil }()
+
+	previousConfig := monster.MonsterConfig
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	defer func() { monster.MonsterConfig = previousConfig }()
+
+	// Presence only, never cells: maps are hand-edited and a gate may be moved
+	// anywhere in its region without breaking anything.
+	cases := []struct {
+		file     string
+		biome    string
+		wantNPCs []string
+	}{
+		{file: "elf_city.map", biome: "elf_city", wantNPCs: []string{
+			"elf_city_exit", "elf_city_archive", "elf_city_apothecary", "elf_city_bowyer"}},
+		{file: "nomad_city.map", biome: "nomad_city", wantNPCs: []string{
+			"nomad_city_exit", "nomad_city_caravan", "nomad_city_trainer", "nomad_city_spells"}},
+		// The way in, from the region each town stands in. The elves live in
+		// the highland pinewood, not the forest that carries their name.
+		{file: "highlands.map", biome: "highlands", wantNPCs: []string{"silverbough_gate"}},
+		{file: "desert.map", biome: "desert", wantNPCs: []string{"dunehold_gate"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			md, err := NewMapLoaderWithBiome(nil, tc.biome).LoadMap(filepath.Join("..", "..", "assets", tc.file))
+			if err != nil {
+				t.Fatalf("load map: %v", err)
+			}
+			present := make(map[string]bool)
+			for _, spawn := range md.NPCSpawns {
+				present[spawn.NPCKey] = true
+			}
+			for _, key := range tc.wantNPCs {
+				if !present[key] {
+					t.Errorf("%s: town NPC %q missing (have %v)", tc.file, key, present)
+				}
+			}
+		})
+	}
+}

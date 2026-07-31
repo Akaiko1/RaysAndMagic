@@ -49,6 +49,12 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	if !game.claimQuestReward("lake_spiders") {
 		t.Fatal("claim first nightly lake_spiders reward")
 	}
+	if countCombatLog(game, "You receive ") != 1 {
+		t.Fatal("item reward did not use the neutral receipt message")
+	}
+	if countCombatLog(game, "She presses") != 0 {
+		t.Fatal("generic item reward used giver-specific wording")
+	}
 
 	game.refreshRepeatableQuests()
 	if questManager.GetQuest("lake_spiders") != nil {

@@ -286,17 +286,31 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	popupW, popupH := 560, 360
 	popupX := (screenW - popupW) / 2
 	popupY := (screenH - popupH) / 2
-	rowH := 30
-	colW := (popupW - 48) / 2
-	leftX := popupX + 16
-	rightX := popupX + 32 + colW
-	listY := popupY + 70
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
 	drawDebugText(screen, "Tavern - Manage Roster", popupX+16, popupY+14)
-	drawDebugText(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
+	ui.drawRosterManager(screen, layoutRect{popupX + 16, popupY + 34, popupW - 32, popupH - 54})
+
+	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
+	// opening on the next frame; here only the close button.
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, true) {
+		g.closeRosterScreen()
+	}
+}
+
+// drawRosterManager renders the complete roster workflow inside the supplied
+// area. It is shared by the legacy standalone screen and the tavern Roster tab.
+func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect) {
+	g := ui.game
+	const rowH = 30
+	colW := (area.w - 16) / 2
+	leftX := area.x
+	rightX := area.x + colW + 16
+	listY := area.y + 38
+
+	drawDebugText(screen, "Click an active hero, then a reserve hero to swap.", area.x, area.y)
 	drawDebugText(screen, "Active Party", leftX, listY-16)
 	drawDebugText(screen, "Reserve (tavern)", rightX, listY-16)
 
@@ -306,12 +320,15 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		if m.FreeStatPoints > 0 || len(m.OwedLevelChoices) > 0 {
 			flag = " !"
 		}
-		return fmt.Sprintf("%s - %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
+		return clipDebugText(fmt.Sprintf("%s - %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag), colW-12)
 	}
 
 	// Active column
 	for i, m := range g.party.Members {
 		y := listY + i*rowH
+		if y+rowH > area.bottom() {
+			break
+		}
 		hover := mouseX >= leftX && mouseX < leftX+colW && mouseY >= y-2 && mouseY < y-2+rowH
 		if i == g.rosterSelectedActive {
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{90, 120, 60, 220})
@@ -327,6 +344,9 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	// Reserve column
 	for j, m := range g.party.Reserve {
 		y := listY + j*rowH
+		if y+rowH > area.bottom() {
+			break
+		}
 		hover := mouseX >= rightX && mouseX < rightX+colW && mouseY >= y-2 && mouseY < y-2+rowH
 		if hover {
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
@@ -341,13 +361,6 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	}
 	if len(g.party.Reserve) == 0 {
 		drawDebugText(screen, "(no benched heroes yet)", rightX+6, listY+6)
-	}
-
-	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
-	// opening on the next frame; here only the close button.
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, true) {
-		g.rosterScreenOpen = false
-		g.rosterSelectedActive = -1
 	}
 }
 
@@ -519,6 +532,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindBuffService:
 		ui.drawBuffServiceDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindTavern:
+		ui.drawTavernDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindCardCollector:
 		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogHeight)
 	default:
@@ -590,6 +605,18 @@ const (
 	spellTraderIconSize     = 48
 	spellTraderIconGap      = 10
 	spellTraderGridCols     = 6
+	// A cell is icon, price line, row gap - each with its own height. Folding
+	// the price into a magic "icon + 14" left it 2px short of a real text line,
+	// so a five-digit price ("22000 g") put its descenders on the frame of the
+	// icon in the row below.
+	spellTraderPriceGap = 4 // icon bottom -> price line; clears the selection frame
+	spellTraderPriceH   = debugTextCharHeight
+	spellTraderRowGap   = 10 // price line -> next row's selection frame
+	spellTraderCellH    = spellTraderIconSize + spellTraderPriceGap + spellTraderPriceH
+	spellTraderRowPitch = spellTraderCellH + spellTraderRowGap
+	// Price labels are fitted to the COLUMN PITCH, not the icon, so a long
+	// price stops short of the neighbouring cell (same rule as merchantPriceBoxW).
+	spellTraderPriceBoxW = spellTraderIconSize + spellTraderIconGap - 2
 	// Portrait strip sits this far below the dialog top - low enough that a
 	// two-line greeting clears the selected-character frame above it.
 	spellTraderPortraitTop = 92
@@ -625,27 +652,49 @@ func spellTraderIconRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 	gridY := spellTraderGridTop(dialogY)
 	row := slot / spellTraderGridCols
 	col := slot % spellTraderGridCols
-	cellH := spellTraderIconSize + 14 // icon + cost line
 	return startX + col*(spellTraderIconSize+spellTraderIconGap),
-		gridY + row*(cellH+8),
+		gridY + row*spellTraderRowPitch,
 		spellTraderIconSize,
 		spellTraderIconSize
 }
 
+// spellTraderPriceRect is the price line under a spell icon: centred on the
+// icon, clear of both neighbours and of the icon row below.
+func spellTraderPriceRect(iconX, iconY int) (x, y, w, h int) {
+	return iconX - (spellTraderPriceBoxW-spellTraderIconSize)/2,
+		iconY + spellTraderIconSize + spellTraderPriceGap,
+		spellTraderPriceBoxW,
+		spellTraderPriceH
+}
+
 // spellTraderPagerY is the Y of the page nav row (below the two icon rows).
 func spellTraderPagerY(dialogY int) int {
-	cellH := spellTraderIconSize + 14
-	return spellTraderGridTop(dialogY) + spellTraderGridRows*(cellH+8) + 4
+	return spellTraderGridTop(dialogY) + spellTraderGridRows*spellTraderRowPitch + 4
+}
+
+const (
+	dialogFolderTabW   = 110
+	dialogFolderTabH   = 32
+	dialogFolderTabGap = 6
+)
+
+func dialogFolderTabRect(dialogX, dialogY, index int) (x, y, w, h int) {
+	return dialogX + 16 + index*(dialogFolderTabW+dialogFolderTabGap),
+		dialogY - dialogFolderTabH + 4,
+		dialogFolderTabW,
+		dialogFolderTabH
 }
 
 // drawDialogFolderTabs renders the clickable folder tabs along a dialog's top
 // edge (plain rect placeholders until the dedicated tab sprites land) and
 // switches g.dialogTab on click. Tab-key cycling stays in the input handlers.
 func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY int, labels []string) {
-	const tabW, tabH = 110, 32
-	tabY := dialogY - tabH + 4 // tucked into the panel edge like folder tabs
+	ui.drawDialogFolderTabsEnabled(screen, dialogX, dialogY, labels, true)
+}
+
+func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, dialogY int, labels []string, enabled bool) {
 	for i, label := range labels {
-		tabX := dialogX + 16 + i*(tabW+6)
+		tabX, tabY, tabW, tabH := dialogFolderTabRect(dialogX, dialogY, i)
 		fill := color.RGBA{30, 30, 45, 255}
 		if ui.game.dialogTab == i {
 			fill = color.RGBA{70, 70, 100, 255}
@@ -653,10 +702,37 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 		drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
 		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
 		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
-		if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
+		if enabled && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
 			ui.game.switchDialogTab(i)
 		}
 	}
+}
+
+// spellTraderTooltipLines is the hover card for one traded spell: the SAME full
+// tooltip the spellbook shows (cost, damage, duration, description, scaled for
+// the selected character), with the trader's asking price appended - a shop is
+// where the party decides whether a spell is worth buying, so it needs the whole
+// card, not a name and a number. Traders that stock a key with no spell
+// definition fall back to the NPC row they were authored with.
+func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMCharacter) []string {
+	npcSpell := ui.game.dialogNPC.SpellData[spellKey]
+	if _, err := spells.GetSpellDefinitionByID(spells.SpellID(spellKey)); err != nil {
+		if npcSpell == nil {
+			return nil
+		}
+		return []string{
+			npcSpell.Name,
+			fmt.Sprintf("%s school   %d gold", config.TitleWords(npcSpell.School), npcSpell.Cost),
+		}
+	}
+	if char == nil && len(ui.game.party.Members) > 0 {
+		char = ui.game.party.Members[0]
+	}
+	lines := strings.Split(GetSpellTooltip(spells.SpellID(spellKey), char, ui.game.combat, tooltipDetailHeld()), "\n")
+	if npcSpell != nil {
+		lines = append(lines, "", fmt.Sprintf("Price: %d gold", npcSpell.Cost))
+	}
+	return lines
 }
 
 // drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
@@ -749,9 +825,9 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 			drawCenteredDebugText(screen, spellInitials(npcSpell.Name), x, y, w, h)
 		}
 
-		// Cost under icon (+6 clears the icon's selection frame at y+h+3).
-		costText := fmt.Sprintf("%d g", npcSpell.Cost)
-		drawCenteredDebugText(screen, costText, x-4, y+h+6, w+8, debugTextCharHeight)
+		// Cost under the icon, in its own line of the cell.
+		costX, costY, costW, costH := spellTraderPriceRect(x, y)
+		drawCenteredDebugText(screen, clipDebugText(fmt.Sprintf("%d g", npcSpell.Cost), costW), costX, costY, costW, costH)
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -763,16 +839,17 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	// Hover tooltip - name + school + cost. Buying needs only an open school:
-	// availability is priced and stocked per trader, not gated by level.
+	// Hover tooltip - the same full spell card the spellbook shows, priced for
+	// this trader. Buying needs only an open school: availability is priced and
+	// stocked per trader, not gated by level.
 	if hoverSpellIdx >= 0 {
 		spellKey := spellKeys[hoverSpellIdx]
-		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
-		lines := []string{
-			npcSpell.Name,
-			fmt.Sprintf("%s school   %d gold", config.TitleWords(npcSpell.School), npcSpell.Cost),
+		lines := ui.spellTraderTooltipLines(spellKey, selectedChar)
+		plate := color.Color(nil)
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellKey)); err == nil {
+			plate = schoolPlateColor(def.School)
 		}
-		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
+		ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}
 
 	// Page nav (only renders when there's more than one page).
@@ -1806,6 +1883,17 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if g.questManager == nil {
 		return false
 	}
+	var poolItem *items.Item
+	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		item, ok, err := rollQuestPoolItem(quest.Definition.Rewards.ItemPool)
+		if err != nil {
+			g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+			return false
+		}
+		if ok {
+			poolItem = &item
+		}
+	}
 	rewards, err := g.questManager.ClaimRewards(questID)
 	if err != nil {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
@@ -1826,23 +1914,25 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
 			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
 	}
-	g.awardQuestPoolItem(rewards.ItemPool)
+	if poolItem != nil {
+		g.party.AddItem(*poolItem)
+		g.AddCombatMessage(fmt.Sprintf("You receive %s.", poolItem.Name))
+	}
 	return true
 }
 
-// awardQuestPoolItem rolls ONE item from a quest's item_pool into the party
-// pack. Announced separately from the gold/xp line so a nightly errand that
-// pays only an item still reports what was handed over.
-func (g *MMGame) awardQuestPoolItem(pool []string) {
+// rollQuestPoolItem materializes ONE item before the quest manager commits the
+// claim. A broken content key therefore leaves the reward unclaimed and safe
+// to retry after the content is corrected.
+func rollQuestPoolItem(pool []string) (items.Item, bool, error) {
 	if len(pool) == 0 {
-		return
+		return items.Item{}, false, nil
 	}
 	it, err := items.TryCreateItemFromYAML(pool[rand.Intn(len(pool))])
 	if err != nil {
-		return
+		return items.Item{}, false, err
 	}
-	g.party.AddItem(it)
-	g.AddCombatMessage(fmt.Sprintf("She presses a %s into your hands.", it.Name))
+	return it, true, nil
 }
 
 // truncateName truncates a name to maxLen displayed characters.

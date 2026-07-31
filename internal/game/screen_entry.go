@@ -45,14 +45,82 @@ var entryButtonDefs = []entryButton{
 
 func entryButtons() []entryButton { return entryButtonDefs }
 
-// updateEntryMenu handles keyboard/back navigation for the entry menu. Mouse
-// interaction is handled in drawEntryMenuScreen (roster-screen convention).
+const (
+	entryLogoW        = 460
+	entryLogoH        = 140
+	entryButtonW      = 280
+	entryButtonH      = 52
+	entryButtonGap    = 16
+	entryButtonTopGap = 40
+)
+
+type entryMenuRootLayout struct {
+	logoX        int
+	logoY        int
+	buttonX      int
+	buttonStartY int
+}
+
+func makeEntryMenuRootLayout(w, h int) entryMenuRootLayout {
+	logoY := h/6 - entryLogoH/2
+	if logoY < 20 {
+		logoY = 20
+	}
+	buttons := entryButtons()
+	totalH := len(buttons)*entryButtonH + (len(buttons)-1)*entryButtonGap
+	buttonStartY := logoY + entryLogoH + entryButtonTopGap
+	if buttonStartY+totalH > h-30 {
+		buttonStartY = h - 30 - totalH
+	}
+	return entryMenuRootLayout{
+		logoX:        (w - entryLogoW) / 2,
+		logoY:        logoY,
+		buttonX:      (w - entryButtonW) / 2,
+		buttonStartY: buttonStartY,
+	}
+}
+
+// consumeEntryMenuRootReleaseAt handles root buttons after the button is
+// released. A press sampled while macOS is still settling a fullscreen/focus
+// transition can carry a stale cursor position even though the release has the
+// correct one. Root-menu buttons therefore confirm from the release point.
+// Clear the stale press so it cannot leak into the newly opened screen.
+func (g *MMGame) consumeEntryMenuRootReleaseAt(x, y int) bool {
+	armed := g.entryMenuRootPressArmed
+	g.entryMenuRootPressArmed = false
+	if g.entryMenuMode != EntryMenuRoot || !armed {
+		return false
+	}
+	layout := makeEntryMenuRootLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	for i, button := range entryButtons() {
+		by := layout.buttonStartY + i*(entryButtonH+entryButtonGap)
+		if !isMouseHoveringBox(x, y, layout.buttonX, by, layout.buttonX+entryButtonW, by+entryButtonH) {
+			continue
+		}
+		g.mouseLeftClicks = g.mouseLeftClicks[:0]
+		button.action(g)
+		return true
+	}
+	return false
+}
+
+// updateEntryMenu handles input for the entry menu.
 func (g *MMGame) updateEntryMenu() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.entryMenuRootPressArmed = false
 		if g.entryMenuMode != EntryMenuRoot {
 			g.entryMenuMode = EntryMenuRoot
 		}
 		return
+	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		g.entryMenuRootPressArmed = g.entryMenuMode == EntryMenuRoot
+	}
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		x, y := ebiten.CursorPosition()
+		if g.consumeEntryMenuRootReleaseAt(x, y) {
+			return
+		}
 	}
 	if g.entryMenuMode == EntryMenuAchievements {
 		_, wy := ebiten.Wheel()
@@ -69,6 +137,7 @@ func (g *MMGame) updateEntryMenu() {
 // screen's own "Quit" does). The world/party stay in memory but aren't drawn
 // while on the title; Start/Load from the title replaces them.
 func (g *MMGame) returnToMainMenu() {
+	g.clearFocusMode()
 	g.mainMenuOpen = false
 	g.mainMenuMode = MenuMain
 	g.entryMenuMode = EntryMenuRoot
@@ -103,38 +172,21 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 
 func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 	g := ui.game
+	layout := makeEntryMenuRootLayout(w, h)
 
 	// Logo / title.
-	logoW, logoH := 460, 140
-	logoX := (w - logoW) / 2
-	logoY := h/6 - logoH/2
-	if logoY < 20 {
-		logoY = 20
-	}
 	if g.sprites.HasSprite("title_logo") {
-		drawImageScaled(screen, g.sprites.GetSprite("title_logo"), logoX, logoY, logoW, logoH)
+		drawImageScaled(screen, g.sprites.GetSprite("title_logo"), layout.logoX, layout.logoY, entryLogoW, entryLogoH)
 	} else {
-		ui.drawBigCenteredText(screen, "RAYS AND MAGIC", w/2, logoY+logoH/2-14, color.RGBA{230, 220, 180, 255})
+		ui.drawBigCenteredText(screen, "RAYS AND MAGIC", w/2, layout.logoY+entryLogoH/2-14, color.RGBA{230, 220, 180, 255})
 	}
 
 	// Vertical stack of buttons, centered.
-	btns := entryButtons()
-	const btnW, btnH, gap = 280, 52, 16
-	totalH := len(btns)*btnH + (len(btns)-1)*gap
-	startY := logoY + logoH + 40
-	if startY+totalH > h-30 {
-		startY = h - 30 - totalH
-	}
-	bx := (w - btnW) / 2
 	mouseX, mouseY := ebiten.CursorPosition()
-	for i, b := range btns {
-		by := startY + i*(btnH+gap)
-		hover := isMouseHoveringBox(mouseX, mouseY, bx, by, bx+btnW, by+btnH)
-		ui.drawMenuButton(screen, b.key, b.label, bx, by, btnW, btnH, hover)
-		if g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
-			b.action(g)
-			return
-		}
+	for i, b := range entryButtons() {
+		by := layout.buttonStartY + i*(entryButtonH+entryButtonGap)
+		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+entryButtonW, by+entryButtonH)
+		ui.drawMenuButton(screen, b.key, b.label, layout.buttonX, by, entryButtonW, entryButtonH, hover)
 	}
 }
 

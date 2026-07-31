@@ -45,9 +45,17 @@ func validateProjectileFxStyles() {
 		return
 	}
 	for key, def := range config.GlobalSpells.Spells {
-		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+		if def.Graphics == nil {
+			continue
+		}
+		if def.Graphics.ProjectileFx != "" {
 			if _, ok := spellFxStyleDraw[def.Graphics.ProjectileFx]; !ok {
 				panic(fmt.Sprintf("spell %q: unknown projectile_fx style %q", key, def.Graphics.ProjectileFx))
+			}
+		}
+		if def.Graphics.NovaFx != "" {
+			if _, ok := novaFxSpawn[def.Graphics.NovaFx]; !ok {
+				panic(fmt.Sprintf("spell %q: unknown nova_fx style %q", key, def.Graphics.NovaFx))
 			}
 		}
 	}

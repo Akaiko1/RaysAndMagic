@@ -18,9 +18,9 @@ const (
 	stackSplitPickerStash
 )
 
-// stackSplitModifierHeld is the quick one-unit transfer shortcut shared by the
-// inventory quick bar and the stash. Exact quantities use the picker below.
-func stackSplitModifierHeld() bool {
+// shiftModifierHeld is the shared Shift state for UI modifiers: stack splitting
+// in inventory surfaces and party-focus toggling in the unobstructed game HUD.
+func shiftModifierHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
 

@@ -83,6 +83,99 @@ func TestQuestWorldReferencesRejectUnknownSummonQuest(t *testing.T) {
 	}
 }
 
+func TestQuestWorldReferencesRejectInvalidDialogueQuestLinks(t *testing.T) {
+	loadTestConfig(t)
+	previous := character.NPCConfigInstance
+	t.Cleanup(func() { character.NPCConfigInstance = previous })
+
+	tests := []struct {
+		name   string
+		choice *character.NPCDialogueChoice
+		want   string
+	}{
+		{
+			name:   "empty give quest ID",
+			choice: &character.NPCDialogueChoice{Action: "give_quest"},
+			want:   `action "give_quest" has empty quest_id`,
+		},
+		{
+			name:   "unknown nested requirement",
+			choice: &character.NPCDialogueChoice{Action: "info", RequiresQuest: "missing_quest"},
+			want:   `unknown requires_quest "missing_quest"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
+				"test_giver": {
+					Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{
+						Action: "info",
+						Choices: []*character.NPCDialogueChoice{
+							tt.choice,
+						},
+					}}},
+				},
+			}}
+			qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+				"known_quest": {Name: "Known"},
+			}})
+			err := validateQuestWorldReferences(qm)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validator error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestQuestWorldReferencesRejectInvalidRewardPoolItem(t *testing.T) {
+	loadTestConfig(t)
+	previous := character.NPCConfigInstance
+	character.NPCConfigInstance = nil
+	t.Cleanup(func() { character.NPCConfigInstance = previous })
+
+	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+		"bad_reward": {
+			Name: "Bad Reward",
+			Rewards: quests.QuestRewards{
+				ItemPool: []string{"missing_item"},
+			},
+		},
+	}})
+	err := validateQuestWorldReferences(qm)
+	if err == nil || !strings.Contains(err.Error(), `rewards.item_pool[0]`) ||
+		!strings.Contains(err.Error(), `missing_item`) {
+		t.Fatalf("validator error = %v, want invalid reward pool item", err)
+	}
+}
+
+func TestQuestRewardItemFailureLeavesClaimRetryable(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+		"bad_reward": {
+			Name: "Bad Reward",
+			Rewards: quests.QuestRewards{
+				ItemPool: []string{"missing_item"},
+			},
+		},
+	}})
+	if err := qm.ActivateQuest("bad_reward"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	qm.MarkCompleted("bad_reward")
+	g.questManager = qm
+
+	if g.claimQuestReward("bad_reward") {
+		t.Fatal("claim with an invalid item key succeeded")
+	}
+	if quest := qm.GetQuest("bad_reward"); quest == nil || quest.RewardsClaimed {
+		t.Fatal("failed item creation permanently consumed the quest reward")
+	}
+	if countCombatLog(g, "Cannot claim reward:") != 1 {
+		t.Fatal("failed item creation was not reported to the player")
+	}
+}
+
 // Taking the wolf cull AFTER the wolves are already dead credits it on the
 // spot - the journal must never show "0/21" on a finished job.
 func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {

@@ -99,7 +99,7 @@ func TestDebugSim_AttackGhost(t *testing.T) {
 	// blue>green, red>green - sand/sky/walls never match). Art frame 3 carries
 	// almost no violet, so thousands of violet pixels while idx==3 renders =
 	// the reported ghost, caught by fact.
-	total := int(MonsterAttackAnimFrames)
+	total := g.monsterAttackAnimationDuration(m)
 	bw, bh := screen.Bounds().Dx(), screen.Bounds().Dy()
 	buf := make([]byte, 4*bw*bh)
 	for _, mode := range []struct {

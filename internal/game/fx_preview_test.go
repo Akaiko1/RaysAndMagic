@@ -53,3 +53,30 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 		}
 	}
 }
+
+// A nova spell's ground FX (Earthquake) has to reach the editor's FX tab like
+// any other effect: listed in the catalog, and actually painting something on
+// the stage - the sandbox has no open sky, so the real cast refunds itself and
+// the preview must fall back to playing the effect directly.
+func TestFxPreview_NovaSpellPreviews(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatalf("NewFxPreview: %v", err)
+	}
+
+	var quake FxItem
+	for _, it := range p.Items() {
+		if it.Kind == FxSpell && it.Key == "earthquake" {
+			quake = it
+			break
+		}
+	}
+	if quake.Key == "" {
+		t.Fatal("earthquake is missing from the FX catalog")
+	}
+	p.Select(quake)
+	if len(p.g.spellHitEffects) == 0 {
+		t.Error("earthquake preview painted no ground FX")
+	}
+}

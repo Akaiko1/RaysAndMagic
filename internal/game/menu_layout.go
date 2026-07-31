@@ -166,8 +166,7 @@ func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
 	gridX := dialog.x + (dialog.w-gridW)/2
 	gridY := spellTraderGridTop(dialog.y)
-	cellH := spellTraderIconSize + 14
-	gridH := spellTraderGridRows*(cellH+8) - 8
+	gridH := spellTraderGridRows*spellTraderRowPitch - spellTraderRowGap
 	boxes = append(boxes,
 		uiBox{"spell-grid", gridX, gridY, gridW, gridH},
 		uiBox{"pager", gridX, spellTraderPagerY(dialog.y), gridW, pagerBtnH},

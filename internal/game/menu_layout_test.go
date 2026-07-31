@@ -157,3 +157,37 @@ func TestUiBox_OverlapContains(t *testing.T) {
 		t.Error("a must not contain a larger box")
 	}
 }
+
+// The spell trader's price line is a full text line under each icon. It shipped
+// folded into a magic "icon + 14" cell and a five-digit price ("22000 g") put
+// its descenders on the frame of the icon in the row below - so the cell model
+// is pinned here, per cell, at the geometry the renderer actually uses.
+func TestSpellTraderPriceLineStaysInItsCell(t *testing.T) {
+	const dialogX, dialogY = 100, 50
+	const frameMargin = 3 // widest selection frame drawn around an icon
+
+	if w := debugTextWidth("22000 g"); w > spellTraderPriceBoxW {
+		t.Errorf("widest price is %dpx, box is %dpx", w, spellTraderPriceBoxW)
+	}
+	for slot := 0; slot < spellTraderPerPage; slot++ {
+		x, y, _, _ := spellTraderIconRect(dialogX, dialogY, slot)
+		px, py, pw, ph := spellTraderPriceRect(x, y)
+		if py < y+spellTraderIconSize+frameMargin {
+			t.Errorf("slot %d: price starts at %d, inside the icon frame ending at %d",
+				slot, py, y+spellTraderIconSize+frameMargin)
+		}
+		if below := slot + spellTraderGridCols; below < spellTraderPerPage {
+			_, by, _, _ := spellTraderIconRect(dialogX, dialogY, below)
+			if py+ph > by-frameMargin {
+				t.Errorf("slot %d: price ends at %d, the icon below frames from %d", slot, py+ph, by-frameMargin)
+			}
+		}
+		if slot%spellTraderGridCols < spellTraderGridCols-1 {
+			nx, ny, _, _ := spellTraderIconRect(dialogX, dialogY, slot+1)
+			npx, _, _, _ := spellTraderPriceRect(nx, ny)
+			if px+pw > npx {
+				t.Errorf("slot %d: price ends at %d, the next price starts at %d", slot, px+pw, npx)
+			}
+		}
+	}
+}

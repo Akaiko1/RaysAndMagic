@@ -51,15 +51,16 @@ const (
 
 // openStash lazy-loads the shared chest and shows the stash modal. Called from
 // the tavern's "Manage your stash" action.
-func (g *MMGame) openStash() {
+func (g *MMGame) openStash() bool {
 	if !g.ensureStashLoaded() {
 		g.AddCombatMessage("Could not open the stash.")
-		return
+		return false
 	}
 	g.stashScreenOpen = true
 	g.stashInvPage = 0
 	g.stashShowCards = false
 	g.clearStashDrag()
+	return true
 }
 
 func (g *MMGame) clearStashDrag() {
@@ -172,7 +173,7 @@ func (g *MMGame) finishPendingStashTransfer() bool {
 func (ui *UISystem) updateStashDrag() bool {
 	g := ui.game
 	if g.stashDragPickedUp {
-		if !g.stashScreenOpen {
+		if !g.stashInteractionOpen() {
 			g.clearStashDrag()
 			return false
 		}
@@ -186,7 +187,7 @@ func (ui *UISystem) updateStashDrag() bool {
 	if ui.stackSplitPicker.open {
 		return false
 	}
-	if !g.stashScreenOpen {
+	if !g.stashInteractionOpen() {
 		if g.stashDragArmed || g.stashDragActive {
 			g.clearStashDrag()
 		}
@@ -219,6 +220,20 @@ func (ui *UISystem) updateStashDrag() bool {
 		g.stashDragArmed = false
 	}
 	return false
+}
+
+// stashInteractionOpen includes the embedded tavern Stash tab as well as the
+// legacy standalone stash screen. The drag state machine must see both as the
+// same working surface or it clears a drag before the tab can resolve it.
+func (g *MMGame) stashInteractionOpen() bool {
+	if g.stashScreenOpen {
+		return true
+	}
+	if !g.dialogActive || npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
+		return false
+	}
+	tab, ok := g.activeTavernTab(g.dialogNPC)
+	return ok && tab.action == tavernStashAction
 }
 
 // decodeStashFrom turns the encoded stashDragFrom into a slot address. The bag
@@ -394,6 +409,7 @@ const (
 // two never drift.
 type stashLayout struct {
 	popupX, popupY     int
+	popupW, popupH     int
 	centerX            int
 	chestTop, invTop   int
 	gridW, pagerY      int
@@ -403,10 +419,15 @@ type stashLayout struct {
 func computeStashLayout(screenW, screenH int) stashLayout {
 	popupX := (screenW - stashPopupW) / 2
 	popupY := (screenH - stashPopupH) / 2
+	return computeStashLayoutForArea(layoutRect{popupX, popupY, stashPopupW, stashPopupH}, 76)
+}
+
+func computeStashLayoutForArea(area layoutRect, topInset int) stashLayout {
 	var L stashLayout
-	L.popupX, L.popupY = popupX, popupY
-	L.centerX = popupX + stashPopupW/2
-	L.chestTop = popupY + 76 // clear of the title + explanatory lines above
+	L.popupX, L.popupY = area.x, area.y
+	L.popupW, L.popupH = area.w, area.h
+	L.centerX = area.x + area.w/2
+	L.chestTop = area.y + topInset
 	L.invTop = L.chestTop + stashSectionRows*(stashCellSize+stashCellGap) + 30
 	L.gridW = stashInvCols*stashCellSize + (stashInvCols-1)*stashCellGap
 	L.pagerY = L.invTop + stashSectionRows*(stashCellSize+stashCellGap) + 8
@@ -417,7 +438,7 @@ func computeStashLayout(screenW, screenH int) stashLayout {
 // stashToggleRect is the Items/Cards tab button, sitting at the right end of the
 // top-storage heading row. Single-sourced so draw + collision test agree.
 func stashToggleRect(L stashLayout) image.Rectangle {
-	x := L.popupX + stashPopupW - stashToggleW - 16
+	x := L.popupX + L.popupW - stashToggleW - 16
 	y := L.chestTop - 20
 	return image.Rect(x, y, x+stashToggleW, y+stashToggleH)
 }
@@ -445,7 +466,6 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	L := computeStashLayout(screenW, screenH)
 	popupX, popupY := L.popupX, L.popupY
 	popupW, popupH := stashPopupW, stashPopupH
-	centerX := L.centerX
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
@@ -453,6 +473,24 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	drawDebugText(screen, "Tavern Stash", popupX+16, popupY+14)
 	drawDebugText(screen, stashSubtitle, popupX+16, popupY+34)
 
+	ui.drawStashManager(screen, L)
+
+	// ESC is handled in the Update input loop (edge-tracked) so it closes the
+	// modal without leaking to the menu-open handler; here only the close button
+	// (click-inert while a drag is in flight).
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive && !ui.stackSplitPicker.open) {
+		g.closeStashScreen()
+	}
+}
+
+// drawStashManager renders and operates the actual stash grids. The caller owns
+// the surrounding panel, which lets the same manager live directly in a tavern
+// tab without opening a second modal.
+func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout) {
+	g := ui.game
+	if g.stash == nil {
+		return
+	}
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	// Top storage: a tabbed grid. The Items tab shows the general chest; the Cards
@@ -470,10 +508,10 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 		count = stash.CardSlotCount
 		hoverBorder = color.RGBA{190, 120, 220, 235}
 	}
-	drawCenteredDebugText(screen, heading, popupX, chestTop-16, popupW, 14)
+	drawCenteredDebugText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
 	ui.drawStashTabToggle(screen, L, mouseX, mouseY)
 	for i := 0; i < count; i++ {
-		r := stashCellRect(centerX, chestTop, i)
+		r := stashCellRect(L.centerX, chestTop, i)
 		var it items.Item
 		from := i
 		if cards {
@@ -497,7 +535,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 
 	// Party bag grid (bottom), paginated.
 	invTop := L.invTop
-	drawCenteredDebugText(screen, "Your Bag", popupX, invTop-16, popupW, 14)
+	drawCenteredDebugText(screen, "Your Bag", L.popupX, invTop-16, L.popupW, 14)
 	invPages := pageCount(len(g.party.Inventory), stashInvMaxShown)
 	if g.stashInvPage >= invPages {
 		g.stashInvPage = invPages - 1
@@ -510,7 +548,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	for slot := 0; slot < stashInvMaxShown; slot++ {
 		idx := invStart + slot
 		r, c := slot/stashInvCols, slot%stashInvCols
-		x := centerX - gridW/2 + c*(stashCellSize+stashCellGap)
+		x := L.centerX - gridW/2 + c*(stashCellSize+stashCellGap)
 		y := invTop + r*(stashCellSize+stashCellGap)
 		cell := image.Rect(x, y, x+stashCellSize, y+stashCellSize)
 		var it items.Item
@@ -531,15 +569,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 		}
 	}
 	pagerY := L.pagerY
-	ui.drawPager(screen, centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, !g.stashDragActive && !ui.stackSplitPicker.open)
-
-	// ESC is handled in the Update input loop (edge-tracked) so it closes the
-	// modal without leaking to the menu-open handler; here only the close button
-	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive && !ui.stackSplitPicker.open) {
-		g.stashScreenOpen = false
-		g.clearStashDrag()
-	}
+	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
 	if g.stashDragActive && g.stashDragFrom >= 0 {
@@ -580,7 +610,7 @@ func (ui *UISystem) beginStashDrag(from int, item items.Item) {
 	g.stashDragFrom = from
 	g.stashDragItem = item
 	g.stashDragSplitQuantity = 0
-	if item.Stackable() && item.Count() > 1 && stackSplitModifierHeld() {
+	if item.Stackable() && item.Count() > 1 && shiftModifierHeld() {
 		g.stashDragSplitQuantity = 1
 		g.stashDragItem.Quantity = 1
 	}

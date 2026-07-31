@@ -172,10 +172,12 @@ func (p *FxPreview) Items() []FxItem {
 	spellKeys := make([]string, 0, len(config.GlobalSpells.Spells))
 	for k := range config.GlobalSpells.Spells {
 		// Only spells with a visible world effect: a flying/bursting projectile,
-		// a lingering zone, a starburst, or a buff overlay animation. The rest
-		// have nothing to show on the 3D stage and would be an empty preview.
+		// a lingering zone, a starburst, a nova ground effect, or a buff overlay
+		// animation. The rest have nothing to show on the 3D stage and would be
+		// an empty preview.
 		def := config.GlobalSpells.Spells[k]
-		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" {
+		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" &&
+			(def.Graphics == nil || def.Graphics.NovaFx == "") {
 			continue
 		}
 		spellKeys = append(spellKeys, k)
@@ -275,6 +277,7 @@ func (p *FxPreview) spawn() {
 			return
 		}
 		buffAnimsBefore := len(g.buffFxAnims)
+		hitFxBefore := len(g.spellHitEffects)
 		g.combat.castResolvedSpell(id, def, m, 0, false, false)
 		// A sandbox cast can no-op (buff already active from the previous loop,
 		// hero lacks the school) and refund - the gate then skips the overlay.
@@ -282,6 +285,17 @@ func (p *FxPreview) spawn() {
 		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
 			cfgDef.BuffFxSprite != "" && len(g.buffFxAnims) == buffAnimsBefore {
 			g.playBuffFx(cfgDef.BuffFxSprite)
+		}
+		// Same for a nova's ground effect: the stage has no open sky, so an
+		// outdoor_only quake refunds itself and paints nothing. Play it anyway -
+		// the tab's job is showing the art.
+		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
+			cfgDef.Graphics != nil && cfgDef.Graphics.NovaFx != "" && len(g.spellHitEffects) == hitFxBefore {
+			radius := def.PartyAoeRadiusTiles
+			if def.MapWide || radius <= 0 {
+				radius = mapWideNovaFxRadiusTiles
+			}
+			g.spawnNovaFx(p.sel.Key, g.camera.X, g.camera.Y, radius)
 		}
 		// Impact burst at the stage point - ONLY for damage-dealing projectile
 		// spells (in the game this burst fires when the bolt lands on a target;

@@ -6,6 +6,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -541,6 +542,9 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 	}
 	wm := world.GlobalWorldManager
 	for id, def := range qm.Definitions() {
+		if def == nil {
+			return fmt.Errorf("quest %q has empty definition", id)
+		}
 		if wm != nil && def.TargetMap != "" && wm.WorldByKey(def.TargetMap) == nil {
 			return fmt.Errorf("quest %q references unknown target_map %q", id, def.TargetMap)
 		}
@@ -565,11 +569,36 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 				return fmt.Errorf("quest %q on_complete_spawns: unknown map %q", id, sp.Map)
 			}
 		}
+		for i, itemKey := range def.Rewards.ItemPool {
+			if itemKey == "" {
+				return fmt.Errorf("quest %q rewards.item_pool[%d] is empty", id, i)
+			}
+			if _, err := items.TryCreateItemFromYAML(itemKey); err != nil {
+				return fmt.Errorf("quest %q rewards.item_pool[%d]: %w", id, i, err)
+			}
+		}
 	}
 	if character.NPCConfigInstance != nil {
 		for npcKey, npc := range character.NPCConfigInstance.NPCs {
 			if npc == nil {
 				continue
+			}
+			if err := npc.Dialogue.WalkChoices(func(choice *character.NPCDialogueChoice) error {
+				switch choice.Action {
+				case "give_quest", "turn_in_quest":
+					if choice.QuestID == "" {
+						return fmt.Errorf("NPC %q dialogue action %q has empty quest_id", npcKey, choice.Action)
+					}
+					if qm.Definitions()[choice.QuestID] == nil {
+						return fmt.Errorf("NPC %q dialogue action %q references unknown quest %q", npcKey, choice.Action, choice.QuestID)
+					}
+				}
+				if choice.RequiresQuest != "" && qm.Definitions()[choice.RequiresQuest] == nil {
+					return fmt.Errorf("NPC %q dialogue choice references unknown requires_quest %q", npcKey, choice.RequiresQuest)
+				}
+				return nil
+			}); err != nil {
+				return err
 			}
 			for i, summon := range npc.Summons {
 				if summon == nil {
@@ -585,6 +614,9 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 				}
 				if summon.QuestID != "" && qm.Definitions()[summon.QuestID] == nil {
 					return fmt.Errorf("NPC %q summons[%d] references unknown quest %q", npcKey, i, summon.QuestID)
+				}
+				if summon.QuestID != "" && summon.LockedResponse == "" {
+					return fmt.Errorf("NPC %q summons[%d] with quest_id requires locked_response", npcKey, i)
 				}
 			}
 		}

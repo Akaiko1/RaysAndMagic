@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -282,5 +283,38 @@ func TestVisibleNPCChoices_TurnInHiddenUntilComplete(t *testing.T) {
 	}
 	if !hasAction("turn_in_quest") || hasAction("give_quest") {
 		t.Error("completed state should show turn_in only (no re-offer)")
+	}
+}
+
+// A spell shop is where the party decides whether a spell is worth 20000 gold,
+// so hovering one must show the whole spell card (the same one the spellbook
+// draws) plus the asking price - not just a name and a number.
+func TestSpellTrader_HoverShowsFullSpellCard(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.dialogNPC = &character.NPC{
+		Name:           "Trader",
+		RenderCategory: "npc",
+		SpellData: map[string]*character.NPCSpell{
+			"fireball": {Name: "Fireball", School: "fire", Cost: 16000},
+		},
+	}
+	ui := &UISystem{game: g}
+
+	lines := ui.spellTraderTooltipLines("fireball", g.party.Members[0])
+	if len(lines) < 5 {
+		t.Fatalf("tooltip has %d lines, want the full card: %v", len(lines), lines)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"Fireball", "SP", "Price: 16000 gold"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("tooltip missing %q:\n%s", want, joined)
+		}
+	}
+
+	// A trader stocking a key with no spell definition still gets a card.
+	g.dialogNPC.SpellData["not_a_spell"] = &character.NPCSpell{Name: "Rumour", School: "fire", Cost: 5}
+	if got := ui.spellTraderTooltipLines("not_a_spell", g.party.Members[0]); len(got) != 2 {
+		t.Errorf("unknown spell fallback = %v, want the authored two lines", got)
 	}
 }

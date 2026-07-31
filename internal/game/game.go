@@ -136,6 +136,7 @@ type SpellHitParticle struct {
 	Size             int     // Particle size (shrinks over time)
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
 	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
+	Solid            bool    // drawn source-over, not additive: MATTER (dirt, rubble) instead of light
 	Active           bool
 }
 
@@ -185,6 +186,9 @@ type MMGame struct {
 	// Unique ID generation
 	nextProjectileID int64
 	selectedChar     int
+	// focusedPartyMask is a transient RT-only actor filter. Bit i belongs to
+	// party slot i; zero means normal full-party cycling.
+	focusedPartyMask uint8
 	frameCount       int64
 	// entombedMsgFrame throttles the "can't fight inside stone" explanation
 	// (see partyEntombed) so held attack keys don't spam the log.
@@ -201,6 +205,10 @@ type MMGame struct {
 	mouseRightClickAt int64
 	mouseLeftClicks   []queuedClick
 	mouseRightClicks  []queuedClick
+	// entryMenuRootPressArmed pairs the title screen's release-position click
+	// with a press observed by this app, without trusting its potentially stale
+	// cursor coordinates during a macOS focus transition.
+	entryMenuRootPressArmed bool
 	// prevWorldClickAllowed tracks worldClickAllowed() across frames: the click
 	// queues flush on every modal<->world flip so a buffered click never
 	// outlives the UI layer it was aimed at.
@@ -428,15 +436,16 @@ type MMGame struct {
 	// this conversation (empty = root). It drives the body text and choice list so
 	// "ask about X" branches into a real reply instead of closing. Reset on open.
 	dialogNodePath []*character.NPCDialogueChoice
-	dialogTab      int // Tabbed dialogs: 0 = shop/service, 1 = quests/talk
+	dialogTab      int // Active section in any tabbed NPC dialog.
 	// pendingBuffService is a service row clicked during the draw pass; the
 	// input handler resolves it next tick so a cast cannot mutate dialog state
 	// mid-render.
 	pendingBuffService   *character.NPCDialogueChoice
-	merchantBuyPage      int // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage     int // Merchant sell-grid page (0-based)
-	spellTraderPage      int // Spell-trader icon-grid page (0-based); shared by renderer and input
-	cardCollectorInvPage int // Card-collector loose-card grid page (0-based); shared by renderer and input
+	pendingTavernAction  *character.NPCDialogueChoice // Tavern service clicked during Draw; resolved on the next Update.
+	merchantBuyPage      int                          // Merchant buy-grid page (0-based); read by both renderer and input
+	merchantSellPage     int                          // Merchant sell-grid page (0-based)
+	spellTraderPage      int                          // Spell-trader icon-grid page (0-based); shared by renderer and input
+	cardCollectorInvPage int                          // Card-collector loose-card grid page (0-based); shared by renderer and input
 	// cardSlots is the party-wide monster-card collection (MaxCardSlots).
 	// Cards held here grant passive effects; only the card collector mutates it,
 	// through setCardCollectionSlot/clearCardCollectionSlot, which keep key and
@@ -2113,6 +2122,54 @@ func (g *MMGame) selectPartyMemberManually(idx int) bool {
 	return true
 }
 
+func (g *MMGame) focusModeActive() bool {
+	return g != nil && g.focusedPartyMask != 0
+}
+
+func (g *MMGame) partyMemberFocused(idx int) bool {
+	if g == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) || idx >= 8 {
+		return false
+	}
+	return g.focusedPartyMask&(uint8(1)<<uint(idx)) != 0
+}
+
+func (g *MMGame) togglePartyFocus(idx int) bool {
+	if g == nil || g.party == nil || g.turnBasedMode || idx < 0 || idx >= len(g.party.Members) ||
+		idx >= 8 || g.party.Members[idx] == nil {
+		return false
+	}
+	g.focusedPartyMask ^= uint8(1) << uint(idx)
+	return true
+}
+
+func (g *MMGame) clearFocusMode() {
+	if g != nil {
+		g.focusedPartyMask = 0
+	}
+}
+
+// combatActorAllowed is the one RT focus gate. Every automatic keyboard actor
+// path reaches rtCharReady or rtActionCapable, both of which call this helper.
+func (g *MMGame) combatActorAllowed(idx int) bool {
+	if g == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	return !g.focusModeActive() || g.partyMemberFocused(idx)
+}
+
+// handlePartyPortraitClick keeps ordinary selection independent from focus.
+// Shift-click toggles the transient RT actor set only in the unobstructed game
+// HUD; menus retain their existing portrait-selection behavior.
+func (g *MMGame) handlePartyPortraitClick(idx int, focusModifier bool) bool {
+	if !g.selectPartyMemberManually(idx) {
+		return false
+	}
+	if focusModifier && !g.turnBasedMode && !g.menuOpen {
+		g.togglePartyFocus(idx)
+	}
+	return true
+}
+
 // partyAllExhausted reports whether the party has no legal turn-based actor:
 // exhausted, stunned, and KO members all contribute no action. The name stays
 // for callers that predate stun-aware actor eligibility.
@@ -2159,7 +2216,7 @@ func (g *MMGame) advanceToNextEligibleChar() {
 // real-time analogue of canSelectChar (which is turn-based, gated by action
 // slots).
 func (g *MMGame) rtCharReady(idx int) bool {
-	if idx < 0 || idx >= len(g.party.Members) {
+	if !g.combatActorAllowed(idx) {
 		return false
 	}
 	m := g.party.Members[idx]
@@ -2184,7 +2241,7 @@ const (
 // known heal AND enough SP for it. Smart-attack always falls back to a weapon
 // swing, so everyone is "capable" of it.
 func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
-	if idx < 0 || idx >= len(g.party.Members) {
+	if !g.combatActorAllowed(idx) {
 		return false
 	}
 	m := g.party.Members[idx]
@@ -2287,7 +2344,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 		return // player deliberately parked here (e.g. to use a downed ally's potions)
 	}
 	cur := g.party.Members[g.selectedChar]
-	if cur != nil && cur.CanAct() {
+	if cur != nil && cur.CanAct() && g.combatActorAllowed(g.selectedChar) {
 		return // living members remain selectable even when unable to attack
 	}
 	n := len(g.party.Members)
@@ -2302,7 +2359,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 	// Otherwise any living member (still on cooldown - they'll fire when ready).
 	for off := 1; off <= n; off++ {
 		idx := (g.selectedChar + off) % n
-		if m := g.party.Members[idx]; m != nil && m.CanAct() {
+		if m := g.party.Members[idx]; m != nil && m.CanAct() && g.combatActorAllowed(idx) {
 			g.selectedChar = idx
 			return
 		}
@@ -2633,6 +2690,9 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		return
 	}
 
+	// Focus is an RT-only temporary sub-party. Entering TB restores the normal
+	// full-party turn scheduler and leaving TB starts with no stale focus.
+	g.clearFocusMode()
 	g.turnBasedMode = true
 	// Snap to tile center immediately
 	g.snapToTileCenter()

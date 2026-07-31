@@ -157,6 +157,27 @@ biomes:
         - "city_cobblestone_2"
         - "city_cobblestone_3"
 
+  # Both towns split their four floor variants into a walking group and a court
+  # group, so the plaza around the landmark reads as a deliberate paved circle
+  # instead of more street. Same split, same letters (. and ,) in each.
+  elf_city:
+    floor_texture_groups:
+      default:
+        - "elf_city_floor_0"
+        - "elf_city_floor_2"
+      court:
+        - "elf_city_floor_1"
+        - "elf_city_floor_3"
+
+  nomad_city:
+    floor_texture_groups:
+      default:
+        - "nomad_city_floor_0"
+        - "nomad_city_floor_1"
+        - "nomad_city_floor_3"
+      sand:
+        - "nomad_city_floor_2"
+
   highlands:
     floor_texture_groups:
       default:
@@ -441,6 +462,33 @@ maps:
     sky_color: [120, 190, 230]
     sky_texture: "city_panorama"
     default_floor_color: [108, 102, 88]
+
+  # The two outland towns. Each stands inside its region and borrows that
+  # region's panorama - Silverbough in the highland pinewood where the elves
+  # actually live, Dunehold under the desert sky - so stepping through the gate
+  # does not change the weather, only the streets.
+  elf_city:
+    name: "Silverbough"
+    file: "elf_city.map"
+    biome: "elf_city"
+    town_portal_destination: true
+    sky_color: [150, 165, 180]
+    sky_texture: "highlands_panorama"
+    default_floor_color: [146, 150, 140]
+    # No wall_torches: the corner-torch system is for dark interiors, and a
+    # 31x23 town yields 16 inner corners - at noon that is embers raining on
+    # the plaza. Seabright does not set it either; the authored lamp posts (I)
+    # and lanterns are these towns' lighting fiction.
+
+  nomad_city:
+    name: "Dunehold"
+    file: "nomad_city.map"
+    biome: "nomad_city"
+    town_portal_destination: true
+    sky_color: [214, 184, 132]
+    sky_texture: "desert_panorama"
+    default_floor_color: [182, 150, 100]
+    # No wall_torches - see the note on elf_city above.
 
   highlands:
     name: "Misty Highlands"

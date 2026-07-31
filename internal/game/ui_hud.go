@@ -34,6 +34,34 @@ var hudWhiteImg = func() *ebiten.Image {
 	return img
 }()
 
+func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
+	drawTriangle := func(halfWidth, topOffset, tipOffset int, topCol, tipCol color.RGBA) {
+		tr := float32(topCol.R) / 255
+		tg := float32(topCol.G) / 255
+		tb := float32(topCol.B) / 255
+		ta := float32(topCol.A) / 255
+		br := float32(tipCol.R) / 255
+		bg := float32(tipCol.G) / 255
+		bb := float32(tipCol.B) / 255
+		ba := float32(tipCol.A) / 255
+		verts := []ebiten.Vertex{
+			{DstX: float32(centerX - halfWidth), DstY: float32(topY + topOffset), SrcX: 0.5, SrcY: 0.5, ColorR: tr, ColorG: tg, ColorB: tb, ColorA: ta},
+			{DstX: float32(centerX + halfWidth), DstY: float32(topY + topOffset), SrcX: 0.5, SrcY: 0.5, ColorR: tr, ColorG: tg, ColorB: tb, ColorA: ta},
+			{DstX: float32(centerX), DstY: float32(topY + tipOffset), SrcX: 0.5, SrcY: 0.5, ColorR: br, ColorG: bg, ColorB: bb, ColorA: ba},
+		}
+		screen.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
+	}
+
+	// Broad dark rim, then a blue-steel body using the same highlight-to-shadow
+	// ramp as rarity names. The thin top glint makes the tiny marker read as
+	// beveled metal rather than a flat UI glyph.
+	rim := color.RGBA{5, 18, 38, 245}
+	drawTriangle(9, -2, 12, rim, rim)
+	drawTriangle(7, 0, 9, metalShade(focusModeMetal, 0), metalShade(focusModeMetal, 1))
+	vector.FillRect(screen, float32(centerX-5), float32(topY+1), 10, 1,
+		color.RGBA{210, 240, 255, 230}, false)
+}
+
 // cardPortrait returns the portrait pre-fit to the party card's recess: cover-
 // scaled (fills the frame, overflow cropped), linearly filtered, with the four
 // corners bevel-cut to match the frame's trims. Cached per name and size.
@@ -327,6 +355,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if ui.game.consumeLeftClickIn(caretX, caretY, caretX+caretW, caretY+caretH) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
+		}
+
+		if ui.game.partyMemberFocused(i) {
+			drawPartyFocusMarker(screen, px+pw/2, py-12)
 		}
 	}
 
@@ -1219,4 +1251,7 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 // drawInstructions draws the control instructions
 func (ui *UISystem) drawInstructions(screen *ebiten.Image) {
 	drawDebugText(screen, "ESC: Main menu", 10, 10)
+	if ui.game.focusModeActive() {
+		drawDebugTextColored(screen, "Focus mode", 10, 10+textPanelLineHeight, focusModeMetal)
+	}
 }

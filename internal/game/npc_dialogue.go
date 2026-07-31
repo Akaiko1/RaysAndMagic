@@ -201,6 +201,11 @@ const (
 	// rects from drawn pixels.
 	npcDialogWidth  = 600
 	npcDialogHeight = 400
+
+	// The tavern embeds roster and stash management instead of opening another
+	// modal, so it needs enough room for the two working grids.
+	tavernDialogWidth  = 760
+	tavernDialogHeight = 620
 )
 
 type dialogueContentLayout struct {
@@ -284,11 +289,15 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 type npcDialogRect struct{ x, y, w, h int }
 
 func npcDialogLayout(g *MMGame) npcDialogRect {
+	width, height := npcDialogWidth, npcDialogHeight
+	if g.dialogNPC != nil && npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
+		width, height = tavernDialogWidth, tavernDialogHeight
+	}
 	return npcDialogRect{
-		x: (g.config.GetScreenWidth() - npcDialogWidth) / 2,
-		y: (g.config.GetScreenHeight() - npcDialogHeight) / 2,
-		w: npcDialogWidth,
-		h: npcDialogHeight,
+		x: (g.config.GetScreenWidth() - width) / 2,
+		y: (g.config.GetScreenHeight() - height) / 2,
+		w: width,
+		h: height,
 	}
 }
 
@@ -299,6 +308,9 @@ func (g *MMGame) switchDialogTab(tab int) {
 	g.selectedChoice = 0
 	g.merchantBuyPage = 0
 	g.pendingBuffService = nil
+	g.pendingTavernAction = nil
+	g.rosterSelectedActive = -1
+	g.clearStashDrag()
 	g.resetDialogClickTracker()
 }
 
@@ -317,6 +329,7 @@ const (
 	dialogKindCardCollector
 	dialogKindArenaGladiator
 	dialogKindBuffService
+	dialogKindTavern
 )
 
 // npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
@@ -325,9 +338,14 @@ func npcIsCardCollector(npc *character.NPC) bool {
 }
 
 func npcDialogKindFor(npc *character.NPC) npcDialogKind {
+	if npc == nil {
+		return dialogKindGeneric
+	}
 	switch {
 	case npcIsCardCollector(npc):
 		return dialogKindCardCollector
+	case tavernChoice(npc, "tavern_rest") != nil:
+		return dialogKindTavern
 	case npcHasBuffService(npc):
 		// A paid-cast service is its own tabbed dialog (service rows + Talk),
 		// checked before the generic choice dialog that would swallow it.

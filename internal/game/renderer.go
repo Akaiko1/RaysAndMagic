@@ -2906,7 +2906,7 @@ func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *mon
 	if n <= 1 {
 		return anim.Frames[0]
 	}
-	total := int64(MonsterAttackAnimFrames)
+	total := int64(r.game.monsterAttackAnimationDuration(mon))
 	if total < 1 {
 		total = 1
 	}
@@ -4254,7 +4254,7 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	drawLeft := s.screenX - s.spriteSize/2
-	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+	sprite, frameW, frameH := r.selectNPCIdleSpriteFrame(s.sprite, r.game.frameCount)
 	// One source of truth for how this NPC renders (shared with the map editor).
 	cat := npcRenderCatOf(s.npc)
 	npcName := npcSpriteName(s.npc)
@@ -4509,12 +4509,31 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 // returned image is a cached SubImage and the returned width/height are the
 // per-frame dimensions. Otherwise the sprite is returned unchanged.
 func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
+	return r.selectAnimatedSpriteFrameWithStride(sprite, frameCount, SpriteFrameStride)
+}
+
+func (r *Renderer) selectNPCIdleSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
+	tps := 120
+	if r != nil && r.game != nil && r.game.config != nil {
+		tps = r.game.config.GetTPS()
+	}
+	return r.selectAnimatedSpriteFrameWithStride(
+		sprite,
+		frameCount,
+		animationTicksPerFrame(tps, NPCIdleAnimationFPS),
+	)
+}
+
+func (r *Renderer) selectAnimatedSpriteFrameWithStride(sprite *ebiten.Image, frameCount int64, stride int) (*ebiten.Image, int, int) {
 	bounds := sprite.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	if h <= 0 || w != h*SpriteSheetFrameCount {
 		return sprite, w, h
 	}
-	frame := int((frameCount / SpriteFrameStride) % SpriteSheetFrameCount)
+	if stride < 1 {
+		stride = 1
+	}
+	frame := int((frameCount / int64(stride)) % SpriteSheetFrameCount)
 	return r.animationFrames(sprite)[frame], h, h
 }
 
@@ -5245,7 +5264,13 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				continue
 			}
 			// Square pixel particle (matches the impassable-aura / projectile look).
-			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, additiveGlowBlend)
+			// Solid particles are MATTER, not light: additive brown over bright
+			// ground only washes to white, so dirt draws source-over.
+			blend := additiveGlowBlend
+			if particle.Solid {
+				blend = ebiten.BlendSourceOver
+			}
+			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, blend)
 		}
 	}
 }

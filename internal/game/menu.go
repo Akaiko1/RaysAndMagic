@@ -1457,6 +1457,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 
 // applySave restores game state from a save struct
 func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
+	g.clearFocusMode()
 	// Switch map if needed
 	if save.MapKey != "" && save.MapKey != wm.CurrentMapKey && wm.IsValidMap(save.MapKey) {
 		if err := wm.SwitchToMap(save.MapKey); err != nil {

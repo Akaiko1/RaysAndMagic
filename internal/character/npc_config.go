@@ -85,10 +85,11 @@ type NPCDoorStatReq struct {
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
 // summons when that statuette is offered, plus a short label for the choice.
 type NPCSummon struct {
-	Statuette string `yaml:"statuette"`
-	Monster   string `yaml:"monster"`
-	Label     string `yaml:"label"`
-	QuestID   string `yaml:"quest_id,omitempty"`
+	Statuette      string `yaml:"statuette"`
+	Monster        string `yaml:"monster"`
+	Label          string `yaml:"label"`
+	QuestID        string `yaml:"quest_id,omitempty"`
+	LockedResponse string `yaml:"locked_response,omitempty"`
 }
 
 // NPCDialogue represents the dialogue options for an NPC

@@ -862,6 +862,10 @@ type ProjectileRenderConfig struct {
 	// ImpactStars scatters the impact burst as twinkling 4-point stars instead
 	// of square pixels (plasma/energy impacts).
 	ImpactStars bool `yaml:"impact_stars,omitempty"`
+	// NovaFx selects the ground effect a NON-projectile area spell paints over
+	// its reach (Earthquake's rubble). Empty = only the per-monster impact
+	// bursts. Validated against the novaFxSpawn registry at boot.
+	NovaFx string `yaml:"nova_fx,omitempty"`
 }
 
 type TileConfig struct {

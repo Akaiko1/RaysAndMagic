@@ -172,6 +172,7 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	if !g.party.SwapActiveReserve(activeIdx, reserveIdx) {
 		return false
 	}
+	g.clearFocusMode()
 	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
 	// current bonuses, the benched one sheds them - otherwise a swap freezes a
 	// buff on the bench forever (or the newcomer fights unbuffed). Route through

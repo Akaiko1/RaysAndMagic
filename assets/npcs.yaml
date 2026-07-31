@@ -202,6 +202,7 @@ npcs:
         monster: "elder_dragon"
         label: "Black"
         quest_id: "dragon_slayer"
+        locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_red:
     name: "Red Dragon Statue"
@@ -223,6 +224,7 @@ npcs:
         monster: "elder_dragon_red"
         label: "Red"
         quest_id: "dragon_slayer"
+        locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_green:
     name: "Green Dragon Statue"
@@ -244,6 +246,7 @@ npcs:
         monster: "elder_dragon_green"
         label: "Green"
         quest_id: "dragon_slayer"
+        locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_gold:
     name: "Gold Dragon Statue"
@@ -265,6 +268,7 @@ npcs:
         monster: "elder_dragon_gold"
         label: "Gold"
         quest_id: "dragon_slayer"
+        locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   prison:
     name: "Mountain Prison"
@@ -347,7 +351,7 @@ npcs:
           choices:
             - text: "What does becoming Archmage grant?"
               action: "info"
-              response: "'Command of the highest Light, and the prayers no trader sells. It is not a blessing laid on a man. They put it inside him and it stays there. It will not go into the undead, and it will not go into anyone who has not faced the Lich King.'"
+              response: "'Command of the highest Light. The pages can be bought at any shrine that keeps them; the school itself cannot, and without it the pages are ink. It is not a blessing laid on a man. They put it inside him and it stays there. It will not go into the undead, and it will not go into anyone who has not faced the Lich King.'"
               choices:
                 - text: "We accept. The Lich King will fall."
                   action: "give_quest"
@@ -1154,6 +1158,230 @@ npcs:
     size_class: person
     dialogue:
       greeting: "I'm Ilyra. I sharpen what you already know - I don't hand out gifts. Pick a character and a mastery they hold."
+
+  # --- Silverbough (elf_city), the elven town in the Misty Highlands ---
+  # The elves live in the highland pinewood - elf_archer and elf_swordsman are
+  # both biomes: ["highlands"] - so their town stands there, not in the forest
+  # that only carries their name. Seabright is the full-service port; these two
+  # towns each carry a trade it does not. Silverbough has the bows, the potion
+  # garden and the archive.
+  elf_city_exit:
+    name: "Silverbough Gate"
+    type: "encounter"
+    description: "The root-grown arch that closes Silverbough against the pinewood"
+    sprite: "elf_city_gate"
+    # The way OUT sits flush on the town wall, like Seabright's city_exit - the
+    # cross standee is for the way IN, out on the overworld. size_tiles fills the
+    # 1-tile wall face; divided by the art's content_h (0.92), see tiles.yaml.
+    render_category: wall_mounted
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 1.09
+    dialogue:
+      greeting: "The arch opens back onto the highland track."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the highlands"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay in Silverbough"
+          action: "leave"
+
+  elf_city_bowyer:
+    name: "Captain Aewen"
+    type: "merchant"
+    description: "The ranger captain of Silverbough; she outfits the wood patrols and sells what is left over"
+    sprite: "elf_ranger_captain"
+    render_category: npc
+    size_class: person
+    sell_available: true
+    dialogue:
+      greeting: "Aewen, captain of the pinewood patrol. I string every bow on this rack myself and I will not sell you one you cannot draw. Look, and ask if you are unsure."
+    inventory:
+      - { type: "weapon", name: "Long Bow",       cost: 1200, quantity: 2, tab: "Bows" }
+      - { type: "weapon", name: "Elven Bow",      cost: 750,  quantity: 3, tab: "Bows" }
+      - { type: "weapon", name: "Hunting Bow",    cost: 400,  quantity: 3, tab: "Bows" }
+      - { type: "item",   name: "Leather Armor",  cost: 90,   quantity: 4, tab: "Scout Kit" }
+      - { type: "item",   name: "Leather Helmet", cost: 60,   quantity: 4, tab: "Scout Kit" }
+      - { type: "item",   name: "Leather Pants",  cost: 70,   quantity: 4, tab: "Scout Kit" }
+      - { type: "item",   name: "Elven Shield",   cost: 1200, quantity: 2, tab: "Scout Kit" }
+      - { type: "item", name: "Accuracy Talisman", cost: 1800, quantity: 1, tab: "Scout Kit" }
+
+  elf_city_apothecary:
+    name: "Herbwright Nerith"
+    type: "merchant"
+    description: "Silverbough's potion-maker, who keeps the walled physic garden behind her shop"
+    sprite: "elf_apothecary"
+    render_category: npc
+    size_class: person
+    sell_available: true
+    stock_refresh_weeks: 1
+    dialogue:
+      greeting: "Nerith. I grow what I bottle, in the garden behind you. Antivenom first if you are going down into the glen - what crawls in the peat there is worse this year."
+    inventory:
+      - { type: "potion", name: "Health Potion",  cost: 50,  quantity: 20 }
+      - { type: "potion", name: "Mana Potion",    cost: 60,  quantity: 20 }
+      - { type: "potion", name: "Antivenom",      cost: 45,  quantity: 20 }
+      - { type: "potion", name: "Revival Potion", cost: 500, quantity: 10 }
+      - { type: "item",   name: "Dead Branch",    cost: 240, quantity: 5 }
+
+  elf_city_archive:
+    name: "Keeper Ilthaea"
+    type: "spell_trader"
+    description: "Keeper of the Starlight Archive; she carries its keys on her belt and its oldest book under her arm"
+    sprite: "elf_starlight_librarian"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Keeper Ilthaea. Every page Seabright's scriptorium can copy, it copies cheaper. What is on this shelf is what Oletta cannot write at all, and the Archive prices it accordingly. Choose a character and a page."
+      insufficient_gold: "That page costs %d gold. The Archive does not lend."
+      already_known: "%s has that page already. I will not sell it twice."
+      success: "Copied out for %s. Read it before you need it, not after."
+    # The mage schools' deep pages: every Fire/Water/Air/Earth spell that
+    # Seabright does NOT stock - Fly excluded on purpose, so the wandering
+    # spell_lectern keeps one spell nobody can buy. Priced 10000+ because these
+    # were exploration-only until now; the Archive is a gold sink, not a
+    # shortcut. (The lectern degrades gracefully: with its pool known it says so
+    # and is not consumed - useSpellLectern.)
+    spells:
+      # Air
+      jump: { cost: 10000 }
+      # Earth
+      town_portal: { cost: 12000 }
+      stone_blossom: { cost: 16000 }
+      earthquake: { cost: 20000 }
+      # Fire
+      fire_shield: { cost: 14000 }
+      firewall: { cost: 14000 }
+      # Water
+      summon_ice_elemental: { cost: 18000 }
+
+  # --- Dunehold (nomad_city), the caravan town in the deep desert ---
+  # The armour town. Seabright sells arms and Silverbough sells bows; nobody
+  # sold a mail shirt anywhere in the world before this gate opened.
+  nomad_city_exit:
+    name: "Dunehold Gate"
+    type: "encounter"
+    description: "The twin-tower gate of Dunehold, banners hanging dead in the heat"
+    sprite: "nomad_city_gate"
+    # Flush on the town wall (content_h 0.80), same as Silverbough's exit.
+    render_category: wall_mounted
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 1.25
+    dialogue:
+      greeting: "The gate stands open on the sand road."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the desert"
+          action: "enter_map"
+          map: "desert"
+        - text: "Stay in Dunehold"
+          action: "leave"
+
+  nomad_city_caravan:
+    name: "Zaira of the Long Road"
+    type: "merchant"
+    description: "A caravan mistress who trades the whole road out of one stall: mail, plate, and what a party needs to cross sand"
+    sprite: "nomad_caravan_merchant"
+    render_category: npc
+    size_class: person
+    sell_available: true
+    dialogue:
+      greeting: "Zaira. Forty days of road in that pack and every piece of it is for sale. You want mail - everyone crossing this sand wants mail. Say what you need."
+    inventory:
+      - { type: "item", name: "Chain Armor",     cost: 260,  quantity: 3, tab: "Chain" }
+      - { type: "item", name: "Chain Coif",      cost: 170,  quantity: 3, tab: "Chain" }
+      - { type: "item", name: "Chain Leggings",  cost: 180,  quantity: 3, tab: "Chain" }
+      - { type: "item", name: "Iron Armor",      cost: 380,  quantity: 2, tab: "Plate" }
+      - { type: "item", name: "Iron Helmet",     cost: 280,  quantity: 2, tab: "Plate" }
+      - { type: "item", name: "Iron Greaves",    cost: 300,  quantity: 2, tab: "Plate" }
+      - { type: "item", name: "Belt of Strength", cost: 900,  quantity: 1, tab: "Road" }
+      - { type: "item", name: "Belt of Speed",    cost: 1900, quantity: 1, tab: "Road" }
+      - { type: "item", name: "Magic Ring",       cost: 600,  quantity: 2, tab: "Road" }
+      - { type: "potion", name: "Health Potion",  cost: 60,   quantity: 15, tab: "Road" }
+      - { type: "potion", name: "Mana Potion",    cost: 70,   quantity: 15, tab: "Road" }
+
+  nomad_city_trainer:
+    name: "Blademaster Nadira"
+    type: "skill_trainer"
+    description: "Dunehold's drill master, who takes the caravan guards apart every morning on the sand of the gate yard"
+    sprite: "nomad_combat_trainer"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Nadira. I drill the gate guard at dawn and I take paying students after. I sharpen a mastery you already hold. Name the character and the skill."
+
+  nomad_city_spells:
+    name: "Yusra of the Oasis"
+    type: "spell_trader"
+    description: "The oasis lamp-keeper, who sells copied spells at the shrine steps and lights the pool at dusk"
+    sprite: "nomad_oasis_spell_seller"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Yusra, of the shrine. I keep the two high schools - the Light, and the other one. No caravan can read either, and neither can you until one of you carries the school already. Look anyway. Then pick a character and pick a page."
+      insufficient_gold: "That page costs %d gold. Come back with it."
+      already_known: "%s carries that one already."
+      success: "Written out for %s. Do not waste it on lizards."
+    # Light and Dark, priced 10000+. NOTE the hard gate: canCharacterLearnNPCSpell
+    # requires char.MagicSchools[school] != nil, and NO starting class opens Light
+    # or Dark (config.yaml class kits) - so this shop only becomes usable once a
+    # party member holds the school, i.e. after the Archmage trial or a lich
+    # turn. That is deliberate: it is the endgame gold sink, and her greeting
+    # says the requirement out loud instead of leaving a wall of red rows.
+    # alien_dark_bolt is monster_only and is excluded - it is never learnable.
+    spells:
+      # Light
+      ray_of_light: { cost: 10000 }
+      hour_of_power: { cost: 12000 }
+      day_of_the_gods: { cost: 16000 }
+      resurrect: { cost: 20000 }
+      # Dark
+      darkbolt: { cost: 10000 }
+      bind_undead: { cost: 12000 }
+      darkness: { cost: 16000 }
+      disintegrate: { cost: 22000 }
+
+  # Overworld entrances show each complete town, matching Seabright's
+  # city_exterior landmark. The gate-only art remains inside each town.
+  silverbough_gate:
+    name: "Silverbough Gate"
+    type: "encounter"
+    description: "A white arch grown through with roots, standing in the highland pinewood"
+    sprite: "elf_city_exterior"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 2.27
+    dialogue:
+      greeting: "The elven town of Silverbough stands behind the arch, up in the pinewood. A ranger on the step waves you through: bows and potions inside, and an archive that copies spells."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter Silverbough"
+          action: "enter_map"
+          map: "elf_city"
+        - text: "Stay in the highlands"
+          action: "leave"
+
+  dunehold_gate:
+    name: "Dunehold Gate"
+    type: "encounter"
+    description: "A twin-tower gate of pale brick where the caravan road leaves the dunes"
+    sprite: "nomad_city_exterior"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 2.63
+    dialogue:
+      greeting: "The caravan town of Dunehold sits inside the wall, around its oasis. The guard leans on the gatepost: armour for sale, a drill master, and spells at the shrine."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter Dunehold"
+          action: "enter_map"
+          map: "nomad_city"
+        - text: "Stay in the desert"
+          action: "leave"
 
   # --- Deep Jungle (deep_jungle) ---
   # Pure-wilderness zone: the only NPC is the canoe back to Seabright at the

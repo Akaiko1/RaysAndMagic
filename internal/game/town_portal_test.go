@@ -48,7 +48,11 @@ func TestTownPortalConfiguredMaps(t *testing.T) {
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("load map configs: %v", err)
 	}
-	for _, mapKey := range []string{"city", "japanese_castle"} {
+	// Every town the party can walk into must be recallable - a service town you
+	// can only reach on foot each time is a chore, and registration happens on
+	// map switch (registerVisitedTownPortalDestination), so the flag is the
+	// whole contract.
+	for _, mapKey := range []string{"city", "japanese_castle", "elf_city", "nomad_city"} {
 		if mc := wm.MapConfigs[mapKey]; mc == nil || !mc.TownPortalDestination {
 			t.Errorf("%s must be a Town Portal destination", mapKey)
 		}

@@ -255,6 +255,12 @@ func TestDragonStatueRequiresTheSwornHunt(t *testing.T) {
 	if len(npc.DialogueData.Choices) < 2 {
 		t.Error("a refusing statue must still say why - the runes line is the hint")
 	}
+	if npc.Summons[0].LockedResponse == "" {
+		t.Fatal("quest-gated statue has no authored locked_response")
+	}
+	if npc.DialogueData.Choices[0].Response != npc.Summons[0].LockedResponse {
+		t.Error("statue refusal did not come from its authored summon content")
+	}
 
 	if err = qm.ActivateQuest("dragon_slayer"); err != nil {
 		t.Fatalf("activate: %v", err)

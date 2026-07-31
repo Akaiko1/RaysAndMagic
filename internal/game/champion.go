@@ -336,7 +336,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 	if m.HasRangedAttack() {
 		if m.AttackCDFrames == 0 {
 			m.AttackCDFrames = m.AttackCooldownFrames()
-			m.AttackAnimFrames = MonsterAttackAnimFrames
+			cs.game.armMonsterAttackAnimation(m)
 			cs.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
 		}
 		return true
@@ -354,7 +354,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		struck = true
 	}
 	if struck {
-		m.AttackAnimFrames = MonsterAttackAnimFrames
+		cs.game.armMonsterAttackAnimation(m)
 	}
 	return true
 }
@@ -404,7 +404,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 		struck = true
 	}
 	if struck {
-		m.AttackAnimFrames = MonsterAttackAnimFrames
+		cs.game.armMonsterAttackAnimation(m)
 	}
 	return true
 }
