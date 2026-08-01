@@ -386,7 +386,16 @@ func (g *MMGame) applyCompletedQuestTiles() {
 }
 
 func (g *MMGame) announceQuestCompletion(q *quests.Quest) {
+	g.announceQuestCompletionWithMessage(q, "")
+}
+
+func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message string) {
 	if q == nil || q.Definition == nil {
+		return
+	}
+	g.playSound(soundQuestComplete)
+	if message != "" {
+		g.AddCombatMessage(message)
 		return
 	}
 	if q.RewardsClaimed {

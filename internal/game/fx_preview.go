@@ -346,7 +346,7 @@ func (p *FxPreview) spawn() {
 		case "flame":
 			g.TriggerPartyFlame(idx)
 		case "spark":
-			g.TriggerDamageBlink(idx)
+			g.triggerDamageFx(idx)
 		case "heal":
 			g.TriggerPartyHeal(idx)
 		}

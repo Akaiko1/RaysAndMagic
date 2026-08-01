@@ -197,6 +197,7 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	if ch == nil {
 		return false
 	}
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
 	wd, dmg := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
 	return cs.applyChampionMeleeSwingToParty(m, wd, championMeleeHit(m, wd, dmg))
 }
@@ -259,6 +260,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
 		return
 	}
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
 	weapon := championHandWeapon(ch, offHand)
 	wd, dmg := cs.championSwingDamage(m, ch, weapon)
 	hit := championMeleeHit(m, wd, dmg)
@@ -823,6 +825,11 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		return
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s!", m.Name, def.Name))
+	if def.IncomingDamageReduction > 0 || def.StunRadiusTiles > 0 {
+		// Projectile casts play at projectile creation. Direct champion spells
+		// have no projectile, so their school cue belongs at the cast itself.
+		cs.game.playMonsterSpellSound(def, m)
+	}
 
 	switch {
 	case def.IncomingDamageReduction > 0:

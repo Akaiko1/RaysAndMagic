@@ -1257,7 +1257,7 @@ type WeaponDefinitionConfig struct {
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
-	// plain arrow. Cosmetic only; damage stays weapon-based.
+	// plain arrow. Ranged magic weapons must use the same school for DamageType.
 	ProjectileSchool string `yaml:"projectile_school,omitempty"`
 
 	// --- Arena unique-tier signature riders ---
@@ -1754,6 +1754,16 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			}
 			def.ProjectileSchool = school
 		}
+		if IsMagicRangedWeapon(def) {
+			school, err := canonicalMagicSchool(def.ProjectileSchool)
+			if err != nil {
+				return fmt.Errorf("ranged magic weapon '%s' has invalid projectile_school %q: %w", key, def.ProjectileSchool, err)
+			}
+			def.ProjectileSchool = school
+			if def.DamageType != school {
+				return fmt.Errorf("ranged magic weapon '%s' damage_type %q does not match projectile_school %q", key, def.DamageType, school)
+			}
+		}
 		if def.BonusStat != "" && !validWeaponBonusStats[def.BonusStat] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat %q", key, def.BonusStat)
 		}
@@ -1849,6 +1859,44 @@ func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
 		strings.Contains(category, "bow") ||
 		strings.Contains(category, "throwing") ||
 		strings.Contains(category, "blaster")
+}
+
+// IsMagicRangedWeapon is the shared staff/book rule for validation, rendering,
+// and runtime audio. Range remains data-driven rather than inferred by category.
+func IsMagicRangedWeapon(def *WeaponDefinitionConfig) bool {
+	if def == nil || !isProjectileWeapon(def) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(def.Category)) {
+	case "staff", "book":
+		return true
+	default:
+		return false
+	}
+}
+
+// RangedWeaponSoundCategories returns the authored categories of every
+// non-magic projectile weapon in the loaded weapon catalog.
+func RangedWeaponSoundCategories() []string {
+	if GlobalWeapons == nil {
+		return nil
+	}
+	categories := make(map[string]struct{})
+	for _, def := range GlobalWeapons.Weapons {
+		if def == nil || !isProjectileWeapon(def) || IsMagicRangedWeapon(def) {
+			continue
+		}
+		category := strings.ToLower(strings.TrimSpace(def.Category))
+		if category != "" {
+			categories[category] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(categories))
+	for category := range categories {
+		result = append(result, category)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // MustLoadWeaponConfig loads the weapon configuration and panics on error
@@ -2295,10 +2343,11 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
-	Rolls        int               `yaml:"rolls"`
-	LootTable    string            `yaml:"loot_table,omitempty"`
-	RollSources  []CrateRollSource `yaml:"roll_sources,omitempty"`
-	SpecialRolls []CrateRollSource `yaml:"special_rolls,omitempty"`
+	Rolls            int               `yaml:"rolls"`
+	LootTable        string            `yaml:"loot_table,omitempty"`
+	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`
+	SpecialRolls     []CrateRollSource `yaml:"special_rolls,omitempty"`
+	InteractionSound string            `yaml:"interaction_sound,omitempty"`
 	// FreeRest: opening the crate also rests the party for free (a campfire) -
 	// full HP/SP, no food cost. One-time like any crate.
 	FreeRest bool `yaml:"free_rest,omitempty"`
@@ -2339,6 +2388,26 @@ func GetCrateConfig(npcKey string) *CrateConfig {
 		return nil
 	}
 	return GlobalLoots.Crates[npcKey]
+}
+
+// CrateSoundKeys returns the authored interaction sounds used by crate-like
+// world props. The audio boot contract validates these keys before gameplay.
+func CrateSoundKeys() []string {
+	if GlobalLoots == nil {
+		return nil
+	}
+	unique := make(map[string]struct{})
+	for _, crate := range GlobalLoots.Crates {
+		if crate != nil && crate.InteractionSound != "" {
+			unique[crate.InteractionSound] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(unique))
+	for key := range unique {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 type LootEntry struct {
@@ -2485,6 +2554,7 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c == nil {
 			return fmt.Errorf("crate %q is empty", key)
 		}
+		c.InteractionSound = strings.TrimSpace(c.InteractionSound)
 		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {
 			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
 		}

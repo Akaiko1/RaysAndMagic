@@ -2612,7 +2612,7 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 	}
 
 	if weaponDef != nil {
-		switch strings.ToLower(weaponDef.Category) {
+		switch strings.ToLower(strings.TrimSpace(weaponDef.Category)) {
 		case "bow":
 			profile.trailLengthScale = 1.8
 			profile.trailWidthScale = 0.25
@@ -2623,7 +2623,6 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 			profile.glowScale = 1.3
 			profile.spark = true
 		case "staff":
-			// Staves/books fling a glowing spell-style orb, not an arrow streak.
 			profile.glowScale = 1.8
 			profile.trailLengthScale = 1.3
 			profile.trailWidthScale = 0.45

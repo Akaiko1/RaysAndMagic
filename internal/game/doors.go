@@ -74,6 +74,7 @@ func (g *MMGame) refreshDoors() {
 	}
 	if g.doorsClosed && !closed {
 		g.AddCombatMessage("The portcullises rise - the way is open!")
+		g.playSound(soundDoorOpen)
 	}
 	g.doorsClosed = closed
 

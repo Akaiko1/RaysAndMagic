@@ -83,7 +83,8 @@ func (gl *GameLoop) Update() error {
 	// processes keyboard/back navigation here.
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
-		gl.game.updateEntryMenu()
+		gl.inputHandler.keys.BeginFrame()
+		gl.game.updateEntryMenu(gl.inputHandler.keys.Consume)
 		return nil
 	case AppScreenPartyCreate:
 		gl.game.updatePartyCreate()
@@ -361,11 +362,17 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 const maxLogicalScreenHeight = 1080
 
 func logicalScreenSize(outsideWidth, outsideHeight int) (int, int) {
-	if outsideWidth <= 0 || outsideHeight <= 0 || outsideHeight <= maxLogicalScreenHeight {
+	if outsideWidth <= 0 || outsideHeight <= 0 {
 		return outsideWidth, outsideHeight
 	}
-	scale := float64(maxLogicalScreenHeight) / float64(outsideHeight)
-	return max(1, int(math.Round(float64(outsideWidth)*scale))), maxLogicalScreenHeight
+	minW, minH := MinimumWindowSize()
+	// One uniform scale preserves the physical aspect ratio. The UI minimum can
+	// exceed the 1080 logical-height cap on a narrow portrait display; keeping
+	// the full panel visible takes priority over that performance cap.
+	scale := min(1.0, float64(maxLogicalScreenHeight)/float64(outsideHeight))
+	scale = max(scale, float64(minW)/float64(outsideWidth), float64(minH)/float64(outsideHeight))
+	return max(minW, int(math.Round(float64(outsideWidth)*scale))),
+		max(minH, int(math.Round(float64(outsideHeight)*scale)))
 }
 
 // Layout keeps common resolutions native and caps larger windows at a 1080px
@@ -484,11 +491,13 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	if rewards.QuestID != "" && quests.GlobalQuestManager != nil {
 		questRewards := quests.GlobalQuestManager.CompleteEncounterQuest(rewards.QuestID)
 		if questRewards != nil {
-			// Show completion message
 			if rewards.CompletionMessage != "" {
 				gl.game.AddCombatMessage(rewards.CompletionMessage)
 			}
-			gl.game.AddCombatMessage("Quest Completed: Received " + questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience) + "!")
+			gl.game.announceQuestCompletionWithMessage(
+				quests.GlobalQuestManager.GetQuest(rewards.QuestID),
+				"Quest Completed: Received "+questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience)+"!",
+			)
 
 			// Award gold to party
 			if questRewards.Gold > 0 {

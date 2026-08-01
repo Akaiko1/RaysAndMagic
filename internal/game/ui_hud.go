@@ -410,7 +410,7 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 }
 
 // drawCardSparks draws the hit feedback on a party card after the member takes a
-// hit (fxSpark, set by TriggerDamageBlink): the WHOLE card flashes
+// hit (fxSpark, set by TriggerDamageHit): the WHOLE card flashes
 // red, plus a big radial spark burst flies outward - both fading over the timer.
 func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx int) {
 	t := ui.game.cardFxActive(fxSpark, idx)

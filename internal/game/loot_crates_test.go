@@ -41,6 +41,37 @@ func TestLootCratesUseDefaultSpin(t *testing.T) {
 	}
 }
 
+func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
+	crateTestGame(t)
+	tests := []struct {
+		key  string
+		want string
+	}{
+		{key: "pile_of_old_boxes"},
+		{key: "campfire"},
+		{key: "barrel_red"},
+		{key: "barrel_green"},
+		{key: "barrel_blue"},
+		{key: "chest_wooden", want: "chest_open"},
+		{key: "chest_iron", want: "chest_open"},
+		{key: "chest_golden", want: "chest_open"},
+		{key: "chest_gearwood", want: "chest_open"},
+		{key: "chest_chrono", want: "chest_open"},
+		{key: "chest_regal", want: "chest_open"},
+	}
+	for _, test := range tests {
+		t.Run(test.key, func(t *testing.T) {
+			crate := config.GetCrateConfig(test.key)
+			if crate == nil {
+				t.Fatalf("crate %q is missing", test.key)
+			}
+			if got := crate.InteractionSound; got != test.want {
+				t.Fatalf("interaction sound = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 // inventoryUnitsByName snapshots unit counts per item name - the merge-proof
 // way to diff "what did this chest actually grant" now that AddItem folds
 // stackable rewards into existing stacks.

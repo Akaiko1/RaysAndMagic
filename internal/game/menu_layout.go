@@ -49,14 +49,32 @@ func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	py := (screenH - mainMenuPanelH) / 2
 	region := uiBox{"main-menu", px, py, mainMenuPanelW, mainMenuPanelH}
 	boxes := []uiBox{textLineBox("title", "Main Menu", px+16, py+14)}
-	for i, label := range mainMenuOptions {
+	for i, option := range mainMenuOptions {
 		row, _, textY := menuRowRect(px, py, mainMenuPanelW, mainMenuListTopY, mainMenuRowPitch, i)
-		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, label), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
+		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, option.key), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
 		_ = textY
 	}
 	for i, tip := range mainMenuControlTips {
 		boxes = append(boxes, textLineBox(fmt.Sprintf("tip-%d", i), tip, px+16, py+mainMenuTipsTopY()+i*debugTextCharHeight))
 	}
+	return region, boxes
+}
+
+func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox) {
+	layout := makeAudioSettingsPanelLayout(screenW, screenH, ornate)
+	px, py, panelW, panelH := layout.px, layout.py, layout.panelW, layout.panelH
+	region := uiBox{"audio-settings", px, py, panelW, panelH}
+	boxes := []uiBox{textLineBox("title", "Audio Settings", px+layout.contentInset, py+layout.contentInset-2)}
+	for row, def := range audioSettingDefinitions {
+		r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
+		boxes = append(boxes, uiBox{fmt.Sprintf("slider-%s", def.label), r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1})
+	}
+	back := audioBackRect(px, py, panelH, layout.contentInset)
+	hint, hintX, hintY := audioHintPosition(px, py, panelW, panelH, layout.contentInset)
+	boxes = append(boxes,
+		uiBox{"back", back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1},
+		textLineBox("hint", hint, hintX, hintY),
+	)
 	return region, boxes
 }
 
@@ -298,7 +316,7 @@ func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
 	boxes = append(boxes,
 		uiBox{"pager-prev", rowX, pagerY, pbW, pbH},
 		uiBox{"pager-next", rowX + rowW - pbW, pagerY, pbW, pbH},
-		uiBox{"back", px + menuFrameInset, pagerY + pbH + 12, 110, 30}, // drawBackButton size
+		uiBox{"back", px + menuFrameInset, pagerY + pbH + 12, menuBackButtonW, menuBackButtonH},
 	)
 	return region, boxes
 }

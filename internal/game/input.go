@@ -182,7 +182,11 @@ func (ih *InputHandler) HandleInput() {
 		// If main menu is open, back out of submenus or close it
 		if ih.game.mainMenuOpen {
 			if ih.game.mainMenuMode != MenuMain {
-				ih.game.mainMenuMode = MenuMain
+				if ih.game.mainMenuMode == MenuSettings {
+					ih.game.closeAudioSettings()
+				} else {
+					ih.game.mainMenuMode = MenuMain
+				}
 			} else {
 				ih.game.mainMenuOpen = false
 			}
@@ -535,18 +539,11 @@ func repeatingKeyPressed(key ebiten.Key) bool {
 // activateMainMenuSelection runs the action for the highlighted MenuMain option,
 // shared by Enter-key and mouse-click activation.
 func (ih *InputHandler) activateMainMenuSelection() {
-	switch ih.game.mainMenuSelection {
-	case 0: // Continue
-		ih.game.mainMenuOpen = false
-	case 1: // Save
-		ih.game.openSaveLoad(MenuSaveSelect)
-	case 2: // Load
-		ih.game.openSaveLoad(MenuLoadSelect)
-	case 3: // High Scores
-		ih.game.showHighScores = true
-	case 4: // Main Menu (return to title, not quit the app)
-		ih.game.returnToMainMenu()
+	selection := ih.game.mainMenuSelection
+	if selection < 0 || selection >= len(mainMenuOptions) {
+		return
 	}
+	mainMenuOptions[selection].action(ih.game)
 }
 
 // handleMainMenuInput processes input for the main menu (opened with ESC)
@@ -588,6 +585,14 @@ func (ih *InputHandler) handleMainMenuInput() {
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, false, ih.doLoadFromSelectedRow)
+	case MenuSettings:
+		ih.handleAudioSettingsInput(audioSettingsPanelLayoutAt(
+			(w-panelW)/2,
+			(h-panelH)/2,
+			panelW,
+			panelH,
+			false,
+		))
 	}
 }
 
@@ -3054,7 +3059,7 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	npc.Visited = true // this valve stays shut and can't be re-counted
 	g.AddCombatMessage(fmt.Sprintf("You heave the valve shut. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
+		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
 	}
 }
 
@@ -3102,7 +3107,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
 	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep - the Warlord wakes.", cq.Definition.Name))
+		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep - the Warlord wakes.", cq.Definition.Name))
 	}
 }
 

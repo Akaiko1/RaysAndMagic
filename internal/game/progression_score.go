@@ -37,6 +37,7 @@ func (g *MMGame) awardGold(amount int) {
 	}
 	g.party.Gold += amount
 	g.totalGoldEarned += amount
+	g.playSound(soundCoins)
 }
 
 // awardArenaPoints is the single crediting path for the arena victory currency

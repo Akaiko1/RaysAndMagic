@@ -391,6 +391,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
+	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
 		dealt := cs.damagePartyMemberParts(

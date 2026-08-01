@@ -23,7 +23,7 @@ import (
 //   menu_btn_<key>             a button face (label baked in); else procedural
 //   menu_btn_<key>_hover       optional hovered button face
 //
-// where <key> is one of: start, load, scores, achievements, quit.
+// where <key> is one of: start, load, scores, achievements, settings, quit.
 // ---------------------------------------------------------------------------
 
 // entryButton is one root-menu choice. Action runs on click/Enter.
@@ -40,43 +40,96 @@ var entryButtonDefs = []entryButton{
 	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 	{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
 	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
+	{"settings", "Settings", func(g *MMGame) {
+		g.entryMenuMode = EntryMenuSettings
+		g.beginAudioSettings()
+	}},
 	{"quit", "Quit", func(g *MMGame) { g.exitRequested = true }},
 }
 
 func entryButtons() []entryButton { return entryButtonDefs }
 
 const (
+	minimumWindowHeight = 360
+	entryWindowSideGap  = 20
+	entryBottomGap      = 30
+	entryCompactLogoH   = 56
+	entryCompactTopGap  = 12
+	entryCompactBtnGap  = 8
+
 	entryLogoW        = 460
 	entryLogoH        = 140
 	entryButtonW      = 280
 	entryButtonH      = 52
 	entryButtonGap    = 16
 	entryButtonTopGap = 40
+	entryButtonMinH   = 32
 )
+
+// MinimumWindowSize keeps the full root menu usable and grows automatically
+// if another root button is added.
+func MinimumWindowSize() (int, int) {
+	buttons := entryButtons()
+	buttonCount := len(buttons)
+	fixedContentW := max(tavernDialogWidth, tabbedMenuPanelW, settingsMenuPanelW, entryLoadPanelW, mainMenuPanelW)
+	fixedContentH := max(tavernDialogHeight, tabbedMenuPanelH, settingsMenuPanelH, entryLoadPanelH, mainMenuPanelH)
+	buttonStackH := buttonCount*entryButtonMinH + max(0, buttonCount-1)*entryCompactBtnGap
+	requiredH := entryWindowSideGap + entryCompactLogoH + entryCompactTopGap + buttonStackH + entryBottomGap
+	return fixedContentW + 2*entryWindowSideGap, max(minimumWindowHeight, fixedContentH+2*entryWindowSideGap, requiredH)
+}
 
 type entryMenuRootLayout struct {
 	logoX        int
 	logoY        int
+	logoW        int
+	logoH        int
 	buttonX      int
 	buttonStartY int
+	buttonW      int
+	buttonH      int
+	buttonGap    int
 }
 
 func makeEntryMenuRootLayout(w, h int) entryMenuRootLayout {
-	logoY := h/6 - entryLogoH/2
-	if logoY < 20 {
-		logoY = 20
-	}
 	buttons := entryButtons()
-	totalH := len(buttons)*entryButtonH + (len(buttons)-1)*entryButtonGap
-	buttonStartY := logoY + entryLogoH + entryButtonTopGap
-	if buttonStartY+totalH > h-30 {
-		buttonStartY = h - 30 - totalH
+	logoW, logoH := entryLogoW, entryLogoH
+	buttonW, buttonH, buttonGap := entryButtonW, entryButtonH, entryButtonGap
+	if maxLogoW := max(1, w-2*entryWindowSideGap); logoW > maxLogoW {
+		logoW = maxLogoW
+		logoH = entryLogoH * logoW / entryLogoW
 	}
+	logoY := max(entryWindowSideGap, h/6-entryLogoH/2)
+	buttonTopGap := entryButtonTopGap
+	buttonStartY := logoY + logoH + buttonTopGap
+	totalButtonsH := len(buttons)*buttonH + (len(buttons)-1)*buttonGap
+
+	// Compact both the logo and controls on short resizable windows instead of
+	// clamping the full-height button stack upward over the logo.
+	if buttonStartY+totalButtonsH > h-entryBottomGap {
+		logoY = entryWindowSideGap
+		minButtonStackH := len(buttons)*entryButtonMinH + (len(buttons)-1)*entryCompactBtnGap
+		maxLogoHForFit := h - logoY - entryCompactTopGap - minButtonStackH - entryBottomGap
+		logoH = min(logoH, max(1, min(max(entryCompactLogoH, h/6), maxLogoHForFit)))
+		logoW = entryLogoW * logoH / entryLogoH
+		buttonTopGap = entryCompactTopGap
+		buttonGap = entryCompactBtnGap
+		available := h - logoY - logoH - buttonTopGap - entryBottomGap - (len(buttons)-1)*buttonGap
+		buttonH = max(entryButtonMinH, min(entryButtonH, available/len(buttons)))
+		buttonStartY = logoY + logoH + buttonTopGap
+	}
+	buttonW = min(buttonW, max(1, w-2*entryWindowSideGap))
+	stackH := len(buttons)*buttonH + (len(buttons)-1)*buttonGap
+	buttonStartY = min(buttonStartY, h-entryBottomGap-stackH)
 	return entryMenuRootLayout{
-		logoX:        (w - entryLogoW) / 2,
+		logoX:        (w - logoW) / 2,
 		logoY:        logoY,
-		buttonX:      (w - entryButtonW) / 2,
+		logoW:        logoW,
+		logoH:        logoH,
+		buttonX:      (w - buttonW) / 2,
 		buttonStartY: buttonStartY,
+		buttonW:      buttonW,
+		buttonH:      buttonH,
+		buttonGap:    buttonGap,
 	}
 }
 
@@ -93,8 +146,8 @@ func (g *MMGame) consumeEntryMenuRootReleaseAt(x, y int) bool {
 	}
 	layout := makeEntryMenuRootLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	for i, button := range entryButtons() {
-		by := layout.buttonStartY + i*(entryButtonH+entryButtonGap)
-		if !isMouseHoveringBox(x, y, layout.buttonX, by, layout.buttonX+entryButtonW, by+entryButtonH) {
+		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
+		if !isMouseHoveringBox(x, y, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH) {
 			continue
 		}
 		g.mouseLeftClicks = g.mouseLeftClicks[:0]
@@ -105,12 +158,20 @@ func (g *MMGame) consumeEntryMenuRootReleaseAt(x, y int) bool {
 }
 
 // updateEntryMenu handles input for the entry menu.
-func (g *MMGame) updateEntryMenu() {
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
+	if pressed(ebiten.KeyEscape) {
 		g.entryMenuRootPressArmed = false
 		if g.entryMenuMode != EntryMenuRoot {
-			g.entryMenuMode = EntryMenuRoot
+			if g.entryMenuMode == EntryMenuSettings {
+				g.closeAudioSettings()
+			} else {
+				g.entryMenuMode = EntryMenuRoot
+			}
 		}
+		return
+	}
+	if g.entryMenuMode == EntryMenuSettings {
+		g.updateEntryAudioSettings(pressed)
 		return
 	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -137,6 +198,9 @@ func (g *MMGame) updateEntryMenu() {
 // screen's own "Quit" does). The world/party stay in memory but aren't drawn
 // while on the title; Start/Load from the title replaces them.
 func (g *MMGame) returnToMainMenu() {
+	if g.mainMenuMode == MenuSettings || g.entryMenuMode == EntryMenuSettings {
+		g.closeAudioSettings()
+	}
 	g.clearFocusMode()
 	g.mainMenuOpen = false
 	g.mainMenuMode = MenuMain
@@ -167,6 +231,8 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 		ui.drawBackHint(screen, h)
 	case EntryMenuAchievements:
 		ui.drawAchievementsScreen(screen, w, h)
+	case EntryMenuSettings:
+		ui.drawEntryAudioSettings(screen, w, h)
 	}
 }
 
@@ -176,17 +242,17 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 
 	// Logo / title.
 	if g.sprites.HasSprite("title_logo") {
-		drawImageScaled(screen, g.sprites.GetSprite("title_logo"), layout.logoX, layout.logoY, entryLogoW, entryLogoH)
+		drawImageScaled(screen, g.sprites.GetSprite("title_logo"), layout.logoX, layout.logoY, layout.logoW, layout.logoH)
 	} else {
-		ui.drawBigCenteredText(screen, "RAYS AND MAGIC", w/2, layout.logoY+entryLogoH/2-14, color.RGBA{230, 220, 180, 255})
+		ui.drawBigCenteredText(screen, "RAYS AND MAGIC", w/2, layout.logoY+layout.logoH/2-14, color.RGBA{230, 220, 180, 255})
 	}
 
 	// Vertical stack of buttons, centered.
 	mouseX, mouseY := ebiten.CursorPosition()
 	for i, b := range entryButtons() {
-		by := layout.buttonStartY + i*(entryButtonH+entryButtonGap)
-		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+entryButtonW, by+entryButtonH)
-		ui.drawMenuButton(screen, b.key, b.label, layout.buttonX, by, entryButtonW, entryButtonH, hover)
+		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
+		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH)
+		ui.drawMenuButton(screen, b.key, b.label, layout.buttonX, by, layout.buttonW, layout.buttonH, hover)
 	}
 }
 
@@ -393,8 +459,10 @@ func (ui *UISystem) drawPanel(screen *ebiten.Image, frameKey string, x, y, w, h 
 // frames so their gold corners don't stretch. menuFrameInset is how far panel
 // CONTENT must sit inside the frame so it clears the decorative gold border.
 const (
-	menuFrameSlice = 34
-	menuFrameInset = 44 // must exceed menuFrameSlice so content clears the gold corner band
+	menuFrameSlice  = 34
+	menuFrameInset  = 44 // must exceed menuFrameSlice so content clears the gold corner band
+	menuBackButtonW = 110
+	menuBackButtonH = 30
 )
 
 // drawButtonHoverGlow draws a soft warm halo just OUTSIDE the button edge - a
@@ -466,11 +534,10 @@ func (ui *UISystem) drawBigCenteredText(screen *ebiten.Image, text string, cx, y
 
 // drawBackButton draws a small "Back" button at (x,y) and runs onClick when hit.
 func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func()) {
-	const w, h = 110, 30
 	mouseX, mouseY := ebiten.CursorPosition()
-	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
-	ui.drawMenuButton(screen, "back", "Back (Esc)", x, y, w, h, hover)
-	if ui.game.consumeLeftClickIn(x, y, x+w, y+h) {
+	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuBackButtonW, y+menuBackButtonH)
+	ui.drawMenuButton(screen, "back", "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
+	if ui.game.consumeLeftClickIn(x, y, x+menuBackButtonW, y+menuBackButtonH) {
 		onClick()
 	}
 }

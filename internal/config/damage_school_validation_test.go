@@ -30,6 +30,42 @@ func TestDamageSchoolValidationUsesSharedCatalog(t *testing.T) {
 		}
 	})
 
+	t.Run("ranged staff requires projectile school", func(t *testing.T) {
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+			"bad": {Category: "staff", Range: 6, DamageType: "air"},
+		}}
+		if err := validateWeaponConfig(cfg); err == nil {
+			t.Fatal("ranged staff without projectile_school passed validation")
+		}
+	})
+
+	t.Run("ranged staff cannot deal physical damage", func(t *testing.T) {
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+			"bad": {Category: "staff", Range: 6, DamageType: "physical", ProjectileSchool: "air"},
+		}}
+		if err := validateWeaponConfig(cfg); err == nil {
+			t.Fatal("physical ranged staff passed validation")
+		}
+	})
+
+	t.Run("ranged staff damage and projectile schools must match", func(t *testing.T) {
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+			"bad": {Category: "staff", Range: 6, DamageType: "fire", ProjectileSchool: "air"},
+		}}
+		if err := validateWeaponConfig(cfg); err == nil {
+			t.Fatal("ranged staff with mismatched schools passed validation")
+		}
+	})
+
+	t.Run("ranged book follows magic weapon validation", func(t *testing.T) {
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+			"bad": {Category: "book", Range: 6, DamageType: "dark", ProjectileSchool: "air"},
+		}}
+		if err := validateWeaponConfig(cfg); err == nil {
+			t.Fatal("ranged book with mismatched schools passed validation")
+		}
+	})
+
 	t.Run("item resistance", func(t *testing.T) {
 		cfg := &ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{
 			"bad": {Resistances: map[string]int{"arcane": 10}},

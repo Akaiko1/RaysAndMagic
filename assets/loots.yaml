@@ -865,6 +865,7 @@ crates:
     bonus_chance_pct: 50
 
   chest_wooden:
+    interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       - pool: "map"
@@ -890,6 +891,7 @@ crates:
         amount: 1000
         chance_pct: 5
   chest_iron:
+    interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       - pool: "map"
@@ -917,6 +919,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 10
   chest_golden:
+    interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       # Every roll is a catalog rare, upgraded to a legendary at legendary_pct.
@@ -934,6 +937,7 @@ crates:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
   # Clock tower chests: hands + parts below, the regal box hides real gear.
   chest_gearwood:
+    interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
       - pool: "map"
@@ -946,6 +950,7 @@ crates:
         item_type: "consumable"
         weight: 15
   chest_chrono:
+    interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
       - pool: "map"
@@ -965,6 +970,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 8
   chest_regal:
+    interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       - pool: "map"

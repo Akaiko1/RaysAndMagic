@@ -21,6 +21,7 @@ import (
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/sound"
 	"ugataima/internal/spells"
 	"ugataima/internal/stash"
 	"ugataima/internal/threading"
@@ -508,6 +509,7 @@ type MMGame struct {
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
 	questManager    *quests.QuestManager
+	soundManager    *sound.Manager
 	// questTileOriginals: pristine tile at every quest on_complete_tiles
 	// position, captured once (maps always load pristine from disk) so
 	// syncQuestTiles can REVERT a change when its quest isn't completed.
@@ -633,15 +635,18 @@ type MMGame struct {
 	cardSummonCDFrames int
 
 	// Main menu (ESC)
-	mainMenuOpen      bool
-	mainMenuSelection int
-	mainMenuMode      MainMenuMode
-	slotSelection     int // row within the current save page (0..saveRowsPerPage-1)
-	savePage          int // current save/load menu page (0..savePageCount-1)
-	saveRenameOpen    bool
-	saveRenameSlot    int
-	saveRenameInput   string
-	exitRequested     bool
+	mainMenuOpen           bool
+	mainMenuSelection      int
+	mainMenuMode           MainMenuMode
+	audioSettingsSelection int
+	audioSliderDrag        int
+	audioSettingsDirty     bool
+	slotSelection          int // row within the current save page (0..saveRowsPerPage-1)
+	savePage               int // current save/load menu page (0..savePageCount-1)
+	saveRenameOpen         bool
+	saveRenameSlot         int
+	saveRenameInput        string
+	exitRequested          bool
 
 	// Game over state
 	gameOver bool
@@ -703,6 +708,7 @@ const (
 	EntryMenuLoad
 	EntryMenuScores
 	EntryMenuAchievements
+	EntryMenuSettings
 )
 
 // MainMenuMode represents sub-modes of the ESC menu
@@ -712,6 +718,7 @@ const (
 	MenuMain MainMenuMode = iota
 	MenuSaveSelect
 	MenuLoadSelect
+	MenuSettings
 )
 
 // MenuTab represents the different tabs in the main menu
@@ -848,8 +855,10 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		// Session timer for score calculation
 		sessionStartTime: time.Now(),
+		soundManager:     sound.Global(),
 
-		saveRenameSlot: -1,
+		saveRenameSlot:  -1,
+		audioSliderDrag: -1,
 	}
 
 	// Initialize rendering helper
@@ -1428,6 +1437,10 @@ func (g *MMGame) Update() error {
 	if err := g.gameLoop.Update(); err != nil {
 		return err
 	}
+	if g.soundManager != nil {
+		g.updateLocationMusic()
+		g.soundManager.Update()
+	}
 	g.checkGameOver()
 	g.checkVictory()
 	return nil
@@ -1887,11 +1900,18 @@ func (g *MMGame) cardFxActive(fx cardFx, characterIndex int) int {
 	return 0
 }
 
-// TriggerDamageBlink triggers the red blink AND a spark burst on a character's
-// card - fired wherever a member takes a visible hit, so impacts read clearly.
-func (g *MMGame) TriggerDamageBlink(characterIndex int) {
+// triggerDamageFx is the visual-only damage preview used by TriggerDamageHit
+// and the FX gallery. Production damage paths call TriggerDamageHit.
+func (g *MMGame) triggerDamageFx(characterIndex int) {
 	g.triggerCardFx(fxBlink, characterIndex, g.config.UI.DamageBlinkFrames)
 	g.triggerCardFx(fxSpark, characterIndex, HitSparkFrames)
+}
+
+func (g *MMGame) TriggerDamageHit(characterIndex, damage int) {
+	g.triggerDamageFx(characterIndex)
+	if damage > 0 {
+		g.playSound(soundPartyHit)
+	}
 }
 
 // TriggerPartyFlame lights the Inferno flame-particle overlay on a party card.

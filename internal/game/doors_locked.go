@@ -321,10 +321,12 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 		return
 	}
 	if !opened {
+		g.playSound(soundDoorLocked)
 		g.dialogActive = false
 		g.dialogNPC = nil
 		return
 	}
+	g.playSound(soundDoorOpen)
 	npc.Visited = true
 	if g.collisionSystem != nil {
 		g.collisionSystem.UnregisterEntity(lockedDoorEntityID(npc))

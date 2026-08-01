@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
@@ -219,6 +220,28 @@ func TestBanditBoltDoesNotInheritFallbackBowCombatRules(t *testing.T) {
 	cs.applyProjectileDamage(bolt, "arrow", target, bolt.ID)
 	if target.HitPoints != target.MaxHitPoints {
 		t.Fatalf("Bandit Bolt pierced dodge via fallback bow mastery: HP %d/%d", target.HitPoints, target.MaxHitPoints)
+	}
+}
+
+func TestRangedProjectileSoundDefinitionUsesSpawnedWeaponOnlyForBonusBolt(t *testing.T) {
+	equipped := &config.WeaponDefinitionConfig{Category: "blaster"}
+	spawned := &config.WeaponDefinitionConfig{Category: "bow"}
+	tests := []struct {
+		name        string
+		bonusBolt   bool
+		equippedDef *config.WeaponDefinitionConfig
+		want        *config.WeaponDefinitionConfig
+	}{
+		{name: "normal attack", equippedDef: equipped, want: equipped},
+		{name: "bonus bolt", bonusBolt: true, equippedDef: nil, want: spawned},
+		{name: "invalid normal attack stays invalid", equippedDef: nil, want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := rangedProjectileSoundDefinition(test.bonusBolt, test.equippedDef, spawned); got != test.want {
+				t.Fatalf("sound definition = %p, want %p", got, test.want)
+			}
+		})
 	}
 }
 

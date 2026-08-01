@@ -58,6 +58,12 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 	}
 	menus := []menuCase{
 		staticMenu("main-menu", mainMenuLayoutBoxes),
+		staticMenu("audio-settings-entry", func(w, h int) (uiBox, []uiBox) {
+			return audioSettingsLayoutBoxes(w, h, true)
+		}),
+		staticMenu("audio-settings-esc", func(w, h int) (uiBox, []uiBox) {
+			return audioSettingsLayoutBoxes(w, h, false)
+		}),
 		staticMenu("tabbed-menu", tabbedMenuLayoutBoxes),
 		staticMenu("inventory", inventoryLayoutBoxes),
 		staticMenu("characters", charactersLayoutBoxes),

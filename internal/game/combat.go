@@ -602,6 +602,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		// Druid's per-spell Animal Bonding rule without changing the older,
 		// attack/generic-cast-only Orc Warlord Card cadence.
 		cs.tryAnimalBondingOnAction(caster)
+		cs.game.playSpellSound(def)
 		return true
 	}
 
@@ -626,6 +627,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
 	}
 	cs.tryAnimalBondingOnAction(caster)
+	cs.game.playSpellSound(def)
 	return true
 }
 
@@ -1020,7 +1022,15 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	}
+	cs.game.playRangedWeaponAttackSound(rangedProjectileSoundDefinition(bonusBolt, equippedDef, weaponDef))
 	return true
+}
+
+func rangedProjectileSoundDefinition(bonusBolt bool, equippedDef, projectileDef *config.WeaponDefinitionConfig) *config.WeaponDefinitionConfig {
+	if bonusBolt {
+		return projectileDef
+	}
+	return equippedDef
 }
 
 // createMeleeAttack creates an instant melee attack with proper arc-based hit
@@ -1037,6 +1047,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 		fmt.Printf("[WARN] weapon '%s' has no melee configuration in weapons.yaml\n", weapon.Name)
 		return
 	}
+	cs.game.playSound(soundMeleeSwing)
 
 	meleeConfig := weaponDef.Melee
 	graphicsConfig := weaponDef.Graphics
@@ -1510,6 +1521,9 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 // cleanup. Keeping the packet preserves the correct school resistance.
 func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, packet monsterDamagePacket, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
 	actual := cs.applyMonsterDamagePacket(monster, packet.trueOnly(), monsterDamageOptions{}).Total()
+	if actual > 0 {
+		cs.game.playMonsterSound(soundMonsterHit, monster)
+	}
 	cs.markMonsterHit(monster)
 	if !monster.IsAlive() {
 		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
@@ -1702,6 +1716,9 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 // swing time; rolling again here would double the odds for one action).
 func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool, countsAsAction bool) bool {
 	ok := cs.castResolvedSpellCore(spellID, spellDef, caster, spellCost, announce, countsAsAction)
+	if ok {
+		cs.game.playSpellSound(spellDef)
+	}
 	// Verdant Eye echo: an OFFENSIVE cast may repeat itself once, free (no SP,
 	// no action, no card procs) - projectiles, mortars, zones (Firewall) and
 	// quakes alike, matching the tooltip. Calling the core directly makes the
@@ -2331,6 +2348,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if currentChar == nil {
 		return
 	}
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, monster)
 	cs.monsterHitCharacter(
 		monster,
 		currentChar,
@@ -2415,17 +2433,18 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		if target.HitPoints == 0 {
 			cs.knockOut(target)
 		}
-		cs.game.TriggerDamageBlink(targetIndex)
+		cs.game.TriggerDamageHit(targetIndex, trueDealt)
 		cs.reflectMonsterDamage(monster, target, trueDealt, hit.Melee)
 		growScaleStacks(target, trueDealt) // Drakehide: true-through-dodge counts
 		return
 	}
 
 	if hit.DisintegrateChance > 0 && rand.Float64() < hit.DisintegrateChance {
+		damage := target.HitPoints
 		target.HitPoints = 0
 		target.Conditions = []character.Condition{character.ConditionEradicated}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", target.Name, sourceName))
-		cs.game.TriggerDamageBlink(targetIndex)
+		cs.game.TriggerDamageHit(targetIndex, damage)
 		return
 	}
 
@@ -2447,7 +2466,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	if target.HitPoints == 0 {
 		cs.knockOut(target)
 	}
-	cs.game.TriggerDamageBlink(targetIndex)
+	cs.game.TriggerDamageHit(targetIndex, finalDamage)
 
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
@@ -2793,7 +2812,7 @@ func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMChar
 	if member.HitPoints == 0 {
 		cs.knockOut(member)
 	}
-	cs.game.TriggerDamageBlink(idx)
+	cs.game.TriggerDamageHit(idx, dealt)
 	growScaleStacks(member, dealt) // Drakehide: specials grow scales too
 	return dealt
 }
@@ -2863,7 +2882,9 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 	}
 	growScaleStacks(protector, redirected)
 	if idx := cs.findCharacterIndex(protector); idx >= 0 {
-		cs.game.TriggerDamageBlink(idx)
+		// One incoming hit produces one impact sound. The primary target's
+		// TriggerDamageHit owns it; Sacrifice adds only the protector's card FX.
+		cs.game.triggerDamageFx(idx)
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s sacrifices %d HP to protect %s!", protector.Name, redirected, victim.Name))
 	if protector.HitPoints == 0 {
@@ -2874,6 +2895,7 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
+	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, monster)
 
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		minDamage := monster.FireburstDamageMin
@@ -2955,6 +2977,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 		return false
 	}
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
+	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
 	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s breathes %s over the whole party!", monster.Name, damageType))
@@ -2995,6 +3018,9 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s fires a Piercing Shot!", monster.Name))
+	if weaponDef, exists := config.GetWeaponDefinition(monster.ProjectileWeapon); exists {
+		cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
+	}
 	for _, targetIndex := range alive[:targets] {
 		target := cs.game.party.Members[targetIndex]
 		// Piercing Shot ignores armor; the shared choke point applies the poison
@@ -3175,6 +3201,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			cs.monsterWeaponDamageOptions(weaponDef, target, true, true),
 		).Total()
 		if actual > 0 {
+			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, sourceName, actual))
 			if !target.IsAlive() {
@@ -3201,6 +3228,9 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			packet,
 			cs.monsterWeaponDamageOptions(weaponDef, target, true, ignoreArmor),
 		).Total()
+		if actual > 0 {
+			cs.game.playMonsterSound(soundMonsterHit, target)
+		}
 		target.HitTintFrames = MonsterHitFlashFrames
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt hits %s for %d!", sourceName, target.Name, actual))
 	}
@@ -3336,6 +3366,9 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 	collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
 	projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 	cs.game.collisionSystem.RegisterEntity(projectileEntity)
+	if spellDef, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		cs.game.playMonsterSpellSound(spellDef, monster)
+	}
 }
 
 func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string, targetX, targetY float64, owner ProjectileOwner) {
@@ -3394,6 +3427,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	}
+	cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
 }
 
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
@@ -4246,6 +4280,9 @@ func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 // awards the kill's XP/gold. Returns the XP awarded, for the kill message.
 func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	if !isPurePartySummon(m) {
+		cs.game.playMonsterSound(soundEnemyDeath, m)
+	}
 	cs.scatterBandOnMemberDeath(m)
 	if m.IsChampion() {
 		cs.recordChampionVictory(m)
@@ -4431,6 +4468,7 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 			character.SpellPoints = character.MaxSpellPoints
 
 			if announce {
+				cs.game.playSound(soundLevelUp)
 				message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
 					character.Name, character.Level, oldLevel, StatPointsPerLevel)
 				cs.game.AddCombatMessage(message)
@@ -5288,6 +5326,7 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 // monster-vs-monster blow). On a kill the party is rewarded ONLY if the slain
 // monster was an enemy (not a bound ally that a mob just cut down).
 func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monster3D) {
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, attacker)
 	damage := cs.monsterAttackDamage(attacker)
 	cs.strikeMonsterFor(
 		attacker,
@@ -5329,6 +5368,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 			cs.monsterWeaponDamageOptions(weaponDef, target, isRanged, true),
 		).Total()
 		if actual > 0 {
+			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, attacker.Name, actual))
 			if !target.IsAlive() {
@@ -5345,6 +5385,9 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		packet,
 		cs.monsterWeaponDamageOptions(weaponDef, target, isRanged, ignoreArmor),
 	).Total()
+	if actual > 0 {
+		cs.game.playMonsterSound(soundMonsterHit, target)
+	}
 	target.HitTintFrames = MonsterHitFlashFrames
 	verb := "strikes"
 	if attacker.Bound {

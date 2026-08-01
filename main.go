@@ -11,6 +11,8 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/sound"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -20,6 +22,7 @@ func main() {
 
 	// Shared content configs (also loaded by the map editor).
 	cfg, _ := boot.LoadGameData()
+	minWindowW, minWindowH := game.MinimumWindowSize()
 
 	// Game-only configs.
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
@@ -56,8 +59,33 @@ func main() {
 	if err := world.GlobalWorldManager.LoadAllMaps(); err != nil {
 		log.Fatalf("Failed to load maps: %v", err)
 	}
+	audioManager, err := sound.LoadGlobal("assets/audio.yaml", storage.AppSavePath("audio_settings.json"))
+	if err != nil {
+		if sound.IsCatalogContractError(err) {
+			log.Fatalf("Invalid audio catalog: %v", err)
+		}
+		log.Printf("Warning: Failed to load audio; continuing without sound: %v", err)
+	} else {
+		validators := []struct {
+			name string
+			run  func() error
+		}{
+			{name: "gameplay sounds", run: func() error { return audioManager.ValidateSoundKeys(game.RequiredSoundKeys()) }},
+			{name: "magic schools", run: func() error { return audioManager.ValidateSchoolSounds(game.RequiredSoundSchools()) }},
+			{name: "ranged weapon categories", run: func() error { return audioManager.ValidateWeaponCategories(game.RequiredWeaponSoundCategories()) }},
+			{name: "music biomes", run: func() error { return audioManager.ValidateMusicBiomes(knownMusicBiomes(world.GlobalWorldManager)) }},
+		}
+		for _, validator := range validators {
+			if err := validator.run(); err != nil {
+				audioManager.Close()
+				log.Fatalf("Invalid audio catalog contract (%s): %v", validator.name, err)
+			}
+		}
+		defer audioManager.Close()
+	}
 
 	// Set window properties from config
+	ebiten.SetWindowSizeLimits(minWindowW, minWindowH, -1, -1)
 	ebiten.SetWindowSize(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ebiten.SetWindowTitle(cfg.Display.WindowTitle)
 	if cfg.Display.Resizable {
@@ -90,6 +118,17 @@ func main() {
 		}
 		log.Fatal(err)
 	}
+}
+
+func knownMusicBiomes(manager *world.WorldManager) []string {
+	if manager == nil {
+		return nil
+	}
+	biomes := make([]string, 0, len(manager.Biomes))
+	for biome := range manager.Biomes {
+		biomes = append(biomes, biome)
+	}
+	return biomes
 }
 
 // hasFlag reports whether the given command-line flag was passed.

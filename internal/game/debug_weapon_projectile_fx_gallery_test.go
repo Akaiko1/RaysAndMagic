@@ -76,7 +76,7 @@ func TestDebugSim_WeaponProjectileFxGallery(t *testing.T) {
 			col = [3]int{def.Graphics.Color[0], def.Graphics.Color[1], def.Graphics.Color[2]}
 		}
 		blaster := strings.EqualFold(def.Category, "blaster")
-		magic := strings.EqualFold(def.Category, "staff") || strings.EqualFold(def.Category, "book")
+		magic := config.IsMagicRangedWeapon(def)
 		magicProfile := r.weaponFxProfile(def)
 		// Judge at the sizes the projectile actually takes on screen: point
 		// blank (max_size), mid flight (base_size) and near its cap (min_size),

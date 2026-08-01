@@ -55,12 +55,12 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		// Title
 		drawDebugText(screen, "Main Menu", px+16, py+14)
 		// Options
-		for i, label := range mainMenuOptions {
+		for i, option := range mainMenuOptions {
 			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
 			if i == ui.game.mainMenuSelection {
 				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
 			}
-			drawDebugText(screen, label, tx, ty)
+			drawDebugText(screen, option.label, tx, ty)
 		}
 		tipsY := py + mainMenuTipsTopY()
 		for i, tip := range mainMenuControlTips {
@@ -80,6 +80,13 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		drawDebugText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
+	case MenuSettings:
+		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
+		ui.drawAudioSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset, "Audio Settings")
+		back := audioBackRect(settingsLayout.px, settingsLayout.py, settingsLayout.panelH, settingsLayout.contentInset)
+		ui.drawBackButton(screen, back.x1, back.y1, func() {
+			ui.game.closeAudioSettings()
+		})
 	}
 }
 

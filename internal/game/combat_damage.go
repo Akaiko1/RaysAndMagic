@@ -222,7 +222,11 @@ func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, at
 	if isPurePartySummon(target) {
 		return damagecalc.Parts{}
 	}
-	return cs.applyMonsterDamagePacket(target, attack.Packet, cs.partyMonsterDamageOptions(attack, target))
+	parts := cs.applyMonsterDamagePacket(target, attack.Packet, cs.partyMonsterDamageOptions(attack, target))
+	if parts.Total() > 0 && (attack.IsMelee || attack.IsRanged) {
+		cs.game.playMonsterSound(soundMonsterHit, target)
+	}
+	return parts
 }
 
 // weaponDamagePreview is the source-side, unmitigated result shown by tooltips

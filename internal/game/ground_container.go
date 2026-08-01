@@ -396,6 +396,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		g.invalidateContainerFanCache()
 		return
 	}
+	if c.Kind == ContainerKindTreasureChest {
+		g.playSound(soundChestOpen)
+	}
 
 	for _, it := range c.Items {
 		g.party.AddItem(it)
