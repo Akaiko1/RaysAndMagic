@@ -354,6 +354,14 @@ func TestMobSheetsFitDefaultColumns(t *testing.T) {
 // late in the save-pinned SkillType enum (Blaster is a weapon skill sitting
 // after the Misc block) used to print "Weapon Skills" twice.
 func TestContentCardSectionsAreContiguous(t *testing.T) {
+	// The card builders read the GLOBAL item/spell configs; under -shuffle no
+	// earlier test is guaranteed to have loaded them.
+	if _, err := config.LoadItemConfig(filepath.Join("..", "..", "assets", "items.yaml")); err != nil {
+		t.Fatalf("load items: %v", err)
+	}
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
 	pages := map[string][]contentCard{
 		"items":  groupCardsBySection(buildItemsCards()),
 		"spells": groupCardsBySection(buildSpellCards()),

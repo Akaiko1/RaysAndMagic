@@ -214,6 +214,11 @@ func TestNPCDialogueHasActionWalksNestedChoices(t *testing.T) {
 }
 
 func TestCreateNPCFromConfig_EncounterMessages(t *testing.T) {
+	// NPC validation checks spell traders against the LOADED spell config; a
+	// shuffled-in test may have left a reduced one behind, so load the real set.
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
 	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}

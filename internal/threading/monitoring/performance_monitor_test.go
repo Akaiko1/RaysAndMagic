@@ -22,17 +22,45 @@ func TestNewPerformanceMonitor(t *testing.T) {
 		t.Fatal("NewPerformanceMonitor returned nil")
 	}
 
-	if pm.enableDetailed != true {
-		t.Error("Expected enableDetailed to be true")
-	}
-
-	if pm.sampleInterval != time.Second {
-		t.Error("Expected sampleInterval to be 1 second")
-	}
-
 	// Check that start time is recent
 	if time.Since(pm.startTime) > time.Second {
 		t.Error("Start time should be recent")
+	}
+}
+
+// Percentiles come from the presented-frame interval ring: known intervals in,
+// exact order statistics out; empty and reset states report not-ok.
+func TestFrameTimePercentiles(t *testing.T) {
+	pm := NewPerformanceMonitor()
+
+	if _, _, _, ok := pm.FrameTimePercentilesMs(); ok {
+		t.Error("expected ok=false before any presented frame")
+	}
+	pm.RecordPresentedFrame()
+	if _, _, _, ok := pm.FrameTimePercentilesMs(); ok {
+		t.Error("expected ok=false after a single draw (no interval yet)")
+	}
+
+	// Inject 100 known intervals (1..100 ms) directly into the ring.
+	pm.mutex.Lock()
+	for i := 0; i < 100; i++ {
+		pm.frameTimes[i] = uint64(i+1) * 1e6
+	}
+	pm.frameTimesLen = 100
+	pm.frameTimesIdx = 100 % frameTimeWindow
+	pm.mutex.Unlock()
+
+	p50, p95, p99, ok := pm.FrameTimePercentilesMs()
+	if !ok {
+		t.Fatal("expected ok=true with a filled window")
+	}
+	if p50 != 50 || p95 != 95 || p99 != 99 {
+		t.Errorf("percentiles = %.1f/%.1f/%.1f, want 50/95/99", p50, p95, p99)
+	}
+
+	pm.Reset()
+	if _, _, _, ok := pm.FrameTimePercentilesMs(); ok {
+		t.Error("expected ok=false after Reset")
 	}
 }
 

@@ -15,6 +15,11 @@ type TileManager struct {
 	sizeClasses  map[string]float64
 	typeToKey    map[TileType3D]string
 	keyToType    map[string]TileType3D // Map from key to tile type
+	// denseTileData is the flat TileType3D -> data table behind GetTileData:
+	// render paths resolve tiles per column per frame, so one slice index
+	// replaces the two map hops (type -> key -> data). Derived from typeToKey
+	// in createTypeMapping; YAML stays the source of truth.
+	denseTileData []*config.TileData
 	letterToType map[string]TileType3D // Map from letter to tile type
 	typeToLetter map[TileType3D]string // Map from tile type to letter
 	// shortLabelToType / typeToShortLabel place letterless GENERAL tiles via a
@@ -308,6 +313,12 @@ func (tm *TileManager) createTypeMapping() {
 			tm.nextDynamicType++
 		}
 	}
+
+	// Rebuild the flat GetTileData table (unmapped types stay nil).
+	tm.denseTileData = make([]*config.TileData, int(tm.nextDynamicType))
+	for tileType, key := range tm.typeToKey {
+		tm.denseTileData[tileType] = tm.tileData[key]
+	}
 }
 
 // createLetterMappings creates bidirectional mappings between letters and tile types
@@ -347,11 +358,10 @@ func (tm *TileManager) GetShortLabelFromType(tileType TileType3D) string {
 
 // GetTileData returns the configuration data for a tile type
 func (tm *TileManager) GetTileData(tileType TileType3D) *config.TileData {
-	key, ok := tm.typeToKey[tileType]
-	if !ok {
+	if int(tileType) < 0 || int(tileType) >= len(tm.denseTileData) {
 		return nil
 	}
-	return tm.tileData[key]
+	return tm.denseTileData[tileType]
 }
 
 // GetTileDataByKey returns the configuration data for a tile by its string key

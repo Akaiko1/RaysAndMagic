@@ -20,22 +20,6 @@ func npcDialogueHasAction(npc *character.NPC, action string) bool {
 	return npc != nil && npc.DialogueData != nil && npc.DialogueData.HasAction(action)
 }
 
-// linkedQuestID returns the quest_id of the NPC's give_quest / turn_in_quest
-// choice - the quest whose status drives the dialogue. "" for non-quest NPCs.
-func linkedQuestID(npc *character.NPC) string {
-	if npc == nil || npc.DialogueData == nil {
-		return ""
-	}
-	for _, c := range npc.DialogueData.Choices {
-		if c == nil {
-			continue
-		}
-		if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != "" {
-			return c.QuestID
-		}
-	}
-	return ""
-}
 
 // questChainStepDone reports whether a quest is finished AND paid out - the
 // condition a chained follow-up waits on.
@@ -80,7 +64,7 @@ func (g *MMGame) choiceAvailable(c *character.NPCDialogueChoice) bool {
 // quest choices whose prerequisite is met and which is not yet finished. A
 // giver that hands out two errands in order (goblins, then wolves) would
 // otherwise stay pinned to the first one forever and fall silent after it -
-// linkedQuestID alone reads only the first choice in the list.
+// a naive first-choice read never advances past choice one.
 func (g *MMGame) activeChainQuestID(npc *character.NPC) string {
 	choices := questChoicesOf(npc)
 	last := ""

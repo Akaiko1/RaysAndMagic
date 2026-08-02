@@ -299,6 +299,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	defer func() {
 		gl.lastDrawDuration = time.Since(drawStart)
 	}()
+	gl.game.threading.PerformanceMonitor.RecordPresentedFrame()
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})

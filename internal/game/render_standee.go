@@ -22,6 +22,11 @@ const (
 	standeeCoreShade    = 0.92 // token rim sits just out of the light vs the face
 	standeeCoreShadeFar = 0.75 // the slab's far edge is in its own shadow
 	standeeMaxShells    = 16   // cap on core shell layers (perf guard at point-blank range)
+	// Shell spacing is authored in 1920-wide screen pixels; above that width it
+	// scales with the resolution (constant ANGULAR density), so 4K pays the same
+	// layer count as 1080p instead of double.
+	standeeShellRefWidth   = 1920
+	standeeShellSpacingPx  = 1.5
 	// At high shell counts the exact same stack is composited in one fragment
 	// pass. This is a render optimization, not a visual LOD.
 	standeeVolumeMinShells = 6
@@ -775,14 +780,18 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 }
 
 // standeeShellCount is the number of core silhouette layers a slab needs at
-// the given half-thickness/depth so shells never sit more than ~1.5 screen
-// pixels apart (the die-cut wood rim reads solid, not banded). Pure geometry -
-// extracted so a perf diagnostic can compute the SAME per-tree cost the
-// renderer will pay without touching any texture (see
-// debug_standee_cost_sim_test.go).
+// the given half-thickness/depth so shells never sit more than
+// standeeShellSpacingPx 1920-normalized pixels apart (the die-cut wood rim
+// reads solid, not banded). Pure geometry - extracted so a perf diagnostic can
+// compute the SAME per-tree cost the renderer will pay without touching any
+// texture (see debug_standee_cost_sim_test.go).
 func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, centerDepth float64) int {
 	thicknessPx := 2 * halfThicknessWorld * float64(screenW) / (2 * halfFovTan * centerDepth)
-	shells := int(thicknessPx/1.5) + 1
+	spacing := standeeShellSpacingPx
+	if screenW > standeeShellRefWidth {
+		spacing *= float64(screenW) / standeeShellRefWidth
+	}
+	shells := int(thicknessPx/spacing) + 1
 	if shells < 2 {
 		shells = 2
 	}
@@ -842,8 +851,8 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	}
 
 	// The wood between the stickers is a real volume: a dense stack of
-	// silhouette shells (shell texturing) spaced <= ~1.5 screen pixels apart, so
-	// at any viewing angle the rim reads as solid die-cut wood, not a plane.
+	// silhouette shells (shell texturing) at constant angular spacing, so at
+	// any viewing angle the rim reads as solid die-cut wood, not a plane.
 	shells := standeeShellCount(h, screenW, halfFovTan, centerDepth)
 	// Painter's order per column is fixed for parallel surfaces: build far -> near.
 	surfaces := dst[:0]

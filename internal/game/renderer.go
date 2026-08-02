@@ -4339,8 +4339,10 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				if centerDepth < ts {
 					centerDepth = ts
 				}
-				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, heightTiles)
-				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, float64(bh), float64(btop+bh), sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
+				// Float twin: whole-pixel height/bottom quantization makes the
+				// facade bob 1px up and down while the camera approaches.
+				bhF, bBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(centerDepth, heightTiles)
+				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bhF, bBottomF, sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
 				if okSlab {
 					// Column-clip the shared slab to THIS entry's footprint tile
 					// (the painter sort placed the segment at its own tile depth).
@@ -4388,8 +4390,12 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// door meets the flanking walls and the lintel line precisely -
 				// no billboard rounding, no overscan, no art stretch.
 				doorSpan := float64(r.game.config.GetTileSize())
-				doorH, doorTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, 1.0)
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, float64(doorH), float64(doorTop+doorH), sb, doorSpan, doorDepthAllowanceWorld(r.game.config.GetTileSize()), false)
+				// Float twin: the int wall formula quantizes height and bottom to
+				// whole pixels independently, so a distant door bobs 1px up and
+				// down while the camera approaches (walls hide it - each column
+				// creeps alone; a single sprite hops as one piece).
+				doorHF, doorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(s.depthPerp, 1.0)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, doorHF, doorBottomF, sb, doorSpan, doorDepthAllowanceWorld(r.game.config.GetTileSize()), false)
 				return
 			}
 		}

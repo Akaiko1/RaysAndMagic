@@ -1150,6 +1150,9 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 			fmt.Sprintf("standee dc: %d", r.statStandeeCalls),
 			fmt.Sprintf("aura: %d", r.statAuraTiles),
 		)
+		if p50, p95, p99, ok := ui.game.threading.PerformanceMonitor.FrameTimePercentilesMs(); ok {
+			lines = append(lines, fmt.Sprintf("frame p50/95/99: %.1f/%.1f/%.1f", p50, p95, p99))
+		}
 	}
 
 	compassX, compassY := ui.getCompassCenter()

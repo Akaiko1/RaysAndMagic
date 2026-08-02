@@ -440,6 +440,9 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 
 func TestShippedMonsterCatalogReferencesResolve(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
+	// The shipped catalog is a GLOBAL; under -shuffle no earlier test is
+	// guaranteed to have loaded it.
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	if err := monsterPkg.ValidateCatalogReferences(monsterPkg.MonsterConfig, cs.game.config); err != nil {
 		t.Fatalf("shipped monster catalog reference: %v", err)
 	}

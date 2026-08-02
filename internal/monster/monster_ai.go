@@ -1399,6 +1399,42 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	if len(goals) == 0 && !melee {
 		return approach
 	}
+	// Melee twin: the whole near ring is taken or blocked. Queue on the second
+	// ring via A* instead of leaving the exit to the greedy last-resort escape
+	// step - pathed queueing also holds across detours the one-step escape
+	// cannot route.
+	if len(goals) == 0 {
+		return m.MeleeApproachRingGoals(collisionChecker, targetX, targetY)
+	}
+	return goals
+}
+
+// MeleeApproachRingGoals is the blocked-near-ring fallback shared by RT and TB
+// pursuit: every adjacent attack post is taken, so path to the free tiles of
+// the second ring around the target. These are never attack posts - just queue
+// positions the next repath advances from.
+func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
+	targetTileX := int(targetX / m.tileSize())
+	targetTileY := int(targetY / m.tileSize())
+	const approachRing = 2
+	reservations, hasReservations := collisionChecker.(AttackPostReservationChecker)
+	goals := make([]TileCoord, 0, approachRing*8)
+	for dy := -approachRing; dy <= approachRing; dy++ {
+		for dx := -approachRing; dx <= approachRing; dx++ {
+			if mathutil.IntAbs(dx) != approachRing && mathutil.IntAbs(dy) != approachRing {
+				continue
+			}
+			tileX, tileY := targetTileX+dx, targetTileY+dy
+			centerX, centerY := m.tileToWorldCenter(tileX, tileY)
+			if hasReservations && reservations.IsMonsterAttackPostReserved(m.ID, centerX, centerY) {
+				continue
+			}
+			if !collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+				continue
+			}
+			goals = append(goals, TileCoord{X: tileX, Y: tileY})
+		}
+	}
 	return goals
 }
 

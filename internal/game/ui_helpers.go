@@ -36,13 +36,6 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-func drawWrappedDebugText(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
-	lines := truncateWrappedLines(wrapDebugText(text, area.w), maxLines, area.w)
-	for i, line := range lines {
-		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
-	}
-}
-
 // partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
 // horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
 // Portrait width comes from UIConfig (not derived from screen width) so going

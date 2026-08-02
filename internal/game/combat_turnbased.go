@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"sort"
 	"ugataima/internal/character"
-	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 )
@@ -724,32 +723,12 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 // when no adjacent attack post is currently free. These are never attack posts:
 // they let a pouncer advance after its landing ring is occupied without using a
 // separate greedy step that could disagree with terrain/habitat pathing.
+// The ring itself is shared with RT pursuit (MeleeApproachRingGoals).
 func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
 	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
 		return nil
 	}
-	tileSize := float64(gl.game.config.GetTileSize())
-	if tileSize <= 0 {
-		return nil
-	}
-	targetTileX, targetTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
-	const approachRing = 2
-	goals := make([]monster.TileCoord, 0, approachRing*8)
-	for dy := -approachRing; dy <= approachRing; dy++ {
-		for dx := -approachRing; dx <= approachRing; dx++ {
-			if mathutil.IntAbs(dx) != approachRing && mathutil.IntAbs(dy) != approachRing {
-				continue
-			}
-			tileX, tileY := targetTileX+dx, targetTileY+dy
-			worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
-			if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, worldX, worldY) ||
-				!gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, worldX, worldY, m.HabitatPrefs, m.Flying) {
-				continue
-			}
-			goals = append(goals, monster.TileCoord{X: tileX, Y: tileY})
-		}
-	}
-	return goals
+	return m.MeleeApproachRingGoals(gl.game.collisionSystem, targetX, targetY)
 }
 
 // moveMonsterOffAttackTargetTileTB repairs an attacker that starts a turn on

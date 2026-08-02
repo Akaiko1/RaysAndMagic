@@ -1,7 +1,9 @@
 package monitoring
 
 import (
+	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,23 +26,24 @@ type PerformanceMonitor struct {
 	collisionsDetected atomic.Uint64
 
 	// Statistics
-	mutex           sync.RWMutex
-	avgFrameTime    float64
-	avgRaycastTime  float64
-	peakMemoryUsage uint64
-	startTime       time.Time
-
-	// Configuration
-	enableDetailed bool
-	sampleInterval time.Duration
+	mutex     sync.RWMutex
+	startTime time.Time
+	// Ring of the last frameTimeWindow presented-frame intervals, for the
+	// overlay's p50/p95/p99. An average hides hitches; percentiles don't.
+	frameTimes    [frameTimeWindow]uint64
+	frameTimesIdx int
+	frameTimesLen int
+	lastPresented time.Time
 }
+
+// frameTimeWindow is ~2-4s of frames: long enough for stable percentiles,
+// short enough that a spike ages out and the overlay reflects NOW.
+const frameTimeWindow = 240
 
 // NewPerformanceMonitor creates a new performance monitor
 func NewPerformanceMonitor() *PerformanceMonitor {
 	return &PerformanceMonitor{
-		startTime:      time.Now(),
-		enableDetailed: true,
-		sampleInterval: time.Second,
+		startTime: time.Now(),
 	}
 }
 
@@ -63,16 +66,46 @@ func (ft *FrameTimer) EndFrame() {
 	frameTime := time.Since(ft.startTime)
 	ft.monitor.frameTime.Store(uint64(frameTime.Nanoseconds()))
 	ft.monitor.frameCount.Add(1)
+}
 
-	// Update average frame time
-	if ft.monitor.enableDetailed {
-		ft.monitor.mutex.Lock()
-		count := ft.monitor.frameCount.Load()
-		if count > 0 {
-			ft.monitor.avgFrameTime = float64(ft.monitor.frameTime.Load()) / float64(count)
+// RecordPresentedFrame notes one presented frame (call it once per Draw); the
+// interval since the previous call feeds the percentile window. Wall-clock
+// between draws is the pacing the player actually sees - it includes update
+// ticks, render, GPU sync and prewarm, which the update-only FrameTimer misses.
+func (pm *PerformanceMonitor) RecordPresentedFrame() {
+	now := time.Now()
+	pm.mutex.Lock()
+	if !pm.lastPresented.IsZero() {
+		pm.frameTimes[pm.frameTimesIdx] = uint64(now.Sub(pm.lastPresented).Nanoseconds())
+		pm.frameTimesIdx = (pm.frameTimesIdx + 1) % frameTimeWindow
+		if pm.frameTimesLen < frameTimeWindow {
+			pm.frameTimesLen++
 		}
-		ft.monitor.mutex.Unlock()
 	}
+	pm.lastPresented = now
+	pm.mutex.Unlock()
+}
+
+// FrameTimePercentilesMs returns p50/p95/p99 of the recent presented-frame
+// window in milliseconds. ok=false until at least two draws were recorded.
+func (pm *PerformanceMonitor) FrameTimePercentilesMs() (p50, p95, p99 float64, ok bool) {
+	pm.mutex.RLock()
+	n := pm.frameTimesLen
+	window := make([]uint64, n)
+	copy(window, pm.frameTimes[:n])
+	pm.mutex.RUnlock()
+	if n == 0 {
+		return 0, 0, 0, false
+	}
+	slices.Sort(window)
+	at := func(q float64) float64 {
+		i := int(math.Ceil(q*float64(n))) - 1
+		if i < 0 {
+			i = 0
+		}
+		return float64(window[i]) / 1e6
+	}
+	return at(0.50), at(0.95), at(0.99), true
 }
 
 // RaycastTimer helps measure raycasting performance
@@ -93,12 +126,6 @@ func (pm *PerformanceMonitor) StartRaycast() *RaycastTimer {
 func (rt *RaycastTimer) EndRaycast() {
 	raycastTime := time.Since(rt.startTime)
 	rt.monitor.raycastTime.Store(uint64(raycastTime.Nanoseconds()))
-
-	if rt.monitor.enableDetailed {
-		rt.monitor.mutex.Lock()
-		rt.monitor.avgRaycastTime = float64(rt.monitor.raycastTime.Load())
-		rt.monitor.mutex.Unlock()
-	}
 }
 
 // GameMetrics tracks game-specific performance data
@@ -156,8 +183,6 @@ func (pm *PerformanceMonitor) GetDetailedStats() map[string]interface{} {
 	return map[string]interface{}{
 		"uptime_seconds":             uptime.Seconds(),
 		"frame_count":                pm.frameCount.Load(),
-		"avg_frame_time_ms":          pm.avgFrameTime / 1000000, // Convert to milliseconds
-		"avg_raycast_time_ms":        pm.avgRaycastTime / 1000000,
 		"last_frame_time_ms":         float64(pm.frameTime.Load()) / 1000000,
 		"last_raycast_time_ms":       float64(pm.raycastTime.Load()) / 1000000,
 		"last_sprite_render_time_ms": float64(pm.spriteRenderTime.Load()) / 1000000,
@@ -232,9 +257,9 @@ func (pm *PerformanceMonitor) Reset() {
 	pm.collisionsDetected.Store(0)
 
 	pm.mutex.Lock()
-	pm.avgFrameTime = 0
-	pm.avgRaycastTime = 0
-	pm.peakMemoryUsage = 0
+	pm.frameTimesIdx = 0
+	pm.frameTimesLen = 0
+	pm.lastPresented = time.Time{}
 	pm.startTime = time.Now()
 	pm.mutex.Unlock()
 }

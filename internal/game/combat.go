@@ -4891,7 +4891,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
 			continue
 		}
-		cs.applyMonsterDamagePacket(
+		dealt := cs.applyMonsterDamagePacket(
 			m,
 			singleMonsterDamagePacket(damagecalc.Parts{Normal: monsterDmg}, damageTypeStr, resistPierce),
 			monsterDamageOptions{},
@@ -4902,6 +4902,9 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
 			xpAwarded := cs.finishMonsterKill(m)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, xpAwarded))
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d from %s! (HP: %d/%d)",
+				m.Name, dealt.Total(), def.Name, m.HitPoints, m.MaxHitPoints))
 		}
 	}
 

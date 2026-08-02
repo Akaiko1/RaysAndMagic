@@ -632,13 +632,6 @@ func SetSizeClassHeights(m map[string]float64) {
 	}
 }
 
-// SizeClassTiles returns the monster sprite height (tiles) for a size class and
-// whether it is defined.
-func SizeClassTiles(class string) (float64, bool) {
-	h, ok := sizeClassHeights[class]
-	return h, ok
-}
-
 // ValidateSizeClassHeights fails if the loaded height table omits any canonical
 // class, so a config that drops/renames a class is caught at boot instead of
 // silently shrinking those entities to the fallback height.
