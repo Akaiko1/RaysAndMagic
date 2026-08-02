@@ -937,8 +937,12 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 // across a new game, map arrival, and save load. Terrain blocks movement; mobs
 // are deliberately pass-through and their attack positions are tracked as
 // logical reservations instead of physical collision.
+// partyCollisionBoxSize is the party's square collision box side. Shared with
+// the landmark-registration overlap test so the two can never disagree.
+const partyCollisionBoxSize = 16.0
+
 func newPlayerCollisionEntity(x, y float64) *collision.Entity {
-	return collision.NewEntity("player", x, y, 16, 16, collision.CollisionTypePlayer, true)
+	return collision.NewEntity("player", x, y, partyCollisionBoxSize, partyCollisionBoxSize, collision.CollisionTypePlayer, true)
 }
 
 // partyInCombat reports whether a live hostile monster is NEAR the party

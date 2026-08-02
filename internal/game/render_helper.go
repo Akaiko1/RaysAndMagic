@@ -146,36 +146,69 @@ func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX i
 	return int(xf), d, ok
 }
 
-// projectToScreenXF is projectToScreenX without the pixel truncation.
-func (rh *RenderingHelper) projectToScreenXF(entityX, entityY float64) (screenXf float64, depth float64, ok bool) {
+// cameraSpaceXY transforms a world point into camera space: tx is the
+// horizontal offset, ty the perpendicular depth. Shared by the point
+// projection and the segment-span projection below.
+func (rh *RenderingHelper) cameraSpaceXY(entityX, entityY float64) (tx, ty float64, ok bool) {
 	cam := rh.game.camera
 	dx := entityX - cam.X
 	dy := entityY - cam.Y
-
-	// Camera direction vector
 	dirX := math.Cos(cam.Angle)
 	dirY := math.Sin(cam.Angle)
-
-	// Camera plane vector (perpendicular to direction, scaled by FOV)
 	planeScale := math.Tan(cam.FOV / 2)
 	planeX := -dirY * planeScale
 	planeY := dirX * planeScale
-
-	// Invert the camera matrix to transform world coords to camera space
-	// | planeX  dirX |   | transformX |   | dx |
-	// | planeY  dirY | * | transformY | = | dy |
 	det := planeX*dirY - dirX*planeY
 	if math.Abs(det) < 1e-9 {
-		return 0, 0, false // Degenerate matrix
+		return 0, 0, false
 	}
 	invDet := 1.0 / det
-	transformX := invDet * (dirY*dx - dirX*dy)      // Horizontal offset in camera space
-	transformY := invDet * (-planeY*dx + planeX*dy) // Perpendicular distance (depth)
+	return invDet * (dirY*dx - dirX*dy), invDet * (-planeY*dx + planeX*dy), true
+}
 
-	if transformY <= 0 {
-		return 0, 0, false // Behind camera
+// projectSegmentSpanX projects a world segment's on-screen column span. Unlike
+// projecting the endpoints, an endpoint BEHIND the camera plane does not fail:
+// it is clamped to just in front of the plane ALONG THE SEGMENT, so the span
+// runs off the correct screen edge - the point-blank case where a cross's
+// center or corner is behind the party while its arm is still on screen.
+// ok=false only when the whole segment is behind the camera or the projection
+// degenerates.
+func (rh *RenderingHelper) projectSegmentSpanX(x0, y0, x1, y1 float64) (lo, hi int, ok bool) {
+	const nearEps = 0.5 // world units; projection at this depth lands far off-screen
+	tx0, ty0, ok0 := rh.cameraSpaceXY(x0, y0)
+	tx1, ty1, ok1 := rh.cameraSpaceXY(x1, y1)
+	if !ok0 || !ok1 {
+		return 0, 0, false
 	}
+	if ty0 < nearEps && ty1 < nearEps {
+		return 0, 0, false
+	}
+	// Camera space is linear in the world point, so the plane crossing
+	// interpolates exactly.
+	clamp := func(txA, tyA, txB, tyB float64) (float64, float64) {
+		if tyA >= nearEps {
+			return txA, tyA
+		}
+		s := (nearEps - tyA) / (tyB - tyA)
+		return txA + s*(txB-txA), nearEps
+	}
+	tx0, ty0 = clamp(tx0, ty0, tx1, ty1)
+	tx1, ty1 = clamp(tx1, ty1, tx0, ty0)
+	halfW := float64(rh.game.config.GetScreenWidth()) / 2
+	xa := halfW * (1 + tx0/ty0)
+	xb := halfW * (1 + tx1/ty1)
+	if xa > xb {
+		xa, xb = xb, xa
+	}
+	return int(xa), int(xb), true
+}
 
+// projectToScreenXF is projectToScreenX without the pixel truncation.
+func (rh *RenderingHelper) projectToScreenXF(entityX, entityY float64) (screenXf float64, depth float64, ok bool) {
+	transformX, transformY, okDet := rh.cameraSpaceXY(entityX, entityY)
+	if !okDet || transformY <= 0 {
+		return 0, 0, false // degenerate matrix, or behind the camera
+	}
 	screenW := rh.game.config.GetScreenWidth()
 	return float64(screenW) / 2 * (1 + transformX/transformY), transformY, true
 }
@@ -357,7 +390,7 @@ func (rh *RenderingHelper) npcBillboardParams(npc *character.NPC) (sizeTiles flo
 		return size, rh.game.config.Graphics.Monster.MinSpriteSize
 	}
 	switch npcRenderCatOf(npc) {
-	case catScenery, catLandmark, catWall, catDoor:
+	case catScenery, catLandmark, catWideLandmark, catWall, catDoor:
 		return size, sceneryMinSpriteSize
 	default:
 		return size, rh.game.config.Graphics.NPC.MinSpriteSize
@@ -510,6 +543,9 @@ func (rh *RenderingHelper) envHeightMultiplierForMode(tileType world.TileType3D,
 		// Static swarm tiles draw their authored fixed mote layout procedurally;
 		// night motes are separate moving emissions. Both paths are selected
 		// by tile content rather than by a hardcoded tile key.
+		// Only the natural cross authors frame WIDTH and skips the alpha
+		// normalization; a crossed_prop authors visible height like the flat
+		// standee it replaced.
 		if renderType != config.TileRenderCrossedStandee && !isFireflySwarmTile(tileType) {
 			heightMultiplier *= rh.visibleHeightFrameScale(
 				world.GlobalTileManager.GetSprite(tileType),

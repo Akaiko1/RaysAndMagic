@@ -180,13 +180,21 @@ func TestCrossedTreeArmsInterleaveWithAdjacentStandee(t *testing.T) {
 		t.Fatalf("standee was not interleaved through dune arms: before=%d after=%d", armsBefore, armsAfter)
 	}
 
+	// The split is UNCONDITIONAL: a depth-separated standee still leaves the
+	// cross as four arms, because cross-vs-cross occlusion is decided by the
+	// same global painter order and cannot depend on an overlap scan.
 	farNPC := npc
 	farNPC.depthPerp += 4 * tileSize
-	fastPath := r.splitCrossedTreesForPainterOrder(
+	always := r.splitCrossedTreesForPainterOrder(
 		[]UnifiedSpriteRenderData{tree, farNPC}, 0, 1,
 	)
-	if len(fastPath) != 2 || fastPath[0].treeArmOnly {
-		t.Fatal("depth-separated standee expanded the dune instead of retaining the one-entry fast path")
+	if len(always) != 5 {
+		t.Fatalf("cross produced %d painter entries, want four arms + standee", len(always))
+	}
+	for _, s := range always {
+		if s.spriteType == SpriteTypeTree && !s.treeArmOnly {
+			t.Fatal("cross remained a whole-entry despite the unconditional split")
+		}
 	}
 }
 
@@ -333,5 +341,43 @@ func TestApproachAngle(t *testing.T) {
 	// And it must move in the negative direction when that's shorter.
 	if got := approachAngle(-3.0, 3.0, 0.1); math.Abs(got-(-3.1)) > 1e-9 {
 		t.Errorf("negative arc: got %.4f want -3.1", got)
+	}
+}
+
+// Pressed up against a cross, its center (and at some angles a corner) is
+// BEHIND the camera plane while the arms are still on screen. The arms must
+// survive that as clamped spans - a failed projection here used to abort the
+// split and drop the draw to the two-whole-slabs fallback, which paints the
+// back arm over the front one.
+func TestCrossedArmsSurvivePointBlankCamera(t *testing.T) {
+	cfg := loadTestConfig(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.renderHelper = NewRenderingHelper(game)
+	r := &Renderer{game: game}
+	ts := float64(cfg.GetTileSize())
+
+	treeX, treeY := 10.5*ts, 10.5*ts
+	footprint := 2.0 * ts // the standard tree: its footprint extends a full tile from center
+
+	// Camera 0.6 tiles from the center (the collision minimum), INSIDE the
+	// footprint, swept through a full turn: every pose must yield usable arms.
+	game.camera.X, game.camera.Y = treeX, treeY+0.6*ts
+	for deg := 0; deg < 360; deg += 15 {
+		game.camera.Angle = float64(deg) * math.Pi / 180
+		arms, ok := r.crossedStandeeArms(treeX, treeY, math.Pi/4, 3*math.Pi/4, footprint)
+		if !ok {
+			t.Fatalf("angle %d: point-blank arms degenerated to the whole-slab fallback", deg)
+		}
+		visible := 0
+		for _, arm := range arms {
+			if arm.lo <= arm.hi {
+				visible++
+			}
+		}
+		if visible == 0 {
+			t.Fatalf("angle %d: no visible arm spans while standing beside the cross", deg)
+		}
 	}
 }

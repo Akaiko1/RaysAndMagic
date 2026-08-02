@@ -1019,10 +1019,20 @@ type TileData struct {
 // Tile render classes describe HOW a tile is drawn, never WHAT the content is.
 // Keep the authored YAML values and every runtime dispatcher on these constants.
 const (
-	TileRenderFloor           = "floor"
-	TileRenderWall            = "wall"
-	TileRenderStandee         = "standee"
-	TileRenderCrossedStandee  = "crossed_standee"
+	TileRenderFloor   = "floor"
+	TileRenderWall    = "wall"
+	TileRenderStandee = "standee"
+	// TileRenderCrossedStandee is the natural crossed volume: trees, rocks,
+	// dunes. size_class is the projected frame WIDTH (tree = the standard 2.0;
+	// a smaller class makes a narrower tree). Degrades to one camera-facing
+	// plane past graphics.tree_standee_lod_tiles and is the class canopy shade
+	// and earthquake toppling act on.
+	TileRenderCrossedStandee = "crossed_standee"
+	// TileRenderCrossedProp is the built crossed volume: boilers, crates,
+	// screens, logs. Same two-plane geometry, but size_class is the VISIBLE
+	// HEIGHT like every other prop, it never turns to face the camera at any
+	// distance, and it takes part in no tree mechanic.
+	TileRenderCrossedProp     = "crossed_prop"
 	TileRenderLandmarkStandee = "landmark_standee"
 )
 
@@ -1034,7 +1044,16 @@ var tileRenderTypes = [...]string{
 	TileRenderWall,
 	TileRenderStandee,
 	TileRenderCrossedStandee,
+	TileRenderCrossedProp,
 	TileRenderLandmarkStandee,
+}
+
+// IsCrossedRenderType reports whether a render type draws two perpendicular
+// planes. Geometry dispatchers (tile cache, raycast skip, prewarm, opacity)
+// treat both crossed classes alike; the tree MECHANICS - billboard LOD, canopy
+// shade, earthquake toppling - stay keyed to TileRenderCrossedStandee.
+func IsCrossedRenderType(renderType string) bool {
+	return renderType == TileRenderCrossedStandee || renderType == TileRenderCrossedProp
 }
 
 // TileRenderTypes returns the closed authored render-class set. The copy keeps
@@ -1427,7 +1446,9 @@ func IsTileSizeClass(renderType, class string) bool {
 	if renderType == TileRenderCrossedStandee {
 		return IsCrossedStandeeSizeClass(class)
 	}
-	return (renderType == TileRenderStandee || renderType == TileRenderLandmarkStandee) &&
+	return (renderType == TileRenderStandee ||
+		renderType == TileRenderCrossedProp ||
+		renderType == TileRenderLandmarkStandee) &&
 		IsPropSizeClass(class)
 }
 

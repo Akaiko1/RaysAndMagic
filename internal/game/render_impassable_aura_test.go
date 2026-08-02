@@ -6,20 +6,33 @@ import (
 	"ugataima/internal/config"
 )
 
-// TestAuraBillboardRenderType: the aura targets ambiguous impassable billboards
-// (rocks/cliffs) and skips trees, textured walls, and non-blocking floor tiles.
-func TestAuraBillboardRenderType(t *testing.T) {
-	cases := map[string]bool{
-		config.TileRenderStandee:        true,
-		config.TileRenderCrossedStandee: false,
-		config.TileRenderWall:           false,
-		config.TileRenderFloor:          false,
-		"":                              false,
+// TestImpassableAuraIsAuthoredOptIn: the ground bubble is reserved for blockers
+// geometry cannot express - ground that looks walkable and is not - and an
+// author opts in by name. Bubbles are meant to be RARE.
+//
+// No render type earns one implicitly, crossed classes least of all: a cross
+// already reads as an impassable volume, so a bubble under it is exactly the
+// clutter the crossed classes exist to remove. Do not reintroduce a render-type
+// rule here.
+func TestImpassableAuraIsAuthoredOptIn(t *testing.T) {
+	renderTypes := []string{
+		config.TileRenderStandee,
+		config.TileRenderCrossedStandee,
+		config.TileRenderLandmarkStandee,
+		config.TileRenderWall,
+		config.TileRenderFloor,
+		"",
 	}
-	for rt, want := range cases {
-		if got := isAuraBillboardRenderType(rt); got != want {
-			t.Errorf("isAuraBillboardRenderType(%q) = %v, want %v", rt, got, want)
+	for _, rt := range renderTypes {
+		if tileShowsImpassableAura(&config.TileData{RenderType: rt, Solid: true}) {
+			t.Errorf("render_type %q earned an aura without authoring impassable_aura", rt)
 		}
+		if !tileShowsImpassableAura(&config.TileData{RenderType: rt, ImpassableAura: true}) {
+			t.Errorf("render_type %q authored impassable_aura but got none", rt)
+		}
+	}
+	if tileShowsImpassableAura(nil) {
+		t.Error("unknown tile earned an aura")
 	}
 }
 

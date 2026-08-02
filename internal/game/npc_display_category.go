@@ -25,23 +25,25 @@ import (
 type npcRenderCat int
 
 const (
-	catNPC       npcRenderCat = iota // a person/figure: turns to face the party, keeps the readability pixel floor, "talk to"
-	catWall                          // flush wall-mounted token (slides to the nearest solid neighbour)
-	catDoor                          // doorway blocker: stands ACROSS the opening (yaw from the flanking walls); drawn + solid only while closed
-	catLandmark                      // tall crossed monument standee (towers, gates, fountains)
-	catScenery                       // scenery prop: showcase-spins in place, may recede small at range, "investigate"
-	catInvisible                     // no sprite - a pure interaction/anchor point
+	catNPC          npcRenderCat = iota // a person/figure: turns to face the party, keeps the readability pixel floor, "talk to"
+	catWall                             // flush wall-mounted token (slides to the nearest solid neighbour)
+	catDoor                             // doorway blocker: stands ACROSS the opening (yaw from the flanking walls); drawn + solid only while closed
+	catLandmark                         // tall crossed monument standee (towers, gates, fountains)
+	catWideLandmark                     // grid-aligned flat facade spanning grid_span_tiles (pyramid, clock tower)
+	catScenery                          // scenery prop: showcase-spins in place, may recede small at range, "investigate"
+	catInvisible                        // no sprite - a pure interaction/anchor point
 )
 
 // npcCatName is the canonical YAML value for each category (NPC render_category)
 // and the reverse map used to parse it. Editing one keeps both in sync.
 var npcCatName = map[npcRenderCat]string{
-	catNPC:       "npc",
-	catWall:      "wall_mounted",
-	catDoor:      "door",
-	catLandmark:  "landmark",
-	catScenery:   "scenery",
-	catInvisible: "invisible",
+	catNPC:          "npc",
+	catWall:         "wall_mounted",
+	catDoor:         "door",
+	catLandmark:     "landmark",
+	catWideLandmark: "wide_landmark",
+	catScenery:      "scenery",
+	catInvisible:    "invisible",
 }
 
 var npcCatByName = func() map[string]npcRenderCat {
@@ -82,7 +84,7 @@ func ValidateNPCRenderCategories(npcs map[string]*character.NPCData) error {
 			if npc != nil {
 				got = npc.RenderCategory
 			}
-			return fmt.Errorf("NPC %q has missing or unknown render_category %q (valid: npc|wall_mounted|landmark|scenery|door|invisible)", key, got)
+			return fmt.Errorf("NPC %q has missing or unknown render_category %q (valid: npc|wall_mounted|landmark|wide_landmark|scenery|door|invisible)", key, got)
 		}
 	}
 	return nil
@@ -96,15 +98,16 @@ func ValidateNPCVisualSizes(npcs map[string]*character.NPCData, classes map[stri
 		if npc == nil {
 			continue
 		}
-		if npc.GridSpanTiles >= 2 {
-			if npc.SizeClass != "" {
-				return fmt.Errorf("NPC %q grid_span_tiles owns facade size; omit size_class", key)
-			}
-			continue
-		}
 		category, ok := npcCatByName[npc.RenderCategory]
 		if !ok {
 			continue // ValidateNPCRenderCategories owns the category error.
+		}
+		// The facade path and the category must agree, or one silently wins.
+		if category == catWideLandmark && npc.GridSpanTiles < 2 {
+			return fmt.Errorf("NPC %q is wide_landmark and requires grid_span_tiles >= 2", key)
+		}
+		if category != catWideLandmark && npc.GridSpanTiles != 0 {
+			return fmt.Errorf("NPC %q sets grid_span_tiles but render_category %q is not wide_landmark", key, npc.RenderCategory)
 		}
 		if category == catInvisible {
 			if npc.SizeClass != "" {

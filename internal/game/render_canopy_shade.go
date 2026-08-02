@@ -113,7 +113,7 @@ func (r *Renderer) applyCanopyShadeFactors(w *world.World3D, factors []float64, 
 				continue
 			}
 			tileType := w.Tiles[y][x]
-			if world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
+			if tileIsNaturalCross(tileType) {
 				treeTiles[y*width+x] = true
 			}
 		}

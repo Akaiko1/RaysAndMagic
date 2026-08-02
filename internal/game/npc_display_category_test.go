@@ -50,14 +50,17 @@ func TestNPCVisualSizeValidation(t *testing.T) {
 		{name: "person", npc: &character.NPCData{RenderCategory: "npc", SizeClass: "person"}},
 		{name: "prop", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "small_prop"}},
 		{name: "landmark", npc: &character.NPCData{RenderCategory: "landmark", SizeClass: "structure"}},
-		{name: "grid span", npc: &character.NPCData{RenderCategory: "landmark", GridSpanTiles: 4}},
+		{name: "wide landmark", npc: &character.NPCData{RenderCategory: "wide_landmark", GridSpanTiles: 4, SizeClass: "structure"}},
 		{name: "invisible", npc: &character.NPCData{RenderCategory: "invisible"}},
 		{name: "missing class", npc: &character.NPCData{RenderCategory: "scenery"}, wantErr: true},
 		{name: "unknown class", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "typo"}, wantErr: true},
 		{name: "actor class on prop", npc: &character.NPCData{RenderCategory: "scenery", SizeClass: "person"}, wantErr: true},
 		{name: "wrong person class", npc: &character.NPCData{RenderCategory: "npc", SizeClass: "small_prop"}, wantErr: true},
 		{name: "invisible class", npc: &character.NPCData{RenderCategory: "invisible", SizeClass: "small_prop"}, wantErr: true},
-		{name: "grid class", npc: &character.NPCData{RenderCategory: "landmark", GridSpanTiles: 4, SizeClass: "structure"}, wantErr: true},
+		// The facade path and the category must agree, or one silently wins.
+		{name: "grid span on plain landmark", npc: &character.NPCData{RenderCategory: "landmark", GridSpanTiles: 4, SizeClass: "structure"}, wantErr: true},
+		{name: "wide landmark without span", npc: &character.NPCData{RenderCategory: "wide_landmark", SizeClass: "structure"}, wantErr: true},
+		{name: "wide landmark without class", npc: &character.NPCData{RenderCategory: "wide_landmark", GridSpanTiles: 4}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,7 +88,7 @@ func TestResolveNPCRenderCatPanicsOnUnknown(t *testing.T) {
 // Every canonical category must have a YAML name (render_category is purely a
 // render dispatch; the editor groups by the NPC `type:` field, not by this).
 func TestNPCRenderCatTablesCoverAll(t *testing.T) {
-	all := []npcRenderCat{catNPC, catWall, catDoor, catLandmark, catScenery, catInvisible}
+	all := []npcRenderCat{catNPC, catWall, catDoor, catLandmark, catWideLandmark, catScenery, catInvisible}
 	for _, c := range all {
 		if npcCatName[c] == "" {
 			t.Errorf("category %d has no YAML name", c)

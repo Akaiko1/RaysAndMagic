@@ -21,6 +21,7 @@ type mapRenderPrewarmPlan struct {
 	tileSprites        []string
 	wallSprites        []string
 	treeSprites        []string
+	crossedPropSprites []string
 	environmentSprites []processedSpriteKey
 	npcDecodeSprites   []string
 	npcSprites         []mapNPCPrewarmResource
@@ -127,6 +128,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 	tileSprites := make(map[string]struct{})
 	wallSprites := make(map[string]struct{})
 	treeSprites := make(map[string]struct{})
+	crossedPropSprites := make(map[string]struct{})
 	environmentSprites := make(map[processedSpriteKey]struct{})
 	npcDecodeSprites := make(map[string]struct{})
 	npcSprites := make(map[mapNPCPrewarmResource]struct{})
@@ -180,7 +182,8 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 			renderType := tm.GetRenderType(tileType)
 			switch renderType {
-			case config.TileRenderWall, config.TileRenderCrossedStandee, config.TileRenderStandee, config.TileRenderLandmarkStandee:
+			case config.TileRenderWall, config.TileRenderCrossedStandee, config.TileRenderCrossedProp,
+				config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			default:
 				continue
 			}
@@ -198,9 +201,17 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			if name == "" {
 				name = treeStandeeSpriteName(r.treeTilesCache[i].tileType)
 			}
-			if name = normalizedAuthoredSpriteName(name); name != "" {
-				treeSprites[name] = struct{}{}
+			if name = normalizedAuthoredSpriteName(name); name == "" {
+				continue
 			}
+			// Prop crosses are tracked apart from trees: they draw as crosses
+			// whatever trees_as_billboards says, so their prewarm cannot hide
+			// behind that flag.
+			if tm.GetRenderType(r.treeTilesCache[i].tileType) == config.TileRenderCrossedProp {
+				crossedPropSprites[name] = struct{}{}
+				continue
+			}
+			treeSprites[name] = struct{}{}
 		}
 		for i := range r.transparentSpritesCache {
 			resource := r.transparentSpritesCache[i]
@@ -227,7 +238,8 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		if baseName != "" || visitedName != "" {
 			category := npcRenderCatOf(npc)
 			prefix, stableImage := "npc", false
-			if npc.GridSpanTiles < 2 && category == catLandmark {
+			// Validation guarantees a landmark never carries grid_span_tiles.
+			if category == catLandmark {
 				prefix, stableImage = "landmark", true
 			}
 			warmBounds := npc.SizeClass != "" && category != catNPC
@@ -392,6 +404,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 	plan.tileSprites = sortedStringSet(tileSprites)
 	plan.wallSprites = sortedStringSet(wallSprites)
 	plan.treeSprites = sortedStringSet(treeSprites)
+	plan.crossedPropSprites = sortedStringSet(crossedPropSprites)
 	plan.npcDecodeSprites = sortedStringSet(npcDecodeSprites)
 	plan.containerDecode = sortedStringSet(containerDecode)
 	plan.containerSprites = sortedStringSet(containerSprites)
@@ -774,6 +787,13 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 				p.standee("tree", name, p.sprite(name), true)
 			}
 		}
+		// Unconditional: no setting turns a prop cross into a billboard. Its
+		// class targets VISIBLE height, so the alpha bounds are part of its
+		// size - resolving that on first sighting is a file read mid-frame.
+		for _, name := range plan.crossedPropSprites {
+			warmVisibleBounds(name)
+			p.standee("tree", name, p.sprite(name), true)
+		}
 		for _, resource := range plan.environmentSprites {
 			// Size classes target visible alpha height. Decode/cache the CPU bounds
 			// during map load so the first rendered frame never pays file IO.
@@ -809,10 +829,12 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 			p.sprite(name)
 		}
 
-		// Aura colour extraction is another first-sighting ReadPixels sync.
+		// Aura colour extraction is another first-sighting ReadPixels sync. Gate
+		// on the aura flag alone, exactly as the draw does: an aura tile blocks
+		// without being solid (a chasm floor is authored solid:false).
 		if tm := world.GlobalTileManager; tm != nil {
 			for _, tileType := range plan.tileTypes {
-				if tm.IsSolid(tileType) && isAuraBillboardRenderType(tm.GetRenderType(tileType)) {
+				if tileShowsImpassableAura(tm.GetTileData(tileType)) {
 					r.auraTileColor(tileType)
 				}
 			}

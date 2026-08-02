@@ -58,11 +58,12 @@ func (r *Renderer) emitAuraTileEdges(
 }
 
 // drawImpassableTileAura draws a subtle stream of rising "bubble" pixels along
-// the ground edges of impassable billboard tiles (rocks/cliffs) that border a
-// walkable tile. Trees and textured walls are skipped - they already read as
-// solid. The effect tells the player which tiles block movement without
-// cluttering the scene; bubbles take the tile's own floor colour so they blend
-// in, and are depth-tested against walls so they hide correctly behind geometry.
+// the ground edges of blocking tiles that border a walkable one and have opted
+// in with impassable_aura. Nothing earns the hint from its render type: see
+// tileShowsImpassableAura for why the inference was dropped. The effect tells
+// the player which tiles block movement without cluttering the scene; bubbles
+// take the tile's own floor colour so they blend in, and are depth-tested
+// against walls so they hide correctly behind geometry.
 func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 	if !r.game.config.Graphics.ImpassableAura.Enabled || r.game.world == nil || world.GlobalTileManager == nil {
 		return
@@ -89,12 +90,8 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				continue
 			}
 			tile := r.game.world.Tiles[ty][tx]
-			showAura := isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile))
-			if td := world.GlobalTileManager.GetTileData(tile); td != nil && td.ImpassableAura {
-				showAura = true // floor pit (chasm): blocks but reads like ground
-			}
-			if !showAura {
-				continue // trees, textured walls, ordinary floors: not ambiguous
+			if !tileShowsImpassableAura(world.GlobalTileManager.GetTileData(tile)) {
+				continue
 			}
 			// Interior tiles of a blocker cluster (all four neighbours also
 			// block) have no walkable-facing edge - skip before the colour work.
@@ -210,12 +207,18 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 	}
 }
 
-// isAuraBillboardRenderType reports whether a tile's render type is an
-// "ambiguous" impassable billboard (rock/cliff/bush) that benefits from the
-// ground-bubble hint. Crossed standees and walls already read as solid, and
-// floor tiles aren't blockers.
-func isAuraBillboardRenderType(rt string) bool {
-	return rt == config.TileRenderStandee
+// tileShowsImpassableAura reports whether a BLOCKING tile draws the ground
+// bubble. Authored opt-in only, via impassable_aura.
+//
+// The hint used to be inferred from the render type, which caught every solid
+// flat standee and put a bubble under most of the world's scenery. Crossed
+// classes made that inference obsolete: a cross reads as an impassable volume
+// on its own, and no solid flat standee can be authored any more (the tile
+// validator rejects one). So the bubble is now reserved for the case geometry
+// genuinely cannot express - ground that looks walkable and is not, like a
+// chasm floor - and an author asks for it by name.
+func tileShowsImpassableAura(data *config.TileData) bool {
+	return data != nil && data.ImpassableAura
 }
 
 // auraTileColor returns the average RGB of a tile's billboard sprite texture

@@ -10,6 +10,62 @@ import (
 	"ugataima/internal/world"
 )
 
+func TestTilePaletteGroupUsesPlacementBehavior(t *testing.T) {
+	tests := []struct {
+		name string
+		data *config.TileData
+		want string
+	}{
+		{name: "floor", data: &config.TileData{RenderType: config.TileRenderFloor}, want: legendGroupTerrain},
+		{name: "wall", data: &config.TileData{RenderType: config.TileRenderWall}, want: legendGroupWalls},
+		{name: "tree", data: &config.TileData{Type: "nature", RenderType: config.TileRenderCrossedStandee, SizeClass: config.SizeClassTree}, want: legendGroupCrossed},
+		{name: "non-tree wide cross", data: &config.TileData{Type: "rock", RenderType: config.TileRenderCrossedStandee, SizeClass: config.SizeClassTree}, want: legendGroupCrossed},
+		{name: "crossed prop", data: &config.TileData{Type: "prop", RenderType: config.TileRenderCrossedProp, SizeClass: "small_prop"}, want: legendGroupCrossedProps},
+		{name: "narrow tree", data: &config.TileData{Type: "nature", RenderType: config.TileRenderCrossedStandee, SizeClass: "full_tile"}, want: legendGroupCrossed},
+		{name: "landmark", data: &config.TileData{RenderType: config.TileRenderLandmarkStandee}, want: legendGroupLandmarks},
+		{name: "wall decor", data: &config.TileData{RenderType: config.TileRenderStandee, WallMounted: true, Walkable: true}, want: legendGroupWallDecor},
+		{name: "passable decor", data: &config.TileData{RenderType: config.TileRenderStandee, Walkable: true}, want: legendGroupPassableDecor},
+		{name: "invalid blocker fallback", data: &config.TileData{RenderType: config.TileRenderStandee, Solid: true}, want: legendGroupOtherTiles},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tilePaletteGroup(tt.data); got != tt.want {
+				t.Fatalf("tilePaletteGroup() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLegendCollapseSupportsScopesAndRenderGroups(t *testing.T) {
+	groups := []legendGroup{
+		{id: legendGroupTerrain, label: "Ground and Terrain", entries: []legendEntry{{Text: "Floor", Kind: brushTile}}},
+		{id: legendGroupCrossed, label: "Crossed: Trees and Props", entries: []legendEntry{{Text: "Oak", Kind: brushTile}, {Text: "Rock", Kind: brushTile}}},
+	}
+
+	containsText := func(lines []legendEntry, text string) bool {
+		for _, line := range lines {
+			if strings.Contains(line.Text, text) {
+				return true
+			}
+		}
+		return false
+	}
+
+	crossesCollapsed := appendLegendScope(nil, "Biome: Forest", "scope:biome:forest", groups, map[string]bool{legendGroupCrossed: true})
+	if !containsText(crossesCollapsed, "[+] Crossed: Trees and Props") || containsText(crossesCollapsed, "Oak") || containsText(crossesCollapsed, "Rock") {
+		t.Fatalf("collapsed crossed parent leaked children: %+v", crossesCollapsed)
+	}
+	if !containsText(crossesCollapsed, "Floor") {
+		t.Fatal("collapsing crossed standees also hid the terrain group")
+	}
+
+	scopeCollapsed := appendLegendScope(nil, "Biome: Forest", "scope:biome:forest", groups, map[string]bool{"scope:biome:forest": true})
+	if len(scopeCollapsed) != 1 || !containsText(scopeCollapsed, "[+] Biome: Forest") {
+		t.Fatalf("collapsed biome = %+v, want one expandable header", scopeCollapsed)
+	}
+}
+
 // Spells page must group purely BY SCHOOL (no Battle/Utility split) and order
 // each school's spells by ascending SP cost.
 func TestBuildSpellCards_BySchoolByCost(t *testing.T) {

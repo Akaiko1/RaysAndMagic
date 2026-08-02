@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -699,10 +700,6 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 	}
 
 	screenW := r.game.config.GetScreenWidth()
-	xc, _, okc := r.game.renderHelper.projectToScreenX(worldX, worldY)
-	if !okc {
-		return arms, false
-	}
 	clampCol := func(x int) int {
 		if x < 0 {
 			return 0
@@ -715,33 +712,36 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 
 	cam := r.game.camera
 	camDirX, camDirY := math.Cos(cam.Angle), math.Sin(cam.Angle)
-	allOK := true
+	anyVisible := false
 	armIndex := 0
 	for slabIdx, yaw := range [2]float64{yawA, yawB} {
 		dx, dy := math.Cos(yaw), math.Sin(yaw)
 		for _, side := range [2]float64{+1, -1} {
 			cornerX := worldX + dx*side*footprint/2
 			cornerY := worldY + dy*side*footprint/2
-			cc, _, okCorner := r.game.renderHelper.projectToScreenX(cornerX, cornerY)
-			if !okCorner {
-				allOK = false
-			}
-			lo, hi := xc, cc
-			if lo > hi {
-				lo, hi = hi, lo
-			}
+			// Segment projection, not point projection: pressed up against the
+			// cross, the CENTER (or a corner) sits behind the camera plane while
+			// the arm is still on screen. A failed point projection here used to
+			// abort the whole split, dropping the draw to the two-whole-slabs
+			// fallback - the "back arm on top of the front arm" artifact.
+			lo, hi, visible := r.game.renderHelper.projectSegmentSpanX(worldX, worldY, cornerX, cornerY)
 			midX := worldX + dx*side*footprint/4
 			midY := worldY + dy*side*footprint/4
-			arms[armIndex] = treeArm{
+			arm := treeArm{
 				slabIdx: slabIdx,
-				lo:      clampCol(lo),
-				hi:      clampCol(hi),
 				depth:   (midX-cam.X)*camDirX + (midY-cam.Y)*camDirY,
 			}
+			if visible {
+				anyVisible = true
+				arm.lo, arm.hi = clampCol(lo), clampCol(hi)
+			} else {
+				arm.lo, arm.hi = 1, 0 // empty span: the arm is fully behind the camera
+			}
+			arms[armIndex] = arm
 			armIndex++
 		}
 	}
-	return arms, allOK
+	return arms, anyVisible
 }
 
 // drawStandeeSprite draws the sprite as a thick wooden token of world yaw `yaw`
@@ -1318,6 +1318,52 @@ func treeIsBillboardLOD(distance, tileSize, lodTiles float64) bool {
 	return tileSize > 0 && lodTiles > 0 && distance > lodTiles*tileSize
 }
 
+// tileIsNaturalCross reports whether a crossed tile is the natural cross
+// (render_type crossed_standee: trees, rocks, dunes). Only these author frame
+// WIDTH, take the distant billboard LOD, canopy shade, earthquake toppling and
+// the foliage depth shading; a crossed_prop is a static built object that
+// authors visible height like the flat standee it replaced.
+func tileIsNaturalCross(tileType world.TileType3D) bool {
+	return world.GlobalTileManager != nil &&
+		world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee
+}
+
+// crossedTileDrawsAsStandee reports whether a crossed tile takes the crossed
+// sprite pass or the flat per-column raycast fallback. trees_as_billboards
+// governs TREES only - a flat billboard faces the camera, which is the one
+// thing a crossed_prop must never do.
+func (r *Renderer) crossedTileDrawsAsStandee(renderType string) bool {
+	switch renderType {
+	case config.TileRenderCrossedProp:
+		return true
+	case config.TileRenderCrossedStandee:
+		return r != nil && r.game != nil && r.game.config.Graphics.TreesAsBillboards
+	}
+	return false
+}
+
+// crossedProjectedWidth is a crossed entry's on-screen width: a natural cross
+// authors it directly (sizeF), a crossed_prop authors HEIGHT so the width
+// follows the source aspect. Split and draw both use this, so arm columns can
+// never disagree with the drawn slab.
+func (r *Renderer) crossedProjectedWidth(s UnifiedSpriteRenderData) float64 {
+	if tileIsNaturalCross(s.tileType) {
+		return s.sizeF
+	}
+	name := s.spriteName
+	if name == "" {
+		name = treeStandeeSpriteName(s.tileType)
+	}
+	if r.game == nil || r.game.sprites == nil {
+		return s.sizeF
+	}
+	sprite := r.game.sprites.GetSprite(name)
+	if sprite == nil {
+		return s.sizeF
+	}
+	return spriteWidthForHeight(s.sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
+}
+
 func treeStandeeSpriteName(tileType world.TileType3D) string {
 	if world.GlobalTileManager != nil {
 		if name := world.GlobalTileManager.GetSprite(tileType); name != "" {
@@ -1451,11 +1497,26 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
 	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
-	b := float32(r.applyTreeDepthShading(r.calculateBrightnessWithTorchLight(worldX, worldY, distance), distance))
+	isTree := tileIsNaturalCross(s.tileType)
 
-	// HEIGHT scales by the sprite aspect (the platan, 1:2, is twice as tall as
-	// the square oak); floor anchor unchanged so feet stay grounded.
+	// Foliage depth shading is for trees; a boiler lights like the flat standee
+	// it replaced.
+	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
+	if isTree {
+		brightness = r.applyTreeDepthShading(brightness, distance)
+	}
+	b := float32(brightness)
+
+	// A tree authors its projected WIDTH and height follows the sprite aspect
+	// (the platan, 1:2, is twice as tall as the square oak); a prop-class cross
+	// authors visible HEIGHT like every other prop and width follows the aspect.
+	// Floor anchor unchanged either way, so feet stay grounded.
+	widthF := s.sizeF
 	heightF := standeeHeightForWidth(s.sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
+	if !isTree {
+		widthF = r.crossedProjectedWidth(s)
+		heightF = s.sizeF
+	}
 	bottomF := s.bottomF
 	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
@@ -1468,13 +1529,18 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// tile-diagonal footprint squeezed the art horizontally (square oak drew
 	// ~30% too thin once the square-projection FOV removed the old horizontal
 	// stretch that was masking it).
-	footprint := r.spriteFootprintWorld(s.sizeF, centerDepth)
+	footprint := r.spriteFootprintWorld(widthF, centerDepth)
 
 	// Most crosses remain one unified painter entry and prepare both slabs once.
 	// When another nearby standee overlaps this cross's depth interval, the
 	// collector emits one entry per arm so that object can render between the
 	// cross's far and near halves. Prepare only the selected slab here.
 	if s.treeArmOnly {
+		// Point-blank, an arm fully behind the camera carries an empty span;
+		// skip before paying the slab preparation.
+		if s.treeArmLo > s.treeArmHi {
+			return
+		}
 		yaw := yawA
 		if s.treeArmSlab == 1 {
 			yaw = yawB
@@ -1492,8 +1558,9 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	}
 
 	// Far crossed parallax is sub-pixel, so one camera-facing thick standee
-	// retains the silhouette at a fraction of the cost.
-	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
+	// retains the silhouette at a fraction of the cost. Trees only: a prop cross
+	// turning to face the party is the one thing the conversion exists to stop.
+	if isTree && treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightF, bottomF, b, b, b, true, false, footprint)
 		return

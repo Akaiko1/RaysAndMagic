@@ -362,8 +362,8 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				}
 			}
 
-			// Tree tiles: cache one entry per tile for the crossed-standee mode.
-			if world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
+			// Crossed tiles: cache one entry per tile for the crossed sprite pass.
+			if config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(tileType)) {
 				spriteName := world.GlobalTileManager.GetSprite(tileType)
 				palette, emitsNightMotes := nightMotePaletteForConfig(world.GlobalTileManager.GetTileData(tileType))
 				treeCache = append(treeCache, TransparentSpriteData{
@@ -1644,8 +1644,8 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		// drawn per-column here - they render as two crossed standees in the
 		// sprite pass (drawCrossedTreeStandees), so the forest shows through the
 		// gaps between the planes. Skip the tile entirely.
-		if r.game.config.Graphics.TreesAsBillboards && world.GlobalTileManager != nil &&
-			world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
+		if world.GlobalTileManager != nil &&
+			r.crossedTileDrawsAsStandee(world.GlobalTileManager.GetRenderType(tileType)) {
 			continue
 		}
 
@@ -1838,6 +1838,10 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 		case config.TileRenderCrossedStandee:
 			r.flushMipmappedWallBatch(screen)
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
+		case config.TileRenderCrossedProp:
+			// Always drawn as a cross by the sprite pass; the flat fallback would
+			// face the camera, which this class exists to prevent.
+			return
 		case config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
 			// Use both hit.IsTransparent flag and tile manager check for safety
@@ -3249,64 +3253,6 @@ func (r *Renderer) crossedTreeRenderData(td *TransparentSpriteData, camX, camY, 
 	}, true
 }
 
-func unifiedSpriteHorizontalSpan(s UnifiedSpriteRenderData) (left, right float64, ok bool) {
-	size := s.sizeF
-	center := s.screenXF
-	if size <= 0 {
-		size = float64(s.spriteSize)
-		center = float64(s.screenX)
-	}
-	if size <= 0 {
-		return 0, 0, false
-	}
-	return center - size/2, center + size/2, true
-}
-
-// crossedTreeNeedsArmSort keeps the usual one-entry/two-preparation fast path
-// unless a non-tree standee actually overlaps the cross in both screen space
-// and depth. Dense forests therefore retain their established cost; only a
-// local tree/dune beside an NPC, monster, or container expands to four painter
-// entries.
-func (r *Renderer) crossedTreeNeedsArmSort(tree UnifiedSpriteRenderData, arms [4]treeArm, sprites []UnifiedSpriteRenderData) bool {
-	minArmDepth, maxArmDepth := arms[0].depth, arms[0].depth
-	treeLeft, treeRight := float64(arms[0].lo), float64(arms[0].hi)
-	for _, arm := range arms[1:] {
-		minArmDepth = math.Min(minArmDepth, arm.depth)
-		maxArmDepth = math.Max(maxArmDepth, arm.depth)
-		treeLeft = math.Min(treeLeft, float64(arm.lo))
-		treeRight = math.Max(treeRight, float64(arm.hi))
-	}
-	// Midpoint keys cover half of each arm's depth excursion. Extend the
-	// interval by the other half so an object near a corner still triggers the
-	// precise arm path.
-	depthMargin := math.Max(
-		math.Abs(tree.depthPerp-minArmDepth),
-		math.Abs(maxArmDepth-tree.depthPerp),
-	)
-	minTreeDepth := minArmDepth - depthMargin
-	maxTreeDepth := maxArmDepth + depthMargin
-
-	for _, candidate := range sprites {
-		if candidate.spriteType == SpriteTypeTree || candidate.depthPerp <= 0 {
-			continue
-		}
-		left, right, ok := unifiedSpriteHorizontalSpan(candidate)
-		if !ok || right < treeLeft || left > treeRight {
-			continue
-		}
-		// A rotating standee's exact yaw is draw-state, so use its projected
-		// footprint as a conservative depth radius. This can expand one extra
-		// nearby dune, but cannot miss the tavern-at-the-side case.
-		halfDepth := r.spriteFootprintWorld(candidate.sizeF, candidate.depthPerp) / 2
-		if candidate.depthPerp+halfDepth < minTreeDepth ||
-			candidate.depthPerp-halfDepth > maxTreeDepth {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
 func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRenderData, start, end int) []UnifiedSpriteRenderData {
 	if start < 0 {
 		start = 0
@@ -3322,14 +3268,24 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 	tileSize := float64(r.game.config.GetTileSize())
 	for i := start; i < end; i++ {
 		tree := sprites[i]
-		if tree.spriteType != SpriteTypeTree ||
+		if tree.spriteType != SpriteTypeTree {
+			continue
+		}
+		// A prop-class cross keeps both planes at every distance, so it always
+		// needs the arm split; only a tree can already have collapsed to one.
+		if tileIsNaturalCross(tree.tileType) &&
 			treeIsBillboardLOD(tree.distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 			continue
 		}
 		worldX, worldY := TileCenterFromTile(tree.tileX, tree.tileY, tileSize)
-		footprint := r.spriteFootprintWorld(tree.sizeF, tree.depthPerp)
+		footprint := r.spriteFootprintWorld(r.crossedProjectedWidth(tree), tree.depthPerp)
+		// EVERY cross splits, unconditionally: the four center-to-corner arms
+		// are disjoint in 3D, so with each arm depth-sorted globally, crosses
+		// occlude each other (and everything else) exactly. Gating the split on
+		// a nearby-overlap scan left cross-vs-cross order to one whole-entry
+		// depth key, which is wrong the moment two crowns overlap on screen.
 		arms, ok := r.crossedStandeeArms(worldX, worldY, yawA, yawB, footprint)
-		if !ok || !r.crossedTreeNeedsArmSort(tree, arms, sprites) {
+		if !ok {
 			continue
 		}
 
@@ -3494,18 +3450,22 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// skipped tree tiles, so treeHits is empty; trees are drawn as two crossed
 	// standees, depth-sorted with everything else.
 	crossedTreeStart := len(sprites)
-	if r.game.config.Graphics.TreesAsBillboards {
-		for i := range r.treeTilesCache {
-			td := &r.treeTilesCache[i]
-			// No NEAR cull (unlike other standees): a tree must stay visible when
-			// the player walks right up to it. Only the far view-distance cull
-			// applies; depthPerp<=0 drops trees behind the camera.
-			tree, ok := r.crossedTreeRenderData(td, camX, camY, camDirX, camDirY, viewDistSq)
-			if !ok {
-				continue
-			}
-			sprites = append(sprites, tree)
+	for i := range r.treeTilesCache {
+		td := &r.treeTilesCache[i]
+		// The per-tile test must match the DDA's skip, or a tile skipped there
+		// and rejected here vanishes.
+		if world.GlobalTileManager == nil ||
+			!r.crossedTileDrawsAsStandee(world.GlobalTileManager.GetRenderType(td.tileType)) {
+			continue
 		}
+		// No NEAR cull (unlike other standees): a tree must stay visible when
+		// the player walks right up to it. Only the far view-distance cull
+		// applies; depthPerp<=0 drops trees behind the camera.
+		tree, ok := r.crossedTreeRenderData(td, camX, camY, camDirX, camDirY, viewDistSq)
+		if !ok {
+			continue
+		}
+		sprites = append(sprites, tree)
 	}
 	crossedTreeEnd := len(sprites)
 
@@ -3740,7 +3700,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			if !s.treeArmOnly || s.treeArmIndex == 0 {
 				r.statTreesDrawn++
 			}
-			if r.game.config.Graphics.TreesAsBillboards {
+			renderType := ""
+			if world.GlobalTileManager != nil {
+				renderType = world.GlobalTileManager.GetRenderType(s.tileType)
+			}
+			if r.crossedTileDrawsAsStandee(renderType) {
 				r.drawCrossedTreeStandees(screen, s)
 			} else {
 				r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
@@ -3991,7 +3955,13 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				return
 			}
 		}
-		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 {
+		// no_spin pins the pose; before this gate the flag was honored only by
+		// landmarks while ordinary standees ignored it.
+		var td *config.TileData
+		if world.GlobalTileManager != nil {
+			td = world.GlobalTileManager.GetTileData(s.tileType)
+		}
+		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 && (td == nil || !td.NoSpin) {
 			target := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 			tileKey := [2]int{s.tileX, s.tileY}
 			if r.standeeEnvYaw == nil {
@@ -4343,7 +4313,14 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				wkey := makeStandeeCoreKey(npcKeyName, sprite, false)
 				ts := float64(r.game.config.GetTileSize())
 				span := float64(s.npc.GridSpanTiles) * ts
-				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
+				// Facade height is AUTHORED via size_class (wide_landmark validates
+				// one); the art-aspect height stays only as the defensive fallback
+				// for hand-built test NPCs.
+				heightTiles, okHeight := config.ResolveSizeClassTiles(r.game.config.Graphics.SizeClasses, s.npc.SizeClass)
+				if !okHeight {
+					heightTiles = float64(s.npc.GridSpanTiles) *
+						float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
+				}
 				// The facade's geometry comes from the FOOTPRINT CENTER depth for
 				// every segment - a per-segment depth would step the height at
 				// each tile boundary. The entry's own depthPerp is the sort key.
@@ -4362,7 +4339,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				if centerDepth < ts {
 					centerDepth = ts
 				}
-				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, float64(s.npc.GridSpanTiles)*aspect)
+				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, heightTiles)
 				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, float64(bh), float64(btop+bh), sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
 				if okSlab {
 					// Column-clip the shared slab to THIS entry's footprint tile

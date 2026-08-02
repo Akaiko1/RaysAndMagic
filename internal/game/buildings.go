@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -75,18 +76,67 @@ func (g *MMGame) registerBuildingFootprints() {
 	}
 	ts := float64(g.config.GetTileSize())
 	for _, npc := range g.world.NPCs {
-		if npc == nil || npc.GridSpanTiles < 2 {
+		if npc == nil {
 			continue
 		}
-		for i, c := range g.buildingFootprintTiles(npc) {
-			id := fmt.Sprintf("building_%.0f_%.0f_%d", npc.X, npc.Y, i)
-			if g.buildingEntityIDs[id] {
-				continue
+		if npc.GridSpanTiles >= 2 {
+			for i, c := range g.buildingFootprintTiles(npc) {
+				id := fmt.Sprintf("building_%.0f_%.0f_%d", npc.X, npc.Y, i)
+				if g.buildingEntityIDs[id] {
+					continue
+				}
+				g.buildingEntityIDs[id] = true
+				g.collisionSystem.RegisterEntity(collision.NewEntity(id, c[0], c[1], ts*0.95, ts*0.95, collision.CollisionTypeNPC, true))
 			}
-			g.buildingEntityIDs[id] = true
-			g.collisionSystem.RegisterEntity(collision.NewEntity(id, c[0], c[1], ts*0.95, ts*0.95, collision.CollisionTypeNPC, true))
+			continue
+		}
+		// A landmark NPC (tower, church, gate, monument) is a building the party
+		// must walk around, exactly like a landmark TILE - interaction stays a
+		// Space press from the adjacent tile (InteractionDistance is two tiles).
+		// Plain map lookup, not resolveNPCRenderCat: content is validated at
+		// load, and a hand-built test NPC without a category is just not a
+		// landmark rather than a panic.
+		if cat, ok := npcCatByName[npc.RenderCategory]; !ok || cat != catLandmark {
+			continue
+		}
+		// A save from before landmarks were solid can hold the party inside this
+		// box; entity collision has no already-overlapping allowance, so
+		// registering it around them would wall them in permanently. The test is
+		// the EXACT box intersection the mover uses (plus a 2px float-jitter
+		// margin), not a radius: a wider skip left a landmark passable for the
+		// whole visit from a save 0.7-0.99 tiles away. Map SWITCHES register
+		// against the old map's coordinates - refreshLandmarkCollision re-runs
+		// this at the final arrival position.
+		landmarkBox := collision.NewBoundingBox(npc.X, npc.Y, ts*0.95+2, ts*0.95+2)
+		partyBox := collision.NewBoundingBox(g.camera.X, g.camera.Y, partyCollisionBoxSize, partyCollisionBoxSize)
+		if landmarkBox.Intersects(partyBox) {
+			continue
+		}
+		id := fmt.Sprintf("landmark_%.0f_%.0f", npc.X, npc.Y)
+		if g.buildingEntityIDs[id] {
+			continue
+		}
+		g.buildingEntityIDs[id] = true
+		g.collisionSystem.RegisterEntity(collision.NewEntity(id, npc.X, npc.Y, ts*0.95, ts*0.95, collision.CollisionTypeNPC, true))
+	}
+}
+
+// refreshLandmarkCollision re-derives landmark solidity from the party's FINAL
+// position. Map switches run registerMapStaticCollision before finishMapArrival
+// places the party, so the on-tile skip above judged the OLD map's coordinates:
+// it could leave a destination landmark passable, or - worse - wall the party in
+// when the arrival point lands on a landmark tile.
+func (g *MMGame) refreshLandmarkCollision() {
+	if g.collisionSystem == nil {
+		return
+	}
+	for id := range g.buildingEntityIDs {
+		if strings.HasPrefix(id, "landmark_") {
+			g.collisionSystem.UnregisterEntity(id)
+			delete(g.buildingEntityIDs, id)
 		}
 	}
+	g.registerBuildingFootprints()
 }
 
 // clearBuildingEntities unregisters the map's building footprints (map switch).

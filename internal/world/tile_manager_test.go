@@ -406,3 +406,83 @@ func TestTileManagerFallback(t *testing.T) {
 		t.Errorf("Expected default height to be 1.0 when tile manager not available, got %f", height)
 	}
 }
+
+// The three field-contract rules: a camera-facing standee cannot block
+// movement, wall_mounted belongs to the flat standee alone, and no_spin only
+// means something where there is a spin.
+func TestTileFieldContractValidation(t *testing.T) {
+	classes := map[string]float64{"small_prop": 0.5, "full_tile": 1.0, "tree": 2.0, "person": 0.6}
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "blocking ordinary standee",
+			body:    "size_class: small_prop\n    sprite: prop\n    render_type: standee",
+			wantErr: "camera-facing standee that blocks movement",
+		},
+		{
+			name: "walkable ordinary standee",
+			body: "walkable: true\n    size_class: small_prop\n    sprite: prop\n    render_type: standee",
+		},
+		{
+			name: "blocking crossed prop",
+			body: "size_class: small_prop\n    sprite: prop\n    render_type: crossed_prop",
+		},
+		{
+			name: "narrow crossed tree",
+			body: "size_class: full_tile\n    sprite: tree\n    render_type: crossed_standee",
+		},
+		{
+			name:    "actor class on crossed prop",
+			body:    "size_class: person\n    sprite: prop\n    render_type: crossed_prop",
+			wantErr: "cannot use size_class",
+		},
+		{
+			name:    "wall_mounted on a cross",
+			body:    "walkable: true\n    size_class: small_prop\n    sprite: prop\n    render_type: crossed_standee\n    wall_mounted: true",
+			wantErr: "uses wall_mounted but render_type",
+		},
+		{
+			name:    "no_spin on a cross",
+			body:    "size_class: tree\n    sprite: tree\n    render_type: crossed_standee\n    no_spin: true",
+			wantErr: "never spins",
+		},
+		{
+			name:    "no_spin on a crossed prop",
+			body:    "size_class: small_prop\n    sprite: prop\n    render_type: crossed_prop\n    no_spin: true",
+			wantErr: "never spins",
+		},
+		{
+			name: "no_spin on a landmark",
+			body: "size_class: small_prop\n    sprite: prop\n    render_type: landmark_standee\n    no_spin: true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contents := "tiles:\n  subject:\n    name: Subject\n    type: prop\n    solid: false\n    transparent: true\n    " + tt.body + "\n"
+			file, err := os.CreateTemp("", "tile_contract_*.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(file.Name())
+			if _, err := file.WriteString(contents); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			err = NewTileManager(classes).LoadTileConfig(file.Name())
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("valid tile rejected: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
+	}
+}

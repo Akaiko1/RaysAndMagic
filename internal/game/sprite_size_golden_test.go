@@ -185,7 +185,8 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 				continue
 			}
 			switch data.RenderType {
-			case config.TileRenderCrossedStandee, config.TileRenderStandee, config.TileRenderLandmarkStandee:
+			case config.TileRenderCrossedStandee, config.TileRenderCrossedProp,
+				config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			default:
 				continue
 			}
@@ -198,4 +199,67 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 		}
 	}
 	return out
+}
+
+// A prop-class cross must size EXACTLY like the flat standee it replaced -
+// authored class means VISIBLE HEIGHT - while a tree-class cross authors frame
+// WIDTH and takes no alpha normalization. The two halves live apart
+// (envHeightMultiplier normalizes, the draw picks the axis), so only their
+// composition over REAL assets catches a contract flip; TestSpriteSizesGolden
+// cannot, because with no sprite manager the normalization degrades to 1 and
+// every render type collapses to the same number.
+func TestCrossedTileSizeContractComposesWithRealAssets(t *testing.T) {
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+
+	sprites := graphics.NewSpriteManager()
+	ApplySpriteColorKey(sprites, cfg)
+
+	previousTiles := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = previousTiles })
+	world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
+	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+
+	g := &MMGame{config: cfg, sprites: sprites}
+	rh := NewRenderingHelper(g)
+
+	check := func(key string, wantVisibleHeight bool) {
+		t.Helper()
+		data := world.GlobalTileManager.GetTileDataByKey(key)
+		if data == nil {
+			t.Fatalf("tile %q is missing", key)
+		}
+		classTiles, ok := config.ResolveSizeClassTiles(cfg.Graphics.SizeClasses, data.SizeClass)
+		if !ok {
+			t.Fatalf("tile %q has unresolvable size_class %q", key, data.SizeClass)
+		}
+		tileType, ok := world.GlobalTileManager.GetTileTypeFromKey(key)
+		if !ok {
+			t.Fatalf("tile %q has no tile type", key)
+		}
+		bounds, _, frameHeight, known := sprites.SpriteVisibleFrameBounds(data.Sprite)
+		if !known {
+			t.Fatalf("sprite %q bounds were not resolved from the real asset", data.Sprite)
+		}
+		mult := rh.envHeightMultiplier(tileType, 1.0)
+		if !wantVisibleHeight {
+			// Tree class: the authored value IS the frame width, unnormalized.
+			if math.Abs(mult-classTiles) > 1e-9 {
+				t.Fatalf("%s frame width = %.6f tiles, want the authored class %.6f", key, mult, classTiles)
+			}
+			return
+		}
+		if frameHeight == bounds.Dy() {
+			t.Fatalf("sprite %q has no alpha padding; pick a padded one or this proves nothing", data.Sprite)
+		}
+		if visible := mult * float64(bounds.Dy()) / float64(frameHeight); math.Abs(visible-classTiles) > 1e-9 {
+			t.Fatalf("%s visible height = %.6f tiles, want the authored class %.6f", key, visible, classTiles)
+		}
+	}
+
+	check("steam_boiler", true) // prop-class cross: class = visible height
+	check("gear_pile", true)    // flat standee control: same contract
+	check("tree", false)        // tree class: class = frame width
 }

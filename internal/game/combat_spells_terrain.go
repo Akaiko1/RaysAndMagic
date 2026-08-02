@@ -6,7 +6,6 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -74,7 +73,10 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 				continue
 			}
 			tile := g.world.Tiles[ty][tx]
-			if world.GlobalTileManager.GetRenderType(tile) != config.TileRenderCrossedStandee {
+			// Trees, dunes and rocks fall; a prop-class cross (boiler, crate,
+			// shoji) is a built object the quake must not delete - shoji in
+			// particular occlude authored secrets.
+			if !tileIsNaturalCross(tile) {
 				continue
 			}
 			wx, wy := TileCenterFromTile(tx, ty, ts)

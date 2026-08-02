@@ -73,22 +73,23 @@ type mapInfo struct {
 }
 
 type viewer struct {
-	page           int
-	cfg            *config.Config
-	owc            *config.OpenWorldConfig // open-world rules (nil when absent)
-	maps           []mapInfo
-	mapIndex       int
-	legendLines    []legendEntry
-	legendScroll   int
-	sidebarTab     int
-	tileDataByKey  map[string]*config.TileData
-	tileManager    *world.TileManager
-	monsterCfg     *monster.MonsterYAMLConfig
-	brush          brush
-	saveDialogOpen bool
-	savePath       string
-	saveError      string
-	lastErr        string
+	page            int
+	cfg             *config.Config
+	owc             *config.OpenWorldConfig // open-world rules (nil when absent)
+	maps            []mapInfo
+	mapIndex        int
+	legendLines     []legendEntry
+	legendScroll    int
+	legendCollapsed map[string]bool
+	sidebarTab      int
+	tileDataByKey   map[string]*config.TileData
+	tileManager     *world.TileManager
+	monsterCfg      *monster.MonsterYAMLConfig
+	brush           brush
+	saveDialogOpen  bool
+	savePath        string
+	saveError       string
+	lastErr         string
 
 	// Map view zoom/pan: zoom 1.0 = whole map fits (the classic view), up to
 	// maxMapZoom; pan is the scroll offset in px when the zoomed map overflows
@@ -169,11 +170,23 @@ type legendEntry struct {
 	// item-section headers. Distinct from IsHeader, which also covers blank
 	// spacers and the plain Notes lines - those stay unbanded.
 	Section bool
+	// CollapseID marks an interactive section/group header. Headers that share
+	// an ID (for example Trees in both biome and general scopes) expand and
+	// collapse together.
+	CollapseID string
 }
 
-// sectionHeader builds a banded green group header (see legendEntry.Section).
-func sectionHeader(text string) legendEntry {
-	return legendEntry{Text: text, IsHeader: true, Section: true}
+func collapsibleHeader(text, collapseID string, collapsed bool, depth int) legendEntry {
+	marker := "[-]"
+	if collapsed {
+		marker = "[+]"
+	}
+	return legendEntry{
+		Text:       strings.Repeat("  ", depth) + marker + " " + text,
+		IsHeader:   true,
+		Section:    true,
+		CollapseID: collapseID,
+	}
 }
 
 // legendTextCols is the character budget for one legend text line: the panel
@@ -232,16 +245,17 @@ func main() {
 	}
 
 	v := &viewer{
-		page:          pageMaps,
-		cfg:           cfg,
-		owc:           owc,
-		maps:          maps,
-		mapIndex:      0,
-		sidebarTab:    tabInfo,
-		tileDataByKey: world.GlobalTileManager.ListTiles(),
-		tileManager:   world.GlobalTileManager,
-		monsterCfg:    monsterCfg,
-		brush:         brush{kind: brushEraser},
+		page:            pageMaps,
+		cfg:             cfg,
+		owc:             owc,
+		maps:            maps,
+		mapIndex:        0,
+		sidebarTab:      tabInfo,
+		tileDataByKey:   world.GlobalTileManager.ListTiles(),
+		tileManager:     world.GlobalTileManager,
+		monsterCfg:      monsterCfg,
+		brush:           brush{kind: brushEraser},
+		legendCollapsed: make(map[string]bool),
 		// Grouped so each section prints exactly one header (see
 		// groupCardsBySection) regardless of the source enum/catalog order.
 		pageCards: map[int][]contentCard{
@@ -1018,8 +1032,12 @@ func (v *viewer) handleMouseClick() {
 	}
 
 	if v.sidebarTab == tabLegend && pointInRect(mouseX, mouseY, lay.legendX, lay.legendY, lay.legendW, lay.legendH) {
-		if entry := v.legendEntryAt(lay, mouseX, mouseY); entry != nil && entry.Kind != brushNone && !entry.IsHeader {
-			v.brush = brushFromEntry(*entry)
+		if entry := v.legendEntryAt(lay, mouseX, mouseY); entry != nil {
+			if entry.CollapseID != "" {
+				v.toggleLegendCollapse(entry.CollapseID)
+			} else if entry.Kind != brushNone && !entry.IsHeader {
+				v.brush = brushFromEntry(*entry)
+			}
 		}
 		return
 	}
@@ -1074,6 +1092,17 @@ func (v *viewer) maxLegendScroll() int {
 		return 0
 	}
 	return totalHeight - contentHeight
+}
+
+func (v *viewer) toggleLegendCollapse(id string) {
+	if id == "" {
+		return
+	}
+	if v.legendCollapsed == nil {
+		v.legendCollapsed = make(map[string]bool)
+	}
+	v.legendCollapsed[id] = !v.legendCollapsed[id]
+	v.rebuildLegend(false)
 }
 
 func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
@@ -2236,8 +2265,18 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
-	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome())
-	v.legendScroll = 0
+	v.rebuildLegend(true)
+}
+
+func (v *viewer) rebuildLegend(resetScroll bool) {
+	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome(), v.legendCollapsed)
+	if resetScroll {
+		v.legendScroll = 0
+		return
+	}
+	if maxScroll := v.maxLegendScroll(); v.legendScroll > maxScroll {
+		v.legendScroll = maxScroll
+	}
 }
 
 // legendBuildItem is a legend entry plus whether its source def is
@@ -2286,52 +2325,133 @@ func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, gene
 	return specific, general
 }
 
-// tileTypeOrder is the palette column order for the authored tile `type`
-// taxonomy (config.ValidTileTypes) - terrain first, then obstacles, then decor.
-var tileTypeOrder = []string{"floor", "water", "marker", "wall", "wall_decor", "nature", "rock", "structure", "prop"}
+const (
+	legendGroupTerrain       = "group:terrain"
+	legendGroupWalls         = "group:walls"
+	legendGroupCrossed       = "group:crossed_standees"
+	legendGroupCrossedProps  = "group:crossed_props"
+	legendGroupLandmarks     = "group:landmarks"
+	legendGroupWallDecor     = "group:wall_decor"
+	legendGroupPassableDecor = "group:passable_decor"
+	legendGroupOtherTiles    = "group:other_tiles"
+	legendGroupMonsters      = "group:monsters"
+)
 
-// groupTileEntriesByType re-emits a flat tile-entry list as banded [type]
-// subsections in tileTypeOrder, so the palette column reads by what a tile IS
-// (authored `type`), not by an alphabetical soup. Unknown/missing types (never
-// valid for authored tiles, but special tiles pass through) go last.
-func groupTileEntriesByType(entries []legendEntry, tm *world.TileManager) []legendEntry {
-	byType := make(map[string][]legendEntry)
-	for _, e := range entries {
-		t := ""
-		if data := tm.GetTileDataByKey(e.TileKey); data != nil {
-			t = data.Type
+type legendGroup struct {
+	id      string
+	label   string
+	entries []legendEntry
+}
+
+var tilePaletteGroups = []struct {
+	id    string
+	label string
+}{
+	{id: legendGroupTerrain, label: "Ground and Terrain"},
+	{id: legendGroupWalls, label: "Walls and Barriers"},
+	{id: legendGroupCrossed, label: "Crossed Trees and Rocks"},
+	{id: legendGroupCrossedProps, label: "Crossed Props (static)"},
+	{id: legendGroupLandmarks, label: "Landmarks and Fountains"},
+	{id: legendGroupWallDecor, label: "Wall Decor"},
+	{id: legendGroupPassableDecor, label: "Passable Decor"},
+	{id: legendGroupOtherTiles, label: "Other Tiles"},
+}
+
+// tilePaletteGroup derives editor categories strictly from render and collision
+// behavior. The broad YAML type taxonomy is not a second source of truth.
+func tilePaletteGroup(data *config.TileData) string {
+	if data == nil {
+		return legendGroupOtherTiles
+	}
+	switch data.RenderType {
+	case config.TileRenderFloor:
+		return legendGroupTerrain
+	case config.TileRenderWall:
+		return legendGroupWalls
+	case config.TileRenderCrossedStandee:
+		return legendGroupCrossed
+	case config.TileRenderCrossedProp:
+		return legendGroupCrossedProps
+	case config.TileRenderLandmarkStandee:
+		return legendGroupLandmarks
+	case config.TileRenderStandee:
+		if data.WallMounted {
+			return legendGroupWallDecor
 		}
-		byType[t] = append(byType[t], e)
+		if data.Walkable && !data.Solid {
+			return legendGroupPassableDecor
+		}
 	}
-	known := make(map[string]bool, len(tileTypeOrder))
-	for _, t := range tileTypeOrder {
-		known[t] = true
+	return legendGroupOtherTiles
+}
+
+func groupTileEntriesByBehavior(entries []legendEntry, tm *world.TileManager) []legendGroup {
+	byGroup := make(map[string][]legendEntry)
+	for _, entry := range entries {
+		var data *config.TileData
+		if tm != nil {
+			data = tm.GetTileDataByKey(entry.TileKey)
+		}
+		id := tilePaletteGroup(data)
+		byGroup[id] = append(byGroup[id], entry)
 	}
-	var out []legendEntry
-	emit := func(t string) {
-		group := byType[t]
+
+	groups := make([]legendGroup, 0, len(byGroup))
+	for _, def := range tilePaletteGroups {
+		group := byGroup[def.id]
 		if len(group) == 0 {
-			return
+			continue
 		}
-		label := t
-		if label == "" {
-			label = "other"
-		}
-		out = append(out, sectionHeader(fmt.Sprintf("  [%s] (%d)", label, len(group))))
-		out = append(out, group...)
+		sort.SliceStable(group, func(i, j int) bool { return group[i].Text < group[j].Text })
+		groups = append(groups, legendGroup{id: def.id, label: def.label, entries: group})
 	}
-	for _, t := range tileTypeOrder {
-		emit(t)
-	}
-	extras := make([]string, 0)
-	for t := range byType {
-		if !known[t] {
-			extras = append(extras, t)
+	return groups
+}
+
+// Counts placeable rows: wrapped continuation lines are the same item.
+func legendItemCount(entries []legendEntry) int {
+	count := 0
+	for _, entry := range entries {
+		if !entry.Continuation {
+			count++
 		}
 	}
-	sort.Strings(extras)
-	for _, t := range extras {
-		emit(t)
+	return count
+}
+
+func legendGroupsItemCount(groups []legendGroup) int {
+	count := 0
+	for _, group := range groups {
+		count += legendItemCount(group.entries)
+	}
+	return count
+}
+
+func appendLegendScope(out []legendEntry, label, collapseID string, groups []legendGroup, collapsed map[string]bool) []legendEntry {
+	if len(groups) == 0 {
+		return out
+	}
+	scopeCollapsed := collapsed[collapseID]
+	out = append(out, collapsibleHeader(fmt.Sprintf("%s (%d)", label, legendGroupsItemCount(groups)), collapseID, scopeCollapsed, 0))
+	if scopeCollapsed {
+		return out
+	}
+	for _, group := range groups {
+		out = appendLegendGroup(out, group, collapsed, 1)
+	}
+	return out
+}
+
+func appendLegendGroup(out []legendEntry, group legendGroup, collapsed map[string]bool, depth int) []legendEntry {
+	groupCollapsed := collapsed[group.id]
+	out = append(out, collapsibleHeader(
+		fmt.Sprintf("%s (%d)", group.label, legendItemCount(group.entries)),
+		group.id,
+		groupCollapsed,
+		depth,
+	))
+	if !groupCollapsed {
+		out = append(out, group.entries...)
 	}
 	return out
 }
@@ -2341,21 +2461,28 @@ func groupTileEntriesByType(entries []legendEntry, tm *world.TileManager) []lege
 // entries are hidden so a forest tree can't be painted into a desert map, and
 // when a biome-specific def shares a letter with a universal one, only the
 // biome-specific (the def that actually resolves) is shown.
-func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string) []legendEntry {
+func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string, collapsed map[string]bool) []legendEntry {
 	var entries []legendEntry
-	entries = append(entries, sectionHeader("Tools"))
-	entries = append(entries, legendEntry{Text: "Eraser", Kind: brushEraser})
+	const toolsCollapseID = "scope:tools"
+	toolsCollapsed := collapsed[toolsCollapseID]
+	// Counted off the rows themselves, like every other header, so adding a tool
+	// cannot leave the count behind.
+	tools := []legendEntry{{Text: "Eraser", Kind: brushEraser}}
+	entries = append(entries, collapsibleHeader(
+		fmt.Sprintf("Tools (%d)", legendItemCount(tools)), toolsCollapseID, toolsCollapsed, 0))
+	if !toolsCollapsed {
+		entries = append(entries, tools...)
+	}
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 
-	biomeLabel := biome
-	if biomeLabel == "" {
-		biomeLabel = "-"
-	}
-
 	tileItems := make(map[string][]legendBuildItem)
-	var generalLabelTiles []legendEntry // letterless UNIVERSAL tiles ([tile:short_label], no biomes list)
-	var biomeLabelTiles []legendEntry   // letterless tiles scoped to this biome (tower decor)
-	for key, data := range tm.ListTiles() {
+	var generalLabelTiles []legendEntry
+	var biomeLabelTiles []legendEntry
+	var tiles map[string]*config.TileData
+	if tm != nil {
+		tiles = tm.ListTiles()
+	}
+	for key, data := range tiles {
 		// Letterless tiles are placed by short_label, not a grid letter. A
 		// biomes list scopes them to their biome section exactly like lettered
 		// tiles - only truly universal ones land in "general (any map)".
@@ -2394,17 +2521,9 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	}
 	sort.Slice(generalLabelTiles, func(i, j int) bool { return generalLabelTiles[i].Text < generalLabelTiles[j].Text })
 	sort.Slice(biomeLabelTiles, func(i, j int) bool { return biomeLabelTiles[i].Text < biomeLabelTiles[j].Text })
-	// Biome-specific tiles under "biome: X"; universal ones (no biomes list, by
-	// letter OR short_label) under their own "biome: general" section.
 	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
-	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
-	entries = append(entries, groupTileEntriesByType(append(tileSpecific, biomeLabelTiles...), tm)...)
-	if len(tileGeneral) > 0 || len(generalLabelTiles) > 0 {
-		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, sectionHeader("Tiles - biome: general (any map)"))
-		entries = append(entries, groupTileEntriesByType(append(tileGeneral, generalLabelTiles...), tm)...)
-	}
 
+	var monSpecific, monGeneral []legendEntry
 	if mc != nil {
 		monsterItems := make(map[string][]legendBuildItem)
 		for key, def := range mc.Monsters {
@@ -2433,29 +2552,35 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 				specific: len(def.Biomes) > 0,
 			})
 		}
-		// Same split as tiles: biome-specific monsters under "biome: X",
-		// universal ones under their own "biome: general" section.
-		monSpecific, monGeneral := emitBiomeScopedSplit(monsterItems)
-		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, sectionHeader(fmt.Sprintf("Monsters - biome: %s", biomeLabel)))
-		entries = append(entries, monSpecific...)
-		if len(monGeneral) > 0 {
-			entries = append(entries, legendEntry{Text: "", IsHeader: true})
-			entries = append(entries, sectionHeader("Monsters - biome: general (any map)"))
-			entries = append(entries, monGeneral...)
-		}
+		monSpecific, monGeneral = emitBiomeScopedSplit(monsterItems)
 	}
 
-	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
-	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
-	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
-	// Grouped by the authored `type:` (the behavior classification, validated
-	// closed-set at load) - render_category is purely a render dispatch and the
-	// palette never groups by it.
-	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
-		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, sectionHeader("Special NPCs (@ by type)"))
+	biomeGroups := groupTileEntriesByBehavior(append(tileSpecific, biomeLabelTiles...), tm)
+	if len(monSpecific) > 0 {
+		biomeGroups = append(biomeGroups, legendGroup{id: legendGroupMonsters, label: "Monsters", entries: monSpecific})
+	}
+	generalGroups := groupTileEntriesByBehavior(append(tileGeneral, generalLabelTiles...), tm)
+	if len(monGeneral) > 0 {
+		generalGroups = append(generalGroups, legendGroup{id: legendGroupMonsters, label: "Monsters", entries: monGeneral})
+	}
 
+	if len(biomeGroups) > 0 {
+		biomeLabel := titleCase(strings.ReplaceAll(biome, "_", " "))
+		if biomeLabel == "" {
+			biomeLabel = "Unspecified"
+		}
+		entries = appendLegendScope(entries, "Biome: "+biomeLabel, "scope:biome:"+biome, biomeGroups, collapsed)
+	}
+	if len(generalGroups) > 0 {
+		if len(biomeGroups) > 0 {
+			entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		}
+		entries = appendLegendScope(entries, "General: All Biomes", "scope:general", generalGroups, collapsed)
+	}
+
+	// NPCs are universal placement tools. Their authored behavior type remains a
+	// useful editor category, and each category can be collapsed independently.
+	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
 			npcType := ""
@@ -2484,17 +2609,11 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		sort.Strings(extra)
 		cats = append(cats, extra...)
 
-		for ci, cat := range cats {
-			// Blank spacer before each category after the first, so a subheader's
-			// band doesn't butt against the previous category's last NPC line.
-			// (The first category follows the "Special NPCs" header - header to
-			// header, already spaced by the bands themselves.)
-			if ci > 0 {
-				entries = append(entries, legendEntry{Text: "", IsHeader: true})
-			}
+		groups := make([]legendGroup, 0, len(cats))
+		for _, cat := range cats {
 			keys := keysByCat[cat]
-			entries = append(entries, sectionHeader(fmt.Sprintf("  [%s] (%d)", cat, len(keys))))
 			sort.Strings(keys)
+			var groupEntries []legendEntry
 			for _, key := range keys {
 				data := character.NPCConfigInstance.NPCs[key]
 				name := key
@@ -2508,7 +2627,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 				// same NPC brush, so click + highlight cover the whole block.
 				wrapped := wrapTooltipLines(label, legendTextCols)
 				for li, ln := range wrapped {
-					entries = append(entries, legendEntry{
+					groupEntries = append(groupEntries, legendEntry{
 						Text:         ln,
 						Kind:         brushNPC,
 						Letter:       "@",
@@ -2518,21 +2637,36 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 					})
 				}
 			}
+			catLabel := titleCase(strings.ReplaceAll(cat, "_", " "))
+			if catLabel == "" {
+				catLabel = "Other"
+			}
+			groups = append(groups, legendGroup{
+				id:      "group:npc:" + cat,
+				label:   catLabel,
+				entries: groupEntries,
+			})
 		}
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = appendLegendScope(entries, "NPCs and Services", "scope:npcs", groups, collapsed)
 	}
 
 	// Special tiles (teleporters / traps / triggers from special_tiles.yaml) -
 	// letterless, placed as `@` bound to a >[stile:key] def, same as NPCs. Own
 	// brush category (brushSpecialTile) so portals etc. are placeable, not just
 	// visible on already-authored maps. Not biome-scoped.
-	if specials := tm.ListSpecialTiles(); len(specials) > 0 {
+	var specials map[string]*config.TileData
+	if tm != nil {
+		specials = tm.ListSpecialTiles()
+	}
+	if len(specials) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, sectionHeader("Special tiles (@ -> [stile:key])"))
 		specialKeys := make([]string, 0, len(specials))
 		for key := range specials {
 			specialKeys = append(specialKeys, key)
 		}
 		sort.Strings(specialKeys)
+		var specialEntries []legendEntry
 		for _, key := range specialKeys {
 			name := key
 			if data := specials[key]; data != nil && data.Name != "" {
@@ -2541,7 +2675,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 			label := fmt.Sprintf("@  %s (%s)", key, name)
 			wrapped := wrapTooltipLines(label, legendTextCols)
 			for li, ln := range wrapped {
-				entries = append(entries, legendEntry{
+				specialEntries = append(specialEntries, legendEntry{
 					Text:         ln,
 					Kind:         brushSpecialTile,
 					Letter:       "@",
@@ -2550,13 +2684,26 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 				})
 			}
 		}
+		entries = appendLegendScope(entries, "Special Tiles", "scope:special_tiles", []legendGroup{{
+			id:      "group:special_tiles",
+			label:   "Triggers, Traps, and Portals",
+			entries: specialEntries,
+		}}, collapsed)
 	}
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, sectionHeader("Notes"))
-	entries = append(entries, legendEntry{Text: "+ = start position", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "@ = NPC/special-tile placeholder in map lines", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "a-z = monsters; A-Z = tiles/props; $ = letterless decor", IsHeader: true})
+	const notesCollapseID = "scope:notes"
+	notesCollapsed := collapsed[notesCollapseID]
+	notes := []legendEntry{
+		{Text: "+ = start position", IsHeader: true},
+		{Text: "@ = NPC/special-tile placeholder in map lines", IsHeader: true},
+		{Text: "a-z = monsters; A-Z = tiles/props; $ = letterless decor", IsHeader: true},
+	}
+	entries = append(entries, collapsibleHeader(
+		fmt.Sprintf("Notes (%d)", legendItemCount(notes)), notesCollapseID, notesCollapsed, 0))
+	if !notesCollapsed {
+		entries = append(entries, notes...)
+	}
 
 	return entries
 }

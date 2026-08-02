@@ -508,7 +508,7 @@ tiles:
     letter: "="
     biomes: ["japanese_castle"]
 
-  # Castle decor billboards (solid, see-through). L lantern, Y bonsai, H shoji
+  # Castle crossed decor (solid, see-through). L lantern, Y bonsai, H shoji
   # screen. Objects without an authored floor inherit the dominant nearby floor,
   # so these blend into wood, tatami, and garden rooms. Shoji are placed in front
   # of rack alcoves to occlude them from the room; the alcove is entered around.
@@ -520,7 +520,7 @@ tiles:
     walkable: false
     size_class: tall_prop
     sprite: "stone_lantern"
-    render_type: "standee"
+    render_type: "crossed_prop"
     letter: "L"
     biomes: ["japanese_castle"]
 
@@ -530,9 +530,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_class: full_tile
+    size_class: tree
     sprite: "bonsai_tree"
-    render_type: "standee"
+    render_type: "crossed_standee"
     letter: "Y"
     biomes: ["japanese_castle"]
 
@@ -544,7 +544,7 @@ tiles:
     walkable: false
     size_class: tall_prop
     sprite: "shoji_screen"
-    render_type: "standee"
+    render_type: "crossed_prop"
     letter: "H"
     biomes: ["japanese_castle"]
 
@@ -703,7 +703,7 @@ tiles:
     walkable: false
     size_class: small_prop
     sprite: "deep_jungle_log"
-    render_type: "standee"
+    render_type: "crossed_prop"
     map_color: [92, 70, 46]
     letter: "O"
     biomes: ["jungle"]
@@ -1037,16 +1037,16 @@ tiles:
     walkable: false
     size_class: medium_prop
     sprite: "elf_moon_fountain"
-    render_type: "standee"
+    render_type: "landmark_standee"
     letter: "F"
     biomes: ["elf_city"]
 
   elf_lamp_post:
     name: "Elven Lamp Post"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: full_tile
     sprite: "elf_lamp_post"
     render_type: "standee"
@@ -1056,9 +1056,9 @@ tiles:
   elf_ivy_bench:
     name: "Ivy Bench"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: tiny_prop
     sprite: "elf_ivy_bench"
     render_type: "standee"
@@ -1068,9 +1068,9 @@ tiles:
   elf_planter:
     name: "Fern Planter"
     type: "nature"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: tiny_prop
     sprite: "elf_planter"
     render_type: "standee"
@@ -1080,9 +1080,9 @@ tiles:
   elf_notice_board:
     name: "Wayfarers' Mirror"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: medium_prop
     sprite: "elf_notice_board"
     render_type: "standee"
@@ -1095,9 +1095,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_class: tall_prop
+    size_class: tree
     sprite: "elf_sapling"
-    render_type: "standee"
+    render_type: "crossed_standee"
     letter: "Z"
     biomes: ["elf_city"]
 
@@ -1231,16 +1231,16 @@ tiles:
     walkable: false
     size_class: tiny_prop
     sprite: "nomad_well"
-    render_type: "standee"
+    render_type: "landmark_standee"
     letter: "F"
     biomes: ["nomad_city"]
 
   nomad_lantern:
     name: "Brass Street Lantern"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     # Same visible-height class as elf_lamp_post; transparent padding is ignored.
     size_class: full_tile
     sprite: "nomad_lantern"
@@ -1251,9 +1251,9 @@ tiles:
   nomad_carpet_roll:
     name: "Rolled Carpets"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: tiny_prop
     sprite: "nomad_carpet_roll"
     render_type: "standee"
@@ -1268,16 +1268,16 @@ tiles:
     walkable: false
     size_class: small_prop
     sprite: "nomad_spice_stall"
-    render_type: "standee"
+    render_type: "crossed_prop"
     letter: "T"
     biomes: ["nomad_city"]
 
   nomad_saddle_pile:
     name: "Caravan Tack"
     type: "structure"
-    solid: true
+    solid: false
     transparent: true
-    walkable: false
+    walkable: true
     size_class: small_prop
     sprite: "nomad_saddle_pile"
     render_type: "standee"
@@ -1292,7 +1292,7 @@ tiles:
     walkable: false
     size_class: large_prop
     sprite: "nomad_palm_planter"
-    render_type: "standee"
+    render_type: "crossed_prop"
     letter: "Z"
     biomes: ["nomad_city"]
 
@@ -1740,8 +1740,7 @@ tiles:
     walkable: false
     size_class: tiny_prop
     sprite: "wooden_planks"
-    render_type: "landmark_standee"
-    no_spin: true
+    render_type: "crossed_prop"
     map_color: [124, 94, 55]
     short_label: "planks"
 
@@ -2069,8 +2068,7 @@ tiles:
     walkable: false
     size_class: large_prop
     sprite: "broken_grandfather_clock"
-    render_type: "standee"
-    no_spin: true
+    render_type: "crossed_prop"
     map_color: [96, 74, 52]
     short_label: "brokenclock"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2096,8 +2094,7 @@ tiles:
     walkable: false
     size_class: tall_prop
     sprite: "steam_boiler"
-    render_type: "standee"
-    no_spin: true
+    render_type: "crossed_prop"
     map_color: [98, 70, 54]
     short_label: "boiler"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
@@ -2110,8 +2107,7 @@ tiles:
     walkable: false
     size_class: small_prop
     sprite: "parts_crate"
-    render_type: "standee"
-    no_spin: true
+    render_type: "crossed_prop"
     map_color: [110, 84, 56]
     short_label: "partscrate"
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]

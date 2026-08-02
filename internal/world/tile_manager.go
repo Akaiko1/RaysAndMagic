@@ -62,8 +62,24 @@ func (tm *TileManager) validateTileConfiguration() error {
 			return fmt.Errorf("tile %q procedural_effect %q requires render_type %q", key, data.ProceduralEffect, config.TileRenderStandee)
 		}
 		isClassedSprite := data.RenderType == config.TileRenderStandee ||
-			data.RenderType == config.TileRenderCrossedStandee ||
+			config.IsCrossedRenderType(data.RenderType) ||
 			data.RenderType == config.TileRenderLandmarkStandee
+		// Movement reads walkable alone, so that - not solid - is the test: a
+		// blocker the party walks around must not be the one sprite class that
+		// swings round to face them.
+		if data.RenderType == config.TileRenderStandee && !data.Walkable && !data.WallMounted {
+			return fmt.Errorf("tile %q is a camera-facing standee that blocks movement - use crossed_prop, mark it wall_mounted, or make it walkable", key)
+		}
+		// Only the flat standee sticks to a neighbouring wall.
+		if data.WallMounted && data.RenderType != config.TileRenderStandee {
+			return fmt.Errorf("tile %q uses wall_mounted but render_type is %q, want standee", key, data.RenderType)
+		}
+		// no_spin pins a pose, so it only means something where there IS a spin;
+		// a cross is static by construction.
+		if data.NoSpin && data.RenderType != config.TileRenderStandee &&
+			data.RenderType != config.TileRenderLandmarkStandee {
+			return fmt.Errorf("tile %q uses no_spin but render_type %q never spins", key, data.RenderType)
+		}
 		if data.RemovedSizeTiles != nil {
 			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
 		}
@@ -402,7 +418,8 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case config.TileRenderStandee, config.TileRenderCrossedStandee, config.TileRenderLandmarkStandee:
+		case config.TileRenderStandee, config.TileRenderCrossedStandee,
+			config.TileRenderCrossedProp, config.TileRenderLandmarkStandee:
 			return true
 		}
 	}

@@ -1468,6 +1468,9 @@ func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
 	ih.game.spawnQuestCompletionMonsters(true)
 	ih.game.flushPendingQuestSpawns()
 	ih.game.setPartyPosition(x, y)
+	// Landmark solidity was registered against the OLD map's coordinates during
+	// the switch; re-derive it now that the arrival position is final.
+	ih.game.refreshLandmarkCollision()
 	ih.game.snapFacing(angle)
 	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
 	// would otherwise leave the party at 45deg on the new map.
