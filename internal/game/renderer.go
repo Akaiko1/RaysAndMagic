@@ -362,8 +362,8 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				}
 			}
 
-			// Tree tiles: cache one entry per tile for the crossed-standee mode.
-			if world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
+			// Crossed tiles: cache one entry per tile for the crossed-standee mode.
+			if config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(tileType)) {
 				spriteName := world.GlobalTileManager.GetSprite(tileType)
 				palette, emitsNightMotes := nightMotePaletteForConfig(world.GlobalTileManager.GetTileData(tileType))
 				treeCache = append(treeCache, TransparentSpriteData{
@@ -1645,7 +1645,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		// sprite pass (drawCrossedTreeStandees), so the forest shows through the
 		// gaps between the planes. Skip the tile entirely.
 		if r.game.config.Graphics.TreesAsBillboards && world.GlobalTileManager != nil &&
-			world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedStandee {
+			config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(tileType)) {
 			continue
 		}
 
@@ -1781,7 +1781,7 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			r.writeWallColumns(screenX, currentRayWidth, rayResult.Distance, hitInfo.TileType)
 
 			// Collect tree hits for later sorted rendering
-			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == config.TileRenderCrossedStandee {
+			if world.GlobalTileManager != nil && config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(hitInfo.TileType)) {
 				r.treeHits = append(r.treeHits, treeHitData{
 					screenX:  screenX,
 					distance: hitInfo.Distance,
@@ -1809,7 +1809,7 @@ func (r *Renderer) renderRaycastHitStack(screen *ebiten.Image, screenX, width in
 		}
 
 		// Collect tree hits for later sorted rendering.
-		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == config.TileRenderCrossedStandee {
+		if world.GlobalTileManager != nil && config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(hit.TileType)) {
 			r.treeHits = append(r.treeHits, treeHitData{
 				screenX:  screenX,
 				distance: hit.Distance,
@@ -1835,7 +1835,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	if world.GlobalTileManager != nil {
 		renderType := world.GlobalTileManager.GetRenderType(tileType)
 		switch renderType {
-		case config.TileRenderCrossedStandee:
+		case config.TileRenderCrossedStandee, config.TileRenderCrossedProp:
 			r.flushMipmappedWallBatch(screen)
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
 		case config.TileRenderStandee, config.TileRenderLandmarkStandee:
@@ -2028,6 +2028,15 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	// still-perspective far ones - same fix as walls.
 	if distance < 1.0 {
 		distance = 1.0
+	}
+
+	// A crossed PROP authors visible height, so its flat fallback is the ordinary
+	// environment billboard - reusing the tree fallback here would reinterpret
+	// its class as a width and shrink it.
+	if world.GlobalTileManager != nil &&
+		world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderCrossedProp {
+		r.drawEnvironmentSprite(screen, x, distance, tileType)
+		return
 	}
 
 	// Get the source before sizing: the flat fallback interprets a tree class as
@@ -3322,12 +3331,23 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 	tileSize := float64(r.game.config.GetTileSize())
 	for i := start; i < end; i++ {
 		tree := sprites[i]
-		if tree.spriteType != SpriteTypeTree ||
+		if tree.spriteType != SpriteTypeTree {
+			continue
+		}
+		renderType := ""
+		if world.GlobalTileManager != nil {
+			renderType = world.GlobalTileManager.GetRenderType(tree.tileType)
+		}
+		// A prop cross keeps both planes at every distance, so it always needs
+		// the arm split; only a tree can already have collapsed to one plane.
+		if renderType != config.TileRenderCrossedProp &&
 			treeIsBillboardLOD(tree.distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 			continue
 		}
 		worldX, worldY := TileCenterFromTile(tree.tileX, tree.tileY, tileSize)
-		footprint := r.spriteFootprintWorld(tree.sizeF, tree.depthPerp)
+		textureWidth, textureHeight := r.crossedSpriteBounds(tree)
+		widthF, _ := crossedStandeeSpan(tree.sizeF, renderType, textureWidth, textureHeight)
+		footprint := r.spriteFootprintWorld(widthF, tree.depthPerp)
 		arms, ok := r.crossedStandeeArms(worldX, worldY, yawA, yawB, footprint)
 		if !ok || !r.crossedTreeNeedsArmSort(tree, arms, sprites) {
 			continue
@@ -3991,7 +4011,11 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				return
 			}
 		}
-		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 {
+		var td *config.TileData
+		if world.GlobalTileManager != nil {
+			td = world.GlobalTileManager.GetTileData(s.tileType)
+		}
+		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 && (td == nil || !td.NoSpin) {
 			target := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 			tileKey := [2]int{s.tileX, s.tileY}
 			if r.standeeEnvYaw == nil {

@@ -185,7 +185,8 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 				continue
 			}
 			switch data.RenderType {
-			case config.TileRenderCrossedStandee, config.TileRenderStandee, config.TileRenderLandmarkStandee:
+			case config.TileRenderCrossedStandee, config.TileRenderCrossedProp,
+				config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			default:
 				continue
 			}

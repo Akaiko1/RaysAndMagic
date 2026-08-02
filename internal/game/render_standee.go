@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -1338,6 +1339,37 @@ func standeeHeightForWidth(width float64, textureWidth, textureHeight int) float
 	return width * float64(textureHeight) / float64(textureWidth)
 }
 
+// crossedStandeeSpan resolves a crossed tile's projected width and height from
+// the single size value the projection produced. The two crossed classes read
+// that value differently: a tree authors the ground footprint it occupies, a
+// built prop authors its visible height like every other prop standee.
+func crossedStandeeSpan(sizeF float64, renderType string, textureWidth, textureHeight int) (widthF, heightF float64) {
+	if renderType == config.TileRenderCrossedProp {
+		return spriteWidthForHeight(sizeF, textureWidth, textureHeight), sizeF
+	}
+	return sizeF, standeeHeightForWidth(sizeF, textureWidth, textureHeight)
+}
+
+// crossedSpriteBounds resolves the texture a crossed tile entry will be drawn
+// with, so sizing decided before the draw (the painter-order arm split) uses the
+// same aspect the draw itself will. Zeroes when the sprite is not resolvable;
+// crossedStandeeSpan degrades to the authored value.
+func (r *Renderer) crossedSpriteBounds(s UnifiedSpriteRenderData) (textureWidth, textureHeight int) {
+	if r == nil || r.game == nil || r.game.sprites == nil {
+		return 0, 0
+	}
+	name := s.spriteName
+	if name == "" {
+		name = treeStandeeSpriteName(s.tileType)
+	}
+	sprite := r.game.sprites.GetSprite(name)
+	if sprite == nil {
+		return 0, 0
+	}
+	bounds := sprite.Bounds()
+	return bounds.Dx(), bounds.Dy()
+}
+
 // spriteWidthForHeight is standeeHeightForWidth's twin for the flat billboard
 // path, where the authored size is the projected HEIGHT (a prop's visible-height
 // class) and the width follows the source aspect. A wide texture stays wide
@@ -1453,9 +1485,15 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
 	b := float32(r.applyTreeDepthShading(r.calculateBrightnessWithTorchLight(worldX, worldY, distance), distance))
 
-	// HEIGHT scales by the sprite aspect (the platan, 1:2, is twice as tall as
-	// the square oak); floor anchor unchanged so feet stay grounded.
-	heightF := standeeHeightForWidth(s.sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
+	// One of width/height is authored and the other follows the sprite aspect
+	// (the platan, 1:2, is twice as tall as the square oak); which one is
+	// authored depends on the crossed class. Floor anchor unchanged either way,
+	// so feet stay grounded.
+	renderType := ""
+	if world.GlobalTileManager != nil {
+		renderType = world.GlobalTileManager.GetRenderType(s.tileType)
+	}
+	widthF, heightF := crossedStandeeSpan(s.sizeF, renderType, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 	bottomF := s.bottomF
 	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
@@ -1468,7 +1506,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// tile-diagonal footprint squeezed the art horizontally (square oak drew
 	// ~30% too thin once the square-projection FOV removed the old horizontal
 	// stretch that was masking it).
-	footprint := r.spriteFootprintWorld(s.sizeF, centerDepth)
+	footprint := r.spriteFootprintWorld(widthF, centerDepth)
 
 	// Most crosses remain one unified painter entry and prepare both slabs once.
 	// When another nearby standee overlaps this cross's depth interval, the
@@ -1492,8 +1530,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	}
 
 	// Far crossed parallax is sub-pixel, so one camera-facing thick standee
-	// retains the silhouette at a fraction of the cost.
-	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
+	// retains the silhouette at a fraction of the cost. Trees only: a built prop
+	// swinging round to face the party is exactly what the crossed class exists
+	// to stop, and a boiler is never dense enough for the saving to matter.
+	if renderType != config.TileRenderCrossedProp &&
+		treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightF, bottomF, b, b, b, true, false, footprint)
 		return

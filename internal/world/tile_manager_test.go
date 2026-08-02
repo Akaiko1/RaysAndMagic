@@ -1,6 +1,7 @@
 package world
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -319,6 +320,54 @@ func TestTileVisualSizeValidation(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTileValidationRejectsCameraFacingMovementBlockers(t *testing.T) {
+	classes := map[string]float64{"small_prop": 0.5}
+	tests := []struct {
+		name       string
+		renderType string
+		solid      bool
+		walkable   bool
+		wantErr    bool
+	}{
+		{name: "blocking ordinary standee", renderType: config.TileRenderStandee, solid: true, walkable: false, wantErr: true},
+		// Movement reads walkable alone, so an unwalkable standee is a blocker
+		// whether or not it was also authored solid.
+		{name: "unwalkable non-solid standee", renderType: config.TileRenderStandee, solid: false, walkable: false, wantErr: true},
+		{name: "passable ordinary standee", renderType: config.TileRenderStandee, solid: false, walkable: true},
+		{name: "blocking crossed tree", renderType: config.TileRenderCrossedStandee, solid: true, walkable: false},
+		{name: "blocking crossed prop", renderType: config.TileRenderCrossedProp, solid: true, walkable: false},
+		{name: "blocking landmark", renderType: config.TileRenderLandmarkStandee, solid: true, walkable: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contents := fmt.Sprintf("tiles:\n  subject:\n    name: Subject\n    type: prop\n    solid: %t\n    transparent: true\n    walkable: %t\n    size_class: small_prop\n    sprite: prop\n    render_type: %s\n", tt.solid, tt.walkable, tt.renderType)
+			file, err := os.CreateTemp("", "standee_blocker_*.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(file.Name())
+			if _, err := file.WriteString(contents); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			err = NewTileManager(classes).LoadTileConfig(file.Name())
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "camera-facing standee that blocks movement") {
+					t.Fatalf("error = %v, want camera-facing blocker rejection", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid tile rejected: %v", err)
 			}
 		})
 	}

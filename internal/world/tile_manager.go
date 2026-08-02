@@ -62,8 +62,14 @@ func (tm *TileManager) validateTileConfiguration() error {
 			return fmt.Errorf("tile %q procedural_effect %q requires render_type %q", key, data.ProceduralEffect, config.TileRenderStandee)
 		}
 		isClassedSprite := data.RenderType == config.TileRenderStandee ||
-			data.RenderType == config.TileRenderCrossedStandee ||
+			config.IsCrossedRenderType(data.RenderType) ||
 			data.RenderType == config.TileRenderLandmarkStandee
+		// Movement is decided by walkable alone, so that - not solid - is the
+		// test: a blocker the party has to walk around must not be the one sprite
+		// class that swings round to face them.
+		if data.RenderType == config.TileRenderStandee && !data.Walkable && !data.WallMounted {
+			return fmt.Errorf("tile %q is a camera-facing standee that blocks movement - use crossed_prop or make it passable", key)
+		}
 		if data.RemovedSizeTiles != nil {
 			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
 		}
@@ -402,7 +408,8 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case config.TileRenderStandee, config.TileRenderCrossedStandee, config.TileRenderLandmarkStandee:
+		case config.TileRenderStandee, config.TileRenderCrossedStandee,
+			config.TileRenderCrossedProp, config.TileRenderLandmarkStandee:
 			return true
 		}
 	}

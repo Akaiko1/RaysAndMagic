@@ -180,7 +180,8 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 			renderType := tm.GetRenderType(tileType)
 			switch renderType {
-			case config.TileRenderWall, config.TileRenderCrossedStandee, config.TileRenderStandee, config.TileRenderLandmarkStandee:
+			case config.TileRenderWall, config.TileRenderCrossedStandee, config.TileRenderCrossedProp,
+				config.TileRenderStandee, config.TileRenderLandmarkStandee:
 			default:
 				continue
 			}

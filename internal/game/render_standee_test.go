@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"ugataima/internal/config"
 )
 
 // Ray-segment math behind standee tokens: t is the perpendicular depth (ray
@@ -89,6 +91,28 @@ func TestTreeIsBillboardLOD(t *testing.T) {
 	}
 	if treeIsBillboardLOD(tileSize, tileSize, 0) {
 		t.Fatal("zero threshold must disable the distant LOD")
+	}
+}
+
+// The two crossed classes read the SAME authored value as different dimensions:
+// a tree authors its ground footprint width, a built prop its visible height.
+func TestCrossedStandeeSpanPerRenderType(t *testing.T) {
+	// Portrait source: 512 wide, 1024 tall.
+	const w, h = 512, 1024
+
+	treeW, treeH := crossedStandeeSpan(100, config.TileRenderCrossedStandee, w, h)
+	if treeW != 100 || treeH != 200 {
+		t.Fatalf("tree span = %.0fx%.0f, want 100x200 (authored width, aspect height)", treeW, treeH)
+	}
+
+	propW, propH := crossedStandeeSpan(100, config.TileRenderCrossedProp, w, h)
+	if propH != 100 || propW != 50 {
+		t.Fatalf("prop span = %.0fx%.0f, want 50x100 (authored height, aspect width)", propW, propH)
+	}
+
+	// Unresolvable texture must not zero the sprite out.
+	if gotW, gotH := crossedStandeeSpan(100, config.TileRenderCrossedProp, 0, 0); gotW != 100 || gotH != 100 {
+		t.Fatalf("degenerate span = %.0fx%.0f, want the authored value on both axes", gotW, gotH)
 	}
 }
 

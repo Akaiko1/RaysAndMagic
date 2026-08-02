@@ -32,6 +32,9 @@ func TestWorldVisualSizeContentUsesSharedClasses(t *testing.T) {
 		if data.RemovedSizeTiles != nil {
 			t.Errorf("tile %q still authors size_tiles", key)
 		}
+		if data.RenderType == config.TileRenderStandee && !data.Walkable && !data.WallMounted {
+			t.Errorf("tile %q is a camera-facing movement blocker", key)
+		}
 		if data.RenderType != config.TileRenderCrossedStandee {
 			continue
 		}

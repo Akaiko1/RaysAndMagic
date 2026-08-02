@@ -930,8 +930,9 @@ type TileNightMoteConfig struct {
 	CoreColor [3]int `yaml:"core_color"`
 }
 
-// ValidTileTypes is the closed set of authored tile `type` values: a purely
-// organizational taxonomy the map editor groups its palette by. REQUIRED on
+// ValidTileTypes is the closed set of authored semantic tile types. It remains
+// useful for content validation and tooling, while the map editor groups its
+// placement palette by concrete render and collision behavior. REQUIRED on
 // every tiles.yaml entry (special_tiles.yaml has its own palette section and
 // is exempt); validated fail-fast at load. No render code reads it.
 var ValidTileTypes = map[string]bool{
@@ -1019,10 +1020,19 @@ type TileData struct {
 // Tile render classes describe HOW a tile is drawn, never WHAT the content is.
 // Keep the authored YAML values and every runtime dispatcher on these constants.
 const (
-	TileRenderFloor           = "floor"
-	TileRenderWall            = "wall"
-	TileRenderStandee         = "standee"
-	TileRenderCrossedStandee  = "crossed_standee"
+	TileRenderFloor   = "floor"
+	TileRenderWall    = "wall"
+	TileRenderStandee = "standee"
+	// TileRenderCrossedStandee is the natural crossed volume: trees, rocks and
+	// dunes. It authors size_class as the ground FOOTPRINT WIDTH, degrades to a
+	// single camera-facing plane past the LOD distance, and is the tile class
+	// the canopy-shade and earthquake-toppling rules act on.
+	TileRenderCrossedStandee = "crossed_standee"
+	// TileRenderCrossedProp is the built crossed volume: boilers, crates,
+	// screens, lanterns. Same two-plane geometry, but it authors size_class as
+	// VISIBLE HEIGHT like every other prop, never turns to face the camera at
+	// any distance, and takes part in no tree mechanic.
+	TileRenderCrossedProp     = "crossed_prop"
 	TileRenderLandmarkStandee = "landmark_standee"
 )
 
@@ -1034,7 +1044,17 @@ var tileRenderTypes = [...]string{
 	TileRenderWall,
 	TileRenderStandee,
 	TileRenderCrossedStandee,
+	TileRenderCrossedProp,
 	TileRenderLandmarkStandee,
+}
+
+// IsCrossedRenderType reports whether a render type draws two perpendicular
+// planes. Geometry dispatchers (raycast skip, tree cache, painter-order arm
+// split, prewarm) must treat both crossed classes alike; only the tree
+// MECHANICS - billboard LOD, canopy shade, earthquake toppling - stay keyed to
+// TileRenderCrossedStandee.
+func IsCrossedRenderType(renderType string) bool {
+	return renderType == TileRenderCrossedStandee || renderType == TileRenderCrossedProp
 }
 
 // TileRenderTypes returns the closed authored render-class set. The copy keeps
@@ -1427,7 +1447,9 @@ func IsTileSizeClass(renderType, class string) bool {
 	if renderType == TileRenderCrossedStandee {
 		return IsCrossedStandeeSizeClass(class)
 	}
-	return (renderType == TileRenderStandee || renderType == TileRenderLandmarkStandee) &&
+	return (renderType == TileRenderStandee ||
+		renderType == TileRenderCrossedProp ||
+		renderType == TileRenderLandmarkStandee) &&
 		IsPropSizeClass(class)
 }
 
