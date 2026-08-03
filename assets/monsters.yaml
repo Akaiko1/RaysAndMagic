@@ -1824,6 +1824,61 @@ monsters:
     habitat_preferences:
       - "empty"
 
+  # Boss-only adds. They deliberately have their own definitions instead of
+  # scaling the ordinary map mobs: each encounter can be balanced independently,
+  # while the shared mummy/alien sprites remain the visual identity.
+  deathbound_mummy:
+    type: "undead"
+    name: "Deathbound Mummy"
+    level: 33
+    max_hit_points: 1050
+    armor_class: 48
+    experience: 0
+    damage_min: 48
+    damage_max: 66
+    melee_damage_type: "body"
+    poison_chance: 0.25
+    poison_duration_seconds: 30
+    alert_radius: 12
+    attack_radius: 1
+    speed: 1.25
+    gold_min: 0
+    gold_max: 0
+    sprite: "mummy"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
+    habitat_preferences:
+      - "empty"
+
+  enforcer_alien:
+    type: "formless"
+    name: "Enforcer Alien"
+    level: 35
+    max_hit_points: 1200
+    armor_class: 50
+    perfect_dodge: 10
+    experience: 0
+    damage_min: 52
+    damage_max: 72
+    true_damage: 8
+    melee_damage_type: "spirit"
+    alert_radius: 14
+    attack_radius: 1
+    projectile_spell: "alien_dark_bolt"
+    ranged_attack_range: 5
+    speed: 2.0
+    gold_min: 0
+    gold_max: 0
+    sprite: "alien"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    resistances: { fire: 35, dark: 45, physical: -35 }
+    habitat_preferences:
+      - "empty"
+
   # ============ ENDGAME BOSS TRIAD (L32-35) ============
   # Three capstones above the Orc Warlord tier. All formless (no Bind Undead
   # cheese), all on the shared boss kit (boss.go).
@@ -1905,7 +1960,7 @@ monsters:
     stun_char_seconds: 6
     stun_char_turns: 2
     summon_chance: 0.22
-    summon_monsters: ["mummy"]
+    summon_monsters: ["deathbound_mummy"]
     summon_count: 2
     summon_max: 4
     enrage_at_hp: 1150
@@ -1951,7 +2006,7 @@ monsters:
     stun_char_seconds: 6
     stun_char_turns: 2
     summon_chance: 0.10
-    summon_monsters: ["alien"]
+    summon_monsters: ["enforcer_alien"]
     summon_count: 2
     summon_max: 4
     enrage_at_hp: 1150

@@ -2256,18 +2256,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 }
 
 // migrateLegacyPyramidSanctumEncounter repairs saves written while pyramid_3
-// used a map-wide clear encounter. Only a save that still binds a lower Isis,
-// Minotaur, or Dragon to the reliquaries enters this path. The upper-dais Isis
-// keep the reward; if all four are already dead, the reward is returned so the
-// caller can spawn the overdue chests after ground containers are restored.
+// used a map-wide clear encounter. Current-format saves persist the four
+// encounter flags directly and never enter this path. A legacy member outside
+// the authored dais catchment is the migration marker; within that format the
+// same catchment keeps moved dais Isis without promoting the three lower Isis.
 func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster.EncounterRewards {
 	if g == nil || w == nil || g.config == nil {
 		return nil
 	}
+	const daisCatchmentTiles = 8.0 // 2 tiles from a chest + 4-tile tether + margin; lower Isis start 14 tiles away
 	tileSize := float64(g.config.GetTileSize())
-	isDaisIsis := func(m *monster.Monster3D) bool {
-		return m != nil && m.Key == "isis" && TileIndex(m.Y, tileSize) == 5
-	}
 	isReliquaryReward := func(rewards *monster.EncounterRewards) bool {
 		if rewards == nil || len(rewards.TreasureChests) != 4 {
 			return false
@@ -2279,10 +2277,31 @@ func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster
 		}
 		return false
 	}
+	daisDistanceSq := func(m *monster.Monster3D, rewards *monster.EncounterRewards) float64 {
+		best := -1.0
+		for _, chest := range rewards.TreasureChests {
+			cx := (float64(chest.TileX) + 0.5) * tileSize
+			cy := (float64(chest.TileY) + 0.5) * tileSize
+			dx, dy := (m.X-cx)/tileSize, (m.Y-cy)/tileSize
+			distSq := dx*dx + dy*dy
+			if best < 0 || distSq < best {
+				best = distSq
+			}
+		}
+		return best
+	}
+	isDaisIsis := func(m *monster.Monster3D, rewards *monster.EncounterRewards) bool {
+		if m == nil || m.Key != "isis" || rewards == nil {
+			return false
+		}
+		limitSq := daisCatchmentTiles * daisCatchmentTiles
+		return daisDistanceSq(m, rewards) <= limitSq
+	}
 
 	var legacy *monster.EncounterRewards
 	for _, m := range w.Monsters {
-		if m != nil && m.IsEncounterMonster && isReliquaryReward(m.EncounterRewards) && !isDaisIsis(m) {
+		if m != nil && m.IsEncounterMonster && isReliquaryReward(m.EncounterRewards) &&
+			!isDaisIsis(m, m.EncounterRewards) {
 			legacy = m.EncounterRewards
 			break
 		}
@@ -2292,20 +2311,35 @@ func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster
 	}
 	g.loadNeedsResave = true
 
-	daisAlive := 0
+	type daisCandidate struct {
+		monster    *monster.Monster3D
+		distanceSq float64
+	}
+	var candidates []daisCandidate
 	for _, m := range w.Monsters {
 		if m == nil || m.EncounterRewards != legacy {
 			continue
 		}
-		if isDaisIsis(m) {
-			m.IsEncounterMonster = true
-			daisAlive++
-			continue
-		}
 		m.IsEncounterMonster = false
 		m.EncounterRewards = nil
+		if isDaisIsis(m, legacy) {
+			candidates = append(candidates, daisCandidate{monster: m, distanceSq: daisDistanceSq(m, legacy)})
+		}
 	}
-	if daisAlive == 0 {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].distanceSq != candidates[j].distanceSq {
+			return candidates[i].distanceSq < candidates[j].distanceSq
+		}
+		return candidates[i].monster.ID < candidates[j].monster.ID
+	})
+	if len(candidates) > len(legacy.TreasureChests) {
+		candidates = candidates[:len(legacy.TreasureChests)]
+	}
+	for _, candidate := range candidates {
+		candidate.monster.IsEncounterMonster = true
+		candidate.monster.EncounterRewards = legacy
+	}
+	if len(candidates) == 0 {
 		return legacy
 	}
 	return nil

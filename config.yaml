@@ -240,11 +240,11 @@ characters:
 
 # Monster stats and AI
 monster_ai:
-  # State timers (in frames, 60fps)
+  # State timers are update ticks (game.tps = 120).
   idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
-  patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
+  patrol_idle_timer: 1200       # Time before returning to idle (10 seconds)
   attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
-  flee_duration: 420            # How long to flee (7 seconds)
+  flee_duration: 840            # How long to flee (7 seconds RT / 7 TB turns)
 
   # Behavior chances (0.0 to 1.0)
   idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling

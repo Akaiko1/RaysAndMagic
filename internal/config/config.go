@@ -711,7 +711,7 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
-	// AI behavior timers (in frames, 60fps)
+	// AI behavior timers in engine update ticks (see engine.tps).
 	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
 	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
 	AttackCooldown  int `yaml:"attack_cooldown"`
@@ -1635,6 +1635,13 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		}
 		if def.StandeeDestroyChance < 0 || def.StandeeDestroyChance > 1 {
 			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
+		}
+		hasStunEffect := def.StunChance > 0 || def.StunRadiusTiles > 0
+		if hasStunEffect && (def.StunDurationSeconds <= 0 || def.StunDurationTurns <= 0) {
+			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds and stun_duration_turns", id)
+		}
+		if !hasStunEffect && (def.StunDurationSeconds != 0 || def.StunDurationTurns != 0) {
+			return fmt.Errorf("spell '%s': stun durations require stun_chance or stun_radius_tiles", id)
 		}
 		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
 		switch {

@@ -555,17 +555,18 @@ func (c *MMCharacter) Update() {
 }
 
 // UpdateWithMode updates the character with knowledge of the current game mode
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
+// and reports whether an RT regeneration cadence completed this frame.
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
 	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
 	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
 	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
 	// mirroring monster poison's RT-frame-vs-TB-turn split.
 	if turnBasedMode {
-		return
+		return false
 	}
 
 	// Use normal timer-based regeneration in real-time mode
-	c.updateRegenAndPoison()
+	return c.updateRegenAndPoison()
 }
 
 // A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
@@ -645,7 +646,7 @@ func (c *MMCharacter) dotDamage(amount int) {
 
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
 // via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison() {
+func (c *MMCharacter) updateRegenAndPoison() bool {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = 60
@@ -656,13 +657,15 @@ func (c *MMCharacter) updateRegenAndPoison() {
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
-		return
+		return false
 	}
+	regenCadenceCompleted := false
 	// Regenerate spell points on a fixed cadence.
 	c.spellRegenTimer++
 	if c.spellRegenTimer >= ManaRegenIntervalFrames {
 		c.RegenerateSpellPoints()
 		c.spellRegenTimer = 0 // Reset timer
+		regenCadenceCompleted = true
 	}
 	// Troll Card(s): regenerate a % of max HP on the same cadence.
 	if c.BonusRegenPct > 0 {
@@ -670,8 +673,22 @@ func (c *MMCharacter) updateRegenAndPoison() {
 		if c.hpRegenTimer >= ManaRegenIntervalFrames {
 			c.hpRegenTimer = 0
 			c.ApplyCardRegenTick()
+			regenCadenceCompleted = true
 		}
 	}
+	return regenCadenceCompleted
+}
+
+// ResetRealtimeRegenCadence clears the RT-side progress after the TB cadence
+// pays out. Conversely, an RT payout resets the game-owned TB counter. The
+// first cadence to complete therefore owns the payout and switching modes
+// cannot award a second one immediately.
+func (c *MMCharacter) ResetRealtimeRegenCadence() {
+	if c == nil {
+		return
+	}
+	c.spellRegenTimer = 0
+	c.hpRegenTimer = 0
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.

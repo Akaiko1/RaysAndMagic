@@ -234,11 +234,16 @@ func (p *Party) Update() {
 	}
 }
 
-// UpdateWithMode updates the party with knowledge of the current game mode
-func (p *Party) UpdateWithMode(turnBasedMode bool) {
+// UpdateWithMode updates the party with knowledge of the current game mode and
+// reports whether any member completed an RT regeneration cadence.
+func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
+	regenCadenceCompleted := false
 	for _, member := range p.Members {
-		member.UpdateWithMode(turnBasedMode)
+		if member.UpdateWithMode(turnBasedMode) {
+			regenCadenceCompleted = true
+		}
 	}
+	return regenCadenceCompleted
 }
 
 // AddItem adds an item to the party inventory. Stackable items (consumables,

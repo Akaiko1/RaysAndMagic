@@ -136,6 +136,52 @@ func TestTBBuffCommit_StillConsumesAction(t *testing.T) {
 	}
 }
 
+func TestCombatActionGateUsesActiveModeEconomy(t *testing.T) {
+	cs := newSpellCooldownTestSystem(t)
+	game := cs.game
+	caster := &character.MMCharacter{HitPoints: 1, ActionsRemaining: 1, Equipment: map[items.EquipSlot]items.Item{}}
+	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
+	game.selectedChar = 0
+
+	game.turnBasedMode = false
+	caster.RTCooldown = 1
+	if game.canSpendCombatAction(0) {
+		t.Fatal("RT UI action gate ignored the character cooldown")
+	}
+	caster.RTCooldown = 0
+	if !game.canSpendCombatAction(0) {
+		t.Fatal("ready RT character was rejected by the UI action gate")
+	}
+
+	game.turnBasedMode = true
+	game.currentTurn = 0
+	if !game.canSpendCombatAction(0) {
+		t.Fatal("ready TB character was rejected by the UI action gate")
+	}
+	game.currentTurn = 1
+	if game.canSpendCombatAction(0) {
+		t.Fatal("TB UI action gate allowed an action during the monster phase")
+	}
+}
+
+func TestRTSpellBookCommitArmsPersonalCooldown(t *testing.T) {
+	cs := newSpellCooldownTestSystem(t)
+	game := cs.game
+	caster := &character.MMCharacter{HitPoints: 1, ActionsRemaining: 2, Equipment: map[items.EquipSlot]items.Item{}}
+	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
+	game.selectedChar = 0
+	game.turnBasedMode = false
+
+	game.consumeSelectedCharActionWithRTCooldown(37)
+
+	if caster.RTCooldown != 37 {
+		t.Fatalf("RT UI cast cooldown = %d, want 37", caster.RTCooldown)
+	}
+	if caster.ActionsRemaining != 2 {
+		t.Fatalf("RT UI cast spent TB slots: remaining=%d, want 2", caster.ActionsRemaining)
+	}
+}
+
 // TestSpellCooldownFrames_SpeedScales confirms Speed still influences spell
 // cooldown: a faster caster casts the same spell sooner.
 func TestSpellCooldownFrames_SpeedScales(t *testing.T) {

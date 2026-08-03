@@ -1130,6 +1130,43 @@ func TestFleeEnds_ReengagesOrWanders(t *testing.T) {
 	}
 }
 
+func TestFleeExpiresAtAuthoredBoundaryInBothModes(t *testing.T) {
+	const (
+		tps             = 120
+		durationSeconds = 7
+	)
+	newFleer := func() *Monster3D {
+		return &Monster3D{
+			ID: "flee_boundary", X: 320, Y: 320,
+			AlertRadius: 3 * 64, SpawnX: 320, SpawnY: 320, TetherRadius: 4 * 64,
+			HitPoints: 10, MaxHitPoints: 10,
+			State:  StateFleeing,
+			config: &config.Config{MonsterAI: config.MonsterAIConfig{FleeDuration: durationSeconds * tps}},
+		}
+	}
+
+	rt := newFleer()
+	rt.StateTimer = durationSeconds*tps - 1
+	if rt.finishFleeIfExpired(rt.X+20*defaultTileSize, rt.Y) {
+		t.Fatal("RT flee expired one tick before its authored duration")
+	}
+	rt.StateTimer++
+	if !rt.finishFleeIfExpired(rt.X+20*defaultTileSize, rt.Y) {
+		t.Fatal("RT flee did not expire at its authored duration")
+	}
+
+	tb := newFleer()
+	for turn := 1; turn <= durationSeconds; turn++ {
+		tb.NextFleeTurnStep(nil, tb.X+20*defaultTileSize, tb.Y, tps)
+		if turn < durationSeconds && tb.State != StateFleeing {
+			t.Fatalf("TB flee expired on turn %d, want turn %d", turn, durationSeconds)
+		}
+	}
+	if tb.State == StateFleeing {
+		t.Fatalf("TB flee remained active after %d turns", durationSeconds)
+	}
+}
+
 // A cornered fleer (every escape tile blocked) must still exit the flee state
 // by timeout - the old loop picked its OWN tile as the flee target, hit the
 // "already there" early-return every tick, never reached the timeout, and

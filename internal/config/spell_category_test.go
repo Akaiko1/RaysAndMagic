@@ -81,3 +81,55 @@ func TestValidateSpellAuthoring_CooldownRequiredExceptBuffs(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSpellAuthoring_StunRequiresBothModeClocks(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		def     *SpellDefinitionConfig
+		wantErr bool
+	}{
+		{
+			name: "complete chance stun",
+			def: &SpellDefinitionConfig{
+				CooldownSeconds: 1, StunChance: 0.5,
+				StunDurationSeconds: 2, StunDurationTurns: 1,
+			},
+		},
+		{
+			name: "complete radius stun",
+			def: &SpellDefinitionConfig{
+				CooldownSeconds: 1, StunRadiusTiles: 3,
+				StunDurationSeconds: 4, StunDurationTurns: 2,
+			},
+		},
+		{
+			name: "missing seconds",
+			def: &SpellDefinitionConfig{
+				CooldownSeconds: 1, StunChance: 0.5, StunDurationTurns: 1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing turns",
+			def: &SpellDefinitionConfig{
+				CooldownSeconds: 1, StunRadiusTiles: 3, StunDurationSeconds: 4,
+			},
+			wantErr: true,
+		},
+		{
+			name: "orphan durations",
+			def: &SpellDefinitionConfig{
+				CooldownSeconds: 1, StunDurationSeconds: 2, StunDurationTurns: 1,
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &SpellSystemConfig{Spells: map[string]*SpellDefinitionConfig{"test": tc.def}}
+			err := validateSpellAuthoring(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validate stun clocks: err=%v, wantErr=%v", err, tc.wantErr)
+			}
+		})
+	}
+}

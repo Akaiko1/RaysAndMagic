@@ -218,8 +218,8 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.IgniteChance > 0 && monster.IgniteDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ignite_chance but no ignite_duration_seconds", key))
 		}
-		if monster.StunCharChance > 0 && monster.StunCharSeconds <= 0 && monster.StunCharTurns <= 0 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but no stun_char_seconds/turns", key))
+		if monster.StunCharChance > 0 && (monster.StunCharSeconds <= 0 || monster.StunCharTurns <= 0) {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but needs positive stun_char_seconds and stun_char_turns", key))
 		}
 		if monster.DragonBreathChance > 0 && strings.TrimSpace(monster.DragonBreathType) == "" {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has dragon_breath_chance but no dragon_breath_damage_type", key))

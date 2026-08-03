@@ -2126,11 +2126,21 @@ func (g *MMGame) canSelectChar(idx int) bool {
 	return m.CanUseCombatAction() && m.ActionsRemaining > 0
 }
 
-// canSpendTurnBasedAction is the UI gate for a player-initiated action.
-// Real-time callers keep their action-specific cooldown checks; TB requires
-// both the party phase and a remaining slot.
-func (g *MMGame) canSpendTurnBasedAction(idx int) bool {
-	return !g.turnBasedMode || (g.currentTurn == 0 && g.canSelectChar(idx))
+// canSpendCombatAction is the shared UI gate for a player-initiated spell or
+// trap action. RT requires the character's cast hand to be ready; TB requires
+// the party phase and a remaining action slot.
+func (g *MMGame) canSpendCombatAction(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	member := g.party.Members[idx]
+	if member == nil || !member.CanUseCombatAction() {
+		return false
+	}
+	if g.turnBasedMode {
+		return g.currentTurn == 0 && member.ActionsRemaining > 0
+	}
+	return member.RTCooldown <= 0
 }
 
 // selectPartyMemberManually updates the UI selection without conflating it
@@ -2455,6 +2465,18 @@ func (g *MMGame) startPartyTurn() {
 	}
 }
 
+// updatePartyClocks advances the active mode's party clocks. A completed RT
+// regeneration cadence clears partial TB progress; the reciprocal reset lives
+// in endPartyTurn when its TB cadence pays out.
+func (g *MMGame) updatePartyClocks() {
+	if g == nil || g.party == nil {
+		return
+	}
+	if g.party.UpdateWithMode(g.turnBasedMode) {
+		g.turnBasedSpRegenCount = 0
+	}
+}
+
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	bonusActions := 0
 	for _, m := range g.party.Members {
@@ -2568,6 +2590,7 @@ func (g *MMGame) endPartyTurn() {
 		for _, member := range g.party.Members {
 			member.RegenerateSpellPoints()
 			member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
+			member.ResetRealtimeRegenCadence()
 		}
 	}
 
@@ -2665,12 +2688,11 @@ func (g *MMGame) consumeSelectedCharAction() {
 	}
 }
 
-// consumeSelectedCharActionWithRTCooldown spends a TB action while recording
-// the cooldown it must still honor after a later return to real-time mode.
-// RT timers are paused in TB, so retain the longer timer if the character
-// already carried one into the mode switch.
+// consumeSelectedCharActionWithRTCooldown commits a spell/trap action in either
+// mode. It arms the RT cooldown immediately and, in TB, also spends one action
+// slot. Retain a longer cooldown carried into TB across a mode switch.
 func (g *MMGame) consumeSelectedCharActionWithRTCooldown(cooldownFrames int) {
-	if g.turnBasedMode && cooldownFrames > 0 && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
+	if cooldownFrames > 0 && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
 		if selected := g.party.Members[g.selectedChar]; selected != nil && cooldownFrames > selected.RTCooldown {
 			selected.RTCooldown = cooldownFrames
 		}

@@ -220,7 +220,7 @@ func TestTurnBasedActorGateRejectsStunnedAndExhaustedMember(t *testing.T) {
 			if g.canSelectChar(0) {
 				t.Fatal("ineligible member remained a turn-based actor")
 			}
-			if g.canSpendTurnBasedAction(0) {
+			if g.canSpendCombatAction(0) {
 				t.Fatal("UI action gate bypassed an ineligible turn-based actor")
 			}
 			if tc.wantDirectBlocked {

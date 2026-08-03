@@ -1300,6 +1300,8 @@ npcs:
       - { type: "item", name: "Magic Ring",       cost: 600,  quantity: 2, tab: "Road" }
       - { type: "potion", name: "Health Potion",  cost: 60,   quantity: 15, tab: "Road" }
       - { type: "potion", name: "Mana Potion",    cost: 70,   quantity: 15, tab: "Road" }
+      - { type: "item", name: "Ordinary Key",     cost: 500,  quantity: -1, tab: "Road" }
+      - { type: "item", name: "Inlaid Key",       cost: 2500, quantity: -1, tab: "Road" }
 
   nomad_city_trainer:
     name: "Blademaster Nadira"

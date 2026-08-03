@@ -576,23 +576,6 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 	}
 }
 
-// quickSlotCharReady reports whether a character may act through a quick slot
-// right now - alive/conscious AND off cooldown (RT) or holding an action (TB).
-// Mirrors the F/Space gating so quick slots can't bypass the combat cadence.
-func (g *MMGame) quickSlotCharReady(idx int) bool {
-	if idx < 0 || idx >= len(g.party.Members) {
-		return false
-	}
-	m := g.party.Members[idx]
-	if !m.CanUseCombatAction() {
-		return false
-	}
-	if g.turnBasedMode {
-		return g.canSpendTurnBasedAction(idx)
-	}
-	return m.RTCooldown == 0
-}
-
 // useQuickSlot applies a quick slot for a character: equip/swap a weapon or
 // armour, drink one potion, or cast a spell. Reuses the existing equip/consume/
 // cast paths so behaviour matches the inventory and spellbook exactly. A
@@ -680,7 +663,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 
 	// Spells and traps ARE combat actions: gated by readiness, and a successful one
 	// spends the action (TB) / sets the cooldown (RT).
-	if !g.quickSlotCharReady(charIdx) {
+	if !g.canSpendCombatAction(charIdx) {
 		return
 	}
 	acted := false

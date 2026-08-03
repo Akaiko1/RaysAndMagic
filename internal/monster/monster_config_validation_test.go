@@ -48,6 +48,41 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	}
 }
 
+func TestValidateMonsterConfiguration_StunRequiresBothModeClocks(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		seconds int
+		turns   int
+		wantErr bool
+	}{
+		{name: "complete pair", seconds: 2, turns: 1},
+		{name: "missing seconds", turns: 1, wantErr: true},
+		{name: "missing turns", seconds: 2, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+				"stunner": {
+					Name:            "Stunner",
+					SizeClass:       "person",
+					StunCharChance:  0.5,
+					StunCharSeconds: tc.seconds,
+					StunCharTurns:   tc.turns,
+				},
+			}}
+			err := validateMonsterConfiguration(cfg)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "stun_char_seconds and stun_char_turns") {
+					t.Fatalf("incomplete stun clocks should fail clearly, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("complete stun clocks should pass: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateMonsterConfiguration_ChampionRejectsMeleeDamageType(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"arena_champion": {

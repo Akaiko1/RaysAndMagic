@@ -433,7 +433,7 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 			// mode, a successful cast consumes one action slot for the active
 			// character (just like F-key on the equipped spell), so it can't
 			// be spammed beyond their Speed-derived budget.
-			canCast := ui.game.canSpendTurnBasedAction(ui.game.selectedChar)
+			canCast := ui.game.canSpendCombatAction(ui.game.selectedChar)
 			if canCast {
 				cast, spellID := ui.game.combat.CastSelectedSpell()
 				if cast {

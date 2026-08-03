@@ -124,8 +124,10 @@ func (gl *GameLoop) updateExploration() {
 	// reads the current map key (sky, packs, quest scoping).
 	gl.game.syncOpenWorldRegion()
 
-	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
-	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
+	// Handle party updates (pass turn-based mode to disable timer-based regeneration).
+	// An RT payout clears partial TB progress so toggling modes cannot pay both
+	// independent cadences back-to-back.
+	gl.game.updatePartyClocks()
 	gl.game.combat.knockOutLethalDoTVictims()
 	gl.game.flushPendingQuestSpawns() // deferred boss arrivals land between frames
 	gl.game.checkBossFireTraps()      // Brood Mother field: detonate under the party, both modes

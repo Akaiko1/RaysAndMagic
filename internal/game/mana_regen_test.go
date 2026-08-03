@@ -137,3 +137,66 @@ func TestTurnBasedRegenUsesEffectivePersonalityViaStatBonus(t *testing.T) {
 		}
 	}
 }
+
+func TestModeSwitchRegenCadencesCannotPayBackToBack(t *testing.T) {
+	t.Run("TB payout resets RT progress", func(t *testing.T) {
+		g := turnBasedRegenSetup(t)
+		member := g.party.Members[0]
+		member.MaxHitPoints, member.HitPoints = 1000, 500
+		member.BonusRegenPct = 5
+		g.turnBasedMode = false
+		for range character.ManaRegenIntervalFrames - 1 {
+			g.updatePartyClocks()
+		}
+
+		g.turnBasedMode = true
+		for range TurnBasedSpRegenEveryNRounds {
+			g.endPartyTurn()
+		}
+		if member.SpellPoints != 22 {
+			t.Fatalf("TB payout SP = %d, want 22", member.SpellPoints)
+		}
+		if member.HitPoints != 550 {
+			t.Fatalf("TB Troll payout HP = %d, want 550", member.HitPoints)
+		}
+
+		g.turnBasedMode = false
+		g.updatePartyClocks()
+		if member.SpellPoints != 22 {
+			t.Fatalf("returning to RT paid an immediate second regen: SP=%d", member.SpellPoints)
+		}
+		if member.HitPoints != 550 {
+			t.Fatalf("returning to RT paid an immediate second Troll regen: HP=%d", member.HitPoints)
+		}
+	})
+
+	t.Run("RT payout resets TB progress", func(t *testing.T) {
+		g := turnBasedRegenSetup(t)
+		member := g.party.Members[0]
+		member.MaxHitPoints, member.HitPoints = 1000, 500
+		member.BonusRegenPct = 5
+		g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
+		g.turnBasedMode = false
+		for range character.ManaRegenIntervalFrames {
+			g.updatePartyClocks()
+		}
+		if member.SpellPoints != 22 {
+			t.Fatalf("RT payout SP = %d, want 22", member.SpellPoints)
+		}
+		if member.HitPoints != 550 {
+			t.Fatalf("RT Troll payout HP = %d, want 550", member.HitPoints)
+		}
+		if g.turnBasedSpRegenCount != 0 {
+			t.Fatalf("RT payout left TB regen progress at %d", g.turnBasedSpRegenCount)
+		}
+
+		g.turnBasedMode = true
+		g.endPartyTurn()
+		if member.SpellPoints != 22 {
+			t.Fatalf("returning to TB paid an immediate second regen: SP=%d", member.SpellPoints)
+		}
+		if member.HitPoints != 550 {
+			t.Fatalf("returning to TB paid an immediate second Troll regen: HP=%d", member.HitPoints)
+		}
+	})
+}

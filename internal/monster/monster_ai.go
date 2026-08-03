@@ -523,7 +523,7 @@ func (m *Monster3D) ShouldDisengageFromPlayer(collisionChecker CollisionChecker,
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {
 	// Get AI config values
-	var idlePatrolTimer int = 60         // Default value (1 second)
+	var idlePatrolTimer int = 60         // Default value (0.5 seconds at 120 TPS)
 	var idleToPatrolChance float64 = 0.1 // Default value
 
 	if m.config != nil {
@@ -540,7 +540,7 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 	}
 
 	// Occasionally start patrolling if within tether or engaging player
-	if m.StateTimer > idlePatrolTimer && rand.Float64() < idleToPatrolChance {
+	if m.StateTimer >= idlePatrolTimer && rand.Float64() < idleToPatrolChance {
 		m.State = StatePatrolling
 		m.StateTimer = 0
 		if m.IsEngagingPlayer {
@@ -558,7 +558,7 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 // updatePatrolling moves monster randomly for normal wandering behavior using pathfinding
 func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 	// Get AI config values
-	var patrolIdleTimer int = 600 // Default value
+	var patrolIdleTimer int = 1200 // Default value (10 seconds at 120 TPS)
 
 	if m.config != nil {
 		patrolIdleTimer = m.config.MonsterAI.PatrolIdleTimer
@@ -605,7 +605,7 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 	}
 
 	// Return to idle after a while
-	if m.StateTimer > patrolIdleTimer {
+	if m.StateTimer >= patrolIdleTimer {
 		m.State = StateIdle
 		m.StateTimer = 0
 	}
@@ -1605,7 +1605,7 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	}
 
 	// Attack delay from config
-	if m.StateTimer > m.AttackCooldownFrames() {
+	if m.StateTimer >= m.AttackCooldownFrames() {
 		// Increment attack counter
 		m.AttackCount++
 
@@ -1649,7 +1649,7 @@ func (m *Monster3D) fleeDurationFrames() int {
 // of an existing encounter, so cover does not erase it: distance alone decides
 // whether the monster rejoins the fight or wanders home.
 func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
-	if m.StateTimer <= m.fleeDurationFrames() {
+	if m.StateTimer < m.fleeDurationFrames() {
 		return false
 	}
 	m.ResetPathfinding()
