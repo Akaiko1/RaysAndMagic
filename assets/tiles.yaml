@@ -31,6 +31,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    fly_over: true
     sprite: ""
     render_type: "floor"
     floor_color: [100, 150, 255]  # Blue water
@@ -44,6 +45,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    fly_over: true
     sprite: ""
     render_type: "floor"
     floor_color: [30, 80, 180]  # Darker blue deep water
@@ -1557,6 +1559,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    fly_over: true
     sprite: ""
     render_type: "floor"
     floor_color: [28, 38, 48]
@@ -1572,6 +1575,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    fly_over: true
     sprite: ""
     render_type: "floor"
     floor_color: [44, 58, 70]

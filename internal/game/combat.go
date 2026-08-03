@@ -1442,8 +1442,8 @@ func (cs *CombatSystem) logicalCameraXY() (float64, float64) {
 // resolver both call it). Returns the slot side (-1 left / 0 dead-ahead / +1
 // right), the world position to use (pulled ~1 tile ahead + slightly aside for a
 // front diagonal; the monster's true spot dead-ahead), whether it was pulled, and
-// ok=false when no front slot applies (not TB, ranged diagonal, not adjacent,
-// off-axis, behind, or the pulled spot has no line of sight).
+// ok=false when no front slot applies (not TB, not a melee delivery, not
+// adjacent, off-axis, behind, or the pulled spot has no line of sight).
 func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x, y float64, pulled, ok bool) {
 	if cs == nil || cs.game == nil || mon == nil || !cs.game.turnBasedMode || !mon.IsAlive() {
 		return 0, 0, 0, false, false
@@ -1466,8 +1466,13 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 			cs.game.collisionSystem.CheckLineOfSight(mon.X, mon.Y, camX, camY)
 		return 0, mon.X, mon.Y, false, losOK
 	}
-	// Front DIAGONAL melee neighbour: pull it ~1 tile ahead, slightly to its side.
-	if mdx == 0 || mdy == 0 || mon.HasRangedAttack() || !cs.monsterMeleeAdjacentToParty(mon) {
+	// Front DIAGONAL melee neighbour: pull it ~1 tile ahead, slightly to its
+	// side. The spatial gate keeps the TRUE-position adjacency/LOS rule - a
+	// neighbour behind a wall corner must not be pulled into a targetable
+	// front slot; the delivery selector then excludes ranged-only attackers
+	// (champions), whose pull would misrepresent their attack.
+	if mdx == 0 || mdy == 0 || !cs.monsterMeleeAdjacentToParty(mon) ||
+		!cs.monsterUsesMeleeAgainstParty(mon) {
 		return 0, 0, 0, false, false
 	}
 	rx, ry := -fy, fx
@@ -2132,11 +2137,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
 				monster.State = monsterPkg.StateAttacking
 				cs.game.armMonsterAttackAnimation(monster)
-				if monster.HasRangedAttack() {
-					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
-				} else {
-					cs.monsterStrikeMonster(monster, foe)
-				}
+				cs.performMonsterAttackAgainstMonster(monster, foe, ProjectileOwnerMonsterAtBound)
 				monster.AttackCDFrames = monster.AttackCooldownFrames()
 			}
 			continue
@@ -2168,9 +2169,10 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// also count diagonally-adjacent tiles as point-blank so they can surround
 		// the party instead of queueing only on N/S/E/W.
 		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
+			usesMelee := cs.monsterUsesMeleeAgainstParty(monster)
 			// Melee champions run two independent hand streams (party dual-wield
 			// parity); everyone else fires on the single attack tick below.
-			if monster.IsChampion() && !monster.HasRangedAttack() &&
+			if monster.IsChampion() && usesMelee &&
 				cs.championRTDualStrike(monster, monster.StateTimer == 1) {
 				continue
 			}
@@ -2181,11 +2183,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.StateTimer == 1 && monster.AttackCDFrames == 0 {
 				monster.AttackCDFrames = monster.AttackCooldownFrames()
 				cs.game.armMonsterAttackAnimation(monster)
-				if monster.HasRangedAttack() {
-					cs.spawnMonsterRangedAttack(monster)
-				} else {
-					cs.applyMonsterMeleeDamage(monster)
-				}
+				cs.performMonsterAttackAgainstParty(monster)
 			}
 		}
 	}
@@ -2284,6 +2282,12 @@ func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dis
 	if monsterInAttackTransit(monster) {
 		return false
 	}
+	// A ranged combat profile supplies the long-distance option, not a ban on
+	// hand-to-hand combat. Adjacent attackers may use their authored melee
+	// school even when the radial projectile range is shorter than a diagonal.
+	if monster.HasRangedAttack() && cs.monsterUsesMeleeAgainstParty(monster) {
+		return true
+	}
 	if dist <= attackRange {
 		if monster.HasRangedAttack() {
 			return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, cs.game.camera.X, cs.game.camera.Y)
@@ -2304,8 +2308,55 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	return cs.monsterMeleeAdjacentToPoint(monster, camX, camY)
 }
 
-// monsterMeleeAdjacentToPoint is the one tile-adjacency/LoS rule for a melee
-// monster attacking any point target (party or another monster).
+// monsterUsesMeleeAgainstParty is the single party-target selector for normal
+// monster attacks. A projectile-capable monster strikes in melee on any clear
+// adjacent tile; otherwise it keeps its authored ranged attack.
+func (cs *CombatSystem) monsterUsesMeleeAgainstParty(monster *monsterPkg.Monster3D) bool {
+	camX, camY := cs.logicalCameraXY()
+	return cs.monsterUsesMeleeAgainstPoint(monster, camX, camY)
+}
+
+// monsterUsesMeleeAgainstPoint selects delivery without changing damage data:
+// melee keeps melee_damage_type, while the ranged path keeps the projectile
+// spell or weapon's own school.
+func (cs *CombatSystem) monsterUsesMeleeAgainstPoint(monster *monsterPkg.Monster3D, targetX, targetY float64) bool {
+	if monster == nil || !monster.HasRangedAttack() {
+		return monster != nil
+	}
+	// Arena champions are character builds whose `ranged` flag explicitly owns
+	// their main-hand delivery; unlike ordinary monster definitions they have no
+	// authored melee_damage_type/profile to switch to.
+	if monster.IsChampion() {
+		return false
+	}
+	return cs.monsterMeleeAdjacentToPoint(monster, targetX, targetY)
+}
+
+func (cs *CombatSystem) performMonsterAttackAgainstParty(monster *monsterPkg.Monster3D) {
+	if cs.monsterUsesMeleeAgainstParty(monster) {
+		cs.applyMonsterMeleeDamage(monster)
+		return
+	}
+	cs.spawnMonsterRangedAttack(monster)
+}
+
+func (cs *CombatSystem) performMonsterAttackAgainstMonster(attacker, target *monsterPkg.Monster3D, owner ProjectileOwner) {
+	if attacker == nil || target == nil || !target.IsAlive() {
+		return
+	}
+	if cs.monsterUsesMeleeAgainstPoint(attacker, target.X, target.Y) {
+		if attacker.IsChampion() {
+			cs.championAlternatingCrossfireStrike(attacker, target)
+		} else {
+			cs.monsterStrikeMonster(attacker, target)
+		}
+		return
+	}
+	cs.spawnMonsterRangedAttackAtMonster(attacker, target, owner)
+}
+
+// monsterMeleeAdjacentToPoint is the one tile-adjacency/LoS rule for melee
+// delivery against any point target (party or another monster).
 func (cs *CombatSystem) monsterMeleeAdjacentToPoint(monster *monsterPkg.Monster3D, targetX, targetY float64) bool {
 	if monster == nil || cs == nil || cs.game == nil {
 		return false
@@ -2539,24 +2590,37 @@ func (g *MMGame) partyProjectileReflectPct() int {
 }
 
 // tryReflectMonsterProjectile rolls the Aegis mirror-scale against an incoming
-// monster projectile: on success the payload lands on the SHOOTER instead
-// (their own school, no armor skip) and the party takes nothing.
-func (cs *CombatSystem) tryReflectMonsterProjectile(parts damagecalc.Parts, school string, source *monsterPkg.Monster3D) bool {
+// monster projectile. On success the existing projectile turns toward its
+// shooter; damage remains deferred until the return flight actually lands.
+func (cs *CombatSystem) tryReflectMonsterProjectile(
+	source *monsterPkg.Monster3D,
+	x, y float64,
+	velX, velY *float64,
+	lifetime *int,
+	owner *ProjectileOwner,
+) bool {
 	pct := cs.game.partyProjectileReflectPct()
-	if pct <= 0 || source == nil || !source.IsAlive() || rand.Intn(100) >= pct {
+	if pct <= 0 || source == nil || !source.IsAlive() || velX == nil || velY == nil ||
+		lifetime == nil || owner == nil || rand.Intn(100) >= pct {
 		return false
 	}
-	dealt := cs.applyMonsterDamagePacket(
-		source,
-		singleMonsterDamagePacket(parts, school, 0),
-		monsterDamageOptions{},
-	).Total()
-	if !source.IsAlive() {
-		xpAwarded := cs.finishMonsterKill(source)
-		cs.game.AddCombatMessage(fmt.Sprintf("The mirror scales turn the bolt back - %s is slain! (+%d XP)", source.Name, xpAwarded))
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("The mirror scales turn the bolt back at %s (%d)!", source.Name, dealt))
+
+	dx, dy := source.X-x, source.Y-y
+	distance := math.Hypot(dx, dy)
+	speed := math.Hypot(*velX, *velY)
+	if distance <= 0 || speed <= 0 {
+		return false
 	}
+	*velX = dx / distance * speed
+	*velY = dy / distance * speed
+	// A long-range shot may have spent nearly its whole authored lifetime on
+	// the incoming leg. Guarantee enough frames for the same object to return.
+	returnFrames := int(math.Ceil(distance/speed)) + 2
+	if *lifetime < returnFrames {
+		*lifetime = returnFrames
+	}
+	*owner = ProjectileOwnerReflected
+	cs.game.AddCombatMessage(fmt.Sprintf("The mirror scales turn %s's bolt back!", source.Name))
 	return true
 }
 
@@ -3112,6 +3176,77 @@ func (cs *CombatSystem) spawnMonsterRangedAttackAtMonster(monster, target *monst
 	return cs.spawnMonsterRangedAttackAt(monster, target.X, target.Y, owner)
 }
 
+func projectileSourceMonster(projectile interface{}) *monsterPkg.Monster3D {
+	switch p := projectile.(type) {
+	case *MagicProjectile:
+		return p.SourceMonster
+	case *Arrow:
+		return p.SourceMonster
+	default:
+		return nil
+	}
+}
+
+// resolveReflectedMonsterProjectile consumes an Aegis return only when it
+// reaches the original shooter. It preserves the old reflection contract:
+// same snapshotted payload and school, target mitigation, but no projectile
+// riders, splash, ricochet, or armor-pierce inheritance.
+func (cs *CombatSystem) resolveReflectedMonsterProjectile(
+	projectile interface{},
+	projectileType string,
+	target *monsterPkg.Monster3D,
+	entityID string,
+) {
+	if target == nil || target != projectileSourceMonster(projectile) || !target.IsAlive() {
+		return
+	}
+
+	var parts damagecalc.Parts
+	var damageTypeStr string
+	var weaponDef *config.WeaponDefinitionConfig
+	switch projectileType {
+	case "magic_projectile":
+		mp, ok := projectile.(*MagicProjectile)
+		if !ok || !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerReflected {
+			return
+		}
+		mp.Active = false
+		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
+		damageTypeStr = spellDamageTypeStr(mp.SpellType)
+		fxX, fxY := cs.monsterVisualPos(target)
+		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
+	case "arrow":
+		ar, ok := projectile.(*Arrow)
+		if !ok || !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerReflected {
+			return
+		}
+		ar.Active = false
+		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
+		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
+		weaponDef = lookupWeaponConfigByKey(ar.BowKey)
+		cs.spawnRangedHitEffect(target, weaponDef, parts.Total())
+	default:
+		return
+	}
+	cs.game.collisionSystem.UnregisterEntity(entityID)
+
+	dealt := cs.applyMonsterDamagePacket(
+		target,
+		singleMonsterDamagePacket(parts, damageTypeStr, 0),
+		monsterDamageOptions{},
+	).Total()
+	if dealt > 0 {
+		cs.game.playMonsterSound(soundMonsterHit, target)
+		target.HitTintFrames = MonsterHitFlashFrames
+	}
+	if !target.IsAlive() {
+		xpAwarded := cs.finishMonsterKill(target)
+		cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt slays %s! (+%d XP)", target.Name, xpAwarded))
+		return
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt hits %s for %d!", target.Name, dealt))
+}
+
 // resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
 // another monster (bound undead <-> enemy crossfire). Damage is the projectile's
 // own; the party is rewarded ONLY when an enemy falls (never for a bound ally).
@@ -3431,10 +3566,12 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 }
 
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
-// using perspective-scaled bounding boxes for accurate visual collision detection
+// using perspective-scaled bounding boxes for accurate visual collision detection.
+// Crossfire and reflected shots use authoritative world-space collision instead.
 func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	// Collect all active projectiles. Monster-owned ones are excluded (they hit
-	// the party, not other monsters); player- and bound/mob-at-bound ones hit monsters.
+	// the party, not other monsters); party, crossfire, and reflected owners can
+	// hit monsters under their respective target filters below.
 	type projectileInfo struct {
 		entityID string
 		data     interface{}
@@ -3465,6 +3602,8 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		bestLateral := 0.0
 		bestWorldDistance := math.MaxFloat64
 		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
+		reflected := proj.owner == ProjectileOwnerReflected
+		worldSpace := crossfire || reflected
 		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
 
 		camCos := math.Cos(cs.game.camera.Angle)
@@ -3472,6 +3611,11 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 
 		for _, monster := range cs.game.world.Monsters {
 			if !monster.IsAlive() {
+				continue
+			}
+			// A mirror-scale return belongs to its original shooter. Other mobs
+			// remain transparent even when they stand across the return path.
+			if reflected && projectileSourceMonster(proj.data) != monster {
 				continue
 			}
 			if proj.owner == ProjectileOwnerPlayer && isPurePartySummon(monster) {
@@ -3490,7 +3634,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
 				continue
 			}
-			if crossfire {
+			if worldSpace {
 				if !cs.checkWorldSpaceProjectileCollision(proj.entityID, monster) {
 					continue
 				}
@@ -3545,9 +3689,12 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 		}
 		if hitMonster != nil {
-			// Monster-fired crossfire resolves as monster-vs-monster (no party
-			// attribution); player projectiles use the full party-damage path.
-			if proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound {
+			// Reflections preserve only the Aegis' mirrored damage contract.
+			// Crossfire retains its monster-vs-monster riders, while player
+			// projectiles use the full party-damage path.
+			if reflected {
+				cs.resolveReflectedMonsterProjectile(proj.data, proj.pType, hitMonster, proj.entityID)
+			} else if crossfire {
 				cs.resolveMonsterProjectileVsMonster(proj.data, proj.pType, hitMonster, proj.entityID)
 			} else {
 				cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
@@ -3570,15 +3717,20 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		}
 		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
 			damageTypeStr := spellDamageTypeStr(mp.SpellType)
-			// The projectile carries one source-adjusted snapshot for both
-			// branches: what the party would suffer is what the Aegis mirrors.
-			parts := damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-			// Broodscale Aegis: the bolt may fly back at its caster.
-			if cs.tryReflectMonsterProjectile(parts, damageTypeStr, mp.SourceMonster) {
-				mp.Active = false
-				cs.game.collisionSystem.UnregisterEntity(mp.ID)
+			// Broodscale Aegis: this same bolt may turn and fly back at its caster.
+			if cs.tryReflectMonsterProjectile(
+				mp.SourceMonster,
+				mp.X,
+				mp.Y,
+				&mp.VelX,
+				&mp.VelY,
+				&mp.LifeTime,
+				&mp.Owner,
+			) {
 				continue
 			}
+			// The projectile carries one source-adjusted snapshot for delivery.
+			parts := damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
 			// Champion spell riders (lightning/psychic-shock stun) resolve from
 			// the spell that actually flew - a weapon swing landing mid-flight
 			// may have re-stamped the mob's rider fields for a hand.
@@ -3607,14 +3759,20 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		}
 		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
 			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
-			// Reuse the source-adjusted snapshot recorded when the dart fired.
-			parts := damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-			// Broodscale Aegis: the dart may fly back at its shooter.
-			if cs.tryReflectMonsterProjectile(parts, damageTypeStr, ar.SourceMonster) {
-				ar.Active = false
-				cs.game.collisionSystem.UnregisterEntity(ar.ID)
+			// Broodscale Aegis: this same dart may turn and fly back at its shooter.
+			if cs.tryReflectMonsterProjectile(
+				ar.SourceMonster,
+				ar.X,
+				ar.Y,
+				&ar.VelX,
+				&ar.VelY,
+				&ar.LifeTime,
+				&ar.Owner,
+			) {
 				continue
 			}
+			// Reuse the source-adjusted snapshot recorded when the dart fired.
+			parts := damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
 			// Riders resolve from the weapon that FIRED this dart - a swing landing
 			// mid-flight may have re-armed the mob's rider fields for another hand.
 			cs.stampChampionProjectileRiders(ar.SourceMonster, ar.BowKey)
@@ -5195,6 +5353,9 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 			return false
 		}
 	}
+	if attacker.HasRangedAttack() && cs.monsterUsesMeleeAgainstPoint(attacker, target.X, target.Y) {
+		return true
+	}
 	if Distance(attacker.X, attacker.Y, target.X, target.Y) <= attacker.GetAttackRangePixels() {
 		return !attacker.HasRangedAttack() || cs.game.collisionSystem == nil ||
 			cs.game.collisionSystem.CheckLineOfSight(attacker.X, attacker.Y, target.X, target.Y)
@@ -5422,15 +5583,10 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 		return false
 	}
 	m.State = monsterPkg.StateAttacking
-	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit
-	// is resolved on impact in CheckProjectileMonsterCollisions. Melee ones strike
-	// directly.
+	// A projectile-capable bound undead still strikes directly at point blank;
+	// otherwise it looses a visible bolt resolved on impact.
 	cs.game.armMonsterAttackAnimation(m)
-	if m.HasRangedAttack() {
-		cs.spawnMonsterRangedAttackAtMonster(m, target, ProjectileOwnerBoundUndead)
-	} else {
-		cs.monsterStrikeMonster(m, target)
-	}
+	cs.performMonsterAttackAgainstMonster(m, target, ProjectileOwnerBoundUndead)
 	return true
 }
 

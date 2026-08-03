@@ -880,6 +880,15 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 	p.addUpload(r.floorTexAtlas)
 	p.addUpload(r.game.skyPanorama)
 	p.addUpload(r.game.skyPanoramaPrev)
+	// The OTHER phase's backdrop uploads with the map too, so a day/night flip
+	// swaps pointers without even a first-draw texture upload.
+	if world.GlobalWorldManager != nil {
+		if mc := world.GlobalWorldManager.GetCurrentMapConfig(); mc != nil && mc.SkyTexture != "" {
+			if v := skyVariantName(mc.SkyTexture, !r.game.dayNightIsNight); skyTextureExists(v) {
+				p.addUpload(r.game.skyPanoramaCache[v])
+			}
+		}
+	}
 	if len(r.tileLightCache) > 0 {
 		p.addUpload(r.ensureSoftGlow())
 	}

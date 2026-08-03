@@ -1908,7 +1908,7 @@ monsters:
     projectile_spell: "fireball"
     ranged_attack_range: 11
     inferno_chance: 0.22
-    inferno_damage: 45
+    inferno_damage: 150
     inferno_range_tiles: 7
     ignite_chance: 0.15
     ignite_duration_seconds: 30

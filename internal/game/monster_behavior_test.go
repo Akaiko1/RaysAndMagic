@@ -173,7 +173,7 @@ func TestTurnBased_MeleeAttacksDiagonally(t *testing.T) {
 	}
 }
 
-func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T) {
+func TestTurnBased_FrontDiagonalMeleeDeliveryHasPulledVisualPosition(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	game.camera.Angle = 0 // facing east
@@ -189,6 +189,12 @@ func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T
 	}
 	if got, want := game.camera.Y-vy, tbFrontDiagonalMonsterLateralTiles*ts; math.Abs(got-want) > 1e-6 {
 		t.Fatalf("visual lateral offset = %.2f, want %.2f", got, want)
+	}
+
+	frontDiagRanged := spawnMonsterAtTile(game, "elf_archer", 11, 9, ts)
+	vx, vy = r.monsterVisualPosition(frontDiagRanged)
+	if vx == frontDiagRanged.X && vy == frontDiagRanged.Y {
+		t.Fatal("front-diagonal ranged monster using melee should share the pulled TB presentation")
 	}
 
 	backDiag := spawnMonsterAtTile(game, "goblin", 9, 9, ts)

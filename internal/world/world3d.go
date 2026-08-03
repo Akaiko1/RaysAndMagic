@@ -436,8 +436,9 @@ func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []stri
 			return false
 		}
 
-		// Flying monsters can pass over transparent solid tiles (e.g., boulders)
-		if flying && GlobalTileManager.IsSolid(tile) && GlobalTileManager.IsTransparent(tile) {
+		// TileManager owns the complete flight exception: existing transparent
+		// scenery plus content-authored open airspace such as water and chasms.
+		if flying && GlobalTileManager.CanFlyOver(tile) {
 			return false
 		}
 

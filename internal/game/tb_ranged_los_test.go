@@ -67,3 +67,44 @@ func TestTurnBasedRangedRequiresLineOfSight(t *testing.T) {
 		}
 	})
 }
+
+func TestTurnBasedRangedUsesMeleeFromDiagonalContact(t *testing.T) {
+	game, gl, tile := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, tile)
+
+	bandit := spawnMonsterAtTile(game, "bandit", 11, 11, tile)
+	bandit.DamageMin, bandit.DamageMax = 20, 20
+	bandit.MeleeDamageType = monster.DamageDark.String()
+	beforeHP := partyHPSum(game)
+
+	runOneMonsterTurn(game, gl)
+
+	if len(game.arrows) != 0 {
+		t.Fatalf("diagonally adjacent ranged monster fired %d projectiles, want melee", len(game.arrows))
+	}
+	if got := partyHPSum(game); got >= beforeHP {
+		t.Fatalf("diagonally adjacent ranged monster did not land melee: HP %d -> %d", beforeHP, got)
+	}
+}
+
+// A ranged CHAMPION owns its main-hand delivery: adjacency must NOT let it
+// enter the melee-adjacent branch and fire from a diagonal, bypassing the
+// row/column lane rule that governs every other ranged shot in TB.
+func TestTurnBasedRangedChampionKeepsLaneRuleOnDiagonal(t *testing.T) {
+	game, gl, tile := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, tile)
+
+	champ := spawnMonsterAtTile(game, "bandit", 11, 11, tile)
+	champ.ChampionKey = "test_champion" // IsChampion: ranged flag owns delivery
+	beforeHP := partyHPSum(game)
+
+	runOneMonsterTurn(game, gl)
+
+	if len(game.arrows) != 0 || len(game.magicProjectiles) != 0 {
+		t.Fatalf("diagonal ranged champion fired (%d arrows, %d bolts) - lane rule bypassed",
+			len(game.arrows), len(game.magicProjectiles))
+	}
+	if got := partyHPSum(game); got != beforeHP {
+		t.Fatalf("diagonal ranged champion dealt damage: HP %d -> %d", beforeHP, got)
+	}
+}

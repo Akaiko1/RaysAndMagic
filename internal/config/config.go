@@ -955,6 +955,10 @@ type TileData struct {
 	Solid       bool   `yaml:"solid"`
 	Transparent bool   `yaml:"transparent"`
 	Walkable    bool   `yaml:"walkable"`
+	// FlyOver explicitly marks transparent, non-walkable floor terrain such as
+	// water or a chasm as open airspace for flying monsters. It does not apply
+	// to walls, doors, or opaque terrain.
+	FlyOver bool `yaml:"fly_over,omitempty"`
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
 	// HeightMultiplier remains only to reject legacy billboard authoring.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`

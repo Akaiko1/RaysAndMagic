@@ -85,6 +85,9 @@ func (tm *TileManager) validateTileConfiguration() error {
 			data.RenderType != config.TileRenderLandmarkStandee {
 			return fmt.Errorf("tile %q uses no_spin but render_type %q never spins", key, data.RenderType)
 		}
+		if data.FlyOver && (data.Walkable || data.Solid || !data.Transparent || data.RenderType != config.TileRenderFloor) {
+			return fmt.Errorf("tile %q uses fly_over but is not a transparent, non-solid, non-walkable floor", key)
+		}
 		if data.RemovedSizeTiles != nil {
 			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
 		}
@@ -418,6 +421,14 @@ func (tm *TileManager) IsWalkable(tileType TileType3D) bool {
 		return true // Default to walkable for unknown tiles
 	}
 	return data.Walkable
+}
+
+// CanFlyOver reports whether a flying monster may ignore this tile's ordinary
+// movement block. Transparent solid scenery keeps its established fly-over
+// behavior; open gaps such as water and chasms opt in explicitly in content.
+func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
 }
 
 // IsOpaque returns whether a tile type blocks sight

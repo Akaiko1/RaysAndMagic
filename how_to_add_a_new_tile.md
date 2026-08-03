@@ -32,8 +32,9 @@ A missing sprite does NOT error - it renders as a placeholder image, so verify
 the file exists.
 
 Advanced optional fields: `impassable_aura` (rising-bubble hint on blockers),
-`light` (`enabled`, `radius_tiles`, `intensity` - the tile lights the scene),
-`floor_near_color`, `alpha_from_brightness`.
+`fly_over` (explicit airspace for flying monsters on a transparent, non-solid,
+non-walkable `floor`), `light` (`enabled`, `radius_tiles`, `intensity` - the
+tile lights the scene), `floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
 Use the `letter` in the map ASCII grid:
@@ -89,6 +90,8 @@ is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
 ## Supported fields
 Core fields are fully supported:
 - `solid`, `transparent`, `walkable`
+- `fly_over` for transparent, non-solid, non-walkable floor terrain such as
+  water or a chasm; never use it on walls, doors, or opaque terrain
 - `wall_height_multiplier` for `wall`
 - `size_class` for `standee` and `landmark_standee`; valid prop classes live
   under `graphics.size_classes` in `config.yaml`

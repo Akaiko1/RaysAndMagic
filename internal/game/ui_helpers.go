@@ -758,6 +758,25 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	blit(0, 0, col)
 }
 
+// drawScaledMetalCenteredText scales the cached outlined-label renderer so a
+// large heading keeps the same brushed-metal body as rarity names. The Game
+// Over heading intentionally stays on drawScaledCenteredText with its flat red
+// fill; Victory uses this variant for gold.
+func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA) {
+	if text == "" || scale <= 0 {
+		return
+	}
+	img := outlinedLabelImage(text, base)
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(
+		float64(cx)-float64(w)*scale/2,
+		float64(cy)-float64(h)*scale/2,
+	)
+	screen.DrawImage(img, op)
+}
+
 // drawDebugText draws left-aligned OUTLINED white text - the game-wide default,
 // replacing raw ebitenutil.DebugPrintAt(screen, ...) so every label stays legible
 // over any background.

@@ -1381,45 +1381,73 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 	}
 }
 
-// drawVictoryOverlay draws the victory screen with score and options
+func drawVictoryMetric(screen *ebiten.Image, label, value string, x, y, w int) {
+	drawDebugTextColored(screen, label, x, y, color.RGBA{205, 198, 175, 255})
+	drawDebugTextColored(screen, value, x+w-debugTextWidth(value), y, rarityGold)
+}
+
+// drawVictoryOverlay draws the victory screen with the completed endgame story,
+// a stable score card, and the high-score name prompt.
 func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
-	w := ui.game.config.GetScreenWidth()
-	h := ui.game.config.GetScreenHeight()
+	g := ui.game
+	w := g.config.GetScreenWidth()
+	h := g.config.GetScreenHeight()
 
-	// Darken background with golden tint
-	drawFilledRect(screen, 0, 0, w, h, color.RGBA{30, 25, 0, 200})
+	// Warm black veil over the frozen final battlefield.
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{24, 18, 2, 220})
 
-	// Get score data
-	scoreData := ui.game.GetScoreData()
+	scoreData := g.GetScoreData()
 	finalScore := highscore.Calculate(scoreData)
 	playTimeStr := highscore.FormatPlayTime(scoreData.PlayTime)
 
 	centerX := w / 2
-	startY := h/2 - 120
+	titleY := h/2 - 285
+	if titleY < 58 {
+		titleY = 58
+	}
 
-	// Victory header
-	drawDebugText(screen, "VICTORY!", centerX-70, startY)
-	drawDebugText(screen, "You have slain all four dragons!", centerX-120, startY+25)
-	drawDebugText(screen, "The realm is saved!", centerX-70, startY+45)
+	// The title mirrors GAME OVER's scale but uses the rarity-gold metallic
+	// gradient rather than a flat fill.
+	drawScaledMetalCenteredText(screen, "VICTORY", centerX, titleY, 4.0, rarityGold)
+	drawMetalPlate(screen, centerX-250, titleY+30, 500, 2, metalPlateBase(rarityGold))
+	drawCenteredTextWithShadow(screen, "THE LAST RECKONING IS COMPLETE", centerX-280, titleY+43, 560, 18, rarityGold)
+	drawCenteredTextWithShadow(screen, "The Brood Mother, Ancient God of Death, and Alien Enforcer have fallen.", centerX-300, titleY+67, 600, 18, color.RGBA{232, 224, 198, 255})
+	drawCenteredTextWithShadow(screen, "The realm is saved.", centerX-220, titleY+87, 440, 18, color.RGBA{232, 224, 198, 255})
 
-	// Score details
-	drawDebugText(screen, "Final Score", centerX-75, startY+80)
-	drawDebugText(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
-	drawDebugText(screen, fmt.Sprintf("Gold Earned: %d", scoreData.Gold), centerX-75, startY+120)
-	drawDebugText(screen, fmt.Sprintf("Total XP: %d", scoreData.TotalExperience), centerX-65, startY+140)
-	drawDebugText(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
-	drawDebugText(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
+	const panelW, panelH = 460, 250
+	panelX := centerX - panelW/2
+	panelY := titleY + 116
+	drawFilledRect(screen, panelX, panelY, panelW, panelH, color.RGBA{8, 7, 3, 225})
+	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{126, 91, 22, 255})
+	drawRectBorder(screen, panelX+5, panelY+5, panelW-10, panelH-10, 1, color.RGBA{63, 49, 20, 255})
+	drawMetalPlate(screen, panelX+14, panelY+14, panelW-28, 24, metalPlateBase(rarityGold))
+	drawCenteredTextWithShadow(screen, "RUN RECORD", panelX+14, panelY+14, panelW-28, 24, rarityGold)
+	drawCenteredTextWithShadow(screen, "FINAL SCORE", panelX, panelY+51, panelW, 18, color.RGBA{205, 198, 175, 255})
+	drawScaledMetalCenteredText(screen, fmt.Sprintf("%d", finalScore), centerX, panelY+84, 2.5, rarityGold)
+	drawFilledRect(screen, panelX+38, panelY+109, panelW-76, 1, color.RGBA{94, 70, 25, 255})
 
-	// Instructions
-	if !ui.game.victoryScoreSaved {
-		drawDebugText(screen, "Enter your name:", centerX-60, startY+220)
-		drawDebugText(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
-		drawDebugText(screen, "Press ENTER to save score", centerX-90, startY+270)
-		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+290)
+	metricX := panelX + 48
+	metricW := panelW - 96
+	drawVictoryMetric(screen, "Gold earned", fmt.Sprintf("%d", scoreData.Gold), metricX, panelY+129, metricW)
+	drawVictoryMetric(screen, "Experience earned", fmt.Sprintf("%d", scoreData.TotalExperience), metricX, panelY+154, metricW)
+	drawVictoryMetric(screen, "Average party level", fmt.Sprintf("%d", scoreData.AverageLevel), metricX, panelY+179, metricW)
+	drawVictoryMetric(screen, "Completion time", playTimeStr, metricX, panelY+204, metricW)
+
+	controlsY := panelY + panelH + 20
+	if !g.victoryScoreSaved {
+		drawCenteredTextWithShadow(screen, "RECORD THIS VICTORY", centerX-220, controlsY, 440, 18, rarityGold)
+		const fieldW, fieldH = 420, 42
+		fieldX := centerX - fieldW/2
+		fieldY := controlsY + 27
+		drawFilledRect(screen, fieldX, fieldY, fieldW, fieldH, color.RGBA{5, 5, 3, 235})
+		drawRectBorder(screen, fieldX, fieldY, fieldW, fieldH, 2, color.RGBA{155, 113, 27, 255})
+		drawDebugTextColored(screen, fmt.Sprintf("> %s_", g.victoryNameInput), fieldX+14, fieldY+15, color.RGBA{244, 236, 210, 255})
+		drawCenteredTextWithShadow(screen, "ENTER - save score", centerX-180, fieldY+53, 360, 18, color.RGBA{205, 198, 175, 255})
+		drawCenteredTextWithShadow(screen, "ESC - continue in free mode", centerX-200, fieldY+74, 400, 18, color.RGBA{205, 198, 175, 255})
 	} else {
-		drawDebugText(screen, "Score saved!", centerX-45, startY+220)
-		drawDebugText(screen, "Press H to view High Scores", centerX-100, startY+250)
-		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+270)
+		drawCenteredTextWithShadow(screen, "SCORE RECORDED", centerX-220, controlsY+8, 440, 20, rarityGold)
+		drawCenteredTextWithShadow(screen, "H - view High Scores", centerX-180, controlsY+43, 360, 18, color.RGBA{205, 198, 175, 255})
+		drawCenteredTextWithShadow(screen, "ESC - continue in free mode", centerX-200, controlsY+65, 400, 18, color.RGBA{205, 198, 175, 255})
 	}
 }
 

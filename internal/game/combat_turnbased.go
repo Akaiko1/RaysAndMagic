@@ -327,9 +327,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 
-		// Work in tile space: monsters never enter the player's tile. Melee can
-		// attack from any adjacent tile (including diagonals); ranged attackers
-		// still need a row/column firing lane.
+		// Work in tile space: monsters never enter the player's tile. Any attacker
+		// uses melee from a clear adjacent tile; a projectile-capable attacker uses
+		// its ranged profile everywhere else and still needs a row/column lane.
 		mtx, mty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
 		ptx, pty := gl.game.GetPlayerTilePosition()
 		dxT, dyT := ptx-mtx, pty-mty
@@ -341,10 +341,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			adY = -adY
 		}
 		manhattan := adX + adY
-		chebyshev := adX
-		if adY > chebyshev {
-			chebyshev = adY
-		}
 
 		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 		// tile and strike. Brief turn cooldown.
@@ -366,7 +362,20 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		if m.HasRangedAttack() {
+		// Both gates: the spatial one (adjacency+LOS) and the delivery selector.
+		// A ranged CHAMPION fails the selector and falls through to the lane
+		// rule below - otherwise an adjacent diagonal would let it fire where
+		// monsterAttackTurnBased resolves the attack as ranged.
+		if gl.game.combat.monsterMeleeAdjacentToPoint(m, playerX, playerY) &&
+			gl.game.combat.monsterUsesMeleeAgainstPoint(m, playerX, playerY) {
+			if gl.game.tryClaimMonsterAttackPost(m) {
+				m.State = monster.StateAttacking
+				gl.monsterAttackTurnBased(m)
+			} else {
+				gl.game.releaseMonsterAttackPost(m)
+				gl.monsterMoveTurnBased(m)
+			}
+		} else if m.HasRangedAttack() {
 			// Ranged: only fire when on the player's row or column (never
 			// diagonal), within range, AND with a clear line of sight; otherwise
 			// step toward the player. The LOS check stops a wasted shot into a wall
@@ -396,20 +405,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				gl.monsterMoveTurnBased(m)
 			}
 		} else {
-			// Melee: attack from any adjacent tile (including diagonals);
-			// otherwise step one tile toward the player (never onto their tile).
-			if chebyshev == 1 && manhattan > 0 &&
-				(gl.game.collisionSystem == nil || gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)) {
-				if gl.game.tryClaimMonsterAttackPost(m) {
-					m.State = monster.StateAttacking
-					gl.monsterAttackTurnBased(m)
-				} else {
-					gl.game.releaseMonsterAttackPost(m)
-					gl.monsterMoveTurnBased(m)
-				}
-			} else {
-				gl.monsterMoveTurnBased(m)
-			}
+			gl.monsterMoveTurnBased(m)
 		}
 
 		gl.game.refreshMonsterCollisionState(m)
@@ -450,11 +446,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	}, func() {
 		// Same attack wrappers as RT so TB gets the identical roll chain:
 		// special ability -> Fireburst -> the shared monster->character hit hub.
-		if monster.HasRangedAttack() {
-			gl.game.combat.spawnMonsterRangedAttack(monster)
-		} else {
-			gl.game.combat.applyMonsterMeleeDamage(monster)
-		}
+		gl.game.combat.performMonsterAttackAgainstParty(monster)
 	})
 }
 
@@ -466,19 +458,11 @@ func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) 
 	gl.forEachMonsterAttackTurnBased(attacker, func() bool {
 		return foe != nil && foe.IsAlive()
 	}, func() {
-		if attacker.HasRangedAttack() {
-			owner := ProjectileOwnerMonsterAtBound
-			if attacker.Bound {
-				owner = ProjectileOwnerBoundUndead
-			}
-			gl.game.combat.spawnMonsterRangedAttackAtMonster(attacker, foe, owner)
-			return
+		owner := ProjectileOwnerMonsterAtBound
+		if attacker.Bound {
+			owner = ProjectileOwnerBoundUndead
 		}
-		if attacker.IsChampion() {
-			gl.game.combat.championAlternatingCrossfireStrike(attacker, foe)
-			return
-		}
-		gl.game.combat.monsterStrikeMonster(attacker, foe)
+		gl.game.combat.performMonsterAttackAgainstMonster(attacker, foe, owner)
 	})
 }
 

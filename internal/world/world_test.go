@@ -288,6 +288,27 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}, false) {
 		t.Fatalf("Expected tile %q to be walkable for matching habitat prefs", blockedKey)
 	}
+
+	chasmType, ok := GlobalTileManager.GetTileTypeFromKey("dragon_cliffs_chasm_floor")
+	if !ok {
+		t.Fatal("dragon_cliffs_chasm_floor is missing")
+	}
+	world.Tiles[0][0] = chasmType
+	if !world.IsTileBlockingForHabitat(0, 0, nil, false) {
+		t.Fatal("chasm must block a ground monster")
+	}
+	if world.IsTileBlockingForHabitat(0, 0, nil, true) {
+		t.Fatal("authored fly_over chasm must admit a flying monster")
+	}
+
+	wallType, ok := GlobalTileManager.GetTileTypeFromKey("wall")
+	if !ok {
+		t.Fatal("wall tile is missing")
+	}
+	world.Tiles[0][0] = wallType
+	if !world.IsTileBlockingForHabitat(0, 0, nil, true) {
+		t.Fatal("flying monster must not pass through an opaque wall")
+	}
 }
 
 // Helper function to create minimal test configuration

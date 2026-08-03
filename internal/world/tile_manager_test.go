@@ -47,6 +47,17 @@ func TestTileManager(t *testing.T) {
     floor_color: [100, 150, 200]
     letter: "S"
     biomes: ["universal"]
+  test_gap:
+    name: "Test Gap"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: false
+    fly_over: true
+    sprite: ""
+    render_type: "floor"
+    letter: "G"
+    biomes: ["universal"]
 `
 
 	// Write test config to temporary file
@@ -96,6 +107,33 @@ func TestTileManager(t *testing.T) {
 	expectedColor := [3]int{100, 150, 200}
 	if streamData.FloorColor != expectedColor {
 		t.Errorf("Expected floor color %v, got %v", expectedColor, streamData.FloorColor)
+	}
+
+	gapType, ok := tm.GetTileTypeFromKey("test_gap")
+	if !ok || !tm.CanFlyOver(gapType) {
+		t.Fatal("explicit fly_over gap must be traversable by flying monsters")
+	}
+	wallType, ok := tm.GetTileTypeFromKey("test_wall")
+	if !ok || tm.CanFlyOver(wallType) {
+		t.Fatal("opaque wall must not be traversable by flying monsters")
+	}
+}
+
+func TestTileManagerRejectsFlyOverOnWall(t *testing.T) {
+	tm := NewTileManager(map[string]float64{"full_tile": 1, "tree": 2})
+	tm.tileData = map[string]*config.TileData{
+		"bad_wall": {
+			Name:        "Bad Wall",
+			Type:        "wall",
+			Solid:       true,
+			Transparent: false,
+			Walkable:    false,
+			FlyOver:     true,
+			RenderType:  config.TileRenderWall,
+		},
+	}
+	if err := tm.validateTileConfiguration(); err == nil || !strings.Contains(err.Error(), "fly_over") {
+		t.Fatalf("fly_over wall must fail clearly, got %v", err)
 	}
 }
 

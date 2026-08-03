@@ -52,6 +52,9 @@ const (
 	// ProjectileOwnerMonsterAtBound is an enemy mob's projectile aimed at a
 	// bound undead: it damages ONLY bound monsters (the undead), never the party.
 	ProjectileOwnerMonsterAtBound
+	// ProjectileOwnerReflected is a monster projectile turned back by the
+	// Broodscale Aegis. It can hit only the monster that originally fired it.
+	ProjectileOwnerReflected
 )
 
 // InteractionDistance is the max range (in world units, ~2 tiles) for the
@@ -268,6 +271,11 @@ type MMGame struct {
 	skyPanorama       *ebiten.Image
 	currentSkyTexture string
 	skyShader         *ebiten.Shader // lazily compiled, reused across frames
+	// skyPanoramaCache holds every decoded sky backdrop for the session: a
+	// day/night flip or map switch swaps pointers instead of paying a mid-frame
+	// PNG decode (a night panorama costs ~20ms = dropped frames at the flip).
+	// Filled by prewarmSkyPanoramas at boot; misses still decode-and-fill.
+	skyPanoramaCache map[string]*ebiten.Image
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
 	// during the phase-flip crossfade.
@@ -895,6 +903,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	validateWeaponFxStyles()
 	validateProjectileFxStyles()
 
+	// Decode every sky backdrop up front, then the initial map's pick below is
+	// already a cache hit - as is every later flip and map switch.
+	game.prewarmSkyPanoramas()
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
 
@@ -1385,13 +1396,49 @@ func (g *MMGame) updateSkyPanorama(textureName string) {
 	if textureName == "" {
 		return
 	}
-
+	if img, ok := g.skyPanoramaCache[textureName]; ok {
+		g.skyPanorama = img
+		return
+	}
 	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
 	if err != nil {
 		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
 		return
 	}
+	if g.skyPanoramaCache == nil {
+		g.skyPanoramaCache = make(map[string]*ebiten.Image)
+	}
+	g.skyPanoramaCache[textureName] = img
 	g.skyPanorama = img
+}
+
+// prewarmSkyPanoramas decodes every shipped sky backdrop once at game start.
+// The whole set stays resident for the session - skies are the one art family
+// small in count yet paid for at the worst moment (mid-frame on a phase flip).
+func (g *MMGame) prewarmSkyPanoramas() {
+	entries, err := os.ReadDir("assets/sprites/sky")
+	if err != nil {
+		return
+	}
+	if g.skyPanoramaCache == nil {
+		g.skyPanoramaCache = make(map[string]*ebiten.Image)
+	}
+	for _, entry := range entries {
+		fileName := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(fileName, ".png") {
+			continue
+		}
+		name := strings.TrimSuffix(fileName, ".png")
+		if _, ok := g.skyPanoramaCache[name]; ok {
+			continue
+		}
+		img, err := loadPNGAsEbiten(filepath.Join("assets/sprites/sky", fileName))
+		if err != nil {
+			fmt.Printf("[Sky] failed to prewarm %q: %v\n", fileName, err)
+			continue
+		}
+		g.skyPanoramaCache[name] = img
+	}
 }
 
 func resolveNamedPNG(baseDir, name string) string {
