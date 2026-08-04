@@ -238,8 +238,10 @@ func (ih *InputHandler) HandleInput() {
 	// Handle tabbed menu UI (blocks movement when open, but allows UI input)
 	if ih.game.menuOpen {
 		ih.handleTabbedMenuInput()
-		ih.handleUIInput()    // Allow UI input to close the panel
-		ih.handleMouseInput() // Allow party character clicking when menu is open
+		// The party cards remain visible below the character hub and are its
+		// single mouse selector. Do not route the click to world objects.
+		ih.handlePartyPortraitMouseInput(false)
+		ih.handleUIInput() // Allow UI input to close the panel
 		return
 	}
 
@@ -1819,12 +1821,31 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 		ih.navigateSpellbookDown(schools)
 	}
 
-	// Equip spell to the fast spell slot. Keep the spellbook open so the player
-	// can keep browsing after binding the fast slot.
+	// Cast the highlighted spell. The hub closes before the action observes the
+	// world; a failed cast restores it so the player can fix the selection.
 	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
-		ih.game.combat.EquipSelectedSpell()
+		ih.castSelectedSpellFromHub()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
+}
+
+func (ih *InputHandler) castSelectedSpellFromHub() bool {
+	g := ih.game
+	if g == nil || g.combat == nil || !g.canSpendCombatAction(g.selectedChar) {
+		return false
+	}
+	var spellID spells.SpellID
+	cast := g.dispatchCharacterHubWorldAction(func() bool {
+		var ok bool
+		ok, spellID = g.combat.CastSelectedSpell()
+		return ok
+	})
+	if !cast {
+		return false
+	}
+	currentChar := g.party.Members[g.selectedChar]
+	g.consumeSelectedCharActionWithRTCooldown(g.combat.SpellCooldownFrames(currentChar, spellID))
+	return true
 }
 
 // tryFocusedNPCInteraction opens dialog with the NPC in interact focus

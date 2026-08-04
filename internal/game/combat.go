@@ -1686,7 +1686,7 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 	// indexing the full school list desynced selection when a school was empty.
 	schools := spellbookSchoolsWithSpells(currentChar)
 
-	if cs.game.selectedSchool >= len(schools) {
+	if cs.game.selectedSchool < 0 || cs.game.selectedSchool >= len(schools) {
 		return false, ""
 	}
 
@@ -2022,7 +2022,7 @@ func (cs *CombatSystem) EquipSelectedSpell() {
 	// Same filtered list the spellbook UI numbers - see CastSelectedSpell.
 	schools := spellbookSchoolsWithSpells(currentChar)
 
-	if cs.game.selectedSchool >= len(schools) {
+	if cs.game.selectedSchool < 0 || cs.game.selectedSchool >= len(schools) {
 		return
 	}
 
@@ -5711,8 +5711,6 @@ func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int,
 	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), Frames: duration, Bonuses: bonuses})
 }
 
-// RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
-// chance = effective Luck / LuckToDodgeDivisor, clamped to [0,100].
 // armorGMDodgeBonus grants ArmorGMDodgeBonus dodge for each Grandmaster-mastered
 // armor type the character is wearing at least one piece of (e.g. GM Plate +
 // plate equipped -> +5; also GM Shield + shield in the off-hand -> +10).
@@ -5745,15 +5743,31 @@ func (cs *CombatSystem) armorGMDodgeBonus(chr *character.MMCharacter) int {
 	return bonus + len(gmTypes)*ArmorGMDodgeBonus
 }
 
-func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
+// PerfectDodgeChance returns the clamped chance used by every party dodge roll.
+// Keeping the pure calculation separate lets UI previews use the real value
+// without consuming random numbers during Draw.
+func (cs *CombatSystem) PerfectDodgeChance(chr *character.MMCharacter) int {
+	if chr == nil {
+		return 0
+	}
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr) + cs.game.cardDodgeBonusPct()
+	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
+	if cs != nil && cs.game != nil && cs.game.isPartyMember(chr) {
+		chance += cs.game.cardDodgeBonusPct()
+	}
 	if chance < 0 {
-		chance = 0
+		return 0
 	}
 	if chance > 100 {
-		chance = 100
+		return 100
 	}
+	return chance
+}
+
+// RollPerfectDodge returns whether the character dodges and the exact chance
+// used by the roll.
+func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
+	chance := cs.PerfectDodgeChance(chr)
 	roll := rand.Intn(100)
 	return roll < chance, chance
 }

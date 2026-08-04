@@ -115,8 +115,8 @@ func (gl *GameLoop) updateExploration() {
 	// turns. No-op in real time. Cheap; fine to run before the pause check.
 	gl.game.advanceViewTurn()
 
-	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.townPortalPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	// Pause gameplay updates while menus/panels are open.
+	if gl.game.gameplayPausedByOverlay() {
 		return
 	}
 
@@ -247,6 +247,15 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update performance metrics
 	gl.updatePerformanceMetrics()
+}
+
+// gameplayPausedByOverlay is the single pause contract for in-game overlays.
+// The fullscreen character hub pauses exactly like the ESC menu: input still
+// runs so it can close or dispatch a world action, but no world clock advances.
+func (g *MMGame) gameplayPausedByOverlay() bool {
+	return g.menuOpen || g.mainMenuOpen || g.combatLogOpen || g.statPopupOpen ||
+		g.revivalPickerOpen || g.healPickerOpen || g.townPortalPickerOpen ||
+		g.currentLevelUpChoice() != nil
 }
 
 // faceMonstersAlongFrameMotion is the single source of truth for movement-facing:

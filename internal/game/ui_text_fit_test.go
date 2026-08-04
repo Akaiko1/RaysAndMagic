@@ -97,9 +97,10 @@ func TestQuestCardsSizeToCopyAndPackByHeight(t *testing.T) {
 	content := layoutRect{0, 0, tabbedMenuPanelW, 620}
 	listTop, avail, pager := questCardListAvailable(content)
 	maxRows := questCardMaxDescRowsFor(avail)
+	cardW := pager.w
 
-	short := questCardCopyFor("Short.", questCardW, maxRows)
-	long := questCardCopyFor(strings.Repeat("A wordy objective that wraps. ", 30), questCardW, maxRows)
+	short := questCardCopyFor("Short.", cardW, maxRows)
+	long := questCardCopyFor(strings.Repeat("A wordy objective that wraps. ", 30), cardW, maxRows)
 	if long.height <= short.height {
 		t.Fatalf("long card (%d) must be taller than short card (%d)", long.height, short.height)
 	}

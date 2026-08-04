@@ -79,7 +79,7 @@ func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox
 }
 
 func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	l := computeTabbedMenuLayout(screenW, screenH)
+	l := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	region := namedLayoutBox("tabbed-menu", l.panel)
 	boxes := make([]uiBox, 0, len(l.tabs)+2)
 	for i, tab := range l.tabs {
@@ -90,22 +90,21 @@ func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeInventoryContentLayout(menu.content)
-	quickBlock := layoutRect{l.quickLabel.x, l.quickLabel.y, l.quickSlots.w, l.quickSlots.bottom() - l.quickLabel.y}
 	return namedLayoutBox("inventory-content", menu.content), []uiBox{
 		namedLayoutBox("paperdoll", l.paper),
 		namedLayoutBox("inventory-grid", l.grid),
 		namedLayoutBox("pager", l.pager),
 		namedLayoutBox("camp", l.camp),
-		namedLayoutBox("quick-slots", quickBlock),
+		namedLayoutBox("quick-slots", l.quickSlots),
 		namedLayoutBox("instructions-1", l.instructions[0]),
 		namedLayoutBox("instructions-2", l.instructions[1]),
 	}
 }
 
 func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeCardsContentLayout(menu.content)
 	boxes := []uiBox{namedLayoutBox("title", l.title), namedLayoutBox("subtitle", l.subtitle)}
 	for i, card := range l.cards {
@@ -117,32 +116,33 @@ func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func charactersLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeCharacterContentLayout(menu.content)
 	return namedLayoutBox("characters-content", menu.content), []uiBox{
 		namedLayoutBox("title", l.title),
-		namedLayoutBox("portrait", l.portraitFrame),
-		namedLayoutBox("character-scroll", l.scroll),
+		namedLayoutBox("profile", l.profile),
+		namedLayoutBox("attributes", l.attributes),
+		namedLayoutBox("magic", l.magic),
+		namedLayoutBox("skills", l.skills),
+		namedLayoutBox("combat", l.combat),
 		namedLayoutBox("instructions", l.instructions),
-		namedLayoutBox("pager", l.pager),
 	}
 }
 
 func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
-	l := computeBookLayout(menu.content.x, menu.content.y, menu.content.h)
-	quickW := 360
-	quickY := l.bookY + l.bookH + 16
-	quickH := int(float64(quickW) / quickSlotBarAspect)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
+	l := computeBookLayout(menu.content)
 	return namedLayoutBox("book-content", menu.content), []uiBox{
+		namedLayoutBox("header", l.header),
 		{"book", l.bookX, l.bookY, l.bookW, l.bookH},
-		{"quick-slots", l.bookX + (l.bookW-quickW)/2, quickY - 16, quickW, quickH + 16},
-		{"controls", l.bookX + 20, menu.content.bottom() - 28, l.bookW - 40, debugTextCharHeight},
+		namedLayoutBox("quick-slots", l.quick),
+		namedLayoutBox("pager", l.pager),
+		namedLayoutBox("controls", l.controls),
 	}
 }
 
 func questsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	// Layout-overlay probe: a page of default-height cards is enough to draw
 	// the debug boxes; real cards size themselves to their own copy.
 	probe := make([]questCardCopy, 100)

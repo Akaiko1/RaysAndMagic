@@ -1700,12 +1700,11 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 }
 
 // drawQuestsContent draws the quests tab content
-func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	content := layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight}
+func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeQuestContentLayout(content, nil, 0)
-	drawDebugText(screen, "ACTIVE QUESTS", layout.title.x, layout.title.y)
+	drawCenteredDebugText(screen, "ACTIVE QUESTS", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
 	listTop, _, _ := questCardListAvailable(content)
-	emptyX := content.x + 20
+	emptyX := layout.pager.x
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
@@ -1727,7 +1726,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 	// page shows as many quests as actually fit, not a fixed count.
 	copies := make([]questCardCopy, len(allQuests))
 	for i, quest := range allQuests {
-		copies[i] = questCardCopyFor(quest.Definition.Description, questCardW, layout.maxDescRows)
+		copies[i] = questCardCopyFor(quest.Definition.Description, layout.cardW, layout.maxDescRows)
 	}
 	layout = computeQuestContentLayout(content, copies, ui.questPage)
 	// Clamp every frame so the page stays valid when quests are added/removed.
@@ -1830,7 +1829,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		}
 
 		// Rewards section (right side)
-		rewardsX := row.x + 280
+		rewardsX := row.x + row.w/2 + 10
 		rewardsText := "Reward: " + questRewardSummary(quest.Definition.Rewards.Gold, quest.Definition.Rewards.ArenaPoints, quest.Definition.Rewards.Experience)
 		drawDebugText(screen, clipDebugText(rewardsText, row.right()-rewardsX-10), rewardsX, bottomY)
 

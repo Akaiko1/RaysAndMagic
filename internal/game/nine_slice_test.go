@@ -87,7 +87,7 @@ func TestGeneratedFrameInsetsClearUIContent(t *testing.T) {
 		t.Fatalf("frame geometry = compact:%d slot:%d tall:%d", compactCorner, slotCorner, tallCorner)
 	}
 
-	menu := computeTabbedMenuLayout(1280, 720)
+	menu := computeTabbedMenuLayout(1280, gameplayViewportBottomWithPartyHUD(720))
 	for i, tab := range menu.tabs {
 		if tab.y-menu.panel.y < compactCorner {
 			t.Errorf("tab %d starts inside the %dpx frame", i, compactCorner)
@@ -102,9 +102,13 @@ func TestGeneratedFrameInsetsClearUIContent(t *testing.T) {
 		character.portrait.y-character.portraitFrame.y < compactCorner {
 		t.Errorf("character portrait does not clear the %dpx frame", compactCorner)
 	}
-	if character.portraitFrame.y != character.scroll.y {
-		t.Errorf("character portrait frame top %d does not align with stats top %d",
-			character.portraitFrame.y, character.scroll.y)
+	if character.portraitFrame.x < character.profile.x || character.portraitFrame.y < character.profile.y ||
+		character.portraitFrame.right() > character.profile.right() || character.portraitFrame.bottom() > character.profile.bottom() {
+		t.Errorf("character portrait frame %+v leaves profile %+v", character.portraitFrame, character.profile)
+	}
+	if character.profile.y != character.attributes.y || character.attributes.y != character.magic.y {
+		t.Errorf("character dashboard top sections do not align: profile=%d attributes=%d magic=%d",
+			character.profile.y, character.attributes.y, character.magic.y)
 	}
 	if partyHeroCardPortraitInset < slotCorner {
 		t.Errorf("party card portrait inset %d is smaller than its %dpx frame", partyHeroCardPortraitInset, slotCorner)

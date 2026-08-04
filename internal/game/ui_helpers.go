@@ -43,7 +43,7 @@ func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, st
 	screenWidth := g.config.GetScreenWidth()
 	screenHeight := g.config.GetScreenHeight()
 	portraitWidth = max(1, screenWidth/4)
-	portraitHeight = partyCardPanelNativeHeight + partyCardFrameReserve*2
+	portraitHeight = partyHUDHeight()
 	baseLeft = (g.config.GetScreenWidth() - portraitWidth*4) / 2
 	startY = screenHeight - portraitHeight
 	return
@@ -58,6 +58,17 @@ const (
 	partyHUDWorldClearance     = 2
 )
 
+func partyHUDHeight() int {
+	return partyCardPanelNativeHeight + partyCardFrameReserve*2
+}
+
+// gameplayViewportBottomWithPartyHUD is the pure screen-size form of the HUD
+// boundary. Layout probes use it without constructing a game, while runtime
+// code additionally accounts for the HUD visibility toggle below.
+func gameplayViewportBottomWithPartyHUD(screenHeight int) int {
+	return max(0, screenHeight-partyHUDHeight()-partyHUDWorldClearance)
+}
+
 // gameplayViewportBottom is the shared boundary between the 3D view and the
 // party HUD. World renderers and HUD renderers must use this boundary so
 // window-size changes cannot make mobs sink behind the cards.
@@ -68,8 +79,7 @@ func gameplayViewportBottom(g *MMGame) int {
 	if !g.showPartyStats {
 		return g.config.GetScreenHeight()
 	}
-	_, _, _, startY := partyPortraitLayout(g)
-	return startY - partyHUDWorldClearance
+	return gameplayViewportBottomWithPartyHUD(g.config.GetScreenHeight())
 }
 
 // partyCardPanelRect reserves an outer gutter for selection and cooldown

@@ -61,7 +61,7 @@ type partyCardTemplate struct {
 func partyCardTemplateForWidth(panelW int) partyCardTemplate {
 	switch {
 	case panelW < 300:
-		return partyCardTemplate{columnGap: 5, statsPercent: 42}
+		return partyCardTemplate{columnGap: 5, statsPercent: 45}
 	case panelW < 440:
 		return partyCardTemplate{columnGap: 9, statsPercent: 40}
 	default:
@@ -537,37 +537,7 @@ func (ui *UISystem) partyCardEffects(index, w, h int, needed bool) *ebiten.Image
 	return img
 }
 
-func scaledDebugTextWidth(text string, scale float64) int {
-	return int(math.Ceil(float64(debugTextWidth(text)) * scale))
-}
-
-func fittedDebugTextScale(maxW int, texts ...string) float64 {
-	if maxW <= 0 {
-		return 1
-	}
-	widest := 0
-	for _, text := range texts {
-		widest = max(widest, debugTextWidth(text))
-	}
-	if widest <= maxW || widest == 0 {
-		return 1
-	}
-	return max(0.78, float64(maxW)/float64(widest))
-}
-
-func drawScaledLeftDebugText(screen *ebiten.Image, text string, x, y, maxW int, scale float64, col color.Color) {
-	if text == "" || maxW <= 0 || scale <= 0 {
-		return
-	}
-	text = clipDebugText(text, int(float64(maxW)/scale))
-	img := outlinedLabelImage(text, col)
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(float64(x)-scale, float64(y)-scale)
-	screen.DrawImage(img, op)
-}
-
-func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, label string, fill color.RGBA, textScale float64) {
+func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, label string, fill color.RGBA) {
 	if w <= 0 || h <= 0 {
 		return
 	}
@@ -582,48 +552,28 @@ func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, labe
 		}
 	}
 	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{118, 125, 145, 220}, false)
-	// An HP/SP readout must never be clipped - a truncated "HP 100/1.." hides the
-	// number the player is reading. The card's shared scale is only the ceiling.
-	textW := w - 7
-	text, fitted := meterText(textW, label, current, maximum)
-	if fitted < textScale {
-		textScale = fitted
-	}
-	drawScaledLeftDebugText(screen, text, x+4,
-		y+(h-int(float64(debugTextCharHeight)*textScale))/2, textW, textScale, color.White)
+	// Keep the pixel font at its native scale. Fractional text scaling becomes
+	// illegible when the logical framebuffer is enlarged to a Retina window.
+	// Drop the label or maximum before ever clipping a number.
+	textBox := layoutRect{x: x + 2, y: y, w: max(0, w-4), h: h}
+	text := meterText(textBox.w, label, current, maximum)
+	drawCenteredTextWithShadow(screen, text, textBox.x, textBox.y, textBox.w, textBox.h, color.White)
 }
 
-// minReadableMeterScale is how far a meter may shrink before dropping detail
-// instead: below this the fixed-width glyphs stop being legible.
-const minReadableMeterScale = 0.8
-
-// meterText picks the most informative readout that still fits its box legibly:
-// the full "HP 33/33", else "33/33", else the current value alone. The last form
-// is always scaled to fit, so a meter can be terse but never clipped.
-func meterText(maxW int, label string, current, maximum int) (string, float64) {
+// meterText picks the most informative native-size readout that fits its box:
+// the full "HP 33/33", else "33/33", else the current value alone.
+func meterText(maxW int, label string, current, maximum int) string {
 	forms := [...]string{
 		fmt.Sprintf("%s %d/%d", label, current, maximum),
 		fmt.Sprintf("%d/%d", current, maximum),
 		fmt.Sprintf("%d", current),
 	}
 	for _, form := range forms {
-		if scale := meterTextScale(maxW, form); scale >= minReadableMeterScale {
-			return form, scale
+		if debugTextWidth(form) <= maxW {
+			return form
 		}
 	}
-	shortest := forms[len(forms)-1]
-	return shortest, meterTextScale(maxW, shortest)
-}
-
-// meterTextScale fits one meter string to its box. Unlike fittedDebugTextScale it
-// has no readability floor that could still clip: a meter's numbers must fit at
-// the shipped 1024-wide default, where the compact stats column is ~60px.
-func meterTextScale(maxW int, text string) float64 {
-	width := debugTextWidth(text)
-	if maxW <= 0 || width <= maxW || width == 0 {
-		return 1
-	}
-	return float64(maxW) / float64(width)
+	return clipDebugText(forms[len(forms)-1], maxW)
 }
 
 func centeredIconRowX(barX, barW, iconSize, gap, count int) int {
@@ -762,28 +712,26 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		statsW := content.stats.w
 		equipX := content.equipment.x
 		equipW := content.equipment.w
-		textScale := 1.0
 		nameY := content.box.y
 		levelText := fmt.Sprintf("L%d", member.Level)
-		nameScale := fittedDebugTextScale(statsW, member.Name+" "+levelText)
-		levelW := scaledDebugTextWidth(levelText, nameScale)
-		nameText := clipDebugText(member.Name, max(1, int(float64(statsW)/nameScale)-debugTextWidth(levelText)-5))
-		nameW := scaledDebugTextWidth(nameText, nameScale)
-		nameX := contentX
+		levelW := debugTextWidth(levelText)
+		nameText := clipDebugText(member.Name, max(0, statsW-levelW-7))
+		nameW := debugTextWidth(nameText)
+		nameX := contentX + max(0, (statsW-nameW-levelW-5)/2)
 		nameColor := raritySilver
 		if i == ui.game.selectedChar {
 			nameColor = rarityGold
 		}
-		drawScaledLeftDebugText(screen, nameText, nameX, nameY, nameW, nameScale, nameColor)
-		drawScaledLeftDebugText(screen, levelText, nameX+nameW+5, nameY, levelW, nameScale, color.RGBA{175, 190, 215, 255})
+		drawDebugTextColored(screen, nameText, nameX, nameY, nameColor)
+		drawDebugTextColored(screen, levelText, nameX+nameW+5, nameY, color.RGBA{175, 190, 215, 255})
 
 		meterH := 14
 		hpY := panelY + 35
 		spY := panelY + 51
 		drawPartyMeter(screen, contentX, hpY, statsW, meterH,
-			member.HitPoints, member.MaxHitPoints, "HP", color.RGBA{156, 42, 48, 245}, textScale)
+			member.HitPoints, member.MaxHitPoints, "HP", color.RGBA{156, 42, 48, 245})
 		drawPartyMeter(screen, contentX, spY, statsW, meterH,
-			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245}, textScale)
+			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245})
 
 		// Add character condition status
 		statusText := "OK"
@@ -799,10 +747,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
 		statusY := panelY + 67
-		statusScale := fittedDebugTextScale(statsW, statusText)
-		statusW := scaledDebugTextWidth(statusText, statusScale)
-		statusX := contentX + max(0, (statsW-statusW)/2)
-		drawScaledLeftDebugText(screen, statusText, statusX, statusY, statsW, statusScale, statusColor)
+		statusText = clipDebugText(statusText, max(0, statsW-2))
+		drawCenteredTextWithShadow(screen, statusText, contentX, statusY, statsW, debugTextCharHeight, statusColor)
 
 		mainText, mainColor := "W None", color.Color(color.RGBA{135, 143, 158, 255})
 		if weapon, ok := member.Equipment[items.SlotMainHand]; ok {
@@ -816,16 +762,12 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if offItem, ok := member.Equipment[items.SlotOffHand]; ok {
 			offText, offColor = "O "+offItem.Name, ui.itemRarityColor(offItem)
 		}
-		equipmentScale := fittedDebugTextScale(equipW, mainText, offText, spellText)
-		equipmentBlockW := max(
-			scaledDebugTextWidth(mainText, equipmentScale),
-			scaledDebugTextWidth(offText, equipmentScale),
-			scaledDebugTextWidth(spellText, equipmentScale),
-		)
-		equipmentTextX := equipX + max(0, (equipW-equipmentBlockW)/2)
-		drawScaledLeftDebugText(screen, mainText, equipmentTextX, nameY, equipW, equipmentScale, mainColor)
-		drawScaledLeftDebugText(screen, offText, equipmentTextX, nameY+16, equipW, equipmentScale, offColor)
-		drawScaledLeftDebugText(screen, spellText, equipmentTextX, nameY+32, equipW, equipmentScale, spellColor)
+		mainText = clipDebugText(mainText, max(0, equipW-2))
+		offText = clipDebugText(offText, max(0, equipW-2))
+		spellText = clipDebugText(spellText, max(0, equipW-2))
+		drawCenteredTextWithShadow(screen, mainText, equipX, nameY, equipW, debugTextCharHeight, mainColor)
+		drawCenteredTextWithShadow(screen, offText, equipX, nameY+16, equipW, debugTextCharHeight, offColor)
+		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, debugTextCharHeight, spellColor)
 
 		hasStatBadge := member.FreeStatPoints > 0
 		hasSkillBadge := ui.game.hasLevelUpChoiceForChar(i)

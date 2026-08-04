@@ -52,11 +52,16 @@ type UISystem struct {
 	inventoryPage         int    // current inventory grid page (0-based)
 	inventoryTab          int    // active inventory category filter (index into inventoryTabs)
 	questPage             int    // current quest log page (0-based)
-	characterPage         int    // current character-info page (0-based)
+	spellPage             int    // current spell/trap book spread (0-based)
 	campNotice            string // result line under the Camp button
 	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
+	lastTrapClickTime     int64
+	lastClickedTrap       int
+	hubInteractionOpen    bool
+	hubInteractionChar    int
+	hubInteractionTab     MenuTab
 	tooltipLines          []string
 	tooltipColors         []color.Color
 	tooltipIcon           string
@@ -86,7 +91,13 @@ type UISystem struct {
 
 // NewUISystem creates a new UI system
 func NewUISystem(game *MMGame) *UISystem {
-	ui := &UISystem{game: game}
+	ui := &UISystem{
+		game:               game,
+		lastClickedItem:    -1,
+		lastClickedSlot:    items.EquipSlot(-1),
+		lastClickedTrap:    -1,
+		hubInteractionChar: -1,
+	}
 	ui.initRadarDots()
 	return ui
 }
@@ -129,6 +140,7 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
+	ui.syncCharacterHubClickContext()
 	ui.tooltipLines = nil
 	ui.tooltipColors = nil
 	ui.tooltipIcon = ""

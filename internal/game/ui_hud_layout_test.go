@@ -513,7 +513,8 @@ func TestCooldownReadoutFollowsArmedHands(t *testing.T) {
 }
 
 // HP/SP totals must stay fully readable at the shipped default resolution,
-// where the compact stats column is about 60px (AGENTS.md HUD QA rule).
+// where the compact stats column is sized for native pixel-font readouts
+// (AGENTS.md HUD QA rule).
 func TestMeterTextFitsCompactStatsColumn(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	g.config.Display.ScreenWidth = 1024
@@ -522,19 +523,16 @@ func TestMeterTextFitsCompactStatsColumn(t *testing.T) {
 	_, _, panelW, _ := partyCardPanelRect(0, 0, cardW, cardH)
 	statsW := makePartyCardContentLayout(0, 0, panelW).stats.w
 
-	budget := statsW - 7
+	budget := statsW - 4
 	for _, meter := range []struct {
 		label            string
 		current, maximum int
 	}{
 		{"HP", 33, 33}, {"HP", 100, 100}, {"SP", 100, 100}, {"HP", 1000, 1000},
 	} {
-		text, scale := meterText(budget, meter.label, meter.current, meter.maximum)
-		if drawn := int(float64(debugTextWidth(text)) * scale); drawn > budget {
-			t.Fatalf("%q draws %dpx into a %dpx box at scale %.3f - it would be clipped", text, drawn, budget, scale)
-		}
-		if scale < minReadableMeterScale || scale > 1 {
-			t.Fatalf("%q scale = %.3f, want a legible [%.2f, 1] fit", text, scale, minReadableMeterScale)
+		text := meterText(budget, meter.label, meter.current, meter.maximum)
+		if drawn := debugTextWidth(text); drawn > budget {
+			t.Fatalf("%q draws %dpx into a %dpx box at native scale - it would be clipped", text, drawn, budget)
 		}
 		// The default resolution must still afford the full labelled form.
 		if want := fmt.Sprintf("%s %d/%d", meter.label, meter.current, meter.maximum); text != want && meter.maximum <= 100 {
@@ -551,19 +549,16 @@ func TestMeterTextStaysLegibleAtMinimumWindow(t *testing.T) {
 	g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = minW, minH
 	cardW, cardH, _, _ := partyPortraitLayout(g)
 	_, _, panelW, _ := partyCardPanelRect(0, 0, cardW, cardH)
-	budget := makePartyCardContentLayout(0, 0, panelW).stats.w - 7
+	budget := makePartyCardContentLayout(0, 0, panelW).stats.w - 4
 
-	text, scale := meterText(budget, "HP", 100, 100)
-	if drawn := int(float64(debugTextWidth(text)) * scale); drawn > budget {
+	text := meterText(budget, "HP", 100, 100)
+	if drawn := debugTextWidth(text); drawn > budget {
 		t.Fatalf("%q draws %dpx into %dpx at %dx%d", text, drawn, budget, minW, minH)
-	}
-	if scale < minReadableMeterScale {
-		t.Fatalf("%q scale = %.3f at %dx%d, want at least %.2f", text, scale, minW, minH, minReadableMeterScale)
 	}
 	if text == "" {
 		t.Fatal("meter text vanished at the minimum window size")
 	}
-	t.Logf("minimum window %dx%d: budget=%dpx text=%q scale=%.2f", minW, minH, budget, text, scale)
+	t.Logf("minimum window %dx%d: budget=%dpx text=%q at native scale", minW, minH, budget, text)
 }
 
 // Utility status icons are authored 24x24 and must be drawn at native size.
