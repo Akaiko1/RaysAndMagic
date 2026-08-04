@@ -99,6 +99,24 @@ func TestPeasantChainsGoblinsThenWolves(t *testing.T) {
 		walk(0)
 		return
 	}
+	hasRootChoice := func(text string) bool {
+		g.dialogNodePath = nil
+		for _, choice := range g.visibleNPCChoices(npc) {
+			if choice.Text == text {
+				return true
+			}
+		}
+		return false
+	}
+	wantStepMessage := func(questID string, state npcDialogState, want string) {
+		t.Helper()
+		if got := g.npcDialogueState(npc); got != state {
+			t.Fatalf("%s dialogue state = %d, want %d", questID, got, state)
+		}
+		if got := g.npcDialogueText(npc); got != want {
+			t.Errorf("%s state %d message = %q, want %q", questID, state, got, want)
+		}
+	}
 
 	if gob, wolf := offers(); !gob || wolf {
 		t.Fatalf("fresh Wenna offers goblins=%v wolves=%v, want goblins only", gob, wolf)
@@ -106,11 +124,16 @@ func TestPeasantChainsGoblinsThenWolves(t *testing.T) {
 	if got := g.activeChainQuestID(npc); got != "goblin_hunt" {
 		t.Fatalf("chain step = %q, want goblin_hunt", got)
 	}
+	wantStepMessage("goblin_hunt", npcStateOffer, npc.DialogueData.QuestMessages["goblin_hunt"].Offer)
+	if !hasRootChoice("Tell us about the goblins.") || hasRootChoice("What is the other trouble?") {
+		t.Fatal("fresh Wenna must show only the goblin information branch")
+	}
 
 	// Goblins taken, done, and paid: only now do the wolves come up.
 	if err = qm.ActivateQuest("goblin_hunt"); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
+	wantStepMessage("goblin_hunt", npcStateActive, npc.DialogueData.QuestMessages["goblin_hunt"].Active)
 	if _, wolf := offers(); wolf {
 		t.Error("wolves offered while the goblin nest is still active")
 	}
@@ -121,6 +144,7 @@ func TestPeasantChainsGoblinsThenWolves(t *testing.T) {
 	if !g.npcHasPendingChainStep(npc, "goblin_hunt") {
 		t.Error("turning in the goblins must not conclude Wenna - the wolves are still to come")
 	}
+	wantStepMessage("goblin_hunt", npcStateCompleted, npc.DialogueData.QuestMessages["goblin_hunt"].Completed)
 	if _, err := qm.ClaimRewards("goblin_hunt"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -130,12 +154,18 @@ func TestPeasantChainsGoblinsThenWolves(t *testing.T) {
 	if got := g.activeChainQuestID(npc); got != "wolf_pack" {
 		t.Fatalf("chain step = %q, want wolf_pack", got)
 	}
+	wantStepMessage("wolf_pack", npcStateOffer, npc.DialogueData.QuestMessages["wolf_pack"].Offer)
+	if hasRootChoice("Tell us about the goblins.") || !hasRootChoice("What is the other trouble?") {
+		t.Fatal("wolf step must replace the concluded goblin information branch")
+	}
 
 	// Both done and paid: now she is finished.
 	if err = qm.ActivateQuest("wolf_pack"); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
+	wantStepMessage("wolf_pack", npcStateActive, npc.DialogueData.QuestMessages["wolf_pack"].Active)
 	qm.MarkCompleted("wolf_pack")
+	wantStepMessage("wolf_pack", npcStateCompleted, npc.DialogueData.QuestMessages["wolf_pack"].Completed)
 	if _, err := qm.ClaimRewards("wolf_pack"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}

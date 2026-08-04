@@ -435,11 +435,8 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	SpellInputCooldown  int `yaml:"spell_input_cooldown"`
-	PartyPortraitHeight int `yaml:"party_portrait_height"`
-	PartyPortraitWidth  int `yaml:"party_portrait_width"`
-	CompassRadius       int `yaml:"compass_radius"`
-	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
+	SpellInputCooldown int `yaml:"spell_input_cooldown"`
+	DamageBlinkFrames  int `yaml:"damage_blink_frames"`
 }
 
 type CharacterConfig struct {

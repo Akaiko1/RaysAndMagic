@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"time"
 
+	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
 
@@ -30,9 +31,10 @@ const (
 type UISystem struct {
 	game                *MMGame
 	justOpenedStatPopup bool
-	// cardPortraitCache holds portraits pre-fit to the party card's recess
-	// (cover-scaled, corners bevel-cut); keyed by name|w|h so resizes rebuild.
-	cardPortraitCache map[string]*ebiten.Image
+	// cardPortraitCache holds cover-fitted portraits, including the exact party
+	// card aperture mask where requested; keyed by name, size, and mask mode.
+	cardPortraitCache    map[string]*ebiten.Image
+	partyCardEffectLayer [4]*ebiten.Image
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
@@ -75,10 +77,11 @@ type UISystem struct {
 	// when the player crosses a tile boundary (or the world swaps), so they're
 	// baked into one image and blitted per frame instead of re-emitting a
 	// vector.FillRect per tile every frame.
-	compassTileLayer  *ebiten.Image
-	compassCacheTileX int
-	compassCacheTileY int
-	compassCacheWorld *world.World3D
+	compassTileLayer   *ebiten.Image
+	compassCacheTileX  int
+	compassCacheTileY  int
+	compassCacheWorld  *world.World3D
+	partyCooldownState map[*character.MMCharacter]partyCooldownVisualState
 }
 
 // NewUISystem creates a new UI system
@@ -90,7 +93,7 @@ func NewUISystem(game *MMGame) *UISystem {
 
 // initRadarDots creates cached circle images for wizard eye radar dots
 func (ui *UISystem) initRadarDots() {
-	dotSize := 4
+	dotSize := 6
 	// Create close enemy dot (red)
 	ui.radarDotClose = ebiten.NewImage(dotSize, dotSize)
 	drawCircleToImage(ui.radarDotClose, dotSize, color.RGBA{255, 50, 50, 255})
@@ -102,17 +105,23 @@ func (ui *UISystem) initRadarDots() {
 	drawCircleToImage(ui.radarDotFar, dotSize, color.RGBA{255, 255, 50, 255})
 }
 
-// drawCircleToImage draws a filled circle to the given image
+// drawCircleToImage draws a filled radar dot with a dark one-pixel rim.
 func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 	cx := float64(size-1) / 2
 	cy := float64(size-1) / 2
-	r2 := (float64(size) / 2) * (float64(size) / 2)
+	outerR2 := (float64(size) / 2) * (float64(size) / 2)
+	innerR := max(0.0, float64(size)/2-1)
+	innerR2 := innerR * innerR
 	for y := 0; y < size; y++ {
 		dy := float64(y) - cy
 		for x := 0; x < size; x++ {
 			dx := float64(x) - cx
-			if dx*dx+dy*dy <= r2 {
+			d2 := dx*dx + dy*dy
+			switch {
+			case d2 <= innerR2:
 				img.Set(x, y, c)
+			case d2 <= outerR2:
+				img.Set(x, y, color.RGBA{6, 8, 12, 245})
 			}
 		}
 	}

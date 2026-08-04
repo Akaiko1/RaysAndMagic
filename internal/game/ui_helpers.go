@@ -36,22 +36,49 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-// partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
-// horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
-// Portrait width comes from UIConfig (not derived from screen width) so going
-// fullscreen does not stretch the party row - it stays at its design size and
-// the row is centered with empty side margins.
+// partyPortraitLayout returns the responsive four-card HUD strip. Card slots
+// span the viewport, while the authored card and portrait pixels keep their
+// native vertical size. Horizontal card art is composed from unscaled pieces.
 func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, startY int) {
-	portraitWidth = g.config.UI.PartyPortraitWidth
-	if portraitWidth <= 0 {
-		portraitWidth = g.config.GetScreenWidth() / 4 // safety fallback for old configs
-	}
-	portraitHeight = g.config.UI.PartyPortraitHeight
+	screenWidth := g.config.GetScreenWidth()
+	screenHeight := g.config.GetScreenHeight()
+	portraitWidth = max(1, screenWidth/4)
+	portraitHeight = partyCardPanelNativeHeight + partyCardFrameReserve*2
 	baseLeft = (g.config.GetScreenWidth() - portraitWidth*4) / 2
-	if baseLeft < 0 {
-		baseLeft = 0
+	startY = screenHeight - portraitHeight
+	return
+}
+
+const (
+	partyCardPanelNativeWidth  = 256
+	partyCardPanelNativeHeight = 100
+	partyCardFrameReserve      = 3
+	partyCardInnerFrameGap     = 1
+	partyCardOuterFrameGap     = 2
+	partyHUDWorldClearance     = 2
+)
+
+// gameplayViewportBottom is the shared boundary between the 3D view and the
+// party HUD. World renderers and HUD renderers must use this boundary so
+// window-size changes cannot make mobs sink behind the cards.
+func gameplayViewportBottom(g *MMGame) int {
+	if g == nil {
+		return 0
 	}
-	startY = g.config.GetScreenHeight() - portraitHeight
+	if !g.showPartyStats {
+		return g.config.GetScreenHeight()
+	}
+	_, _, _, startY := partyPortraitLayout(g)
+	return startY - partyHUDWorldClearance
+}
+
+// partyCardPanelRect reserves an outer gutter for selection and cooldown
+// frames. Nothing belonging to the painted card is drawn in that gutter.
+func partyCardPanelRect(slotX, slotY, slotW, slotH int) (x, y, w, h int) {
+	x = slotX + partyCardFrameReserve
+	y = slotY + partyCardFrameReserve
+	w = max(1, slotW-partyCardFrameReserve*2)
+	h = min(partyCardPanelNativeHeight, max(1, slotH-partyCardFrameReserve*2))
 	return
 }
 

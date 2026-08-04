@@ -2080,10 +2080,20 @@ npcs:
       active_message: "Five of them, and mind the thicket south of the clearing. That is where they nest."
       completed_message: "The south path is mine again. Take this with my thanks. And I have one more trouble, if you will hear it."
       visited_message: "Both paths are safe now. Come to me if you need a bandage."
+      quest_messages:
+        goblin_hunt:
+          offer: "Good day to you. I am Wenna, and I cut herbs on these paths - or I did, until the goblins nested south of the clearing."
+          active: "Five of them, and mind the thicket south of the clearing. That is where they nest."
+          completed: "The south path is mine again. Take this with my thanks. And I have one more trouble, if you will hear it."
+        wolf_pack:
+          offer: "The south path is mine again. But the north road is still closed to me, if you will hear why."
+          active: "Three Wolves hunt the north road after dusk. I will wait here until the carters can travel it again."
+          completed: "The north road is safe again. Take this with my thanks; both herb paths are open."
       choice_prompt: "Wenna shifts her basket."
       choices:
         - text: "Tell us about the goblins."
           action: "info"
+          quest_step: "goblin_hunt"
           response: "Five Goblins, nesting south past the clearing. They took my second basket and near took my hand with it."
           choices:
             - text: "We will kill them."
@@ -2100,6 +2110,7 @@ npcs:
         - text: "What is the other trouble?"
           action: "info"
           requires_quest: "goblin_hunt"
+          quest_step: "wolf_pack"
           response: "The north road. Three Wolves work it after dusk, and the carters will not travel it. I cannot reach the good meadow while they hold that road."
           choices:
             - text: "Three Wolves. It is done."

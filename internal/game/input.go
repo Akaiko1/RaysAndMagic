@@ -1667,20 +1667,26 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	// Determine which character portrait the mouse is over
 	charIndex := (mouseX - baseLeft) / portraitWidth
 	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
-		// Check if the click is on the + button area (exclude it from character selection)
+		slotX := baseLeft + charIndex*portraitWidth
+		panelX, panelY, _, _ := partyCardPanelRect(slotX, startY, portraitWidth, portraitHeight)
 		member := ih.game.party.Members[charIndex]
-		if member.FreeStatPoints > 0 {
-			x := baseLeft + charIndex*portraitWidth
-			plusBtnX := x + 20
-			plusBtnY := startY + portraitHeight - 28
-			plusBtnW := 24
-			plusBtnH := 24
-
-			// If clicking on + button area, don't select character
-			if mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW &&
-				mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH {
-				return -1
-			}
+		hasStatBadge := member.FreeStatPoints > 0
+		hasSkillBadge := ih.game.hasLevelUpChoiceForChar(charIndex)
+		badges := makePartyProgressionBadgeLayout(
+			panelX+panelPortraitX,
+			panelY+panelPortraitY,
+			panelPortraitW,
+			panelPortraitH,
+			hasStatBadge,
+			hasSkillBadge,
+		)
+		if hasStatBadge && mouseX >= badges.stat.x && mouseX < badges.stat.right() &&
+			mouseY >= badges.stat.y && mouseY < badges.stat.bottom() {
+			return -1
+		}
+		if hasSkillBadge && mouseX >= badges.skill.x && mouseX < badges.skill.right() &&
+			mouseY >= badges.skill.y && mouseY < badges.skill.bottom() {
+			return -1
 		}
 		if charIndex == 0 {
 			hasFreeStats := false
@@ -1690,22 +1696,12 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 					break
 				}
 			}
-			autoBtnX := baseLeft + 72
-			autoBtnY := startY + portraitHeight - 28
-			if hasFreeStats && mouseX >= autoBtnX && mouseX < autoBtnX+58 &&
-				mouseY >= autoBtnY && mouseY < autoBtnY+24 {
-				return -1
-			}
-		}
-		if ih.game.hasLevelUpChoiceForChar(charIndex) {
-			x := baseLeft + charIndex*portraitWidth
-			caretX := x + portraitWidth - 28
-			caretY := startY + portraitHeight - 28
-			caretW := 24
-			caretH := 24
-			if mouseX >= caretX && mouseX < caretX+caretW &&
-				mouseY >= caretY && mouseY < caretY+caretH {
-				return -1
+			if hasFreeStats {
+				firstPanelX, firstPanelY, firstPanelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
+				auto := makePartyAutoButtonLayout(makePartyCardContentLayout(firstPanelX, firstPanelY, firstPanelW))
+				if mouseX >= auto.x && mouseX < auto.right() && mouseY >= auto.y && mouseY < auto.bottom() {
+					return -1
+				}
 			}
 		}
 		return charIndex

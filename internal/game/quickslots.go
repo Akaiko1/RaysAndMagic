@@ -535,7 +535,7 @@ func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
 	}
 	barH := int(float64(barW) / quickSlotBarAspect)
 	barX := baseLeft + pw*4 - barW // right edge aligned to the rightmost card
-	barY := startY - barH - 4
+	barY := startY - barH - 18
 	if barY < 0 {
 		barY = 0
 	}

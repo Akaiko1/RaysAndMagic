@@ -900,6 +900,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite
 	// index is ready by now).
 	game.validateBuffFxSprites()
+	game.validatePartyCardPanelAsset()
 	validateWeaponFxStyles()
 	validateProjectileFxStyles()
 
@@ -1846,7 +1847,7 @@ const (
 	maxHudMessageLines = 8
 	// hudMessageBottomGap is the gap (px) between the block's bottom and the party
 	// portraits: the block is bottom-anchored here and grows upward.
-	hudMessageBottomGap = 4
+	hudMessageBottomGap = 18
 )
 
 // hudMessageLines wraps the HUD combat-log tail to the message-block width,
@@ -1881,7 +1882,8 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	h = lineCount*hudMessageSpacing + 10
 	w = hudMessageWidth
 	x = g.config.GetScreenWidth() - w - 15
-	bottom := g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - hudMessageBottomGap
+	_, _, _, partyStartY := partyPortraitLayout(g)
+	bottom := partyStartY - hudMessageBottomGap
 	if quickBar, visible := inGameQuickSlotBarLayout(g); visible &&
 		x < quickBar.right() && quickBar.x < x+w {
 		if clearBottom := quickBar.y - hudMessageBottomGap; clearBottom < bottom {

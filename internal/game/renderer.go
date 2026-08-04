@@ -4016,13 +4016,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
 	// bar's top edge, raise the whole sprite so its bottom rests on the bar.
-	screenYF := s.bottomF - s.sizeF
-	if r.game.showPartyStats {
-		barTop := float64(r.game.config.GetScreenHeight() - r.game.config.UI.PartyPortraitHeight)
-		if screenYF+s.sizeF > barTop {
-			screenYF = barTop - s.sizeF
-		}
-	}
+	screenYF := clampMonsterSpriteTopToGameplayViewport(r.game, s.bottomF-s.sizeF, s.sizeF)
 	screenY := int(screenYF)
 
 	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
@@ -4157,6 +4151,17 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		screen.DrawImage(billboardSprite, opts)
 	}
 	r.drawMonsterStatusFX(screen, s, screenY)
+}
+
+func clampMonsterSpriteTopToGameplayViewport(g *MMGame, spriteTop, spriteHeight float64) float64 {
+	if g == nil || !g.showPartyStats {
+		return spriteTop
+	}
+	viewBottom := float64(gameplayViewportBottom(g))
+	if spriteTop+spriteHeight > viewBottom {
+		return viewBottom - spriteHeight
+	}
+	return spriteTop
 }
 
 // drawMonsterStatusFX overlays a monster's status indicators (stun stars,

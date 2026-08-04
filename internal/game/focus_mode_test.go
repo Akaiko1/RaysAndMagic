@@ -89,9 +89,18 @@ func TestFocusModePortraitInputDoesNotConsumeStatButtonRightClick(t *testing.T) 
 	g.showPartyStats = true
 	g.party.Members[0].FreeStatPoints = 1
 	ih := NewInputHandler(g)
-	_, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
-	plusX := baseLeft + 21
-	plusY := startY + portraitHeight - 27
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	panelX, panelY, _, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
+	badges := makePartyProgressionBadgeLayout(
+		panelX+panelPortraitX,
+		panelY+panelPortraitY,
+		panelPortraitW,
+		panelPortraitH,
+		true,
+		false,
+	)
+	plusX := badges.stat.x + badges.stat.w/2
+	plusY := badges.stat.y + badges.stat.h/2
 	g.mouseRightClicks = []queuedClick{{x: plusX, y: plusY, at: 1}}
 
 	ih.handlePartyPortraitMouseInput(true)
@@ -100,6 +109,51 @@ func TestFocusModePortraitInputDoesNotConsumeStatButtonRightClick(t *testing.T) 
 	}
 	if g.focusModeActive() {
 		t.Fatal("right-click on the stat button enabled focus mode")
+	}
+}
+
+func TestPartyProgressionControlsDoNotBecomePortraitSelectionClicks(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	g.party.Members[0].FreeStatPoints = 2
+	g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0}}
+	ih := NewInputHandler(g)
+
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
+	badges := makePartyProgressionBadgeLayout(
+		panelX+panelPortraitX,
+		panelY+panelPortraitY,
+		panelPortraitW,
+		panelPortraitH,
+		true,
+		true,
+	)
+	auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
+
+	controls := map[string]layoutRect{
+		"stat":  badges.stat,
+		"skill": badges.skill,
+		"auto":  auto,
+	}
+	for name, control := range controls {
+		t.Run(name, func(t *testing.T) {
+			x := control.x + control.w/2
+			y := control.y + control.h/2
+			if got := ih.getPartyMemberUnderMouse(x, y); got != -1 {
+				t.Fatalf("control click routed to party member %d", got)
+			}
+
+			g.selectedChar = 1
+			g.mouseLeftClicks = []queuedClick{{x: x, y: y, at: 1}}
+			ih.handlePartyPortraitMouseInput(false)
+			if g.selectedChar != 1 {
+				t.Fatalf("control click changed selection to %d", g.selectedChar)
+			}
+			if len(g.mouseLeftClicks) != 1 {
+				t.Fatal("control click was consumed by portrait selection")
+			}
+		})
 	}
 }
 

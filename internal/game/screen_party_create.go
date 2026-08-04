@@ -415,7 +415,7 @@ func (g *MMGame) bigPortraitName(c *character.MMCharacter) string {
 // drawPortraitCover draws a name's portrait cover-fit (filled, centered, no
 // distortion) into the given box.
 func (ui *UISystem) drawPortraitCover(screen *ebiten.Image, name string, x, y, w, h int) {
-	img := ui.cardPortrait(name, w, h, 0)
+	img := ui.cardPortrait(name, w, h, false)
 	if img == nil {
 		return
 	}

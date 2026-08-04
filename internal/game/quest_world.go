@@ -77,27 +77,40 @@ func (g *MMGame) allLoadedNPCs() []*character.NPC {
 	return out
 }
 
-// questChoicesOf lists an NPC's quest-bearing choices at any nesting depth -
-// a give_quest often sits two "info" branches deep.
-func questChoicesOf(npc *character.NPC) []*character.NPCDialogueChoice {
-	if npc == nil || npc.DialogueData == nil {
+// dialogueQuestChoices lists a dialogue tree's quest-bearing choices at any
+// nesting depth - a give_quest often sits two "info" branches deep. It reuses
+// the shared WalkChoices traversal, so runtime chain selection and boot-time
+// validation always see the same choices in the same order.
+func dialogueQuestChoices(d *character.NPCDialogue) []*character.NPCDialogueChoice {
+	if d == nil {
 		return nil
 	}
 	var out []*character.NPCDialogueChoice
-	var walk func(cs []*character.NPCDialogueChoice)
-	walk = func(cs []*character.NPCDialogueChoice) {
-		for _, c := range cs {
-			if c == nil {
-				continue
-			}
-			if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != "" {
-				out = append(out, c)
-			}
-			walk(c.Choices)
+	_ = d.WalkChoices(func(c *character.NPCDialogueChoice) error {
+		if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != "" {
+			out = append(out, c)
 		}
-	}
-	walk(npc.DialogueData.Choices)
+		return nil
+	})
 	return out
+}
+
+// questChoicesOf lists a live NPC's quest-bearing choices.
+func questChoicesOf(npc *character.NPC) []*character.NPCDialogueChoice {
+	if npc == nil {
+		return nil
+	}
+	return dialogueQuestChoices(npc.DialogueData)
+}
+
+// npcChainQuestIDs is the set of quests one giver actually hands out or takes
+// in - the only quests activeChainQuestID can ever select for that NPC.
+func npcChainQuestIDs(d *character.NPCDialogue) map[string]bool {
+	ids := map[string]bool{}
+	for _, c := range dialogueQuestChoices(d) {
+		ids[c.QuestID] = true
+	}
+	return ids
 }
 
 func questMonsterTag(m *monster.Monster3D) string {
@@ -592,6 +605,22 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 			if npc == nil {
 				continue
 			}
+			// Per-step copy and per-step choices are selected by
+			// activeChainQuestID, which only ever returns a quest THIS NPC hands
+			// out or takes in. A globally valid id from another giver would load
+			// fine and then never appear, so both fields are checked against the
+			// giver's own chain.
+			chainQuests := npcChainQuestIDs(npc.Dialogue)
+			if npc.Dialogue != nil {
+				for questID := range npc.Dialogue.QuestMessages {
+					if qm.Definitions()[questID] == nil {
+						return fmt.Errorf("NPC %q dialogue quest_messages references unknown quest %q", npcKey, questID)
+					}
+					if !chainQuests[questID] {
+						return fmt.Errorf("NPC %q dialogue quest_messages references quest %q that this NPC never gives or takes in", npcKey, questID)
+					}
+				}
+			}
 			if err := npc.Dialogue.WalkChoices(func(choice *character.NPCDialogueChoice) error {
 				switch choice.Action {
 				case "give_quest", "turn_in_quest":
@@ -604,6 +633,14 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 				}
 				if choice.RequiresQuest != "" && qm.Definitions()[choice.RequiresQuest] == nil {
 					return fmt.Errorf("NPC %q dialogue choice references unknown requires_quest %q", npcKey, choice.RequiresQuest)
+				}
+				if choice.QuestStep != "" {
+					if qm.Definitions()[choice.QuestStep] == nil {
+						return fmt.Errorf("NPC %q dialogue choice references unknown quest_step %q", npcKey, choice.QuestStep)
+					}
+					if !chainQuests[choice.QuestStep] {
+						return fmt.Errorf("NPC %q dialogue choice pins quest_step %q that this NPC never gives or takes in", npcKey, choice.QuestStep)
+					}
 				}
 				return nil
 			}); err != nil {

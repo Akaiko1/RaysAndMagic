@@ -2,8 +2,11 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -16,16 +19,184 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Portrait recess of party_member_panel.png in panel-source pixels (256x100),
-// measured off the art: the inner dark box of the left frame, whose corners are
-// trimmed at 45deg by panelRecessCut pixels.
+// Source-space measurements from party_member_panel.png. Every piece is drawn
+// 1:1: the horizontal repeat extends a card without scaling its frame art, and
+// the portrait sits on whole pixels inside the authored recess.
 const (
-	panelRecessX0  = 16.0
-	panelRecessY0  = 19.0
-	panelRecessX1  = 65.0
-	panelRecessY1  = 77.0
-	panelRecessCut = 5.0
+	partyPanelSourceW       = partyCardPanelNativeWidth
+	partyPanelSourceH       = partyCardPanelNativeHeight
+	partyPanelLeftCapW      = 78
+	partyPanelRightCapW     = 16
+	partyPanelRepeatX       = 88
+	partyPanelRepeatW       = 32
+	partyPanelOrnamentX     = 120
+	partyPanelOrnamentW     = 16
+	panelPortraitX          = 17
+	panelPortraitY          = 20
+	panelPortraitW          = 47
+	panelPortraitH          = 56
+	partyFocusMarkerOffsetY = -11
+	partyProgressBadgeSize  = 24
+	partyProgressBadgeGap   = 2
+	partyProgressBadgeLift  = 12
+	partyAutoButtonMaxW     = 62
+	partyAutoButtonH        = 16
+	partyPanelContentLeft   = 83
+	partyPanelContentRight  = 18
+	partyPanelContentTop    = 18
+	partyPanelContentBottom = 82
+	// utilityStatusIconSize is the authored size of a utility status icon
+	// (AGENTS.md, Icons). Drawing at native size avoids resampling.
+	utilityStatusIconSize = 24
 )
+
+type partyCardTemplate struct {
+	columnGap    int
+	statsPercent int
+}
+
+// partyCardTemplateForWidth preserves the measured source safe area while
+// giving compact, standard, and wide cards different column proportions. The
+// portrait cap stays fixed; only the repeatable information field grows.
+func partyCardTemplateForWidth(panelW int) partyCardTemplate {
+	switch {
+	case panelW < 300:
+		return partyCardTemplate{columnGap: 5, statsPercent: 42}
+	case panelW < 440:
+		return partyCardTemplate{columnGap: 9, statsPercent: 40}
+	default:
+		return partyCardTemplate{columnGap: 12, statsPercent: 38}
+	}
+}
+
+type partyCardContentLayout struct {
+	box, stats, equipment layoutRect
+}
+
+type partyProgressionBadgeLayout struct {
+	stat, skill layoutRect
+}
+
+func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayout {
+	template := partyCardTemplateForWidth(panelW)
+	available := layoutRect{
+		x: panelX + partyPanelContentLeft,
+		y: panelY + partyPanelContentTop,
+		w: max(1, panelW-partyPanelContentLeft-partyPanelContentRight),
+		h: partyPanelContentBottom - partyPanelContentTop,
+	}
+	box := available
+	statsW := max(1, (box.w-template.columnGap)*template.statsPercent/100)
+	stats := layoutRect{x: box.x, y: box.y, w: statsW, h: box.h}
+	equipmentX := stats.right() + template.columnGap
+	equipment := layoutRect{x: equipmentX, y: box.y, w: max(1, box.right()-equipmentX), h: box.h}
+	return partyCardContentLayout{box: box, stats: stats, equipment: equipment}
+}
+
+// makePartyProgressionBadgeLayout attaches pending-progression actions to the
+// portrait that owns them. One badge centers; two straddle the lower rim with
+// equal spacing and only a minimal overhang beyond the irregular aperture.
+func makePartyProgressionBadgeLayout(px, py, pw, ph int, hasStat, hasSkill bool) partyProgressionBadgeLayout {
+	count := 0
+	if hasStat {
+		count++
+	}
+	if hasSkill {
+		count++
+	}
+	if count == 0 {
+		return partyProgressionBadgeLayout{}
+	}
+	totalW := count*partyProgressBadgeSize + (count-1)*partyProgressBadgeGap
+	x := px + (pw-totalW)/2
+	y := py + ph - partyProgressBadgeLift
+	next := func() layoutRect {
+		r := layoutRect{x: x, y: y, w: partyProgressBadgeSize, h: partyProgressBadgeSize}
+		x += partyProgressBadgeSize + partyProgressBadgeGap
+		return r
+	}
+	layout := partyProgressionBadgeLayout{}
+	if hasStat {
+		layout.stat = next()
+	}
+	if hasSkill {
+		layout.skill = next()
+	}
+	return layout
+}
+
+func makePartyAutoButtonLayout(content partyCardContentLayout) layoutRect {
+	w := min(partyAutoButtonMaxW, content.equipment.w)
+	return layoutRect{
+		x: content.equipment.x + (content.equipment.w-w)/2,
+		y: content.box.bottom() - partyAutoButtonH,
+		w: w,
+		h: partyAutoButtonH,
+	}
+}
+
+// validatePartyCardPanelAsset fails the boot when party_member_panel.png is
+// missing or no longer the authored 256x100 sheet. Every cap/repeat/ornament
+// offset and the portrait aperture are measured from THAT sheet, so a resized
+// or absent one would otherwise leave all four cards silently unpainted.
+func (g *MMGame) validatePartyCardPanelAsset() {
+	if g.sprites == nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join("assets", "sprites")); err != nil {
+		return // not running from the asset root (unit tests)
+	}
+	const name = "party_member_panel"
+	panel := g.sprites.GetSprite(name)
+	if panel == nil || !g.sprites.HasSprite(name) {
+		panic(fmt.Sprintf("party HUD: %q not found under assets/sprites", name))
+	}
+	if b := panel.Bounds(); b.Dx() != partyPanelSourceW || b.Dy() != partyPanelSourceH {
+		panic(fmt.Sprintf("party HUD: %q is %dx%d, want %dx%d - the card offsets and portrait aperture are measured from that size",
+			name, b.Dx(), b.Dy(), partyPanelSourceW, partyPanelSourceH))
+	}
+}
+
+// drawPartyPanel draws the authored 256x100 panel without scaling any source
+// pixels. Fixed portrait and corner caps stay untouched; a neutral centre strip
+// tiles horizontally and the single centre ornament is restored once. The size
+// contract itself is enforced at boot by validatePartyCardPanelAsset.
+func drawPartyPanel(screen, panel *ebiten.Image, x, y, w int) {
+	if screen == nil || panel == nil || w <= partyPanelLeftCapW+partyPanelRightCapW {
+		return
+	}
+	b := panel.Bounds()
+	if b.Dx() != partyPanelSourceW || b.Dy() != partyPanelSourceH {
+		return
+	}
+	if w == partyPanelSourceW {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(x), float64(y))
+		screen.DrawImage(panel, op)
+		return
+	}
+	drawPart := func(srcX, srcW, dstX int) {
+		part := panel.SubImage(image.Rect(b.Min.X+srcX, b.Min.Y, b.Min.X+srcX+srcW, b.Min.Y+partyPanelSourceH)).(*ebiten.Image)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(dstX), float64(y))
+		screen.DrawImage(part, op)
+	}
+
+	middleX := x + partyPanelLeftCapW
+	middleEnd := x + w - partyPanelRightCapW
+	for dstX := middleX; dstX < middleEnd; {
+		pieceW := min(partyPanelRepeatW, middleEnd-dstX)
+		drawPart(partyPanelRepeatX, pieceW, dstX)
+		dstX += pieceW
+	}
+	drawPart(0, partyPanelLeftCapW, x)
+	drawPart(partyPanelSourceW-partyPanelRightCapW, partyPanelRightCapW, x+w-partyPanelRightCapW)
+
+	ornamentX := x + (w-partyPanelOrnamentW)/2
+	if ornamentX >= middleX && ornamentX+partyPanelOrnamentW <= middleEnd {
+		drawPart(partyPanelOrnamentX, partyPanelOrnamentW, ornamentX)
+	}
+}
 
 // hudWhiteImg is a 1x1 opaque source for triangle fills (corner bevel cuts).
 var hudWhiteImg = func() *ebiten.Image {
@@ -33,6 +204,188 @@ var hudWhiteImg = func() *ebiten.Image {
 	img.Fill(color.White)
 	return img
 }()
+
+// partyCooldownMode is which hand a single-frame readout belongs to, and thus
+// which tracked history measures its fill.
+type partyCooldownMode uint8
+
+const (
+	partyCooldownModeMain partyCooldownMode = iota
+	partyCooldownModeOffHand
+)
+
+// partyCooldownVisualState remembers each hand's cooldown peak so a frame fills
+// smoothly. A hand that is not being read gets its history cleared, so switching
+// readouts (a weapon unequipped mid-cooldown) can never measure one hand's
+// countdown against the other's remembered peak.
+type partyCooldownVisualState struct {
+	peakRemaining    int
+	lastRemaining    int
+	offPeakRemaining int
+	offLastRemaining int
+}
+
+func (ui *UISystem) partyCooldownStateFor(member *character.MMCharacter) partyCooldownVisualState {
+	if ui.partyCooldownState == nil {
+		ui.partyCooldownState = make(map[*character.MMCharacter]partyCooldownVisualState)
+	}
+	return ui.partyCooldownState[member]
+}
+
+func trackedPartyCooldownProgress(remaining int, peakRemaining, lastRemaining *int) float64 {
+	if remaining <= 0 {
+		*peakRemaining = 0
+		*lastRemaining = 0
+		return 1
+	}
+	// A fresh cooldown, or a re-arm mid-countdown, sets the peak the bar fills
+	// from. Otherwise remaining only decays, so the peak already covers it.
+	if *peakRemaining <= 0 || remaining > *lastRemaining {
+		*peakRemaining = remaining
+	}
+	*lastRemaining = remaining
+	progress := 1 - float64(remaining)/float64(*peakRemaining)
+	return max(0.0, min(1.0, progress))
+}
+
+// partyCooldownProgress tracks ONE readout, filling from the history of the hand
+// that readout belongs to (see partySingleHandCooldown).
+func (ui *UISystem) partyCooldownProgress(member *character.MMCharacter, readout partyCooldownReadout) (remaining int, progress float64, active bool) {
+	if readout.remaining <= 0 {
+		delete(ui.partyCooldownState, member)
+		return 0, 0, false
+	}
+	state := ui.partyCooldownStateFor(member)
+	peak, last := &state.peakRemaining, &state.lastRemaining
+	idlePeak, idleLast := &state.offPeakRemaining, &state.offLastRemaining
+	if readout.mode == partyCooldownModeOffHand {
+		peak, last, idlePeak, idleLast = idlePeak, idleLast, peak, last
+	}
+	progress = trackedPartyCooldownProgress(readout.remaining, peak, last)
+	// The hand nobody reads keeps no peak, so it cannot skew a later readout.
+	*idlePeak, *idleLast = 0, 0
+	ui.partyCooldownState[member] = state
+	return readout.remaining, progress, true
+}
+
+// partyCooldownReadout is the countdown a one-frame card shows plus the hand it
+// belongs to, so the fill is always measured against that hand's own peak.
+type partyCooldownReadout struct {
+	remaining int
+	mode      partyCooldownMode
+}
+
+// partySingleHandCooldown is the readout a one-frame card shows: the timer of
+// the hand that actually attacks. Neither hand's countdown may leak into the
+// other's readout - an unequipped weapon leaves its timer behind, and showing it
+// would keep the frame up while the remaining hand is already free to strike.
+func partySingleHandCooldown(member *character.MMCharacter) partyCooldownReadout {
+	if member == nil {
+		return partyCooldownReadout{}
+	}
+	switch {
+	case member.MainHandArmed():
+		// Main-hand attacks (and spells) run on RTCooldown. A real second weapon
+		// is handled by the split readout instead of this one.
+		return partyCooldownReadout{remaining: member.RTCooldown, mode: partyCooldownModeMain}
+	case member.IsDualWielding():
+		// Only the off-hand carries a weapon, so only its timer governs the card.
+		return partyCooldownReadout{remaining: member.OffHandRTCooldown, mode: partyCooldownModeOffHand}
+	default:
+		// No weapon in either hand: RTCooldown is the spell cooldown.
+		return partyCooldownReadout{remaining: member.RTCooldown, mode: partyCooldownModeMain}
+	}
+}
+
+// partyArmsMasterCooldownProgress tracks the two weapon hands separately. A
+// ready hand is fully colored while the other is cooling; once both are ready,
+// the whole transient cooldown frame disappears.
+func (ui *UISystem) partyArmsMasterCooldownProgress(member *character.MMCharacter) (mainProgress, offProgress float64, active bool) {
+	if member == nil || (member.RTCooldown <= 0 && member.OffHandRTCooldown <= 0) {
+		delete(ui.partyCooldownState, member)
+		return 0, 0, false
+	}
+	state := ui.partyCooldownStateFor(member)
+	mainProgress = trackedPartyCooldownProgress(member.RTCooldown, &state.peakRemaining, &state.lastRemaining)
+	offProgress = trackedPartyCooldownProgress(member.OffHandRTCooldown, &state.offPeakRemaining, &state.offLastRemaining)
+	ui.partyCooldownState[member] = state
+	return mainProgress, offProgress, true
+}
+
+type partyCooldownEdge struct{ ax, ay, bx, by float32 }
+
+func drawPartyCooldownProgress(screen *ebiten.Image, edges []partyCooldownEdge, progress float64, col color.RGBA) {
+	totalLength := 0.0
+	for _, edge := range edges {
+		totalLength += math.Hypot(float64(edge.bx-edge.ax), float64(edge.by-edge.ay))
+	}
+	left := totalLength * max(0.0, min(1.0, progress))
+	for _, edge := range edges {
+		length := math.Hypot(float64(edge.bx-edge.ax), float64(edge.by-edge.ay))
+		if left <= 0 {
+			break
+		}
+		fraction := min(1.0, left/length)
+		ex := edge.ax + (edge.bx-edge.ax)*float32(fraction)
+		ey := edge.ay + (edge.by-edge.ay)*float32(fraction)
+		vector.StrokeLine(screen, edge.ax, edge.ay, ex, ey, 2, col, false)
+		left -= length
+	}
+}
+
+func drawPartyCooldownFrame(screen *ebiten.Image, x, y, w, h int, progress float64) {
+	x1, y1 := float32(x), float32(y)
+	x2, y2 := float32(x+w-1), float32(y+h-1)
+	if x2 <= x1 || y2 <= y1 {
+		return
+	}
+	gray := color.RGBA{104, 112, 123, 235}
+	green := color.RGBA{66, 218, 116, 250}
+	vector.StrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
+	edges := [...]partyCooldownEdge{
+		{x1, y1, x2, y1},
+		{x2, y1, x2, y2},
+		{x2, y2, x1, y2},
+		{x1, y2, x1, y1},
+	}
+	drawPartyCooldownProgress(screen, edges[:], progress, green)
+}
+
+func drawPartyArmsMasterCooldownFrame(screen *ebiten.Image, x, y, w, h int, mainProgress, offProgress float64) {
+	x1, y1 := float32(x), float32(y)
+	x2, y2 := float32(x+w-1), float32(y+h-1)
+	if x2 <= x1 || y2 <= y1 {
+		return
+	}
+	midY := (y1 + y2) / 2
+	gray := color.RGBA{104, 112, 123, 235}
+	mainGreen := color.RGBA{66, 218, 116, 250}
+	offBlue := color.RGBA{66, 154, 235, 250}
+	vector.StrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
+
+	// Both paths travel from the left midpoint to the right midpoint, keeping
+	// the main-hand readout wholly above the off-hand readout.
+	mainEdges := [...]partyCooldownEdge{
+		{x1, midY, x1, y1},
+		{x1, y1, x2, y1},
+		{x2, y1, x2, midY},
+	}
+	offEdges := [...]partyCooldownEdge{
+		{x1, midY, x1, y2},
+		{x1, y2, x2, y2},
+		{x2, y2, x2, midY},
+	}
+	drawPartyCooldownProgress(screen, mainEdges[:], mainProgress, mainGreen)
+	drawPartyCooldownProgress(screen, offEdges[:], offProgress, offBlue)
+}
+
+func expandedPartyPanelRect(x, y, w, h, gap int) (int, int, int, int) {
+	return x - gap, y - gap, w + gap*2, h + gap*2
+}
+
+func drawPartySolidFrame(screen *ebiten.Image, x, y, w, h int, thickness float32, col color.RGBA) {
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), thickness, col, false)
+}
 
 func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
 	drawTriangle := func(halfWidth, topOffset, tipOffset int, topCol, tipCol color.RGBA) {
@@ -62,20 +415,60 @@ func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
 		color.RGBA{210, 240, 255, 230}, false)
 }
 
-// cardPortrait returns the portrait pre-fit to the party card's recess: cover-
-// scaled (fills the frame, overflow cropped), linearly filtered, with the four
-// corners bevel-cut to match the frame's trims. Cached per name and size.
-func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
+// partyPortraitApertureSpan returns the exact opaque interval for one row of
+// the authored portrait recess in party_member_panel.png. The interval is
+// inclusive-exclusive in the mask's local coordinates.
+func partyPortraitApertureSpan(row int) (start, end int) {
+	switch {
+	case row < 0 || row >= panelPortraitH:
+		return 0, 0
+	case row == 0:
+		return 3, 43
+	case row < 4:
+		return 4 - row, 43 + row
+	case row <= 51:
+		return 0, panelPortraitW
+	default:
+		inset := row - 51
+		return inset, panelPortraitW - inset
+	}
+}
+
+func newPartyPortraitApertureMaskImage() *image.Alpha {
+	mask := image.NewAlpha(image.Rect(0, 0, panelPortraitW, panelPortraitH))
+	for row := 0; row < panelPortraitH; row++ {
+		start, end := partyPortraitApertureSpan(row)
+		for col := start; col < end; col++ {
+			mask.SetAlpha(col, row, color.Alpha{A: 0xff})
+		}
+	}
+	return mask
+}
+
+var partyPortraitApertureMask = ebiten.NewImageFromImage(newPartyPortraitApertureMaskImage())
+
+// cardPortrait returns a cover-fitted portrait. Party-card portraits use the
+// exact authored aperture mask; other callers keep an ordinary rectangular
+// cover fit. Results are cached per name, size, and mask mode.
+func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *ebiten.Image {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	key := fmt.Sprintf("%s|%dx%d", name, w, h)
+	key := fmt.Sprintf("%s|%dx%d|party-mask=%t", name, w, h, usePartyAperture)
 	if img, ok := ui.cardPortraitCache[key]; ok {
 		return img
 	}
 	src := ui.game.sprites.GetSprite(name)
 	if src == nil {
 		return nil
+	}
+	// HUD portraits already ship with their own one-pixel black card border.
+	// The party panel supplies a second, irregular frame, so keeping that source
+	// border creates a false empty seam even when the aperture mask is exact.
+	// Unmasked callers outside this HUD intentionally preserve the source.
+	if usePartyAperture && src.Bounds().Dx() > 2 && src.Bounds().Dy() > 2 {
+		b := src.Bounds()
+		src = src.SubImage(image.Rect(b.Min.X+1, b.Min.Y+1, b.Max.X-1, b.Max.Y-1)).(*ebiten.Image)
 	}
 	img := ebiten.NewImage(w, h)
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
@@ -88,25 +481,12 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 	}
 	img.DrawImage(src, opts)
 
-	// Bevel the corners: erase a 45deg triangle in each.
-	if cut > 0 {
-		c := float32(cut)
-		fw, fh := float32(w), float32(h)
-		corners := [4][6]float32{
-			{0, 0, c, 0, 0, c},               // top-left
-			{fw, 0, fw - c, 0, fw, c},        // top-right
-			{0, fh, c, fh, 0, fh - c},        // bottom-left
-			{fw, fh, fw - c, fh, fw, fh - c}, // bottom-right
+	if usePartyAperture {
+		if w != panelPortraitW || h != panelPortraitH {
+			return nil
 		}
-		for _, t := range corners {
-			verts := []ebiten.Vertex{
-				{DstX: t[0], DstY: t[1], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
-				{DstX: t[2], DstY: t[3], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
-				{DstX: t[4], DstY: t[5], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
-			}
-			img.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg,
-				&ebiten.DrawTrianglesOptions{Blend: ebiten.BlendClear})
-		}
+		maskOpts := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
+		img.DrawImage(partyPortraitApertureMask, maskOpts)
 	}
 
 	if ui.cardPortraitCache == nil {
@@ -114,6 +494,141 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 	}
 	ui.cardPortraitCache[key] = img
 	return img
+}
+
+// partyCardEffectSet is what a card would actually paint into its effect layer
+// this frame. Every drawCard* call in the layer block below must be represented
+// here, or the card silently loses that effect.
+type partyCardEffectSet struct {
+	poison, burn, stun, timed bool
+}
+
+func (s partyCardEffectSet) any() bool {
+	return s.poison || s.burn || s.stun || s.timed
+}
+
+// layerCardFx are the timer-driven overlays that paint into the effect layer.
+// fxBlink is absent on purpose: it tints the portrait directly.
+var layerCardFx = [...]cardFx{fxFlame, fxSpark, fxHeal}
+
+// anyTimedCardFxActive reports whether such an overlay is mid-animation.
+func (g *MMGame) anyTimedCardFxActive(characterIndex int) bool {
+	for _, fx := range layerCardFx {
+		if g.cardFxActive(fx, characterIndex) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// partyCardEffects returns the card's reusable particle layer, or nil when
+// nothing would draw into it (needed=false) - an idle card then pays no
+// render-target switch and no transparent blit.
+func (ui *UISystem) partyCardEffects(index, w, h int, needed bool) *ebiten.Image {
+	if !needed || index < 0 || index >= len(ui.partyCardEffectLayer) || w <= 0 || h <= 0 {
+		return nil
+	}
+	img := ui.partyCardEffectLayer[index]
+	if img == nil || img.Bounds().Dx() != w || img.Bounds().Dy() != h {
+		img = ebiten.NewImage(w, h)
+		ui.partyCardEffectLayer[index] = img
+	}
+	img.Clear()
+	return img
+}
+
+func scaledDebugTextWidth(text string, scale float64) int {
+	return int(math.Ceil(float64(debugTextWidth(text)) * scale))
+}
+
+func fittedDebugTextScale(maxW int, texts ...string) float64 {
+	if maxW <= 0 {
+		return 1
+	}
+	widest := 0
+	for _, text := range texts {
+		widest = max(widest, debugTextWidth(text))
+	}
+	if widest <= maxW || widest == 0 {
+		return 1
+	}
+	return max(0.78, float64(maxW)/float64(widest))
+}
+
+func drawScaledLeftDebugText(screen *ebiten.Image, text string, x, y, maxW int, scale float64, col color.Color) {
+	if text == "" || maxW <= 0 || scale <= 0 {
+		return
+	}
+	text = clipDebugText(text, int(float64(maxW)/scale))
+	img := outlinedLabelImage(text, col)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(float64(x)-scale, float64(y)-scale)
+	screen.DrawImage(img, op)
+}
+
+func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, label string, fill color.RGBA, textScale float64) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{3, 5, 9, 230}, false)
+	innerW := max(0, w-2)
+	if maximum > 0 && current > 0 {
+		value := min(current, maximum)
+		filled := innerW * value / maximum
+		vector.FillRect(screen, float32(x+1), float32(y+1), float32(filled), float32(max(0, h-2)), fill, false)
+		if filled > 0 {
+			vector.FillRect(screen, float32(x+1), float32(y+1), float32(filled), 2, metalShade(fill, 0), false)
+		}
+	}
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{118, 125, 145, 220}, false)
+	// An HP/SP readout must never be clipped - a truncated "HP 100/1.." hides the
+	// number the player is reading. The card's shared scale is only the ceiling.
+	textW := w - 7
+	text, fitted := meterText(textW, label, current, maximum)
+	if fitted < textScale {
+		textScale = fitted
+	}
+	drawScaledLeftDebugText(screen, text, x+4,
+		y+(h-int(float64(debugTextCharHeight)*textScale))/2, textW, textScale, color.White)
+}
+
+// minReadableMeterScale is how far a meter may shrink before dropping detail
+// instead: below this the fixed-width glyphs stop being legible.
+const minReadableMeterScale = 0.8
+
+// meterText picks the most informative readout that still fits its box legibly:
+// the full "HP 33/33", else "33/33", else the current value alone. The last form
+// is always scaled to fit, so a meter can be terse but never clipped.
+func meterText(maxW int, label string, current, maximum int) (string, float64) {
+	forms := [...]string{
+		fmt.Sprintf("%s %d/%d", label, current, maximum),
+		fmt.Sprintf("%d/%d", current, maximum),
+		fmt.Sprintf("%d", current),
+	}
+	for _, form := range forms {
+		if scale := meterTextScale(maxW, form); scale >= minReadableMeterScale {
+			return form, scale
+		}
+	}
+	shortest := forms[len(forms)-1]
+	return shortest, meterTextScale(maxW, shortest)
+}
+
+// meterTextScale fits one meter string to its box. Unlike fittedDebugTextScale it
+// has no readability floor that could still clip: a meter's numbers must fit at
+// the shipped 1024-wide default, where the compact stats column is ~60px.
+func meterTextScale(maxW int, text string) float64 {
+	width := debugTextWidth(text)
+	if maxW <= 0 || width <= maxW || width == 0 {
+		return 1
+	}
+	return float64(maxW) / float64(width)
+}
+
+func centeredIconRowX(barX, barW, iconSize, gap, count int) int {
+	contentW := count*iconSize + max(0, count-1)*gap
+	return barX + (barW-contentW)/2
 }
 
 // drawGameplayUI draws core gameplay UI elements
@@ -142,18 +657,21 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		return
 	}
 
-	// Draw party member portraits and stats at bottom of screen.
-	// Fixed portrait width, centered horizontally - does not stretch in fullscreen.
 	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
+	vector.FillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), float32(portraitHeight), color.RGBA{3, 5, 10, 246}, false)
+	vector.FillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{104, 114, 128, 235}, false)
+	vector.FillRect(screen, 0, float32(startY+1), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{38, 44, 53, 245}, false)
 
 	for i, member := range ui.game.party.Members {
 		x := baseLeft + i*portraitWidth
+		selected := i == ui.game.selectedChar
+		panelX, panelY, panelW, panelH := partyCardPanelRect(x, startY, portraitWidth, portraitHeight)
 
-		// Highlight selected character and heal target. In turn-based mode an
+		// In turn-based mode an
 		// alive character that has already spent all their action slots gets
 		// a gray frame so the player can see at a glance who still has a
 		// move left. KO characters are skipped - they get no frame at all.
-		// Dual Wielding gets a third, amber state: one weapon already used
+		// Dual Wielding gets an amber state: one weapon already used
 		// this round but the other is still available - distinct from "fully
 		// spent" gray, so the player can tell "acted once" from "acted twice".
 		highlightColor := color.RGBA{0, 0, 0, 0}
@@ -169,58 +687,19 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		case ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0:
 			highlightColor = grayBusy
-		case !ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
-			// An empty main hand isn't a "busy hand" - it just isn't a hand at
-			// all, so don't let its stale cooldown paint a false amber "one hand
-			// busy". Only hands that actually hold a weapon count toward the
-			// two-tone ring. (IsDualWielding already guarantees an off-hand weapon.)
-			_, mainHasWeapon := member.Equipment[items.SlotMainHand]
-			mainReady := mainHasWeapon && member.RTCooldown <= 0
-			offReady := member.OffHandRTCooldown <= 0
-			switch {
-			case !mainHasWeapon:
-				if !offReady { // only the off-hand weapon remains - treat as single-weapon
-					highlightColor = grayBusy
-				}
-			case !mainReady && !offReady:
-				highlightColor = grayBusy
-			case mainReady != offReady:
-				highlightColor = amberOneHandBusy
-			}
-		case !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0:
-			highlightColor = grayBusy
-		}
-		if i == ui.game.selectedChar {
-			highlightColor = color.RGBA{210, 170, 80, 220}
 		}
 
-		// Draw background panel
 		panel := ui.game.sprites.GetSprite("party_member_panel")
-		panelOpts := &ebiten.DrawImageOptions{}
-		panelOpts.GeoM.Scale(
-			float64(portraitWidth)/float64(panel.Bounds().Dx()),
-			float64(portraitHeight)/float64(panel.Bounds().Dy()),
-		)
-		panelOpts.GeoM.Translate(float64(x), float64(startY))
-		screen.DrawImage(panel, panelOpts)
-		if highlightColor.A > 0 {
-			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
-		}
+		drawPartyPanel(screen, panel, panelX, panelY, panelW)
 
-		// Draw character portrait (Column 1) - promotion-aware (Archmage/Lich
-		// variant). Fitted exactly into the panel's left recess (measured off
-		// party_member_panel.png) and bevel-cut at the corners to match the
-		// frame's 45deg corner trims.
+		// The promotion-aware portrait follows the measured painted recess exactly.
+		// It is neither stretched nor resized with the viewport.
 		portraitName := ui.game.portraitSpriteName(member)
-		portraitColWidth := 82 // text columns start after the portrait recess
-
-		panelScaleX := float64(portraitWidth) / float64(panel.Bounds().Dx())
-		panelScaleY := float64(portraitHeight) / float64(panel.Bounds().Dy())
-		px := x + int(panelRecessX0*panelScaleX+0.5)
-		py := startY + int(panelRecessY0*panelScaleY+0.5)
-		pw := int((panelRecessX1-panelRecessX0+1)*panelScaleX + 0.5)
-		ph := int((panelRecessY1-panelRecessY0+1)*panelScaleY + 0.5)
-		cut := int(panelRecessCut*math.Min(panelScaleX, panelScaleY) + 0.5)
+		px := panelX + panelPortraitX
+		py := panelY + panelPortraitY
+		pw := panelPortraitW
+		ph := panelPortraitH
+		portraitColWidth := partyPanelContentLeft
 
 		portraitOpts := &ebiten.DrawImageOptions{}
 		portraitOpts.GeoM.Translate(float64(px), float64(py))
@@ -228,7 +707,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if ui.game.IsCharacterBlinking(i) {
 			portraitOpts.ColorScale.Scale(1.5, 0.5, 0.5, 1.0) // Red tint: more red, less green/blue
 		}
-		if card := ui.cardPortrait(portraitName, pw, ph, cut); card != nil {
+		if card := ui.cardPortrait(portraitName, pw, ph, true); card != nil {
 			screen.DrawImage(card, portraitOpts)
 		}
 
@@ -248,33 +727,63 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		}
 		if isUnconscious {
-			vector.FillRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{0, 0, 0, 140}, false)
+			vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{0, 0, 0, 140}, false)
 		}
-		// Poison: green bubbles drift up the card (replaces the old green tint).
-		if isPoisoned && !isUnconscious {
-			ui.drawCardPoisonBubbles(screen, x, startY, portraitWidth, portraitHeight)
+		// Status and feedback particles keep their full-card choreography, but a
+		// reused layer clips them to the painted panel so they never cross the
+		// reserved cooldown/selection frames. The layer costs a render-target
+		// switch plus a full-card blit every frame, so an idle card skips it.
+		fx := partyCardEffectSet{
+			poison: isPoisoned && !isUnconscious,
+			burn:   isBurning && !isUnconscious,
+			stun:   member.IsStunned() && !isUnconscious,
+			timed:  ui.game.anyTimedCardFxActive(i),
 		}
-		// Ignite: living flames lick up the card (stacks visually with poison).
-		if isBurning && !isUnconscious {
-			ui.drawCardIgnite(screen, x, startY, portraitWidth, portraitHeight, i)
-		}
-		// Stun: a ring of dazed stars wheels around the portrait head.
-		if member.IsStunned() && !isUnconscious {
-			ui.drawCardStunStars(screen, x, startY, portraitColWidth, portraitHeight)
+		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
+			if fx.poison {
+				ui.drawCardPoisonBubbles(effects, 0, 0, panelW, panelH)
+			}
+			if fx.burn {
+				ui.drawCardIgnite(effects, 0, 0, panelW, panelH, i)
+			}
+			if fx.stun {
+				ui.drawCardStunStars(effects, 0, 0, portraitColWidth, panelH)
+			}
+			ui.drawCardFlames(effects, 0, 0, panelW, panelH, i)
+			ui.drawCardSparks(effects, 0, 0, panelW, panelH, i)
+			ui.drawCardHealPlus(effects, 0, 0, panelW, panelH, i)
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(panelX), float64(panelY))
+			screen.DrawImage(effects, op)
 		}
 
-		// Particle overlays: Inferno scorch flames, hit sparks, heal "+" glyphs.
-		ui.drawCardFlames(screen, x, startY, portraitWidth, portraitHeight, i)
-		ui.drawCardSparks(screen, x, startY, portraitWidth, portraitHeight, i)
-		ui.drawCardHealPlus(screen, x, startY, portraitWidth, portraitHeight, i)
+		content := makePartyCardContentLayout(panelX, panelY, panelW)
+		contentX := content.box.x
+		statsW := content.stats.w
+		equipX := content.equipment.x
+		equipW := content.equipment.w
+		textScale := 1.0
+		nameY := content.box.y
+		levelText := fmt.Sprintf("L%d", member.Level)
+		nameScale := fittedDebugTextScale(statsW, member.Name+" "+levelText)
+		levelW := scaledDebugTextWidth(levelText, nameScale)
+		nameText := clipDebugText(member.Name, max(1, int(float64(statsW)/nameScale)-debugTextWidth(levelText)-5))
+		nameW := scaledDebugTextWidth(nameText, nameScale)
+		nameX := contentX
+		nameColor := raritySilver
+		if i == ui.game.selectedChar {
+			nameColor = rarityGold
+		}
+		drawScaledLeftDebugText(screen, nameText, nameX, nameY, nameW, nameScale, nameColor)
+		drawScaledLeftDebugText(screen, levelText, nameX+nameW+5, nameY, levelW, nameScale, color.RGBA{175, 190, 215, 255})
 
-		// Status Column (Column 2) - basic character info
-		statusColX := x + portraitColWidth + 4
-		statusColWidth := (portraitWidth - portraitColWidth - 12) / 2
-
-		drawDebugText(screen, member.Name, statusColX, startY+15)
-		drawDebugText(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
-		drawDebugText(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
+		meterH := 14
+		hpY := panelY + 35
+		spY := panelY + 51
+		drawPartyMeter(screen, contentX, hpY, statsW, meterH,
+			member.HitPoints, member.MaxHitPoints, "HP", color.RGBA{156, 42, 48, 245}, textScale)
+		drawPartyMeter(screen, contentX, spY, statsW, meterH,
+			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245}, textScale)
 
 		// Add character condition status
 		statusText := "OK"
@@ -285,54 +794,51 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 			statusText = strings.Join(conds, ", ")
 		}
-		drawDebugText(screen, statusText, statusColX, startY+60)
-
-		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
-		equipColX := statusColX + statusColWidth - 12
-
-		// Show equipped weapon
-		if weapon, hasWeapon := member.Equipment[items.SlotMainHand]; hasWeapon {
-			weaponText := fmt.Sprintf("W:%s", weapon.Name)
-			if len(weaponText) > 12 { // Truncate if too long
-				weaponText = weaponText[:9] + "..."
-			}
-			drawDebugTextColored(screen, weaponText, equipColX, startY+15, ui.itemRarityColor(weapon))
-		} else {
-			drawDebugText(screen, "W:None", equipColX, startY+15)
+		statusColor := color.RGBA{126, 220, 154, 255}
+		if statusText != "OK" {
+			statusColor = color.RGBA{255, 174, 88, 255}
 		}
+		statusY := panelY + 67
+		statusScale := fittedDebugTextScale(statsW, statusText)
+		statusW := scaledDebugTextWidth(statusText, statusScale)
+		statusX := contentX + max(0, (statsW-statusW)/2)
+		drawScaledLeftDebugText(screen, statusText, statusX, statusY, statsW, statusScale, statusColor)
 
-		// Show equipped spell (unified slot)
-		if spell, hasSpell := member.Equipment[items.SlotSpell]; hasSpell {
-			spellText := fmt.Sprintf("S:%s", spell.Name)
-			if len(spellText) > 12 { // Truncate if too long
-				spellText = spellText[:9] + "..."
-			}
-			drawDebugText(screen, spellText, equipColX, startY+30)
-		} else {
-			drawDebugText(screen, "S:None", equipColX, startY+30)
+		mainText, mainColor := "W None", color.Color(color.RGBA{135, 143, 158, 255})
+		if weapon, ok := member.Equipment[items.SlotMainHand]; ok {
+			mainText, mainColor = "W "+weapon.Name, ui.itemRarityColor(weapon)
 		}
-
-		// Dual Wielding: show the off-hand weapon on the row below (empty for
-		// everyone else, who only ever has one weapon to show).
-		if member.IsDualWielding() {
-			offWeapon := member.Equipment[items.SlotOffHand]
-			offText := fmt.Sprintf("O:%s", offWeapon.Name)
-			if len(offText) > 12 {
-				offText = offText[:9] + "..."
-			}
-			drawDebugTextColored(screen, offText, equipColX, startY+45, ui.itemRarityColor(offWeapon))
+		spellText, spellColor := "S None", color.Color(color.RGBA{135, 143, 158, 255})
+		if spell, ok := member.Equipment[items.SlotSpell]; ok {
+			spellText, spellColor = "S "+spell.Name, color.RGBA{145, 192, 255, 255}
 		}
+		offText, offColor := "O None", color.Color(color.RGBA{135, 143, 158, 255})
+		if offItem, ok := member.Equipment[items.SlotOffHand]; ok {
+			offText, offColor = "O "+offItem.Name, ui.itemRarityColor(offItem)
+		}
+		equipmentScale := fittedDebugTextScale(equipW, mainText, offText, spellText)
+		equipmentBlockW := max(
+			scaledDebugTextWidth(mainText, equipmentScale),
+			scaledDebugTextWidth(offText, equipmentScale),
+			scaledDebugTextWidth(spellText, equipmentScale),
+		)
+		equipmentTextX := equipX + max(0, (equipW-equipmentBlockW)/2)
+		drawScaledLeftDebugText(screen, mainText, equipmentTextX, nameY, equipW, equipmentScale, mainColor)
+		drawScaledLeftDebugText(screen, offText, equipmentTextX, nameY+16, equipW, equipmentScale, offColor)
+		drawScaledLeftDebugText(screen, spellText, equipmentTextX, nameY+32, equipW, equipmentScale, spellColor)
 
-		// Draw + button for stat points if available (under portrait)
-		if member.FreeStatPoints > 0 {
-			plusBtnX := x + 20
-			plusBtnY := startY + portraitHeight - 28
-			plusBtnW := 24
-			plusBtnH := 24
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW && mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH
-			ui.drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
-			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
+		hasStatBadge := member.FreeStatPoints > 0
+		hasSkillBadge := ui.game.hasLevelUpChoiceForChar(i)
+		badges := makePartyProgressionBadgeLayout(px, py, pw, ph, hasStatBadge, hasSkillBadge)
+		mouseX, mouseY := ebiten.CursorPosition()
+
+		if hasStatBadge {
+			statHover := isMouseHoveringBox(mouseX, mouseY, badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom())
+			ui.drawStatPointPlusButton(screen, badges.stat.x, badges.stat.y, badges.stat.w, badges.stat.h, statHover)
+			if statHover {
+				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
+			}
+			if ui.game.consumeLeftClickIn(badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom()) {
 				ui.game.statPopupOpen = true
 				// Open the popup for THIS character. Don't touch selectedChar:
 				// in turn-based mode it tracks whose turn it is, and hijacking it
@@ -340,25 +846,53 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
 			}
-
 		}
 
-		// Draw ^ indicator for pending skill/spell choice
-		if ui.game.hasLevelUpChoiceForChar(i) {
-			caretX := x + portraitWidth - 28
-			caretY := startY + portraitHeight - 28
-			caretW := 24
-			caretH := 24
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= caretX && mouseX < caretX+caretW && mouseY >= caretY && mouseY < caretY+caretH
-			ui.drawSkillPointIndicator(screen, caretX, caretY, caretW, caretH, isHover)
-			if ui.game.consumeLeftClickIn(caretX, caretY, caretX+caretW, caretY+caretH) {
+		if hasSkillBadge {
+			skillHover := isMouseHoveringBox(mouseX, mouseY, badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom())
+			ui.drawSkillPointIndicator(screen, badges.skill.x, badges.skill.y, badges.skill.w, badges.skill.h, skillHover)
+			if skillHover {
+				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
+			}
+			if ui.game.consumeLeftClickIn(badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom()) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
 		}
 
+		stateFrameActive := highlightColor.A > 0
+		innerX, innerY, innerW, innerH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, partyCardInnerFrameGap)
+		if ui.game.turnBasedMode && stateFrameActive {
+			drawPartySolidFrame(screen, innerX, innerY, innerW, innerH, 1.5, highlightColor)
+		} else if !ui.game.turnBasedMode {
+			// The split readout represents two ATTACKING hands, so both must
+			// actually hold a weapon: an empty (or shield-bearing) off-hand has no
+			// off-hand attack, and an empty main hand has no main-hand attack -
+			// either way one half would sit permanently "ready".
+			if member.MainHandArmed() && member.IsDualWielding() {
+				if mainProgress, offProgress, active := ui.partyArmsMasterCooldownProgress(member); active {
+					stateFrameActive = true
+					drawPartyArmsMasterCooldownFrame(screen, innerX, innerY, innerW, innerH, mainProgress, offProgress)
+				}
+			} else {
+				if _, progress, active := ui.partyCooldownProgress(member, partySingleHandCooldown(member)); active {
+					stateFrameActive = true
+					drawPartyCooldownFrame(screen, innerX, innerY, innerW, innerH, progress)
+				}
+			}
+		}
+		if selected {
+			selectionGap := partyCardInnerFrameGap
+			if stateFrameActive {
+				selectionGap = partyCardOuterFrameGap
+			}
+			selectionX, selectionY, selectionW, selectionH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, selectionGap)
+			drawPartySolidFrame(screen, selectionX, selectionY, selectionW, selectionH, 1.5, color.RGBA{232, 190, 86, 245})
+		}
 		if ui.game.partyMemberFocused(i) {
-			drawPartyFocusMarker(screen, px+pw/2, py-12)
+			// Focus belongs to the portrait, not to the whole party slot. Its tip
+			// deliberately overlaps the authored top rim so the marker reads as
+			// attached to this character even when selection/cooldown frames exist.
+			drawPartyFocusMarker(screen, px+pw/2, py+partyFocusMarkerOffsetY)
 		}
 	}
 
@@ -370,13 +904,15 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 	}
 	if hasFreeStats {
-		autoBtnX := baseLeft + 72
-		autoBtnY := startY + portraitHeight - 28
-		autoBtnW, autoBtnH := 58, 24
+		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
+		auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
 		mouseX, mouseY := ebiten.CursorPosition()
-		autoHover := isMouseHoveringBox(mouseX, mouseY, autoBtnX, autoBtnY, autoBtnX+autoBtnW, autoBtnY+autoBtnH)
-		ui.drawAutoStatButton(screen, autoBtnX, autoBtnY, autoBtnW, autoBtnH, autoHover)
-		if ui.game.consumeLeftClickIn(autoBtnX, autoBtnY, autoBtnX+autoBtnW, autoBtnY+autoBtnH) {
+		autoHover := isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
+		ui.drawAutoStatButton(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
+		if autoHover {
+			ui.queueTooltip([]string{"Auto-assign party stats", "Click to spend all available points"}, mouseX+12, mouseY+8)
+		}
+		if ui.game.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
 			autoDistributePartyStatPoints(ui.game.party.Members, ui.game.config)
 		}
 	}
@@ -583,57 +1119,72 @@ func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int)
 	}
 }
 
-// drawStatPointPlusButton draws the + button under the portrait if stat points are available
-func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHover bool) {
-	var plusColor color.RGBA
-	if isHover {
-		plusColor = color.RGBA{80, 200, 80, 220}
-	} else {
-		plusColor = color.RGBA{60, 120, 60, 180}
+// drawPartyProgressionBadgeShadow lifts a badge off the portrait beneath it.
+// It is a drop shadow only: the badge PNGs already carry their own dark button
+// and gold rim, and compositing a second frame for one icon is forbidden (see
+// AGENTS.md, Icons).
+func drawPartyProgressionBadgeShadow(screen *ebiten.Image, x, y, w, h int) {
+	if w <= 0 || h <= 0 {
+		return
 	}
-	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
-	ui.drawInterfaceIcon(screen, "icon_stat_up", x+2, y+2, w-4, h-4)
-	drawDebugText(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
+	vector.FillRect(screen, float32(x+2), float32(y+3), float32(max(0, w-3)), float32(max(0, h-3)), color.RGBA{0, 0, 0, 190}, false)
+}
+
+// drawPartyProgressionBadgeHover rings a badge OUTSIDE the authored art, after
+// the icon is drawn, so the hover cue never reads as a second rim.
+func drawPartyProgressionBadgeHover(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	vector.StrokeRect(screen, float32(x)-1, float32(y)-1, float32(w+1), float32(h+1), 1, metalShade(base, 0), false)
+}
+
+// drawStatPointPlusButton draws a portrait-attached progression badge. The
+// available-point count lives in its tooltip so the icon remains one clean
+// silhouette instead of looking like two adjacent badges.
+func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
+	drawPartyProgressionBadgeShadow(screen, x, y, w, h)
+	ui.drawInterfaceIcon(screen, "icon_stat_up", x, y, w, h)
+	if isHover {
+		drawPartyProgressionBadgeHover(screen, x, y, w, h, rarityEmerald)
+	}
 }
 
 func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	bg := color.RGBA{55, 95, 135, 210}
-	if isHover {
-		bg = color.RGBA{75, 135, 185, 230}
+	if w <= 0 || h <= 0 {
+		return
 	}
-	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), bg, false)
-	drawRectBorder(screen, x, y, w, h, 1, color.RGBA{130, 180, 220, 230})
-	ui.drawInterfaceIcon(screen, "icon_stat_up", x+3, y+4, 16, 16)
-	drawDebugTextColored(screen, "AUTO", x+22, y+7, color.White)
+	base := color.RGBA{18, 47, 78, 255}
+	if isHover {
+		base = color.RGBA{30, 82, 132, 255}
+	}
+	vector.FillRect(screen, float32(x+1), float32(y+2), float32(max(0, w-1)), float32(max(0, h-2)), color.RGBA{0, 0, 0, 190}, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{5, 10, 18, 245}, false)
+	for row := 1; row < h-1; row++ {
+		shade := metalShade(base, float64(row-1)/float64(max(1, h-3)))
+		vector.FillRect(screen, float32(x+1), float32(y+row), float32(max(0, w-2)), 1, shade, false)
+	}
+	vector.StrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), 1, color.RGBA{26, 35, 48, 255}, false)
+	vector.StrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
+	vector.FillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
+	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
 }
 
 // drawSkillPointIndicator draws the ^ button for pending skill/spell choices.
 func (ui *UISystem) drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	var caretColor color.RGBA
+	drawPartyProgressionBadgeShadow(screen, x, y, w, h)
+	ui.drawInterfaceIcon(screen, "icon_level_choice", x, y, w, h)
 	if isHover {
-		caretColor = color.RGBA{200, 180, 80, 220}
-	} else {
-		caretColor = color.RGBA{160, 140, 60, 200}
+		drawPartyProgressionBadgeHover(screen, x, y, w, h, rarityGold)
 	}
-	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), caretColor, false)
-	ui.drawInterfaceIcon(screen, "icon_level_choice", x+2, y+2, w-4, h-4)
 }
 
-// drawSpellStatusBar draws active spell effects in the top-left of the party UI area
+// drawSpellStatusBar draws active party effects on a compact rail directly
+// above the responsive party deck.
 func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	if !ui.game.showPartyStats {
 		return
 	}
-
-	// Position at top-left of party UI area
-	portraitHeight := ui.game.config.UI.PartyPortraitHeight
-	partyStartY := ui.game.config.GetScreenHeight() - portraitHeight
-	statusBarX := 10
-	statusBarY := partyStartY - 40 // 40px above party UI
-
-	iconSize := 24
-	iconSpacing := 30
-	currentX := statusBarX
 
 	statuses := make([]*UtilitySpellStatus, 0, len(ui.game.utilitySpellStatuses))
 	for _, status := range ui.game.utilitySpellStatuses {
@@ -644,25 +1195,63 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	sort.Slice(statuses, func(i, j int) bool {
 		return statuses[i].SpellID < statuses[j].SpellID
 	})
-
-	if len(statuses) > 0 {
-		barWidth := len(statuses)*iconSpacing - (iconSpacing - iconSize) + 10
-		barHeight := iconSize + 8
-		vector.FillRect(screen, float32(statusBarX-5), float32(statusBarY-4), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
+	if len(statuses) == 0 {
+		return
 	}
 
-	for _, status := range statuses {
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, status.SpellID)
-		currentX += iconSpacing
+	_, _, _, partyStartY := partyPortraitLayout(ui.game)
+	// Utility status icons are authored 24x24 (AGENTS.md, Icons) - drawn at their
+	// native size they stay crisp and the compact rail holds the most effects.
+	const iconSize = utilityStatusIconSize
+	const iconGap = 5
+	const barPadding = 4
+	iconPitch := iconSize + iconGap
+	barX := 10
+	rightEdge := ui.game.config.GetScreenWidth() - 10
+	if quickBar, visible := inGameQuickSlotBarLayout(ui.game); visible {
+		rightEdge = quickBar.x - 10
+	}
+	if lines := ui.game.hudMessageLines(); len(lines) > 0 {
+		messageX, _, _, _ := ui.game.hudMessageBlockRect(len(lines))
+		rightEdge = min(rightEdge, messageX-10)
+	}
+	availableW := max(iconSize+barPadding*2, rightEdge-barX)
+	iconsPerRow := max(1, (availableW-barPadding*2+iconGap)/iconPitch)
+	rows := (len(statuses) + iconsPerRow - 1) / iconsPerRow
+	barH := barPadding*2 + rows*iconSize + max(0, rows-1)*iconGap
+	barY := partyStartY - barH - 18
+	maxRowCount := min(iconsPerRow, len(statuses))
+	barW := barPadding*2 + maxRowCount*iconSize + max(0, maxRowCount-1)*iconGap
+
+	vector.FillRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), color.RGBA{5, 9, 16, 222}, false)
+	vector.FillRect(screen, float32(barX+2), float32(barY+2), float32(barW-4), 2, color.RGBA{88, 118, 158, 190}, false)
+	vector.StrokeRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), 1, color.RGBA{180, 147, 76, 235}, false)
+
+	for i, status := range statuses {
+		row := i / iconsPerRow
+		col := i % iconsPerRow
+		rowStart := row * iconsPerRow
+		rowCount := min(iconsPerRow, len(statuses)-rowStart)
+		iconX := centeredIconRowX(barX, barW, iconSize, iconGap, rowCount) + col*iconPitch
+		iconY := barY + barPadding + row*iconPitch
+		x, y, w, h := ui.drawSpellIcon(screen, iconX, iconY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
+		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
+		statusLabel := status.Label
+		if statusLabel == "" {
+			statusLabel = spellDisplayName(status.SpellID)
+		}
+		mouseX, mouseY := ebiten.CursorPosition()
+		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			seconds := float64(status.Duration) / float64(max(1, ui.game.config.GetTPS()))
+			ui.queueTooltipIcon([]string{statusLabel, fmt.Sprintf("%.1fs remaining", seconds), "Double-click to dispel"}, status.Icon, mouseX+12, mouseY+8)
+		}
 	}
 }
 
 // drawSpellIcon draws a single spell status icon with duration bar and returns clickable bounds
 func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fallback string, currentDuration, maxDuration int) (int, int, int, int) {
-	// Draw icon background (more transparent, with border)
-	vector.FillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{80, 80, 80, 200}, false)
-	vector.FillRect(screen, float32(x+1), float32(y+1), float32(size-2), float32(size-2), color.RGBA{20, 20, 20, 120}, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{4, 7, 12, 245}, false)
+	vector.FillRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), color.RGBA{22, 29, 42, 210}, false)
 
 	if icon != "" {
 		sprite := ui.game.sprites.GetSprite(icon)
@@ -677,6 +1266,8 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 	} else if fallback != "" {
 		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
+	vector.StrokeRect(screen, float32(x), float32(y), float32(size), float32(size), 1, color.RGBA{195, 162, 82, 245}, false)
+	vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), 1, color.RGBA{82, 119, 164, 220}, false)
 
 	// Draw duration bar at bottom of icon
 	if maxDuration > 0 {
@@ -761,31 +1352,44 @@ func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 // drawCompass draws the compass/direction indicator with minimap showing nearby tiles
 func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	compassX, compassY := ui.getCompassCenter()
-	compassRadius := ui.game.config.UI.CompassRadius
+	compassRadius := ui.compassRadius()
 
-	// Draw compass background circle (dark, semi-transparent)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{20, 20, 30, 200}, true)
+	vector.FillCircle(screen, float32(compassX+2), float32(compassY+3), float32(compassRadius+6), color.RGBA{0, 0, 0, 170}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+5), color.RGBA{66, 48, 24, 245}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+3), color.RGBA{194, 153, 66, 255}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{8, 14, 23, 235}, true)
 
-	// Draw minimap tiles within the compass
 	ui.drawCompassMinimap(screen, compassX, compassY, compassRadius)
 
-	// Draw compass border
-	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), 2, color.RGBA{100, 100, 140, 255}, true)
+	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), 2, color.RGBA{98, 140, 181, 245}, true)
+	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+4), 1, color.RGBA{255, 218, 115, 245}, true)
 
-	// Draw direction arrow pointing in the camera direction
-	arrowLength := float64(compassRadius - 8)
-	arrowX := float64(compassX) + arrowLength*math.Cos(ui.game.camera.Angle)
-	arrowY := float64(compassY) + arrowLength*math.Sin(ui.game.camera.Angle)
+	// A single north-up map and a rotating player pointer avoid the ambiguity of
+	// the old red line, which looked like either a heading or a target marker.
+	angle := ui.game.camera.Angle
+	tipRadius := float64(compassRadius - 9)
+	tipX := float64(compassX) + math.Cos(angle)*tipRadius
+	tipY := float64(compassY) + math.Sin(angle)*tipRadius
+	rearX := float64(compassX) - math.Cos(angle)*5
+	rearY := float64(compassY) - math.Sin(angle)*5
+	perpX := -math.Sin(angle) * 5
+	perpY := math.Cos(angle) * 5
+	verts := []ebiten.Vertex{
+		{DstX: float32(tipX), DstY: float32(tipY), SrcX: 0.5, SrcY: 0.5, ColorR: 0.35, ColorG: 0.85, ColorB: 1, ColorA: 1},
+		{DstX: float32(rearX + perpX), DstY: float32(rearY + perpY), SrcX: 0.5, SrcY: 0.5, ColorR: 0.08, ColorG: 0.35, ColorB: 0.8, ColorA: 1},
+		{DstX: float32(rearX - perpX), DstY: float32(rearY - perpY), SrcX: 0.5, SrcY: 0.5, ColorR: 0.08, ColorG: 0.35, ColorB: 0.8, ColorA: 1},
+	}
+	screen.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
+	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(rearX+perpX), float32(rearY+perpY), 1, color.RGBA{215, 244, 255, 245}, true)
+	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(rearX-perpX), float32(rearY-perpY), 1, color.RGBA{215, 244, 255, 245}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), 4, color.RGBA{220, 245, 255, 255}, true)
+	vector.FillCircle(screen, float32(compassX), float32(compassY), 2, color.RGBA{32, 124, 220, 255}, true)
 
-	// Draw arrow line from center towards the direction
-	vector.StrokeLine(screen, float32(compassX), float32(compassY), float32(arrowX), float32(arrowY), 2, color.RGBA{255, 80, 80, 255}, true)
-
-	// Draw arrow head
-	arrowHeadSize := 5.0
-	vector.FillRect(screen, float32(arrowX-arrowHeadSize/2), float32(arrowY-arrowHeadSize/2), float32(arrowHeadSize), float32(arrowHeadSize), color.RGBA{255, 80, 80, 255}, false)
-
-	// Draw player position indicator in center
-	vector.FillCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
+	cardinalColor := color.RGBA{236, 214, 156, 255}
+	drawDebugTextColored(screen, "N", compassX-3, compassY-compassRadius-17, rarityGold)
+	drawDebugTextColored(screen, "E", compassX+compassRadius+8, compassY-8, cardinalColor)
+	drawDebugTextColored(screen, "S", compassX-3, compassY+compassRadius+3, cardinalColor)
+	drawDebugTextColored(screen, "W", compassX-compassRadius-14, compassY-8, cardinalColor)
 }
 
 // invalidateCompassTileLayer forces the next drawCompassMinimap call to
@@ -809,7 +1413,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	playerTileY := TileIndex(ui.game.camera.Y, tileSize)
 
 	// Number of tiles to show in each direction from center
-	viewRange := 5
+	viewRange := 6
 	// Size of each minimap tile in pixels
 	miniTileSize := float32(radius) / float32(viewRange+1)
 	if miniTileSize < 3 {
@@ -819,7 +1423,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		miniTileSize = 8
 	}
 
-	if ui.compassTileLayer == nil ||
+	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != radius*2 ||
 		ui.compassCacheWorld != ui.game.world ||
 		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
 		ui.rebuildCompassTileLayer(playerTileX, playerTileY, viewRange, miniTileSize, radius)
@@ -843,8 +1447,9 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		if dx*dx+dy*dy <= viewRange*viewRange {
 			screenX := float32(centerX) + float32(dx)*miniTileSize
 			screenY := float32(centerY) + float32(dy)*miniTileSize
-			// Draw NPC as yellow dot
-			vector.FillCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+			dotRadius := max(float32(2), miniTileSize/2)
+			vector.FillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
+			vector.FillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
 		}
 	}
 }
@@ -898,18 +1503,19 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 func (ui *UISystem) getMinimapTileColor(tile world.TileType3D, floorColor color.RGBA) color.RGBA {
 	switch tile {
 	case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-		return color.RGBA{50, 50, 60, 200} // Dark for walls/obstacles
+		return color.RGBA{29, 35, 44, 245} // Dark for walls/obstacles
 	case world.TileWater:
-		return color.RGBA{40, 90, 160, 200} // Blue for water
+		return color.RGBA{35, 102, 178, 235} // Blue for water
 	case world.TileDeepWater:
-		return color.RGBA{25, 60, 120, 200} // Darker blue for deep water
+		return color.RGBA{20, 54, 116, 240} // Darker blue for deep water
 	case world.TileVioletTeleporter:
-		return color.RGBA{170, 80, 200, 200} // Violet for teleporters
+		return color.RGBA{181, 78, 222, 245} // Violet for teleporters
 	case world.TileRedTeleporter:
-		return color.RGBA{200, 70, 70, 200} // Red for teleporters
+		return color.RGBA{218, 68, 68, 245} // Red for teleporters
 	case world.TileClearing:
-		return color.RGBA{80, 140, 80, 180} // Lighter green for clearings
+		return color.RGBA{83, 151, 91, 225} // Lighter green for clearings
 	default:
+		floorColor.A = 220
 		return floorColor
 	}
 }
@@ -921,7 +1527,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 	}
 
 	compassX, compassY := ui.getCompassCenter()
-	compassRadius := ui.game.config.UI.CompassRadius
+	compassRadius := ui.compassRadius()
 
 	// Convert tile distance to pixel distance
 	tileSize := float64(ui.game.config.GetTileSize())
@@ -945,13 +1551,11 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 		// Only show enemies within the radar radius
 		if dist <= maxRangeSq {
-			// Calculate angle from player to monster
-			angle := math.Atan2(dy, dx)
-
-			// Place dot at compass edge based on direction
-			edgeRadius := float64(compassRadius - 5) // 5 pixels inside compass edge
-			dotX := compassX + int(math.Cos(angle)*edgeRadius)
-			dotY := compassY + int(math.Sin(angle)*edgeRadius)
+			// Plot at the actual relative position on the north-up minimap instead
+			// of collapsing every threat onto the rim.
+			radarScale := float64(compassRadius-8) / maxRadarRange
+			dotX := compassX + int(dx*radarScale)
+			dotY := compassY + int(dy*radarScale)
 
 			// Select cached dot image based on distance for threat assessment
 			// Using squared distances to avoid sqrt
@@ -969,7 +1573,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 			// Draw cached dot image (much faster than vector.FillCircle)
 			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Translate(float64(dotX-2), float64(dotY-2)) // Center the 4x4 dot
+			opts.GeoM.Translate(float64(dotX-3), float64(dotY-3))
 			screen.DrawImage(dotImg, opts)
 		}
 	}
@@ -1082,19 +1686,25 @@ func measureTextPanel(lines []string) (w, h int) {
 func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
 
-	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
+	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{5, 9, 16, 220}, false)
+	vector.FillRect(screen, float32(barX+2), float32(barY+2), float32(barWidth-4), 2, color.RGBA{88, 125, 169, 210}, false)
+	vector.StrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{188, 154, 78, 235}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
+		textColor := color.Color(color.White)
+		if i == 0 {
+			textColor = rarityGold
+		}
+		drawDebugTextColored(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight, textColor)
 	}
 }
 
 func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
-	mode := "Real-time"
+	mode := "REAL-TIME"
 	if ui.game.turnBasedMode {
-		mode = "Turn-based"
+		mode = "TURN-BASED"
 	}
-	lines := []string{fmt.Sprintf("Mode: %s", mode)}
+	lines := []string{mode}
 	if ui.game.turnBasedMode {
 		turnText := "Party Turn"
 		if ui.game.currentTurn == 1 {
@@ -1115,11 +1725,27 @@ func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
 
 func (ui *UISystem) getCompassCenter() (int, int) {
 	_, _, barY, _, barHeight := ui.turnBasedStatusLayout()
-	compassRadius := ui.game.config.UI.CompassRadius
-	spacing := 10
-	compassX := ui.game.config.GetScreenWidth() - 10 - compassRadius
+	compassRadius := ui.compassRadius()
+	spacing := 28
+	compassX := ui.game.config.GetScreenWidth() - 28 - compassRadius
 	compassY := barY + barHeight + spacing + compassRadius
 	return compassX, compassY
+}
+
+// The compass is sized from the viewport (6% of its shorter side) and clamped
+// to a readable band. It is fully derived - the old ui.compass_radius knob was
+// always overridden by the lower bound, so it was removed rather than left as a
+// setting that changes nothing.
+const (
+	compassRadiusPercent = 6
+	compassMinRadius     = 36
+	compassMaxRadius     = 64
+)
+
+func (ui *UISystem) compassRadius() int {
+	screenMin := min(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
+	radius := (screenMin*compassRadiusPercent + 50) / 100
+	return min(max(radius, compassMinRadius), compassMaxRadius)
 }
 
 // drawFPSCounter draws the FPS counter in the top-right corner
@@ -1156,7 +1782,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	}
 
 	compassX, compassY := ui.getCompassCenter()
-	compassRadius := ui.game.config.UI.CompassRadius
+	compassRadius := ui.compassRadius()
 	_ = compassX
 	barWidth, barHeight := measureTextPanel(lines)
 	screenWidth := ui.game.config.GetScreenWidth()

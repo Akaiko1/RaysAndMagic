@@ -248,16 +248,21 @@ func (c *MMCharacter) AnyWeaponHandReady() bool {
 	return c.IsDualWielding() && c.OffHandRTCooldown <= 0
 }
 
-// HasWeaponInEitherHand reports whether a weapon (not a shield/nothing) is
-// equipped in the main hand or, for a Dual Wielding character, the off-hand.
-func (c *MMCharacter) HasWeaponInEitherHand() bool {
+// MainHandArmed reports whether the main hand carries a weapon. Only weapons
+// ever occupy that slot, so its occupancy IS the test - and it can be empty:
+// a caster or an unarmed brawler fights with nothing there.
+func (c *MMCharacter) MainHandArmed() bool {
 	if c == nil {
 		return false
 	}
-	if _, ok := c.Equipment[items.SlotMainHand]; ok {
-		return true
-	}
-	return c.IsDualWielding()
+	_, ok := c.Equipment[items.SlotMainHand]
+	return ok
+}
+
+// HasWeaponInEitherHand reports whether a weapon (not a shield/nothing) is
+// equipped in the main hand or, for a Dual Wielding character, the off-hand.
+func (c *MMCharacter) HasWeaponInEitherHand() bool {
+	return c.MainHandArmed() || c.IsDualWielding()
 }
 
 // CanAct reports whether this character is alive and conscious. It is used for

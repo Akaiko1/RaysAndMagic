@@ -20,7 +20,6 @@ func npcDialogueHasAction(npc *character.NPC, action string) bool {
 	return npc != nil && npc.DialogueData != nil && npc.DialogueData.HasAction(action)
 }
 
-
 // questChainStepDone reports whether a quest is finished AND paid out - the
 // condition a chained follow-up waits on.
 func (g *MMGame) questChainStepDone(questID string) bool {
@@ -124,6 +123,33 @@ func (g *MMGame) npcDialogueState(npc *character.NPC) npcDialogState {
 	}
 }
 
+// questStepMessage returns the body authored for the current quest in a
+// multi-step chain. Single-quest and legacy NPCs keep using the shared fields.
+func (g *MMGame) questStepMessage(npc *character.NPC, state npcDialogState) string {
+	if npc == nil || npc.DialogueData == nil || len(npc.DialogueData.QuestMessages) == 0 {
+		return ""
+	}
+	// A trader's quest copy belongs on its Quests tab, never over its shop
+	// greeting on the primary tab.
+	if npcHasSpellTrading(npc) && g.dialogTab != 1 {
+		return ""
+	}
+	messages, ok := npc.DialogueData.QuestMessages[g.activeChainQuestID(npc)]
+	if !ok {
+		return ""
+	}
+	switch state {
+	case npcStateOffer:
+		return messages.Offer
+	case npcStateActive:
+		return messages.Active
+	case npcStateCompleted:
+		return messages.Completed
+	default:
+		return ""
+	}
+}
+
 // currentDialogNode returns the "info" choice the player has descended into
 // (the deepest entry of dialogNodePath), or nil at the conversation root.
 func (g *MMGame) currentDialogNode() *character.NPCDialogueChoice {
@@ -149,7 +175,11 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 		return node.Response
 	}
 	d := npc.DialogueData
-	switch g.npcDialogueState(npc) {
+	state := g.npcDialogueState(npc)
+	if message := g.questStepMessage(npc, state); message != "" {
+		return message
+	}
+	switch state {
 	case npcStateActive:
 		if d.ActiveMessage != "" {
 			return d.ActiveMessage
@@ -389,8 +419,9 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 		source = node.Choices
 	}
 	var out []*character.NPCDialogueChoice
+	questStep := g.activeChainQuestID(npc)
 	for _, c := range source {
-		if c == nil || !g.choiceAvailable(c) {
+		if c == nil || !g.choiceAvailable(c) || (c.QuestStep != "" && c.QuestStep != questStep) {
 			continue
 		}
 		switch c.Action {

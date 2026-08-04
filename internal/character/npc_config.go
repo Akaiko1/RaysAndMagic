@@ -105,6 +105,10 @@ type NPCDialogue struct {
 	// VisitedMessage. See npc_dialogue.go.
 	ActiveMessage    string `yaml:"active_message,omitempty"`
 	CompletedMessage string `yaml:"completed_message,omitempty"`
+	// QuestMessages overrides the legacy shared bodies for each step of a
+	// multi-quest chain. Missing entries or fields fall back to the shared
+	// Greeting/ActiveMessage/CompletedMessage above.
+	QuestMessages map[string]NPCQuestMessages `yaml:"quest_messages,omitempty"`
 	// QuestGreeting is the offer-state body shown on a spell-trader's QUESTS tab,
 	// so the quest hook there differs from the shop-welcome Greeting on the Spells
 	// tab. Unset -> the Quests tab falls back to Greeting (fine for pure quest NPCs,
@@ -112,6 +116,14 @@ type NPCDialogue struct {
 	QuestGreeting string               `yaml:"quest_greeting,omitempty"`
 	ChoicePrompt  string               `yaml:"choice_prompt,omitempty"`
 	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
+}
+
+// NPCQuestMessages is the dialogue body for one quest in a giver's chain.
+// The quest's lifecycle state selects Offer, Active or Completed.
+type NPCQuestMessages struct {
+	Offer     string `yaml:"offer,omitempty"`
+	Active    string `yaml:"active,omitempty"`
+	Completed string `yaml:"completed,omitempty"`
 }
 
 // NPCDialogueChoice represents a dialogue choice option
@@ -124,7 +136,10 @@ type NPCDialogueChoice struct {
 	// paid out. It is what makes a quest CHAIN on one giver: the second offer
 	// stays hidden until the first is turned in.
 	RequiresQuest string `yaml:"requires_quest,omitempty"`
-	Tier          string `yaml:"tier,omitempty"` // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
+	// QuestStep keeps an informational choice attached to the current step of a
+	// multi-quest chain. It does not activate or complete the quest.
+	QuestStep string `yaml:"quest_step,omitempty"`
+	Tier      string `yaml:"tier,omitempty"` // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
 	// Branching dialogue (action "info"): when this choice is picked the dialog
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper

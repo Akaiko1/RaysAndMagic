@@ -38,9 +38,6 @@ camera:
 # UI settings
 ui:
   spell_input_cooldown: 10
-  party_portrait_height: 100
-  party_portrait_width: 256   # Fixed portrait width - 4x this = total party row width, centered horizontally
-  compass_radius: 20
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
 
 # Character stats and progression
