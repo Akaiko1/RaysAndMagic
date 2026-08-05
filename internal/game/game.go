@@ -434,13 +434,15 @@ type MMGame struct {
 	dialogActive        bool           // Whether a dialog is currently open
 	dialogNPC           *character.NPC // Current NPC being talked to
 	focusedNPC          *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
-	dialogSelectedChar  int            // Currently selected character in dialog
 	dialogSelectedSpell int            // Currently selected spell in dialog
 	selectedCharIdx     int            // Selected character index for spell learning
-	skillTrainerPopup   bool           // Skill trainer: per-character mastery popup open
-	skillTrainerPage    int            // Skill trainer: mastery-list page (0-based); shared by renderer and input
-	selectedSpellKey    string         // Selected spell key for learning
-	selectedChoice      int            // Selected choice in encounter dialogs
+	// modalContentRev marks modal-content mutations invisible to the snapshot's
+	// derived fields (see bumpModalContentRev); part of the redraw barrier.
+	modalContentRev   uint64
+	skillTrainerPopup bool   // Skill trainer: per-character mastery popup open
+	skillTrainerPage  int    // Skill trainer: mastery-list page (0-based); shared by renderer and input
+	selectedSpellKey  string // Selected spell key for learning
+	selectedChoice    int    // Selected choice in encounter dialogs
 	// dialogNodePath is the chain of "info" choices the player has descended into
 	// this conversation (empty = root). It drives the body text and choice list so
 	// "ask about X" branches into a real reply instead of closing. Reset on open.
@@ -844,7 +846,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		maxMessages:           4, // Show last 4 messages
 
 		// Dialog system initialization
-		dialogSelectedChar:  0,
 		dialogSelectedSpell: 0,
 
 		// Threading components

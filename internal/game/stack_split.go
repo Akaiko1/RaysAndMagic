@@ -203,6 +203,9 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	drawStackSplitButton(screen, cancel, "Cancel", ptInRect(mouseX, mouseY, cancel))
 	drawCenteredDebugText(screen, fmt.Sprintf("x%d of x%d", ui.stackSplitPicker.quantity, item.Count()), r.Min.X+64, r.Min.Y+53, 104, 18)
 
+	if ui.topModalLayer() != modalLayerStackSplit {
+		return
+	}
 	if g.consumeLeftClickIn(minus.Min.X, minus.Min.Y, minus.Max.X, minus.Max.Y) {
 		if ui.stackSplitPicker.quantity > 1 {
 			ui.stackSplitPicker.quantity--

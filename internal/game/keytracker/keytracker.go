@@ -19,6 +19,12 @@ type Consumer struct {
 	justPressed func(ebiten.Key) bool
 }
 
+// NewWithSource returns a Consumer that reads press edges from src instead of
+// the real keyboard, so package-level tests can drive keyboard paths headlessly.
+func NewWithSource(src func(ebiten.Key) bool) Consumer {
+	return Consumer{justPressed: src}
+}
+
 // BeginFrame forgets the previous frame's consumptions.
 func (c *Consumer) BeginFrame() { clear(c.used) }
 

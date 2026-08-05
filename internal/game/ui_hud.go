@@ -583,6 +583,18 @@ func centeredIconRowX(barX, barW, iconSize, gap, count int) int {
 }
 
 // drawGameplayUI draws core gameplay UI elements
+// partyCardClicksBlocked protects the persistent party strip only from a real
+// modal. The character hub leaves that strip exposed and interactive.
+func (ui *UISystem) partyCardClicksBlocked() bool {
+	return ui.modalLayerOwnsInput()
+}
+
+// hudClicksBlocked protects HUD controls covered by either a modal or the
+// character hub. The persistent party-card controls use their narrower gate.
+func (ui *UISystem) hudClicksBlocked() bool {
+	return ui.modalLayerOwnsInput() || ui.game.menuOpen
+}
+
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
 	ui.drawInGameQuickSlots(screen)
@@ -781,7 +793,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if statHover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
 			}
-			if ui.game.consumeLeftClickIn(badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom()) {
+			if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom()) {
 				ui.game.statPopupOpen = true
 				// Open the popup for THIS character. Don't touch selectedChar:
 				// in turn-based mode it tracks whose turn it is, and hijacking it
@@ -797,7 +809,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if skillHover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
 			}
-			if ui.game.consumeLeftClickIn(badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom()) {
+			if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom()) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
 		}
@@ -855,7 +867,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if autoHover {
 			ui.queueTooltip([]string{"Auto-assign party stats", "Click to spend all available points"}, mouseX+12, mouseY+8)
 		}
-		if ui.game.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
+		if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
 			autoDistributePartyStatPoints(ui.game.party.Members, ui.game.config)
 		}
 	}
@@ -1247,7 +1259,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 // handleSpellIconClick handles mouse clicks on spell status icons for dispelling
 func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells.SpellID) {
 	// Check for mouse click (only process on first press, not while held)
-	if ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
+	if !ui.hudClicksBlocked() && ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
 		currentTime := ui.game.mouseLeftClickAt
 
 		// Check for a fast double-click on the same icon.

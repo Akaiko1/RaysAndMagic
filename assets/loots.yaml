@@ -15,8 +15,11 @@ loots:
       key: "flame_ward_draught"
       chance: 0.12
     - type: "item"
+      key: "black_dragon_scale"
+      chance: 0.5
+    - type: "item"
       key: "red_dragon_scale"
-      chance: 0.6
+      chance: 0.5
     - type: "weapon"
       key: "bow_of_hellfire"
       chance: 0.05
@@ -454,7 +457,7 @@ loots:
 
   elder_dragon:
     - type: "item"
-      key: "red_dragon_scale"
+      key: "black_dragon_scale"
       chance: 1.0
     - type: "item"
       key: "elder_dragon_card"

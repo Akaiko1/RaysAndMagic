@@ -77,6 +77,11 @@ func (g *MMGame) clearStashDrag() {
 // and chest. A durable journal makes the independent stash and autosave files
 // recoverable as one transfer after a crash or write failure.
 func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
+	// A chest cell-to-cell move changes neither the bag length nor the gold, so
+	// the redraw barrier needs an explicit revision. Bumped on entry: even the
+	// autosave-failure branch can leave memory on the committed state, and a
+	// spurious bump on a full rollback only costs one conservative frame.
+	g.bumpModalContentRev()
 	if g.stash == nil {
 		snapshot.restore(g)
 		return false
@@ -473,12 +478,13 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	drawDebugText(screen, "Tavern Stash", popupX+16, popupY+14)
 	drawDebugText(screen, stashSubtitle, popupX+16, popupY+34)
 
-	ui.drawStashManager(screen, L)
+	interactive := ui.topModalLayer() == modalLayerStash
+	ui.drawStashManager(screen, L, interactive)
 
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive && !ui.stackSplitPicker.open) {
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open) {
 		g.closeStashScreen()
 	}
 }
@@ -486,7 +492,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 // drawStashManager renders and operates the actual stash grids. The caller owns
 // the surrounding panel, which lets the same manager live directly in a tavern
 // tab without opening a second modal.
-func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout) {
+func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, interactive bool) {
 	g := ui.game
 	if g.stash == nil {
 		return
@@ -509,7 +515,7 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout) {
 		hoverBorder = color.RGBA{190, 120, 220, 235}
 	}
 	drawCenteredDebugText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
-	ui.drawStashTabToggle(screen, L, mouseX, mouseY)
+	ui.drawStashTabToggle(screen, L, mouseX, mouseY, interactive)
 	for i := 0; i < count; i++ {
 		r := stashCellRect(L.centerX, chestTop, i)
 		var it items.Item
@@ -517,18 +523,24 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout) {
 		if cards {
 			it = g.stash.CardSlots[i]
 			from = stashCardDragBase + i
-			ui.stashCardSource(i, r)
+			if interactive {
+				ui.stashCardSource(i, r)
+			}
 		} else {
 			it = g.stash.Slots[i]
-			ui.stashCellSource(i, r)
+			if interactive {
+				ui.stashCellSource(i, r)
+			}
 		}
 		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from && g.stashDragSplitQuantity == 0, cards)
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, hoverBorder)
 		}
 		ui.stashCellTooltip(it, r, mouseX, mouseY)
-		ui.stashSplitPickerTrigger(from, it, r)
-		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
+		if interactive {
+			ui.stashSplitPickerTrigger(from, it, r)
+		}
+		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
 			g.resolveStashDrop(stashAddr{kind, i})
 		}
 	}
@@ -555,28 +567,32 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout) {
 		has := idx >= 0 && idx < len(g.party.Inventory)
 		if has {
 			it = g.party.Inventory[idx]
-			ui.stashInvSource(idx, cell)
+			if interactive {
+				ui.stashInvSource(idx, cell)
+			}
 		}
 		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx && g.stashDragSplitQuantity == 0, false)
 		if ptInRect(mouseX, mouseY, cell) {
 			drawRectBorder(screen, cell.Min.X-2, cell.Min.Y-2, cell.Dx()+4, cell.Dy()+4, 2, color.RGBA{120, 200, 120, 220})
 		}
 		ui.stashCellTooltip(it, cell, mouseX, mouseY)
-		ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
+		if interactive {
+			ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
+		}
 		// Dropping onto any bag cell returns a carried chest/card item to the bag.
-		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
+		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
 			g.resolveStashDrop(stashAddr{stashKindBag, idx})
 		}
 	}
 	pagerY := L.pagerY
-	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, !g.stashDragActive && !ui.stackSplitPicker.open)
+	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, interactive && !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
 	if g.stashDragActive && g.stashDragFrom >= 0 {
 		const sz = 48
 		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
 	}
-	if g.stashDragDrop {
+	if interactive && g.stashDragDrop {
 		g.clearStashDrag()
 	}
 }
@@ -648,7 +664,7 @@ func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.R
 // drawStashTabToggle draws the Items/Cards tab button and flips the tab on click.
 // It reads "Cards >" on the items tab and "< Items" on the cards tab. Disabled
 // while a drag is in flight so the source tab can't change mid-transfer.
-func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mouseX, mouseY int) {
+func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mouseX, mouseY int, interactive bool) {
 	g := ui.game
 	rt := stashToggleRect(L)
 	label := "Cards >"
@@ -663,7 +679,7 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
 	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	if !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
+	if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
 		g.stashShowCards = !g.stashShowCards
 		g.clearStashDrag()
 	}

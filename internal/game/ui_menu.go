@@ -15,7 +15,13 @@ import (
 
 const menuPanelFrameSlice = 16
 
-// drawOverlayInterfaces draws overlay interfaces like menus and dialogs
+// drawOverlayInterfaces draws overlay interfaces like menus and dialogs.
+//
+// CLICKS RESOLVE TOP-DOWN, DRAWING RUNS BOTTOM-UP. The map overlay opens from a
+// quest item inside the character hub, so it floats ABOVE a hub that stays open:
+// its close button lands on top of the hub's inventory grid. Handling its input
+// first is what keeps that button clickable - the hub's own handlers would
+// otherwise consume the click while drawing underneath.
 func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
 	if ui.game.menuOpen {
 		ui.drawTabbedMenu(screen)
@@ -287,29 +293,18 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		// One line leaves the decorative top/bottom rails clear at every scale.
 		drawCenteredDebugText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
-		// A quantity picker owns the click queue until it closes; tabs must not
-		// consume one of its buttons through the overlay.
-		if !ui.stackSplitPicker.open {
+		// A modal above the hub owns the click queue; tabs must not consume one of
+		// its buttons through the overlay (topModalLayer).
+		if !ui.modalLayerOwnsInput() {
 			ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
 		}
 	}
 	// Handle mouse clicks on close button
-	if !ui.stackSplitPicker.open {
+	if !ui.modalLayerOwnsInput() {
 		ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 	}
 
-	// Draw close button background
-	mouseX, mouseY := ebiten.CursorPosition()
-	isCloseHovering := mouseX >= layout.close.x && mouseX < layout.close.right() &&
-		mouseY >= layout.close.y && mouseY < layout.close.bottom()
-
-	if isCloseHovering {
-		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{150, 50, 50, 200}) // Red hover
-	} else {
-		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{100, 100, 100, 150}) // Gray normal
-	}
-
-	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw content based on selected tab
 	switch ui.game.currentTab {
@@ -408,6 +403,9 @@ func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
 func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex int, school character.MagicSchoolID) {
+	if ui.modalLayerOwnsInput() {
+		return
+	}
 	if ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
 		currentTime := ui.game.mouseLeftClickAt
 		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
@@ -459,6 +457,9 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 
 // handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
 func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
+	if ui.modalLayerOwnsInput() {
+		return
+	}
 	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
 		currentTime := ui.game.mouseLeftClickAt
 
@@ -493,6 +494,10 @@ func (ui *UISystem) updateMouseState() {
 	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
+	if ui.modalRedrawBarrierActive() {
+		ui.dropQueuedClicks()
+		return
+	}
 	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
 	// drop the queues (a click aimed at one layer must not fire in the next).
 	// Runs before this frame's clicks enqueue; within one layer (dialog
@@ -503,8 +508,26 @@ func (ui *UISystem) updateMouseState() {
 		ui.game.prevWorldClickAllowed = allowed
 	}
 	ui.game.pruneClickQueues(now)
-	suppressLeftClick := ui.updateQuickDrag()
-	suppressLeftClick = ui.updateStashDrag() || suppressLeftClick
+	inputLayer := ui.topModalLayer()
+	suppressLeftClick := false
+	if inputLayer == modalLayerNone {
+		suppressLeftClick = ui.updateQuickDrag()
+	} else if !ui.game.dragPickedUp && (ui.game.dragArmed || ui.game.dragActive) {
+		// Ownership lost mid-gesture: the release edge is a one-tick event and
+		// would be missed while the updater is skipped, leaving an armed/active
+		// drag to resurrect when the layer returns. Cancel it; only a picked-up
+		// split fragment is deliberate state that survives the freeze.
+		ui.game.clearDrag()
+	}
+	// The stash is either its standalone modal or a manager embedded in the NPC
+	// dialog. A higher modal must not let a release resolve later against a
+	// newly uncovered stash cell - same rule: cancel everything transient, keep
+	// only the deliberately picked-up split fragment.
+	if inputLayer == modalLayerStash || inputLayer == modalLayerDialog {
+		suppressLeftClick = ui.updateStashDrag() || suppressLeftClick
+	} else if !ui.game.stashDragPickedUp && (ui.game.stashDragArmed || ui.game.stashDragActive || ui.game.stashDragDrop) {
+		ui.game.clearStashDrag()
+	}
 
 	if leftJustPressed && !suppressLeftClick {
 		x, y := ebiten.CursorPosition()

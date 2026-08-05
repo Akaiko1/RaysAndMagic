@@ -127,7 +127,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	tab := tabs[g.dialogTab]
 	switch tab.action {
 	case tavernRosterAction:
-		ui.drawRosterManager(screen, layoutRect{area.x + 16, area.y + 18, area.w - 32, area.h - 30})
+		ui.drawRosterManager(screen, layoutRect{area.x + 16, area.y + 18, area.w - 32, area.h - 30}, ui.topModalLayer() == modalLayerDialog)
 	case tavernStashAction:
 		ui.drawTavernStash(screen, area)
 	case tavernServicesAction:
@@ -157,7 +157,7 @@ func (ui *UISystem) drawTavernStash(screen *ebiten.Image, area layoutRect) {
 		return
 	}
 	drawDebugText(screen, "Shared across all saves.", area.x+16, area.y+10)
-	ui.drawStashManager(screen, computeStashLayoutForArea(area, 46))
+	ui.drawStashManager(screen, computeStashLayoutForArea(area, 46), ui.topModalLayer() == modalLayerDialog)
 }
 
 func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC, area layoutRect) {

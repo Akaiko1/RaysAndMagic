@@ -316,8 +316,7 @@ func scaleInventorySourceSquare(dstX, dstY, dstW, dstH, srcW, srcH int, r invent
 // fragment. inventoryInputBlocked additionally blocks ordinary inventory clicks
 // while that fragment is waiting for its destination.
 func (ui *UISystem) inventoryHardBlocked() bool {
-	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen ||
-		ui.game.currentLevelUpChoice() != nil || ui.stackSplitPicker.open
+	return ui.modalLayerOwnsInput()
 }
 
 // inventoryInputBlocked reports whether a modal popup or picked-up fragment
@@ -404,6 +403,12 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	drawCenteredDebugText(screen, "Discard", x, y, menuW, 24)
 	if canSplit {
 		drawCenteredDebugText(screen, "Split...", x, y+24, menuW, 24)
+	}
+	// The context menu is part of the character hub, not a layer above it. Keep
+	// it visible under a modal, but never let its discard/split mutations bypass
+	// the same inventoryInputBlocked contract used by every inventory slot.
+	if ui.inventoryInputBlocked() {
+		return
 	}
 
 	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
@@ -769,7 +774,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		}
 	}
 
-	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, true) {
+	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
 		ui.game.selectedSpell = -1
 	}
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)

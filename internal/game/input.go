@@ -79,159 +79,35 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 func (ih *InputHandler) HandleInput() {
 	ih.keys.BeginFrame()
 
-	// Game over: the on-screen buttons (New Game / Load / Main Menu / Quit) are
-	// handled in drawGameOverOverlay via consumeLeftClickIn; these keys mirror them.
-	if ih.game.gameOver {
-		if ih.keys.Consume(ebiten.KeyN) {
-			ih.restartNewGame()
-			return
-		}
-		if ih.keys.Consume(ebiten.KeyL) {
-			ih.game.returnToMainMenu()
-			ih.game.entryMenuMode = EntryMenuLoad
-			ih.game.slotSelection = 0
-			ih.game.savePage = 0 // open Load on page 1, matching every other Load entry
-			return
-		}
-		return
-	}
-
-	// Handle victory screen input
-	if ih.game.gameVictory {
-		ih.handleVictoryInput()
-		return
-	}
-
-	// Handle high scores overlay
-	if ih.game.showHighScores {
-		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.showHighScores = false
-		}
-		return
-	}
-
-	if ih.game.combatLogOpen {
-		ih.handleCombatLogInput()
-		return
-	}
-
-	// Handle level-up choice overlay
-	if ih.game.currentLevelUpChoice() != nil {
-		ih.handleLevelUpChoiceInput()
-		return
-	}
-
-	// Revival potion target picker: clicks are consumed inside the popup's
-	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
-	// so the player can't move/attack/cast while choosing a revive target.
-	if ih.game.revivalPickerOpen || ih.game.healPickerOpen || ih.game.townPortalPickerOpen {
-		return
-	}
-
-	// Promotion picker: same deal - clicks handled inside its Draw; just suppress
-	// gameplay input while the player chooses who to promote.
-	if ih.game.promotionPickerOpen {
-		return
-	}
-
-	// A stack split picker (or its selected fragment) owns the next click. Keep
-	// menu/world keyboard input from changing its source while it is pending.
-	if ih.game.stackSplitInteractionActive() {
+	// A picked-up split fragment owns the next click, but it is NOT a rendered
+	// layer: its picker is already closed and the parent hub or stash stays on
+	// screen. Claim input before the layer dispatch - ESC cancels the fragment
+	// rather than closing its parent, and no other action may retarget the
+	// pending drop (switch tabs, change the selected hero, close the panel).
+	if ih.game.dragPickedUp || ih.game.stashDragPickedUp {
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.game.cancelStackSplitInteraction()
 		}
 		return
 	}
 
-	// Tavern roster screen: clicks handled inside its Draw; suppress gameplay.
-	// ESC closes the screen here (edge-tracked + consumed) so it can't leak to the
-	// menu-open handler below on the next frame.
-	if ih.game.rosterScreenOpen {
-		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.closeRosterScreen()
-		}
+	// Modal keyboard/mouse routing follows the same top-layer SSoT as Draw.
+	// No independent boolean ladder is allowed here: two simultaneously true
+	// modal flags must never send input to the obscured lower layer.
+	if ih.handleTopModalInput() {
 		return
 	}
 
-	// Tavern stash screen: drag + clicks handled inside its Draw; suppress gameplay.
-	if ih.game.stashScreenOpen {
-		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.closeStashScreen()
-		}
-		return
-	}
-
-	// Close map overlay with ESC before other UI handling
-	if ih.game.mapOverlayOpen && ih.keys.Consume(ebiten.KeyEscape) {
-		ih.game.mapOverlayOpen = false
-		return
-	}
-	if ih.game.mapOverlayOpen {
-		return
-	}
-	// ESC handling: close current overlay before opening menu
+	// With no modal open, ESC opens the in-game main menu.
 	if ih.keys.Consume(ebiten.KeyEscape) {
-		// The save-rename dialog is a modal ON TOP of the Save menu: Escape
-		// cancels it before backing out of the submenu. It must be handled here
-		// because this block claims the Escape edge for the frame - the modal's
-		// own handler (reached later via handleMainMenuInput) would never see it.
-		if ih.game.saveRenameOpen {
-			ih.game.closeSaveRename()
-			return
-		}
-		// If main menu is open, back out of submenus or close it
-		if ih.game.mainMenuOpen {
-			if ih.game.mainMenuMode != MenuMain {
-				if ih.game.mainMenuMode == MenuSettings {
-					ih.game.closeAudioSettings()
-				} else {
-					ih.game.mainMenuMode = MenuMain
-				}
-			} else {
-				ih.game.mainMenuOpen = false
-			}
-			return
-		}
-		// Close stat popup if open
-		if ih.game.statPopupOpen {
-			ih.game.statPopupOpen = false
-			return
-		}
-		// Close dialog if open. The skill-trainer mastery popup is a sub-
-		// modal on top of the dialog, so ESC peels it off first instead
-		// of closing the whole trader.
-		if ih.game.dialogActive {
-			if ih.game.skillTrainerPopup {
-				ih.game.skillTrainerPopup = false
-			} else {
-				ih.game.dialogActive = false
-				ih.game.dialogNPC = nil
-				ih.game.skillTrainerPopup = false
-				ih.game.switchDialogTab(0) // never leak tab or queued input into the next dialog
-			}
-			return
-		}
-		// Close tabbed menu if open
 		if ih.game.menuOpen {
 			ih.game.menuOpen = false
 			return
 		}
-		// Otherwise open main menu
 		ih.game.mainMenuOpen = true
 		ih.game.mainMenuSelection = 0
 		ih.game.slotSelection = 0
 		ih.game.mainMenuMode = MenuMain
-		return
-	}
-
-	// When main menu is open, handle only its input
-	if ih.game.mainMenuOpen {
-		ih.handleMainMenuInput()
-		return
-	}
-	// Handle dialog UI (blocks movement when open)
-	if ih.game.dialogActive {
-		ih.handleDialogInput()
 		return
 	}
 
@@ -259,6 +135,116 @@ func (ih *InputHandler) HandleInput() {
 	ih.handleCharacterSelectionInput()
 	ih.handleUIInput()
 	ih.handleMouseInput()
+}
+
+func (ih *InputHandler) topModalLayer() modalLayerID {
+	if ih == nil || ih.game == nil {
+		return modalLayerNone
+	}
+	stackSplitOpen := false
+	if gl := ih.game.gameLoop; gl != nil && gl.ui != nil {
+		stackSplitOpen = gl.ui.stackSplitPicker.open
+	}
+	return topModalLayerFor(ih.game, stackSplitOpen)
+}
+
+// handleTopModalInput dispatches only to the layer that Draw places on top.
+// Returning true means a modal owns the frame even when that layer has no
+// keyboard actions and handles its clicks later in its draw pass.
+func (ih *InputHandler) handleTopModalInput() bool {
+	g := ih.game
+	switch ih.topModalLayer() {
+	case modalLayerNone:
+		return false
+	case modalLayerGameOver:
+		// The on-screen buttons are handled in drawGameOverOverlay; these keys
+		// mirror New Game and Load without exposing lower-layer input.
+		if ih.keys.Consume(ebiten.KeyN) {
+			ih.restartNewGame()
+		} else if ih.keys.Consume(ebiten.KeyL) {
+			g.returnToMainMenu()
+			g.entryMenuMode = EntryMenuLoad
+			g.slotSelection = 0
+			g.savePage = 0
+		}
+	case modalLayerMainMenu, modalLayerSaveRename:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			switch {
+			case g.saveRenameOpen:
+				g.closeSaveRename()
+			case g.mainMenuMode == MenuSettings:
+				g.closeAudioSettings()
+			case g.mainMenuMode != MenuMain:
+				g.mainMenuMode = MenuMain
+			default:
+				g.mainMenuOpen = false
+			}
+			break
+		}
+		ih.handleMainMenuInput()
+	case modalLayerDialog, modalLayerSkillTrainer:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			if g.skillTrainerPopup {
+				g.skillTrainerPopup = false
+			} else {
+				g.dialogActive = false
+				g.dialogNPC = nil
+				g.skillTrainerPopup = false
+				g.switchDialogTab(0)
+			}
+			break
+		}
+		ih.handleDialogInput()
+	case modalLayerMap:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.mapOverlayOpen = false
+		}
+	case modalLayerCombatLog:
+		ih.handleCombatLogInput()
+	case modalLayerVictory:
+		ih.handleVictoryInput()
+	case modalLayerHighScores:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.showHighScores = false
+		}
+	case modalLayerStat:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.statPopupOpen = false
+		}
+	case modalLayerRevival:
+		// Picker clicks resolve in the draw pass; the ESC edge is consumed HERE.
+		// A draw-side IsKeyPressed poll would miss a press-and-release that falls
+		// entirely between two Draws when Ebiten runs Updates back to back.
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.cancelRevivalPicker()
+		}
+	case modalLayerHeal:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.cancelHealPicker()
+		}
+	case modalLayerTownPortal:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.cancelTownPortalPicker()
+		}
+	case modalLayerPromotion:
+		// Not cancellable: the quest/phylactery already committed the promotion
+		// when this opened. Suppress everything until a member is picked.
+	case modalLayerRoster:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.closeRosterScreen()
+		}
+	case modalLayerStash:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.closeStashScreen()
+		}
+	case modalLayerStackSplit:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.cancelStackSplitInteraction()
+		}
+	case modalLayerLevelChoice:
+		ih.handleLevelUpChoiceInput()
+	}
+	return true
 }
 
 // restartNewGame resets to a fresh game with the default config roster (used by
@@ -332,7 +318,6 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// Reset dialog/menu states
 	g.dialogActive = false
 	g.dialogNPC = nil
-	g.dialogSelectedChar = 0
 	g.dialogSelectedSpell = 0
 	g.selectedCharIdx = 0
 	g.selectedSpellKey = ""
@@ -434,15 +419,10 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.appScreen = AppScreenInGame
 }
 
-// handleVictoryInput processes input on the victory screen
+// handleVictoryInput processes input on the victory screen. High scores over a
+// victory rank as their own layer above it, so this handler never runs while
+// showHighScores is set (handleTopModalInput routes ESC there directly).
 func (ih *InputHandler) handleVictoryInput() {
-	// If high scores overlay is open during victory, allow ESC to close it first.
-	if ih.game.showHighScores {
-		if ih.keys.Consume(ebiten.KeyEscape) {
-			ih.game.showHighScores = false
-		}
-		return
-	}
 
 	// If score already saved, handle post-save options
 	if ih.game.victoryScoreSaved {
@@ -1898,7 +1878,6 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	ih.game.switchDialogTab(0)      // tabbed dialogs always open on their primary tab
 	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
 	ih.game.selectedCharIdx = 0     // Default to first character
-	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
 	ih.game.selectedSpellKey = ""   // No spell selected initially
 	ih.game.skillTrainerPopup = false

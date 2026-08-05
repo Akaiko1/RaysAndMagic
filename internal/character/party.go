@@ -20,7 +20,16 @@ type Party struct {
 	// level alongside the party from the start, but aren't usable until freed -
 	// clearing the prison moves them into Reserve.
 	Captive []*MMCharacter
+
+	// contentRev counts inventory/roster mutations that may keep every length
+	// and currency unchanged (a stack merge, a partial stack drain, a bench
+	// swap). The UI's modal redraw barrier compares it between frames; the
+	// field is unexported so it never enters a save file.
+	contentRev uint64
 }
+
+// ContentRevision exposes the mutation counter to the UI snapshot.
+func (p *Party) ContentRevision() uint64 { return p.contentRev }
 
 // FreeCaptives moves all imprisoned heroes into the reserve roster and returns
 // the freed heroes (for messaging). No-op if there are none.
@@ -46,6 +55,7 @@ func (p *Party) SwapActiveReserve(activeIdx, reserveIdx int) bool {
 		reserveIdx < 0 || reserveIdx >= len(p.Reserve) {
 		return false
 	}
+	p.contentRev++
 	p.Members[activeIdx], p.Reserve[reserveIdx] = p.Reserve[reserveIdx], p.Members[activeIdx]
 	return true
 }
@@ -249,6 +259,7 @@ func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
 // AddItem adds an item to the party inventory. Stackable items (consumables,
 // trinkets) merge into an existing same-name stack; everything else appends.
 func (p *Party) AddItem(item items.Item) {
+	p.contentRev++
 	if item.Stackable() {
 		for i := range p.Inventory {
 			if items.SameStack(p.Inventory[i], item) {
@@ -263,6 +274,7 @@ func (p *Party) AddItem(item items.Item) {
 // RemoveItem removes a whole inventory entry (the full stack) by index.
 func (p *Party) RemoveItem(index int) {
 	if index >= 0 && index < len(p.Inventory) {
+		p.contentRev++
 		p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
 	}
 }
@@ -274,6 +286,7 @@ func (p *Party) ConsumeOneAt(index int) bool {
 		return false
 	}
 	if p.Inventory[index].Count() > 1 {
+		p.contentRev++
 		return p.Inventory[index].ConsumeStackUnits(1)
 	}
 	p.RemoveItem(index)
@@ -297,6 +310,9 @@ func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
 		return item, true
 	}
 	fragment, ok := p.Inventory[index].SplitOff(quantity)
+	if ok {
+		p.contentRev++
+	}
 	return fragment, ok
 }
 
@@ -309,6 +325,7 @@ func (p *Party) MergeStacks() {
 		typ  items.ItemType
 	}
 	first := make(map[stackKey]int)
+	p.contentRev++
 	kept := p.Inventory[:0]
 	for _, it := range p.Inventory {
 		if !it.Stackable() {
@@ -345,6 +362,7 @@ func (p *Party) RemoveItemsByName(name string, n int) bool {
 	if p.CountItemsByName(name) < n {
 		return false
 	}
+	p.contentRev++
 	kept := p.Inventory[:0]
 	for _, it := range p.Inventory {
 		if n > 0 && it.Name == name {

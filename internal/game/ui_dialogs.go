@@ -71,6 +71,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		return
 	}
 	member := ui.game.party.Members[charIdx]
+	interactive := ui.topModalLayer() == modalLayerStat
 
 	// Popup dimensions
 	popupW, popupH := 340, 320
@@ -112,13 +113,13 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		plusY := y - 4
 		canAdd := member.FreeStatPoints > 0
 		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
-		clickIn := ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
+		clickIn := interactive && ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
 
 		// Hold-to-repeat: once the user keeps the button held over the same
 		// +button past statHoldInitialDelay, fire an extra increment every
 		// statHoldRepeatRate frames. Single clicks still come through clickIn
 		// above unchanged.
-		if isHover && mousePressed {
+		if interactive && isHover && mousePressed {
 			if ui.statHoldStat == stat.Name {
 				ui.statHoldFrames++
 				if ui.statHoldFrames > statHoldInitialDelay &&
@@ -146,12 +147,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	closeX := popupX + popupW - 40
 	closeY := popupY + 12
 	isCloseHover := mouseX >= closeX && mouseX < closeX+28 && mouseY >= closeY && mouseY < closeY+28
-	if ui.drawPopupCloseButton(screen, closeX, closeY, 28, isCloseHover) && !ui.justOpenedStatPopup {
-		ui.game.statPopupOpen = false
-	}
-
-	// Handle ESC key to close popup
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) && !ui.justOpenedStatPopup {
+	if ui.drawPopupCloseButton(screen, closeX, closeY, 28, interactive && isCloseHover) && !ui.justOpenedStatPopup {
 		ui.game.statPopupOpen = false
 	}
 
@@ -165,7 +161,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 // behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
 // hoverable row per target index. rowLabel formats a row; onPick fires on a
 // row click. onCancel==nil means not cancellable (no close X, ESC ignored).
-func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt string, popupW int, targets []int, rowLabel func(idx int) string, onPick func(idx int), onCancel func()) {
+func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt string, popupW int, targets []int, rowLabel func(idx int) string, onPick func(idx int), onCancel func(), interactive bool) {
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
 	rowH := 28
@@ -193,7 +189,7 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawDebugText(screen, rowLabel(idx), popupX+24, y+6)
-		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+		if interactive && isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
 			onPick(idx)
 			return
 		}
@@ -202,11 +198,9 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 	if onCancel == nil {
 		return
 	}
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+12, 24, true) {
-		onCancel()
-		return
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	// ESC is handled in HandleInput (edge-tracked, cannot miss a press between
+	// Draws); here only the close button.
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+12, 24, interactive) {
 		onCancel()
 	}
 }
@@ -240,10 +234,7 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 			g.resolvePickerQuickSource(g.revivalPickerItemIdx, ok)
 			g.revivalPickerOpen = false
 		},
-		func() {
-			g.resolvePickerQuickSource(g.revivalPickerItemIdx, false)
-			g.revivalPickerOpen = false
-		})
+		g.cancelRevivalPicker, ui.topModalLayer() == modalLayerRevival)
 }
 
 // drawHealPickerPopup draws the "Heal whom?" overlay opened when a heal potion
@@ -269,10 +260,7 @@ func (ui *UISystem) drawHealPickerPopup(screen *ebiten.Image) {
 			g.resolvePickerQuickSource(g.healPickerItemIdx, ok)
 			g.healPickerOpen = false
 		},
-		func() {
-			g.resolvePickerQuickSource(g.healPickerItemIdx, false)
-			g.healPickerOpen = false
-		})
+		g.cancelHealPicker, ui.topModalLayer() == modalLayerHeal)
 }
 
 // drawRosterScreen is the tavern party-management modal: a left column of the 4
@@ -291,18 +279,19 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
 	drawDebugText(screen, "Tavern - Manage Roster", popupX+16, popupY+14)
-	ui.drawRosterManager(screen, layoutRect{popupX + 16, popupY + 34, popupW - 32, popupH - 54})
+	interactive := ui.topModalLayer() == modalLayerRoster
+	ui.drawRosterManager(screen, layoutRect{popupX + 16, popupY + 34, popupW - 32, popupH - 54}, interactive)
 
 	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
 	// opening on the next frame; here only the close button.
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, true) {
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive) {
 		g.closeRosterScreen()
 	}
 }
 
 // drawRosterManager renders the complete roster workflow inside the supplied
 // area. It is shared by the legacy standalone screen and the tavern Roster tab.
-func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect) {
+func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, interactive bool) {
 	g := ui.game
 	const rowH = 30
 	colW := (area.w - 16) / 2
@@ -336,7 +325,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect) {
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawDebugText(screen, label(m), leftX+6, y+6)
-		if hover && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
+		if interactive && hover && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
 			g.rosterSelectedActive = i
 		}
 	}
@@ -352,7 +341,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect) {
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawDebugText(screen, label(m), rightX+6, y+6)
-		if hover && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
+		if interactive && hover && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
 			if g.rosterSelectedActive >= 0 {
 				g.swapRosterMember(g.rosterSelectedActive, j)
 				g.rosterSelectedActive = -1
@@ -394,7 +383,7 @@ func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 			g.promotionPickerOpen = false
 			g.applyPromotionKind(kind, idx, itemIdx)
 		},
-		nil)
+		nil, ui.topModalLayer() == modalLayerPromotion)
 }
 
 // drawLevelUpChoicePopup draws the level-up choice selection overlay.
@@ -693,6 +682,7 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 }
 
 func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, dialogY int, labels []string, enabled bool) {
+	interactive := enabled && ui.topModalLayer() == modalLayerDialog
 	for i, label := range labels {
 		tabX, tabY, tabW, tabH := dialogFolderTabRect(dialogX, dialogY, i)
 		fill := color.RGBA{30, 30, 45, 255}
@@ -702,7 +692,7 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 		drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
 		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
 		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
-		if enabled && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
+		if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
 			ui.game.switchDialogTab(i)
 		}
 	}
@@ -1374,7 +1364,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		by := startY + i*(btnH+gap)
 		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
 		ui.drawMenuButton(screen, "", b.label, bx, by, btnW, btnH, hover)
-		if g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
+		if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
 			b.action()
 			return
 		}
@@ -1489,6 +1479,41 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	drawDebugText(screen, "Press ESC to close", centerX-70, h-50)
 }
 
+// handleModalLayerInput lets the topmost UI layer claim the click queue before
+// any lower pass draws. It runs at the very start of UISystem.Draw: the HUD and
+// the hub handle clicks inside their own draw passes, so a modal that only acted
+// later would find its click already spent (that is how the map overlay's close
+// button died, and how a click through the dim could still hit a card badge).
+func (ui *UISystem) handleModalLayerInput() {
+	if ui == nil || ui.game == nil {
+		return
+	}
+	if ui.topModalLayer() == modalLayerMap {
+		ui.handleMapOverlayInput()
+	}
+}
+
+// handleMapOverlayInput claims the map overlay's clicks. It runs BEFORE the hub
+// draws (see drawOverlayInterfaces): the overlay is the topmost layer, and its
+// close button sits over the hub's inventory grid.
+func (ui *UISystem) handleMapOverlayInput() {
+	if ui == nil || ui.game == nil || !ui.game.mapOverlayOpen {
+		return
+	}
+	screenW, screenH := ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight()
+	layout := computeMapOverlayLayout(screenW, screenH)
+	if ui.game.consumeLeftClickIn(layout.close.x, layout.close.y, layout.close.right(), layout.close.bottom()) {
+		ui.game.mapOverlayOpen = false
+		// The map closes before the HUD and character hub draw. Drain every
+		// sibling click now: waiting for Draw's deferred cleanup would let a
+		// buffered press act on the newly uncovered interface first.
+		ui.dropQueuedClicks()
+	}
+	// Anything else buffered under the overlay is dropped by the frame-end rule in
+	// UISystem.Draw (modalOwnedFrame), which covers EVERY modal - not just this
+	// one. Draining here as well would only hide whether that rule works.
+}
+
 // drawMapOverlay renders the current map with NPCs and teleporters.
 func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	if ui.game.world == nil {
@@ -1512,11 +1537,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	}
 	drawDebugText(screen, clipDebugText(title, layout.title.w), layout.title.x, layout.title.y)
 
-	drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{200, 60, 60, 220})
-	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
-	if ui.game.consumeLeftClickIn(layout.close.x, layout.close.y, layout.close.right(), layout.close.bottom()) {
-		ui.game.mapOverlayOpen = false
-	}
+	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 	mapX, mapY, mapW, mapH := layout.body.x, layout.body.y, layout.body.w, layout.body.h
 
 	worldW := ui.game.world.Width
@@ -1850,7 +1871,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 			drawCenteredDebugText(screen, "Claim Reward", buttonX, buttonY, buttonWidth, buttonHeight)
 
 			// Handle click on claim button
-			if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
+			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
 				ui.claimQuestReward(quest.ID)
 			}
 		}
@@ -1866,10 +1887,11 @@ func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages
 	if totalPages <= 1 {
 		return
 	}
-	if ui.drawPagerButton(screen, x, y, "<", ui.questPage > 0) {
+	interactive := !ui.modalLayerOwnsInput()
+	if ui.drawPagerButton(screen, x, y, "<", interactive && ui.questPage > 0) {
 		ui.questPage--
 	}
-	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.questPage < totalPages-1) {
+	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", interactive && ui.questPage < totalPages-1) {
 		ui.questPage++
 	}
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)

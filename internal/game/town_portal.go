@@ -146,9 +146,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 		func(idx int) {
 			g.townPortalTeleport(dests[idx])
 		},
-		func() {
-			g.townPortalPickerOpen = false
-		})
+		g.cancelTownPortalPicker, ui.topModalLayer() == modalLayerTownPortal)
 }
 
 // townPortalDestinationLabel renders a map key as a picker row label.

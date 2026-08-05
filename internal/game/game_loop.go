@@ -77,6 +77,16 @@ func (gl *GameLoop) Update() error {
 
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
+	// The model can close a modal in Update, but the old modal remains the image
+	// on screen until Draw replaces it. Under a stall Ebiten may run more Updates
+	// first; suppress them so input cannot act on a layer the player cannot see.
+	if gl.ui.modalRedrawBarrierActive() {
+		// The stale modal frame blocks input/world state, not the exposed party-card
+		// presentation. Keep hit flashes and status effects animating under it.
+		gl.game.UpdateDamageBlinkTimers()
+		gl.inputHandler.keys.BeginFrame()
+		return nil
+	}
 
 	// Top-level screens replace the gameplay loop entirely. Their click handling
 	// lives in the matching Draw call (roster-screen convention); update only
@@ -124,6 +134,14 @@ func (gl *GameLoop) updateExploration() {
 	// actions and therefore belongs to the paused simulation below.
 	if gl.game.menuOpen && gl.game.tabbedMenuInputCooldown > 0 {
 		gl.game.tabbedMenuInputCooldown--
+	}
+
+	// HandleInput can close a modal that was rendered last frame. The early
+	// GameLoop.Update barrier cannot see that transition because the modal is
+	// still open when it runs. Keep UI-only timers above moving, but do not advance
+	// the world under the stale modal image that remains visible until Draw.
+	if gl.ui != nil && gl.ui.modalRedrawBarrierActive() {
+		return
 	}
 
 	// Pause gameplay updates while menus/panels are open.
@@ -326,9 +344,11 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	// Top-level menu screens render instead of the 3D scene + gameplay UI.
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
+		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
 		gl.ui.drawEntryMenuScreen(screen)
 		return
 	case AppScreenPartyCreate:
+		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
 		gl.ui.drawPartyCreateScreen(screen)
 		return
 	}

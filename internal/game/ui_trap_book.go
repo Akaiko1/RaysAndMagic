@@ -62,7 +62,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 		// Spell-like mouse controls: click selects, double-click ARMS the
 		// clicked trap in the world (spells cast on double-click; Enter/F
 		// equip the quick slot). TB consumes an action like a book-cast spell.
-		if ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
+		if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
 			now := ui.game.mouseLeftClickAt
 			if ui.lastClickedTrap == i && withinDoubleClickWindow(now, ui.lastTrapClickTime) {
 				canArm := ui.game.canSpendCombatAction(ui.game.selectedChar)
@@ -96,7 +96,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 	if tooltip != "" {
 		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
-	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, true) {
+	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
 		ui.game.selectedTrap = ui.spellPage * perSpread
 	}
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)

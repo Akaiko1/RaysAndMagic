@@ -167,6 +167,24 @@ func (g *MMGame) resolvePickerQuickSource(itemIdx int, consumed bool) {
 	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
 }
 
+// Picker cancellation helpers: the ONE body shared by the ESC edge (HandleInput)
+// and the popup's close button, so the potion-source bookkeeping cannot drift.
+// The promotion picker has no cancel path by design (the promotion is already
+// committed when it opens).
+func (g *MMGame) cancelRevivalPicker() {
+	g.resolvePickerQuickSource(g.revivalPickerItemIdx, false)
+	g.revivalPickerOpen = false
+}
+
+func (g *MMGame) cancelHealPicker() {
+	g.resolvePickerQuickSource(g.healPickerItemIdx, false)
+	g.healPickerOpen = false
+}
+
+func (g *MMGame) cancelTownPortalPicker() {
+	g.townPortalPickerOpen = false
+}
+
 // UseConsumableFromInventory consumes a consumable item at inventory index for the selected character.
 // Handles game-side effects, inventory removal, and combat messages. Returns true if consumed.
 func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) bool {

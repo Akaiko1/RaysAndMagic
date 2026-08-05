@@ -31,6 +31,10 @@ const (
 type UISystem struct {
 	game                *MMGame
 	justOpenedStatPopup bool
+	// renderedModalSnapshot is the complete top-modal state in the last completed
+	// Draw. Comparing it with topModalSnapshot catches layer changes and visible
+	// content replacement while Ebiten runs Updates before the new frame lands.
+	renderedModalSnapshot modalLayerSnapshot
 	// cardPortraitCache holds cover-fitted portraits, including the exact party
 	// card aperture mask where requested; keyed by name, size, and mask mode.
 	cardPortraitCache    map[string]*ebiten.Image
@@ -152,6 +156,53 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipCompareText = nil
 	ui.fullArtCardKey = ""
 
+	// MODAL LAYERS OWN THE FRAME'S CLICKS. Three rules, all needed:
+	//
+	// 1. Claim first. Drawing runs bottom-up and handlers live inside the draw
+	//    passes, so a click aimed at a modal would otherwise be consumed by the
+	//    HUD below it (a press over the dim spending a stat point).
+	// 2. Nothing survives the frame. Lower layers only REFUSE such clicks, so an
+	//    unconsumed press stays in the ~500ms buffer and fires on the HUD the
+	//    moment the modal closes. Whatever the modal did not take was aimed at
+	//    its dim, so it is dropped at the end of the frame - measured against the
+	//    state at frame START, because the modal may close during this very frame.
+	// 3. A modal that OPENS or CHANGES mid-frame inherits nothing. Its own pass
+	//    runs later in this same frame, so clicks queued for the prior layer must
+	//    not land on a sibling or child window the player has not seen yet.
+	inputLayer := ui.renderedModalSnapshot
+	modalOwnedFrame := inputLayer.layer != modalLayerNone
+	renderedModalThisFrame := modalLayerSnapshot{}
+	claimModalChange := func() {
+		if ui.claimQueueIfModalChanged(&inputLayer) {
+			modalOwnedFrame = true
+		}
+	}
+	markModalRendered := func(layer modalLayerID) {
+		renderedModalThisFrame = ui.topModalSnapshot()
+		renderedModalThisFrame.layer = layer
+		modalOwnedFrame = true
+	}
+
+	claimModalChange()
+	ui.handleModalLayerInput()
+	claimModalChange()
+	// A modal may have closed in Update, while its last rendered frame is still on
+	// screen. Clear anything collected for that stale visual before lower Draw
+	// handlers run; GameLoop.Update blocks the same interval on its side.
+	if ui.modalRedrawBarrierActive() {
+		ui.dropQueuedClicks()
+	}
+	defer func() {
+		claimModalChange()
+		if modalOwnedFrame || ui.topModalLayer() != modalLayerNone {
+			ui.dropQueuedClicks()
+		}
+		// Store what was actually painted, not merely what the model says is open
+		// now. A layer closed after painting itself or opened after its draw pass
+		// remains behind the identity barrier until a matching frame is presented.
+		ui.renderedModalSnapshot = renderedModalThisFrame
+	}()
+
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
 
@@ -160,62 +211,113 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 
 	// Draw Game Over overlay if active
 	if ui.game.gameOver {
+		markModalRendered(modalLayerGameOver)
 		ui.drawGameOverOverlay(screen)
 	}
+	claimModalChange()
 
 	// Draw overlay interfaces (menus and dialogs)
-	ui.drawOverlayInterfaces(screen)
+	if layer := ui.topModalLayer(); isOverlayModalLayer(layer) {
+		markModalRendered(layer)
+	}
+	// A NON-overlay modal on top owns this frame's clicks, but the overlay group
+	// below it (hub, dialog, map) consumes clicks inside its draw passes and its
+	// dialog widgets are not individually gated (tavern cards, buff service,
+	// pagers). Hide the queues for the duration of the overlay pass - the top
+	// modal's own pass runs later and must still see them. Reachable: a level-up
+	// choice popping from a quest turn-in over the tavern, a stack split over
+	// the tavern's stash tab.
+	if layer := ui.topModalLayer(); layer != modalLayerNone && !isOverlayModalLayer(layer) {
+		savedLeft, savedRight := ui.game.mouseLeftClicks, ui.game.mouseRightClicks
+		ui.game.mouseLeftClicks, ui.game.mouseRightClicks = nil, nil
+		ui.drawOverlayInterfaces(screen)
+		ui.game.mouseLeftClicks, ui.game.mouseRightClicks = savedLeft, savedRight
+	} else {
+		ui.drawOverlayInterfaces(screen)
+	}
+	// An overlay modal that OPENED inside the pass (the map from the hub's
+	// inventory) was painted this frame but missed the pre-pass mark; without a
+	// re-mark the next Update treats the visible frame as stale and eats a fresh
+	// click. Only an identity change re-marks: sub-state mutated by the pass
+	// itself (a dialog branch click) keeps the conservative pre-pass snapshot.
+	if layer := ui.topModalLayer(); isOverlayModalLayer(layer) && renderedModalThisFrame.layer != layer {
+		markModalRendered(layer)
+	}
+	claimModalChange()
 
 	if ui.game.combatLogOpen {
+		markModalRendered(modalLayerCombatLog)
 		ui.drawCombatLogOverlay(screen)
 	}
+	claimModalChange()
 
 	// Draw Victory overlay if active
 	if ui.game.gameVictory && !ui.game.showHighScores {
+		markModalRendered(modalLayerVictory)
 		ui.drawVictoryOverlay(screen)
 	}
+	claimModalChange()
 
 	// Draw High Scores overlay if active
 	if ui.game.showHighScores {
+		markModalRendered(modalLayerHighScores)
 		ui.drawHighScoresOverlay(screen)
 	}
+	claimModalChange()
 
 	// Draw stat distribution popup if open
 	if ui.game.statPopupOpen {
+		markModalRendered(modalLayerStat)
 		ui.drawStatDistributionPopup(screen)
 	}
+	claimModalChange()
 
 	// Draw revival picker (dead/unconscious party member chooser) if open
 	if ui.game.revivalPickerOpen {
+		markModalRendered(modalLayerRevival)
 		ui.drawRevivalPickerPopup(screen)
 	}
+	claimModalChange()
 	if ui.game.healPickerOpen {
+		markModalRendered(modalLayerHeal)
 		ui.drawHealPickerPopup(screen)
 	}
+	claimModalChange()
 	if ui.game.townPortalPickerOpen {
+		markModalRendered(modalLayerTownPortal)
 		ui.drawTownPortalPickerPopup(screen)
 	}
+	claimModalChange()
 
 	// Draw promotion picker (which member becomes Archmage/Lich) if open
 	if ui.game.promotionPickerOpen {
+		markModalRendered(modalLayerPromotion)
 		ui.drawPromotionPickerPopup(screen)
 	}
+	claimModalChange()
 
 	// Draw tavern roster swap screen if open
 	if ui.game.rosterScreenOpen {
+		markModalRendered(modalLayerRoster)
 		ui.drawRosterScreen(screen)
 	}
+	claimModalChange()
 
 	// Draw tavern stash screen if open
 	if ui.game.stashScreenOpen {
+		markModalRendered(modalLayerStash)
 		ui.drawStashScreen(screen)
 	}
+	claimModalChange()
 	if ui.stackSplitPicker.open {
+		markModalRendered(modalLayerStackSplit)
 		ui.drawStackSplitPicker(screen)
 	}
+	claimModalChange()
 
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
+		markModalRendered(modalLayerLevelChoice)
 		ui.drawLevelUpChoicePopup(screen)
 	}
 

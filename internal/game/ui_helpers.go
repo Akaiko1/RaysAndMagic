@@ -183,6 +183,267 @@ func clampPage(page *int, total int) {
 	}
 }
 
+// modalLayerID identifies the top input-owning layer. A bool cannot distinguish
+// close, open, sibling replacement, or a parent/child transition.
+type modalLayerID uint8
+
+const (
+	modalLayerNone modalLayerID = iota
+	modalLayerGameOver
+	modalLayerMainMenu
+	modalLayerSaveRename
+	modalLayerDialog
+	modalLayerSkillTrainer
+	modalLayerMap
+	modalLayerCombatLog
+	modalLayerVictory
+	modalLayerHighScores
+	modalLayerStat
+	modalLayerRevival
+	modalLayerHeal
+	modalLayerTownPortal
+	modalLayerPromotion
+	modalLayerRoster
+	modalLayerStash
+	modalLayerStackSplit
+	modalLayerLevelChoice
+	modalLayerCount
+)
+
+// topModalLayerFor is the single source of truth for modal identity and visual
+// priority. Cases are ordered from the last-drawn (topmost) layer downward.
+// stackSplitOpen is passed explicitly because that transient picker belongs to
+// UISystem while every other modal flag belongs to MMGame.
+func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
+	if g == nil {
+		return modalLayerNone
+	}
+	switch {
+	case g.currentLevelUpChoice() != nil:
+		return modalLayerLevelChoice
+	case stackSplitOpen:
+		return modalLayerStackSplit
+	case g.stashScreenOpen:
+		return modalLayerStash
+	case g.rosterScreenOpen:
+		return modalLayerRoster
+	case g.promotionPickerOpen:
+		return modalLayerPromotion
+	case g.townPortalPickerOpen:
+		return modalLayerTownPortal
+	case g.healPickerOpen:
+		return modalLayerHeal
+	case g.revivalPickerOpen:
+		return modalLayerRevival
+	case g.statPopupOpen:
+		return modalLayerStat
+	case g.showHighScores:
+		return modalLayerHighScores
+	case g.gameVictory:
+		return modalLayerVictory
+	case g.combatLogOpen:
+		return modalLayerCombatLog
+	case g.mapOverlayOpen:
+		return modalLayerMap
+	case g.dialogActive && g.skillTrainerPopup:
+		return modalLayerSkillTrainer
+	case g.dialogActive:
+		return modalLayerDialog
+	case g.mainMenuOpen && g.saveRenameOpen:
+		return modalLayerSaveRename
+	case g.mainMenuOpen:
+		return modalLayerMainMenu
+	case g.gameOver:
+		return modalLayerGameOver
+	default:
+		return modalLayerNone
+	}
+}
+
+func (ui *UISystem) topModalLayer() modalLayerID {
+	if ui == nil {
+		return modalLayerNone
+	}
+	return topModalLayerFor(ui.game, ui.stackSplitPicker.open)
+}
+
+// modalLayerSnapshot is the complete identity of the modal frame the player
+// actually saw. The layer alone is insufficient: changing Main -> Load, a save
+// page, or a dialog branch replaces clickable content without changing layer.
+// Keep the value comparable so the Update/Draw barrier remains allocation-free.
+type modalLayerSnapshot struct {
+	layer   modalLayerID
+	state   [12]int
+	stateID uint64
+	// contentRev is the explicit revision for modal-content mutations the
+	// derived fields below cannot see (a stash cell-to-cell move keeps every
+	// count and the gold unchanged). Bumped via bumpModalContentRev.
+	contentRev uint64
+	// Derived party-content identity, set for every open layer: any transaction
+	// a modal displays (buy, sell, teach, train, hire, deposit) moves at least
+	// one of these, so new mutation paths are covered without a manual bump.
+	// partyRev backs the counts up for length-neutral mutations (a purchase
+	// merged into an existing stack, a partial stack drain, a bench swap).
+	gold        int
+	arenaPoints int
+	bagLen      int
+	partyLen    int
+	reserveLen  int
+	partyRev    uint64
+	dialogNPC   *character.NPC
+	dialogNode  *character.NPCDialogueChoice
+	levelChoice *levelUpChoiceRequest
+}
+
+// bumpModalContentRev marks a modal-content mutation that the snapshot's
+// derived fields cannot detect. While a modal is open this arms the redraw
+// barrier for one frame, so the next Update cannot act on the stale image.
+func (g *MMGame) bumpModalContentRev() {
+	if g != nil {
+		g.modalContentRev++
+	}
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// topModalSnapshot adds the visible sub-state of the top layer to its identity.
+// Selection and page fields are included when they alter what the next click
+// would mean; cosmetic animation state deliberately stays out of the snapshot.
+func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
+	if ui == nil || ui.game == nil {
+		return modalLayerSnapshot{}
+	}
+	g := ui.game
+	s := modalLayerSnapshot{layer: ui.topModalLayer()}
+	if s.layer != modalLayerNone {
+		// Content identity for every open layer. Restricted to open modals so a
+		// world-side mutation (loot pickup) never stalls world Updates.
+		s.contentRev = g.modalContentRev
+		if g.party != nil {
+			s.gold = g.party.Gold
+			s.arenaPoints = g.party.ArenaPoints
+			s.bagLen = len(g.party.Inventory)
+			s.partyLen = len(g.party.Members)
+			s.reserveLen = len(g.party.Reserve)
+			s.partyRev = g.party.ContentRevision()
+		}
+	}
+	switch s.layer {
+	case modalLayerMainMenu:
+		s.state[0] = int(g.mainMenuMode)
+		s.state[1] = g.mainMenuSelection
+		s.state[2] = g.slotSelection
+		s.state[3] = g.savePage
+		// MenuSettings: Down then Right across two pre-Draw Updates must not
+		// adjust a channel whose highlight the player has not seen move.
+		s.state[4] = g.audioSettingsSelection
+	case modalLayerSaveRename:
+		s.state[0] = int(g.mainMenuMode)
+		s.state[1] = g.saveRenameSlot
+	case modalLayerDialog, modalLayerSkillTrainer:
+		s.dialogNPC = g.dialogNPC
+		s.dialogNode = g.currentDialogNode()
+		s.state[0] = g.dialogTab
+		s.state[1] = g.selectedChoice
+		s.state[2] = g.selectedCharIdx
+		s.state[3] = g.dialogSelectedSpell
+		s.state[4] = g.skillTrainerPage
+		s.state[5] = g.merchantBuyPage
+		s.state[6] = g.merchantSellPage
+		s.state[7] = g.spellTraderPage
+		s.state[8] = g.cardCollectorInvPage
+		// The tavern embeds the stash and roster managers in its tabs; their
+		// visible sub-state must be part of the dialog's identity too.
+		s.state[9] = boolInt(g.stashShowCards)
+		s.state[10] = g.stashInvPage
+		s.state[11] = g.rosterSelectedActive
+	case modalLayerVictory:
+		s.state[0] = boolInt(g.victoryScoreSaved)
+	case modalLayerStat:
+		s.state[0] = g.statPopupCharIdx
+	case modalLayerRevival:
+		s.state[0] = g.revivalPickerItemIdx
+	case modalLayerHeal:
+		s.state[0] = g.healPickerItemIdx
+	case modalLayerPromotion:
+		s.state[0] = int(g.promotionPickerKind)
+		s.state[1] = g.promotionPickerItemIdx
+	case modalLayerRoster:
+		s.state[0] = g.rosterSelectedActive
+	case modalLayerStash:
+		s.state[0] = boolInt(g.stashShowCards)
+		s.state[1] = g.stashInvPage
+	case modalLayerStackSplit:
+		s.state[0] = int(ui.stackSplitPicker.source)
+		s.state[1] = ui.stackSplitPicker.from
+		s.state[2] = ui.stackSplitPicker.quantity
+		s.stateID = ui.stackSplitPicker.id
+	case modalLayerLevelChoice:
+		s.levelChoice = g.currentLevelUpChoice()
+		if s.levelChoice != nil {
+			s.state[0] = g.levelUpChoiceIdx
+			s.state[1] = s.levelChoice.selection
+			s.state[2] = s.levelChoice.selectedCount()
+		}
+	}
+	return s
+}
+
+func isOverlayModalLayer(layer modalLayerID) bool {
+	switch layer {
+	case modalLayerMainMenu, modalLayerSaveRename, modalLayerDialog, modalLayerSkillTrainer, modalLayerMap:
+		return true
+	default:
+		return false
+	}
+}
+
+// claimQueueIfModalChanged is the checkpoint form of rule 3 in UISystem.Draw.
+// Clicks queued for one identity never carry into a newly opened child, sibling,
+// parent, or uncovered lower layer.
+func (ui *UISystem) claimQueueIfModalChanged(inputLayer *modalLayerSnapshot) bool {
+	if ui == nil || inputLayer == nil {
+		return false
+	}
+	current := ui.topModalSnapshot()
+	if current == *inputLayer {
+		return false
+	}
+	ui.dropQueuedClicks()
+	*inputLayer = current
+	return true
+}
+
+// dropQueuedClicks discards both buffered click queues. Used wherever a modal
+// layer owns the frame: a press it did not consume was aimed at its dim, and a
+// press queued before it opened was aimed at the interface it replaced.
+func (ui *UISystem) dropQueuedClicks() {
+	if ui == nil || ui.game == nil {
+		return
+	}
+	ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
+	ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
+}
+
+// modalRedrawBarrierActive covers every Update between a modal identity change
+// and the Draw that presents that identity. This includes close, open, sibling,
+// and parent/child transitions.
+func (ui *UISystem) modalRedrawBarrierActive() bool {
+	return ui != nil && ui.game != nil && ui.game.appScreen == AppScreenInGame &&
+		ui.renderedModalSnapshot != ui.topModalSnapshot()
+}
+
+// modalLayerOwnsInput is the lower-layer gate shared by the HUD and character
+// hub. It includes both a currently open modal and the one-frame redraw barrier.
+func (ui *UISystem) modalLayerOwnsInput() bool {
+	return ui != nil && (ui.renderedModalSnapshot.layer != modalLayerNone || ui.topModalLayer() != modalLayerNone)
+}
+
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 	if w <= 0 || h <= 0 {
 		return
@@ -223,14 +484,28 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 // and reports whether a queued left click landed on it. canClick=false still
 // draws but leaves any queued click unconsumed (e.g. mid-drag, popup just opened).
 func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool) bool {
-	mouseX, mouseY := ebiten.CursorPosition()
-	btnCol := color.RGBA{120, 60, 60, 180}
-	if mouseX >= x && mouseX < x+size && mouseY >= y && mouseY < y+size {
-		btnCol = color.RGBA{200, 60, 60, 220}
-	}
-	drawFilledRect(screen, x, y, size, size, btnCol)
-	ui.drawInterfaceIcon(screen, "icon_close", x+2, y+2, size-4, size-4)
+	ui.drawCloseButtonVisual(screen, x, y, size, size)
 	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
+}
+
+// Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
+// reads as "already pressed" (the map overlay used to paint the hover colour
+// permanently), and three hand-rolled variants had drifted apart.
+var (
+	closeButtonRestColor  = color.RGBA{100, 100, 100, 150}
+	closeButtonHoverColor = color.RGBA{150, 50, 50, 200}
+)
+
+// drawCloseButtonVisual paints the shared close button WITHOUT touching the
+// click queue, for layers whose input is claimed in an earlier pass.
+func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) {
+	mouseX, mouseY := ebiten.CursorPosition()
+	col := closeButtonRestColor
+	if mouseX >= x && mouseX < x+w && mouseY >= y && mouseY < y+h {
+		col = closeButtonHoverColor
+	}
+	drawFilledRect(screen, x, y, w, h, col)
+	ui.drawInterfaceIcon(screen, "icon_close", x, y, w, h)
 }
 
 // drawNineSlice: corners 1:1, edges and centre STRETCHED. Right for painted

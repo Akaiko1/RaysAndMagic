@@ -72,9 +72,11 @@ func ptInRect(x, y int, r image.Rectangle) bool {
 }
 
 // drawQuickSlotBar renders the frame + the character's slot icons at (barX,barY)
-// width barW, and (while the menu is open) wires each cell as a drag source /
-// drop target. Returns the slot rects so callers can add their own click logic.
-func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, barW int) [character.QuickSlotCount]image.Rectangle {
+// width barW, wires each cell as a drag source / drop target, and returns the
+// slot rects so callers can add their own click logic. interactive=false draws
+// it as pure decoration: a bar under a modal layer must not bind a quick spell
+// on a right click or start a drag, even though it stays visible beneath.
+func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, barW int, interactive bool) [character.QuickSlotCount]image.Rectangle {
 	_, slots := quickSlotRects(barX, barY, barW)
 	barH := int(float64(barW) / quickSlotBarAspect)
 	drawImageScaled(screen, ui.game.sprites.GetSprite(quickSlotBarSprite), barX, barY, barW, barH)
@@ -83,11 +85,14 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 	mouseX, mouseY := ebiten.CursorPosition()
 	for i := 0; i < character.QuickSlotCount; i++ {
 		r := slots[i]
-		ui.quickSlotCellInteract(charIdx, i, r)
+		if interactive {
+			ui.quickSlotCellInteract(charIdx, i, r)
+		}
 		item := ch.QuickSlots[i]
 		// Right-click a spell/trap in the bar to bind it as the Space quick-spell
 		// (the single quick slot); the item stays in the bar.
-		if item != nil && (item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell || item.Type == items.ItemTrap) &&
+		if interactive && item != nil &&
+			(item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell || item.Type == items.ItemTrap) &&
 			ui.game.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 			ui.game.bindQuickSpellFromPanel(charIdx, *item)
 		}
@@ -129,7 +134,7 @@ func (ui *UISystem) quickSlotCellInteract(charIdx, slotIdx int, r image.Rectangl
 // quickInvSlotDragSource captures an inventory grid cell as a drag source.
 func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+	if !g.menuOpen || ui.inventoryInputBlocked() || !g.dragArmed || g.dragSrc != dragNone {
 		return
 	}
 	if invIndex < 0 || invIndex >= len(g.party.Inventory) {
@@ -150,7 +155,7 @@ func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
 // quickSpellCardDragSource captures a spellbook card as a drag source.
 func (ui *UISystem) quickSpellCardDragSource(spellID spells.SpellID, x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+	if !g.menuOpen || ui.modalLayerOwnsInput() || !g.dragArmed || g.dragSrc != dragNone {
 		return
 	}
 	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
@@ -166,7 +171,7 @@ func (ui *UISystem) quickSpellCardDragSource(spellID spells.SpellID, x, y, w, h 
 // (trapper parity with spells - a trap recipe is book-owned, like a spell).
 func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+	if !g.menuOpen || ui.modalLayerOwnsInput() || !g.dragArmed || g.dragSrc != dragNone {
 		return
 	}
 	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
@@ -206,10 +211,17 @@ func (g *MMGame) dragOver(x, y, w, h int) bool {
 		ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h))
 }
 
+// inventoryDragOver is the shared gate for every drop that mutates inventory or
+// equipment. A modal can open earlier in the same Draw, after dragDropAt was
+// queued, so checking only when the drag was armed is not sufficient.
+func (ui *UISystem) inventoryDragOver(x, y, w, h int) bool {
+	return !ui.inventoryInputBlocked() && ui.game.dragOver(x, y, w, h)
+}
+
 // quickInvDropZone resolves a quick-slot item dropped back onto the inventory grid.
 func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	g := ui.game
-	if !g.dragOver(x, y, w, h) {
+	if !ui.inventoryDragOver(x, y, w, h) {
 		return
 	}
 	if g.dragSrc == dragFromQuickSlot {
@@ -241,7 +253,7 @@ func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.
 // wrong hero on drop.
 func (ui *UISystem) equipSlotDragSource(charIdx int, slot items.EquipSlot, item items.Item, x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+	if !g.menuOpen || ui.inventoryInputBlocked() || !g.dragArmed || g.dragSrc != dragNone {
 		return
 	}
 	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
@@ -255,13 +267,7 @@ func (ui *UISystem) equipSlotDragSource(charIdx int, slot items.EquipSlot, item 
 // equipSlotDropZone equips a dragged inventory item onto a paperdoll slot it fits.
 func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	g := ui.game
-	// A picked-up split fragment has exactly one meaningful destination: a
-	// quick slot. Do not let an underlying paperdoll hit test mutate equipment
-	// before the drag cancels at the end of the frame.
-	if ui.inventoryInputBlocked() {
-		return
-	}
-	if !g.dragOver(x, y, w, h) {
+	if !ui.inventoryDragOver(x, y, w, h) {
 		return
 	}
 	if g.dragSrc == dragFromInventory && g.dragInvIndex >= 0 && g.dragInvIndex < len(g.party.Inventory) {
@@ -289,7 +295,7 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 // (reorder within the inventory).
 func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
 	g := ui.game
-	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
 	}
 	if g.dragSplitQuantity > 0 {
@@ -308,7 +314,7 @@ func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
 // the tail - "put it in a free slot" = append at the end).
 func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
 	g := ui.game
-	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
 	}
 	if g.dragSplitQuantity > 0 {
@@ -507,7 +513,7 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
 	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here",
 		barX, barY-quickSlotTabLabelSpace, barW, quickSlotTabLabelH)
-	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW)
+	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
 }
 
 // inGameQuickSlotBarLayout returns the gameplay quick-bar rectangle exactly
@@ -558,13 +564,13 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 	}
 	ch := g.party.Members[g.selectedChar]
 
-	slots := ui.drawQuickSlotBar(screen, g.selectedChar, bar.x, bar.y, bar.w)
+	slots := ui.drawQuickSlotBar(screen, g.selectedChar, bar.x, bar.y, bar.w, !ui.hudClicksBlocked())
 	for i := 0; i < character.QuickSlotCount; i++ {
 		if ch.QuickSlots[i] == nil {
 			continue
 		}
 		r := slots[i]
-		if g.consumeLeftClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 			now := g.mouseLeftClickAt
 			if g.lastQuickClickedCh == g.selectedChar && g.lastQuickClickedSl == i &&
 				withinDoubleClickWindow(now, g.lastQuickClickTime) {
