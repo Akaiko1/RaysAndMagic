@@ -1,6 +1,9 @@
 package game
 
 import (
+	"image/png"
+	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +24,38 @@ func TestCharacterHubUsesGameplayPauseContract(t *testing.T) {
 	g.menuOpen = false
 	if g.gameplayPausedByOverlay() {
 		t.Fatal("closing character hub left gameplay paused")
+	}
+}
+
+func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	g.menuOpen = true
+	g.cardFxTimers[fxBlink][0] = 2
+	g.cardSummonCDFrames = 2
+	g.spellInputCooldown = 2
+	g.tabbedMenuInputCooldown = 2
+	gl := &GameLoop{game: g, inputHandler: NewInputHandler(g)}
+
+	gl.updateExploration()
+
+	if got := g.cardFxTimers[fxBlink][0]; got != 1 {
+		t.Fatalf("party-card visual timer = %d, want 1 while character hub is open", got)
+	}
+	if got := g.cardSummonCDFrames; got != 2 {
+		t.Fatalf("gameplay cooldown = %d, want 2 while character hub is open", got)
+	}
+	if got := g.spellInputCooldown; got != 2 {
+		t.Fatalf("gameplay input cooldown = %d, want 2 while hub is open", got)
+	}
+	if got := g.tabbedMenuInputCooldown; got != 1 {
+		t.Fatalf("character-hub input cooldown = %d, want 1 while hub is open", got)
+	}
+	gl.updateExploration()
+	if got := g.spellInputCooldown; got != 2 {
+		t.Fatalf("gameplay input cooldown = %d, want 2 after two paused ticks", got)
+	}
+	if got := g.tabbedMenuInputCooldown; got != 0 {
+		t.Fatalf("character-hub input cooldown = %d, want 0 after two paused ticks", got)
 	}
 }
 
@@ -148,6 +183,156 @@ func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
 		inventory := computeInventoryContentLayout(menu.content)
 		if inventory.paper.y != inventory.grid.y {
 			t.Fatalf("%dx%d paperdoll top=%d, inventory top=%d", res[0], res[1], inventory.paper.y, inventory.grid.y)
+		}
+		if inventory.quickSlots.bottom() != inventory.paper.bottom() {
+			t.Fatalf("%dx%d quick slots bottom=%d, paperdoll bottom=%d",
+				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom())
+		}
+		noticeBottom := inventory.camp.bottom()
+		quickLabelTop := inventory.quickSlots.y - quickSlotTabLabelSpace
+		if gap := quickLabelTop - noticeBottom; gap < inventoryCampToQuickLabelGap {
+			t.Fatalf("%dx%d camp notice to quick-slot label gap=%d, want >=%d",
+				res[0], res[1], gap, inventoryCampToQuickLabelGap)
+		}
+	}
+}
+
+func TestPaperdollIconSquaresCenterOnAuthoredDarkRecesses(t *testing.T) {
+	file, err := os.Open("../../assets/sprites/interface/ui/inventory_paperdoll_panel.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	panel, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Each sample is the dark interior of one independently measured slot. The
+	// production image repeats one master slot, so every opening and outer frame
+	// must retain the same geometry.
+	darkRecesses := []inventorySourceRect{
+		{116, 142, 110, 110}, {456, 142, 110, 110}, {286, 140, 110, 110},
+		{96, 406, 110, 110}, {286, 364, 110, 110}, {474, 406, 110, 110},
+		{96, 576, 110, 110}, {286, 518, 110, 110}, {474, 576, 110, 110},
+		{114, 746, 110, 110}, {456, 746, 110, 110}, {286, 834, 110, 110},
+	}
+	if len(darkRecesses) != len(inventoryPaperdollSlots) {
+		t.Fatal("paperdoll recess fixture does not match slot count")
+	}
+	for i, slot := range inventoryPaperdollSlots {
+		recess := darkRecesses[i]
+		if slot.rect.w != slot.rect.h {
+			t.Fatalf("slot %v icon rect = %dx%d, want a complete square", slot.slot, slot.rect.w, slot.rect.h)
+		}
+		if recess.w != recess.h {
+			t.Fatalf("slot %v dark recess = %dx%d, want a square", slot.slot, recess.w, recess.h)
+		}
+		if slot.rect.w != inventoryPaperdollSlots[0].rect.w || recess.w != darkRecesses[0].w {
+			t.Fatalf("slot %v geometry differs from the repeated master slot", slot.slot)
+		}
+		if recess.x-slot.rect.x != 4 || recess.y-slot.rect.y != 4 ||
+			slot.rect.x+slot.rect.w-(recess.x+recess.w) != 4 ||
+			slot.rect.y+slot.rect.h-(recess.y+recess.h) != 4 {
+			t.Fatalf("slot %v dark recess is not inset 4px inside its outer frame", slot.slot)
+		}
+		var xSum, ySum, darkCount float64
+		for y := recess.y; y < recess.y+recess.h; y++ {
+			for x := recess.x; x < recess.x+recess.w; x++ {
+				r, g, b, _ := panel.At(x, y).RGBA()
+				luma := (3*int(r>>8) + 6*int(g>>8) + int(b>>8)) / 10
+				if luma >= 40 {
+					continue
+				}
+				xSum += float64(x) + 0.5
+				ySum += float64(y) + 0.5
+				darkCount++
+			}
+		}
+		if darkCount == 0 {
+			t.Fatalf("slot %v recess contains no dark pixels", slot.slot)
+		}
+		darkCenterX, darkCenterY := xSum/darkCount, ySum/darkCount
+		iconCenterX := float64(slot.rect.x) + float64(slot.rect.w)/2
+		iconCenterY := float64(slot.rect.y) + float64(slot.rect.h)/2
+		if math.Abs(iconCenterX-darkCenterX) > 0.5 || math.Abs(iconCenterY-darkCenterY) > 0.5 {
+			t.Fatalf("slot %v icon center (%.2f,%.2f) misses dark-pixel center (%.2f,%.2f)",
+				slot.slot, iconCenterX, iconCenterY, darkCenterX, darkCenterY)
+		}
+	}
+}
+
+func TestPaperdollIconSquaresStayCenteredAfterScaling(t *testing.T) {
+	for _, dst := range [][4]int{{17, 23, 300, 450}, {41, 67, 320, 480}, {9, 11, 405, 607}, {101, 37, 287, 430}} {
+		scaleX := float64(dst[2]) / inventoryPaperdollSourceW
+		scaleY := float64(dst[3]) / inventoryPaperdollSourceH
+		for _, slot := range inventoryPaperdollSlots {
+			x, y, size := scaleInventorySourceSquare(
+				dst[0], dst[1], dst[2], dst[3],
+				inventoryPaperdollSourceW, inventoryPaperdollSourceH,
+				slot.rect,
+			)
+			wantCenterX := float64(dst[0]) + (float64(slot.rect.x)+float64(slot.rect.w)/2)*scaleX
+			wantCenterY := float64(dst[1]) + (float64(slot.rect.y)+float64(slot.rect.h)/2)*scaleY
+			gotCenterX := float64(x) + float64(size)/2
+			gotCenterY := float64(y) + float64(size)/2
+			if math.Abs(gotCenterX-wantCenterX) > 0.5 || math.Abs(gotCenterY-wantCenterY) > 0.5 {
+				t.Fatalf("slot %v at %dx%d center (%.2f,%.2f), want (%.2f,%.2f)",
+					slot.slot, dst[2], dst[3], gotCenterX, gotCenterY, wantCenterX, wantCenterY)
+			}
+		}
+	}
+}
+
+func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
+	file, err := os.Open("../../assets/sprites/interface/ui/inventory_grid_panel.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	panel, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bounds := panel.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		t.Fatal("inventory grid asset has empty bounds")
+	}
+	scaleX := float64(bounds.Dx()) / inventoryGridLayoutSize
+	scaleY := float64(bounds.Dy()) / inventoryGridLayoutSize
+	for i, slot := range inventoryGridSlots {
+		if slot.w != slot.h {
+			t.Fatalf("grid slot %d = %dx%d, want square", i, slot.w, slot.h)
+		}
+		x0 := bounds.Min.X + int(math.Floor(float64(slot.x)*scaleX))
+		y0 := bounds.Min.Y + int(math.Floor(float64(slot.y)*scaleY))
+		x1 := bounds.Min.X + int(math.Ceil(float64(slot.x+slot.w)*scaleX))
+		y1 := bounds.Min.Y + int(math.Ceil(float64(slot.y+slot.h)*scaleY))
+
+		var xSum, ySum, darkCount float64
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				r, g, b, _ := panel.At(x, y).RGBA()
+				luma := (3*int(r>>8) + 6*int(g>>8) + int(b>>8)) / 10
+				if luma >= 20 {
+					continue
+				}
+				xSum += float64(x-bounds.Min.X) + 0.5
+				ySum += float64(y-bounds.Min.Y) + 0.5
+				darkCount++
+			}
+		}
+		if darkCount == 0 {
+			t.Fatalf("grid slot %d contains no dark recess pixels", i)
+		}
+		darkCenterX := xSum / darkCount / scaleX
+		darkCenterY := ySum / darkCount / scaleY
+		slotCenterX := float64(slot.x) + float64(slot.w)/2
+		slotCenterY := float64(slot.y) + float64(slot.h)/2
+		if math.Abs(slotCenterX-darkCenterX) > 0.5 || math.Abs(slotCenterY-darkCenterY) > 0.5 {
+			t.Fatalf("grid slot %d center (%.2f,%.2f) misses source recess center (%.2f,%.2f)",
+				i, slotCenterX, slotCenterY, darkCenterX, darkCenterY)
 		}
 	}
 }

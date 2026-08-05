@@ -115,6 +115,17 @@ func (gl *GameLoop) updateExploration() {
 	// turns. No-op in real time. Cheap; fine to run before the pause check.
 	gl.game.advanceViewTurn()
 
+	// Party-card feedback is UI animation, not gameplay state. Keep its timers
+	// moving while an overlay pauses the world so an open character hub does not
+	// freeze a hit flash, flame, spark, or healing effect on the visible cards.
+	gl.game.UpdateDamageBlinkTimers()
+	// Hub navigation remains responsive while its overlay pauses the world.
+	// Keep this separate from spellInputCooldown: that field also spaces combat
+	// actions and therefore belongs to the paused simulation below.
+	if gl.game.menuOpen && gl.game.tabbedMenuInputCooldown > 0 {
+		gl.game.tabbedMenuInputCooldown--
+	}
+
 	// Pause gameplay updates while menus/panels are open.
 	if gl.game.gameplayPausedByOverlay() {
 		return
@@ -134,9 +145,6 @@ func (gl *GameLoop) updateExploration() {
 
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
-
-	// Update damage blink timers
-	gl.game.UpdateDamageBlinkTimers()
 
 	// Card-summon proc cooldown ticks in real time in both modes; it silences
 	// only the proc, so nothing else waits on it.
@@ -609,7 +617,8 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.renderer.updateNightMotes()
 	}
 
-	// Update spellbook input cooldown
+	// Gameplay input stagger advances with the simulation. The character hub
+	// has a separate debounce above so overlays cannot drain combat timing.
 	if gl.game.spellInputCooldown > 0 {
 		gl.game.spellInputCooldown--
 	}

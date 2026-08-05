@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
@@ -42,7 +43,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	var tooltipX, tooltipY int
 
 	for _, slotInfo := range inventoryPaperdollSlots {
-		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
+		x, y, size := scaleInventorySourceSquare(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
+		w, h := size, size
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 		// While dragging an equippable item, glow every slot it can go into - from
@@ -62,6 +64,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
 				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
 			if !dragging {
+				// The complete authored icon square belongs on top of the paperdoll.
+				// Do not crop, mask, or realign the artwork inside that square.
 				ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
 			}
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
@@ -90,7 +94,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	clampPage(&ui.inventoryPage, totalPages)
 	for slot := 0; slot < pageSize; slot++ {
 		idx := inventoryCellIndex(view, ui.inventoryPage, pageSize, slot)
-		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
+		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[slot])
 		// Empty cell (guard against the LIVE length - a double-click below can
 		// equip/use mid-loop and shrink the bag, staling the view). Dropping a
 		// dragged item on an empty cell moves it to the end (bag is a packed
@@ -233,9 +237,14 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 }
 
 const (
-	inventoryPaperdollSourceW = 300
-	inventoryPaperdollSourceH = 450
-	inventoryGridSourceSize   = 300
+	inventoryPaperdollSourceW = 683
+	inventoryPaperdollSourceH = 1024
+	inventoryPaperdollLayoutW = 300
+	inventoryPaperdollLayoutH = 450
+	// The high-resolution grid PNG is authored against this normalized logical
+	// canvas. Keeping its children in layout pixels avoids replacing working
+	// click geometry when the raster source is re-exported at a higher density.
+	inventoryGridLayoutSize = 300
 )
 
 type inventorySourceRect struct {
@@ -250,31 +259,32 @@ type inventoryPaperdollSlot struct {
 	rect inventorySourceRect
 }
 
-// Paper-doll slots: uniform 39x39 so every equipped icon renders at the same
-// size. Each rect is centered on the original (variable-sized) slot's center so
-// it still lines up with the drawn slot boxes on inventory_paperdoll_panel.
+// Paperdoll item rectangles cover the complete repeated slot artwork. Their
+// coordinates are measured independently from the production image; the source
+// art deliberately uses one identical 118x118 master slot in every position.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
-	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 39}},
-	{items.SlotSpell, inventorySourceRect{218, 40, 39, 39}},
-	{items.SlotHelmet, inventorySourceRect{131, 57, 39, 39}},
-	{items.SlotMainHand, inventorySourceRect{54, 166, 39, 39}},
-	{items.SlotArmor, inventorySourceRect{131, 167, 39, 39}},
-	{items.SlotOffHand, inventorySourceRect{207, 166, 39, 39}},
-	{items.SlotGauntlets, inventorySourceRect{54, 237, 39, 39}},
-	{items.SlotBelt, inventorySourceRect{131, 238, 39, 39}},
-	{items.SlotCloak, inventorySourceRect{207, 238, 39, 39}},
-	{items.SlotRing1, inventorySourceRect{57, 309, 39, 39}},
-	{items.SlotRing2, inventorySourceRect{205, 309, 39, 39}},
-	{items.SlotBoots, inventorySourceRect{131, 358, 39, 39}},
+	{items.SlotAmulet, inventorySourceRect{112, 138, 118, 118}},
+	{items.SlotSpell, inventorySourceRect{452, 138, 118, 118}},
+	{items.SlotHelmet, inventorySourceRect{282, 136, 118, 118}},
+	{items.SlotMainHand, inventorySourceRect{92, 402, 118, 118}},
+	{items.SlotArmor, inventorySourceRect{282, 360, 118, 118}},
+	{items.SlotOffHand, inventorySourceRect{470, 402, 118, 118}},
+	{items.SlotGauntlets, inventorySourceRect{92, 572, 118, 118}},
+	{items.SlotBelt, inventorySourceRect{282, 514, 118, 118}},
+	{items.SlotCloak, inventorySourceRect{470, 572, 118, 118}},
+	{items.SlotRing1, inventorySourceRect{110, 742, 118, 118}},
+	{items.SlotRing2, inventorySourceRect{452, 742, 118, 118}},
+	{items.SlotBoots, inventorySourceRect{282, 830, 118, 118}},
 }
 
-// Grid slots: uniform 45x45 (the dominant size; were sloppily 44 in column 2
-// and the bottom row). Positions kept as authored so they stay on the panel art.
+// Grid slots use the normalized 300x300 layout canvas above. The one-pixel
+// offsets are measured from the current 1024px raster's dark recess centres;
+// bag icons retain their separate 4px inset at draw time.
 var inventoryGridSlots = []inventorySourceRect{
-	{43, 42, 45, 45}, {100, 42, 45, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
-	{43, 99, 45, 45}, {100, 99, 45, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
-	{43, 155, 45, 45}, {100, 155, 45, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
-	{43, 212, 45, 45}, {100, 212, 45, 45}, {156, 212, 45, 45}, {212, 212, 45, 45},
+	{42, 42, 45, 45}, {99, 42, 45, 45}, {155, 42, 45, 45}, {212, 42, 45, 45},
+	{42, 99, 45, 45}, {99, 99, 45, 45}, {155, 99, 45, 45}, {212, 99, 45, 45},
+	{42, 156, 45, 45}, {99, 156, 45, 45}, {155, 156, 45, 45}, {212, 156, 45, 45},
+	{42, 213, 45, 45}, {99, 213, 45, 45}, {155, 213, 45, 45}, {212, 213, 45, 45},
 }
 
 func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
@@ -283,6 +293,23 @@ func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventor
 	w := int(float64(r.w) * float64(dstW) / float64(srcW))
 	h := int(float64(r.h) * float64(dstH) / float64(srcH))
 	return x, y, w, h
+}
+
+// scaleInventorySourceSquare keeps an authored square centered after scaling.
+// Rounding its center and size once avoids the drift caused by independently
+// truncating the left edge, top edge, width, and height.
+func scaleInventorySourceSquare(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int) {
+	if srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || r.w <= 0 || r.h <= 0 {
+		return dstX, dstY, 0
+	}
+	scaleX := float64(dstW) / float64(srcW)
+	scaleY := float64(dstH) / float64(srcH)
+	size := max(1, int(math.Round(float64(min(r.w, r.h))*min(scaleX, scaleY))))
+	centerX := float64(dstX) + (float64(r.x)+float64(r.w)/2)*scaleX
+	centerY := float64(dstY) + (float64(r.y)+float64(r.h)/2)*scaleY
+	x := int(math.Round(centerX - float64(size)/2))
+	y := int(math.Round(centerY - float64(size)/2))
+	return x, y, size
 }
 
 // inventoryHardBlocked reports modal state that forbids even a picked-up split
@@ -944,26 +971,35 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 	// Mouse state is updated once per frame in updateMouseState().
 }
 
+const (
+	inventoryCampButtonW           = 120
+	inventoryCampButtonH           = 26
+	inventoryCampNoticeGap         = 6
+	inventoryCampToQuickLabelGap   = 8
+	inventoryCampButtonNoticeBlock = inventoryCampButtonH + inventoryCampNoticeGap + debugTextCharHeight
+)
+
 // drawCampButton renders the Camp button under the inventory grid: spend
 // CampFoodCost food to fully restore the party in the field - unless enemies
 // are within CampEnemyRadiusTiles (TryCamp refuses). The result line stays
 // visible under the button.
 func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
-	const btnW, btnH = 120, 26
-	btnX := gridX + (gridW-btnW)/2
+	btnX := gridX + (gridW-inventoryCampButtonW)/2
 	mouseX, mouseY := ebiten.CursorPosition()
-	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y, btnX+btnW, y+btnH)
+	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y,
+		btnX+inventoryCampButtonW, y+inventoryCampButtonH)
 
 	fill := color.RGBA{30, 45, 30, 255}
 	if hover {
 		fill = color.RGBA{50, 75, 50, 255}
 	}
-	drawFilledRect(screen, btnX, y, btnW, btnH, fill)
-	drawRectBorder(screen, btnX, y, btnW, btnH, 2, color.RGBA{100, 120, 100, 255})
-	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost), btnX, y, btnW, btnH)
+	drawFilledRect(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, fill)
+	drawRectBorder(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, 2, color.RGBA{100, 120, 100, 255})
+	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost),
+		btnX, y, inventoryCampButtonW, inventoryCampButtonH)
 
 	if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
-		ui.game.consumeLeftClickIn(btnX, y, btnX+btnW, y+btnH) {
+		ui.game.consumeLeftClickIn(btnX, y, btnX+inventoryCampButtonW, y+inventoryCampButtonH) {
 		ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
 	}
 
@@ -973,6 +1009,7 @@ func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
 			clr = color.RGBA{120, 210, 120, 255}
 		}
 		noticeX := gridX + (gridW-debugTextWidth(ui.campNotice))/2
-		drawDebugTextColored(screen, ui.campNotice, noticeX, y+btnH+6, clr)
+		drawDebugTextColored(screen, ui.campNotice, noticeX,
+			y+inventoryCampButtonH+inventoryCampNoticeGap, clr)
 	}
 }

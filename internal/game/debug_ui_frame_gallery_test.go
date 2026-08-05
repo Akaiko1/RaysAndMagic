@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -27,6 +28,27 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 	// Exercise the densest shipped character sheet and representative content
 	// so the gallery catches clipping that empty/default tabs would miss.
 	g.party.Members[0] = character.CreateCharacter("Auberon", character.ClassPaladin, g.config)
+	auberon := g.party.Members[0]
+	auberon.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("bronze_labrys")
+	for slot, key := range map[items.EquipSlot]string{
+		items.SlotAmulet:    "scarab_amulet",
+		items.SlotHelmet:    "leather_helmet",
+		items.SlotArmor:     "golden_armor",
+		items.SlotOffHand:   "ringmail_vambraces",
+		items.SlotGauntlets: "chainwork_gauntlets",
+		items.SlotBelt:      "belt_of_speed",
+		items.SlotCloak:     "chrono_cape",
+		items.SlotRing1:     "magic_ring",
+		items.SlotRing2:     "warlords_signet",
+		items.SlotBoots:     "deathgod_greaves",
+	} {
+		auberon.Equipment[slot] = items.CreateItemFromYAML(key)
+	}
+	firstAid, err := spells.CreateSpellItem("heal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auberon.Equipment[items.SlotSpell] = firstAid
 	if fire := g.party.Members[1].MagicSchools[character.MagicSchoolFire]; fire != nil {
 		allFire, err := character.MagicSchoolFire.AvailableSpellIDs()
 		if err != nil {
@@ -50,6 +72,8 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 		}
 	}
 	g.menuOpen = true
+	g.gameLoop.ui.campNotice = "The party rests. HP and spell points fully restored."
+	g.gameLoop.ui.campNoticeOK = true
 
 	out := filepath.Join(os.Getenv("HOME"), "Downloads", "RaysAndMagic_character_hub")
 	if err := os.RemoveAll(out); err != nil {

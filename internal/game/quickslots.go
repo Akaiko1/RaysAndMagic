@@ -22,9 +22,12 @@ import (
 // Independent of the Space/SmartAttack quick-spell (see character.QuickSlots doc).
 
 const (
-	quickSlotBarSprite = "quick_slots_bar"
-	quickSlotBarAspect = 2027.0 / 458.0 // source frame w/h
-	quickDragThreshold = 5              // px of movement before a press becomes a drag
+	quickSlotBarSprite     = "quick_slots_bar"
+	quickSlotBarAspect     = 2027.0 / 458.0 // source frame w/h
+	quickSlotTabLabelH     = 14
+	quickSlotTabLabelGap   = 1
+	quickSlotTabLabelSpace = quickSlotTabLabelH + quickSlotTabLabelGap
+	quickDragThreshold     = 5 // px of movement before a press becomes a drag
 )
 
 // quickSlotCellFrac is each cell as a CENTER + square side (fractions of the
@@ -502,7 +505,8 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 // label above it. Callers position it in the free space of the open tab so it
 // clears the panel art.
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
-	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here", barX, barY-15, barW, 14)
+	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here",
+		barX, barY-quickSlotTabLabelSpace, barW, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW)
 }
 

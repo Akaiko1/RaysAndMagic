@@ -466,9 +466,10 @@ type MMGame struct {
 	cardBurstTileX, cardBurstTileY int
 
 	// Spellbook UI
-	selectedSchool     int
-	selectedSpell      int
-	spellInputCooldown int
+	selectedSchool          int
+	selectedSpell           int
+	spellInputCooldown      int // gameplay input stagger; pauses with the world
+	tabbedMenuInputCooldown int // hub-only navigation debounce; advances while the hub is open
 
 	// Combat log: one ordered list of (text, color) entries. The HUD shows the
 	// last maxMessages of them; the scrollable overlay shows up to
@@ -903,6 +904,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	game.validatePartyCardPanelAsset()
 	validateWeaponFxStyles()
 	validateProjectileFxStyles()
+	validateTrapFxStyles()
 
 	// Decode every sky backdrop up front, then the initial map's pick below is
 	// already a cache hit - as is every later flip and map switch.

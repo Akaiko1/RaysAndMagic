@@ -6,10 +6,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// drawTrapTileBorders outlines every armed trap's tile with rising bubble
-// pixels in the trap's thematic border colour - the same edge-bubble technique
-// as the impassable aura, but on all four edges of the trap tile so the armed
-// square reads clearly on the floor.
+// drawTrapTileBorders draws every armed trap. A trap whose armed_fx names a
+// bespoke style (trapFxStyleDraw) gets that centre-anchored effect instead of an
+// outline, so traps stop reading as identical squares; traps without armed_fx
+// keep the original edge-bubble technique from the impassable aura, tinted by
+// border_color.
 func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
 	traps := r.game.traps
 	if len(traps) == 0 || r.game.world == nil {
@@ -33,6 +34,14 @@ func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
 			clampColor(def.BorderColor[0]),
 			clampColor(def.BorderColor[1]),
 			clampColor(def.BorderColor[2]),
+		}
+		if draw, ok := trapFxStyleDraw[def.ArmedFx]; ok {
+			// Hash id from the tile so every armed trap scatters its particles
+			// differently while staying stable frame to frame.
+			if a, visible := r.trapFloorAnchor(t.TileX, t.TileY, ts, maxDepth); visible {
+				draw(r, screen, a, rgb, t.TileX*73+t.TileY*131)
+			}
+			continue
 		}
 		r.emitAuraTileEdges(screen, t.TileX, t.TileY, ts, perEdge, baseAlpha, maxDepth, rgb)
 	}

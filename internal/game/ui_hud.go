@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -1294,6 +1295,13 @@ func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 // drawCompass draws the compass/direction indicator with minimap showing nearby tiles
 func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	compassX, compassY := ui.getCompassCenter()
+	ui.drawCompassAt(screen, compassX, compassY)
+}
+
+// drawCompassAt renders the complete HUD compass at an explicit center. The
+// live HUD uses getCompassCenter; debug galleries reuse this exact draw path so
+// map QA cannot drift into a separate approximation.
+func (ui *UISystem) drawCompassAt(screen *ebiten.Image, compassX, compassY int) {
 	compassRadius := ui.compassRadius()
 
 	vector.FillCircle(screen, float32(compassX+2), float32(compassY+3), float32(compassRadius+6), color.RGBA{0, 0, 0, 170}, true)
@@ -1396,8 +1404,10 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	}
 }
 
-// rebuildCompassTileLayer bakes the compass minimap's tile fills into a
-// 2R x 2R layer image centered on the player's tile.
+// rebuildCompassTileLayer bakes the compass minimap's floor backgrounds and
+// environment thumbnails into a 2R x 2R layer centered on the player's tile.
+// Like the map editor, floor tiles remain clean color fields while walls,
+// trees, structures, and props show their actual authored sprite.
 func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
 	side := 2 * radius
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
@@ -1425,41 +1435,119 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 				continue
 			}
 
-			// Get tile color based on type; the floor color follows the
-			// tile's own region on the unified world.
+			// The base floor follows this tile's region on the unified world;
+			// authored floor colors and inherited object floors are resolved by
+			// compassTileAppearance below.
 			fc := ui.game.floorColorForTile(tileX, tileY, [3]int{60, 110, 60})
-			floorColor := color.RGBA{uint8(fc[0]), uint8(fc[1]), uint8(fc[2]), 180}
-			tile := ui.game.world.Tiles[tileY][tileX]
-			tileColor := ui.getMinimapTileColor(tile, floorColor)
+			regionFloor := compassRGB(fc, 235)
+			appearance := ui.compassTileAppearance(tileX, tileY, regionFloor)
 
-			// Draw the minimap tile (layer coords: player tile at the center)
+			// Draw the minimap tile (layer coords: player tile at the center).
 			screenX := center + float32(dx)*miniTileSize
 			screenY := center + float32(dy)*miniTileSize
 			halfSize := miniTileSize / 2
-			vector.FillRect(ui.compassTileLayer, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
+			drawX, drawY := screenX-halfSize, screenY-halfSize
+			vector.FillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.floor, false)
+
+			if appearance.sprite == "" || ui.game.sprites == nil || !ui.game.sprites.HasSprite(appearance.sprite) {
+				if appearance.fallback != appearance.floor {
+					vector.FillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.fallback, false)
+				}
+				continue
+			}
+			drawCompassTileSprite(ui.compassTileLayer, ui.game.sprites.GetSprite(appearance.sprite), drawX, drawY, miniTileSize)
 		}
 	}
 }
 
-// getMinimapTileColor returns the color for a tile type on the minimap
-func (ui *UISystem) getMinimapTileColor(tile world.TileType3D, floorColor color.RGBA) color.RGBA {
-	switch tile {
-	case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-		return color.RGBA{29, 35, 44, 245} // Dark for walls/obstacles
-	case world.TileWater:
-		return color.RGBA{35, 102, 178, 235} // Blue for water
-	case world.TileDeepWater:
-		return color.RGBA{20, 54, 116, 240} // Darker blue for deep water
-	case world.TileVioletTeleporter:
-		return color.RGBA{181, 78, 222, 245} // Violet for teleporters
-	case world.TileRedTeleporter:
-		return color.RGBA{218, 68, 68, 245} // Red for teleporters
-	case world.TileClearing:
-		return color.RGBA{83, 151, 91, 225} // Lighter green for clearings
-	default:
-		floorColor.A = 220
-		return floorColor
+type compassTileVisual struct {
+	floor    color.RGBA
+	fallback color.RGBA
+	sprite   string
+}
+
+func compassRGB(rgb [3]int, alpha uint8) color.RGBA {
+	return color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), alpha}
+}
+
+// compassTileAppearance is the data-driven minimap presentation for one tile.
+// It deliberately reads the same TileData floor inheritance, render type,
+// sprite, and map color used by the world renderer and map editor. Dynamic YAML
+// tiles therefore cannot collapse into the current map's one default color.
+func (ui *UISystem) compassTileAppearance(tileX, tileY int, regionFloor color.RGBA) compassTileVisual {
+	visual := compassTileVisual{floor: regionFloor, fallback: regionFloor}
+	if ui == nil || ui.game == nil || ui.game.world == nil || world.GlobalTileManager == nil ||
+		tileX < 0 || tileY < 0 || tileX >= ui.game.world.Width || tileY >= ui.game.world.Height {
+		return visual
 	}
+
+	tm := world.GlobalTileManager
+	tile := ui.game.world.Tiles[tileY][tileX]
+	data := tm.GetTileData(tile)
+	if data == nil {
+		return visual
+	}
+
+	// Explicit floors (water, tatami, stone, roads) own their minimap field.
+	// Objects without a floor inherit the same dominant neighbour as the 3D
+	// renderer instead of sitting on the region-wide fallback color.
+	floorData := data
+	if tm.InheritsFloor(tile) {
+		if inherited, ok := tm.DominantNeighbourFloorForTile(tile, ui.game.world.Tiles,
+			ui.game.world.Width, ui.game.world.Height, tileX, tileY, nil); ok {
+			floorData = tm.GetTileData(inherited)
+		}
+	}
+	if floorData != nil && floorData.FloorColor != [3]int{} {
+		visual.floor = compassRGB(floorData.FloorColor, 235)
+		visual.fallback = visual.floor
+	}
+
+	key := tm.GetTileKey(tile)
+	switch key {
+	case "vteleporter":
+		visual.fallback = color.RGBA{181, 78, 222, 245}
+		return visual
+	case "rteleporter":
+		visual.fallback = color.RGBA{218, 68, 68, 245}
+		return visual
+	}
+
+	// Floors stay as readable color fields. Everything with authored visible
+	// art gets the same real-sprite thumbnail treatment as the map editor.
+	if data.RenderType == config.TileRenderFloor {
+		return visual
+	}
+	visual.sprite = normalizedAuthoredSpriteName(data.Sprite)
+	if mc := config.TileMapColor(data); mc != [3]int{} {
+		visual.fallback = compassRGB(mc, 245)
+	} else if data.Solid || !data.Walkable {
+		visual.fallback = color.RGBA{29, 35, 44, 245}
+	}
+	return visual
+}
+
+// drawCompassTileSprite shrinks one static tile sprite or the first frame of a
+// horizontal sheet into its minimap cell. This only runs while rebuilding the
+// cached layer, never once per frame.
+func drawCompassTileSprite(dst, sprite *ebiten.Image, x, y, size float32) {
+	if dst == nil || sprite == nil || size <= 0 {
+		return
+	}
+	bounds := sprite.Bounds()
+	if bounds.Dy() > 0 && bounds.Dx() > bounds.Dy() && bounds.Dx()%bounds.Dy() == 0 {
+		sprite = sprite.SubImage(image.Rect(bounds.Min.X, bounds.Min.Y,
+			bounds.Min.X+bounds.Dy(), bounds.Min.Y+bounds.Dy())).(*ebiten.Image)
+		bounds = sprite.Bounds()
+	}
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(float64(size)/float64(bounds.Dx()), float64(size)/float64(bounds.Dy()))
+	op.GeoM.Translate(float64(x), float64(y))
+	op.Filter = ebiten.FilterLinear
+	dst.DrawImage(sprite, op)
 }
 
 // drawWizardEyeRadar draws enemy dots on the compass when wizard eye is active

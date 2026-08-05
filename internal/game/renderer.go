@@ -2749,6 +2749,9 @@ func (r *Renderer) drawBubbleSprite(screen *ebiten.Image, x, y, size float64, rg
 		float32(alpha),
 	)
 	opts.Blend = blend
+	// glowOpts is shared with the soft-glow and solid-quad paths. Pin the
+	// sampler here too so a bubble never inherits whichever effect drew first.
+	opts.Filter = ebiten.FilterLinear
 	screen.DrawImage(src, opts)
 }
 
@@ -2785,6 +2788,11 @@ func (r *Renderer) ensureSoftGlow() *ebiten.Image {
 // drawGlowSprite draws a soft ROUND glow of diameter `size` centred at (x,y),
 // tinted by rgb at the given alpha. Same additive convention as drawGlowRect but
 // with the radial-gradient texture so it isn't a hard square.
+//
+// FILTERING IS LOAD-BEARING: small particles shrink this 64px gradient to a
+// handful of pixels, and the default nearest sampler then picks single texels -
+// the soft falloff is gone and every mote renders as a flat square block. Linear
+// (mipmapped on the downscale) is what keeps a 4px glow round.
 func (r *Renderer) drawGlowSprite(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
 	if size <= 0 || alpha <= 0 {
 		return
@@ -2803,6 +2811,7 @@ func (r *Renderer) drawGlowSprite(screen *ebiten.Image, x, y, size float64, rgb 
 		float32(alpha),
 	)
 	opts.Blend = blend
+	opts.Filter = ebiten.FilterLinear
 	screen.DrawImage(src, opts)
 }
 
@@ -2826,6 +2835,7 @@ func (r *Renderer) drawGlowSpriteStretched(screen *ebiten.Image, x, y, w, h floa
 		float32(alpha),
 	)
 	opts.Blend = blend
+	opts.Filter = ebiten.FilterLinear
 	screen.DrawImage(src, opts)
 }
 
@@ -2845,6 +2855,7 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 		float32(alpha),
 	)
 	opts.Blend = blend
+	opts.Filter = ebiten.FilterNearest // 1x1 quad: pin it so glowOpts cannot inherit a filter
 	screen.DrawImage(r.whiteImg, opts)
 }
 
@@ -2868,6 +2879,7 @@ func (r *Renderer) drawGlowRectRotated(screen *ebiten.Image, x, y, w, h, angle f
 		float32(alpha),
 	)
 	opts.Blend = blend
+	opts.Filter = ebiten.FilterNearest // 1x1 quad: pin it so glowOpts cannot inherit a filter
 	screen.DrawImage(r.whiteImg, opts)
 }
 

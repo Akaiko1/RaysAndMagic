@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -25,6 +26,28 @@ type wallTorchPoint struct {
 	seed int
 }
 
+// wallTorchHostTile reports whether a torch may occupy this authored room
+// tile. Read TileData directly so traversal buffs such as Walk on Water cannot
+// turn water into permanent map dressing while the torch cache is rebuilt.
+func wallTorchHostTile(w *world.World3D, x, y int) bool {
+	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
+		return false
+	}
+	data := world.GlobalTileManager.GetTileData(w.GetTileAtGrid(x, y))
+	return data != nil && data.Walkable
+}
+
+// wallTorchBackingWall reports whether this tile draws an actual wall face.
+// Movement blockers are not interchangeable with walls here: water, scenery,
+// and other impassable floor tiles cannot physically support a corner torch.
+func wallTorchBackingWall(w *world.World3D, x, y int) bool {
+	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
+		return false
+	}
+	data := world.GlobalTileManager.GetTileData(w.GetTileAtGrid(x, y))
+	return data != nil && data.RenderType == config.TileRenderWall
+}
+
 // buildWallTorches scans the world for inner wall corners and caches torch
 // positions. Called from the same world-change hook that rebuilds the other
 // per-map caches; clears the list when the map doesn't enable torches.
@@ -39,20 +62,16 @@ func (r *Renderer) buildWallTorches() {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
-	// Torches are authored map dressing, so their corners must follow raw terrain
-	// only. IsTileBlocking changes under Fly and would otherwise erase the cache
-	// when the party entered a torch-lit map while airborne.
-	blocked := func(x, y int) bool { return w.IsTileBlockingTerrainAt(x, y) }
 	for ty := 0; ty < w.Height; ty++ {
 		for tx := 0; tx < w.Width; tx++ {
-			if blocked(tx, ty) {
-				continue // torches hang in the room, not inside walls
+			if !wallTorchHostTile(w, tx, ty) {
+				continue // torches hang over authored room floor, never water
 			}
-			// Each pair of perpendicular blocking neighbours = one inner corner.
+			// Each pair of perpendicular wall faces = one inner corner.
 			for _, c := range [4]struct {
-				dx, dy int // blocked directions forming the corner
+				dx, dy int // wall directions forming the corner
 			}{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
-				if !blocked(tx+c.dx, ty) || !blocked(tx, ty+c.dy) {
+				if !wallTorchBackingWall(w, tx+c.dx, ty) || !wallTorchBackingWall(w, tx, ty+c.dy) {
 					continue
 				}
 				px := float64(tx)*ts + wallTorchCornerInset

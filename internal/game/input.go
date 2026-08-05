@@ -318,6 +318,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.selectedSchool = 0
 	g.selectedSpell = 0
 	g.spellInputCooldown = 0
+	g.tabbedMenuInputCooldown = 0
 	g.collapsedSpellSchools = make(map[character.MagicSchoolID]bool)
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
 	g.lastSpellClickTime = 0
@@ -1209,19 +1210,23 @@ func (ih *InputHandler) handleUIInput() {
 	}
 	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
 	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
-	if ih.keys.Consume(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
+	menuCooldown := ih.game.spellInputCooldown
+	if ih.game.menuOpen {
+		menuCooldown = ih.game.tabbedMenuInputCooldown
+	}
+	if ih.keys.Consume(ebiten.KeyM) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabSpellbook)
 	}
-	if ih.keys.Consume(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyI) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabInventory)
 	}
-	if ih.keys.Consume(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyP) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabCharacters)
 	}
-	if ih.keys.Consume(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyJ) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabQuests)
 	}
-	if ih.keys.Consume(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyK) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabCards)
 	}
 
@@ -1741,12 +1746,12 @@ func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
 		// No spell highlighted until the user clicks or navigates.
 		ih.game.selectedSpell = -1
 	}
-	ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
 }
 
 // handleTabbedMenuInput processes input when the tabbed menu is open
 func (ih *InputHandler) handleTabbedMenuInput() {
-	if ih.game.spellInputCooldown > 0 {
+	if ih.game.tabbedMenuInputCooldown > 0 {
 		return
 	}
 
@@ -1761,7 +1766,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// click, including for a dead or eradicated member whose inventory is open.
 	for idx, key := range [...]ebiten.Key{ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4} {
 		if ebiten.IsKeyPressed(key) && ih.game.selectPartyMemberManually(idx) {
-			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
 		}
 	}
 
@@ -1794,7 +1799,7 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 		}
 		if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
 			equipTrap(currentChar, keys[ih.game.selectedTrap])
-			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
 		}
 		return
 	}
@@ -1824,8 +1829,13 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	// Cast the highlighted spell. The hub closes before the action observes the
 	// world; a failed cast restores it so the player can fix the selection.
 	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
-		ih.castSelectedSpellFromHub()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		if ih.castSelectedSpellFromHub() {
+			// The action closed the hub, so its follow-up debounce belongs to
+			// gameplay and must pause with every later overlay.
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		} else {
+			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
+		}
 	}
 }
 
