@@ -85,9 +85,9 @@ func compareMapData(t *testing.T, want, got *world.MapData) {
 		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, s.MonsterKey)
 	}))
 	compareSpawns(t, "npc", spawnStrings(want.NPCSpawns, func(s world.NPCSpawn) string {
-		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, s.NPCKey)
+		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, world.NPCSpawnDefBody(s))
 	}), spawnStrings(got.NPCSpawns, func(s world.NPCSpawn) string {
-		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, s.NPCKey)
+		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, world.NPCSpawnDefBody(s))
 	}))
 	compareSpawns(t, "special tile", spawnStrings(want.SpecialTileSpawns, func(s world.SpecialTileSpawn) string {
 		return fmt.Sprintf("(%d,%d) %s", s.X, s.Y, s.TileKey)

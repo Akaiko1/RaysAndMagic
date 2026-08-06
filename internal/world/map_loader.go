@@ -25,6 +25,29 @@ const (
 // "goblin") -> "[npc:goblin]".
 func FormatMapDef(tag, body string) string { return "[" + tag + ":" + body + "]" }
 
+// NPCSpawnDefBody composes an [npc:...] def body from a spawn: the NPC key,
+// plus "@tile" when the placement overrides the ground painted under it.
+// ParseNPCSpawnDefBody is its inverse; the loader and the map editor's save
+// path must both go through this pair so the syntax cannot drift.
+func NPCSpawnDefBody(spawn NPCSpawn) string {
+	if spawn.GroundTile == "" {
+		return spawn.NPCKey
+	}
+	return spawn.NPCKey + "@" + spawn.GroundTile
+}
+
+// ParseNPCSpawnDefBody splits an [npc:...] def body into the NPC key and the
+// optional per-placement ground-tile override ("key" or "key@tile"). ok is
+// false for a malformed body: an empty NPC key, or an '@' with nothing after it
+// (that reads as "no override" and would slip past the ground-tile validation).
+func ParseNPCSpawnDefBody(body string) (npcKey, groundTile string, ok bool) {
+	if i := strings.IndexByte(body, '@'); i >= 0 {
+		npcKey, groundTile = body[:i], body[i+1:]
+		return npcKey, groundTile, npcKey != "" && groundTile != ""
+	}
+	return body, "", body != ""
+}
+
 // ParseMapDef splits a bracketed entity def into its tag and body. ok is false
 // if s is not a well-formed "[tag:body]".
 func ParseMapDef(s string) (tag, body string, ok bool) {
@@ -55,6 +78,10 @@ type MonsterSpawn struct {
 type NPCSpawn struct {
 	X, Y   int
 	NPCKey string // YAML NPC key
+	// GroundTile is this placement's tile-key override for the ground painted
+	// under the NPC ([npc:key@tile] in the map). Empty = the NPC definition's
+	// ground_tile, then the default floor.
+	GroundTile string
 }
 
 // SpecialTileSpawn represents a special tile spawn point from the map
@@ -118,7 +145,10 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 
 		// Parse line into tiles and extract NPCs, special tiles, general tiles
 		y := len(lines)
-		parsedLine, lineNPCs, lineSpecialTiles, lineGeneralTiles, lineAt := ml.parseTileTokens(line, y)
+		parsedLine, lineNPCs, lineSpecialTiles, lineGeneralTiles, lineAt, err := ml.parseTileTokens(line, y)
+		if err != nil {
+			return nil, fmt.Errorf("map %s: %w", mapPath, err)
+		}
 		npcSpawns = append(npcSpawns, lineNPCs...)
 		specialTileSpawns = append(specialTileSpawns, lineSpecialTiles...)
 		generalTileSpawns = append(generalTileSpawns, lineGeneralTiles...)
@@ -148,6 +178,20 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		if len(line) != width {
 			fmt.Print("The line with error is: ", line, "\n")
 			return nil, fmt.Errorf("line %d has inconsistent width: expected %d, got %d", i+1, width, len(line))
+		}
+	}
+
+	// A ground override is authored content: a typo must fail the load, not
+	// degrade to ordinary floor with a console warning nobody reads.
+	if GlobalTileManager != nil {
+		for _, spawn := range npcSpawns {
+			if spawn.GroundTile == "" {
+				continue
+			}
+			if _, ok := GlobalTileManager.GetTileTypeFromKey(spawn.GroundTile); !ok {
+				return nil, fmt.Errorf("map %s: NPC %q at (%d,%d) requests unknown ground tile %q",
+					mapPath, spawn.NPCKey, spawn.X, spawn.Y, spawn.GroundTile)
+			}
 		}
 	}
 
@@ -324,7 +368,7 @@ func (ml *MapLoader) LoadForestMap() (*MapData, error) {
 
 // parseTileTokens parses a line into tiles, handling both NPCs and special tiles:
 // Map tiles use single characters, definitions are at line end with >[npc:key] or >[stile:key] format
-func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []SpecialTileSpawn, []int) {
+func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []SpecialTileSpawn, []int, error) {
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
 	var generalTileSpawns []SpecialTileSpawn
@@ -369,8 +413,12 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 
 		switch tag {
 		case MapDefNPC:
+			npcKey, groundTile, defOK := ParseNPCSpawnDefBody(body)
+			if !defOK {
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: malformed npc def %q (want [npc:key] or [npc:key@tile])", lineY+1, body)
+			}
 			if atIndex < len(atPositions) {
-				npcSpawns = append(npcSpawns, NPCSpawn{X: atPositions[atIndex], Y: lineY, NPCKey: body})
+				npcSpawns = append(npcSpawns, NPCSpawn{X: atPositions[atIndex], Y: lineY, NPCKey: npcKey, GroundTile: groundTile})
 				atIndex++
 			}
 		case MapDefStile:
@@ -408,5 +456,5 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 	// Return all placeholder X's (interactive + general) so the caller floors
 	// the ground beneath every entity cell.
 	placeholders := append(append([]int(nil), atPositions...), dollarPositions...)
-	return resultTiles, npcSpawns, specialTileSpawns, generalTileSpawns, placeholders
+	return resultTiles, npcSpawns, specialTileSpawns, generalTileSpawns, placeholders, nil
 }

@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math/rand"
 	"strings"
@@ -1017,6 +1018,9 @@ func (g *MMGame) merchantSellPrice(base int) int {
 // / merchantCellRect, and the pager flips the page state on MMGame so both sides
 // agree.
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	// Drag sources and the drop zone act only while the dialog IS the top
+	// layer - under the quantity picker the grids are decoration.
+	merchantInteractive := ui.topModalLayer() == modalLayerDialog
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
@@ -1045,7 +1049,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Headers + faint divider between the two halves. Headers sit at gridTop-24
 	// so they clear the two-line greeting above and the icon frames below.
 	drawDebugText(screen, "For Sale", leftX, gridTop-24)
-	drawDebugText(screen, "Your Items", rightX, gridTop-24)
+	// The bag header doubles as the drag-to-buy hint at a shop that pays no
+	// coin: a separate line under it would sit on the first row of icons.
+	drawDebugText(screen, clipDebugText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-24)
 	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-6, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
 
 	var tooltipItem items.Item
@@ -1073,6 +1079,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			entry := stock[idx]
 			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
+			if merchantInteractive {
+				ui.merchantStockDragSource(idx, image.Rect(x, y, x+w, y+h))
+			}
 			soldOut := !entry.InStock()
 			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
@@ -1100,10 +1109,11 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	}
 	pagerChanged := ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true)
 
-	// Sell grid (right): party inventory.
-	if !ui.game.dialogNPC.SellAvailable {
-		drawDebugText(screen, "(Not buying goods)", rightX, gridTop)
-	} else {
+	// Bag grid (right): the party's own goods. It is ALWAYS drawn - even at a
+	// shop that pays no coin - because it is the drop target of a drag-to-buy.
+	// Only the sale half (drag sources, sell prices) needs a coin till.
+	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
+	{
 		inv := ui.game.party.Inventory
 		sellPages := pageCount(len(inv), merchantPageSize)
 		clampPage(&ui.game.merchantSellPage, sellPages)
@@ -1115,6 +1125,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			item := inv[idx]
 			x, y, w, h := merchantCellRect(rightX, gridTop, slot)
+			if merchantInteractive && buysGoods {
+				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
+			}
 			value := item.Attributes["value"]
 			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
@@ -1124,13 +1137,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 					ui.fullArtCardKey = key
 				}
 			}
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, value > 0)
-			priceText := "no value"
-			if value > 0 {
-				priceText = fmt.Sprintf("%d g", ui.game.merchantSellPrice(value))
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
+			if buysGoods {
+				priceText := "no value"
+				if value > 0 {
+					priceText = fmt.Sprintf("%d g", ui.game.merchantSellPrice(value))
+				}
+				px, py, pw, ph := merchantPriceRect(x, y, w, h)
+				drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
 			}
-			px, py, pw, ph := merchantPriceRect(x, y, w, h)
-			drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
 		}
 		if ui.drawPager(screen, rightX, pagerY, merchantGridW, &ui.game.merchantSellPage, sellPages, true) {
 			pagerChanged = true
@@ -1141,6 +1156,23 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	if pagerChanged {
 		ui.game.resetDialogClickTracker()
 	}
+
+	// Drag across the counter opens the quantity picker (the drag state machine
+	// is shared with the stash): a bag stack dropped on the shelf SELLS, a shelf
+	// item dropped on the bag BUYS. Any other release just cancels the carry.
+	if merchantInteractive && ui.game.stashDragDrop {
+		stockGrid := image.Rect(leftX, gridTop, leftX+merchantGridW, pagerY)
+		bagGrid := image.Rect(rightX, gridTop, rightX+merchantGridW, pagerY)
+		src, ok := decodeStashFrom(ui.game.stashDragFrom)
+		switch {
+		case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
+			ui.beginMerchantSellPicker(src.idx)
+		case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
+			ui.beginMerchantBuyPicker(src.idx)
+		}
+		ui.game.clearStashDrag()
+	}
+	ui.drawStashCarriedIcon(screen)
 
 	// Full item card on hover, floating at the cursor (drawn over everything via
 	// the queued tooltip pass). selectedChar is bounds-guarded - a stale index

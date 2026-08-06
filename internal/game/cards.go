@@ -531,6 +531,13 @@ func (g *MMGame) maybeCardMoveBurst() {
 }
 
 // hasCardWalkOnWater reports whether any collected card grants walk-on-water.
+// walkOnWaterEffective is the party's ACTUAL walk-on-water state: the timed
+// chant or the collected card's permanent passive. Movement, world sync, and
+// the paid buff service must all agree on it.
+func (g *MMGame) walkOnWaterEffective() bool {
+	return g.walkOnWaterActive || g.hasCardWalkOnWater()
+}
+
 func (g *MMGame) hasCardWalkOnWater() bool {
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardWalkOnWater {

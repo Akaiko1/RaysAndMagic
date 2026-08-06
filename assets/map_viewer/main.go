@@ -2007,7 +2007,7 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 				continue
 			}
 			row[npc.X] = world.MapCellInteractive
-			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, npc.NPCKey)})
+			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, world.NPCSpawnDefBody(npc))})
 		}
 		for _, sp := range specialByRow[y] {
 			if sp.X < 0 || sp.X >= width {

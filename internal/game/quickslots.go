@@ -11,7 +11,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // Quick slots: a per-character 5-cell pocket for mouse-driven quick use. While a
@@ -444,8 +443,8 @@ func (ui *UISystem) updateQuickDrag() bool {
 			g.clearDrag()
 			return false
 		}
-		g.dragCurX, g.dragCurY = ebiten.CursorPosition()
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		g.dragCurX, g.dragCurY = pointerPosition()
+		if pointerLeftJustPressed() {
 			g.dragDropAt = 1
 			return true // destination click is a drag drop, never an inventory click
 		}
@@ -461,8 +460,8 @@ func (ui *UISystem) updateQuickDrag() bool {
 		}
 		return false
 	}
-	x, y := ebiten.CursorPosition()
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	x, y := pointerPosition()
+	if pointerLeftJustPressed() {
 		g.dragArmed = true
 		g.dragActive = false
 		g.dragDropAt = 0
@@ -472,7 +471,7 @@ func (ui *UISystem) updateQuickDrag() bool {
 		g.dragCurX, g.dragCurY = x, y
 		g.dragItem = items.Item{}
 	}
-	if g.dragArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if g.dragArmed && pointerLeftPressed() {
 		g.dragCurX, g.dragCurY = x, y
 		if !g.dragActive && (absInt(x-g.dragStartX) > quickDragThreshold || absInt(y-g.dragStartY) > quickDragThreshold) {
 			g.dragActive = true
@@ -481,7 +480,7 @@ func (ui *UISystem) updateQuickDrag() bool {
 			ui.lastClickedItem = -1
 		}
 	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+	if pointerLeftJustRelease() {
 		g.dragCurX, g.dragCurY = x, y
 		if g.dragActive && g.dragSrc != dragNone {
 			g.dragDropAt = 1 // Draw resolves against the target under the cursor

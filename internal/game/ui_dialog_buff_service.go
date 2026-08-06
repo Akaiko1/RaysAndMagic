@@ -134,17 +134,19 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 	for i, choice := range services {
 		x, y, w, h := buffServiceRowRect(dialogX, dialogY, dialogWidth, i)
 		affordable := ui.game.party.Gold >= choice.Cost
+		alreadyActive := ui.game.serviceBuffAlreadyCovered(spells.SpellID(choice.Buff))
+		buyable := affordable && !alreadyActive
 		hovered := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 
 		bg := color.RGBA{30, 30, 50, 220}
-		if !affordable {
+		if !buyable {
 			bg = color.RGBA{40, 28, 28, 200}
 		} else if hovered {
 			bg = color.RGBA{50, 55, 85, 240}
 		}
 		drawFilledRect(screen, x, y, w, h, bg)
 		border := color.RGBA{100, 100, 130, 255}
-		if affordable && hovered {
+		if buyable && hovered {
 			border = color.RGBA{210, 170, 80, 240}
 		}
 		drawRectBorder(screen, x, y, w, h, 2, border)
@@ -158,25 +160,36 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		drawDebugText(screen, clipDebugText(choice.Text, textW), textX, y+10)
 		detail := fmt.Sprintf("%s for %s - %d gold",
 			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost)
-		if !affordable {
+		if alreadyActive {
+			detail += " (already active)"
+		} else if !affordable {
 			detail += " (too costly)"
 		}
 		drawDebugText(screen, clipDebugText(detail, textW), textX, y+10+debugTextCharHeight+4)
 
 		if hovered {
-			ui.queueTooltip([]string{
+			lines := []string{
 				buffServiceLabel(choice.Buff),
 				fmt.Sprintf("Cast on the whole party for %s.", buffServiceDurationLabel(choice.DurationSeconds)),
 				fmt.Sprintf("Cost: %d gold", choice.Cost),
 				"A service - the party does not learn the spell.",
-			}, mouseX+12, mouseY+8)
+			}
+			if alreadyActive {
+				lines = append(lines, "Already woven over the party.")
+			}
+			ui.queueTooltip(lines, mouseX+12, mouseY+8)
 		}
+		// Double-click to buy (dialog list convention): the first click only
+		// selects, so a stray click can no longer spend the party's gold.
 		if ui.game.consumeLeftClickIn(x, y, x+w, y+h) {
-			ui.game.pendingBuffService = choice
+			if ui.game.dialogDoubleClick("buff_service", i) {
+				ui.game.pendingBuffService = choice
+				ui.game.resetDialogClickTracker()
+			}
 		}
 	}
 
-	drawDebugText(screen, "Click a charm to have it cast. ESC to leave.",
+	drawDebugText(screen, "Double-click a charm to have it cast. ESC to leave.",
 		layout.footer[0].x, layout.footer[0].y)
 }
 

@@ -671,7 +671,9 @@ func (wm *WorldManager) buildOpenWorld() error {
 		npcSpawns := make([]NPCSpawn, len(p.data.NPCSpawns))
 		for si, spawn := range p.data.NPCSpawns {
 			sx, sy := owXformTile(p.off.Orient, p.data.Width, p.data.Height, spawn.X, spawn.Y)
-			npcSpawns[si] = NPCSpawn{X: sx + p.off.X, Y: sy + p.off.Y, NPCKey: spawn.NPCKey}
+			// GroundTile rides along: a per-placement ground override belongs to
+			// the placement, not the coordinates it lands on.
+			npcSpawns[si] = NPCSpawn{X: sx + p.off.X, Y: sy + p.off.Y, NPCKey: spawn.NPCKey, GroundTile: spawn.GroundTile}
 		}
 		npcCountBefore := len(merged.NPCs)
 		merged.loadNPCsFromMapData(npcSpawns)

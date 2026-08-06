@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 )
@@ -19,9 +20,14 @@ func bootOpenWorldTest(t *testing.T) (*WorldManager, *config.OpenWorldConfig) {
 		t.Fatalf("config: %v", err)
 	}
 
+	// EVERY process global this boot touches is restored: NPC and spell configs
+	// included, or a shuffled run would leak them and make the next build's NPC
+	// population (and its ground painting) depend on test order.
 	prevTM, prevWM, prevMC := GlobalTileManager, GlobalWorldManager, monster.MonsterConfig
+	prevNPC, prevSpells := character.NPCConfigInstance, config.GlobalSpells
 	t.Cleanup(func() {
 		GlobalTileManager, GlobalWorldManager, monster.MonsterConfig = prevTM, prevWM, prevMC
+		character.NPCConfigInstance, config.GlobalSpells = prevNPC, prevSpells
 	})
 
 	GlobalTileManager = NewTileManager(testTileSizeClasses())
@@ -33,6 +39,15 @@ func bootOpenWorldTest(t *testing.T) (*WorldManager, *config.OpenWorldConfig) {
 	}
 	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
+	// NPCs are part of the world: ground_tile painting and the removal of
+	// travel devices only happen for NPCs that actually get created, so a boot
+	// without them would build a world every NPC assertion passes vacuously in.
+	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
+		t.Fatalf("spells: %v", err)
+	}
+	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
+		t.Fatalf("npcs: %v", err)
+	}
 
 	owc, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
 	if err != nil {
@@ -292,4 +307,52 @@ func TestOpenWorldRegionMonsterPools(t *testing.T) {
 	if shared {
 		t.Fatal("forest and desert resolve identical monster pools - region scoping is not in effect")
 	}
+}
+
+// A per-placement ground override belongs to the PLACEMENT, so it must survive
+// the unified-world transform: the shipped lake chest stands on deep water in
+// the merged world exactly as it does on the standalone forest map.
+func TestOpenWorldKeepsPerPlacementGroundOverride(t *testing.T) {
+	wm, _ := bootOpenWorldTest(t)
+	merged := wm.OpenWorld
+	if merged == nil {
+		t.Fatal("unified world missing")
+	}
+	deepWater, ok := GlobalTileManager.GetTileTypeFromKey("deep_water")
+	if !ok {
+		t.Fatal("deep_water tile key not found")
+	}
+
+	// The forest map authors [npc:chest_iron@deep_water]; find that placement's
+	// unified tile through the projection layer and read the ground under it.
+	local := forestChestOverridePlacement(t, wm)
+	// An identity projection is legal (a region may sit at 0,0 unrotated), so the
+	// only thing worth asserting is the GROUND at the resulting tile.
+	tx, ty := wm.ProjectTile("forest", local[0], local[1])
+	if got := merged.Tiles[ty][tx]; got != deepWater {
+		t.Fatalf("unified ground under the lake chest = %q, want deep_water",
+			GlobalTileManager.GetTileKey(got))
+	}
+}
+
+// forestChestOverridePlacement returns the map-local tile of the lake chest -
+// the chest_iron placement standing on deep water. Other NPCs are free to carry
+// their own overrides; only THIS one is the subject here. Fails if the content
+// stopped authoring it, since the test would otherwise prove nothing.
+func forestChestOverridePlacement(t *testing.T, wm *WorldManager) [2]int {
+	t.Helper()
+	data, err := NewMapLoaderWithBiome(wm.config, "forest").LoadMap("assets/forest.map")
+	if err != nil {
+		t.Fatalf("load forest map: %v", err)
+	}
+	var found [][2]int
+	for _, spawn := range data.NPCSpawns {
+		if spawn.NPCKey == "chest_iron" && spawn.GroundTile == "deep_water" {
+			found = append(found, [2]int{spawn.X, spawn.Y})
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("forest.map has %d chest_iron@deep_water placements, want exactly 1", len(found))
+	}
+	return found[0]
 }

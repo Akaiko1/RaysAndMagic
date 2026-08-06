@@ -281,6 +281,11 @@ func LoadNPCConfig(filename string) error {
 		if npc != nil && npc.StockWeaponsRarity != "" && npc.StockWeaponsCost <= 0 {
 			return fmt.Errorf("NPC %q: stock_weapons_rarity needs a positive stock_weapons_cost", key)
 		}
+		// A trader whose till is arena points or dragon scales has no coin to
+		// pay the party with, so it can never BUY their goods.
+		if npc != nil && npc.SellAvailable && npc.Currency != "" {
+			return fmt.Errorf("NPC %q: sell_available needs a gold till, but the shop trades in %q", key, npc.Currency)
+		}
 	}
 	if err := validateNPCTypes(&config); err != nil {
 		return err

@@ -11,17 +11,17 @@ import (
 
 // TileManager handles tile configuration and properties
 type TileManager struct {
-	tileData     map[string]*config.TileData
-	sizeClasses  map[string]float64
-	typeToKey    map[TileType3D]string
-	keyToType    map[string]TileType3D // Map from key to tile type
+	tileData    map[string]*config.TileData
+	sizeClasses map[string]float64
+	typeToKey   map[TileType3D]string
+	keyToType   map[string]TileType3D // Map from key to tile type
 	// denseTileData is the flat TileType3D -> data table behind GetTileData:
 	// render paths resolve tiles per column per frame, so one slice index
 	// replaces the two map hops (type -> key -> data). Derived from typeToKey
 	// in createTypeMapping; YAML stays the source of truth.
 	denseTileData []*config.TileData
-	letterToType map[string]TileType3D // Map from letter to tile type
-	typeToLetter map[TileType3D]string // Map from tile type to letter
+	letterToType  map[string]TileType3D // Map from letter to tile type
+	typeToLetter  map[TileType3D]string // Map from tile type to letter
 	// shortLabelToType / typeToShortLabel place letterless GENERAL tiles via a
 	// >[tile:short_label] map def (see TileData.ShortLabel).
 	shortLabelToType map[string]TileType3D

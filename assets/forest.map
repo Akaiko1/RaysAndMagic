@@ -14,7 +14,7 @@
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%@@..T...T....T.PPPPP...T.....fffT....T.@@WQQQQQ@%  >[npc:campfire], [npc:mtrader0], [npc:barrel_green], [npc:barrel_blue], [npc:chest_iron]
+%@@..T...T....T.PPPPP...T.....fffT....T.@@WQQQQQ@%  >[npc:campfire], [npc:mtrader0], [npc:barrel_green], [npc:barrel_blue], [npc:chest_iron@deep_water]
 %..........T......................T.....PP@WQQQQQ%  >[npc:lake_bather_ilsa]
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%

@@ -1285,7 +1285,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 			return x, y
 		}
 		if tile == world.TileWater || tile == world.TileDeepWater {
-			if g.walkOnWaterActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+			if g.walkOnWaterEffective() || g.waterBreathingActive {
 				return x, y
 			}
 		}

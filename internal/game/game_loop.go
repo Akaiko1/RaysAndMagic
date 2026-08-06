@@ -703,7 +703,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
-		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 		gl.game.world.SetFlyActive(gl.game.flyActive)
 	}
@@ -817,6 +817,23 @@ func (g *MMGame) timedBuffByID(id spells.SpellID) (timedBuff, bool) {
 		}
 	}
 	return timedBuff{}, false
+}
+
+// isTimedBuffActive reports whether a registry buff currently runs, whatever
+// its remaining span. Paid services refuse while it does.
+func (g *MMGame) isTimedBuffActive(id spells.SpellID) bool {
+	buff, ok := g.timedBuffByID(id)
+	return ok && *buff.active
+}
+
+// serviceBuffAlreadyCovered is the paid-service refusal predicate: the chant
+// already runs, or a permanent passive grants the same effect (the walk-on-
+// water card) - either way the coin would buy nothing.
+func (g *MMGame) serviceBuffAlreadyCovered(id spells.SpellID) bool {
+	if g.isTimedBuffActive(id) {
+		return true
+	}
+	return id == "walk_on_water" && g.hasCardWalkOnWater()
 }
 
 // activateTimedBuffFrames is the single activation path for flag-based timed

@@ -238,8 +238,32 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			g.closeStashScreen()
 		}
 	case modalLayerStackSplit:
+		// The picker types like a form: digits write the quantity (first digit
+		// replaces the prefill), arrows step it, Enter confirms, ESC cancels.
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.cancelStackSplitInteraction()
+			break
+		}
+		gl := g.gameLoop
+		if gl == nil || gl.ui == nil {
+			break
+		}
+		switch {
+		case ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyNumpadEnter):
+			gl.ui.stackSplitConfirm()
+		case ih.keys.Consume(ebiten.KeyUp) || ih.keys.Consume(ebiten.KeyRight):
+			gl.ui.stackSplitAdjust(1)
+		case ih.keys.Consume(ebiten.KeyDown) || ih.keys.Consume(ebiten.KeyLeft):
+			gl.ui.stackSplitAdjust(-1)
+		case ih.keys.Consume(ebiten.KeyBackspace):
+			gl.ui.stackSplitBackspace()
+		default:
+			for d := 0; d <= 9; d++ {
+				if ih.keys.Consume(ebiten.KeyDigit0+ebiten.Key(d)) || ih.keys.Consume(ebiten.KeyNumpad0+ebiten.Key(d)) {
+					gl.ui.stackSplitAppendDigit(d)
+					break
+				}
+			}
 		}
 	case modalLayerLevelChoice:
 		ih.handleLevelUpChoiceInput()
@@ -1493,7 +1517,7 @@ func (ih *InputHandler) checkDeepWater() {
 	// Fly and Walk on Water keep the party ABOVE the surface - deep water is
 	// scenery to them, not a hazard. (A per-step warning here used to spam the
 	// log on every flight across a lake.)
-	if ih.game.flyActive || ih.game.walkOnWaterActive || ih.game.hasCardWalkOnWater() {
+	if ih.game.flyActive || ih.game.walkOnWaterEffective() {
 		return
 	}
 
@@ -2256,58 +2280,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("merchant_buy", idx) {
-					entry := stock[idx]
-					if !entry.InStock() {
-						ih.game.AddCombatMessage("That item is sold out.")
-						return
-					}
-					// Arena-points merchants trade at flat prices in the victory
-					// currency; gold merchants keep the Merchant-skill discount.
-					// A per-entry currency_item (Scalewright) overrides the shop
-					// currency and may add a flat gold surcharge.
-					entryCurrency := entry.EffectiveCurrency(ih.game.dialogNPC.Currency)
-					if name, ok := currencyItemName(entryCurrency); ok {
-						if entry.GoldCost > ih.game.party.Gold {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold on top of the %ss for %s.", entry.GoldCost, name, entry.Item.Name))
-							return
-						}
-						if !ih.game.party.RemoveItemsByName(name, entry.Cost) {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d %ss to trade for %s.", entry.Cost, name, entry.Item.Name))
-							return
-						}
-						ih.game.party.Gold -= entry.GoldCost
-						ih.game.party.AddItem(entry.Item)
-						entry.Take()
-						if entry.GoldCost > 0 {
-							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss and %d gold for %s.", entry.Cost, name, entry.GoldCost, entry.Item.Name))
-						} else {
-							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost, name, entry.Item.Name))
-						}
+					// Stacks buy one unit per double-click; bulk purchases go
+					// through the drag-to-buy quantity picker.
+					if ih.game.buyMerchantUnits(stock[idx], 1) {
 						ih.resetDialogDoubleClick()
-						return
 					}
-					if entryCurrency == character.CurrencyArenaPoints {
-						if entry.Cost > ih.game.party.ArenaPoints {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", entry.Cost, entry.Item.Name))
-							return
-						}
-						ih.game.party.ArenaPoints -= entry.Cost
-						ih.game.party.AddItem(entry.Item)
-						entry.Take()
-						ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d arena points.", entry.Item.Name, entry.Cost))
-						ih.resetDialogDoubleClick()
-						return
-					}
-					cost := ih.game.merchantBuyPrice(entry.Cost) // Merchant skill discount
-					if cost > ih.game.party.Gold {
-						ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", cost, entry.Item.Name))
-						return
-					}
-					ih.game.party.Gold -= cost
-					ih.game.party.AddItem(entry.Item)
-					entry.Take()
-					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
-					ih.resetDialogDoubleClick()
 				}
 				return
 			}
@@ -2325,17 +2302,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 				x, y, w, h := merchantCellRect(rightX, gridTop, slot)
 				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 					if ih.dialogDoubleClick("merchant_sell", idx) {
-						item := inv[idx]
-						base := item.Attributes["value"]
-						if base <= 0 {
-							ih.game.AddCombatMessage("This item has no value.")
-							return
+						// Stacks sell one unit per double-click; bulk sales go
+						// through the drag-to-sell quantity picker.
+						if ih.game.sellInventoryUnits(idx, 1) {
+							ih.resetDialogDoubleClick()
 						}
-						price := ih.game.merchantSellPrice(base) // Merchant skill markup
-						ih.game.awardGold(price)
-						ih.game.party.ConsumeOneAt(idx) // stacks sell one unit per double-click
-						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
-						ih.resetDialogDoubleClick()
 					}
 					return
 				}
@@ -2353,13 +2324,21 @@ func (ih *InputHandler) handleDialogMouseInput() {
 // same list entry. zone keys the tracker per list (buy/sell/spell/...), so two
 // fast clicks on the same index of DIFFERENT lists never count.
 func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
+	return ih.game.dialogDoubleClick(zone, index)
+}
+
+// dialogDoubleClick is the ONE dialog-list double-click tracker, shared by the
+// Update-side handlers (trainer, merchant, trader, cards) and Draw-side rows
+// (buff service): first click selects, a second on the same zone+index within
+// the window acts.
+func (g *MMGame) dialogDoubleClick(zone string, index int) bool {
 	currentTime := time.Now().UnixMilli()
-	doubleClick := ih.game.dialogLastClickZone == zone &&
-		ih.game.dialogLastClickedIdx == index &&
-		withinDoubleClickWindow(currentTime, ih.game.dialogLastClickTime)
-	ih.game.dialogLastClickTime = currentTime
-	ih.game.dialogLastClickedIdx = index
-	ih.game.dialogLastClickZone = zone
+	doubleClick := g.dialogLastClickZone == zone &&
+		g.dialogLastClickedIdx == index &&
+		withinDoubleClickWindow(currentTime, g.dialogLastClickTime)
+	g.dialogLastClickTime = currentTime
+	g.dialogLastClickedIdx = index
+	g.dialogLastClickZone = zone
 	return doubleClick
 }
 
@@ -3197,6 +3176,13 @@ func (ih *InputHandler) handleBuffServiceInput() {
 // dialogue entry rather than any caster's mastery.
 func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 	g := ih.game
+	// A chant already woven over the party - of ANY remaining span - refuses
+	// the sale outright: a misclick must never re-buy a running blessing.
+	if g.serviceBuffAlreadyCovered(spells.SpellID(choice.Buff)) {
+		g.AddCombatMessage(fmt.Sprintf("%s is already woven over the party - no gold was spent.",
+			buffServiceLabel(choice.Buff)))
+		return
+	}
 	if g.party.Gold < choice.Cost {
 		g.AddCombatMessage(fmt.Sprintf("That casting costs %d gold - your purse is too light.", choice.Cost))
 		return

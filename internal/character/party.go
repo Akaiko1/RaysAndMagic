@@ -282,12 +282,19 @@ func (p *Party) RemoveItem(index int) {
 // ConsumeOneAt removes ONE unit from the entry at index: decrements a stack,
 // removes the entry when the last unit goes. Reports whether a unit was taken.
 func (p *Party) ConsumeOneAt(index int) bool {
-	if index < 0 || index >= len(p.Inventory) {
+	return p.ConsumeUnitsAt(index, 1)
+}
+
+// ConsumeUnitsAt removes n units from the entry at index: decrements the
+// stack, removes the whole entry when the last unit goes. Reports whether the
+// units were taken (false on a bad index or more units than the entry holds).
+func (p *Party) ConsumeUnitsAt(index, n int) bool {
+	if index < 0 || index >= len(p.Inventory) || n < 1 || n > p.Inventory[index].Count() {
 		return false
 	}
-	if p.Inventory[index].Count() > 1 {
+	if p.Inventory[index].Count() > n {
 		p.contentRev++
-		return p.Inventory[index].ConsumeStackUnits(1)
+		return p.Inventory[index].ConsumeStackUnits(n)
 	}
 	p.RemoveItem(index)
 	return true

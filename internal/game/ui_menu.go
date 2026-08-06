@@ -10,7 +10,6 @@ import (
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 const menuPanelFrameSlice = 16
@@ -491,8 +490,8 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 
 // updateMouseState should be called once per frame before input handling.
 func (ui *UISystem) updateMouseState() {
-	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
-	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
+	leftJustPressed := pointerLeftJustPressed()
+	rightJustPressed := pointerRightJustPress()
 	now := time.Now().UnixMilli()
 	if ui.modalRedrawBarrierActive() {
 		ui.dropQueuedClicks()
@@ -523,19 +522,30 @@ func (ui *UISystem) updateMouseState() {
 	// dialog. A higher modal must not let a release resolve later against a
 	// newly uncovered stash cell - same rule: cancel everything transient, keep
 	// only the deliberately picked-up split fragment.
-	if inputLayer == modalLayerStash || inputLayer == modalLayerDialog {
-		suppressLeftClick = ui.updateStashDrag() || suppressLeftClick
+	//
+	// While the drag machine runs it OWNS the left button: it queues the click
+	// itself, on a release that stayed under the drag threshold (see
+	// updateStashDrag). Queueing on press as well would let the press that
+	// begins a drag double as a buy/sell click.
+	// The release-driven mode belongs to the SURFACE, not the layer: an ordinary
+	// dialog (quest, tavern service, trainer) has no drag machine to queue its
+	// clicks, so gating on the layer alone would leave it with no clicks at all.
+	dragSurface := ui.game.stashDragSurfaceOpen()
+	releaseDrivenClicks := false
+	if dragSurface && (inputLayer == modalLayerStash || inputLayer == modalLayerDialog) {
+		suppressLeftClick = ui.updateStashDrag(now) || suppressLeftClick
+		releaseDrivenClicks = true
 	} else if !ui.game.stashDragPickedUp && (ui.game.stashDragArmed || ui.game.stashDragActive || ui.game.stashDragDrop) {
 		ui.game.clearStashDrag()
 	}
 
-	if leftJustPressed && !suppressLeftClick {
-		x, y := ebiten.CursorPosition()
+	if leftJustPressed && !suppressLeftClick && !releaseDrivenClicks {
+		x, y := pointerPosition()
 		ui.game.mouseLeftClicks = append(ui.game.mouseLeftClicks, queuedClick{x: x, y: y, at: now})
 		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = x, y
 	}
 	if rightJustPressed {
-		x, y := ebiten.CursorPosition()
+		x, y := pointerPosition()
 		ui.game.mouseRightClicks = append(ui.game.mouseRightClicks, queuedClick{x: x, y: y, at: now})
 		ui.game.mouseRightClickX, ui.game.mouseRightClickY = x, y
 	}
