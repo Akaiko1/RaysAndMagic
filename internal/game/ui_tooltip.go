@@ -40,7 +40,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnified(item, char, combatSystem, full)
 	case items.ItemConsumable:
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Double-click to use", "Single use"}, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Double-click to use", "Single use"}, full)
 	case items.ItemQuest:
 		// Only ACTIVATABLE quest items get a usage hint - plain story tokens
 		// (statuettes etc.) just sit in the inventory.
@@ -48,11 +48,11 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && def != nil && (def.OpensMap || def.PromotesLich) {
 			usage = append([]string{"Double-click to use"}, usage...)
 		}
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", usage, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", usage, full)
 	case items.ItemTrinket, items.ItemCard:
 		// Cards (split out of trinkets) share the simple path so their
 		// "Collection: ..." effect lines surface as loose inventory items too.
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
+		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
@@ -302,8 +302,8 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
-	_, _, total := combatSystem.CalculateWeaponDamage(item, char)
-	_, _, eqTotal := combatSystem.CalculateWeaponDamage(equipped, char)
+	total := combatSystem.calculateWeaponDamagePreview(item, char).Total
+	eqTotal := combatSystem.calculateWeaponDamagePreview(equipped, char).Total
 	lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", total, eqTotal, total-eqTotal))
 
 	itemRange, eqRange := 0, 0
@@ -490,18 +490,4 @@ func formatSchoolName(school string) string {
 		return ""
 	}
 	return strings.ToUpper(school[:1]) + school[1:]
-}
-
-// spellGMPierceLine renders the Grandmaster resist-pierce note when the caster
-// is GM in the spell's school - shared by the projectile and zone sections
-// (the two paths that actually apply spellResistPierce).
-func spellGMPierceLine(def spells.SpellDefinition, char *character.MMCharacter) string {
-	if char == nil || def.School == "" {
-		return ""
-	}
-	school := char.MagicSchools[character.MagicSchoolID(def.School)]
-	if school == nil || school.Mastery < character.MasteryGrandMaster {
-		return ""
-	}
-	return fmt.Sprintf("Grandmaster: ignores %d%% of enemy resistance", MagicGMResistPiercePct)
 }

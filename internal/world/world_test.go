@@ -33,7 +33,7 @@ func TestInitialMonsterKeysPersistAfterMapMonstersAreRemoved(t *testing.T) {
 
 func TestWorldGeneration(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestWorldGeneration(t *testing.T) {
 
 func TestWorldMovement(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestWorldMovement(t *testing.T) {
 
 func TestWorldMonsters(t *testing.T) {
 	// Load tile manager configuration for world tests
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		GlobalTileManager = prevTileManager
 	})
 
-	GlobalTileManager = NewTileManager()
+	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("Failed to load tile config: %v", err)
 	}
@@ -287,6 +287,27 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 
 	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}, false) {
 		t.Fatalf("Expected tile %q to be walkable for matching habitat prefs", blockedKey)
+	}
+
+	chasmType, ok := GlobalTileManager.GetTileTypeFromKey("dragon_cliffs_chasm_floor")
+	if !ok {
+		t.Fatal("dragon_cliffs_chasm_floor is missing")
+	}
+	world.Tiles[0][0] = chasmType
+	if !world.IsTileBlockingForHabitat(0, 0, nil, false) {
+		t.Fatal("chasm must block a ground monster")
+	}
+	if world.IsTileBlockingForHabitat(0, 0, nil, true) {
+		t.Fatal("authored fly_over chasm must admit a flying monster")
+	}
+
+	wallType, ok := GlobalTileManager.GetTileTypeFromKey("wall")
+	if !ok {
+		t.Fatal("wall tile is missing")
+	}
+	world.Tiles[0][0] = wallType
+	if !world.IsTileBlockingForHabitat(0, 0, nil, true) {
+		t.Fatal("flying monster must not pass through an opaque wall")
 	}
 }
 

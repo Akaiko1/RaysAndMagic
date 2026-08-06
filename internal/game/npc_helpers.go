@@ -39,10 +39,12 @@ func npcHasSkillTraining(npc *character.NPC) bool {
 }
 
 // npcHasChoiceDialog reports whether the NPC presents a choice prompt - either
-// an encounter (combat / quest pickup) or a pure dialogue with selectable
-// options. Both flow through the same encounter-style UI and input handler.
+// an encounter (combat / quest pickup), a locked door with its derived unlock
+// options, or a pure dialogue with authored selectable options. Both flow
+// through the same encounter-style UI and input handler.
 func npcHasChoiceDialog(npc *character.NPC) bool {
-	return npc != nil && (npc.EncounterData != nil || (npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0))
+	return npc != nil && (npc.EncounterData != nil || lockedDoorClosed(npc) ||
+		(npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0))
 }
 
 func npcSpellKeys(npc *character.NPC) []string {
@@ -120,55 +122,13 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	if !ok {
 		return false
 	}
-	skill := char.MagicSchools[school]
-	if skill == nil {
-		return false
-	}
-
-	if spellData.Requirements != nil {
-		req := spellData.Requirements
-		if req.MinLevel > 0 && char.Level < req.MinLevel {
-			return false
-		}
-		for _, schoolReq := range req.Schools {
-			if strings.TrimSpace(schoolReq.School) == "" {
-				continue
-			}
-			reqSchool, ok := schoolIDFromString(schoolReq.School)
-			if !ok {
-				return false
-			}
-			reqSkill := char.MagicSchools[reqSchool]
-			if reqSkill == nil {
-				return false
-			}
-			if schoolReq.MinLevel > 0 && reqSkill.Level() < schoolReq.MinLevel {
-				return false
-			}
-		}
-	}
-
-	return true
+	return char.MagicSchools[school] != nil
 }
 
 // schoolIDFromString returns the typed school ID for a YAML/dialog string. The
 // bool reports whether the value matches a known school.
 func schoolIDFromString(raw string) (character.MagicSchoolID, bool) {
-	school := character.MagicSchoolID(strings.ToLower(strings.TrimSpace(raw)))
-	switch school {
-	case character.MagicSchoolBody,
-		character.MagicSchoolMind,
-		character.MagicSchoolSpirit,
-		character.MagicSchoolFire,
-		character.MagicSchoolWater,
-		character.MagicSchoolAir,
-		character.MagicSchoolEarth,
-		character.MagicSchoolLight,
-		character.MagicSchoolDark:
-		return school, true
-	default:
-		return "", false
-	}
+	return character.ParseMagicSchoolID(raw)
 }
 
 func formatNPCDialogue(template string, vars npcDialogVars) string {

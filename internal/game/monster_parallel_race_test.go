@@ -17,7 +17,7 @@ import (
 // entities" concurrency contract: canMoveToEntityPosition/shouldIgnoreEntityCollision
 // iterate ALL entities (not just the caller's own), so if a monster's worker
 // reads another monster's BoundingBox/CollisionType while that monster's own
-// worker concurrently writes them (UpdateEntity / refreshMonsterCollisionSolidity),
+// worker concurrently writes them (UpdateEntity / refreshMonsterCollisionState),
 // the race detector must catch it here.
 //
 // Run: go test ./internal/game/ -race -run TestRace_MonsterParallelUpdate -v
@@ -43,7 +43,7 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -77,9 +77,24 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 		g.collisionSystem.UpdateEntity("player", m.X, m.Y)
 	}
 
+	// Crossfire scenario: a bound ally in the fray hands every nearby mob an
+	// AIFoe, and poison makes each foe's OWN worker write its HitPoints inside
+	// the parallel phase - so any live foe.X/Y/HP read from another worker
+	// (instead of the frame-start AIFoe/AITargetX/Y snapshot) races here.
+	if len(w.Monsters) > 1 {
+		w.Monsters[1].Bound = true
+	}
+	for i, m := range w.Monsters {
+		if i%2 == 0 {
+			m.ApplyPoison(6000) // ticks every parallel update for the whole run
+		}
+	}
+
 	const ticks = 600 // 10s at 60 TPS - race detector needs sustained contention
 	for tick := 0; tick < ticks; tick++ {
 		g.frameCount++
+		// Production per-tick order: serial foe/target snapshot, then parallel.
+		g.refreshMonsterAIState()
 		monsters := g.ConvertMonstersToWrappers()
 		g.threading.EntityUpdater.UpdateMonstersParallel(monsters)
 	}

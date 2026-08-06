@@ -49,9 +49,9 @@ func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	py := (screenH - mainMenuPanelH) / 2
 	region := uiBox{"main-menu", px, py, mainMenuPanelW, mainMenuPanelH}
 	boxes := []uiBox{textLineBox("title", "Main Menu", px+16, py+14)}
-	for i, label := range mainMenuOptions {
+	for i, option := range mainMenuOptions {
 		row, _, textY := menuRowRect(px, py, mainMenuPanelW, mainMenuListTopY, mainMenuRowPitch, i)
-		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, label), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
+		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, option.key), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
 		_ = textY
 	}
 	for i, tip := range mainMenuControlTips {
@@ -60,8 +60,26 @@ func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	return region, boxes
 }
 
+func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox) {
+	layout := makeAudioSettingsPanelLayout(screenW, screenH, ornate)
+	px, py, panelW, panelH := layout.px, layout.py, layout.panelW, layout.panelH
+	region := uiBox{"audio-settings", px, py, panelW, panelH}
+	boxes := []uiBox{textLineBox("title", "Audio Settings", px+layout.contentInset, py+layout.contentInset-2)}
+	for row, def := range audioSettingDefinitions {
+		r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
+		boxes = append(boxes, uiBox{fmt.Sprintf("slider-%s", def.label), r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1})
+	}
+	back := audioBackRect(px, py, panelH, layout.contentInset)
+	hint, hintX, hintY := audioHintPosition(px, py, panelW, panelH, layout.contentInset)
+	boxes = append(boxes,
+		uiBox{"back", back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1},
+		textLineBox("hint", hint, hintX, hintY),
+	)
+	return region, boxes
+}
+
 func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	l := computeTabbedMenuLayout(screenW, screenH)
+	l := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	region := namedLayoutBox("tabbed-menu", l.panel)
 	boxes := make([]uiBox, 0, len(l.tabs)+2)
 	for i, tab := range l.tabs {
@@ -72,22 +90,21 @@ func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeInventoryContentLayout(menu.content)
-	quickBlock := layoutRect{l.quickLabel.x, l.quickLabel.y, l.quickSlots.w, l.quickSlots.bottom() - l.quickLabel.y}
 	return namedLayoutBox("inventory-content", menu.content), []uiBox{
 		namedLayoutBox("paperdoll", l.paper),
 		namedLayoutBox("inventory-grid", l.grid),
 		namedLayoutBox("pager", l.pager),
 		namedLayoutBox("camp", l.camp),
-		namedLayoutBox("quick-slots", quickBlock),
+		namedLayoutBox("quick-slots", l.quickSlots),
 		namedLayoutBox("instructions-1", l.instructions[0]),
 		namedLayoutBox("instructions-2", l.instructions[1]),
 	}
 }
 
 func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeCardsContentLayout(menu.content)
 	boxes := []uiBox{namedLayoutBox("title", l.title), namedLayoutBox("subtitle", l.subtitle)}
 	for i, card := range l.cards {
@@ -99,33 +116,40 @@ func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func charactersLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeCharacterContentLayout(menu.content)
 	return namedLayoutBox("characters-content", menu.content), []uiBox{
 		namedLayoutBox("title", l.title),
-		namedLayoutBox("portrait", l.portraitFrame),
-		namedLayoutBox("character-scroll", l.scroll),
+		namedLayoutBox("profile", l.profile),
+		namedLayoutBox("attributes", l.attributes),
+		namedLayoutBox("magic", l.magic),
+		namedLayoutBox("skills", l.skills),
+		namedLayoutBox("combat", l.combat),
 		namedLayoutBox("instructions", l.instructions),
-		namedLayoutBox("pager", l.pager),
 	}
 }
 
 func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
-	l := computeBookLayout(menu.content.x, menu.content.y, menu.content.h)
-	quickW := 360
-	quickY := l.bookY + l.bookH + 16
-	quickH := int(float64(quickW) / quickSlotBarAspect)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
+	l := computeBookLayout(menu.content)
 	return namedLayoutBox("book-content", menu.content), []uiBox{
+		namedLayoutBox("header", l.header),
 		{"book", l.bookX, l.bookY, l.bookW, l.bookH},
-		{"quick-slots", l.bookX + (l.bookW-quickW)/2, quickY - 16, quickW, quickH + 16},
-		{"controls", l.bookX + 20, menu.content.bottom() - 28, l.bookW - 40, debugTextCharHeight},
+		namedLayoutBox("quick-slots", l.quick),
+		namedLayoutBox("pager", l.pager),
+		namedLayoutBox("controls", l.controls),
 	}
 }
 
 func questsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	menu := computeTabbedMenuLayout(screenW, screenH)
-	l := computeQuestContentLayout(menu.content, 100)
+	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
+	// Layout-overlay probe: a page of default-height cards is enough to draw
+	// the debug boxes; real cards size themselves to their own copy.
+	probe := make([]questCardCopy, 100)
+	for i := range probe {
+		probe[i] = questCardCopy{descLines: []string{""}, fullLines: []string{""}, height: questCardHeight(2)}
+	}
+	l := computeQuestContentLayout(menu.content, probe, 0)
 	boxes := []uiBox{namedLayoutBox("title", l.title)}
 	for i, row := range l.rows {
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("quest-%d", i), row))
@@ -160,8 +184,7 @@ func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
 	gridX := dialog.x + (dialog.w-gridW)/2
 	gridY := spellTraderGridTop(dialog.y)
-	cellH := spellTraderIconSize + 14
-	gridH := spellTraderGridRows*(cellH+8) - 8
+	gridH := spellTraderGridRows*spellTraderRowPitch - spellTraderRowGap
 	boxes = append(boxes,
 		uiBox{"spell-grid", gridX, gridY, gridW, gridH},
 		uiBox{"pager", gridX, spellTraderPagerY(dialog.y), gridW, pagerBtnH},
@@ -293,7 +316,7 @@ func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
 	boxes = append(boxes,
 		uiBox{"pager-prev", rowX, pagerY, pbW, pbH},
 		uiBox{"pager-next", rowX + rowW - pbW, pagerY, pbW, pbH},
-		uiBox{"back", px + menuFrameInset, pagerY + pbH + 12, 110, 30}, // drawBackButton size
+		uiBox{"back", px + menuFrameInset, pagerY + pbH + 12, menuBackButtonW, menuBackButtonH},
 	)
 	return region, boxes
 }

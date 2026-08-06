@@ -18,6 +18,9 @@ world:
   tile_size: 64
   map_width: 50
   map_height: 50
+  # Unified open world: outdoor maps are stitched into one world with carved
+  # passages (rules in assets/open_world.yaml). false = classic split maps.
+  open_world: true
 
 # Movement settings
 movement:
@@ -27,19 +30,14 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  # Square-projection FOV: 2*atan(screen_width / (2*screen_height)). At this
-  # value one world tile renders as a true SQUARE (horizontal focal length ==
-  # the wall-height factor), so square art (arena gate) keeps its aspect.
-  # Retune if the logical resolution's aspect ratio ever changes.
-  field_of_view: 1.176005207  # 67.38 degrees for 1024x768
+  # No field_of_view knob: the square-projection FOV is DERIVED at runtime as
+  # 2*atan(screen_w/(2*screen_h)) from the LIVE logical resolution (boot + every
+  # resize/fullscreen), so one world tile renders as a true square at any aspect.
   view_distance: 3200          # 50 * tile_size
 
 # UI settings
 ui:
   spell_input_cooldown: 10
-  party_portrait_height: 100
-  party_portrait_width: 256   # Fixed portrait width - 4x this = total party row width, centered horizontally
-  compass_radius: 20
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
 
 # Character stats and progression
@@ -47,6 +45,21 @@ characters:
   # Starting party gold and food
   starting_gold: 500
   starting_food: 5
+
+  # --- Level progression pacing (documentation; knobs live in
+  # internal/game/balance.go: XPRequiredPerLevel=100, XPQuadPerLevel=8) ---
+  # XP to advance FROM level L = max(100*L, 8*L*L): linear through L12
+  # (classic curve, untouched), quadratic from L13 up.
+  # Why: monster XP grows ~2.2*L^2 with zone level (bandit L5=55, dust slime
+  # L22=1000, grandfather clock L30=2400), so a purely linear cost made
+  # farming ACCELERATE with level (~29 zone-level kills per level at L5 ->
+  # ~5 at L30). The quadratic branch holds the pace FLAT: ~15 zone-level
+  # kills per level in a 4-hero party, L13 through L50.
+  # (Kill XP is split by active party size, then every living hero - bench
+  # included - receives that share; quest XP is granted in full.)
+  # Tuning: XPQuadPerLevel 6 -> ~11 kills/level, 10 -> ~18.
+  # Totals to REACH a level: L13=7800, L20=22360, L30=71040, L50=326000.
+  # The curve is pinned by TestXPStepCostCurve (progression_score_test.go).
 
   # Stat calculation multipliers
   hit_points:
@@ -66,7 +79,7 @@ characters:
       accuracy: 12
       speed: 10
       luck: 10
-      skills: [sword, spear, leather, chain, plate, shield, bodybuilding]
+      skills: [sword, spear, leather, chain, plate, shield, bodybuilding, impenetrable_defense]
       main_hand: iron_sword
 
     sorcerer:
@@ -77,7 +90,7 @@ characters:
       accuracy: 10
       speed: 10
       luck: 12
-      skills: [dagger, staff, leather, meditation, learning]
+      skills: [dagger, staff, leather, meditation, learning, elemental_mastery]
       magic:
         - { school: fire,  spells: [torch_light, firebolt] }
         - { school: water, spells: [ice_bolt] }
@@ -93,7 +106,7 @@ characters:
       accuracy: 8
       speed: 10
       luck: 10
-      skills: [mace, chain, shield, meditation, learning]
+      skills: [mace, chain, shield, meditation, learning, natural_healer]
       magic:
         - { school: body,   spells: [heal_other, harm] }
         - { school: mind,   spells: [mind_blast] }
@@ -109,7 +122,7 @@ characters:
       accuracy: 15
       speed: 12
       luck: 10
-      skills: [bow, leather, dagger, disarm_trap, bodybuilding]
+      skills: [bow, blaster, leather, dagger, disarm_trap, bodybuilding]
       magic:
         - { school: air, spells: [wizard_eye] }
       main_hand: hunting_bow
@@ -123,7 +136,7 @@ characters:
       accuracy: 10
       speed: 10
       luck: 11
-      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation]
+      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation, sacrifice]
       magic:
         - { school: body, spells: [heal] }
       main_hand: bronze_labrys
@@ -138,7 +151,7 @@ characters:
       accuracy: 10
       speed: 11
       luck: 11
-      skills: [staff, leather, meditation, bodybuilding, learning]
+      skills: [staff, leather, meditation, bodybuilding, learning, animal_bonding]
       magic:
         - { school: water, spells: [ice_bolt] }
         - { school: mind,  spells: [awaken] }
@@ -156,7 +169,7 @@ characters:
       accuracy: 15
       speed: 13
       luck: 12
-      skills: [dagger, leather, trapper, sleight_of_hand, meditation, disarm_trap]
+      skills: [dagger, blaster, leather, trapper, sleight_of_hand, meditation, disarm_trap, lockpicking]
       main_hand: magic_dagger
       armor: leather_armor
       quick_trap: cleave_trap
@@ -224,11 +237,11 @@ characters:
 
 # Monster stats and AI
 monster_ai:
-  # State timers (in frames, 60fps)
+  # State timers are update ticks (game.tps = 120).
   idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
-  patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
+  patrol_idle_timer: 1200       # Time before returning to idle (10 seconds)
   attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
-  flee_duration: 420            # How long to flee (7 seconds)
+  flee_duration: 840            # How long to flee (7 seconds RT / 7 TB turns)
 
   # Behavior chances (0.0 to 1.0)
   idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling
@@ -246,7 +259,8 @@ monster_ai:
   # Detection (distances in tiles, the rest are multipliers)
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
   alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
-  alert_los_blocked_multiplier: 0.5    # reduced detection through trees/walls
+  # No detection without line of sight: an unaware monster never aggros through
+  # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).
   disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)
   attack_enter_range_fraction: 0.9     # enter attack at <= range x this (exit at > range)
 
@@ -266,16 +280,20 @@ graphics:
     forest_bg: [34, 139, 34]  # Forest background
 
   # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
-  # camera-facing plane (~4x fewer draws for distant trees; their cross is
-  # sub-pixel anyway). Trees only. <=0 disables the LOD (always full crossed standee).
+  # camera-facing plane. Trees only; close trees always retain full slab depth.
+  # <=0 disables the distant LOD.
   trees_as_billboards: true
   tree_standee_lod_tiles: 25
 
-  # Sprite sizes
-  sprite:
-    placeholder_size: 16
-    tree_height_multiplier: 1.5
-    tree_width_multiplier: 0.8
+  # Moving motes emitted by authored tree tiles at night. They are local
+  # visual effects rather than world lights, so dense forests stay cheap.
+  night_motes:
+    emission_radius_tiles: 10
+    emission_interval_seconds: 2
+    emission_chance: 0.20
+    max_per_tree: 3
+    lifetime_seconds: 7
+    max_active: 96
 
   # Distance effects
   brightness_min: 0.3
@@ -288,7 +306,7 @@ graphics:
     thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
     core_tint: 1.0              # 0 = wood core, 1 = sprite-average core color
     turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
-    npc_spin_deg_per_sec: 12    # showcase spin of NPC/NPC-like tokens (0 = off); scenery never spins
+    npc_spin_deg_per_sec: 12    # showcase spin of non-person NPC props (0 = off); terrain sprites use env_face instead
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
     min_view_angle_deg: 22      # monster tokens never come closer than this to edge-on (0 = off)
 
@@ -303,14 +321,26 @@ graphics:
   npc:
     min_sprite_size: 16
 
-  # Monster size classes -> sprite height in tile units (1.0 == a 1-tile wall).
-  # Monsters set size_class instead of a raw number so sizes stay quantized.
+  # Shared visual-size classes in tile units (1.0 == a 1-tile wall).
+  # Actors use frame height. Props and landmarks use visible alpha height, so
+  # transparent texture padding is ignored. crossed_standee interprets its selected
+  # class as frame width and preserves the source texture aspect. Existing trees
+  # use tree; a smaller tree can select another class such as full_tile.
+  # Content never authors a raw per-object size.
   size_classes:
     small: 0.35    # rat, bat, pixie
     medium: 0.45   # wolf, spider, goblin and other beasts
     person: 0.60   # all humanoids alike - enemy people/undead/orcs AND human NPCs
     large: 0.85    # bear, minotaur, giant beasts
     huge: 1.20     # dragons, trolls, treants, bosses
+    tiny_prop: 0.30
+    small_prop: 0.50
+    medium_prop: 0.80
+    full_tile: 1.00
+    tall_prop: 1.25
+    large_prop: 1.60
+    structure: 2.00
+    tree: 2.00      # standard crossed-tree width; height follows texture aspect
 
   # Ground container sprite heights in tile units (dropped loot / reward chests).
   # Fixed - not scaled by the dropping monster. Chests read bigger than bags.
@@ -358,6 +388,10 @@ graphics:
       - lich_king_walking_r
       - forest_spider
       - forest_spider_walking_r
+      # Ice crystal highlights read as violet
+      - frost_elemental
+      - frost_elemental_walking_r
+      - frost_elemental_attacking_r
       # Sorcerer hero art (purple robes)
       - lysander
       - lysander_full
@@ -412,8 +446,9 @@ day_night:
   packs:
     - map: forest
       day_monster: wolf
-      night_monster: forest_spider
       count: 8
+      night_monsters:
+        - { monster: forest_spider, count: 8, quest_progress: true }
       min_player_dist_tiles: 8
     - map: desert
       night_monster: mummy

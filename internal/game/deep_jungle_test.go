@@ -15,7 +15,7 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	if gorilla.SummonCount != 2 || gorilla.SummonMax != 2 {
 		t.Fatalf("summon count/max = %d/%d, want 2/2", gorilla.SummonCount, gorilla.SummonMax)
 	}
-	if !cs.isBoss(gorilla) {
+	if !gorilla.IsBoss() {
 		t.Fatal("a monster with summon_chance>0 should use the boss kit")
 	}
 
@@ -86,18 +86,18 @@ func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
 	gorilla := monsterPkg.NewMonster3DFromConfig(30*ts, 30*ts, "gorilla_titan", game.config) // far away
 	game.world.Monsters = []*monsterPkg.Monster3D{gorilla}
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if gorilla.BossAggro {
 		t.Fatal("gorilla must NOT relentlessly chase from across the map before aggro")
 	}
 	gorilla.IsEngagingPlayer = true
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if !gorilla.BossAggro {
 		t.Fatal("an engaged gorilla should relentlessly pursue")
 	}
 	gorilla.IsEngagingPlayer = false
 	gorilla.WasAttacked = true // sticky once hit
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if !gorilla.BossAggro {
 		t.Fatal("a struck gorilla should keep relentlessly pursuing")
 	}
@@ -111,11 +111,11 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 	placePlayerAtTile(game, 5, 5, ts)
 
 	m := monsterPkg.NewMonster3DFromConfig(30*ts, 30*ts, "goblin", game.config)
-	m.SummonChance, m.SummonMonsters = 0.1, []string{"goblin"} // make it count as a boss, no wake gate
+	m.Boss = true // synthetic boss: the static YAML classification in production
 	m.AggroWholeMap = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if !m.BossAggro {
 		t.Fatal("an AggroWholeMap boss should relentlessly pursue from spawn")
 	}

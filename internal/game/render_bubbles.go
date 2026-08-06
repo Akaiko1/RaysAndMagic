@@ -34,6 +34,15 @@ type bubbleColumnFx struct {
 	centerSpanR  int     // the self-cull applies only inside it (+/-math.MinInt/MaxInt = anywhere)
 	fall         bool    // true = motes descend sky->ground (teleporter); default ground->sky (steam/aura)
 	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1-j, 1+j]xbase
+	round        bool    // true = rim-lit bubble texture; false = the legacy glow rect
+	soft         bool    // true = radial soft glow (flame tongues); wins over round
+	colorTop     [3]int  // when non-zero, colour lerps color->colorTop along the rise
+	sizeTaper    float64 // when >0, size scales from 1 at the floor to sizeTaper at the top
+	heightScale  float64 // soft blobs only: >0 stretches each blob vertically by this factor
+	// srcOver draws with normal alpha blending instead of additive. Additive can
+	// only ADD light, so an additive flame over bright grass washes to yellow-green
+	// and never reads as fire; a wall of flame has to cover what is behind it.
+	srcOver bool
 }
 
 // emitBubbleColumn projects one world point, culls it against the near/far clip,
@@ -48,6 +57,9 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 	}
 	if c.hasCenter && depth > c.centerDepth && screenX >= c.centerSpanL && screenX <= c.centerSpanR {
 		return // far side of the billboard plane AND behind its on-screen silhouette
+	}
+	if screenX >= 0 && screenX < len(r.game.actorDepthBuffer) && depth >= r.game.actorDepthBuffer[screenX] {
+		return // a monster/NPC stands in front of this column
 	}
 	if screenX >= 0 && screenX < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[screenX] {
 		return // behind a wall
@@ -83,14 +95,39 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 			continue
 		}
 		bsize := size
+		if c.sizeTaper > 0 {
+			bsize *= 1 + (c.sizeTaper-1)*phase // wide at the base, narrow at the tip
+		}
 		if c.sizeJitter > 0 {
 			sj := auraHash(c.hx, c.hy, c.salt+300, idx)
-			bsize = size * (1 - c.sizeJitter + 2*c.sizeJitter*sj)
+			bsize *= 1 - c.sizeJitter + 2*c.sizeJitter*sj // keeps any taper applied above
 			if bsize < c.sizeFloor {
 				bsize = c.sizeFloor
 			}
 		}
+		col := c.color
+		if c.colorTop != [3]int{} {
+			for i := 0; i < 3; i++ {
+				col[i] = int(float64(c.color[i]) + (float64(c.colorTop[i])-float64(c.color[i]))*phase)
+			}
+		}
 		bx := float64(screenX) + math.Sin((phase+seed)*2*math.Pi)*bsize*c.wobbleCoef
-		r.drawGlowRect(screen, bx, by, bsize, c.color, alpha, additiveGlowBlend)
+		if c.soft {
+			blend := additiveGlowBlend
+			if c.srcOver {
+				blend = ebiten.BlendSourceOver
+			}
+			if c.heightScale > 0 {
+				r.drawGlowSpriteStretched(screen, bx, by, bsize, bsize*c.heightScale, col, alpha, blend)
+				continue
+			}
+			r.drawGlowSprite(screen, bx, by, bsize, col, alpha, blend)
+			continue
+		}
+		if c.round {
+			r.drawBubbleSprite(screen, bx, by, bsize, col, alpha, additiveGlowBlend)
+			continue
+		}
+		r.drawGlowRect(screen, bx, by, bsize, col, alpha, additiveGlowBlend)
 	}
 }

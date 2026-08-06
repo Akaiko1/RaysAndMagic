@@ -3,8 +3,10 @@ package game
 import (
 	"math"
 	"strings"
+
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -19,18 +21,14 @@ func spellScalesWithPersonality(school string) bool {
 	return spells.SchoolScalesWithPersonality(school)
 }
 
-func spellDamageStatLabel(school string, scalesWithPersonality bool) string {
-	return spells.DamageStatLabel(school, scalesWithPersonality)
-}
-
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual projectile damage.
 func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
-	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic -
+	// Self magic (Body/Mind/Spirit) scales with Personality; all elemental
+	// schools, including Light/Dark, scale with Intellect. The math is stat-agnostic -
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
 	def, defErr := spells.GetSpellDefinitionByID(spellID)
 	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
@@ -56,18 +54,41 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	return baseDamage, intellectBonus, totalDamage
 }
 
-// rollSpellCritDamage rolls Luck-based spell crit (no base crit) and returns the
-// possibly-boosted damage plus whether it crit. No-damage spells (Disintegrate)
-// never crit - the ONE place that rule lives, shared by every cast path (player
-// projectile, champion cast, mortar) so none can drift.
-func (cs *CombatSystem) rollSpellCritDamage(spellID spells.SpellID, caster *character.MMCharacter, base int) (int, bool) {
+// spellDamageParts converts only an elemental school's regular +5/tier mastery
+// bonus to typed true damage at Grandmaster. A spell with its own explicit
+// mastery step (currently Inferno's 45-90 scaling) remains entirely Normal.
+func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+	parts := damagecalc.Parts{Normal: total}
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil || !character.MagicSchoolID(def.School).IsElemental() ||
+		def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
+		return parts
+	}
+	school := caster.MagicSchools[character.MagicSchoolID(def.School)]
+	if school == nil || school.Mastery < character.MasteryGrandMaster {
+		return parts
+	}
+	bonus := cs.spellMasteryBonus(caster, spellID)
+	if bonus > parts.Normal {
+		bonus = parts.Normal
+	}
+	parts.Normal -= bonus
+	parts.True = bonus
+	return parts
+}
+
+// rollSpellCritParts rolls the universal player crit chance for a spell and
+// doubles both components together. No-damage spells never crit.
+func (cs *CombatSystem) rollSpellCritParts(spellID spells.SpellID, caster *character.MMCharacter, parts damagecalc.Parts) (damagecalc.Parts, bool) {
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.DealsNoDamage {
-		return base, false
+		return parts, false
 	}
 	if crit, _ := cs.RollCriticalChance(0, caster); crit {
-		return base * CritDamageMultiplier, true
+		parts.Normal *= CritDamageMultiplier
+		parts.True *= CritDamageMultiplier
+		return parts, true
 	}
-	return base, false
+	return parts, false
 }
 
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
@@ -82,6 +103,9 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	if masteryBonus > 0 {
 		baseHeal += masteryBonus
 		totalHeal += masteryBonus
+	}
+	if char.HasSkill(character.SkillNaturalHealer) {
+		totalHeal = totalHeal * (100 + character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer))) / 100
 	}
 	return baseHeal, personalityBonus, totalHeal
 }
@@ -132,11 +156,11 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 	return scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
 }
 
-// CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
+// CalculateWeaponCritChance returns total weapon crit chance, clamped to [0,100].
 // WeaponCritBreakdown decomposes the weapon crit chance into its components -
 // the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
 // can't drift from the rolled total.
-func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, gmWeapon, gmArms int) {
+func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms int) {
 	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
 		baseCrit = def.CritChance
 		// Grandmaster in this weapon's category: extra crit with it.
@@ -149,12 +173,13 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 	if char != nil && char.SkillTier(character.SkillArmsMaster) >= int(character.MasteryGrandMaster) {
 		gmArms = ArmsMasterGMCritBonus
 	}
-	return baseCrit, cs.CalculateCriticalChance(char), gmWeapon, gmArms
+	luck, cardCrit, setCrit = cs.CriticalChanceBreakdown(char)
+	return baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
-	baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
-	total := baseCrit + luck + gmWeapon + gmArms
+	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
+	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms
 	if total < 0 {
 		return 0
 	}
@@ -228,21 +253,44 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 		}
 	}
 	// Hasta: an equipped weapon can grant its bearer flat AC (either hand).
-	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
-		if w, ok := char.Equipment[slot]; ok && w.Type == items.ItemWeapon {
-			if def := lookupWeaponConfigByName(w.Name); def != nil {
-				total += def.ArmorClassBonus
-			}
+	for _, def := range equippedWeaponDefinitions(char) {
+		if def != nil {
+			total += def.ArmorClassBonus
 		}
 	}
-	total += cs.game.cardArmorBonus()             // Treant Card: flat party Armor Class
+	if cs.game.isPartyMember(char) {
+		total += cs.game.cardArmorBonus()       // Treant Card: flat PARTY Armor Class
+		total += cs.game.combatBuffArmorBonus() // stoneskin draught: timed flat AC
+	}
 	total += cs.game.partyArmorAuraBonusFor(char) // Parma shield wall: aura from OTHER members' gear
 	if char.HasSkill(character.SkillIronBody) {
 		// Iron Body: flat AC per tier, Novice included - a Monk's only AC
 		// source besides Endurance, since they wear no armor at all.
 		total += (char.SkillTier(character.SkillIronBody) + 1) * character.IronBodyACPerTier
 	}
+	// Drakehide Gauntlets: scales grown by taking hits this combat.
+	if char.ScaleStacks > 0 {
+		if per, capMax := char.ScaleStackParams(); per > 0 {
+			stacks := char.ScaleStacks
+			if stacks > capMax {
+				stacks = capMax
+			}
+			total += stacks * per
+		}
+	}
 	return total
+}
+
+func (g *MMGame) isPartyMember(char *character.MMCharacter) bool {
+	if g == nil || g.party == nil || char == nil {
+		return false
+	}
+	for _, member := range g.party.Members {
+		if member == char {
+			return true
+		}
+	}
+	return false
 }
 
 // partyArmorAuraBonusFor sums party_armor_bonus from every OTHER member's
@@ -252,17 +300,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 // characters run through CalculateTotalArmorClass too and must never borrow
 // the party's shields.
 func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
-	if g == nil || g.party == nil {
-		return 0
-	}
-	inParty := false
-	for _, member := range g.party.Members {
-		if member == char {
-			inParty = true
-			break
-		}
-	}
-	if !inParty {
+	if !g.isPartyMember(char) {
 		return 0
 	}
 	total := 0
@@ -365,7 +403,7 @@ func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, wea
 			default:
 				// Resolve the weapon's category to its canonical weapon SKILL
 				// (so "throwing" -> dagger) and read that type's multiplier from
-				// weapons.yaml. Categories with no skill (e.g. blaster) stay 1.0.
+				// weapons.yaml. Unlisted skill types stay at 1.0.
 				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
 					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
 				}
@@ -397,9 +435,10 @@ func spellCooldownSpeedFactor(speed int) float64 {
 }
 
 // SpellCooldownFrames is the real-time cooldown after casting spellID: the
-// spell's authored cooldown_seconds (or a level-based default) at reference
-// Speed, scaled by the caster's Speed and any equipped weapon's
-// spell_cooldown_multiplier (e.g. Archmage Staff -20%).
+// spell's authored cooldown_seconds at reference Speed, scaled by the caster's
+// Speed and any equipped weapon's
+// spell_cooldown_multiplier (e.g. Archmage Staff -20%). YAML category "buff"
+// is the explicit exception: it has no personal RT cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
 	if cs == nil || cs.game == nil || char == nil {
 		return RTCooldownMinFrames
@@ -409,12 +448,15 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 		// SmartAttack returns trap keys through the same cast-ID channel.
 		seconds = trapDef.CooldownSeconds
 	} else if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
-		seconds = def.CooldownSeconds
-		if seconds <= 0 {
-			seconds = SpellCooldownDefaultSecondsForLevel(def.Level)
+		if def.IsBuff() {
+			return 0
 		}
+		seconds = def.CooldownSeconds
 	} else {
-		seconds = SpellCooldownDefaultSecondsForLevel(1)
+		// Unresolvable cast ID: there is no authored cooldown to honor, so only
+		// the global floor applies (spells.yaml validation keeps this unreachable
+		// for real content).
+		return RTCooldownMinFrames
 	}
 	speed := char.GetEffectiveSpeed()
 	frames := seconds * float64(cs.game.config.GetTPS()) * spellCooldownSpeedFactor(speed)

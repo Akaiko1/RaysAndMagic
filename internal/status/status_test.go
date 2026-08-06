@@ -27,26 +27,53 @@ func TestRefreshDual(t *testing.T) {
 	}
 }
 
-func TestTickFrameCrossClears(t *testing.T) {
-	f, tn := 2, 3
-	if TickFrame(&f, &tn) {
+func TestRefreshDualRatedPreservesActiveRateOnWeakRefresh(t *testing.T) {
+	frames, turns, rate := 361, 4, 120
+	if !RefreshDualRated(&frames, &turns, &rate, 120, 1) {
+		t.Fatal("weak refresh deactivated the status")
+	}
+	if frames != 361 || turns != 4 || rate != 120 {
+		t.Fatalf("weak refresh changed active contract: frames=%d turns=%d rate=%d", frames, turns, rate)
+	}
+
+	if TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("status expired with three turns remaining")
+	}
+	if frames != 360 || turns != 3 || rate != 120 {
+		t.Fatalf("post-refresh TB tick: frames=%d turns=%d rate=%d, want 360/3/120", frames, turns, rate)
+	}
+}
+
+func TestRefreshDualRatedRecalculatesRateWhenExtended(t *testing.T) {
+	frames, turns, rate := 100, 1, 100
+	if !RefreshDualRated(&frames, &turns, &rate, 480, 4) {
+		t.Fatal("strong refresh deactivated the status")
+	}
+	if frames != 480 || turns != 4 || rate != 120 {
+		t.Fatalf("strong refresh contract: frames=%d turns=%d rate=%d, want 480/4/120", frames, turns, rate)
+	}
+}
+
+func TestTickFrameRatedCrossClears(t *testing.T) {
+	f, tn, rate := 2, 3, 0
+	if TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("first tick must not expire")
 	}
-	if !TickFrame(&f, &tn) {
+	if !TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("second tick must expire")
 	}
-	if f != 0 || tn != 0 {
-		t.Fatalf("expiry must clear BOTH clocks: f=%d t=%d", f, tn)
+	if f != 0 || tn != 0 || rate != 0 {
+		t.Fatalf("expiry must clear BOTH clocks and the rate: f=%d t=%d rate=%d", f, tn, rate)
 	}
-	if TickFrame(&f, &tn) {
+	if TickFrameRated(&f, &tn, &rate) {
 		t.Fatal("ticking an inactive status must not expire again")
 	}
 }
 
-func TestTickTurnCrossClears(t *testing.T) {
-	f, tn := 300, 1
-	if !TickTurn(&tn, &f) || tn != 0 || f != 0 {
-		t.Fatalf("turn expiry must clear both clocks: f=%d t=%d", f, tn)
+func TestTickTurnRatedCrossClears(t *testing.T) {
+	f, tn, rate := 300, 1, 0
+	if !TickTurnRated(&tn, &f, &rate) || tn != 0 || f != 0 || rate != 0 {
+		t.Fatalf("turn expiry must clear both clocks and the rate: f=%d t=%d rate=%d", f, tn, rate)
 	}
 }
 
@@ -55,10 +82,8 @@ func TestTickDoTFrameCadence(t *testing.T) {
 	remaining, timer := 3*tps, 0
 	ticks, expiries := 0, 0
 	for i := 0; i < 3*tps; i++ {
-		deal, exp := TickDoTFrame(&remaining, &timer, tps)
-		if deal {
-			ticks++
-		}
+		dealt, exp := TickDoT(&remaining, &timer, 1, tps)
+		ticks += dealt
 		if exp {
 			expiries++
 		}
@@ -69,23 +94,53 @@ func TestTickDoTFrameCadence(t *testing.T) {
 	if expiries != 1 || remaining != 0 || timer != 0 {
 		t.Fatalf("expiry: n=%d remaining=%d timer=%d", expiries, remaining, timer)
 	}
-	if deal, exp := TickDoTFrame(&remaining, &timer, tps); deal || exp {
+	if dealt, exp := TickDoT(&remaining, &timer, 1, tps); dealt != 0 || exp {
 		t.Fatal("inactive DoT must not tick")
 	}
 }
 
-func TestTickDoTTurn(t *testing.T) {
-	remaining, timer := 100, 30
-	deal, exp := TickDoTTurn(&remaining, &timer, 60)
-	if !deal || exp || remaining != 40 {
-		t.Fatalf("first turn: deal=%v exp=%v remaining=%d", deal, exp, remaining)
+// TestTickDoTRoundBillsItsWholeSpan: a TB round consumes several seconds of
+// duration, so it must deal that many ticks - not one. (The one-tick-per-round
+// rule made every DoT 3x weaker in TB than in RT.)
+func TestTickDoTRoundBillsItsWholeSpan(t *testing.T) {
+	const tps = 60
+	remaining, timer := 10*tps, 0
+	ticks, exp := TickDoT(&remaining, &timer, 3*tps, tps)
+	if exp || remaining != 7*tps || ticks != 3 {
+		t.Fatalf("3s round of a 10s DoT: ticks=%d exp=%v remaining=%d, want 3/false/%d", ticks, exp, remaining, 7*tps)
 	}
-	deal, exp = TickDoTTurn(&remaining, &timer, 60)
-	if !deal || !exp || remaining != 0 || timer != 0 {
-		t.Fatalf("final turn: deal=%v exp=%v remaining=%d timer=%d", deal, exp, remaining, timer)
+
+	// A round longer than what the DoT has left bills only the remainder.
+	remaining, timer = tps+tps/2, 0 // 1.5s left
+	ticks, exp = TickDoT(&remaining, &timer, 3*tps, tps)
+	if !exp || remaining != 0 || ticks != 1 {
+		t.Fatalf("1.5s remainder: ticks=%d exp=%v remaining=%d, want 1/true/0", ticks, exp, remaining)
 	}
-	if deal, exp = TickDoTTurn(&remaining, &timer, 60); deal || exp {
-		t.Fatal("inactive DoT must not tick per turn")
+}
+
+// TestTickDoTModeParity: the SAME authored duration must deal the same total
+// damage whether it burns down frame by frame in RT or three seconds per TB
+// round, including a duration that is not a whole multiple of the round.
+func TestTickDoTModeParity(t *testing.T) {
+	const tps = 60
+	for _, seconds := range []int{1, 3, 20, 23, 30, 45} {
+		rtRemaining, rtTimer, rtTicks := seconds*tps, 0, 0
+		for rtRemaining > 0 {
+			dealt, _ := TickDoT(&rtRemaining, &rtTimer, 1, tps)
+			rtTicks += dealt
+		}
+		tbRemaining, tbTimer, tbTicks, rounds := seconds*tps, 0, 0, 0
+		for tbRemaining > 0 {
+			dealt, _ := TickDoT(&tbRemaining, &tbTimer, 3*tps, tps)
+			tbTicks += dealt
+			rounds++
+			if rounds > seconds+1 {
+				t.Fatalf("%ds DoT: TB never expired (%d rounds)", seconds, rounds)
+			}
+		}
+		if rtTicks != seconds || tbTicks != seconds {
+			t.Errorf("%ds DoT: RT dealt %d ticks, TB dealt %d - want %d in both", seconds, rtTicks, tbTicks, seconds)
+		}
 	}
 }
 
@@ -94,5 +149,128 @@ func TestClear(t *testing.T) {
 	Clear(&remaining, &timer)
 	if remaining != 0 || timer != 0 {
 		t.Fatalf("clear left remaining=%d timer=%d", remaining, timer)
+	}
+}
+
+func TestRestoreDoTTickTimer(t *testing.T) {
+	const tps = 60
+	tests := []struct {
+		name      string
+		remaining int
+		saved     int
+		want      int
+	}{
+		{name: "active phase", remaining: 120, saved: 37, want: 37},
+		{name: "inactive effect", remaining: 0, saved: 37, want: 0},
+		{name: "negative phase", remaining: 120, saved: -1, want: 0},
+		{name: "full tick is clamped", remaining: 120, saved: tps, want: tps - 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RestoreDoTTickTimer(tc.remaining, tc.saved, tps); got != tc.want {
+				t.Fatalf("RestoreDoTTickTimer(%d, %d) = %d, want %d",
+					tc.remaining, tc.saved, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRatedDualClockNoModeFarm: the user-reported exploit - a 5s/3turn stun,
+// 2 turns spent in TB, then a switch to RT must NOT hand back the full 5
+// seconds; the frame clock is clamped to the proportional remainder.
+func TestRatedDualClockNoModeFarm(t *testing.T) {
+	frames, turns, rate := 300, 3, 0
+
+	// Two TB turns: each drains a proportional 100-frame share.
+	if TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("stun expired after 1 of 3 turns")
+	}
+	if TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("stun expired after 2 of 3 turns")
+	}
+	if turns != 1 || frames != 100 {
+		t.Fatalf("after 2 turns: turns=%d frames=%d, want 1/100", turns, frames)
+	}
+
+	// Switch to RT: expiry lands exactly 100 frames later, never 300.
+	elapsed := 0
+	for frames > 0 {
+		elapsed++
+		if elapsed > 300 {
+			t.Fatal("stun never expired in RT")
+		}
+		if TickFrameRated(&frames, &turns, &rate) {
+			break
+		}
+	}
+	if elapsed != 100 {
+		t.Fatalf("RT remainder = %d frames, want the proportional 100", elapsed)
+	}
+	if turns != 0 || frames != 0 || rate != 0 {
+		t.Fatalf("expiry must clear everything: turns=%d frames=%d rate=%d", turns, frames, rate)
+	}
+}
+
+// TestRatedDualClockReverseDirection: spending in RT first must drain the TB
+// clock proportionally too (the farm works both ways).
+func TestRatedDualClockReverseDirection(t *testing.T) {
+	frames, turns, rate := 300, 3, 0
+	for i := 0; i < 240; i++ { // ride out 4 of 5 seconds
+		if TickFrameRated(&frames, &turns, &rate) {
+			t.Fatalf("stun expired early at frame %d", i)
+		}
+	}
+	if turns != 1 {
+		t.Fatalf("after 240/300 frames turns=%d, want 1", turns)
+	}
+	// The last TB turn ends it - both clocks clear.
+	if !TickTurnRated(&turns, &frames, &rate) {
+		t.Fatalf("final turn must expire the stun (turns=%d frames=%d)", turns, frames)
+	}
+	if frames != 0 {
+		t.Fatalf("expiry left frames=%d", frames)
+	}
+}
+
+// TestRatedDualClockSingleTurnAuthoring: a 2s/1turn stun (lightning bolt
+// authoring) - one TB turn IS the whole stun; RT spending keeps the single
+// turn alive until the frames run out.
+func TestRatedDualClockSingleTurnAuthoring(t *testing.T) {
+	frames, turns, rate := 120, 1, 0
+	if !TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("1-turn stun must expire on its only turn")
+	}
+	if frames != 0 {
+		t.Fatalf("expiry left frames=%d", frames)
+	}
+
+	frames, turns, rate = 120, 1, 0
+	for i := 0; i < 60; i++ {
+		TickFrameRated(&frames, &turns, &rate)
+	}
+	if turns != 1 || frames != 60 {
+		t.Fatalf("half-spent 2s/1t stun: turns=%d frames=%d, want 1/60", turns, frames)
+	}
+}
+
+// New saves persist rate because remaining clocks alone cannot reconstruct the
+// authored exchange ratio after arbitrary RT progress.
+func TestRatedDualClockPersistedRateSurvivesLoad(t *testing.T) {
+	frames, turns, rate := 361, 4, 120
+	if TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("expired on first post-load turn")
+	}
+	if turns != 3 || frames != 360 || rate != 120 {
+		t.Fatalf("post-load turn: turns=%d frames=%d rate=%d, want 3/360/120", turns, frames, rate)
+	}
+}
+
+func TestRatedDualClockLegacyLoadFallback(t *testing.T) {
+	frames, turns, rate := 200, 2, 0
+	if TickTurnRated(&turns, &frames, &rate) {
+		t.Fatal("legacy status expired on first post-load turn")
+	}
+	if turns != 1 || frames != 100 || rate != 100 {
+		t.Fatalf("legacy fallback: turns=%d frames=%d rate=%d, want 1/100/100", turns, frames, rate)
 	}
 }

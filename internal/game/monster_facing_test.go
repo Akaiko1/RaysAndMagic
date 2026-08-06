@@ -80,8 +80,8 @@ func TestFaceMonstersAlongFrameMotionAccumulatesSlowWalk(t *testing.T) {
 	}
 }
 
-// A shove landing outside the capture->face window (separation, band snap,
-// blink) must not touch facing.
+// A displacement outside the capture->face window (band snap, teleport, blink)
+// must not touch facing.
 func TestFaceMonstersAlongFrameMotionIgnoresOutOfWindowShoves(t *testing.T) {
 	m := &monsterPkg.Monster3D{
 		X:         5,
@@ -93,7 +93,7 @@ func TestFaceMonstersAlongFrameMotionIgnoresOutOfWindowShoves(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		stepFacing(gl, func() { m.X += 0.4 }) // walk east
-		m.X -= 2.0                            // post-window shove west (separation/band snap)
+		m.X -= 2.0                            // post-window band/teleport displacement west
 	}
 
 	if math.Abs(m.Direction) > 0.0001 {

@@ -3,9 +3,9 @@ package game
 import (
 	"math"
 	"math/rand"
-	"strings"
 
 	"ugataima/internal/config"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -18,16 +18,16 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		return
 	}
 	if weaponDef.ProjectileSchool != "" {
-		g.CreateSpellHitEffect(x, y, strings.ToLower(weaponDef.ProjectileSchool), count, size)
+		g.CreateSpellHitEffect(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size)
 		return
 	}
 	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
 	if weaponDef.AoeRadiusTiles > 0 {
-		el := strings.ToLower(weaponDef.DamageType)
-		if el == "" || el == "physical" {
-			el = "fire"
+		element := convertToMonsterDamageType(weaponDef.DamageType)
+		if element == monsterPkg.DamagePhysical {
+			element = monsterPkg.DamageFire
 		}
-		g.CreateSpellHitEffect(x, y, el, count, size)
+		g.CreateSpellHitEffect(x, y, element.String(), count, size)
 	}
 	// Plain arrow: no impact effect - it just disappears.
 }
@@ -42,7 +42,7 @@ const (
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
 func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
-	element := "physical"
+	element := monsterPkg.DamagePhysical.String()
 	damage := 1
 	if err == nil {
 		element = def.School
@@ -111,24 +111,24 @@ func (g *MMGame) addScreenShake(amp, maxAmp float64) {
 // generalizes beyond the named spells; unknown elements fall back to a plain
 // radial burst.
 func spellHitStyle(element string) string {
-	switch strings.ToLower(element) {
-	case "fire":
+	switch convertToMonsterDamageType(element) {
+	case monsterPkg.DamageFire:
 		return "ember" // rising hot embers
-	case "water":
+	case monsterPkg.DamageWater:
 		return "shard" // sharp shards that fall and linger
-	case "dark":
+	case monsterPkg.DamageDark:
 		return "void" // slow creeping motes that sink
-	case "light":
+	case monsterPkg.DamageLight:
 		return "flash" // fast radiant flare, quick pop
-	case "air":
+	case monsterPkg.DamageAir:
 		return "static" // air school is lightning/sparks: fast erratic crackle
-	case "earth":
+	case monsterPkg.DamageEarth:
 		return "rubble" // heavy chunks, strong drop
-	case "mind":
+	case monsterPkg.DamageMind:
 		return "spiral" // tangential swirl
-	case "spirit":
+	case monsterPkg.DamageSpirit:
 		return "soul" // slow rising wisps, long-lived
-	case "body":
+	case monsterPkg.DamageBody:
 		return "mend" // gentle drifting sparkles
 	default:
 		return "burst"
@@ -158,9 +158,10 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
+	element = normalizeDamageTypeStr(element)
 	baseColor, ok := ElementColors[element]
 	if !ok {
-		baseColor = ElementColors["physical"]
+		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
 	}
 
 	if particleCount <= 0 {
@@ -302,6 +303,24 @@ func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
 }
 
+// spawnHitSparks is the "a hit landed here" burst, anchored on the monster's
+// VISUAL position so sparks land where a pulled monster is drawn, not on its
+// tile. Weapon blows, traps and damage zones share it.
+func (cs *CombatSystem) spawnHitSparks(m *monsterPkg.Monster3D) {
+	if m == nil {
+		return
+	}
+	vx, vy := cs.monsterVisualPos(m)
+	cs.game.spawnImpactSparks(vx, vy)
+}
+
+// spawnWeaponHitImpactFX adds the damage-scaled view kick to the sparks. Only a
+// blow the party lands kicks the camera - a field ticking every second must not.
+func (cs *CombatSystem) spawnWeaponHitImpactFX(m *monsterPkg.Monster3D, damage int) {
+	cs.spawnHitSparks(m)
+	cs.game.addScreenShake(0.05*float64(damage), 2.2)
+}
+
 // spawnImpactSparks throws a quick radial burst of bright white->gold sparks at
 // a world point - the weapon-hit feedback when the party strikes a monster.
 func (g *MMGame) spawnImpactSparks(x, y float64) {
@@ -334,51 +353,207 @@ func (g *MMGame) spawnImpactSparks(x, y float64) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
 }
 
+// tileScatterMaxTiles caps how many tiles one area FX paints. A wide spell
+// (Earthquake reaches 8 tiles = ~200 tiles) would otherwise spawn a thousand
+// particles in a frame; past the cap the disc is thinned evenly so the effect
+// still reads out to its full radius.
+const tileScatterMaxTiles = 84
+
+// spawnTileScatterFx calls perTile once per tile centre within radiusTiles of
+// (cx,cy) and files what it returns as one effect. The disc walk, the radius
+// clip, the tile budget and the lock live here - a caller only authors what one
+// patch of ground throws up. Shared by every "AoE that paints the ground it
+// covers" (Starburst's falling stars, Earthquake's rubble).
+func (g *MMGame) spawnTileScatterFx(cx, cy, radiusTiles float64, perTile func(wx, wy float64) []SpellHitParticle) {
+	tile := float64(g.config.GetTileSize())
+	reach := radiusTiles * tile
+	r := int(radiusTiles + 0.999)
+	ctx := TileIndex(cx, tile)
+	cty := TileIndex(cy, tile)
+
+	type tilePos struct {
+		wx, wy    float64
+		distTiles float64
+	}
+	covered := make([]tilePos, 0, (2*r+1)*(2*r+1))
+	for ty := cty - r; ty <= cty+r; ty++ {
+		for tx := ctx - r; tx <= ctx+r; tx++ {
+			wx := (float64(tx) + 0.5) * tile
+			wy := (float64(ty) + 0.5) * tile
+			d := math.Hypot(wx-cx, wy-cy)
+			if d > reach {
+				continue
+			}
+			covered = append(covered, tilePos{wx, wy, d / tile})
+		}
+	}
+
+	// Over budget, thin by 1/distance rather than evenly: a disc has far more
+	// far tiles than near ones, so an even cull empties the foreground - where
+	// the player is looking - to spend the budget on specks at the horizon.
+	// Keeping ~keepRing tiles per ring holds the near ground dense.
+	keepRing := 1.0
+	if len(covered) > tileScatterMaxTiles && radiusTiles > 0 {
+		keepRing = float64(tileScatterMaxTiles) / (2 * math.Pi * radiusTiles)
+	}
+
+	selected := covered
+	if len(covered) > tileScatterMaxTiles {
+		selected = make([]tilePos, 0, len(covered))
+		for _, t := range covered {
+			if t.distTiles <= keepRing || rand.Float64() <= keepRing/t.distTiles {
+				selected = append(selected, t)
+			}
+		}
+		// Bernoulli thinning preserves the desired near-to-far density but only
+		// controls the expected count. Shuffle any statistical overshoot before
+		// truncating so iteration order cannot bias the kept patch of ground.
+		if len(selected) > tileScatterMaxTiles {
+			rand.Shuffle(len(selected), func(i, j int) {
+				selected[i], selected[j] = selected[j], selected[i]
+			})
+			selected = selected[:tileScatterMaxTiles]
+		}
+	}
+
+	g.hitEffectsMu.Lock()
+	defer g.hitEffectsMu.Unlock()
+	for _, t := range selected {
+		if particles := perTile(t.wx, t.wy); len(particles) > 0 {
+			g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Particles: particles, Active: true})
+		}
+	}
+}
+
 // spawnStarburstFx drops a small star into every tile within `radiusTiles` of
 // the impact point: each star is a cluster of bright particles that begins above
 // the tile and falls into it (Starburst). Purely visual - damage is handled by
 // the spell's AoE splash.
 func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
-	g.hitEffectsMu.Lock()
-	defer g.hitEffectsMu.Unlock()
-
-	tile := float64(g.config.GetTileSize())
-	reach := radiusTiles * tile
-	r := int(radiusTiles + 0.999)
-	ctx := int(cx / tile)
-	cty := int(cy / tile)
 	star := [3]int{235, 240, 255} // bright star-white
-
-	for ty := cty - r; ty <= cty+r; ty++ {
-		for tx := ctx - r; tx <= ctx+r; tx++ {
-			wx := (float64(tx) + 0.5) * tile
-			wy := (float64(ty) + 0.5) * tile
-			if math.Hypot(wx-cx, wy-cy) > reach {
-				continue
-			}
-			particles := make([]SpellHitParticle, 0, 6)
-			for i := 0; i < 6; i++ {
-				tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white->gold sparkle
-				life := SpellParticleLife + rand.Intn(8)
-				particles = append(particles, SpellHitParticle{
-					X:        wx,
-					Y:        wy,
-					OffsetX:  (rand.Float64() - 0.5) * 8,
-					OffsetY:  -36 - rand.Float64()*28, // start above the tile
-					VelX:     (rand.Float64() - 0.5) * 0.8,
-					VelY:     2.6 + rand.Float64()*1.6, // fall down into the tile
-					Gravity:  0.12,
-					Color:    tint,
-					LifeTime: life,
-					MaxLife:  life,
-					Size:     SpellParticleSize,
-					Trail:    true, // leaves a slowly-evaporating streak as it falls
-					Active:   true,
-				})
-			}
-			g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Particles: particles, Active: true})
+	g.spawnTileScatterFx(cx, cy, radiusTiles, func(wx, wy float64) []SpellHitParticle {
+		particles := make([]SpellHitParticle, 0, 6)
+		for i := 0; i < 6; i++ {
+			tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white->gold sparkle
+			life := SpellParticleLife + rand.Intn(8)
+			particles = append(particles, SpellHitParticle{
+				X:        wx,
+				Y:        wy,
+				OffsetX:  (rand.Float64() - 0.5) * 8,
+				OffsetY:  -36 - rand.Float64()*28, // start above the tile
+				VelX:     (rand.Float64() - 0.5) * 0.8,
+				VelY:     2.6 + rand.Float64()*1.6, // fall down into the tile
+				Gravity:  0.12,
+				Color:    tint,
+				LifeTime: life,
+				MaxLife:  life,
+				Size:     SpellParticleSize,
+				Trail:    true, // leaves a slowly-evaporating streak as it falls
+				Active:   true,
+			})
 		}
+		return particles
+	})
+}
+
+// Nova FX: the ground effect a non-projectile AoE paints over its reach. Same
+// shape as the projectile_fx registry (renderer func + registry entry + one
+// yaml line) so a nova spell gets its signature without a name check in code.
+var novaFxSpawn = map[string]func(g *MMGame, cx, cy, radiusTiles float64){
+	"quake": (*MMGame).spawnQuakeFx,
+}
+
+// mapWideNovaFxRadiusTiles is how far a map_wide nova paints its ground FX: the
+// damage covers the region, the visuals only need to cover what the party can
+// see from where they stand.
+const mapWideNovaFxRadiusTiles = 10.0
+
+// spawnNovaFx plays the style authored in the spell's graphics.nova_fx. Spells
+// without one keep the plain per-monster impact bursts.
+func (g *MMGame) spawnNovaFx(spellID string, cx, cy, radiusTiles float64) {
+	def, ok := config.GetSpellDefinition(spellID)
+	if !ok || def == nil || def.Graphics == nil {
+		return
 	}
+	if spawn := novaFxSpawn[def.Graphics.NovaFx]; spawn != nil {
+		spawn(g, cx, cy, radiusTiles)
+	}
+}
+
+// quakeShakeAmp is a MODERATE rumble - roughly half the spell cap
+// (screenShakeMaxAmp), so the ground heaving is felt without the view snapping
+// the way a fireball hit does.
+const quakeShakeAmp = 2.6
+
+// groundOffsetY is the particle OffsetY that sits ON THE FLOOR, and
+// offsetYPerTileHeight is how much OffsetY one tile of height is worth.
+//
+// A hit particle draws at centerY + OffsetY*screenH/(depth*fov) while the floor
+// line is centerY + 0.5*screenH*tileSize/depth (calculateFloorScreenYF), so the
+// floor sits at 0.5*tileSize*fov for EVERY distance - depth cancels. OffsetY 0
+// is eye level, which is why a ground effect authored at 0 hangs in the sky.
+func (g *MMGame) groundOffsetY() float64 {
+	return 0.5 * float64(g.config.GetTileSize()) * g.camera.FOV
+}
+
+func (g *MMGame) offsetYPerTileHeight() float64 {
+	return float64(g.config.GetTileSize()) * g.camera.FOV
+}
+
+// spawnQuakeFx shakes the view and kicks a shower of earth off every patch of
+// ground the quake reaches: each clod jumps off the floor, arcs, and drops back
+// into it.
+func (g *MMGame) spawnQuakeFx(cx, cy, radiusTiles float64) {
+	g.addScreenShake(quakeShakeAmp, quakeShakeAmp)
+
+	soil := mixColor(ElementColors[monsterPkg.DamageEarth.String()], [3]int{40, 26, 14}, 0.45) // dark turned earth
+	dust := [3]int{150, 126, 92}                                                               // dry dust off the same ground
+	ground := g.groundOffsetY()
+	perTileHeight := g.offsetYPerTileHeight()
+	g.spawnTileScatterFx(cx, cy, radiusTiles, func(wx, wy float64) []SpellHitParticle {
+		clods := 4 + rand.Intn(3)
+		particles := make([]SpellHitParticle, 0, clods+1)
+		for i := 0; i < clods; i++ {
+			life := SpellParticleLife + rand.Intn(16)
+			// Thrown a third of a tile up at most, then gravity drops it back
+			// into the floor it came off.
+			hop := (0.16 + rand.Float64()*0.20) * perTileHeight
+			gravity := 0.19
+			particles = append(particles, SpellHitParticle{
+				X:        wx,
+				Y:        wy,
+				OffsetX:  (rand.Float64() - 0.5) * 26,
+				OffsetY:  ground - rand.Float64()*3, // sits on the floor, not at eye level
+				VelX:     (rand.Float64() - 0.5) * 1.2,
+				VelY:     -math.Sqrt(2 * gravity * hop), // up; OffsetY grows downward
+				Gravity:  gravity,
+				Color:    mixColor(soil, dust, rand.Float64()*0.5),
+				LifeTime: life,
+				MaxLife:  life,
+				Size:     SpellParticleSize - 1 + rand.Intn(3),
+				Solid:    true, // a clod of earth, not a spark
+				Active:   true,
+			})
+		}
+		// One slow dust puff per patch, hanging where the ground broke.
+		life := SpellParticleLife + 18 + rand.Intn(10)
+		particles = append(particles, SpellHitParticle{
+			X:        wx,
+			Y:        wy,
+			OffsetX:  (rand.Float64() - 0.5) * 14,
+			OffsetY:  ground - 0.06*perTileHeight,
+			VelX:     (rand.Float64() - 0.5) * 0.4,
+			VelY:     -(0.25 + rand.Float64()*0.35),
+			Gravity:  0.012,
+			Color:    mixColor(dust, [3]int{198, 180, 150}, rand.Float64()),
+			LifeTime: life,
+			MaxLife:  life,
+			Size:     SpellParticleSize + 2,
+			Solid:    true,
+			Active:   true,
+		})
+		return particles
+	})
 }
 
 // clampColor clamps a color value to 0-255

@@ -108,6 +108,33 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	}
 }
 
+func TestEditorCard_BuffOmitsInactiveRTCooldown(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	for _, tc := range []struct {
+		key          string
+		wantCooldown bool
+	}{
+		{key: "bless", wantCooldown: false},
+		{key: "fireball", wantCooldown: true},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			def, ok := config.GetSpellDefinition(tc.key)
+			if !ok || def == nil {
+				t.Fatalf("%s definition missing", tc.key)
+			}
+			sd, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.key))
+			if err != nil {
+				t.Fatalf("%s spell definition: %v", tc.key, err)
+			}
+			card := strings.Join(character.RenderCardLines(character.SpellCardSections(tc.key, def, sd), true), "\n")
+			gotCooldown := strings.Contains(card, "Cooldown")
+			if gotCooldown != tc.wantCooldown {
+				t.Errorf("editor cooldown shown = %v, want %v:\n%s", gotCooldown, tc.wantCooldown, card)
+			}
+		})
+	}
+}
+
 func TestTooltip_AoESplashCritAndDodgeRules(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
@@ -124,6 +151,70 @@ func TestTooltip_AoESplashCritAndDodgeRules(t *testing.T) {
 	}
 	if !strings.Contains(full, "Hitbox:") {
 		t.Errorf("projectile spell should show its hitbox size:\n%s", full)
+	}
+}
+
+func TestTooltip_MortarUsesBloomRules(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+	def, err := spells.GetSpellDefinitionByID("stone_blossom")
+	if err != nil {
+		t.Fatalf("stone_blossom: %v", err)
+	}
+	full := buildSpellTooltipUnified(def, char, cs, true)
+
+	for _, want := range []string{
+		"One critical roll boosts the entire bloom",
+		"The bloom cannot be evaded by Perfect Dodge",
+	} {
+		if !strings.Contains(full, want) {
+			t.Errorf("mortar tooltip missing %q:\n%s", want, full)
+		}
+	}
+	for _, stale := range []string{character.SplashCritRule, "Hitbox:"} {
+		if strings.Contains(full, stale) {
+			t.Errorf("mortar tooltip contains ordinary projectile rule %q:\n%s", stale, full)
+		}
+	}
+}
+
+func TestTooltip_ResistanceSummaryDoesNotDoubleCountPhysical(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		def  config.ItemDefinitionConfig
+		want string
+	}{
+		{
+			name: "non-physical only",
+			def: config.ItemDefinitionConfig{Resistances: map[string]int{
+				"fire": 25, "water": 25, "air": 25, "earth": 25, "spirit": 25,
+				"mind": 25, "body": 25, "light": 25, "dark": 25,
+			}},
+			want: "+25% resistance to every non-physical school",
+		},
+		{
+			name: "different physical value",
+			def: config.ItemDefinitionConfig{Resistances: map[string]int{
+				"physical": 10, "fire": 25, "water": 25, "air": 25, "earth": 25,
+				"spirit": 25, "mind": 25, "body": 25, "light": 25, "dark": 25,
+			}},
+			want: "+25% resistance to every non-physical school; +10% Physical resistance",
+		},
+		{
+			name: "same every school",
+			def: config.ItemDefinitionConfig{Resistances: map[string]int{
+				"physical": 25, "fire": 25, "water": 25, "air": 25, "earth": 25,
+				"spirit": 25, "mind": 25, "body": 25, "light": 25, "dark": 25,
+			}},
+			want: "+25% resistance to every damage school",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.def.ResistLines()
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("ResistLines() = %v, want [%q]", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -159,5 +250,145 @@ func TestTooltip_MeditationCostDiscount(t *testing.T) {
 		if !strings.Contains(full, want) {
 			t.Errorf("GM meditator spell must break down the cost (%q):\n%s", want, full)
 		}
+	}
+}
+
+func assertCleanTooltipText(t *testing.T, label, tooltip string) {
+	t.Helper()
+	if strings.TrimSpace(tooltip) == "" {
+		t.Errorf("%s: empty tooltip", label)
+		return
+	}
+	for _, r := range tooltip {
+		if r > 127 {
+			t.Errorf("%s: tooltip contains non-ASCII character %q (U+%04X):\n%s", label, r, r, tooltip)
+			break
+		}
+	}
+	lower := strings.ToLower(tooltip)
+	for _, forbidden := range []string{
+		"explicit special-spell",
+		"other schools",
+		"regular spell",
+		"magic mastery never",
+		"(level default)",
+		"no sp, intellect, mastery",
+		"elemental up to",
+		"all incoming damage",
+	} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("%s: tooltip contains internal or misleading text %q:\n%s", label, forbidden, tooltip)
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(tooltip, "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if line == "" || line == "[shift] full breakdown" {
+			continue
+		}
+		if seen[line] {
+			t.Errorf("%s: duplicate tooltip line %q:\n%s", label, line, tooltip)
+			return
+		}
+		seen[line] = true
+	}
+}
+
+// TestAllTooltipCatalogsAreClean walks every player-facing tooltip catalog.
+// It catches stale implementation prose and exact duplicate lines regardless
+// of whether the content came from Go or YAML.
+func TestAllTooltipCatalogsAreClean(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+
+	for _, class := range character.PlayableClasses {
+		assertCleanTooltipText(t, "class/"+class.Key(), class.Blurb())
+	}
+	for _, stat := range []string{"might", "intellect", "personality", "endurance", "accuracy", "speed", "luck"} {
+		assertCleanTooltipText(t, "stat/"+stat, character.StatDescription(stat))
+	}
+	for _, skill := range character.AllSkills {
+		assertCleanTooltipText(t, "skill/"+skill.String(), skill.Description())
+	}
+	for _, school := range character.AllMagicSchools {
+		tip := character.MagicMasteryDescription(school)
+		assertCleanTooltipText(t, "school/"+school.String(), tip)
+		if !strings.Contains(tip, school.DisplayName()) {
+			t.Errorf("school/%s: tooltip does not identify its own school: %q", school, tip)
+		}
+	}
+
+	for key, def := range config.GlobalSpells.Spells {
+		if def == nil {
+			t.Errorf("spell/%s: nil definition", key)
+			continue
+		}
+		sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil {
+			t.Errorf("spell/%s: %v", key, err)
+			continue
+		}
+		if def.MonsterOnly {
+			tip := strings.Join(character.RenderCardLines(character.MonsterSpellCardSections(def, sd), true), "\n")
+			assertCleanTooltipText(t, "spell/"+key, tip)
+			continue
+		}
+		assertCleanTooltipText(t, "compact/spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, false))
+		assertCleanTooltipText(t, "spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, true))
+		editor := strings.Join(character.RenderCardLines(character.SpellCardSections(key, def, sd), true), "\n")
+		assertCleanTooltipText(t, "editor/spell/"+key, editor)
+	}
+
+	for key, def := range config.GlobalWeapons.Weapons {
+		if def == nil {
+			t.Errorf("weapon/%s: nil definition", key)
+			continue
+		}
+		item, err := items.TryCreateWeaponFromYAML(key)
+		if err != nil {
+			t.Errorf("weapon/%s: %v", key, err)
+			continue
+		}
+		assertCleanTooltipText(t, "compact/weapon/"+key, GetItemTooltip(item, char, cs, false))
+		assertCleanTooltipText(t, "weapon/"+key, GetItemTooltip(item, char, cs, true))
+		editor := strings.Join(character.RenderCardLines(character.WeaponCardSections(def), true), "\n")
+		assertCleanTooltipText(t, "editor/weapon/"+key, editor)
+	}
+	for key, def := range config.GlobalItems.Items {
+		if def == nil {
+			t.Errorf("item/%s: nil definition", key)
+			continue
+		}
+		item, err := items.TryCreateItemFromYAML(key)
+		if err != nil {
+			t.Errorf("item/%s: %v", key, err)
+			continue
+		}
+		assertCleanTooltipText(t, "compact/item/"+key, GetItemTooltip(item, char, cs, false))
+		assertCleanTooltipText(t, "item/"+key, GetItemTooltip(item, char, cs, true))
+		editor := strings.Join(character.RenderCardLines(character.ItemCardSections(def), true), "\n")
+		// Pure collectibles have no mechanical sections; the editor's outer
+		// item card still renders their authored name and description.
+		if strings.TrimSpace(editor) != "" {
+			assertCleanTooltipText(t, "editor/item/"+key, editor)
+		}
+	}
+	for _, key := range config.TrapKeysOrdered() {
+		def, ok := config.GetTrapDefinition(key)
+		if !ok {
+			t.Errorf("trap/%s: definition missing", key)
+			continue
+		}
+		item, ok := config.TrapItem(key)
+		if !ok {
+			t.Errorf("trap/%s: cannot build item", key)
+			continue
+		}
+		assertCleanTooltipText(t, "compact/trap/"+key, GetItemTooltip(item, char, cs, false))
+		assertCleanTooltipText(t, "trap/"+key, GetItemTooltip(item, char, cs, true))
+		editor := strings.Join(character.RenderCardLines(
+			character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true), "\n")
+		assertCleanTooltipText(t, "editor/trap/"+key, editor)
 	}
 }

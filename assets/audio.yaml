@@ -1,0 +1,261 @@
+sample_rate: 48000
+
+buses:
+  master: 1.0
+  ui: 0.75
+  sfx: 0.8
+  music: 0.8
+
+school_sounds:
+  fire: spell_fire
+  water: spell_water_ice
+  air: spell_air_electric
+  earth: spell_earth
+  light: spell_light_heal
+  body: spell_light_heal
+  spirit: spell_light_heal
+  dark: spell_dark_psychic
+  mind: spell_dark_psychic
+
+offensive_school_sounds:
+  body: spell_dark_psychic
+  spirit: spell_dark_psychic
+
+weapon_category_sounds:
+  bow: bow_release
+  blaster: blaster_shot
+  dagger: melee_swing
+
+music:
+  crossfade_ms: 2500
+  boss_crossfade_ms: 900
+  loop_crossfade_ms: 3000
+  boss_track: boss_fight
+  tracks:
+    forest:
+      file: audio/music/forest.ogg
+      biomes: [forest]
+      volume: 1.0
+    desert:
+      file: audio/music/desert.ogg
+      biomes: [desert]
+      volume: 1.0
+    water:
+      file: audio/music/water.ogg
+      biomes: [water]
+      volume: 1.0
+    church:
+      file: audio/music/church.ogg
+      biomes: [church]
+      volume: 1.0
+    clock_tower:
+      file: audio/music/clockwork.ogg
+      biomes: [clock_tower_workshop, clock_tower_gearworks, clock_tower_belfry]
+      volume: 1.0
+    arena:
+      file: audio/music/arena.ogg
+      biomes: [arena]
+      volume: 1.0
+    pyramid:
+      file: audio/music/pyramid.ogg
+      biomes: [pyramid]
+      volume: 1.0
+    lich_nexus:
+      file: audio/music/lich_nexus.ogg
+      biomes: [lich_nexus]
+      volume: 1.0
+    culverts:
+      file: audio/music/culverts.ogg
+      biomes: [culverts]
+      volume: 1.0
+    japanese_castle:
+      file: audio/music/japanese_castle.ogg
+      biomes: [japanese_castle]
+      volume: 1.0
+    city:
+      file: audio/music/city.ogg
+      biomes: [city]
+      volume: 1.0
+    elf_city:
+      file: audio/music/elf_city.ogg
+      biomes: [elf_city]
+      volume: 1.0
+    nomad_city:
+      file: audio/music/nomad_city.ogg
+      biomes: [nomad_city]
+      volume: 1.0
+    highlands:
+      file: audio/music/highlands.ogg
+      biomes: [highlands]
+      volume: 1.0
+    dragon_cliffs:
+      file: audio/music/dragon_cliffs.ogg
+      biomes: [dragon_cliffs]
+      volume: 1.0
+    jungle:
+      file: audio/music/jungle.ogg
+      biomes: [jungle]
+      volume: 1.0
+    boss_fight:
+      file: audio/music/boss_fight.ogg
+      volume: 1.0
+
+sounds:
+  melee_swing:
+    files:
+      - audio/combat/melee_swing_01.ogg
+      - audio/combat/melee_swing_02.ogg
+      - audio/combat/melee_swing_03.ogg
+    bus: sfx
+    volume: 0.62
+    cooldown_ms: 55
+    max_instances: 3
+  monster_melee_swing:
+    files:
+      - audio/combat/melee_swing_01.ogg
+      - audio/combat/melee_swing_02.ogg
+      - audio/combat/melee_swing_03.ogg
+    bus: sfx
+    volume: 0.5
+    cooldown_ms: 55
+    max_instances: 4
+  monster_hit:
+    files:
+      - audio/combat/monster_hit_leather_01.ogg
+      - audio/combat/monster_hit_leather_02.ogg
+      - audio/combat/monster_hit_leather_03.ogg
+      - audio/combat/monster_hit_plate_01.ogg
+      - audio/combat/monster_hit_plate_02.ogg
+      - audio/combat/monster_hit_plate_03.ogg
+    bus: sfx
+    volume: 0.5
+    cooldown_ms: 55
+    max_instances: 4
+  party_hit:
+    files:
+      - audio/combat/party_hit_leather_01.ogg
+      - audio/combat/party_hit_leather_02.ogg
+      - audio/combat/party_hit_leather_03.ogg
+      - audio/combat/party_hit_plate_01.ogg
+      - audio/combat/party_hit_plate_02.ogg
+      - audio/combat/party_hit_plate_03.ogg
+    bus: sfx
+    volume: 0.65
+    cooldown_ms: 110
+    max_instances: 2
+  bow_release:
+    files: [audio/combat/bow_release_01.ogg]
+    bus: sfx
+    volume: 0.62
+    cooldown_ms: 70
+    max_instances: 3
+  blaster_shot:
+    files:
+      - audio/combat/blaster_shot_01.ogg
+      - audio/combat/blaster_shot_02.ogg
+    bus: sfx
+    volume: 0.58
+    cooldown_ms: 65
+    max_instances: 4
+  enemy_death:
+    files:
+      - audio/combat/enemy_death_01.ogg
+      - audio/combat/enemy_death_02.ogg
+      - audio/combat/enemy_death_03.ogg
+    bus: sfx
+    volume: 0.58
+    cooldown_ms: 90
+    max_instances: 3
+
+  spell_fire:
+    files:
+      - audio/magic/fire_01.ogg
+      - audio/magic/fire_02.ogg
+    bus: sfx
+    volume: 0.62
+    cooldown_ms: 90
+    max_instances: 3
+  spell_water_ice:
+    files:
+      - audio/magic/water_ice_01.ogg
+      - audio/magic/water_ice_02.ogg
+    bus: sfx
+    volume: 0.62
+    cooldown_ms: 90
+    max_instances: 3
+  spell_air_electric:
+    files:
+      - audio/magic/air_electric_01.ogg
+      - audio/magic/air_electric_02.ogg
+    bus: sfx
+    volume: 0.58
+    cooldown_ms: 90
+    max_instances: 3
+  spell_earth:
+    files:
+      - audio/magic/earth_01.ogg
+      - audio/magic/earth_02.ogg
+    bus: sfx
+    volume: 0.62
+    cooldown_ms: 90
+    max_instances: 3
+  spell_light_heal:
+    files:
+      - audio/magic/light_heal_01.ogg
+      - audio/magic/light_heal_02.ogg
+    bus: sfx
+    volume: 0.55
+    cooldown_ms: 90
+    max_instances: 3
+  spell_dark_psychic:
+    files:
+      - audio/magic/dark_psychic_01.ogg
+      - audio/magic/dark_psychic_02.ogg
+    bus: sfx
+    volume: 0.58
+    cooldown_ms: 90
+    max_instances: 3
+
+  door_open:
+    files:
+      - audio/world/door_open_01.ogg
+      - audio/world/door_open_02.ogg
+    bus: sfx
+    volume: 0.68
+    cooldown_ms: 200
+    max_instances: 2
+  door_locked:
+    files:
+      - audio/world/door_locked_01.ogg
+      - audio/world/door_locked_02.ogg
+    bus: sfx
+    volume: 0.6
+    cooldown_ms: 180
+    max_instances: 1
+  chest_open:
+    files: [audio/world/chest_open_01.ogg]
+    bus: sfx
+    volume: 0.64
+    cooldown_ms: 0
+    max_instances: 2
+  coins:
+    files:
+      - audio/world/coins_01.ogg
+      - audio/world/coins_02.ogg
+      - audio/world/coins_03.ogg
+    bus: sfx
+    volume: 0.58
+    cooldown_ms: 120
+    max_instances: 2
+  quest_complete:
+    files: [audio/progression/quest_complete_01.ogg]
+    bus: ui
+    volume: 0.62
+    cooldown_ms: 500
+    max_instances: 1
+  level_up:
+    files: [audio/progression/level_up_01.ogg]
+    bus: ui
+    volume: 0.68
+    cooldown_ms: 500
+    max_instances: 1

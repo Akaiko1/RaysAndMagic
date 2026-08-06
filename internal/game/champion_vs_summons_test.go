@@ -49,7 +49,8 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			markCardAlly(huntress) // Bound, SummonedBy = card_collection
 
 			cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, huntress}
-			cs.game.refreshBoundAllyCache() // mirrors the champion + resolves AIFoe both ways
+			cs.game.refreshMonsterAIState() // mirrors the champion + resolves AIFoe both ways
+			champ.PerfectDodge = 0          // mirror is complete; isolate armor/damage, not dodge
 
 			// The delivery mechanism differs by archetype (documents HOW each attacks).
 			if champ.HasRangedAttack() != tc.ranged {
@@ -85,13 +86,16 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 				t.Errorf("champion did not damage the summoned huntress (HP %d -> %d)", hpBefore, huntress.HitPoints)
 			}
 
-			// --- Huntress strikes the champion for her own authored band ---
-			// Neither champion resists physical, so the tier HP pool takes the raw band.
+			// --- Huntress strikes with her authored normal + true packet ---
+			// Champion armor reduces the normal component; typed true bypasses it.
+			// Neither champion resists physical.
 			champHPBefore := champ.HitPoints
 			cs.monsterStrikeMonster(huntress, champ)
 			hit := champHPBefore - champ.HitPoints
-			if hit < huntress.DamageMin || hit > huntress.DamageMax {
-				t.Errorf("huntress hit the champion for %d, want her authored band [%d,%d]", hit, huntress.DamageMin, huntress.DamageMax)
+			minHit := applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
+			maxHit := applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
+			if hit < minHit || hit > maxHit {
+				t.Errorf("huntress hit the champion for %d, want armor-mitigated packet [%d,%d]", hit, minHit, maxHit)
 			}
 			if champ.HitPoints >= champ.MaxHitPoints {
 				t.Errorf("champion tier HP pool untouched (%d/%d) after a huntress blow", champ.HitPoints, champ.MaxHitPoints)
@@ -122,7 +126,7 @@ func TestWeaponMasterFightsCardSummonThroughTurnBasedAI(t *testing.T) {
 	d0 := Distance(champ.X, champ.Y, huntress.X, huntress.Y)
 	hp0 := huntress.HitPoints
 	for turn := 0; turn < 8; turn++ {
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if champ.AIFoe != huntress {
 			t.Fatalf("turn %d: Weapon Master AIFoe = %v, want card summon", turn, champ.AIFoe)
 		}
@@ -182,7 +186,7 @@ func TestWeaponMasterCrossfireHitsOffCenterAdjacentCardSummon(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	if champ.AIFoe != ally {
 		t.Fatal("Weapon Master should acquire the adjacent card summon")
@@ -219,7 +223,7 @@ func TestWeaponMasterCrossfireUsesIndependentHandCooldowns(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	game.combat.HandleMonsterInteractions()
 	if champ.AttackCDFrames <= 0 || champ.OffHandCDFrames <= 0 {

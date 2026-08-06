@@ -9,7 +9,9 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 // npcIsWalkUpProp: interactables the party walks right up to (chests,
@@ -62,6 +64,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		return
 	}
 	npc.Visited = true // consumed even if the trap fires - the lid is open
+	g.playSoundKey(crate.InteractionSound)
 
 	if crate.TrapDamage > 0 || crate.TrapIgnite {
 		g.springCrateTrap(npc, crate)
@@ -122,12 +125,12 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		}
 		burnFrames := g.config.GetTPS() * igniteSeconds
 		g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-			member.ApplyBurn(burnFrames)
+			member.ApplyBurn(g.combat.scaledStatusFrames(member, burnFrames))
 			g.TriggerPartyFlame(idx)
 		})
 		return
 	}
-	damageType := "physical"
+	damageType := monsterPkg.DamagePhysical.String()
 	if len(crate.TrapDamageTypes) > 0 {
 		damageType = crate.TrapDamageTypes[rand.Intn(len(crate.TrapDamageTypes))]
 	}
@@ -278,14 +281,22 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 	var pool []poolEntry
 	minTier := rarityTier(minRarity)
 	maxTier := rarityTier(maxRarity)
-	keys := g.world.InitialMonsterKeys
-	if len(keys) == 0 {
-		// Small programmatic worlds in unit tests predate the initial-map snapshot.
-		// Their live mob list is the closest available definition of the map pool.
-		keys = make(map[string]struct{})
-		for _, m := range g.world.Monsters {
-			if m != nil {
-				keys[m.Key] = struct{}{}
+	var keys map[string]struct{}
+	if g.openWorldActive() {
+		// Unified world: the chest rolls its REGION's authored kinds - a forest
+		// chest must roll from the forest's pool, not the desert's. The merged
+		// world carries no flattened pool; a broken region invariant panics here.
+		keys = world.GlobalWorldManager.OpenWorldRegionByKey(currentMapKey()).InitialMonsterKeys
+	} else {
+		keys = g.world.InitialMonsterKeys
+		if len(keys) == 0 {
+			// Small programmatic worlds in unit tests predate the initial-map snapshot.
+			// Their live mob list is the closest available definition of the map pool.
+			keys = make(map[string]struct{})
+			for _, m := range g.world.Monsters {
+				if m != nil {
+					keys[m.Key] = struct{}{}
+				}
 			}
 		}
 	}
@@ -295,7 +306,13 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 	}
 	sort.Strings(keyList)
 	for _, key := range keyList {
-		for _, e := range config.GetLootTable(key) {
+		isBoss := false
+		if monsterPkg.MonsterConfig != nil {
+			if def, err := monsterPkg.MonsterConfig.GetMonsterByKey(key); err == nil {
+				isBoss = def.Boss
+			}
+		}
+		for _, e := range config.GetLootTable(key, isBoss) {
 			rarity := lootEntryRarity(e)
 			tier := rarityTier(rarity)
 			if exactRarity != "" && rarity != exactRarity {
@@ -307,7 +324,7 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 			if maxRarity != "" && tier > maxTier {
 				continue
 			}
-			w := int(e.Chance * 1000)
+			w := int(e.Chance*1000) * e.RollCount()
 			if w <= 0 {
 				continue
 			}

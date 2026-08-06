@@ -2,8 +2,11 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	"math"
 	"sort"
+	"sync"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -412,7 +415,7 @@ func (g *MMGame) bigPortraitName(c *character.MMCharacter) string {
 // drawPortraitCover draws a name's portrait cover-fit (filled, centered, no
 // distortion) into the given box.
 func (ui *UISystem) drawPortraitCover(screen *ebiten.Image, name string, x, y, w, h int) {
-	img := ui.cardPortrait(name, w, h, 0)
+	img := ui.cardPortrait(name, w, h, false)
 	if img == nil {
 		return
 	}
@@ -421,16 +424,26 @@ func (ui *UISystem) drawPortraitCover(screen *ebiten.Image, name string, x, y, w
 	screen.DrawImage(img, op)
 }
 
+const (
+	partyHeroCardPortraitInset   = 14
+	partyHeroDetailPortraitInset = 22
+)
+
 // drawHeroCard draws a compact portrait card (used for pool + slots + drag ghost).
 func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, selected bool) {
 	if hero == nil {
 		return
 	}
+	if selected {
+		drawHeroCardSelectionGlow(screen, r)
+	}
 	ui.drawPanel(screen, "menu_panel_slot", r.x, r.y, r.w, r.h)
 
 	// Portrait inset so the ornate frame border stays visible around it.
 	portH := r.h - 40
-	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char), r.x+14, r.y+14, r.w-28, portH-10)
+	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char),
+		r.x+partyHeroCardPortraitInset, r.y+partyHeroCardPortraitInset,
+		r.w-2*partyHeroCardPortraitInset, portH-10)
 
 	// Names sit over the portrait art - draw with a dark outline so they stay
 	// readable regardless of the portrait behind them.
@@ -441,9 +454,60 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 	}
 	drawCenteredTextWithShadow(screen, sub, r.x, r.y+portH+6, r.w, 14, color.RGBA{205, 205, 220, 255})
 
-	if selected {
-		drawRectBorder(screen, r.x+3, r.y+3, r.w-6, r.h-6, 2, color.RGBA{220, 225, 255, 255})
+}
+
+const heroCardSelectionGlowSpread = 10
+
+var (
+	heroCardSelectionGlowMu    sync.Mutex
+	heroCardSelectionGlowCache = map[[2]int]*ebiten.Image{}
+)
+
+func heroCardSelectionGlow(w, h int) *ebiten.Image {
+	key := [2]int{w, h}
+	heroCardSelectionGlowMu.Lock()
+	defer heroCardSelectionGlowMu.Unlock()
+	if cached := heroCardSelectionGlowCache[key]; cached != nil {
+		return cached
 	}
+
+	spread := heroCardSelectionGlowSpread
+	img := image.NewNRGBA(image.Rect(0, 0, w+2*spread, h+2*spread))
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		dy := 0
+		if y < spread {
+			dy = spread - y
+		} else if y >= spread+h {
+			dy = y - (spread + h - 1)
+		}
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			dx := 0
+			if x < spread {
+				dx = spread - x
+			} else if x >= spread+w {
+				dx = x - (spread + w - 1)
+			}
+			distance := math.Hypot(float64(dx), float64(dy))
+			if distance > float64(spread) {
+				continue
+			}
+			strength := 1 - distance/float64(spread+1)
+			alpha := uint8(92 * strength * strength)
+			img.SetNRGBA(x, y, color.NRGBA{R: 145, G: 190, B: 255, A: alpha})
+		}
+	}
+	glow := ebiten.NewImageFromImage(img)
+	heroCardSelectionGlowCache[key] = glow
+	return glow
+}
+
+func drawHeroCardSelectionGlow(screen *ebiten.Image, r rect) {
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(
+		float64(r.x-heroCardSelectionGlowSpread),
+		float64(r.y-heroCardSelectionGlowSpread),
+	)
+	screen.DrawImage(heroCardSelectionGlow(r.w, r.h), op)
 }
 
 // drawHeroDetailPanel renders the full stat/skill/equipment sheet for one hero.
@@ -457,14 +521,16 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 
 	// Large portrait (cover-fit, no distortion). Portrait-shaped box (4:5) so the
 	// tall hero art crops minimally; inset to clear the ornate frame border.
-	portW := panel.w - 44
+	portW := panel.w - 2*partyHeroDetailPortraitInset
 	portH := portW * 5 / 4
 	// Cap the portrait low so the stat/skill/magic sheet below always has room;
 	// skill-heavy heroes (clerics, paladins) otherwise overflow the panel.
 	if max := panel.h - 320; portH > max && max > 0 {
 		portH = max
 	}
-	ui.drawPortraitCover(screen, ui.game.bigPortraitName(c), panel.x+22, panel.y+22, portW, portH)
+	ui.drawPortraitCover(screen, ui.game.bigPortraitName(c),
+		panel.x+partyHeroDetailPortraitInset, panel.y+partyHeroDetailPortraitInset,
+		portW, portH)
 
 	tx := panel.x + 24
 	ty := panel.y + portH + 30

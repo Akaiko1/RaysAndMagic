@@ -1,27 +1,33 @@
-# Pyramid Level 1 (biome: pyramid)
+# Pyramid Level 1 - The Outer Halls (biome: pyramid)
 # Symbols: % = pyramid wall   . = stone floor   + = start
 # Monster spawns: m = mummy
-# @ = NPC placeholder: exit to desert/forest-side entrance, stairs to level 2
+# Axis south-to-north: vestibule -> processional colonnade (three pillar
+# pairs) -> the SERDAB, a sealed statue chamber with a single one-tile slot
+# (15,11); a wooden chest waits inside. Behind it, the stair fan (14-16,4)
+# with two guardian mummies. West wing: Hall of Offerings - a comb of five
+# one-tile niches (x3, odd rows) for future decor/secrets, lectern shrine.
+# East wing: Crypt Cells - six 2x2 burial cells, every one a secret slot.
+# The wings meet the axis on the transverse gallery (y12).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%...........%%%%%...........%%
-%%...........%%%%%...........%%
-%%...m.......%%%%%...m.......%%
-%@......m...............m....@%  >[npc:chest_wooden], [npc:spell_lectern]
-%%...........%%.%%...........%%
-%%........m..%%.%%........m..%%
-%%...........%%.%%...........%%
+%%%%%%%%%%%%%.....%%%%%%%%%%%%%
+%%%%%%%%%%%%%.....%%%%%%%%%%%%%
+%%%%%%%%%%%%%.m@m.%%%%%%%%%%%%%  >[npc:pyramid_stairs_to_2]
+%%%%%%%%%%%%%.....%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%...............%%%%%%%%
-%%%%%%%%...............%%%%%%%%
-%%%%%%%%...m........m..%%%%%%%%
-%%%%%%%%...............%%%%%%%%
-%%%%%%%%.......m.......%%%%%%%%
-%%%%%%%%...............%%%%%%%%
-%%%%%%%%....@.....@....%%%%%%%%  >[npc:pyramid_exit], [npc:pyramid_stairs_to_2]
-%%%%%%%%%%%%%%%+%%%%%%%%%%%%%%%
+%%...........%%.%%..........@%%  >[npc:chest_iron]
+%%.%m%.%.%.%.......%%.%%.%%.%%%
+%%..@........%%%%%......m....%%  >[npc:spell_lectern]
+%%.%m%.%.%.%.%.@.%.%%.%%.%%.%%%  >[npc:chest_wooden]
+%%...........%%m%%......m....%%
+%%............%m%............%%
+%%............%.%...m........%%
+%%%%%%%%%%%...%.%...%%%%%%%%%%%
+%%%%%%%%%%%.%.....%.%%%%%%%%%%%
+%%%%%%%%%%%.........%%%%%%%%%%%
+%%%%%%%%%%%.%.....%.%%%%%%%%%%%
+%%%%%%%%%%%.........%%%%%%%%%%%
+%%%%%%%%%%%.%.....%.%%%%%%%%%%%
+%%%%%%%%%%%.........%%%%%%%%%%%
+%%%%%%%%%%%..@..+...%%%%%%%%%%%  >[npc:pyramid_exit]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

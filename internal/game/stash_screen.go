@@ -3,6 +3,7 @@ package game
 import (
 	"image"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"ugataima/internal/items"
@@ -50,15 +51,16 @@ const (
 
 // openStash lazy-loads the shared chest and shows the stash modal. Called from
 // the tavern's "Manage your stash" action.
-func (g *MMGame) openStash() {
+func (g *MMGame) openStash() bool {
 	if !g.ensureStashLoaded() {
 		g.AddCombatMessage("Could not open the stash.")
-		return
+		return false
 	}
 	g.stashScreenOpen = true
 	g.stashInvPage = 0
 	g.stashShowCards = false
 	g.clearStashDrag()
+	return true
 }
 
 func (g *MMGame) clearStashDrag() {
@@ -67,57 +69,134 @@ func (g *MMGame) clearStashDrag() {
 	g.stashDragDrop = false
 	g.stashDragFrom = -1
 	g.stashDragItem = items.Item{}
+	g.stashDragSplitQuantity = 0
+	g.stashDragPickedUp = false
 }
 
-// commitStashTransfer persists a transfer that already mutated BOTH stores in
-// memory - the chest (stash.json) and the party bag (autosave) - atomically:
-// either both land on disk or neither does. The chest is written first; only if
-// that succeeds is the bag autosaved. If EITHER write fails the in-memory move is
-// rolled back (and the chest re-written to its pre-move state when the bag write
-// is the one that failed), so a later reload can't dupe or lose the item. Returns
-// false (and tells the player) on failure.
-func (g *MMGame) commitStashTransfer(rollback func()) bool {
+// commitStashTransfer commits a mutation that already changed the in-memory bag
+// and chest. A durable journal makes the independent stash and autosave files
+// recoverable as one transfer after a crash or write failure.
+func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
+	// A chest cell-to-cell move changes neither the bag length nor the gold, so
+	// the redraw barrier needs an explicit revision. Bumped on entry: even the
+	// autosave-failure branch can leave memory on the committed state, and a
+	// spurious bump on a full rollback only costs one conservative frame.
+	g.bumpModalContentRev()
 	if g.stash == nil {
-		rollback()
+		snapshot.restore(g)
+		return false
+	}
+	before := snapshot.stash()
+	journal := &stash.TransferJournal{
+		ID:     strconv.FormatUint(items.NewInstanceID(), 10),
+		Before: before,
+		After:  *g.stash,
+	}
+	if err := stash.SaveTransferJournal(journal); err != nil {
+		snapshot.restore(g)
+		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
 	if err := stash.Save(g.stash); err != nil {
-		rollback() // chest never committed -> just undo the in-memory move
+		snapshot.restore(g) // chest never committed -> just undo the in-memory move
+		_ = stash.ClearTransferJournal()
 		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
+	g.pendingStashTransferID = journal.ID
 	if err := g.autosaveErr(); err != nil {
-		rollback()              // bag write failed after the chest committed:
-		_ = stash.Save(g.stash) // re-commit the chest at its pre-move state too
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		// Do not roll memory back until the old chest snapshot is safely back on
+		// disk. If that write also fails, memory stays on the committed state and
+		// the prepared journal repairs it on the next stash access.
+		if restoreErr := stash.Save(&before); restoreErr == nil {
+			snapshot.restore(g)
+			g.pendingStashTransferID = ""
+			_ = stash.ClearTransferJournal()
+			g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		} else {
+			g.AddCombatMessage("Stash saved, but autosave failed. Do not quit; save again.")
+		}
 		return false
+	}
+	// Keep the marker for later autosaves if journal cleanup itself fails. That
+	// lets recovery select the committed after snapshot instead of rolling back.
+	if err := stash.ClearTransferJournal(); err == nil {
+		g.pendingStashTransferID = ""
 	}
 	return true
 }
 
-// stashSnapshot captures both stores so a failed transfer can be rolled back
-// wholesale (the chest Slots is a value array; the bag is a slice we copy).
-func (g *MMGame) stashSnapshot() func() {
-	invSnap := append([]items.Item(nil), g.party.Inventory...)
-	slotsSnap := g.stash.Slots
-	cardsSnap := g.stash.CardSlots
-	return func() {
-		g.party.Inventory = invSnap
-		g.stash.Slots = slotsSnap
-		g.stash.CardSlots = cardsSnap
+// stashTransferSnapshot captures the pre-transfer in-memory state. The stack
+// API replaces lineage slices rather than mutating them in place, so these value
+// copies remain valid for rollback and durable journal recovery.
+type stashTransferSnapshot struct {
+	inventory []items.Item
+	slots     [stash.SlotCount]items.Item
+	cards     [stash.CardSlotCount]items.Item
+}
+
+func (g *MMGame) stashSnapshot() stashTransferSnapshot {
+	return stashTransferSnapshot{
+		inventory: append([]items.Item(nil), g.party.Inventory...),
+		slots:     g.stash.Slots,
+		cards:     g.stash.CardSlots,
 	}
+}
+
+func (snapshot stashTransferSnapshot) stash() stash.Stash {
+	return stash.Stash{Slots: snapshot.slots, CardSlots: snapshot.cards}
+}
+
+func (snapshot stashTransferSnapshot) restore(g *MMGame) {
+	g.party.Inventory = snapshot.inventory
+	g.stash.Slots = snapshot.slots
+	g.stash.CardSlots = snapshot.cards
+}
+
+// finishPendingStashTransfer retries the party-side autosave after the rare
+// case where the chest write succeeded but its compensating rollback failed.
+// New mutations must wait until that durable journal has a decision.
+func (g *MMGame) finishPendingStashTransfer() bool {
+	if g.pendingStashTransferID == "" {
+		return true
+	}
+	if err := g.autosaveErr(); err != nil {
+		g.AddCombatMessage("Stash autosave is still failing. Try again before moving more items.")
+		return false
+	}
+	if err := stash.ClearTransferJournal(); err != nil {
+		g.AddCombatMessage("Stash is waiting for journal cleanup. Try again before moving more items.")
+		return false
+	}
+	g.pendingStashTransferID = ""
+	return true
 }
 
 // updateStashDrag samples the raw mouse to drive the drag lifecycle while the
 // stash is open. Source capture and drop resolution happen in drawStashScreen
 // (where the cell rects are known), matching the quick-slot drag model.
-func (ui *UISystem) updateStashDrag() {
+func (ui *UISystem) updateStashDrag() bool {
 	g := ui.game
-	if !g.stashScreenOpen {
+	if g.stashDragPickedUp {
+		if !g.stashInteractionOpen() {
+			g.clearStashDrag()
+			return false
+		}
+		g.stashDragCurX, g.stashDragCurY = ebiten.CursorPosition()
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			g.stashDragDrop = true
+			return true // destination click is a drag drop, never a stash click
+		}
+		return false
+	}
+	if ui.stackSplitPicker.open {
+		return false
+	}
+	if !g.stashInteractionOpen() {
 		if g.stashDragArmed || g.stashDragActive {
 			g.clearStashDrag()
 		}
-		return
+		return false
 	}
 	x, y := ebiten.CursorPosition()
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -128,6 +207,7 @@ func (ui *UISystem) updateStashDrag() {
 		g.stashDragStartX, g.stashDragStartY = x, y
 		g.stashDragCurX, g.stashDragCurY = x, y
 		g.stashDragItem = items.Item{}
+		g.stashDragSplitQuantity = 0
 	}
 	if g.stashDragArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		g.stashDragCurX, g.stashDragCurY = x, y
@@ -144,6 +224,21 @@ func (ui *UISystem) updateStashDrag() {
 		}
 		g.stashDragArmed = false
 	}
+	return false
+}
+
+// stashInteractionOpen includes the embedded tavern Stash tab as well as the
+// legacy standalone stash screen. The drag state machine must see both as the
+// same working surface or it clears a drag before the tab can resolve it.
+func (g *MMGame) stashInteractionOpen() bool {
+	if g.stashScreenOpen {
+		return true
+	}
+	if !g.dialogActive || npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
+		return false
+	}
+	tab, ok := g.activeTavernTab(g.dialogNPC)
+	return ok && tab.action == tavernStashAction
 }
 
 // decodeStashFrom turns the encoded stashDragFrom into a slot address. The bag
@@ -189,6 +284,13 @@ func stashAcceptsCardSlot(it items.Item) bool {
 func (g *MMGame) resolveStashDrop(dst stashAddr) {
 	src, ok := decodeStashFrom(g.stashDragFrom)
 	if !ok || src == dst {
+		return
+	}
+	if g.stashDragSplitQuantity > 0 {
+		g.resolvePartialStashDrop(src, dst, g.stashDragSplitQuantity)
+		return
+	}
+	if !g.finishPendingStashTransfer() {
 		return
 	}
 	rollback := g.stashSnapshot()
@@ -239,6 +341,57 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 	g.commitStashTransfer(rollback)
 }
 
+// resolvePartialStashDrop transfers a fragment without ever creating two
+// arbitrary copies in the bag. Stack provenance lives on items.Item, so a
+// partial deposit may safely merge into an occupied matching chest cell.
+func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
+	if quantity < 1 || src == dst || (src.kind == stashKindBag && dst.kind == stashKindBag) {
+		return
+	}
+	if dst.kind == stashKindCard {
+		return // cards never stack, so no partial transfer belongs in the vault
+	}
+	var dstCell *items.Item
+	if dst.kind != stashKindBag {
+		dstCell = g.stashCellPtr(dst)
+		if dstCell == nil {
+			return
+		}
+		if !stash.IsEmpty(*dstCell) && !items.SameStack(*dstCell, g.stashDragItem) {
+			g.AddCombatMessage("Partial stack transfer needs a matching stash stack.")
+			return
+		}
+	}
+
+	if !g.finishPendingStashTransfer() {
+		return
+	}
+	rollback := g.stashSnapshot()
+	var fragment items.Item
+	var ok bool
+	switch src.kind {
+	case stashKindBag:
+		fragment, ok = g.party.TakeStackUnits(src.idx, quantity)
+	case stashKindChest, stashKindCard:
+		source := g.stashCellPtr(src)
+		if source != nil {
+			fragment, ok = source.SplitOffForStashWithdrawal(quantity)
+		}
+	}
+	if !ok {
+		return
+	}
+
+	if dst.kind == stashKindBag {
+		g.party.AddItem(fragment)
+	} else if stash.IsEmpty(*dstCell) {
+		*dstCell = fragment
+	} else {
+		dstCell.MergeStack(fragment)
+	}
+	g.commitStashTransfer(rollback)
+}
+
 const (
 	stashPopupW   = 560
 	stashPopupH   = 440
@@ -261,6 +414,7 @@ const (
 // two never drift.
 type stashLayout struct {
 	popupX, popupY     int
+	popupW, popupH     int
 	centerX            int
 	chestTop, invTop   int
 	gridW, pagerY      int
@@ -270,10 +424,15 @@ type stashLayout struct {
 func computeStashLayout(screenW, screenH int) stashLayout {
 	popupX := (screenW - stashPopupW) / 2
 	popupY := (screenH - stashPopupH) / 2
+	return computeStashLayoutForArea(layoutRect{popupX, popupY, stashPopupW, stashPopupH}, 76)
+}
+
+func computeStashLayoutForArea(area layoutRect, topInset int) stashLayout {
 	var L stashLayout
-	L.popupX, L.popupY = popupX, popupY
-	L.centerX = popupX + stashPopupW/2
-	L.chestTop = popupY + 76 // clear of the title + explanatory lines above
+	L.popupX, L.popupY = area.x, area.y
+	L.popupW, L.popupH = area.w, area.h
+	L.centerX = area.x + area.w/2
+	L.chestTop = area.y + topInset
 	L.invTop = L.chestTop + stashSectionRows*(stashCellSize+stashCellGap) + 30
 	L.gridW = stashInvCols*stashCellSize + (stashInvCols-1)*stashCellGap
 	L.pagerY = L.invTop + stashSectionRows*(stashCellSize+stashCellGap) + 8
@@ -284,7 +443,7 @@ func computeStashLayout(screenW, screenH int) stashLayout {
 // stashToggleRect is the Items/Cards tab button, sitting at the right end of the
 // top-storage heading row. Single-sourced so draw + collision test agree.
 func stashToggleRect(L stashLayout) image.Rectangle {
-	x := L.popupX + stashPopupW - stashToggleW - 16
+	x := L.popupX + L.popupW - stashToggleW - 16
 	y := L.chestTop - 20
 	return image.Rect(x, y, x+stashToggleW, y+stashToggleH)
 }
@@ -312,7 +471,6 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	L := computeStashLayout(screenW, screenH)
 	popupX, popupY := L.popupX, L.popupY
 	popupW, popupH := stashPopupW, stashPopupH
-	centerX := L.centerX
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
@@ -320,6 +478,25 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	drawDebugText(screen, "Tavern Stash", popupX+16, popupY+14)
 	drawDebugText(screen, stashSubtitle, popupX+16, popupY+34)
 
+	interactive := ui.topModalLayer() == modalLayerStash
+	ui.drawStashManager(screen, L, interactive)
+
+	// ESC is handled in the Update input loop (edge-tracked) so it closes the
+	// modal without leaking to the menu-open handler; here only the close button
+	// (click-inert while a drag is in flight).
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open) {
+		g.closeStashScreen()
+	}
+}
+
+// drawStashManager renders and operates the actual stash grids. The caller owns
+// the surrounding panel, which lets the same manager live directly in a tavern
+// tab without opening a second modal.
+func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, interactive bool) {
+	g := ui.game
+	if g.stash == nil {
+		return
+	}
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	// Top storage: a tabbed grid. The Items tab shows the general chest; the Cards
@@ -337,33 +514,40 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 		count = stash.CardSlotCount
 		hoverBorder = color.RGBA{190, 120, 220, 235}
 	}
-	drawCenteredDebugText(screen, heading, popupX, chestTop-16, popupW, 14)
-	ui.drawStashTabToggle(screen, L, mouseX, mouseY)
+	drawCenteredDebugText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
+	ui.drawStashTabToggle(screen, L, mouseX, mouseY, interactive)
 	for i := 0; i < count; i++ {
-		r := stashCellRect(centerX, chestTop, i)
+		r := stashCellRect(L.centerX, chestTop, i)
 		var it items.Item
 		from := i
 		if cards {
 			it = g.stash.CardSlots[i]
 			from = stashCardDragBase + i
-			ui.stashCardSource(i, r)
+			if interactive {
+				ui.stashCardSource(i, r)
+			}
 		} else {
 			it = g.stash.Slots[i]
-			ui.stashCellSource(i, r)
+			if interactive {
+				ui.stashCellSource(i, r)
+			}
 		}
-		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from, cards)
+		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from && g.stashDragSplitQuantity == 0, cards)
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, hoverBorder)
 		}
 		ui.stashCellTooltip(it, r, mouseX, mouseY)
-		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
+		if interactive {
+			ui.stashSplitPickerTrigger(from, it, r)
+		}
+		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
 			g.resolveStashDrop(stashAddr{kind, i})
 		}
 	}
 
 	// Party bag grid (bottom), paginated.
 	invTop := L.invTop
-	drawCenteredDebugText(screen, "Your Bag", popupX, invTop-16, popupW, 14)
+	drawCenteredDebugText(screen, "Your Bag", L.popupX, invTop-16, L.popupW, 14)
 	invPages := pageCount(len(g.party.Inventory), stashInvMaxShown)
 	if g.stashInvPage >= invPages {
 		g.stashInvPage = invPages - 1
@@ -376,42 +560,39 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	for slot := 0; slot < stashInvMaxShown; slot++ {
 		idx := invStart + slot
 		r, c := slot/stashInvCols, slot%stashInvCols
-		x := centerX - gridW/2 + c*(stashCellSize+stashCellGap)
+		x := L.centerX - gridW/2 + c*(stashCellSize+stashCellGap)
 		y := invTop + r*(stashCellSize+stashCellGap)
 		cell := image.Rect(x, y, x+stashCellSize, y+stashCellSize)
 		var it items.Item
 		has := idx >= 0 && idx < len(g.party.Inventory)
 		if has {
 			it = g.party.Inventory[idx]
-			ui.stashInvSource(idx, cell)
+			if interactive {
+				ui.stashInvSource(idx, cell)
+			}
 		}
-		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx, false)
+		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx && g.stashDragSplitQuantity == 0, false)
 		if ptInRect(mouseX, mouseY, cell) {
 			drawRectBorder(screen, cell.Min.X-2, cell.Min.Y-2, cell.Dx()+4, cell.Dy()+4, 2, color.RGBA{120, 200, 120, 220})
 		}
 		ui.stashCellTooltip(it, cell, mouseX, mouseY)
+		if interactive {
+			ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
+		}
 		// Dropping onto any bag cell returns a carried chest/card item to the bag.
-		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
+		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
 			g.resolveStashDrop(stashAddr{stashKindBag, idx})
 		}
 	}
 	pagerY := L.pagerY
-	ui.drawPager(screen, centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, true)
-
-	// ESC is handled in the Update input loop (edge-tracked) so it closes the
-	// modal without leaking to the menu-open handler; here only the close button
-	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive) {
-		g.stashScreenOpen = false
-		g.clearStashDrag()
-	}
+	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, interactive && !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
 	if g.stashDragActive && g.stashDragFrom >= 0 {
 		const sz = 48
 		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
 	}
-	if g.stashDragDrop {
+	if interactive && g.stashDragDrop {
 		g.clearStashDrag()
 	}
 }
@@ -425,8 +606,7 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = i
-	g.stashDragItem = g.stash.Slots[i]
+	ui.beginStashDrag(i, g.stash.Slots[i])
 }
 
 // stashInvSource captures a bag cell as a drag source.
@@ -438,8 +618,30 @@ func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
 	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = stashDragInvBase + idx
-	g.stashDragItem = g.party.Inventory[idx]
+	ui.beginStashDrag(stashDragInvBase+idx, g.party.Inventory[idx])
+}
+
+func (ui *UISystem) beginStashDrag(from int, item items.Item) {
+	g := ui.game
+	g.stashDragFrom = from
+	g.stashDragItem = item
+	g.stashDragSplitQuantity = 0
+	if item.Stackable() && item.Count() > 1 && shiftModifierHeld() {
+		g.stashDragSplitQuantity = 1
+		g.stashDragItem.Quantity = 1
+	}
+}
+
+// stashSplitPickerTrigger opens the exact quantity picker on right-click. The
+// regular Shift-drag one-unit shortcut remains available for rapid transfers.
+func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.Rectangle) {
+	g := ui.game
+	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
+		return
+	}
+	if g.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+		ui.openStackSplitPicker(stackSplitPickerStash, from, item)
+	}
 }
 
 // drawStashCell draws one slot: the item icon when filled, an empty frame
@@ -462,7 +664,7 @@ func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.R
 // drawStashTabToggle draws the Items/Cards tab button and flips the tab on click.
 // It reads "Cards >" on the items tab and "< Items" on the cards tab. Disabled
 // while a drag is in flight so the source tab can't change mid-transfer.
-func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mouseX, mouseY int) {
+func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mouseX, mouseY int, interactive bool) {
 	g := ui.game
 	rt := stashToggleRect(L)
 	label := "Cards >"
@@ -477,7 +679,7 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
 	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	if !g.stashDragActive && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
+	if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
 		g.stashShowCards = !g.stashShowCards
 		g.clearStashDrag()
 	}
@@ -516,6 +718,5 @@ func (ui *UISystem) stashCardSource(i int, r image.Rectangle) {
 	if stash.IsEmpty(g.stash.CardSlots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = stashCardDragBase + i
-	g.stashDragItem = g.stash.CardSlots[i]
+	ui.beginStashDrag(stashCardDragBase+i, g.stash.CardSlots[i])
 }

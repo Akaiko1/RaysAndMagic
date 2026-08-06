@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 )
 
@@ -21,11 +22,11 @@ func TestTB_SightAggroScattersBand(t *testing.T) {
 	gl := g.gameLoop
 	ts := float64(cfg.GetTileSize())
 
-	// Three banding wolves stacked on one tile, 4 tiles in front of the party
-	// (inside TB vision, outside melee reach). NOT passive - this is the real
+	// Three banding wolves stacked on one tile, 3 tiles in front of the party
+	// (inside their authored alert radius, outside melee reach). NOT passive - this is the real
 	// game scenario, unlike the preview's staged mobs.
 	for i := 0; i < 3; i++ {
-		m := monster.NewMonster3DFromConfig(g.camera.X+4*ts, g.camera.Y, "wolf", cfg)
+		m := monster.NewMonster3DFromConfig(g.camera.X+3*ts, g.camera.Y, "wolf", cfg)
 		p.arena.Monsters = append(p.arena.Monsters, m)
 	}
 	p.arena.RegisterMonstersWithCollisionSystem(g.collisionSystem)
@@ -122,5 +123,37 @@ func TestMobPreview_SpawnAndStep(t *testing.T) {
 		if m.IsEngagingPlayer {
 			t.Errorf("staged mob %q engaged the preview camera; preview mobs must stay calm", m.Key)
 		}
+	}
+}
+
+func TestMobPreview_ChampionMirroredBeforeFirstFrame(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	if _, err := config.LoadChampionConfig("../../assets/champions.yaml"); err != nil {
+		t.Fatalf("load champions: %v", err)
+	}
+	if err := PrimeChampions(cfg); err != nil {
+		t.Fatalf("prime champions: %v", err)
+	}
+
+	p, err := NewMobPreview(cfg)
+	if err != nil {
+		t.Fatalf("NewMobPreview: %v", err)
+	}
+	p.Select("hobbit_archer")
+	if len(p.Monsters()) != 1 {
+		t.Fatalf("champion preview staged %d monsters, want 1", len(p.Monsters()))
+	}
+	m := p.Monsters()[0]
+	if !m.ChampionMirrored {
+		t.Fatal("champion still exposes monsters.yaml placeholders immediately after Select")
+	}
+	if got := m.GetTurnBasedAttackCount(); got != 2 {
+		t.Errorf("champion TB attacks = %d, want 2", got)
+	}
+	if m.ProjectileWeapon != "blowgun" {
+		t.Errorf("champion projectile weapon = %q, want impossible-tier blowgun", m.ProjectileWeapon)
+	}
+	if m.MaxHitPoints != config.GetChampionTier(config.ChampionDefaultTier).HP {
+		t.Errorf("champion HP = %d, want impossible-tier HP", m.MaxHitPoints)
 	}
 }

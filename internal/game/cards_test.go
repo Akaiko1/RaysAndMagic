@@ -177,9 +177,9 @@ func TestCardEffects_BatchB(t *testing.T) {
 
 	for key, want := range map[string]string{
 		"archmage_card":      "25% of physical damage dealt as fire",
-		"ningyo_card":        "5% to self-heal 25 on attack",
+		"ningyo_card":        "5% to self-heal 25 on weapon attack",
 		"lich_card":          "10% to cheat death (half HP+SP)",
-		"gorilla_titan_card": "10% on move: 50 pure to nearby foes",
+		"gorilla_titan_card": "10% on move: 50 physical true damage to nearby foes",
 	} {
 		if got := cardEffectText(cardDef(key)); got != want {
 			t.Errorf("cardEffectText(%s) = %q, want %q", key, got, want)
@@ -272,9 +272,9 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits FOES only - never the party's own bound allies
-// (card summons / bind-undead) or charmed (pacified) monsters.
-func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
+// The Gorilla move-burst hits foes only. It must not damage pure summons,
+// bound undead, or charmed monsters controlled by the party.
+func TestCardMoveBurst_SkipsPartyControlledMonsters(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -287,10 +287,11 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 		return m
 	}
 	foe := mk("foe", func(m *monster.Monster3D) {})
-	ally := mk("ally", func(m *monster.Monster3D) { m.Bound = true })
+	pure := mk("pure", func(m *monster.Monster3D) { markCardAlly(m) })
+	bound := mk("bound", func(m *monster.Monster3D) { m.Bound = true })
 	charmed := mk("charmed", func(m *monster.Monster3D) { m.Pacified = true })
 	warded := mk("warded", func(m *monster.Monster3D) { m.BossWarded = true })
-	g.world.Monsters = []*monster.Monster3D{foe, ally, charmed, warded}
+	g.world.Monsters = []*monster.Monster3D{foe, pure, bound, charmed, warded}
 
 	if !cs.cardMoveBurstApply(50) {
 		t.Fatal("burst should report a hit on the foe")
@@ -298,11 +299,15 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	if foe.HitPoints != 50 {
 		t.Errorf("foe should take 50 pure (hp=%d, want 50)", foe.HitPoints)
 	}
-	if ally.HitPoints != 100 {
-		t.Errorf("bound ally must NOT be hit by the burst (hp=%d, want 100)", ally.HitPoints)
+	if pure.HitPoints != 100 || pure.WasAttacked {
+		t.Errorf("pure summon must be transparent to the burst (hp=%d attacked=%v)", pure.HitPoints, pure.WasAttacked)
 	}
-	if charmed.HitPoints != 100 {
-		t.Errorf("pacified monster must NOT be hit by the burst (hp=%d, want 100)", charmed.HitPoints)
+	if bound.HitPoints != 100 || bound.WasAttacked {
+		t.Errorf("bound undead must be ignored by the burst (hp=%d attacked=%v)", bound.HitPoints, bound.WasAttacked)
+	}
+	if charmed.HitPoints != 100 || !charmed.Pacified || charmed.WasAttacked {
+		t.Errorf("burst must preserve Charm (hp=%d pacified=%v attacked=%v)",
+			charmed.HitPoints, charmed.Pacified, charmed.WasAttacked)
 	}
 	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.
 	if warded.HitPoints != 100 || warded.HitTintFrames != 0 {
@@ -310,9 +315,9 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst is PURE: physical resistance (or immunity) must NOT
-// reduce it, so a resistant mob still takes the full advertised amount.
-func TestCardMoveBurst_PureBypassesPhysicalResist(t *testing.T) {
+// The Gorilla move-burst is physical true damage: it bypasses armor/flat soak,
+// but the physical resistance carried by its element still applies.
+func TestCardMoveBurst_TrueDamageUsesPhysicalResist(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -327,11 +332,11 @@ func TestCardMoveBurst_PureBypassesPhysicalResist(t *testing.T) {
 	if !cs.cardMoveBurstApply(50) {
 		t.Fatal("expected the burst to hit")
 	}
-	if resistant.HitPoints != 50 {
-		t.Errorf("50%% physical-resist mob should still take full 50 pure (hp=%d, want 50)", resistant.HitPoints)
+	if resistant.HitPoints != 75 {
+		t.Errorf("50%% physical-resist mob hp = %d, want 75", resistant.HitPoints)
 	}
-	if immune.HitPoints != 50 {
-		t.Errorf("physical-immune mob should still take full 50 pure (hp=%d, want 50)", immune.HitPoints)
+	if immune.HitPoints != 100 {
+		t.Errorf("physical-immune mob hp = %d, want 100", immune.HitPoints)
 	}
 }
 
@@ -770,7 +775,7 @@ func TestVengefulNingyoCard_Thorns(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 500, 500
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
-	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0, false)
+	cs.monsterHitCharacter(attacker, member, "Bandit", hitFromMonster(attacker, 100, "physical", false, 0, false))
 	if attacker.HitPoints >= 1000 {
 		t.Errorf("attacker HP = %d, should have taken thorns reflect damage", attacker.HitPoints)
 	}
@@ -794,7 +799,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
 	before := len(g.deadMonsterIDs)
-	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0, false)
+	cs.monsterHitCharacter(attacker, member, "Weak Attacker", hitFromMonster(attacker, 100, "physical", false, 0, false))
 	if attacker.IsAlive() {
 		t.Fatal("setup: reflected damage should have killed the attacker")
 	}

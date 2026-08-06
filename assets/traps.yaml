@@ -12,6 +12,7 @@ traps:
     cooldown_seconds: 3.0
     lifetime_seconds: 40
     element: "physical"
+    armed_fx: "cleave_blades"
     damage_base: 14
     aoe_radius_tiles: 2.0
     border_color: [200, 205, 215]
@@ -25,6 +26,7 @@ traps:
     cooldown_seconds: 3.0
     lifetime_seconds: 40
     element: "earth"
+    armed_fx: "bear_jaws"
     root_turns: 1
     root_seconds: 2
     border_color: [165, 115, 55]
@@ -38,6 +40,7 @@ traps:
     cooldown_seconds: 4.0
     lifetime_seconds: 40
     element: "mind"
+    armed_fx: "stasis_rings"
     stun_turns: 1
     stun_seconds: 2
     border_color: [175, 110, 225]
@@ -51,5 +54,6 @@ traps:
     cooldown_seconds: 4.0
     lifetime_seconds: 40
     element: "fire"
+    armed_fx: "blast_coals"
     damage_base: 26
     border_color: [240, 130, 40]

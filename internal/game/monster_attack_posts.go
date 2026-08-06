@@ -1,0 +1,234 @@
+package game
+
+import (
+	"math"
+	"sort"
+
+	"ugataima/internal/monster"
+)
+
+type attackPostTile struct {
+	x int
+	y int
+}
+
+// reconcileMonsterAttackPosts serializes the one part of combat positioning
+// that cannot be decided independently by parallel RT AI: only one combatant
+// may settle on a given logical attack tile. The target may be the party or a
+// monster foe. Physical positions remain unchanged; a losing combatant becomes
+// transit only while it still shares the winning post.
+func (gl *GameLoop) reconcileMonsterAttackPosts() {
+	if gl == nil || gl.game == nil || gl.game.world == nil || gl.game.config == nil {
+		return
+	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return
+	}
+
+	posts := gl.attackPostBuf[:0]
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		wasPost, wasTarget := m.AttackPost, m.AttackPostTargetID
+		gl.game.syncMonsterAttackPost(m)
+		if wasPost != m.AttackPost || wasTarget != m.AttackPostTargetID {
+			gl.game.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
+		}
+		if monsterHoldsAttackPost(m) {
+			posts = append(posts, m)
+		}
+	}
+
+	sort.Slice(posts, func(i, j int) bool {
+		a, b := posts[i], posts[j]
+		atx, aty := TileIndex(a.X, tileSize), TileIndex(a.Y, tileSize)
+		btx, bty := TileIndex(b.X, tileSize), TileIndex(b.Y, tileSize)
+		if aty != bty {
+			return aty < bty
+		}
+		if atx != btx {
+			return atx < btx
+		}
+		// A settled attacker keeps its post when a newcomer arrives on the
+		// same frame. A stable ID breaks simultaneous-entry ties deterministically.
+		if a.AttackPostSince != b.AttackPostSince {
+			return a.AttackPostSince < b.AttackPostSince
+		}
+		return a.ID < b.ID
+	})
+
+	for i := 0; i < len(posts); {
+		winner := posts[i]
+		key := attackPostTile{x: TileIndex(winner.X, tileSize), y: TileIndex(winner.Y, tileSize)}
+		gl.game.applyMonsterCollisionType(winner.ID, desiredMonsterCollisionType(winner))
+		i++
+		for i < len(posts) {
+			candidate := posts[i]
+			candidateKey := attackPostTile{x: TileIndex(candidate.X, tileSize), y: TileIndex(candidate.Y, tileSize)}
+			if candidateKey != key {
+				break
+			}
+			gl.game.releaseMonsterAttackPost(candidate)
+			i++
+		}
+	}
+
+	// Recompute transit after winners/losers have updated the live markers. A
+	// regular pursuer stays targetable by party arcs; only actual overlap with a
+	// claimed combat tile gets the transit exception.
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || !m.IsAlive() || !gl.game.monsterHasAttackTarget(m) || m.AttackPost ||
+			(m.State != monster.StateAlert && m.State != monster.StatePursuing) {
+			if m != nil {
+				m.AttackTransit = false
+			}
+			continue
+		}
+		m.AttackTransit = gl.game.collisionSystem != nil &&
+			gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, m.X, m.Y)
+	}
+	gl.attackPostBuf = posts
+}
+
+// combatStackParticipant reports whether a tile needs temporary combat-stack
+// visuals. Once one active pursuer enters a tile, every live monster already
+// there joins the render-only fan; otherwise a calm occupant would be hidden
+// inside the passing combatant. Tiles containing only calm monsters retain
+// normal banding visuals.
+func combatStackParticipant(g *MMGame, m *monster.Monster3D) bool {
+	if g == nil || !g.monsterHasAttackTarget(m) {
+		return false
+	}
+	switch m.State {
+	case monster.StateAlert, monster.StatePursuing, monster.StateAttacking:
+		return true
+	default:
+		return false
+	}
+}
+
+// updateCombatTransitVisualStacks fans every live monster on a tile occupied by
+// an active combatant without inventing a BandID. It is strictly render state:
+// combat reads logical attack posts, and AoE continues to read actual positions.
+func (gl *GameLoop) updateCombatTransitVisualStacks() {
+	if gl == nil || gl.game == nil || gl.game.world == nil || gl.game.config == nil {
+		return
+	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return
+	}
+
+	if gl.combatTransitTileBuf == nil {
+		gl.combatTransitTileBuf = make(map[attackPostTile]struct{})
+	} else {
+		clear(gl.combatTransitTileBuf)
+	}
+	stacks := gl.combatTransitStackBuf[:0]
+	for _, m := range gl.game.world.Monsters {
+		if m == nil {
+			continue
+		}
+		m.TransitStackIndex = 0
+		m.TransitStackCount = 0
+		if m.IsAlive() && combatStackParticipant(gl.game, m) {
+			gl.combatTransitTileBuf[attackPostTile{x: TileIndex(m.X, tileSize), y: TileIndex(m.Y, tileSize)}] = struct{}{}
+		}
+	}
+	for _, m := range gl.game.world.Monsters {
+		if m != nil && m.IsAlive() {
+			key := attackPostTile{x: TileIndex(m.X, tileSize), y: TileIndex(m.Y, tileSize)}
+			if _, active := gl.combatTransitTileBuf[key]; !active {
+				continue
+			}
+			stacks = append(stacks, m)
+		}
+	}
+	sort.Slice(stacks, func(i, j int) bool {
+		a, b := stacks[i], stacks[j]
+		atx, aty := TileIndex(a.X, tileSize), TileIndex(a.Y, tileSize)
+		btx, bty := TileIndex(b.X, tileSize), TileIndex(b.Y, tileSize)
+		if aty != bty {
+			return aty < bty
+		}
+		if atx != btx {
+			return atx < btx
+		}
+		if a.AttackPost != b.AttackPost {
+			return a.AttackPost
+		}
+		return a.ID < b.ID
+	})
+
+	for first := 0; first < len(stacks); {
+		key := attackPostTile{x: TileIndex(stacks[first].X, tileSize), y: TileIndex(stacks[first].Y, tileSize)}
+		last := first + 1
+		for last < len(stacks) && TileIndex(stacks[last].X, tileSize) == key.x && TileIndex(stacks[last].Y, tileSize) == key.y {
+			last++
+		}
+		if count := last - first; count > 1 {
+			var centerX, centerY float64
+			for _, m := range stacks[first:last] {
+				centerX += m.X
+				centerY += m.Y
+			}
+			centerX /= float64(count)
+			centerY /= float64(count)
+			for index, m := range stacks[first:last] {
+				m.TransitStackIndex = index
+				m.TransitStackCount = count
+				fanX, fanY := bandFanOffset(index, count, tileSize)
+				gl.easeTransitStackOffset(m, centerX+fanX-m.X, centerY+fanY-m.Y)
+			}
+		}
+		first = last
+	}
+	for _, m := range gl.game.world.Monsters {
+		if m != nil && m.TransitStackCount <= 1 {
+			gl.easeTransitStackOffset(m, 0, 0)
+		}
+	}
+	gl.combatTransitStackBuf = stacks
+}
+
+// easeTransitStackOffset smooths only the render anchor. At 120 TPS the
+// response settles in roughly 0.15s, fast enough to read as one temporary
+// stack but slow enough that crossing a tile edge cannot jump a sprite by the
+// full fan radius in one frame.
+func (gl *GameLoop) easeTransitStackOffset(m *monster.Monster3D, targetX, targetY float64) {
+	if m == nil {
+		return
+	}
+	tps := 60
+	if gl != nil && gl.game != nil && gl.game.config != nil && gl.game.config.GetTPS() > 0 {
+		tps = gl.game.config.GetTPS()
+	}
+	blend := 1 - math.Exp(-20/float64(tps))
+	m.TransitStackOffsetX += (targetX - m.TransitStackOffsetX) * blend
+	m.TransitStackOffsetY += (targetY - m.TransitStackOffsetY) * blend
+	if math.Abs(targetX-m.TransitStackOffsetX) < 0.01 {
+		m.TransitStackOffsetX = targetX
+	}
+	if math.Abs(targetY-m.TransitStackOffsetY) < 0.01 {
+		m.TransitStackOffsetY = targetY
+	}
+}
+
+// monsterStackFanOffset returns the one render offset used for a normal calm
+// band or a temporary combat transit stack. Transit wins so a mob never gets
+// two offsets when a just-scattered band shares a tile for one frame.
+func monsterStackFanOffset(m *monster.Monster3D, tileSize float64) (float64, float64) {
+	if m == nil {
+		return 0, 0
+	}
+	if m.TransitStackCount > 1 {
+		return m.TransitStackOffsetX, m.TransitStackOffsetY
+	}
+	if m.BandStackCount > 1 {
+		return bandFanOffset(m.BandStackIndex, m.BandStackCount, tileSize)
+	}
+	// Let a dissolved transit stack ease back to the monster's real position.
+	return m.TransitStackOffsetX, m.TransitStackOffsetY
+}

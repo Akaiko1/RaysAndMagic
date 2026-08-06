@@ -2,45 +2,48 @@ package game
 
 import (
 	"fmt"
-	"math"
+	"math/rand"
 	"sort"
 	"ugataima/internal/character"
-	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 )
 
-// separateStackedMonstersTB pulls in-play monsters off shared tiles onto distinct
-// neighbouring tile centres. Turn-based combat fires down rows/columns, so two
-// mobs the real-time pixel push left stacked or half-a-tile offset straddle the
-// aim line and a shot threads the gap between them. Runs once per turn boundary
-// (via startPartyTurn - which fires on TB entry and at every party turn); being
-// turn-discrete it can't oscillate the way a per-frame RT snap would (that
-// jittered because pursuit re-converged the pair every frame). Real time keeps
-// its smooth pixel push (separateOverlappingMonsters); this is TB-only. Calm
-// band stacks are skipped - stacking is the banding feature, and stackMonsterBand
-// would snap them back the same tick anyway; it only reuses the read-only
+// separateStackedMonstersTB repairs accidental non-combat overlaps by moving
+// them onto distinct neighbouring tile centres. Combatants with an active target
+// deliberately keep shared tiles: that is the common transit-stack model, and
+// scattering them here would undo the movement action they just spent passing
+// through an occupied attack post. Calm social bands are intentional stacks too.
+// Runs once per turn boundary via startPartyTurn and reuses only the read-only
 // bandScatterRing order.
 func (g *MMGame) separateStackedMonstersTB() {
 	if g.world == nil || g.collisionSystem == nil {
 		return
 	}
 	tile := float64(g.config.GetTileSize())
-	vision := tile * TurnBasedVisionRangeTiles
+	separationRadius := tile * TurnBasedCalmStackSeparationRadiusTiles
 	px, py := g.camera.X, g.camera.Y
-	playerTile := [2]int{int(px / tile), int(py / tile)}
+	playerTile := [2]int{TileIndex(px, tile), TileIndex(py, tile)}
 	byTile := map[[2]int][]*monster.Monster3D{}
+	// Only byTile actors may be repaired, but every live actor reserves its
+	// current tile. Otherwise a legacy stack can scatter onto a combat transit
+	// participant that was deliberately excluded from repair.
+	used := map[[2]int]bool{playerTile: true}
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		if m.Banding && !m.IsEngagingPlayer {
+		key := [2]int{TileIndex(m.X, tile), TileIndex(m.Y, tile)}
+		used[key] = true
+		if combatStackParticipant(g, m) {
+			continue
+		}
+		if (m.Banding || (m.LootGuarding && m.BandID > 0)) && m.IsCalmForSocialBehavior() {
 			continue // calm band stack: intentional, and re-stacked same tick anyway
 		}
-		if Distance(px, py, m.X, m.Y) > vision && !m.IsEngagingPlayer {
+		if Distance(px, py, m.X, m.Y) > separationRadius && !m.IsInCombat() {
 			continue // out of this fight - leave it be
 		}
-		key := [2]int{int(m.X / tile), int(m.Y / tile)}
 		byTile[key] = append(byTile[key], m)
 	}
 	keys := make([][2]int, 0, len(byTile))
@@ -55,11 +58,8 @@ func (g *MMGame) separateStackedMonstersTB() {
 	})
 	// used is shared across clusters: every occupied tile is off-limits as a
 	// destination, so two adjacent stacks can't scatter onto the same free tile
-	// (calm-calm pass-through wouldn't stop them) or onto a lone calm mob.
-	used := map[[2]int]bool{playerTile: true}
-	for k := range byTile {
-		used[k] = true
-	}
+	// (calm-calm pass-through wouldn't stop them), onto a lone calm mob, or onto
+	// a combatant intentionally sharing a transit stack.
 	for _, k := range keys {
 		cluster := byTile[k]
 		if len(cluster) < 2 {
@@ -121,9 +121,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
-	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
-	visionRange := tileSize * TurnBasedVisionRangeTiles
 
 	// Cache player position for the loop
 	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
@@ -155,15 +153,16 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 		if gl.game.turnBasedMonsterStunned[m] {
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
 		if tickTurnStatuses {
-			m.TickPoisonTurn(gl.game.config.GetTPS()) // Venom-proc cards; ticks regardless of stun
-			m.TickArmorShredTurn()                    // Pit Labrys shred decays regardless of stun
-			if m.SoakTurns > 0 {                      // Stone Skin soak: stun dual-clock convention
-				status.TickTurn(&m.SoakTurns, &m.SoakFrames)
-			}
+			m.TickPoisonTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
+			m.TickBurnTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))   // Drakefang ignite; stacks with poison
+			m.TickArmorShredTurn()                                                   // Pit Labrys shred decays regardless of stun
+			m.TickSlowTurn()                                                         // Tarn Trident silt decays regardless of stun
+			m.TickWeakenTurn()                                                       // Scalebreaker roar decays regardless of stun
+			m.TickSoakTurn()                                                         // Champion Stone Skin rated dual clock
 			if !m.IsAlive() {
 				// Matches RT: HandleMonsterInteractions skips a monster the parallel
 				// Update's TickPoison just killed. finalizeIndirectKills (end of
@@ -181,9 +180,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			// Expiry clears the RT clock too, or the stun-star overlay and
 			// bossDisabled keep reading the monster as stunned.
-			status.TickTurn(&m.StunTurnsRemaining, &m.StunFramesRemaining)
+			status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
 			gl.game.turnBasedMonsterStunned[m] = true
-			gl.game.refreshMonsterCollisionSolidity(m)
+			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
 		// Root (bear trap) burns one turn per monster TURN - whether it moves
@@ -194,58 +193,102 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			m.TickRootTurn()
 		}
 
-		// Match real-time AI: sealed bosses, warded warlords, and ward idols are
-		// inert in TB too. They hold their placed tile and never spend the monster
-		// turn moving or attacking while the seal/ward condition is active.
-		if m.IsInertSetPiece() {
-			gl.game.refreshMonsterCollisionSolidity(m)
+		// CurrentAIBehavior is the mode-independent owner of high-level precedence.
+		// Keep every mode explicit here: adding a behavior to the policy without a TB
+		// branch must not silently fall through into ordinary party combat.
+		behavior := m.CurrentAIBehavior()
+		switch behavior {
+		case monster.AIBehaviorInert:
+			// Sealed bosses, warded warlords, and ward idols hold their placed tile.
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-
-		// Pacified (Charm): holds position, never acts against the party.
-		if m.Pacified {
+		case monster.AIBehaviorPacified:
+			// Charm must clear a pre-existing pursuit/attack state in TB just as it
+			// does in RT; otherwise the actor remains visually combat-active.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
 			continue
-		}
-		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
-		// nearest one. Never acts against the party. Spends its whole turn here.
-		if m.Bound {
-			if foe := m.AIFoe; foe != nil && foe.IsAlive() && gl.game.combat.monsterCanAttackMonster(m, foe) {
-				gl.monsterAttackFoeTurnBased(m, foe)
+		case monster.AIBehaviorEvasive:
+			// Evasive quest bosses still react through tickEvasiveBossesTB above,
+			// but never take a normal combat turn.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		case monster.AIBehaviorBoundAlly:
+			// Bound (Bind Undead): strike an enemy in reach or step toward it;
+			// without an enemy, follow the party without ever attacking it.
+			if m.AIFoe != nil && !m.AIFoe.IsAlive() {
+				// The cached target died earlier in this serial monster pass.
+				// Do not spend the action walking toward its corpse.
+				gl.game.releaseMonsterAttackPost(m)
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
+			if foe := m.AIFoe; foe != nil && foe.IsAlive() && gl.tryMonsterAttackFoeTurnBased(m, foe) {
+				// Claimed a distinct logical attack post and spent the turn striking.
 			} else {
 				gl.monsterMoveTurnBased(m) // no enemy in reach - close the distance
 			}
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		case monster.AIBehaviorFleeing:
+			elapsedFrames := 0
+			if tickTurnStatuses {
+				elapsedFrames = gl.game.config.GetTPS()
+			}
+			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && !m.RootHeld() {
+				wx, wy := TileCenterFromTile(nx, ny, tileSize)
+				gl.commitMonsterMoveTB(m, wx, wy)
+			}
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		case monster.AIBehaviorPassive:
+			// Passive monsters mirror RT behavior: no move or attack until hit.
+			m.StandDownFromCombat()
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		case monster.AIBehaviorFightFoe:
+			// A previous actor can kill this frame's cached foe. Wait for the next
+			// shared retarget instead of falling through to a party action.
+			if m.AIFoe == nil || !m.AIFoe.IsAlive() {
+				gl.game.releaseMonsterAttackPost(m)
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
+		case monster.AIBehaviorRelentlessParty, monster.AIBehaviorSeekParty:
+			// These modes continue through the shared combat scheduler below.
+		}
+		// A sight-only loot guard has one exact seven-tile combat radius in both
+		// modes. Ordinary fights intentionally remain sticky in TB, but this
+		// objective-specific encounter returns to its prop when the party leaves.
+		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
+			if m.ShouldDisengageFromPlayer(gl.game.collisionSystem, playerX, playerY) {
+				m.EndPlayerEngagement()
+				gl.game.refreshMonsterCollisionState(m)
+				continue
+			}
+		}
+		gl.game.refreshMonsterCollisionState(m)
+
+		// TB does not run Monster3D.Update, so it invokes the exact same normal
+		// sight gate as RT. Loot guards receive their exact seven-tile objective
+		// range inside that shared rule, but never patrol during TB. Sticky hostility and
+		// a bound-ally foe deliberately bypass first sight: a monster already
+		// committed to a fight must keep taking turns after cover or a retreat.
+		if m.CanStartPlayerEngagement(gl.game.collisionSystem, playerX, playerY) {
+			m.BeginPlayerEngagement()
+		}
+		if m.AIFoe == nil && !m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
 			continue
 		}
 
-		// Passive monsters mirror RT behaviour: no move, no attack until hit.
-		// The RT path enforces this in updatePlayerEngagementWithVision; the
-		// TB scheduler skips engagement updates entirely, so re-check here.
-		if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
-			continue
+		// A bound-ally foe is combat too, even though its target is not the party.
+		// Preserve the existing combat marker so bands scatter rather than remain a
+		// calm stack while fighting summons. Normal party entries already used the
+		// shared BeginPlayerEngagement transition above.
+		if !m.IsEngagingPlayer {
+			m.BeginCombatEngagement()
 		}
-		gl.game.refreshMonsterCollisionSolidity(m)
-
-		// Skip monsters outside vision range unless already committed to the fight.
-		// IsEngagingPlayer is transient and can be cleared by mode/AI transitions;
-		// WasAttacked/BossAggro/Relentless are the sticky signals that a monster
-		// must keep participating. Save/load restores IsEngagingPlayer from
-		// WasAttacked, so ignoring that flag here made some hit bosses freeze until
-		// reload when they were just outside the TB vision radius.
-		// A monster with a bound-ally foe (summon / bound undead) must take its
-		// turn against it no matter how far the PARTY is - otherwise a mob peppered
-		// by a ranged summon while the party stands off would be skipped by this
-		// party-distance gate and freeze.
-		if Distance(playerX, playerY, m.X, m.Y) > visionRange && m.AIFoe == nil &&
-			!m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
-			continue
-		}
-
-		// Acting against the party IS engagement. RT sets this on sight in
-		// updatePlayerEngagementWithVision, which the TB scheduler never runs;
-		// without it a banded flock stays "calm" by flags, keeps re-stacking
-		// every frame and chases the party as one pile - sight aggro must
-		// scatter a band in any mode, damage must not be required.
-		m.IsEngagingPlayer = true
 
 		// Each participating monster snaps to the center of its current tile at
 		// the start of its turn. Keeps TB strictly tile-to-tile and fixes
@@ -253,37 +296,41 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
 
-		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
-		// a bolt from within range, melee strike from an adjacent tile), else step
-		// toward it; never touch the party.
-		if foe := m.AIFoe; foe != nil && foe.IsAlive() {
-			if gl.game.combat.monsterCanAttackMonster(m, foe) {
-				gl.monsterAttackFoeTurnBased(m, foe)
-			} else {
-				gl.monsterMoveTurnBased(m)
-			}
-			gl.game.refreshMonsterCollisionSolidity(m)
-			continue
-		}
-
-		// Boss specials (blink / Inferno); each TB turn is one action tick.
-		// Runs AFTER the bound-undead check (matching RT order): a boss lured
-		// at a bound foe spends its turn on that fight, not on party novas.
-		// DESIGN: specials are rolled BEFORE range/movement checks, so in TB an
-		// aggressive boss may cast Inferno or its low-HP blink from across the
-		// room instead of closing in. RT gates these to the attack moment; the
-		// asymmetry is intentional TB flavor - do not "fix" toward RT.
-		if gl.game.combat.isBoss(m) {
-			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
-				gl.game.refreshMonsterCollisionSolidity(m)
+		// Boss specials; each TB turn is one action tick. BEFORE the bound-undead
+		// check (matching RT order): a boss lured at a summon still sows traps,
+		// rallies adds, enrages and blinks.
+		// DESIGN: specials roll BEFORE range/movement checks, so an aggressive TB
+		// boss may spend its turn on a special instead of closing in. The Inferno
+		// nova is the exception with a real gate - bound to its authored
+		// inferno_range_tiles in BOTH modes (it used to be map-wide here, which with
+		// aggro_whole_map let the Golden Thief Bug burn the party from anywhere).
+		if m.IsBoss() {
+			if gl.game.combat.runBossSpecials(m, true, true) {
+				if !gl.game.combat.bossEvasive(m) {
+					gl.game.combat.armMonsterRTAttackCooldowns(m)
+				}
+				gl.game.refreshMonsterCollisionState(m)
 				continue
 			}
 		}
 
-		// Work in tile space: monsters never enter the player's tile. Melee can
-		// attack from any adjacent tile (including diagonals); ranged attackers
-		// still need a row/column firing lane.
-		mtx, mty := int(m.X/tileSize), int(m.Y/tileSize)
+		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
+		// a bolt from within range, melee strike from an adjacent tile), else step
+		// toward it; never touch the party.
+		if foe := m.AIFoe; foe != nil && foe.IsAlive() {
+			if gl.tryMonsterAttackFoeTurnBased(m, foe) {
+				// Claimed a distinct logical attack post and spent the turn striking.
+			} else {
+				gl.monsterMoveTurnBased(m)
+			}
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		}
+
+		// Work in tile space: monsters never enter the player's tile. Any attacker
+		// uses melee from a clear adjacent tile; a projectile-capable attacker uses
+		// its ranged profile everywhere else and still needs a row/column lane.
+		mtx, mty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
 		ptx, pty := gl.game.GetPlayerTilePosition()
 		dxT, dyT := ptx-mtx, pty-mty
 		adX, adY := dxT, dyT
@@ -294,31 +341,41 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			adY = -adY
 		}
 		manhattan := adX + adY
-		chebyshev := adX
-		if adY > chebyshev {
-			chebyshev = adY
-		}
 
 		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 		// tile and strike. Brief turn cooldown.
 		if m.CanPounce() {
-			if m.PounceCDTurns > 0 {
-				m.PounceCDTurns--
+			if tickTurnStatuses {
+				m.TickPounceCooldownTurn()
 			}
 			pounceTiles := int(m.PounceRangePixels / tileSize)
-			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles {
+			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles &&
+				gl.game.combat.monsterCanPounceParty(m) {
 				if gl.game.combat.executePounce(m, playerX, playerY) {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
-					m.PounceCDTurns = 2
-					gl.game.refreshMonsterCollisionSolidity(m)
+					m.ArmPounceCooldown(gl.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+					gl.game.refreshMonsterCollisionState(m)
 					continue
 				}
 				// Couldn't land adjacent - fall through to a normal step this turn.
 			}
 		}
 
-		if m.HasRangedAttack() {
+		// Both gates: the spatial one (adjacency+LOS) and the delivery selector.
+		// A ranged CHAMPION fails the selector and falls through to the lane
+		// rule below - otherwise an adjacent diagonal would let it fire where
+		// monsterAttackTurnBased resolves the attack as ranged.
+		if gl.game.combat.monsterMeleeAdjacentToPoint(m, playerX, playerY) &&
+			gl.game.combat.monsterUsesMeleeAgainstPoint(m, playerX, playerY) {
+			if gl.game.tryClaimMonsterAttackPost(m) {
+				m.State = monster.StateAttacking
+				gl.monsterAttackTurnBased(m)
+			} else {
+				gl.game.releaseMonsterAttackPost(m)
+				gl.monsterMoveTurnBased(m)
+			}
+		} else if m.HasRangedAttack() {
 			// Ranged: only fire when on the player's row or column (never
 			// diagonal), within range, AND with a clear line of sight; otherwise
 			// step toward the player. The LOS check stops a wasted shot into a wall
@@ -337,26 +394,29 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			hasLOS := gl.game.collisionSystem == nil ||
 				gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)
 			if aligned && axisDist >= 1 && axisDist <= rangeTiles && hasLOS {
-				gl.monsterAttackTurnBased(m)
+				if gl.game.tryClaimMonsterAttackPost(m) {
+					m.State = monster.StateAttacking
+					gl.monsterAttackTurnBased(m)
+				} else {
+					gl.game.releaseMonsterAttackPost(m)
+					gl.monsterMoveTurnBased(m)
+				}
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}
 		} else {
-			// Melee: attack from any adjacent tile (including diagonals);
-			// otherwise step one tile toward the player (never onto their tile).
-			if chebyshev == 1 && manhattan > 0 &&
-				(gl.game.collisionSystem == nil || gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)) {
-				gl.monsterAttackTurnBased(m)
-			} else {
-				gl.monsterMoveTurnBased(m)
-			}
+			gl.monsterMoveTurnBased(m)
 		}
 
-		gl.game.refreshMonsterCollisionSolidity(m)
+		gl.game.refreshMonsterCollisionState(m)
 	}
 
-	// Monsters finished moving: spring any traps they stepped onto.
+	// Monsters finished moving: spring any traps they stepped onto, and burn
+	// whatever walked into a damage zone. The entry pass must run AFTER the moves
+	// and AFTER this round's periodic ticks stamped everyone already standing
+	// inside, or a mob in a Firewall takes one hit per round too many.
 	gl.game.combat.sweepTrapTriggers()
+	gl.applyZoneEntryDamageAll()
 
 	gl.game.turnBasedMonsterPassesLeft--
 	if gl.game.turnBasedMonsterPassesLeft > 0 {
@@ -386,11 +446,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	}, func() {
 		// Same attack wrappers as RT so TB gets the identical roll chain:
 		// special ability -> Fireburst -> the shared monster->character hit hub.
-		if monster.HasRangedAttack() {
-			gl.game.combat.spawnMonsterRangedAttack(monster)
-		} else {
-			gl.game.combat.applyMonsterMeleeDamage(monster)
-		}
+		gl.game.combat.performMonsterAttackAgainstParty(monster)
 	})
 }
 
@@ -402,20 +458,28 @@ func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) 
 	gl.forEachMonsterAttackTurnBased(attacker, func() bool {
 		return foe != nil && foe.IsAlive()
 	}, func() {
-		if attacker.HasRangedAttack() {
-			owner := ProjectileOwnerMonsterAtBound
-			if attacker.Bound {
-				owner = ProjectileOwnerBoundUndead
-			}
-			gl.game.combat.spawnMonsterRangedAttackAtMonster(attacker, foe, owner)
-			return
+		owner := ProjectileOwnerMonsterAtBound
+		if attacker.Bound {
+			owner = ProjectileOwnerBoundUndead
 		}
-		if attacker.IsChampion() {
-			gl.game.combat.championAlternatingCrossfireStrike(attacker, foe)
-			return
-		}
-		gl.game.combat.monsterStrikeMonster(attacker, foe)
+		gl.game.combat.performMonsterAttackAgainstMonster(attacker, foe, owner)
 	})
+}
+
+// tryMonsterAttackFoeTurnBased applies the same logical-post gate used for
+// party attacks before a monster attacks a summon, bound undead, or other foe.
+// The entities stay physically pass-through; a rejected contender simply keeps
+// pursuing another free tile around the target.
+func (gl *GameLoop) tryMonsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) bool {
+	if gl == nil || gl.game == nil || gl.game.combat == nil ||
+		!gl.game.combat.monsterCanAttackMonster(attacker, foe) ||
+		!gl.game.tryClaimMonsterAttackPost(attacker) {
+		return false
+	}
+	attacker.State = monster.StateAttacking
+	attacker.StateTimer = 0
+	gl.monsterAttackFoeTurnBased(attacker, foe)
+	return true
 }
 
 // forEachMonsterAttackTurnBased is the sole action-count loop for attacks in a
@@ -425,10 +489,15 @@ func (gl *GameLoop) forEachMonsterAttackTurnBased(attacker *monster.Monster3D, t
 	if attacker == nil || targetAlive == nil || attack == nil {
 		return
 	}
-	attacker.AttackAnimFrames = MonsterAttackAnimFrames
+	gl.game.armMonsterAttackAnimation(attacker)
 	attacker.LastMoveTick = gl.game.frameCount
+	attacked := false
 	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && targetAlive(); hit++ {
 		attack()
+		attacked = true
+	}
+	if attacked {
+		gl.game.combat.armMonsterRTAttackCooldowns(attacker)
 	}
 }
 
@@ -451,8 +520,18 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 	if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
 		return false
 	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	movedTile := tileSize > 0 && (TileIndex(m.X, tileSize) != TileIndex(wx, tileSize) || TileIndex(m.Y, tileSize) != TileIndex(wy, tileSize))
+	if movedTile {
+		gl.game.releaseMonsterAttackPost(m)
+	}
 	m.X = wx
 	m.Y = wy
+	if movedTile {
+		// TB computes a fresh discrete A* step. Its new position invalidates the
+		// continuous RT route, but not a flee/guard objective shared across turns.
+		m.ResetPathCache()
+	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
 	m.LastMoveTick = gl.game.frameCount
 	return true
@@ -462,7 +541,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 // occupies, so turn-based movement stays strictly tile-to-tile. No-op if the
 // tile center isn't reachable for this monster (wall/occupied).
 func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) {
-	cx, cy := TileCenterFromTile(int(m.X/tileSize), int(m.Y/tileSize), tileSize)
+	cx, cy := TileCenterFromTile(TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize), tileSize)
 	if cx == m.X && cy == m.Y {
 		return
 	}
@@ -475,47 +554,76 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 // attacker kind (melee: adjacent tile; ranged vs party: firing lane; ranged vs
 // a monster foe: plain approach).
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
+	// A mob that is searching for a post is transit even if it reached this
+	// method from an old held position. Physical overlap remains allowed; only
+	// its attack claim is released.
+	gl.game.releaseMonsterAttackPost(monster)
 	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
 	// lives in TickRootTurn (root != stun - attacks still happen).
 	if monster.RootHeld() {
+		return
+	}
+	// Slowed (Tarn Trident silt): TB movement is tile-stepped, so the RT speed
+	// drag converts to skipping this turn's step SlowPct% of the time - the
+	// same average ground lost per turn, attacks unaffected. ActiveSlowPct
+	// keeps the latched value for the turn that consumed the final tick.
+	if pct := monster.ActiveSlowPct(); pct > 0 && rand.Intn(100) < pct {
 		return
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
 
 	// Step toward the monster's AI target (party by default; a charmed monster is
 	// redirected - bound undead toward its enemy, pacified toward itself = no move).
-	monsterTileX := int(monster.X / tileSize)
-	monsterTileY := int(monster.Y / tileSize)
+	monsterTileX := TileIndex(monster.X, tileSize)
+	monsterTileY := TileIndex(monster.Y, tileSize)
 	targetX, targetY := gl.game.combat.monsterAITargetPoint(monster)
-	playerTileX, playerTileY := int(targetX/tileSize), int(targetY/tileSize)
+	playerTileX, playerTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 
 	dxTiles := playerTileX - monsterTileX
 	dyTiles := playerTileY - monsterTileY
 
 	if dxTiles == 0 && dyTiles == 0 {
+		// A pre-existing overlap (for example an old save made before generic
+		// attack posts) must self-heal instead of leaving the monster unable to
+		// move or attack on its target's tile.
+		if gl.game.monsterHasAttackTarget(monster) {
+			gl.moveMonsterOffAttackTargetTileTB(monster, targetX, targetY, tileSize)
+		}
 		return // Already at player position
+	}
+
+	// Escorting ally (Bound, no enemy): holds the follow distance instead of its
+	// attack reach, melee allies included - no adjacent post to claim.
+	if monster.Bound && monster.AIFoe == nil {
+		// Distance alone would let an ally "keep formation" from the far side of a
+		// wall, so it must also SEE the party - the same pair the RT pursuit uses.
+		inFormation := Distance(monster.X, monster.Y, targetX, targetY) <= monster.PursuitReachPixels() &&
+			(gl.game.collisionSystem == nil ||
+				gl.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, targetX, targetY))
+		if inFormation {
+			return
+		}
+		if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
+			wx, wy := TileCenterFromTile(nx, ny, tileSize)
+			gl.commitMonsterMoveTB(monster, wx, wy)
+		}
+		return
 	}
 
 	// A* FIRST. In TB, melee contact is tile-adjacent only, so do not reuse the
 	// RT "within attack radius" goals: they can pick a dead-end bank tile across
 	// water as "close enough", then the monster turns around next move.
 	if !monster.HasRangedAttack() {
-		if goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY); len(goals) > 0 {
-			if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				if gl.commitMonsterMoveTB(monster, wx, wy) {
-					return
-				}
-			}
-			if nx, ny, ok := gl.nextPathStepToAnyIgnoringOwnSummonsTB(monster, goals); ok {
-				if gl.swapWithOwnSummonAtTileTB(monster, nx, ny, tileSize) {
-					return
-				}
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				if gl.commitMonsterMoveTB(monster, wx, wy) {
-					return
-				}
-			}
+		goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY)
+		if len(goals) == 0 {
+			// All adjacent attack posts are currently unavailable. Route to the
+			// next free ring around the target instead of falling back to a greedy
+			// cardinal move; this is the normal movement after a failed pounce when
+			// allies temporarily surround its landing tiles.
+			goals = gl.turnBasedBlockedMeleeApproachGoalTiles(monster, targetX, targetY)
+		}
+		if gl.moveMonsterAlongTBGoals(monster, goals, tileSize) {
+			return
 		}
 	} else {
 		// Ranged hunting the party repositions onto a row/column firing lane;
@@ -538,38 +646,27 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		}
 	}
 
-	// Fallback (A* found no path / its next tile is transiently occupied): step one
-	// tile in the dominant cardinal direction towards the player.
-	stepX, stepY := 0, 0
-	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
-		stepX = mathutil.IntSign(dxTiles)
-	} else {
-		stepY = mathutil.IntSign(dyTiles)
+	// A* has no legal route (or its next tile became occupied). Do not fall back
+	// to a separate greedy movement rule: it can enter a dead end that the path
+	// planner deliberately avoided, producing visible back-and-forth jitter.
+	// Holding this turn lets the next serial AI pass re-evaluate the same source
+	// of truth after moving actors have updated their positions.
+}
+
+// moveMonsterAlongTBGoals is the common serial TB A* commit path. Combatants
+// are already pass-through at the collision layer; logical attack posts decide
+// who may stop and attack around a target.
+func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monster.TileCoord, tileSize float64) bool {
+	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return false
 	}
-
-	newX := monster.X + float64(stepX)*tileSize
-	newY := monster.Y + float64(stepY)*tileSize
-
-	if gl.commitMonsterMoveTB(monster, newX, newY) {
-		return
-	}
-
-	// Try the other perpendicular direction if the preferred one is blocked
-	if stepX != 0 && dyTiles != 0 {
-		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
-		if gl.commitMonsterMoveTB(monster, monster.X, altY) {
-			return
-		}
-	} else if stepY != 0 && dxTiles != 0 {
-		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
-		if gl.commitMonsterMoveTB(monster, altX, monster.Y) {
-			return
+	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+		wx, wy := TileCenterFromTile(nx, ny, tileSize)
+		if gl.commitMonsterMoveTB(m, wx, wy) {
+			return true
 		}
 	}
-
-	// Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
-	// This prevents monsters wasting turns stuck behind obstacles
-	gl.teleportMonsterTowardsPlayer(monster, tileSize)
+	return false
 }
 
 func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
@@ -577,11 +674,14 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		return nil
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
-	targetTileX, targetTileY := int(targetX/tileSize), int(targetY/tileSize)
+	targetTileX, targetTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 
 	goals := make([]monster.TileCoord, 0, 24)
 	addGoal := func(tx, ty int, requireLOS bool) {
 		wx, wy := TileCenterFromTile(tx, ty, tileSize)
+		if gl.game.monsterHasAttackTarget(m) && gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
+			return
+		}
 		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
 			return
 		}
@@ -600,22 +700,39 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		}
 	}
 
-	if m.CanPounce() {
-		pounceTiles := int(m.PounceRangePixels / tileSize)
-		for dy := -pounceTiles; dy <= pounceTiles; dy++ {
-			for dx := -pounceTiles; dx <= pounceTiles; dx++ {
-				manhattan := mathutil.IntAbs(dx) + mathutil.IntAbs(dy)
-				if manhattan < 2 || manhattan > pounceTiles {
-					continue
-				}
-				// Pounce itself does not require line-of-sight; it only needs a free
-				// landing tile adjacent to the target when it fires.
-				addGoal(targetTileX+dx, targetTileY+dy, false)
-			}
+	return uniqueTileGoals(goals)
+}
+
+// turnBasedBlockedMeleeApproachGoalTiles supplies a second A* goal ring only
+// when no adjacent attack post is currently free. These are never attack posts:
+// they let a pouncer advance after its landing ring is occupied without using a
+// separate greedy step that could disagree with terrain/habitat pathing.
+// The ring itself is shared with RT pursuit (MeleeApproachRingGoals).
+func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
+	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return nil
+	}
+	return m.MeleeApproachRingGoals(gl.game.collisionSystem, targetX, targetY)
+}
+
+// moveMonsterOffAttackTargetTileTB repairs an attacker that starts a turn on
+// its target's tile. It is a recovery path only; normal movement already
+// selects surrounding attack posts before this can happen.
+func (gl *GameLoop) moveMonsterOffAttackTargetTileTB(m *monster.Monster3D, targetX, targetY, tileSize float64) bool {
+	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil || tileSize <= 0 {
+		return false
+	}
+	tx, ty := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
+	for _, offset := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+		x, y := TileCenterFromTile(tx+offset[0], ty+offset[1], tileSize)
+		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) {
+			continue
+		}
+		if gl.commitMonsterMoveTB(m, x, y) {
+			return true
 		}
 	}
-
-	return uniqueTileGoals(goals)
+	return false
 }
 
 func uniqueTileGoals(goals []monster.TileCoord) []monster.TileCoord {
@@ -632,98 +749,6 @@ func uniqueTileGoals(goals []monster.TileCoord) []monster.TileCoord {
 		out = append(out, goal)
 	}
 	return out
-}
-
-func (gl *GameLoop) nextPathStepToAnyIgnoringOwnSummonsTB(m *monster.Monster3D, goals []monster.TileCoord) (int, int, bool) {
-	if m == nil || m.ID == "" || len(goals) == 0 || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
-		return 0, 0, false
-	}
-	type restore struct {
-		id    string
-		solid bool
-	}
-	var restoreEntities []restore
-	for _, other := range gl.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.SummonedBy != m.ID {
-			continue
-		}
-		ent := gl.game.collisionSystem.GetEntityByID(other.ID)
-		if ent == nil {
-			continue
-		}
-		restoreEntities = append(restoreEntities, restore{id: other.ID, solid: ent.Solid})
-		ent.Solid = false
-	}
-	defer func() {
-		for _, r := range restoreEntities {
-			if ent := gl.game.collisionSystem.GetEntityByID(r.id); ent != nil {
-				ent.Solid = r.solid
-			}
-		}
-	}()
-	return m.NextPathStepTileToAny(gl.game.collisionSystem, goals)
-}
-
-func (gl *GameLoop) swapWithOwnSummonAtTileTB(m *monster.Monster3D, tileX, tileY int, tileSize float64) bool {
-	if m == nil || m.ID == "" || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
-		return false
-	}
-
-	for _, blocker := range gl.game.world.Monsters {
-		if blocker == nil || blocker == m || !blocker.IsAlive() || blocker.SummonedBy != m.ID {
-			continue
-		}
-		btx, bty := int(blocker.X/tileSize), int(blocker.Y/tileSize)
-		if btx != tileX || bty != tileY {
-			continue
-		}
-		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(m.ID, blocker.X, blocker.Y, m.HabitatPrefs, m.Flying) {
-			continue
-		}
-		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(blocker.ID, m.X, m.Y, blocker.HabitatPrefs, blocker.Flying) {
-			continue
-		}
-
-		mx, my := m.X, m.Y
-		bx, by := blocker.X, blocker.Y
-		m.X, m.Y = bx, by
-		blocker.X, blocker.Y = mx, my
-		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-		gl.game.collisionSystem.UpdateEntity(blocker.ID, blocker.X, blocker.Y)
-		m.ResetPathfinding()
-		blocker.ResetPathfinding()
-		m.LastMoveTick = gl.game.frameCount
-		blocker.LastMoveTick = gl.game.frameCount
-		return true
-	}
-	return false
-}
-
-// teleportMonsterTowardsPlayer finds the closest valid position towards the
-// monster's AI target (party, or a charmed monster's redirected target) and
-// teleports there.
-func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
-	playerX, playerY := gl.game.combat.monsterAITargetPoint(m)
-
-	// Check perpendicular adjacent tiles first, then diagonals as fallback
-	var bestX, bestY float64
-	bestDist := math.MaxFloat64
-
-	cardinalOffsets := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-	diagOffsets := [][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
-
-	bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, cardinalOffsets, bestDist)
-	if bestDist == math.MaxFloat64 {
-		bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, diagOffsets, bestDist)
-	}
-
-	if bestDist < math.MaxFloat64 {
-		m.X = bestX
-		m.Y = bestY
-		gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
-		m.LastMoveTick = gl.game.frameCount
-	}
-	// If no valid position found, monster stays put (loses turn)
 }
 
 // turnBasedRangedGoalTiles lists a party-hunting ranged monster's turn-based
@@ -747,6 +772,9 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 	goals := make([]monster.TileCoord, 0, rangeTiles*4)
 	addGoal := func(tx, ty int) {
 		wx, wy := TileCenterFromTile(tx, ty, tileSize)
+		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
+			return
+		}
 		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
 			return
 		}
@@ -763,29 +791,6 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 		addGoal(ptx, pty-d)
 	}
 	return goals
-}
-
-func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playerX, playerY float64, offsets [][2]int, bestDist float64) (float64, float64, float64) {
-	ptx, pty := gl.game.GetPlayerTilePosition()
-	bestX, bestY := m.X, m.Y
-	for _, offset := range offsets {
-		testX := m.X + float64(offset[0])*tileSize
-		testY := m.Y + float64(offset[1])*tileSize
-		// A monster currently fighting the party must not teleport onto its tile.
-		// A peaceful monster or one redirected to a summon is intentionally
-		// walkable in both directions, including this fallback.
-		if monsterTargetsParty(m) && int(testX/tileSize) == ptx && int(testY/tileSize) == pty {
-			continue
-		}
-		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {
-			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
-			if dist < bestDist {
-				bestDist = dist
-				bestX, bestY = testX, testY
-			}
-		}
-	}
-	return bestX, bestY, bestDist
 }
 
 // endMonsterTurn ends the monster turn and starts a fresh party turn. The

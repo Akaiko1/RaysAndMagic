@@ -1,0 +1,31 @@
+# Dunehold (biome: nomad_city) - 31x23 caravan town in the deep desert
+# Reached through the twin-tower gate off the sand road; no monsters inside.
+# Tiles: % sun-disc adobe wall | A stall fronts  B mudbrick  C ropework
+#        . flagstone street  , blown sand | L Great Bazaar  H Windwright's Tower
+#        O oasis shrine  F well  I lantern  N carpets  T spice stall
+#        Y caravan tack  Z shaded palm
+# NPCs: nomad_city_caravan (armour and road goods), nomad_city_trainer (mastery),
+#       nomad_city_spells (spells), nomad_city_exit (gate)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%.,,,,,,,,,,,,,,,,,,,,,,,,,...%
+%.,,,Y,,,Y,,,,,,,,,,,,Z,,,,...%
+%.,,,,,,,,,,,,F,,,,,,,,,,,,...%
+%.,,,,Z,,,,,,,,,,,,,,,,,,Z,...%
+%.AAAAAAAA..AAAAAAA..AAAAAAA..%
+%.AAAAAAAA..AAAAAAA..AAAAAAA..%
+%.T...N........T.......N......%
+%....L...................H....%
+%..........I.......I..........%
+%....@...................@....%  >[npc:nomad_city_caravan], [npc:nomad_city_trainer]
+%.............,,,.............%
+%............,,,,,............%
+%...........,,,O,,,...........%
+%............,,,,,............%
+%.............,@,.............%  >[npc:nomad_city_spells]
+%..........Z.......Z..........%
+%.CCCCCC..............BBBBBBB.%
+%.CCCCCC..............BBBBBBB.%
+%.CCCCCC.Y............BBBBBBB.%
+%............I...I............%
+%.............+@..............%  >[npc:nomad_city_exit]
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

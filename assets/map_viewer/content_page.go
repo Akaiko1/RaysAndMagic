@@ -1,8 +1,7 @@
 package main
 
-// Items & Spells page: top tab bar shared with the Maps page, plus a
-// scrollable grid of content cards grouped under section headers, with a
-// hover tooltip showing full data for the card under the cursor.
+// Shared top page bar and scrollable catalog-card layout. Hover tooltips show
+// the full data for the card under the cursor.
 
 import (
 	"image"
@@ -47,20 +46,28 @@ func pageTabLayout() []pageTabRect {
 	return rects
 }
 
-// drawPageBar draws the top-level tabs (Maps / Items / Spells / Characters / Skills).
+// drawPageBar draws every top-level tab defined by pageTabDefs.
 func (v *viewer) drawPageBar(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, windowWidth, pageBarHeight, color.RGBA{24, 24, 36, 255})
 	rects := pageTabLayout()
+	mouseX, mouseY := ebiten.CursorPosition()
 	for i, r := range rects {
 		def := pageTabDefs[i]
 		bg := color.RGBA{36, 36, 52, 255}
+		hovered := mouseY >= 4 && mouseY < pageBarHeight-4 && mouseX >= r.x && mouseX < r.x+r.w
+		if hovered {
+			bg = color.RGBA{46, 50, 68, 255}
+		}
 		if v.page == def.page {
-			bg = color.RGBA{60, 80, 130, 255}
+			bg = color.RGBA{52, 64, 92, 255}
 		}
 		drawFilledRect(screen, r.x, 4, r.w, pageBarHeight-8, bg)
 		drawRectBorder(screen, r.x, 4, r.w, pageBarHeight-8, 1, color.RGBA{90, 90, 110, 255})
-		ebitenutil.DebugPrintAt(screen, def.label, r.x+10, 10)
-		ebitenutil.DebugPrintAt(screen, def.hotkey, r.x+r.w-22, 10)
+		if v.page == def.page {
+			drawFilledRect(screen, r.x+1, pageBarHeight-7, r.w-2, 3, viewerHeaderTextColor)
+		}
+		game.DrawShadedText(screen, def.label, r.x+10, 10, color.RGBA{225, 225, 235, 255})
+		game.DrawShadedText(screen, def.hotkey, r.x+r.w-22, 10, color.RGBA{135, 145, 170, 255})
 	}
 }
 
@@ -126,10 +133,12 @@ func (v *viewer) drawContentPage(screen *ebiten.Image) {
 
 		cardX := areaX + colInRow*(contentCardW+contentCardGap)
 		cardY := y
+		isHovered := pointInRect(mouseX, mouseY, cardX, cardY, contentCardW, contentCardH) &&
+			mouseY >= areaY && mouseY < areaY+areaH
 		if cardY+contentCardH >= areaY && cardY < areaY+areaH {
-			v.drawCard(clip, card, cardX, cardY)
+			v.drawCard(clip, card, cardX, cardY, isHovered)
 		}
-		if pointInRect(mouseX, mouseY, cardX, cardY, contentCardW, contentCardH) && mouseY >= areaY && mouseY < areaY+areaH {
+		if isHovered {
 			hovered = card
 		}
 
@@ -196,9 +205,16 @@ func drawSectionHeader(dst *ebiten.Image, label string, x, y, w int) {
 
 // drawCard renders a single card: icon on the left, name + subtitle stacked
 // on the right. Cards have a soft border so they read as discrete entities.
-func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
-	drawFilledRect(dst, x, y, contentCardW, contentCardH, color.RGBA{32, 32, 44, 255})
-	drawRectBorder(dst, x, y, contentCardW, contentCardH, 1, color.RGBA{72, 72, 92, 255})
+func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int, hovered bool) {
+	bg := color.RGBA{32, 32, 44, 255}
+	border := color.RGBA{72, 72, 92, 255}
+	if hovered {
+		bg = color.RGBA{39, 42, 56, 255}
+		border = color.RGBA{105, 145, 185, 255}
+	}
+	drawFilledRect(dst, x, y, contentCardW, contentCardH, bg)
+	drawRectBorder(dst, x, y, contentCardW, contentCardH, 1, border)
+	drawFilledRect(dst, x+1, y+1, 3, contentCardH-2, cardAccentColor(c))
 
 	// Icon area: centered vertically on the left.
 	iconX := x + 8
@@ -232,35 +248,112 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
 	}
 }
 
-// drawCardTooltip draws a multi-line tooltip near the cursor with full card
-// data. Positioned to stay within the content area bounds.
-func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX, areaW int) {
-	lines := []string{c.name}
+type tooltipLineKind int
+
+const (
+	tooltipLineBody tooltipLineKind = iota
+	tooltipLineTitle
+	tooltipLineCategory
+	tooltipLineDescription
+	tooltipLineFlavor
+	tooltipLineSection
+	tooltipLineSpacer
+)
+
+type tooltipLine struct {
+	text string
+	kind tooltipLineKind
+}
+
+func isTooltipSection(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || strings.Contains(trimmed, ":") {
+		return false
+	}
+	hasLetter := false
+	for _, r := range trimmed {
+		if r >= 'A' && r <= 'Z' {
+			hasLetter = true
+			continue
+		}
+		if r >= 'a' && r <= 'z' {
+			return false
+		}
+	}
+	return hasLetter
+}
+
+func cardTooltipLines(c *contentCard) []tooltipLine {
+	lines := []tooltipLine{{text: c.name, kind: tooltipLineTitle}}
 	if c.section != "" {
-		lines = append(lines, "  ["+c.section+"]")
+		lines = append(lines, tooltipLine{text: c.section, kind: tooltipLineCategory})
+	}
+	appendSpacer := func() {
+		if len(lines) > 0 && lines[len(lines)-1].kind != tooltipLineSpacer {
+			lines = append(lines, tooltipLine{kind: tooltipLineSpacer})
+		}
 	}
 	if c.description != "" {
-		lines = append(lines, "")
-		lines = append(lines, wrapTooltipLines(c.description, 64)...)
+		appendSpacer()
+		for _, line := range wrapTooltipLines(c.description, 64) {
+			lines = append(lines, tooltipLine{text: line, kind: tooltipLineDescription})
+		}
 	}
 	if c.flavor != "" {
-		lines = append(lines, "")
-		lines = append(lines, wrapTooltipLines(`"`+c.flavor+`"`, 64)...)
+		appendSpacer()
+		for _, line := range wrapTooltipLines(`"`+c.flavor+`"`, 64) {
+			lines = append(lines, tooltipLine{text: line, kind: tooltipLineFlavor})
+		}
 	}
 	if len(c.tooltipRows) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, c.tooltipRows...)
+		appendSpacer()
+		for _, text := range c.tooltipRows {
+			kind := tooltipLineBody
+			switch {
+			case text == "":
+				kind = tooltipLineSpacer
+			case isTooltipSection(text):
+				kind = tooltipLineSection
+			}
+			lines = append(lines, tooltipLine{text: text, kind: kind})
+		}
 	}
+	return lines
+}
 
-	const lineH = 14
+func tooltipLineHeight(kind tooltipLineKind) int {
+	switch kind {
+	case tooltipLineTitle:
+		return 18
+	case tooltipLineSection:
+		return 18
+	case tooltipLineSpacer:
+		return 7
+	default:
+		return 14
+	}
+}
+
+func cardTooltipSize(c *contentCard) (width, height int) {
+	lines := cardTooltipLines(c)
 	maxLineW := 0
-	for _, ln := range lines {
-		if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
+	for _, line := range lines {
+		if w := utf8.RuneCountInString(line.text) * 7; w > maxLineW {
 			maxLineW = w
 		}
 	}
-	boxW := maxLineW + 16
-	boxH := len(lines)*lineH + 12
+	height = 16
+	for _, line := range lines {
+		height += tooltipLineHeight(line.kind)
+	}
+	return maxLineW + 24, height
+}
+
+// drawCardTooltip draws a multi-line tooltip near the cursor with full card
+// data. Positioned to stay within the content area bounds.
+func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX, areaW int) {
+	lines := cardTooltipLines(c)
+	boxW, boxH := cardTooltipSize(c)
 
 	boxX := mouseX + 16
 	boxY := mouseY + 12
@@ -277,16 +370,64 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 		boxY = pageBarHeight + 4
 	}
 
-	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
-	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 120, 150, 255})
-	for i, ln := range lines {
-		if i == 0 {
-			// Name line wears the game's rarity metal (gradient for metal tiers).
-			game.DrawShadedText(screen, ln, boxX+8, boxY+6, game.RarityColor(c.rarity))
-			continue
+	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{16, 17, 25, 248})
+	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{100, 120, 150, 255})
+	drawFilledRect(screen, boxX+1, boxY+1, boxW-2, 3, cardAccentColor(c))
+
+	y := boxY + 8
+	for _, line := range lines {
+		h := tooltipLineHeight(line.kind)
+		switch line.kind {
+		case tooltipLineTitle:
+			game.DrawShadedText(screen, line.text, boxX+10, y, game.RarityColor(c.rarity))
+		case tooltipLineCategory:
+			game.DrawShadedText(screen, strings.ToUpper(line.text), boxX+10, y, color.RGBA{130, 145, 175, 255})
+		case tooltipLineDescription:
+			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{215, 215, 225, 255})
+		case tooltipLineFlavor:
+			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{205, 180, 115, 255})
+		case tooltipLineSection:
+			drawTooltipSectionLine(screen, line.text, boxX+7, y, boxW-14, h)
+		case tooltipLineBody:
+			drawTooltipBodyLine(screen, line.text, boxX+10, y)
 		}
-		ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
+		y += h
 	}
+}
+
+func cardAccentColor(c *contentCard) color.RGBA {
+	if c != nil && c.rarity != "" {
+		r, g, b, a := game.RarityColor(c.rarity).RGBA()
+		return color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
+	}
+	if c != nil {
+		switch c.kind {
+		case cardWeapon:
+			return color.RGBA{210, 105, 80, 255}
+		case cardSpell:
+			return color.RGBA{95, 155, 225, 255}
+		case cardSkill:
+			return viewerHeaderTextColor
+		}
+	}
+	return color.RGBA{165, 175, 195, 255}
+}
+
+func drawTooltipBodyLine(screen *ebiten.Image, text string, x, y int) {
+	label, value, ok := strings.Cut(text, ":")
+	if !ok || strings.TrimSpace(label) == "" || strings.TrimSpace(value) == "" {
+		game.DrawShadedText(screen, text, x, y, color.RGBA{225, 225, 235, 255})
+		return
+	}
+	label += ":"
+	game.DrawShadedText(screen, label, x, y, color.RGBA{145, 170, 205, 255})
+	valueX := x + utf8.RuneCountInString(label)*7 + 5
+	game.DrawShadedText(screen, strings.TrimSpace(value), valueX, y, color.RGBA{225, 225, 235, 255})
+}
+
+func drawTooltipSectionLine(screen *ebiten.Image, text string, x, y, w, h int) {
+	drawHeaderBandForTextRow(screen, x, y, w, h)
+	game.DrawShadedText(screen, text, x+4, y, viewerHeaderTextColor)
 }
 
 // wrapTooltipLines does a simple word-wrap to keep tooltips readable.

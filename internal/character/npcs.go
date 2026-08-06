@@ -3,33 +3,46 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
-	X, Y             float64
-	Key              string // npcs.yaml key this NPC was created from
-	Name             string
-	Type             string
-	Description      string
-	Sprite           string
-	VisitedSprite    string // optional art swap once Visited (an emptied barrel closes)
-	NoSpin           bool   // pin the token to a fixed pose (a box pile does not rotate)
+	X, Y          float64
+	Key           string // npcs.yaml key this NPC was created from
+	Name          string
+	Type          string
+	Description   string
+	Sprite        string
+	VisitedSprite string // optional art swap once Visited (an emptied barrel closes)
+	NoSpin        bool   // pin a non-person token to a fixed pose
+	// GridSpanTiles >=2: render a fixed grid-aligned facade spanning this many
+	// tiles. Its span and sprite aspect set its visual geometry; normal size and
+	// spin settings are invalid for this mode.
+	GridSpanTiles    int
+	GridSpanDir      string // span direction from the anchor tile: "e"|"s" (the slab runs along it)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
 	Transparent      bool
 	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
-	SizeClass        string // shared size tier (person, etc.); wins over SizeTiles
-	SizeTiles        float64
+	SizeClass        string // shared quantized visual-size tier
 	MerchantStock    []*MerchantStockItem
 	Currency         string // "" = gold; "arena_points" = arena victory currency
 	ArenaBoard       bool   // carries the champions' leaderboard dialog tab
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool
+	NightOnly        bool // present only at night (see NPCData.NightOnly)
 	RejectsLich      bool // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
 	SpellData        map[string]*NPCSpell
 	DialogueData     *NPCDialogue
 	EncounterData    *NPCEncounter
 	Summons          []*NPCSummon
 	Lectern          *NPCLectern // spell-teaching book (loot-crate cousin); crate loot lives in loots.yaml
-	Visited          bool
+	// Door behavior and unlock spec copied from NPCData. Every render-category
+	// door has an explicit behavior: a persisted lock or an arena portcullis.
+	DoorBehavior    string
+	LockLabel       string
+	DoorKeyItemKeys []string // items.yaml keys; never display names
+	DoorStatReqs    []NPCDoorStatReq
+	DoorAttempts    int  // non-key attempts made on this lock
+	DoorLockBroken  bool // jammed after DoorMaxNonKeyAttempts; only keys work
+	Visited         bool
 }
 
 // NPC type discriminators that carry behavior (the authored `type:` field).
@@ -45,6 +58,13 @@ const (
 	NPCTypeCardCollector = "card_collector"
 	NPCTypeLootCrate     = "loot_crate"
 	NPCTypeSpellLectern  = "spell_lectern"
+	NPCTypeDoor          = "door" // a doorway; door_behavior chooses its mechanics
+
+	// NPCDoorBehaviorLocked is a persisted door opened by a matching key or a
+	// stat check. NPCDoorBehaviorChampionPortcullis opens while no arena champion
+	// remains alive on its map.
+	NPCDoorBehaviorLocked             = "locked"
+	NPCDoorBehaviorChampionPortcullis = "champion_portcullis"
 )
 
 // ValidNPCTypes is the closed set of authored NPC `type:` values. REQUIRED on
@@ -54,14 +74,32 @@ const (
 var ValidNPCTypes = map[string]bool{
 	NPCTypeEncounter: true, NPCTypeQuestGiver: true, NPCTypeMerchant: true,
 	NPCTypeSpellTrader: true, NPCTypeSkillTrainer: true, NPCTypeCardCollector: true,
-	NPCTypeLootCrate: true, NPCTypeSpellLectern: true,
+	NPCTypeLootCrate: true, NPCTypeSpellLectern: true, NPCTypeDoor: true,
 }
 
 // NPCTypeOrder is the canonical editor palette section order for NPC types:
 // people you deal with first, props after, the encounter catch-all last.
 var NPCTypeOrder = []string{
 	NPCTypeQuestGiver, NPCTypeMerchant, NPCTypeSpellTrader, NPCTypeSkillTrainer,
-	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeEncounter,
+	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeDoor, NPCTypeEncounter,
+}
+
+// IsDoor reports whether an NPC participates in the authored door behavior
+// contract. Rendering remains a separate concern: render_category decides how
+// it is drawn, while this type decides what opens it.
+func IsDoor(npc *NPC) bool {
+	return npc != nil && npc.Type == NPCTypeDoor
+}
+
+// IsLockedDoor reports whether this is a persisted, key/stat-unlockable door.
+func IsLockedDoor(npc *NPC) bool {
+	return IsDoor(npc) && npc.DoorBehavior == NPCDoorBehaviorLocked
+}
+
+// IsChampionPortcullisDoor reports whether this door follows arena champion
+// state instead of a per-door persisted unlock state.
+func IsChampionPortcullisDoor(npc *NPC) bool {
+	return IsDoor(npc) && npc.DoorBehavior == NPCDoorBehaviorChampionPortcullis
 }
 
 // IsWalkUpPropType reports whether a `type:` is a walk-up interactable prop
@@ -84,7 +122,37 @@ type NPCLectern struct {
 type MerchantStockItem struct {
 	Item     items.Item
 	Cost     int
-	Quantity int // UnlimitedStock (negative) = never sells out
+	Quantity int    // UnlimitedStock (negative) = never sells out
+	Tab      string // shop tab label ("" = the classic single grid)
+	// CurrencyItem overrides the SHOP currency for this entry with an item key
+	// (the Scalewright prices each piece in its own scale colour).
+	CurrencyItem string
+	// GoldCost is charged IN ADDITION to the item currency (scale + gold).
+	GoldCost int
+}
+
+// EffectiveCurrency resolves the one currency contract shared by merchant UI
+// and purchase execution. Per-entry item pricing overrides the shop default.
+func (m *MerchantStockItem) EffectiveCurrency(shopCurrency string) string {
+	if m != nil && m.CurrencyItem != "" {
+		return CurrencyItemPrefix + m.CurrencyItem
+	}
+	return shopCurrency
+}
+
+// MerchantTabs lists the distinct shop tab labels in authored stock order;
+// empty for a classic untabbed merchant.
+func MerchantTabs(stock []*MerchantStockItem) []string {
+	var tabs []string
+	seen := map[string]bool{}
+	for _, m := range stock {
+		if m == nil || m.Tab == "" || seen[m.Tab] {
+			continue
+		}
+		seen[m.Tab] = true
+		tabs = append(tabs, m.Tab)
+	}
+	return tabs
 }
 
 // UnlimitedStock marks a merchant entry that never sells out.
@@ -92,6 +160,20 @@ const UnlimitedStock = -1
 
 // CurrencyArenaPoints is the arena victory currency (party.ArenaPoints).
 const CurrencyArenaPoints = "arena_points"
+
+// CurrencyItemPrefix marks an item-backed merchant currency: "item:<items.yaml
+// key>". The merchant trades at flat prices paid by consuming that many copies
+// of the item from the party inventory (the clock tower's clock hands).
+const CurrencyItemPrefix = "item:"
+
+// CurrencyItemKey extracts the item key from an item-backed currency string;
+// ok=false for gold/arena_points.
+func CurrencyItemKey(currency string) (string, bool) {
+	if len(currency) > len(CurrencyItemPrefix) && currency[:len(CurrencyItemPrefix)] == CurrencyItemPrefix {
+		return currency[len(CurrencyItemPrefix):], true
+	}
+	return "", false
+}
 
 // InStock reports whether the entry can still be bought.
 func (m *MerchantStockItem) InStock() bool { return m.Quantity != 0 }

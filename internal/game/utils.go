@@ -31,3 +31,12 @@ func TileCenter(pos, tileSize float64) float64 {
 func TileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }
+
+// TileIndex converts a world coordinate to its tile index. Floor, not integer
+// truncation: truncation rounds toward zero, so a negative coordinate lands one
+// tile off (-30 with a 64 tile reads as 0 instead of -1). Matches TileCenter
+// above and collision's tileCoord, so a spawn search and the ray that later
+// checks it agree on which tile a point belongs to.
+func TileIndex(pos, tileSize float64) int {
+	return int(math.Floor(pos / tileSize))
+}

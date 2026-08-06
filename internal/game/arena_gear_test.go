@@ -62,16 +62,42 @@ func TestArmorShredAndPierce(t *testing.T) {
 		t.Fatalf("shredded AC = %d, want 32", got)
 	}
 	hammer, _ := config.GetWeaponDefinition("lion_warhammer")
-	if got := effectiveMonsterArmor(m, hammer); got != 32*(100-hammer.ArmorPiercePct)/100 {
+	if got := armorAfterPierce(m.EffectiveArmorClass(), hammer.ArmorPiercePct); got != 32*(100-hammer.ArmorPiercePct)/100 {
 		t.Fatalf("pierced AC = %d, want %d", got, 32*(100-hammer.ArmorPiercePct)/100)
 	}
-	// Shred expires with its clocks.
+	// Pure RT expiry clears the inactive TB clock too.
 	for i := 0; i < 100; i++ {
 		m.TickArmorShredFrame()
 	}
-	m.TickArmorShredTurn()
 	if got := m.EffectiveArmorClass(); got != 40 {
-		t.Fatalf("expired shred AC = %d, want 40", got)
+		t.Fatalf("pure-RT expired shred AC = %d, want 40", got)
+	}
+	if m.ArmorShredTurnsRemaining != 0 || m.ArmorShredRate != 0 {
+		t.Fatalf("pure-RT expiry left TB clock/rate = %d/%d", m.ArmorShredTurnsRemaining, m.ArmorShredRate)
+	}
+
+	// Pure TB and a mixed RT->TB lifetime expire symmetrically.
+	m.ApplyArmorShred(20, 120, 4)
+	for range 4 {
+		m.TickArmorShredTurn()
+	}
+	if got := m.EffectiveArmorClass(); got != 40 {
+		t.Fatalf("pure-TB expired shred AC = %d, want 40", got)
+	}
+
+	m.ApplyArmorShred(20, 120, 4)
+	for range 30 {
+		m.TickArmorShredFrame()
+	}
+	if m.ArmorShredFramesRemaining != 90 || m.ArmorShredTurnsRemaining != 3 {
+		t.Fatalf("mixed shred after RT = %d frames/%d turns, want 90/3",
+			m.ArmorShredFramesRemaining, m.ArmorShredTurnsRemaining)
+	}
+	for range 3 {
+		m.TickArmorShredTurn()
+	}
+	if got := m.EffectiveArmorClass(); got != 40 {
+		t.Fatalf("mixed-mode expired shred AC = %d, want 40", got)
 	}
 }
 

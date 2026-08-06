@@ -173,7 +173,7 @@ func TestTurnBased_MeleeAttacksDiagonally(t *testing.T) {
 	}
 }
 
-func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T) {
+func TestTurnBased_FrontDiagonalMeleeDeliveryHasPulledVisualPosition(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	game.camera.Angle = 0 // facing east
@@ -189,6 +189,12 @@ func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T
 	}
 	if got, want := game.camera.Y-vy, tbFrontDiagonalMonsterLateralTiles*ts; math.Abs(got-want) > 1e-6 {
 		t.Fatalf("visual lateral offset = %.2f, want %.2f", got, want)
+	}
+
+	frontDiagRanged := spawnMonsterAtTile(game, "elf_archer", 11, 9, ts)
+	vx, vy = r.monsterVisualPosition(frontDiagRanged)
+	if vx == frontDiagRanged.X && vy == frontDiagRanged.Y {
+		t.Fatal("front-diagonal ranged monster using melee should share the pulled TB presentation")
 	}
 
 	backDiag := spawnMonsterAtTile(game, "goblin", 9, 9, ts)
@@ -331,6 +337,7 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	const ptx, pty = 10, 10
 	placePlayerAtTile(game, ptx, pty, ts)
 	puma := spawnMonsterAtTile(game, "puma", 13, 10, ts)
+	puma.BeginPlayerEngagement()
 
 	hp0 := partyHPSum(game)
 	game.combat.HandleMonsterInteractions()
@@ -345,6 +352,21 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time puma pounce should strike the party")
+	}
+	if puma.AttackCDFrames <= 0 {
+		t.Fatal("real-time pounce did not arm the normal attack cadence")
+	}
+
+	// executePounce leaves the puma in StateAttacking with StateTimer=0. Without
+	// carrying the normal cadence, the next AI frame reaches StateTimer=1 and
+	// lands a second, unintended melee hit immediately after the pounce.
+	hpAfterPounce := partyHPSum(game)
+	wrapper := CreateMonsterWrapper(puma, game.collisionSystem, game.collisionSystem.Snapshot(), game)
+	wrapper.Update()
+	wrapper.ApplyCollisionUpdate()
+	game.combat.HandleMonsterInteractions()
+	if got := partyHPSum(game); got != hpAfterPounce {
+		t.Fatalf("puma gained a free follow-up after pounce: HP %d -> %d", hpAfterPounce, got)
 	}
 }
 
@@ -455,7 +477,7 @@ func TestHourOfPower_DamageBuffs(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 5 || in != 1 {
+	if out, in := game.combatBuffOutBonusForDamageType("fire"), game.combatBuffInReduce(); out != 5 || in != 1 {
 		t.Fatalf("hour_of_power: out=%d in=%d (want 5/1)", out, in)
 	}
 	m := game.party.Members[0]
@@ -549,7 +571,7 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 	gobHP0 := gob.HitPoints
 	partyHP0 := partyHPSum(game)
 
-	game.refreshBoundAllyCache() // mirrors updateExploration: sets AIFoe before the turn
+	game.refreshMonsterAIState() // mirrors updateExploration: sets AIFoe before the turn
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -602,7 +624,7 @@ func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 
 	skelHP0, gobHP0 := skel.HitPoints, gob.HitPoints
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	game.combat.HandleMonsterInteractions()
 
 	if gob.HitPoints >= gobHP0 {
@@ -637,7 +659,7 @@ func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
 
 	game.combat.applyBindUndead(skel, 300, "Bind Undead") // bound undead
 	game.combat.applyPacify(paci, 120, "Charm")           // pacified living
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	if tx, ty := game.combat.monsterAITargetPoint(paci); tx != paci.X || ty != paci.Y {
 		t.Errorf("pacified charm should hold position (%.0f,%.0f), got (%.0f,%.0f)", paci.X, paci.Y, tx, ty)
@@ -673,7 +695,7 @@ func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 	skelHP0, gobHP0, partyHP0 := skel.HitPoints, gob.HitPoints, partyHPSum(game)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -728,6 +750,7 @@ func TestMonsterStrike_RewardsRules(t *testing.T) {
 	// A mob cuts down a CARD ALLY (a pure summon) -> NO party XP.
 	huntress := monster.NewMonster3DFromConfig(0, 0, "masked_huntress", cfg)
 	huntress.HitPoints = 1
+	huntress.PerfectDodge = 0 // reward test; the killing blow must be deterministic
 	mob2 := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	game.world.Monsters = []*monster.Monster3D{huntress, mob2}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -760,7 +783,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 	projCount := func() int { return len(game.magicProjectiles) + len(game.arrows) }
 	n0, enemyHP0, partyHP0 := projCount(), enemy.HitPoints, partyHPSum(game)
 
-	game.refreshBoundAllyCache() // sets lich.AIFoe (= the enemy)
+	game.refreshMonsterAIState() // sets lich.AIFoe (= the enemy)
 	if !game.combat.boundAttackNearest(lich) {
 		t.Fatalf("bound lich should have acted against the enemy")
 	}
@@ -827,6 +850,7 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	// The identical projectile path must not reward a card ally.
 	ally := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "masked_huntress", cfg)
 	ally.HitPoints, ally.Experience, ally.Gold = 1, 40, 17
+	ally.PerfectDodge = 0
 	markCardAlly(ally)
 	game.world.Monsters = []*monster.Monster3D{bandit, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -878,7 +902,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{skel, enemy}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	// Out of melee reach (3 tiles) -> must NOT strike yet...
 	if game.combat.boundAttackNearest(skel) {
@@ -891,7 +915,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for turn := 0; turn < 6; turn++ {
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		runOneMonsterTurn(game, gl)
 	}
 	if Distance(skel.X, skel.Y, enemy.X, enemy.Y) >= startDist {
@@ -919,7 +943,7 @@ func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for f := 0; f < 1500; f++ { // ~12s at 120 TPS - plenty to close 3 tiles and strike
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		// Fresh snapshot + wrapper each tick, mirroring the real two-phase RT
 		// tick (a snapshot taken once at the top of the loop would go stale).
 		mw := CreateMonsterWrapper(skel, game.collisionSystem, game.collisionSystem.Snapshot(), game)
@@ -1062,31 +1086,5 @@ func TestRealTime_MeleeHitsFromDiagonalAdjacentTile(t *testing.T) {
 	game.combat.HandleMonsterInteractions()
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time melee should hit from a diagonal adjacent tile")
-	}
-}
-
-// Switching modes clears per-character RT cooldowns so a cooldown set before a
-// turn-based fight doesn't gate RT actions afterwards.
-func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based
-	for _, m := range game.party.Members {
-		if m != nil {
-			m.RTCooldown = 600 // ~5s of frozen cooldown from a recent RT attack
-		}
-	}
-	game.spellInputCooldown = 50
-
-	game.ToggleTurnBasedMode() // TB -> RT
-
-	if game.turnBasedMode {
-		t.Fatalf("expected real-time mode after the toggle")
-	}
-	for i, m := range game.party.Members {
-		if m != nil && m.RTCooldown != 0 {
-			t.Errorf("member %d RTCooldown should be cleared on mode switch, got %d", i, m.RTCooldown)
-		}
-	}
-	if game.spellInputCooldown != 0 {
-		t.Errorf("global input stagger should be cleared on mode switch, got %d", game.spellInputCooldown)
 	}
 }

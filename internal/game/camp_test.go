@@ -79,6 +79,83 @@ func TestTryCamp_RestoresPartyAndSpendsFood(t *testing.T) {
 	}
 }
 
+func TestTryCamp_AllowsDistantCrossfireAwayFromParty(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Food = 2
+	tile := float64(cfg.GetTileSize())
+
+	ally := &monster.Monster3D{ID: "bound_ally", Name: "Bound Skeleton", HitPoints: 10, MaxHitPoints: 10,
+		X: g.camera.X + 11*tile, Y: g.camera.Y, Bound: true}
+	enemy := &monster.Monster3D{ID: "crossfire_enemy", Name: "Goblin", HitPoints: 10, MaxHitPoints: 10,
+		X: g.camera.X + 10*tile, Y: g.camera.Y, AIFoe: ally, IsEngagingPlayer: true}
+	g.world.Monsters = []*monster.Monster3D{enemy, ally}
+
+	if _, ok := g.TryCamp(); !ok {
+		t.Fatal("a distant enemy fighting a bound ally must not be treated as a party fight")
+	}
+}
+
+// The whole ally-source matrix against camping, so a new source cannot be added
+// without landing on one side of the rule. Bound creatures - every pure summon
+// plus Bind Undead converts - are allies and do not block a camp. Charm is not
+// an alliance but a countdown that breaks on any hit, so a pacified monster
+// still blocks: resting through it would bank a full heal seconds before it
+// turns hostile again.
+func TestTryCamp_BoundAlliesAllowCampButCharmDoesNot(t *testing.T) {
+	for _, tc := range allySourceCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			g, _ := summonTileWorld(t)
+			g.party.Food = 1
+			ally := tc.spawn(t, g)
+			if !ally.IsPartyControlled() {
+				t.Fatal("test source did not create a party-controlled monster")
+			}
+
+			msg, ok := g.TryCamp()
+			if ally.Bound {
+				if !ok {
+					t.Fatalf("nearby bound ally blocked camp: %s", msg)
+				}
+				if g.party.Food != 0 {
+					t.Fatalf("successful camp left %d food, want 0", g.party.Food)
+				}
+				return
+			}
+			if ok {
+				t.Fatalf("charmed monster allowed a camp: %s", msg)
+			}
+			if g.party.Food != 1 {
+				t.Fatalf("refused camp spent food: %d, want 1", g.party.Food)
+			}
+		})
+	}
+}
+
+// Charm is a countdown that breaks on any hit, not an alliance: a pacified
+// monster next to the party still blocks the camp, or the party banks a full
+// heal moments before it turns hostile again.
+func TestTryCamp_PacifiedMonsterStillBlocksCamp(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Food = 2
+	tile := float64(cfg.GetTileSize())
+
+	charmed := &monster.Monster3D{ID: "charmed", Name: "Charmed Dragon", HitPoints: 40, MaxHitPoints: 40,
+		X: g.camera.X + tile, Y: g.camera.Y, Pacified: true, PacifiedFramesRemaining: 60}
+	g.world.Monsters = []*monster.Monster3D{charmed}
+
+	if !charmed.IsPartyControlled() {
+		t.Fatal("setup: a pacified monster should read as party-controlled")
+	}
+	if msg, ok := g.TryCamp(); ok {
+		t.Fatalf("camp succeeded next to a charmed monster: %s", msg)
+	}
+	if g.party.Food != 2 {
+		t.Errorf("refused camp still spent food: %d, want 2", g.party.Food)
+	}
+}
+
 func TestTavernRestAndBuyFood(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))

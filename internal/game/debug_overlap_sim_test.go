@@ -4,8 +4,8 @@
 package game
 
 // Headless overlap/jitter simulation - a DEBUG MODULE, not a regression test.
-// Loads the real forest map, steps the real monster AI + separation pass and
-// reports overlap and jitter metrics:
+// Loads the real forest map, steps the real monster AI and reports overlap and
+// jitter metrics:
 //
 //	Phase A (2 sim-minutes): party parked far away - calm monsters patrol.
 //	Phase B (1 sim-minute):  party standing next to the densest monster
@@ -158,7 +158,7 @@ func TestDebugSim_ForestOverlap(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -176,7 +176,6 @@ func TestDebugSim_ForestOverlap(t *testing.T) {
 	w := wm.GetCurrentWorld()
 
 	g := newTestGame(cfg, w)
-	gl := &GameLoop{game: g}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	tps := cfg.GetTPS()
 	t.Logf("forest: %d monsters, %d TPS", len(w.Monsters), tps)
@@ -197,7 +196,6 @@ func TestDebugSim_ForestOverlap(t *testing.T) {
 				m.Update(g.collisionSystem, camX, camY)
 				g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 			}
-			gl.separateOverlappingMonsters()
 			ov.tick(w.Monsters)
 			jt.tick(w.Monsters)
 			if (tick+1)%window == 0 {

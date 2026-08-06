@@ -125,6 +125,7 @@ func newBandingTestGame() *MMGame {
 	game := &MMGame{
 		config: cfg,
 		world:  &world.World3D{},
+		camera: &FirstPersonCamera{},
 	}
 	game.collisionSystem = collision.NewCollisionSystem(bandingTileChecker{}, tile)
 	return game
@@ -196,6 +197,74 @@ func TestScatterBand_SightVsHitPropagation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A normal band is ordinarily stacked, so its members share sight. Keep the
+// defensive rule explicit for a transient split state: a sighted member breaks
+// the band, but must not recruit a partner through a wall. Direct hits retain
+// the separate group-wide response covered by TestScatterBand_SightVsHitPropagation.
+func TestScatterBandSightRequiresEachMemberOwnPartyLoS(t *testing.T) {
+	game, loop, tile := tbBehaviorGame(t, 16, 16)
+	placePlayerAtTile(game, 2, 10, tile)
+
+	first := addLootGuardTestMonster(t, game, "wolf-visible", "wolf", 4, 10, tile)
+	second := addLootGuardTestMonster(t, game, "wolf-hidden", "wolf", 4, 12, tile)
+	for _, m := range []*monsterPkg.Monster3D{first, second} {
+		m.Banding = true
+		m.BandID = 7
+	}
+	game.world.Tiles[11][3] = world.TileWall
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	if !game.collisionSystem.CheckLineOfSight(first.X, first.Y, game.camera.X, game.camera.Y) {
+		t.Fatal("setup: first band member must see the party")
+	}
+	if game.collisionSystem.CheckLineOfSight(second.X, second.Y, game.camera.X, game.camera.Y) {
+		t.Fatal("setup: wall must hide the second band member from the party")
+	}
+
+	first.BeginPlayerEngagement()
+	loop.scatterBand([]*monsterPkg.Monster3D{first, second}, []*monsterPkg.Monster3D{first, second}, tile, false)
+
+	if !first.IsEngagingPlayer {
+		t.Fatal("sighted band member lost its engagement while scattering")
+	}
+	if second.IsEngagingPlayer || second.WasAttacked {
+		t.Fatalf("wall-hidden band member joined sight aggro: engaging=%v wasHit=%v", second.IsEngagingPlayer, second.WasAttacked)
+	}
+	if first.BandID != 0 || second.BandID != 0 {
+		t.Fatalf("sight-triggered band was not dissolved: first=%d second=%d", first.BandID, second.BandID)
+	}
+}
+
+// All members can enter Alert in the same parallel RT frame. The aggro pass
+// must still physically scatter the whole stack rather than merely clearing
+// BandID and leaving a transit-like visual pile behind.
+func TestUpdateMonsterBandsAllAlertedMembersPhysicallyScatter(t *testing.T) {
+	game := newBandingTestGame()
+	tile := float64(game.config.GetTileSize())
+	x, y := TileCenterFromTile(4, 4, tile)
+	for _, id := range []string{"wolf-a", "wolf-b", "wolf-c"} {
+		addBandingTestMonster(game, id, "wolf", x, y, 17)
+	}
+	for _, m := range game.world.Monsters {
+		m.IsEngagingPlayer = true
+		m.State = monsterPkg.StateAlert
+	}
+
+	(&GameLoop{game: game}).updateMonsterBands()
+
+	occupied := map[[2]int]bool{}
+	for _, m := range game.world.Monsters {
+		if m.BandID != 0 || !m.IsEngagingPlayer {
+			t.Fatalf("%s did not leave the band as an engaged attacker: band=%d engaging=%v", m.ID, m.BandID, m.IsEngagingPlayer)
+		}
+		pos := [2]int{int(m.X / tile), int(m.Y / tile)}
+		if occupied[pos] {
+			t.Fatalf("all-alerted band remained physically stacked on tile %v", pos)
+		}
+		occupied[pos] = true
 	}
 }
 

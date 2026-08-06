@@ -2,6 +2,7 @@ package collision
 
 import (
 	"math"
+	"sync"
 	"testing"
 )
 
@@ -279,6 +280,129 @@ func TestCheckLineOfSight_Integration(t *testing.T) {
 	if hasLOS {
 		t.Errorf("Expected blocked line of sight")
 	}
+}
+
+func TestCheckLineOfSight_OnlyExplicitEntitiesBlockSight(t *testing.T) {
+	checker := newMockTileChecker(10, 10)
+	cs := NewCollisionSystem(checker, 64.0)
+	x1, y1 := 32.0, 32.0
+	x2, y2 := 224.0, 32.0
+
+	ordinaryNPC := NewEntity("npc", 96, 32, 56, 56, CollisionTypeNPC, true)
+	cs.RegisterEntity(ordinaryNPC)
+	if !cs.CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("ordinary solid entity unexpectedly blocked line of sight")
+	}
+	cs.UnregisterEntity(ordinaryNPC.ID)
+
+	door := NewSightBlockingEntity("door", 96, 32, 56, 56, CollisionTypeNPC, true)
+	cs.RegisterEntity(door)
+	closedSnapshot := cs.Snapshot()
+	if cs.CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("explicit sight blocker did not block live line of sight")
+	}
+	if closedSnapshot.CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("explicit sight blocker did not block snapshot line of sight")
+	}
+
+	cs.UnregisterEntity(door.ID)
+	if !cs.CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("removed sight blocker still blocked live line of sight")
+	}
+	if closedSnapshot.CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("frozen snapshot changed after live blocker removal")
+	}
+	if !cs.Snapshot().CheckLineOfSight(x1, y1, x2, y2) {
+		t.Fatal("new snapshot retained a removed sight blocker")
+	}
+}
+
+func TestSightBlockerIndexTracksMoveReplaceAndOverlap(t *testing.T) {
+	checker := newMockTileChecker(10, 10)
+	cs := NewCollisionSystem(checker, 64.0)
+	leftX, y := 32.0, 32.0
+	rightX := 224.0
+
+	first := NewSightBlockingEntity("first", 96, y, 56, 56, CollisionTypeNPC, true)
+	second := NewSightBlockingEntity("second", 96, y, 56, 56, CollisionTypeNPC, true)
+	cs.RegisterEntity(first)
+	cs.RegisterEntity(second)
+	cs.UnregisterEntity(first.ID)
+	if cs.CheckLineOfSight(leftX, y, rightX, y) {
+		t.Fatal("removing one overlapping blocker revealed the remaining blocker")
+	}
+
+	cs.UpdateEntity(second.ID, 96, 160)
+	if !cs.CheckLineOfSight(leftX, y, rightX, y) {
+		t.Fatal("moving a blocker left its previous tile occluded")
+	}
+	if cs.CheckLineOfSight(32, 160, 224, 160) {
+		t.Fatal("moving a blocker did not occlude its new tile")
+	}
+
+	// Re-registering an ID replaces its old indexed state without leaking a
+	// count at the previous position.
+	replacement := NewSightBlockingEntity(second.ID, 160, y, 56, 56, CollisionTypeNPC, true)
+	cs.RegisterEntity(replacement)
+	if !cs.CheckLineOfSight(32, 160, 224, 160) {
+		t.Fatal("replacing a blocker left its old tile occluded")
+	}
+	if cs.CheckLineOfSight(leftX, y, rightX, y) {
+		t.Fatal("replacement blocker did not occlude its new tile")
+	}
+}
+
+func TestTileCoordFloorsNegativeWorldCoordinates(t *testing.T) {
+	const invTileSize = 1.0 / 64.0
+	tests := []struct {
+		world float64
+		want  int
+	}{
+		{world: -64.1, want: -2},
+		{world: -64, want: -1},
+		{world: -0.1, want: -1},
+		{world: 0, want: 0},
+		{world: 63.9, want: 0},
+		{world: 64, want: 1},
+	}
+	for _, tt := range tests {
+		if got := tileCoord(tt.world, invTileSize); got != tt.want {
+			t.Errorf("tileCoord(%v) = %d, want %d", tt.world, got, tt.want)
+		}
+	}
+}
+
+func TestRegisterEntityRejectsNil(t *testing.T) {
+	cs := NewCollisionSystem(newMockTileChecker(4, 4), 64)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("RegisterEntity(nil) did not fail fast")
+		}
+	}()
+	cs.RegisterEntity(nil)
+}
+
+func TestSightBlockerMoveAndRayCanRunConcurrently(t *testing.T) {
+	checker := newMockTileChecker(8, 8)
+	cs := NewCollisionSystem(checker, 64)
+	blocker := NewSightBlockingEntity("door", 96, 96, 56, 56, CollisionTypeNPC, true)
+	cs.RegisterEntity(blocker)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			cs.UpdateEntity(blocker.ID, 96+float64((i%2)*64), 96)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			cs.CastRay(32, 96, 256, 96, true)
+		}
+	}()
+	wg.Wait()
 }
 
 func TestCastRay_EdgeCases(t *testing.T) {

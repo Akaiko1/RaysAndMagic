@@ -23,7 +23,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8  # Brief slash animation
-      hit_delay: 2      # Frames before damage applies
 
     # Visual effects for slash animation
     graphics:
@@ -47,7 +46,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6  # Quick stab animation
-      hit_delay: 1      # Instant hit for dagger
 
     # Visual effects for slash animation
     graphics:
@@ -95,7 +93,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slower, heavier swing
-      hit_delay: 4      # Delayed impact for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -120,7 +117,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slower, heavier swing
-      hit_delay: 4      # Delayed impact for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -216,7 +212,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8  # Standard sword swing
-      hit_delay: 2      # Standard timing
 
     # Visual effects for slash animation
     graphics:
@@ -240,7 +235,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12  # Longer thrust animation
-      hit_delay: 6      # Longer windup for thrust
 
     # Visual effects for thrust animation
     graphics:
@@ -263,7 +257,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12
-      hit_delay: 6
     graphics:
       slash_color: [120, 110, 70]
       slash_width: 18
@@ -284,7 +277,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [150, 130, 60]
       slash_width: 18
@@ -294,6 +286,7 @@ weapons:
     name: "Gold Sword"
     description: "A magnificent sword forged from pure gold"
     category: "sword"
+    set: "dragon_hoard"
     damage: 12
     range: 1  # 1 tile reach
     bonus_stat: "Might"
@@ -305,7 +298,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10  # Slightly slower, powerful swing
-      hit_delay: 3      # Slight delay for power
 
     # Visual effects for slash animation
     graphics:
@@ -330,7 +322,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 14  # Slow, heavy swing
-      hit_delay: 6      # Long windup for heavy weapon
 
     # Visual effects for slash animation
     graphics:
@@ -430,7 +421,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 8
-      hit_delay: 3
     graphics:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
@@ -494,6 +484,7 @@ weapons:
     bonus_stat: "Intellect"
     damage_type: "dark"
     crit_chance: 20
+    execute_below_pct: 15
     rarity: "rare"
     value: 600
     projectile_school: "dark"
@@ -518,14 +509,13 @@ weapons:
     range: 1  # 1 tile reach for axe
     bonus_stat: "Might"
     crit_chance: 16
-    rarity: "uncommon"
+    rarity: "common"
     value: 210
 
     # Melee-specific configuration
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 5
 
     # Visual effects for slash animation
     graphics:
@@ -549,7 +539,6 @@ weapons:
     melee:
       arc_type: 4
       animation_frames: 16  # Slow, ponderous swing
-      hit_delay: 7      # Long windup
 
     # Visual effects for slash animation
     graphics:
@@ -575,7 +564,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [200, 40, 40]
       slash_width: 36
@@ -598,7 +586,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [120, 200, 140]
       slash_width: 22
@@ -623,7 +610,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [120, 60, 180]
       slash_width: 22
@@ -635,7 +621,7 @@ weapons:
     description: "A heavy matchlock that fires a single thunderous ball"
     category: "blaster"
     cooldown_multiplier: 1.7
-    damage: 14
+    damage: 28
     range: 7
     bonus_stat: "Accuracy"
     crit_chance: 18
@@ -669,7 +655,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8
-      hit_delay: 2
     graphics:
       slash_color: [220, 230, 235]
       slash_width: 34
@@ -689,7 +674,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6
-      hit_delay: 1
     graphics:
       slash_color: [220, 225, 230]
       slash_width: 24
@@ -709,7 +693,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 12
-      hit_delay: 6
     graphics:
       slash_color: [180, 180, 190]
       slash_width: 18
@@ -729,7 +712,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 6
     graphics:
       slash_color: [200, 210, 200]
       slash_width: 30
@@ -774,7 +756,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 11
-      hit_delay: 4
     graphics:
       slash_color: [170, 150, 120]
       slash_width: 42
@@ -796,7 +777,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [200, 210, 180]
       slash_width: 32
@@ -817,7 +797,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 9
-      hit_delay: 4
     graphics:
       slash_color: [80, 70, 90]
       slash_width: 20
@@ -837,7 +816,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [210, 200, 170]
       slash_width: 40
@@ -882,7 +860,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [140, 200, 120]
       slash_width: 22
@@ -905,7 +882,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 12
-      hit_delay: 5
     graphics:
       slash_color: [220, 180, 90]
       slash_width: 46
@@ -929,7 +905,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 7
-      hit_delay: 2
     graphics:
       slash_color: [230, 225, 215]
       slash_width: 34
@@ -952,7 +927,6 @@ weapons:
     melee:
       arc_type: 3
       animation_frames: 13
-      hit_delay: 5
     graphics:
       slash_color: [210, 190, 130]
       slash_width: 48
@@ -975,7 +949,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [200, 200, 210]
       slash_width: 42
@@ -997,7 +970,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 11
-      hit_delay: 5
     graphics:
       slash_color: [190, 180, 170]
       slash_width: 20
@@ -1021,7 +993,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 10
-      hit_delay: 4
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 22
@@ -1044,7 +1015,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 6
-      hit_delay: 1
     graphics:
       slash_color: [220, 220, 235]
       slash_width: 22
@@ -1067,7 +1037,6 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 12
-      hit_delay: 5
     graphics:
       slash_color: [220, 205, 160]
       slash_width: 46
@@ -1081,8 +1050,8 @@ weapons:
     damage: 10
     range: 7
     bonus_stat: "Accuracy"
-    crit_chance: 16
-    cooldown_multiplier: 0.8    # a third faster than the bow baseline (1.2) - the 5000-point prize shoots like it
+    crit_chance: 33
+    cooldown_multiplier: 0.6    # a third faster than the bow baseline (1.2) - the 5000-point prize shoots like it
     rarity: "unique"
     value: 1500
     flavor: "Loose, step, loose - the sand never sees you plant your feet."
@@ -1164,7 +1133,6 @@ weapons:
     melee:
       arc_type: 1
       animation_frames: 5
-      hit_delay: 1
     graphics:
       slash_color: [210, 160, 110]
       slash_width: 24
@@ -1191,19 +1159,502 @@ weapons:
     melee:
       arc_type: 2
       animation_frames: 8
-      hit_delay: 2
 
     graphics:
       slash_color: [255, 220, 180]
       slash_width: 24
       slash_length: 32
 
+
+  # --- Clock Tower (2026-07-16): the Clockmaker's stock, traded for clock hands ---
+  cogfang_blade:
+    name: "Cogfang Blade"
+    description: "A gear-hilted sword whose teeth chew straight through plate"
+    category: "sword"
+    damage: 20
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 18
+    armor_pierce_pct: 20
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Every parry loses the other blade a tooth."
+    melee:
+      arc_type: 2
+      animation_frames: 8
+    graphics:
+      slash_color: [200, 220, 245]
+      slash_fx: "clock_cogfang"
+      slash_width: 36
+      slash_length: 52
+
+  chime_maul:
+    name: "Chime Maul"
+    description: "A clockfaced hammer that rings skulls like the noon bell"
+    category: "mace"
+    damage: 23
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 16
+    stun_chance: 0.15
+    stun_turns: 3
+    cooldown_multiplier: 1.40
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1600
+    flavor: "For whom does it toll? Whoever stands closest."
+    melee:
+      arc_type: 2
+      animation_frames: 11
+    graphics:
+      slash_color: [235, 215, 160]
+      slash_fx: "clock_chime"
+      slash_width: 44
+      slash_length: 56
+
+  minute_hand:
+    name: "Minute Hand"
+    description: "A needle rapier ground from a tower clock's own hand"
+    category: "dagger"
+    damage: 16
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 28
+    cooldown_multiplier: 0.65
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Sixty stabs an hour, on the hour, every hour."
+    melee:
+      arc_type: 1
+      animation_frames: 6
+    graphics:
+      slash_color: [220, 228, 240]
+      slash_fx: "clock_minute"
+      slash_width: 20
+      slash_length: 44
+
+  mainspring_pike:
+    name: "Mainspring Pike"
+    description: "A coiled-steel pike that strikes with unwound fury"
+    category: "spear"
+    damage: 23
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 16
+    bonus_vs_stunned: 1.5
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Wound in 1602. Still furious."
+    melee:
+      arc_type: 1
+      animation_frames: 10
+    graphics:
+      slash_color: [200, 195, 185]
+      slash_fx: "clock_mainspring"
+      slash_width: 22
+      slash_length: 80
+
+  escapement_mace:
+    name: "Escapement Mace"
+    description: "A ratcheting cog-mace that strips armor tooth by tooth"
+    category: "mace"
+    damage: 19
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 18
+    armor_shred_pct: 20
+    armor_shred_seconds: 10
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Tick: your pauldron. Tock: your greave."
+    melee:
+      arc_type: 2
+      animation_frames: 9
+    graphics:
+      slash_color: [225, 200, 140]
+      slash_fx: "clock_escapement"
+      slash_width: 40
+      slash_length: 54
+
+  clockwork_pistol:
+    name: "Clockwork Pistol"
+    description: "A spring-driven pistol that never waits on powder"
+    category: "blaster"
+    damage: 20
+    range: 6
+    bonus_stat: "Accuracy"
+    crit_chance: 20
+    cooldown_multiplier: 1.30
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1600
+    flavor: "Wind, aim, and the mechanism does the rest."
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.4
+    graphics:
+      max_size: 34
+      min_size: 2
+      base_size: 10
+      color: [255, 214, 140]
+      projectile_fx: "clock_pistol"
+
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
-# skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a
-# category with no skill such as "blaster" stays neutral 1.0). Lighter weapons
+# skill via WeaponSkillForCategory (so "throwing" uses the dagger value; an
+# unlisted skill such as Blaster stays neutral 1.0). Lighter weapons
 # swing faster, heavy weapons slower. Legendaries override via their own
 # `cooldown_multiplier`.
+  # ================= DRAKEFORGED TIER =================
+  # Endgame smith-tier traded by the Scalewright at Coldbrook. Exact scale
+  # counts and gold surcharges live only in npcs.yaml. Legendary, no_loot:
+  # never rolls as loot or joins rarity racks. Every piece carries a signature
+  # rider no arena or clock-tower weapon has.
+
+  drakefang_blade:
+    name: "Drakefang, the Broodmother's Tooth"
+    description: "A sword of layered black scale that remembers the fire it grew in"
+    category: "sword"
+    damage: 24
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 15
+    damage_type: "fire"
+    ignite_chance: 0.35
+    ignite_seconds: 12
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "What it bites, it brands."
+    melee:
+      arc_type: 2
+      animation_frames: 12
+    graphics:
+      slash_color: [235, 120, 60]
+      slash_width: 44
+      slash_length: 62
+      slash_fx: dragon_fang
+
+  wyrmcleaver:
+    name: "Wyrmcleaver, the Closing Jaws"
+    description: "A greataxe of fused jawbone and scale; the wounded should not be near it"
+    category: "axe"
+    damage: 34
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 12
+    cooldown_multiplier: 1.5
+    execute_below_pct: 15
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "It does not finish fights. It swallows them."
+    melee:
+      arc_type: 3
+      animation_frames: 14
+    graphics:
+      slash_color: [200, 70, 50]
+      slash_width: 52
+      slash_length: 68
+      slash_fx: dragon_jaws
+
+  ember_egg_mace:
+    name: "Ember Egg"
+    description: "A spiked mace around a core that never cooled; whatever it kills goes off"
+    category: "mace"
+    damage: 22
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 12
+    damage_type: "fire"
+    aoe_radius_tiles: 1.5
+    death_burst_damage: 45
+    death_burst_radius_tiles: 2.0
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "Hatch, little one."
+    melee:
+      arc_type: 1
+      animation_frames: 12
+    graphics:
+      slash_color: [255, 140, 40]
+      slash_width: 46
+      slash_length: 58
+      slash_fx: dragon_ember_egg
+
+  broodspike:
+    name: "Broodspike"
+    description: "A lance ground from a wing-spur; no scale ever forged keeps it out"
+    category: "spear"
+    damage: 26
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 12
+    true_damage: 10
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "Armor is a rumor it declines to believe."
+    melee:
+      arc_type: 1
+      animation_frames: 11
+    graphics:
+      slash_color: [180, 200, 210]
+      slash_width: 30
+      slash_length: 84
+      slash_fx: dragon_broodspike
+
+  tarn_trident:
+    name: "Tarn Trident"
+    description: "Three tines of drowned bronze; the silt it carries never washes off"
+    category: "spear"
+    damage: 25
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 12
+    slow_pct: 30
+    slow_seconds: 5
+    rarity: "legendary"
+    value: 5000
+    no_loot: true
+    flavor: "The tarn keeps what slows down."
+    melee:
+      arc_type: 1
+      animation_frames: 11
+    graphics:
+      slash_color: [90, 160, 150]
+      slash_width: 34
+      slash_length: 80
+      slash_fx: dragon_tarn
+
+  hatchling_fang:
+    name: "Hatchling Fang"
+    description: "A green-glassed dagger milked from the brood's first venom"
+    category: "dagger"
+    damage: 18
+    range: 1
+    bonus_stat: "Speed"
+    crit_chance: 25
+    cooldown_multiplier: 0.7
+    damage_type: "earth"
+    poison_chance: 0.35
+    poison_seconds: 30
+    rarity: "legendary"
+    value: 4500
+    no_loot: true
+    flavor: "Small teeth teach long lessons."
+    melee:
+      arc_type: 1
+      animation_frames: 9
+    graphics:
+      slash_color: [120, 220, 90]
+      slash_width: 24
+      slash_length: 48
+      slash_fx: dragon_hatchling
+
+  scalebreaker_maul:
+    name: "Scalebreaker, the Sundering Roar"
+    description: "A warhammer with a dragon's cry caught in the head; what it hits swings softer"
+    category: "mace"
+    damage: 28
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 10
+    weaken_pct: 25
+    weaken_seconds: 8
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "The roar breaks what the steel forgives."
+    melee:
+      arc_type: 1
+      animation_frames: 13
+    graphics:
+      slash_color: [200, 170, 120]
+      slash_width: 50
+      slash_length: 60
+      slash_fx: dragon_roar
+
+  wyrmspine_bow:
+    name: "Wyrmspine Wing"
+    description: "A bow strung on wing-tendon; the whole line moves like it is airborne"
+    category: "bow"
+    damage: 22
+    range: 8
+    bonus_stat: "Accuracy"
+    crit_chance: 15
+    cooldown_multiplier: 0.9
+    party_fire_while_running: true
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "Feet on the ground is a suggestion."
+    physics:
+      speed_tiles: 15.0
+      range_tiles: 8.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 9
+      color: [180, 220, 170]
+      projectile_fx: dragon_wing
+
+  nest_arbalest:
+    name: "Nest Arbalest"
+    description: "A scaled crossbow whose bolts hunt the clutch, not the line"
+    category: "bow"
+    damage: 26
+    range: 9
+    bonus_stat: "Accuracy"
+    crit_chance: 18
+    cooldown_multiplier: 1.4
+    ricochet_targets: 1
+    ricochet_range_tiles: 6.0
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "The first kill is just the introduction."
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 9.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 26
+      min_size: 2
+      base_size: 10
+      color: [170, 200, 120]
+      projectile_fx: dragon_nest
+
+  verdant_eye_scepter:
+    name: "Verdant Eye"
+    description: "A scepter around a green dragon's lens; it watches your casting and approves"
+    category: "staff"
+    damage: 15
+    range: 1
+    bonus_stat: "Intellect"
+    crit_chance: 10
+    damage_type: "earth"
+    spell_cooldown_multiplier: 0.85
+    aoe_radius_tiles: 2.0
+    spell_echo_pct: 15
+    rarity: "legendary"
+    value: 5500
+    no_loot: true
+    flavor: "Say it again. The eye liked it."
+    melee:
+      arc_type: 1
+      animation_frames: 10
+    graphics:
+      slash_color: [110, 230, 120]
+      slash_width: 28
+      slash_length: 50
+      slash_fx: dragon_eye
+
+  # ================= PURSUER ARSENAL (Alien Enforcer drops) =================
+  # Field kit of the ocean strangers. Blasters need no weapon skill.
+
+  suppressor_gun:
+    name: "Suppressor"
+    description: "A drum-fed slug thrower; it argues in bursts and rarely loses"
+    category: "blaster"
+    damage: 15
+    range: 5
+    bonus_stat: "Accuracy"
+    crit_chance: 12
+    cooldown_multiplier: 0.4
+    tb_actions_per_round: 3   # drum autofire: the wielder's TB action floor
+    rarity: "legendary"
+    value: 6000
+    flavor: "Diplomacy, sustained."
+    physics:
+      speed_tiles: 18.0
+      range_tiles: 5.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 22
+      min_size: 2
+      base_size: 8
+      color: [200, 200, 210]
+      projectile_fx: tech_suppressor
+
+  longlance_rifle:
+    name: "Longlance"
+    description: "A scoped energy rifle; it ends discussions two streets away"
+    category: "blaster"
+    damage: 50
+    range: 20
+    bonus_stat: "Accuracy"
+    crit_chance: 25
+    cooldown_multiplier: 1.8
+    pierce_count: 1
+    damage_type: "spirit"
+    rarity: "legendary"
+    value: 7000
+    flavor: "You will not hear the argument you lost."
+    physics:
+      speed_tiles: 22.0
+      range_tiles: 20.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 8
+      color: [120, 230, 230]
+      projectile_fx: tech_longlance
+
+  vibro_blade:
+    name: "Vibroblade"
+    description: "A humming edge that treats plate like an opinion"
+    category: "sword"
+    damage: 21
+    range: 1
+    bonus_stat: "Speed"
+    crit_chance: 20
+    armor_pierce_pct: 35
+    damage_type: "spirit"
+    rarity: "legendary"
+    value: 6000
+    flavor: "It does not cut. It disagrees."
+    melee:
+      arc_type: 2
+      animation_frames: 10
+    graphics:
+      slash_color: [130, 235, 235]
+      slash_width: 40
+      slash_length: 60
+      slash_fx: tech_vibro
+
+  compound_bow:
+    name: "Tidehunter Compound Bow"
+    description: "A cam-drawn bow of grey alloy; the sea sent it hunting inland"
+    category: "bow"
+    damage: 50
+    range: 11
+    bonus_stat: "Accuracy"
+    crit_chance: 18
+    cooldown_multiplier: 1.2
+    rarity: "legendary"
+    value: 6500
+    flavor: "Strung with patience from another sky."
+    physics:
+      speed_tiles: 17.0
+      range_tiles: 11.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 9
+      color: [160, 190, 210]
+      projectile_fx: tech_compound_bow
+
 weapon_cooldown_multipliers:
   dagger: 0.6
   staff: 0.9

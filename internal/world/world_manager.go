@@ -22,6 +22,16 @@ type WorldManager struct {
 
 	// Global teleporter registry for cross-map teleportation
 	GlobalTeleporterRegistry *TeleporterRegistry
+
+	// Unified open world (see open_world.go). When active, the maps listed in
+	// openWorldConfig.Placements are stitched into OpenWorld instead of being
+	// loaded into LoadedMaps; CurrentMapKey then tracks the party's REGION key
+	// so per-map config/quest/save semantics keep working unchanged.
+	OpenWorld           *World3D
+	OpenWorldRegions    []OpenWorldRegion
+	openWorldConfig     *config.OpenWorldConfig
+	openWorldRegionIdx  map[string]int
+	openWorldRegionGrid [][]int16
 }
 
 // Global instance
@@ -64,16 +74,18 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		wm.MapConfigs[key] = &configCopy
 	}
 
-	// Store biome definitions (floor texture groups etc.) shared by maps.
+	// Store biome definitions (floor texture groups etc.) shared by maps, each
+	// with the shared groups folded in.
 	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
 	for name, biome := range mapConfigs.Biomes {
+		biome.FloorTextureGroups = mergeSharedFloorTextureGroups(biome.FloorTextureGroups, mapConfigs.SharedFloorTextureGroups)
 		wm.Biomes[name] = biome
 	}
 
 	// Fail fast: every map's biome must have a definition so floors render.
 	for key, mapConfig := range wm.MapConfigs {
 		if _, ok := wm.Biomes[mapConfig.Biome]; !ok {
-			return fmt.Errorf("map %q references biome %q with no definition in biomes:", key, mapConfig.Biome)
+			return fmt.Errorf("map %q references biome %q with no definition in the biomes: block", key, mapConfig.Biome)
 		}
 	}
 
@@ -92,17 +104,33 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	}
 
 	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
-	// named group must be defined by at least one biome (we don't require
-	// every biome to define it - universal tiles like water legitimately
-	// fall back to base color in biomes that omit the group). The dynamic
-	// "beach"/"default" fallbacks are resolved in the renderer, not from a
-	// tile field, so they need no entry here.
+	// named group must be defined by at least one biome; groups for tiles that
+	// can appear on any map belong in shared_floor_texture_groups so no biome
+	// can omit them. The dynamic "beach"/"default" fallbacks are resolved in
+	// the renderer, not from a tile field, so they need no entry here.
 	if err := wm.validateTileFloorTextureGroups(); err != nil {
 		return err
 	}
 
 	fmt.Printf("Loaded %d map configurations, %d biomes\n", len(wm.MapConfigs), len(wm.Biomes))
 	return nil
+}
+
+// mergeSharedFloorTextureGroups gives a biome the shared groups it doesn't
+// define itself, so a universal tile (water) is textured in every biome from a
+// single definition. A biome naming the same group keeps its own art.
+func mergeSharedFloorTextureGroups(biomeGroups, shared map[string][]string) map[string][]string {
+	if len(shared) == 0 {
+		return biomeGroups
+	}
+	merged := make(map[string][]string, len(biomeGroups)+len(shared))
+	for name, texs := range shared {
+		merged[name] = texs
+	}
+	for name, texs := range biomeGroups {
+		merged[name] = texs
+	}
+	return merged
 }
 
 // validateTileFloorTextureGroups ensures every floor_texture_group named by a
@@ -130,9 +158,15 @@ func (wm *WorldManager) validateTileFloorTextureGroups() error {
 	return nil
 }
 
-// LoadAllMaps preloads all maps for instant switching
+// LoadAllMaps preloads all maps for instant switching. Maps placed in the
+// unified open world are stitched into OpenWorld instead of LoadedMaps.
 func (wm *WorldManager) LoadAllMaps() error {
 	for mapKey, mapConfig := range wm.MapConfigs {
+		if wm.openWorldConfig != nil {
+			if _, merged := wm.openWorldConfig.Placements[mapKey]; merged {
+				continue // stitched below by buildOpenWorld
+			}
+		}
 		fmt.Printf("Loading map: %s (%s)\n", mapConfig.Name, mapConfig.File)
 
 		world, err := wm.loadSingleMap(mapKey, mapConfig)
@@ -145,8 +179,12 @@ func (wm *WorldManager) LoadAllMaps() error {
 		fmt.Printf("Successfully loaded map: %s\n", mapConfig.Name)
 	}
 
+	if err := wm.buildOpenWorld(); err != nil {
+		return err
+	}
+
 	// Ensure we have at least the default map
-	if _, exists := wm.LoadedMaps[wm.CurrentMapKey]; !exists {
+	if !wm.IsValidMap(wm.CurrentMapKey) {
 		return fmt.Errorf("failed to load default map: %s", wm.CurrentMapKey)
 	}
 
@@ -161,6 +199,11 @@ func (wm *WorldManager) Reset() error {
 		Teleporters:     make([]TeleporterLocation, 0),
 		LastUsedByGroup: make(map[string]time.Time),
 	}
+	// The unified world rebuilds with the maps (LoadAllMaps -> buildOpenWorld).
+	wm.OpenWorld = nil
+	wm.OpenWorldRegions = nil
+	wm.openWorldRegionIdx = nil
+	wm.openWorldRegionGrid = nil
 
 	// Pick a sane starting map based on configs
 	startKey := "forest"
@@ -342,10 +385,14 @@ func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapK
 	}
 }
 
-// GetCurrentWorld returns the currently active world
+// GetCurrentWorld returns the currently active world. A merged region key
+// resolves to the unified world.
 func (wm *WorldManager) GetCurrentWorld() *World3D {
 	if world, exists := wm.LoadedMaps[wm.CurrentMapKey]; exists {
 		return world
+	}
+	if wm.OpenWorld != nil && (wm.CurrentMapKey == OpenWorldKey || wm.IsOpenWorldRegion(wm.CurrentMapKey)) {
+		return wm.OpenWorld
 	}
 
 	// Fallback to first available map if current doesn't exist
@@ -379,13 +426,13 @@ func (wm *WorldManager) GetCurrentBiomeFloorTextureGroups() map[string][]string 
 	return nil
 }
 
-// SwitchToMap transitions to a different map
+// SwitchToMap transitions to a different map (split map or merged region key).
 func (wm *WorldManager) SwitchToMap(mapKey string) error {
 	if wm.TransitionInProgress {
 		return fmt.Errorf("map transition already in progress")
 	}
 
-	if _, exists := wm.LoadedMaps[mapKey]; !exists {
+	if !wm.IsValidMap(mapKey) {
 		return fmt.Errorf("map not loaded: %s", mapKey)
 	}
 
@@ -398,8 +445,10 @@ func (wm *WorldManager) SwitchToMap(mapKey string) error {
 	return nil
 }
 
-// IsValidMap checks if a map key exists
+// IsValidMap checks if a map key exists (split map or merged region).
 func (wm *WorldManager) IsValidMap(mapKey string) bool {
-	_, exists := wm.LoadedMaps[mapKey]
-	return exists
+	if _, exists := wm.LoadedMaps[mapKey]; exists {
+		return true
+	}
+	return wm.IsOpenWorldRegion(mapKey)
 }

@@ -15,7 +15,7 @@ import (
 // spawn count - incidental content (chests, lecterns) comes and goes freely.
 // Catches unresolved tile letters / NPC keys end-to-end.
 func TestJapaneseCastleMapLoads(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

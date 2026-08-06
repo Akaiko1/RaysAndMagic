@@ -28,7 +28,8 @@ func newBossTestGame(t *testing.T, cfg *config.Config) (*MMGame, *monsterPkg.Mon
 
 	boss := &monsterPkg.Monster3D{
 		ID: "boss_tb_1", Name: "Golden Thief Bug",
-		X: 352, Y: 352, // tile (5,5) center; party camera sits at (64,64)
+		Boss: true,
+		X:    352, Y: 352, // tile (5,5) center; party camera sits at (64,64)
 		HitPoints: 200, MaxHitPoints: 200,
 		PassiveUntilQuest: "culverts_valves", // no quest manager in test -> evasive
 		EvadeRadiusTiles:  3,

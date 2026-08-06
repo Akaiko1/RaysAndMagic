@@ -21,6 +21,16 @@ import (
 func TestEverySpell_CastsAndApplies(t *testing.T) {
 	// tbBehaviorGame loads the YAML configs (populating config.GlobalSpells).
 	tbBehaviorGame(t, 5, 5)
+	previousTiles := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = previousTiles })
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	// Summon and zone spells resolve their world through GetCurrentWorld, which
+	// prefers the process-wide manager. Pin it to nil so the sweep always runs
+	// against each subtest's own fixture instead of whatever ran before it.
+	setTestWorldManager(t, nil)
 	if config.GlobalSpells == nil || len(config.GlobalSpells.Spells) == 0 {
 		t.Fatal("spell config not loaded")
 	}
@@ -64,12 +74,10 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 				t.Chdir("../..")
 				// Fly is gated to open-sky maps: point the world manager at a
 				// map whose sky ships day/night variants (arena_panorama_*).
-				prev := world.GlobalWorldManager
-				world.GlobalWorldManager = &world.WorldManager{
+				setTestWorldManager(t, &world.WorldManager{
 					MapConfigs:    map[string]*config.MapConfig{"arena": {SkyTexture: "arena_panorama"}},
 					CurrentMapKey: "arena",
-				}
-				t.Cleanup(func() { world.GlobalWorldManager = prev })
+				})
 			case def.ReviveHpPct > 0 || def.Revive: // raise_dead / resurrect
 				ally.MaxHitPoints, ally.HitPoints = 40, 0
 				ally.AddCondition(character.ConditionDead)

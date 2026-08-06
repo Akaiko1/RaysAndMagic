@@ -23,9 +23,8 @@ func openArena(w *world.World3D, n int) {
 
 // TestPassiveRangedInRange_StaysPassThrough guards the map-editor mob-preview
 // jitter fix: a DORMANT passive monster within its (long, for ranged) attack
-// range of the player must NOT be flagged engaged/solid by proximity - else a
-// stacked calm band turns solid against its own members and thrashes (unstuck
-// vs banding). Drives the REAL RT per-monster step (MonsterWrapper.Update, which
+// range of the player must NOT claim an engaged attack post by proximity.
+// Drives the REAL RT per-monster step (MonsterWrapper.Update, which
 // updateMonstersParallel uses) - the collision-engagement side-effect my first
 // headless repro missed by calling Monster3D.Update directly.
 func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
@@ -55,14 +54,16 @@ func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
 		t.Fatalf("dormant passive ranged mob in range = collision type %v, want Monster (pass-through)", got)
 	}
 
-	// Once provoked it is genuinely fighting -> solid, so the proximity engage
-	// still works for real combatants.
+	// Once provoked it may claim a logical post, but stays physically walkable.
 	m.WasAttacked = true
 	mw.snapshot = g.collisionSystem.Snapshot()
 	mw.Update()
 	mw.ApplyCollisionUpdate()
 	if got := g.collisionSystem.GetEntityByID(m.ID).CollisionType; got != collision.CollisionTypeMonsterEngaged {
-		t.Fatalf("provoked ranged mob in range = collision type %v, want MonsterEngaged (solid)", got)
+		t.Fatalf("provoked ranged mob in range = collision type %v, want logical MonsterEngaged post", got)
+	}
+	if g.collisionSystem.GetEntityByID(m.ID).Solid {
+		t.Fatal("a claimed attack post must stay physically walkable")
 	}
 }
 
@@ -107,7 +108,6 @@ func TestPassiveRangedBand_NoTeleportThrash(t *testing.T) {
 		for _, mw := range wraps {
 			mw.ApplyCollisionUpdate()
 		}
-		gl.separateOverlappingMonsters()
 		gl.updateMonsterBands()
 		for i, m := range w.Monsters {
 			if tick > 2 { // skip the initial band-formation snap
@@ -124,14 +124,14 @@ func TestPassiveRangedBand_NoTeleportThrash(t *testing.T) {
 	}
 }
 
-func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
+func TestMonsterCollisionMarkerFollowsAttackPurpose(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 20, 20)
 	placePlayerAtTile(game, 3, 3, ts)
 	calm := monsterPkg.NewMonster3DFromConfig(4*ts+ts/2, 3*ts+ts/2, "goblin", game.config)
 	game.world.Monsters = []*monsterPkg.Monster3D{calm}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.refreshMonsterCollisionSolidity(calm)
+	game.refreshMonsterCollisionState(calm)
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
 		t.Fatal("peaceful monster must be walkable for the party")
 	}
@@ -140,12 +140,22 @@ func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
 	}
 
 	calm.IsEngagingPlayer, calm.WasAttacked = true, true
-	game.refreshMonsterCollisionSolidity(calm)
-	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || !entity.Solid {
-		t.Fatal("monster targeting the party must block the party")
+	calm.State = monsterPkg.StatePursuing
+	game.refreshMonsterCollisionState(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid || entity.CollisionType != collision.CollisionTypeMonster {
+		t.Fatal("a party-targeting transit mob must remain physically walkable and hold no post")
 	}
-	if game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
-		t.Fatal("monster targeting the party must not move through the party")
+	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+		t.Fatal("a party-targeting transit mob must move through the party")
+	}
+
+	calm.State = monsterPkg.StateAttacking
+	game.refreshMonsterCollisionState(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid || entity.CollisionType != collision.CollisionTypeMonsterEngaged {
+		t.Fatal("a party attack post must be logical-only, never solid")
+	}
+	if !game.collisionSystem.CanMoveTo("player", calm.X, calm.Y) {
+		t.Fatal("the party must be able to walk through a claimed attack post")
 	}
 
 	ally := monsterPkg.NewMonster3DFromConfig(6*ts+ts/2, 3*ts+ts/2, "masked_huntress", game.config)
@@ -153,16 +163,19 @@ func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
 	placePlayerAtTile(game, 1, 3, ts) // card ally is now closer than the party
 	game.world.Monsters = []*monsterPkg.Monster3D{calm, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if calm.AIFoe != ally {
 		t.Fatal("setup: closer card ally should redirect the monster")
 	}
-	game.refreshMonsterCollisionSolidity(calm)
-	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
-		t.Fatal("monster fighting a summon must be temporarily walkable for the party")
+	game.refreshMonsterCollisionState(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid || entity.CollisionType != collision.CollisionTypeMonsterEngaged {
+		t.Fatal("monster fighting a summon must use a non-solid logical attack post")
+	}
+	if !calm.AttackPost || calm.AttackPostTargetID != ally.ID {
+		t.Fatalf("summon-targeting attack post = (%v, %q), want (%v, %q)", calm.AttackPost, calm.AttackPostTargetID, true, ally.ID)
 	}
 	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
-		t.Fatal("monster fighting a summon must be able to move through the party")
+		t.Fatal("monster fighting a summon must be able to route through the party")
 	}
 }
 
@@ -174,7 +187,7 @@ func TestPartyTargetingMonsterIsEjectedFromPlayerCell(t *testing.T) {
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	monsterEntity := game.collisionSystem.GetEntityByID(m.ID)
 	playerEntity := game.collisionSystem.GetEntityByID("player")
 	if monsterEntity == nil || playerEntity == nil || monsterEntity.BoundingBox.Intersects(playerEntity.BoundingBox) {
@@ -187,7 +200,7 @@ func TestPartyTargetingMonsterIsEjectedFromPlayerCell(t *testing.T) {
 	}
 }
 
-func TestHitFleeingMonsterCannotPathThroughParty(t *testing.T) {
+func TestHitFleeingMonsterCanPathThroughParty(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 20, 20)
 	placePlayerAtTile(game, 10, 10, ts)
 	m := monsterPkg.NewMonster3DFromConfig(9*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
@@ -195,42 +208,37 @@ func TestHitFleeingMonsterCannotPathThroughParty(t *testing.T) {
 	m.WasAttacked = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshMonsterCollisionSolidity(m)
+	game.refreshMonsterCollisionState(m)
 
 	entity := game.collisionSystem.GetEntityByID(m.ID)
-	if entity == nil || !entity.Solid || entity.CollisionType != collision.CollisionTypeMonsterEngaged {
-		t.Fatal("a hit fleeing monster must remain an engaged solid blocker")
+	if entity == nil || entity.Solid || entity.CollisionType != collision.CollisionTypeMonster {
+		t.Fatal("a fleeing monster must stay physically walkable and hold no attack post")
 	}
 	if player := game.collisionSystem.GetEntityByID("player"); player == nil || !player.Solid {
-		t.Fatal("the player must block hostile monster pathfinding")
+		t.Fatal("the player collision entity must remain solid for non-monster actors")
 	}
-	if game.collisionSystem.Snapshot().CanMoveToWithHabitat(m.ID, game.camera.X, game.camera.Y, m.HabitatPrefs, m.Flying) {
-		t.Fatal("a hit fleeing monster can path through the party")
+	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(m.ID, game.camera.X, game.camera.Y, m.HabitatPrefs, m.Flying) {
+		t.Fatal("a fleeing monster must be able to path through the party")
 	}
 }
 
-func TestTeleportFallbackOnlyProtectsPartyFromCurrentTarget(t *testing.T) {
-	game, gl, ts := tbBehaviorGame(t, 20, 20)
+// A fleeing mob is deliberately pass-through while it retreats. In particular,
+// target reconciliation must not treat the sticky WasAttacked flag as a current
+// party attack and eject it back out of the party cell mid-flight.
+func TestFleeingMonsterIsNotEjectedFromPartyCell(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 20, 20)
 	placePlayerAtTile(game, 10, 10, ts)
-	m := monsterPkg.NewMonster3DFromConfig(9*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
+	m := monsterPkg.NewMonster3DFromConfig(game.camera.X, game.camera.Y, "goblin", game.config)
+	m.State = monsterPkg.StateFleeing
+	m.WasAttacked = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	// A monster chasing the party must keep its fallback destination outside
-	// the party tile even when that tile would be geometrically closest.
-	m.IsEngagingPlayer, m.WasAttacked = true, true
-	game.refreshMonsterCollisionSolidity(m)
-	x, y, _ := gl.pickBestTeleportOffset(m, ts, game.camera.X, game.camera.Y, [][2]int{{1, 0}}, 1e300)
-	if int(x/ts) == 10 && int(y/ts) == 10 {
-		t.Fatal("party-targeting monster teleported onto the party")
+	game.refreshMonsterAIState()
+	if gotX, gotY := monsterTileCoords(m, ts); gotX != 10 || gotY != 10 {
+		t.Fatalf("fleeing monster was ejected to tile (%d,%d), want party tile (10,10)", gotX, gotY)
 	}
-
-	// When redirected to a summon, the party is walkable in both directions.
-	foe := monsterPkg.NewMonster3DFromConfig(12*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
-	m.AIFoe = foe
-	game.refreshMonsterCollisionSolidity(m)
-	x, y, _ = gl.pickBestTeleportOffset(m, ts, foe.X, foe.Y, [][2]int{{1, 0}}, 1e300)
-	if int(x/ts) != 10 || int(y/ts) != 10 {
-		t.Fatalf("summon-targeting monster teleport = (%d,%d), want player tile (10,10)", int(x/ts), int(y/ts))
+	if m.TargetsParty() {
+		t.Fatal("fleeing monster must not hold a party attack target")
 	}
 }

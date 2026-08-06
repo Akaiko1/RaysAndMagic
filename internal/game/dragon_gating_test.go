@@ -26,8 +26,15 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 		t.Fatalf("load quests: %v", err)
 	}
 	qm := quests.NewQuestManager(qc)
-	qm.InitializeStartingQuests() // dragon_slayer is a starting quest
+	qm.InitializeStartingQuests()
 	cs.game.questManager = qm
+	// The hunt is sworn to Sylwen at the desert seals, not handed out at boot.
+	if q := qm.GetQuest("dragon_slayer"); q != nil {
+		t.Fatal("dragon_slayer must not be a starting quest - the pilgrim gives it")
+	}
+	if err := qm.ActivateQuest("dragon_slayer"); err != nil {
+		t.Fatalf("activate dragon_slayer: %v", err)
+	}
 
 	monName := func(key string) string {
 		d, err := monsterPkg.MonsterConfig.GetMonsterByKey(key)
@@ -134,6 +141,10 @@ func TestDragonSlayerQuestAwardsArenaPoints(t *testing.T) {
 	qm.InitializeStartingQuests()
 	cs.game.questManager = qm
 
+	// Sworn to the pilgrim first - the hunt is no longer active at boot.
+	if err := qm.ActivateQuest("dragon_slayer"); err != nil {
+		t.Fatalf("activate dragon_slayer: %v", err)
+	}
 	quest := qm.GetQuest("dragon_slayer")
 	if quest == nil {
 		t.Fatal("dragon_slayer quest missing")

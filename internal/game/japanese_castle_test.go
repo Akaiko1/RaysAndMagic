@@ -86,7 +86,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if !boss.IgnoresArmor {
 		t.Error("samurai should ignore armor")
 	}
-	if !cs.isBoss(boss) {
+	if !boss.IsBoss() {
 		t.Error("samurai must be recognized as a boss")
 	}
 
@@ -96,7 +96,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Fatal("boss must be dormant while castle_armory is unfinished")
 	}
 	prevX, prevY := boss.X, boss.Y
-	if !cs.updateBoss(boss, true, true) {
+	if !cs.updateBoss(boss, true, true, true) {
 		t.Error("a dormant boss should consume its action (hold, no normal attack)")
 	}
 	if boss.X != prevX || boss.Y != prevY {
@@ -108,7 +108,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	// only suppresses the ATTACK - the separate movement path is what let the boss
 	// wander off, so this asserts the flag that gates it.
 	cs.game.world.Monsters = append(cs.game.world.Monsters, boss)
-	cs.game.refreshBoundAllyCache()
+	cs.game.refreshMonsterAIState()
 	if !boss.BossDormant {
 		t.Error("sealed boss must be flagged BossDormant while castle_armory is unfinished")
 	}
@@ -130,7 +130,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if cs.bossEvasive(boss) {
 		t.Error("boss must turn aggressive once castle_armory completes")
 	}
-	cs.game.refreshBoundAllyCache()
+	cs.game.refreshMonsterAIState()
 	if boss.BossDormant {
 		t.Error("boss must no longer be dormant once castle_armory completes")
 	}
@@ -142,7 +142,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Error("unsealed-but-unengaged Samurai must NOT relentlessly chase from across the map")
 	}
 	boss.IsEngagingPlayer = true
-	cs.game.refreshBoundAllyCache()
+	cs.game.refreshMonsterAIState()
 	if !boss.BossAggro {
 		t.Error("an engaged unsealed Samurai should relentlessly pursue")
 	}
@@ -206,11 +206,12 @@ func TestSealedBossIgnoresIndirectEffects(t *testing.T) {
 	// AoE splash centered on a mob right beside the boss.
 	center := monsterPkg.NewMonster3DFromConfig(5*tile+8, 5*tile, "goblin", cs.game.config)
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{center, boss}
-	cs.applyAoeSplash(center, 9999, "fire", monsterPkg.DamageFire, "Test", 3.0, 0)
+	attack := cs.newPartyMonsterAttack(9999, 0, "fire", 0, nil, "Test", false, true, false)
+	cs.applyAoeSplash(center, attack, 3.0)
 	assertInert("AoE splash")
 
 	// Trap payload directly on the boss.
-	cs.applyTrapDamage(boss, 9999, "fire", monsterPkg.DamageFire, "Spike Trap")
+	cs.applyTrapDamage(boss, 9999, "fire", "Spike Trap")
 	assertInert("trap")
 
 	// Turn-based pack aggro from a struck same-key mob must not wake a sealed one.
@@ -219,7 +220,7 @@ func TestSealedBossIgnoresIndirectEffects(t *testing.T) {
 	sealed := monsterPkg.NewMonster3DFromConfig(11*tile, 10*tile, "goblin", cs.game.config)
 	sealed.BossDormant = true
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{hit, sealed}
-	cs.engageTurnBasedPackOnHit(hit)
+	cs.engageTurnBasedSameKindPackOnPartyHit(hit)
 	if sealed.IsEngagingPlayer {
 		t.Error("pack aggro: sealed monster must not be pulled in")
 	}
@@ -229,7 +230,7 @@ func TestSamuraiSummonRespectsCapAndOccupiedTiles(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -291,7 +292,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -327,7 +328,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	boss.SummonMax = 4
 	cs.game.registerSpawnedMonster(boss)
 
-	if !cs.updateBoss(boss, true, true) {
+	if !cs.updateBoss(boss, true, true, true) {
 		t.Fatal("first summon should be guaranteed even when summon_chance is 0")
 	}
 	if !boss.SummonFirstDone {
@@ -336,7 +337,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	if got := cs.countLiveSummons(boss); got != 2 {
 		t.Fatalf("first summon count = %d, want 2", got)
 	}
-	if cs.updateBoss(boss, true, true) {
+	if cs.updateBoss(boss, true, true, true) {
 		t.Fatal("second summon should use summon_chance after the first guaranteed summon")
 	}
 	if got := cs.countLiveSummons(boss); got != 2 {

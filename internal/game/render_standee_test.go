@@ -1,7 +1,10 @@
 package game
 
 import (
+	"image"
 	"math"
+	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -37,6 +40,262 @@ func TestStandeeColumnHit(t *testing.T) {
 	// Token behind the camera -> rejected by the near clip.
 	if _, _, ok = standeeColumnHit(200, 0, 1, 0, p0x, p0y, dx, dy); ok {
 		t.Errorf("token behind the camera should be rejected")
+	}
+}
+
+func TestStandeeColumnIntersectionKeepsOffSegmentBoundary(t *testing.T) {
+	// A visible edge pixel has a centre ray that hits the segment, while one
+	// pixel boundary can intersect its infinite line just outside the segment.
+	// The renderer needs that unbounded u to give the quad a non-zero horizontal
+	// texture footprint, allowing Ebiten to select a minified mip level.
+	p0x, p0y, dx, dy := 100.0, -10.0, 0.0, 20.0
+	tt, u, ok := standeeColumnIntersection(0, 0, 1, 0.11, p0x, p0y, dx, dy)
+	if !ok || math.Abs(tt-100) > 1e-9 || u <= 1 {
+		t.Fatalf("unbounded edge: got t=%.3f u=%.3f ok=%v; want t=100 and u>1", tt, u, ok)
+	}
+	if _, _, ok := standeeColumnHit(0, 0, 1, 0.11, p0x, p0y, dx, dy); ok {
+		t.Fatal("finite segment hit must reject the off-segment boundary")
+	}
+}
+
+func TestStandeeUsesMinificationSampling(t *testing.T) {
+	if standeeUsesMinificationSampling(512, 512, 512, 512) {
+		t.Fatal("1:1 standee must retain the crisp path")
+	}
+	if !standeeUsesMinificationSampling(512, 511.9, 512, 512) {
+		t.Fatal("any vertical shrink must use stable linear sampling")
+	}
+	if !standeeUsesMinificationSampling(511.9, 512, 512, 512) {
+		t.Fatal("any horizontal shrink must use stable linear sampling")
+	}
+}
+
+func TestStandeeProjectedFootprintUsesLeastMinifiedAxis(t *testing.T) {
+	if got := standeeProjectedFootprint(128, 64, 256, 256); got != 2 {
+		t.Fatalf("anisotropic footprint = %.2f, want 2", got)
+	}
+	if got := standeeProjectedFootprint(512, 512, 256, 256); got != 1 {
+		t.Fatalf("magnified footprint = %.2f, want 1", got)
+	}
+}
+
+func TestTreeIsBillboardLOD(t *testing.T) {
+	const tileSize = 64.0
+	if treeIsBillboardLOD(25*tileSize, tileSize, 25) {
+		t.Fatal("tree at the boundary must retain crossed slabs")
+	}
+	if !treeIsBillboardLOD(25.01*tileSize, tileSize, 25) {
+		t.Fatal("tree beyond the boundary must use the distant single-plane LOD")
+	}
+	if treeIsBillboardLOD(tileSize, tileSize, 0) {
+		t.Fatal("zero threshold must disable the distant LOD")
+	}
+}
+
+func TestCrossedTreeArmsInterleaveWithAdjacentStandee(t *testing.T) {
+	cfg := loadTestConfig(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.camera.Angle = 0
+	tileSize := float64(cfg.GetTileSize())
+	game.camera.X, game.camera.Y = tileSize/2, 10.5*tileSize
+	game.renderHelper = NewRenderingHelper(game)
+	r := &Renderer{game: game}
+
+	const treeTileX, treeTileY = 5, 10
+	treeX, treeY := TileCenterFromTile(treeTileX, treeTileY, tileSize)
+	treeDepth := treeX - game.camera.X
+	footprint := 1.5 * tileSize
+	halfFOVTan := math.Tan(game.camera.FOV / 2)
+	treeSize := footprint * float64(cfg.GetScreenWidth()) / (2 * halfFOVTan * treeDepth)
+	treeScreenX, _, ok := game.renderHelper.projectToScreenX(treeX, treeY)
+	if !ok {
+		t.Fatal("setup: crossed dune center is not visible")
+	}
+	tree := UnifiedSpriteRenderData{
+		spriteType: SpriteTypeTree,
+		screenX:    treeScreenX,
+		screenXF:   float64(treeScreenX),
+		sizeF:      treeSize,
+		depthPerp:  treeDepth,
+		distance:   treeDepth,
+		tileX:      treeTileX,
+		tileY:      treeTileY,
+	}
+
+	// Same camera depth, slightly to the screen-right: the standee overlaps the
+	// cross in projection but not at its center. A whole-tree depth key cannot
+	// represent this; two arms are farther and two are nearer.
+	npcX, npcY := treeX, treeY+0.75*tileSize
+	npcScreenX, _, ok := game.renderHelper.projectToScreenX(npcX, npcY)
+	if !ok {
+		t.Fatal("setup: adjacent standee is not visible")
+	}
+	npcSize := tileSize * float64(cfg.GetScreenWidth()) / (2 * halfFOVTan * treeDepth)
+	npc := UnifiedSpriteRenderData{
+		spriteType: SpriteTypeNPC,
+		screenX:    npcScreenX,
+		screenXF:   float64(npcScreenX),
+		sizeF:      npcSize,
+		depthPerp:  treeDepth,
+	}
+
+	sprites := r.splitCrossedTreesForPainterOrder(
+		[]UnifiedSpriteRenderData{tree, npc}, 0, 1,
+	)
+	if len(sprites) != 5 {
+		t.Fatalf("adjacent standee produced %d painter entries, want four dune arms + standee", len(sprites))
+	}
+	slices.SortStableFunc(sprites, compareUnifiedSprites)
+
+	npcIndex := -1
+	armsBefore, armsAfter := 0, 0
+	for i, s := range sprites {
+		if s.spriteType == SpriteTypeNPC {
+			npcIndex = i
+			continue
+		}
+		if !s.treeArmOnly {
+			t.Fatal("overlapping crossed dune remained a whole-tree painter entry")
+		}
+		if math.Abs(s.treeCenterDepth-treeDepth) > 1e-9 {
+			t.Fatalf("arm projection depth = %.2f, want shared dune-center depth %.2f", s.treeCenterDepth, treeDepth)
+		}
+	}
+	if npcIndex < 0 {
+		t.Fatal("adjacent standee disappeared from painter entries")
+	}
+	for i, s := range sprites {
+		if !s.treeArmOnly {
+			continue
+		}
+		if i < npcIndex {
+			armsBefore++
+		} else {
+			armsAfter++
+		}
+	}
+	if armsBefore == 0 || armsAfter == 0 {
+		t.Fatalf("standee was not interleaved through dune arms: before=%d after=%d", armsBefore, armsAfter)
+	}
+
+	// The split is UNCONDITIONAL: a depth-separated standee still leaves the
+	// cross as four arms, because cross-vs-cross occlusion is decided by the
+	// same global painter order and cannot depend on an overlap scan.
+	farNPC := npc
+	farNPC.depthPerp += 4 * tileSize
+	always := r.splitCrossedTreesForPainterOrder(
+		[]UnifiedSpriteRenderData{tree, farNPC}, 0, 1,
+	)
+	if len(always) != 5 {
+		t.Fatalf("cross produced %d painter entries, want four arms + standee", len(always))
+	}
+	for _, s := range always {
+		if s.spriteType == SpriteTypeTree && !s.treeArmOnly {
+			t.Fatal("cross remained a whole-entry despite the unconditional split")
+		}
+	}
+}
+
+func TestStandeeMipBlendIsContinuousAcrossLevels(t *testing.T) {
+	tests := []struct {
+		name      string
+		footprint float32
+		wantLevel int
+		wantBlend float32
+	}{
+		{name: "magnified", footprint: 0.5, wantLevel: 0, wantBlend: 0},
+		{name: "one to one", footprint: 1, wantLevel: 0, wantBlend: 0},
+		{name: "pure lower mip", footprint: float32(math.Pow(2, 0.25)), wantLevel: 0, wantBlend: 0},
+		{name: "halfway to level one", footprint: float32(math.Sqrt2), wantLevel: 0, wantBlend: 0.5},
+		{name: "pure upper mip", footprint: float32(math.Pow(2, 0.75)), wantLevel: 1, wantBlend: 0},
+		{name: "level one", footprint: 2, wantLevel: 1, wantBlend: 0},
+		{name: "halfway to level two", footprint: float32(2 * math.Sqrt2), wantLevel: 1, wantBlend: 0.5},
+		{name: "clamped", footprint: 256, wantLevel: maxMipLevel, wantBlend: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			level, blend := mipLevelBlend(tt.footprint, maxMipLevel)
+			if level != tt.wantLevel || math.Abs(float64(blend-tt.wantBlend)) > 1e-5 {
+				t.Fatalf("mipLevelBlend(%g) = (%d, %.4f), want (%d, %.4f)", tt.footprint, level, blend, tt.wantLevel, tt.wantBlend)
+			}
+		})
+	}
+}
+
+func TestStandeeMipSizesMatchEngineDepthCap(t *testing.T) {
+	got := mipSizesUniform(128, 64)
+	want := []image.Point{
+		image.Pt(128, 64), image.Pt(64, 32), image.Pt(32, 16),
+		image.Pt(16, 8), image.Pt(8, 4), image.Pt(4, 2), image.Pt(2, 1),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mipSizesUniform(128, 64) = %v, want %v", got, want)
+	}
+}
+
+func TestDownsampleStandeeMipAveragesPremultipliedPixels(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	src.Pix = []byte{
+		0, 20, 40, 60, 40, 60, 80, 100,
+		80, 100, 120, 140, 120, 140, 160, 180,
+	}
+	got := downsampleMip(src, image.Pt(1, 1))
+	if got == nil {
+		t.Fatal("downsampleMip returned nil")
+	}
+	want := []byte{60, 80, 100, 120}
+	if !reflect.DeepEqual(got.Pix, want) {
+		t.Fatalf("downsampled pixel = %v, want %v", got.Pix, want)
+	}
+}
+
+func TestDownsampleStandeeMipCoversOddSourceEdge(t *testing.T) {
+	src := image.NewRGBA(image.Rect(4, 7, 7, 10))
+	for y := src.Rect.Min.Y; y < src.Rect.Max.Y; y++ {
+		for x := src.Rect.Min.X; x < src.Rect.Max.X; x++ {
+			off := src.PixOffset(x, y)
+			src.Pix[off] = byte((y-src.Rect.Min.Y)*3 + x - src.Rect.Min.X + 1)
+			src.Pix[off+3] = 255
+		}
+	}
+	got := downsampleMip(src, image.Pt(1, 1))
+	if got == nil {
+		t.Fatal("downsampleMip returned nil")
+	}
+	if got.Pix[0] != 5 || got.Pix[3] != 255 {
+		t.Fatalf("odd 3x3 average = %v, want [5 _ _ 255]", got.Pix)
+	}
+}
+
+func TestWallMountedDepthAllowanceOnlyCoversBackingWall(t *testing.T) {
+	allowance := wallMountedDepthAllowanceWorld(64, 0.02)
+	if got, want := allowance, 2.64; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("wall-mounted allowance = %.2f, want %.2f", got, want)
+	}
+	if standeeColumnOccluded(100, 100, allowance) {
+		t.Fatal("the backing wall must not occlude its own mounted standee")
+	}
+	if !standeeColumnOccluded(100, 95, allowance) {
+		t.Fatal("a foreground wall 5px closer must occlude the mounted standee")
+	}
+}
+
+func TestWallMountedBackingWallMatchIsPlaneSpecific(t *testing.T) {
+	// A north-south backing wall at X=100: its standee runs along Y, so the
+	// wall-stick yaw is pi/2. The centre ray sees that plane at depth 100.
+	occlusion := standeeWallOcclusion{
+		backingX:       100,
+		backingY:       0,
+		backingYaw:     math.Pi / 2,
+		hasBackingWall: true,
+	}
+	if !occlusion.matchesBackingWall(0, 0, 1, 0, 100) {
+		t.Fatal("the exact backing wall plane must be recognized")
+	}
+	if occlusion.matchesBackingWall(0, 0, 1, 0, 95) {
+		t.Fatal("a different foreground wall plane must not inherit backing-wall immunity")
 	}
 }
 
@@ -82,5 +341,43 @@ func TestApproachAngle(t *testing.T) {
 	// And it must move in the negative direction when that's shorter.
 	if got := approachAngle(-3.0, 3.0, 0.1); math.Abs(got-(-3.1)) > 1e-9 {
 		t.Errorf("negative arc: got %.4f want -3.1", got)
+	}
+}
+
+// Pressed up against a cross, its center (and at some angles a corner) is
+// BEHIND the camera plane while the arms are still on screen. The arms must
+// survive that as clamped spans - a failed projection here used to abort the
+// split and drop the draw to the two-whole-slabs fallback, which paints the
+// back arm over the front one.
+func TestCrossedArmsSurvivePointBlankCamera(t *testing.T) {
+	cfg := loadTestConfig(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.renderHelper = NewRenderingHelper(game)
+	r := &Renderer{game: game}
+	ts := float64(cfg.GetTileSize())
+
+	treeX, treeY := 10.5*ts, 10.5*ts
+	footprint := 2.0 * ts // the standard tree: its footprint extends a full tile from center
+
+	// Camera 0.6 tiles from the center (the collision minimum), INSIDE the
+	// footprint, swept through a full turn: every pose must yield usable arms.
+	game.camera.X, game.camera.Y = treeX, treeY+0.6*ts
+	for deg := 0; deg < 360; deg += 15 {
+		game.camera.Angle = float64(deg) * math.Pi / 180
+		arms, ok := r.crossedStandeeArms(treeX, treeY, math.Pi/4, 3*math.Pi/4, footprint)
+		if !ok {
+			t.Fatalf("angle %d: point-blank arms degenerated to the whole-slab fallback", deg)
+		}
+		visible := 0
+		for _, arm := range arms {
+			if arm.lo <= arm.hi {
+				visible++
+			}
+		}
+		if visible == 0 {
+			t.Fatalf("angle %d: no visible arm spans while standing beside the cross", deg)
+		}
 	}
 }

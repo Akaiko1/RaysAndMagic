@@ -18,13 +18,13 @@ import (
 // QuickTrap that Space arms in the world.
 
 // drawTrapBookContent mirrors the spellbook layout on the trap_recipe book art.
-func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 
-	bl := computeBookLayout(panelX, contentY, contentHeight)
+	bl := computeBookLayout(content)
 
+	drawCenteredDebugText(screen, fmt.Sprintf("%s - Trap Book", currentChar.Name), bl.header.x, bl.header.y, bl.header.w, bl.header.h)
 	drawImageScaled(screen, ui.game.sprites.GetSprite("trap_recipe_book_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
-	drawCenteredDebugText(screen, fmt.Sprintf("%s's Trap Book", currentChar.Name), bl.srcX(92), bl.srcY(72), bl.srcW(350), 20)
 
 	keys := availableTraps(currentChar)
 	if len(keys) == 0 {
@@ -41,16 +41,20 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	if ui.game.selectedTrap >= len(keys) || ui.game.selectedTrap < 0 {
 		ui.game.selectedTrap = 0
 	}
+	perSpread := bl.cardsPerSpread()
+	totalPages := pageCount(len(keys), perSpread)
+	ui.spellPage = ui.game.selectedTrap / perSpread
+	clampPage(&ui.spellPage, totalPages)
 
-	for i, key := range keys {
-		if i >= 2*bl.cardsPerPage {
-			break
-		}
+	pageStart := ui.spellPage * perSpread
+	pageEnd := min(len(keys), pageStart+perSpread)
+	for i := pageStart; i < pageEnd; i++ {
+		key := keys[i]
 		def, ok := config.GetTrapDefinition(key)
 		if !ok {
 			continue
 		}
-		cardX, cardY := bl.cardPos(i)
+		cardX, cardY := bl.cardPos(i - pageStart)
 		if cardY+bl.cardH > bl.gridMaxY {
 			continue
 		}
@@ -58,17 +62,24 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 		// Spell-like mouse controls: click selects, double-click ARMS the
 		// clicked trap in the world (spells cast on double-click; Enter/F
 		// equip the quick slot). TB consumes an action like a book-cast spell.
-		if ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
+		if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
 			now := ui.game.mouseLeftClickAt
-			if ui.game.lastClickedSpell == i && withinDoubleClickWindow(now, ui.game.lastSpellClickTime) {
-				if _, placed := ui.game.combat.placeTrapByKey(currentChar, key, true); placed {
-					ui.game.consumeSelectedCharAction()
+			if ui.lastClickedTrap == i && withinDoubleClickWindow(now, ui.lastTrapClickTime) {
+				canArm := ui.game.canSpendCombatAction(ui.game.selectedChar)
+				if canArm {
+					placed := ui.game.dispatchCharacterHubWorldAction(func() bool {
+						_, ok := ui.game.combat.placeTrapByKey(currentChar, key, true)
+						return ok
+					})
+					if placed {
+						ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.TrapCooldownFrames(currentChar, key))
+					}
 				}
-				ui.game.lastSpellClickTime = 0
-				ui.game.lastClickedSpell = -1
+				ui.lastTrapClickTime = 0
+				ui.lastClickedTrap = -1
 			} else {
-				ui.game.lastSpellClickTime = now
-				ui.game.lastClickedSpell = i
+				ui.lastTrapClickTime = now
+				ui.lastClickedTrap = i
 			}
 			ui.game.selectedTrap = i
 		}
@@ -85,11 +96,11 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	if tooltip != "" {
 		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bl.bookX+20, contentY+contentHeight-28, bl.bookW-40, 20)
-
-	// Quick-slot bar below the book, same as the spellbook (drag traps here).
-	qbW := 360
-	ui.drawTabQuickSlotBar(screen, bl.bookX+(bl.bookW-qbW)/2, bl.bookY+bl.bookH+16, qbW)
+	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
+		ui.game.selectedTrap = ui.spellPage * perSpread
+	}
+	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 // drawTrapCard renders one trap entry: icon, name, SP/level row. The browse

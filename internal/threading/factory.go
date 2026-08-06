@@ -38,22 +38,6 @@ func (tc *ThreadingComponents) Shutdown() {
 	}
 }
 
-// GetPerformanceMetrics returns current performance metrics
-func (tc *ThreadingComponents) GetPerformanceMetrics() interface{} {
-	if tc.PerformanceMonitor != nil {
-		return tc.PerformanceMonitor.GetCurrentMetrics()
-	}
-	return nil
-}
-
-// GetDetailedPerformanceStats returns detailed performance statistics
-func (tc *ThreadingComponents) GetDetailedPerformanceStats() map[string]interface{} {
-	if tc.PerformanceMonitor != nil {
-		return tc.PerformanceMonitor.GetDetailedStats()
-	}
-	return nil
-}
-
 // CheckPerformanceAlerts returns any performance warnings
 func (tc *ThreadingComponents) CheckPerformanceAlerts() interface{} {
 	if tc.PerformanceMonitor != nil {

@@ -179,6 +179,13 @@ func validateChampionConfig(cfg *ChampionSystemConfig) error {
 		if len(c.Skills) == 0 {
 			return fmt.Errorf("champion %q: no skills", key)
 		}
+		for i, rawSchool := range c.SpellSchools {
+			school, err := canonicalMagicSchool(rawSchool)
+			if err != nil {
+				return fmt.Errorf("champion %q: unsupported spell_schools[%d] %q", key, i, rawSchool)
+			}
+			c.SpellSchools[i] = school
+		}
 		for tierName := range cfg.Tiers {
 			equipment := c.Equipment[tierName]
 			if len(equipment) == 0 {

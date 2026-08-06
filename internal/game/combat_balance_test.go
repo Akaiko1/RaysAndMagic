@@ -1,4 +1,14 @@
+// Since Go 1.24 the top-level math/rand Seed is a NO-OP by default, which
+// silently made these sims non-reproducible (verified on this toolchain: two
+// seeded sequences differed). The combat code rolls through the PACKAGE-LEVEL
+// rand functions, so a local *rand.Rand cannot reach them - this directive
+// restores functional seeding for the whole test binary instead, and the
+// rand.Seed calls below really do pin the sequence again.
+//go:debug randseednop=0
+
 package game
+
+//lint:file-ignore SA1019 rand.Seed is deliberate here - see the go:debug note above
 
 // Diagnostic combat-balance simulator. Builds a reference L5 party (Knight,
 // Sorcerer, Cleric, Archer) with hand-tuned stats and equipment, then runs N
@@ -22,6 +32,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -196,7 +207,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 				// No one to heal - fall through to weapon.
 			} else {
 				_, _, dmg := cs.CalculateSpellDamage(spellID, char)
-				target.TakeDamage(dmg, spellSchoolToDamageType(def.School))
+				target.TakeDamageParts(damagecalc.Parts{Normal: dmg}, spellSchoolToDamageType(def.School), 0)
 				char.SpellPoints -= def.SpellPointsCost
 				return
 			}
@@ -210,7 +221,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	isRanged := weaponDef != nil && weaponDef.Category == "bow"
 	dmg = applyMonsterArmor(dmg, "physical", target.ArmorClass, isRanged)
-	target.TakeDamage(dmg, monsterPkg.DamagePhysical)
+	target.TakeDamageParts(damagecalc.Parts{Normal: dmg}, monsterPkg.DamagePhysical, 0)
 }
 
 func trySimMonsterAllyHeal(m *monsterPkg.Monster3D, monsters []*monsterPkg.Monster3D, cfg *config.Config) bool {
@@ -305,7 +316,12 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			breathType := normalizeDamageTypeStr(m.DragonBreathDamageType)
 			breathDmg := m.GetAttackDamage()
 			for _, c := range alive {
-				d := cs.mitigateCharacterDamage(breathDmg, breathType, c, m.IgnoresArmor) + m.TrueDamage
+				d := cs.mitigateCharacterDamageParts(
+					damagecalc.Parts{Normal: breathDmg, True: m.TrueDamage},
+					breathType,
+					c,
+					m.IgnoresArmor,
+				).Total()
 				c.HitPoints -= d
 				if c.HitPoints < 0 {
 					c.HitPoints = 0
@@ -318,20 +334,26 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
+		// Melee lands in the mob's AUTHORED school (melee_damage_type),
+		// matching production - physical is only the unauthored default.
+		school := monsterMeleeSchool(m)
+		ignoreArmor := m.IgnoresArmor
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
 			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
 			// uses ranged whenever HasRangedAttack, even point-blank - it never
 			// melees). Mitigate it by the breath's element so the target's armor
 			// (elemental cap), resists, and buffs actually apply.
-			school := "physical"
 			if d, ok := config.GetSpellDefinition(m.ProjectileSpell); ok && d != nil && d.School != "" {
 				school = d.School
 			}
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), school, target, false)
-		} else {
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, m.IgnoresArmor)
+			ignoreArmor = false
 		}
-		dmg += m.TrueDamage // bypasses all mitigation, folded into the hit
+		dmg = cs.mitigateCharacterDamageParts(
+			damagecalc.Parts{Normal: m.GetAttackDamage(), True: m.TrueDamage},
+			school,
+			target,
+			ignoreArmor,
+		).Total()
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
 			dmg += m.FireburstDamageMin + rand.Intn(m.FireburstDamageMax-m.FireburstDamageMin+1)
@@ -1203,6 +1225,18 @@ func traceLoadout(party []*character.MMCharacter) {
 	}
 }
 
+// TestBalanceSimUsesLiveXPCurve pins the simulator's level-up loop to the
+// SHIPPING curve past the L13 quadratic crossover - a drifted sim silently
+// over-levels every endgame balance scenario.
+func TestBalanceSimUsesLiveXPCurve(t *testing.T) {
+	cfg := loadTestConfig(t)
+	c := character.CreateCharacter("SimPin", character.ClassKnight, cfg)
+	applyXPAndLevelUp(c, cfg, xpSpentToReach(20)+50, statSpeedFloorThenPrimary)
+	if c.Level != 20 || c.Experience != 50 {
+		t.Fatalf("sim curve drifted from live xpStepCost: got L%d rem %d, want L20 rem 50", c.Level, c.Experience)
+	}
+}
+
 // applyXPAndLevelUp grants experience to a character and applies as
 // many level-ups as the total XP allows. Each level: spend
 // StatPointsPerLevel points via the given strategy, apply L3
@@ -1210,7 +1244,7 @@ func traceLoadout(party []*character.MMCharacter) {
 func applyXPAndLevelUp(c *character.MMCharacter, cfg *config.Config, xpGained int, strategy statStrategy) {
 	c.Experience += xpGained
 	for {
-		required := c.Level * XPRequiredPerLevel
+		required := xpStepCost(c.Level) // the LIVE curve (quadratic from L13), not the old linear cost
 		if c.Experience < required {
 			break
 		}
@@ -2195,6 +2229,7 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 	// is purely that set).
 	newTank := func(pieces map[items.EquipSlot]string) *character.MMCharacter {
 		c := character.CreateCharacter("Tank", character.ClassKnight, cs.game.config)
+		delete(c.Skills, character.SkillImpenetrableDefense) // this matrix isolates armor tiers
 		c.Level = 6
 		c.Endurance = 20
 		for _, s := range armorSlots {

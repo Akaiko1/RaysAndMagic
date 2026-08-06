@@ -6,21 +6,15 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
-// Boss behaviour for the Golden Thief Bug (data-driven via monsters.yaml flags:
-// PassiveUntilQuest / InfernoChance / TeleportAtHP / TeleportChance). Kept generic
-// so any monster carrying those flags gets the same kit; only the sequencing lives
-// here, shared by the real-time and turn-based monster loops.
-
-// isBoss reports whether a monster carries any special boss behaviour flag.
-func (cs *CombatSystem) isBoss(m *monsterPkg.Monster3D) bool {
-	return m != nil && (m.PassiveUntilQuest != "" || m.InfernoChance > 0 ||
-		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0 || m.WardedByIdols)
-}
+// Boss behaviour is explicitly authored with boss: true in monsters.yaml.
+// Mechanics such as blink, Inferno, summoning, and enrage remain optional;
+// this file owns only their shared RT/TB sequencing.
 
 // bossDisabled reports whether crowd control should suppress a boss action:
 // stun (either mode), charm, or bind. The RT/TB monster loops already skip
@@ -34,7 +28,7 @@ func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
 // never attacks or chases - it only blinks away when the party closes in.
 func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
-	if m == nil || m.PassiveUntilQuest == "" {
+	if m == nil || !m.IsBoss() || m.PassiveUntilQuest == "" {
 		return false
 	}
 	if cs.game.questManager == nil {
@@ -44,13 +38,63 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 	return q == nil || q.Status != quests.QuestStatusCompleted
 }
 
+// runBossSpecials is the ONE boss rider for every combat path: RT and TB, party
+// fight and summon fight alike. Owns the special cadences (BossCD, the at-range
+// nova cooldown), the trap field and updateBoss; true = a special consumed the
+// action. Bosses previously lost the WHOLE kit whenever a summon out-competed
+// the party for aggro.
+func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, turnBased bool) bool {
+	if m == nil || !m.IsBoss() {
+		return false
+	}
+	ready := m.BossCD == 0
+	if m.BossCD > 0 {
+		m.BossCD--
+	}
+	// TB gets one at-range nova roll per monster pass; RT rolls when the
+	// per-monster cooldown elapses.
+	infernoRollDue := true
+	if !turnBased {
+		if m.InfernoCDFrames > 0 {
+			m.InfernoCDFrames--
+		}
+		infernoRollDue = m.InfernoCDFrames == 0
+	}
+	cs.tryBossTrapVolley(m, turnBased)
+	return cs.updateBoss(m, ready, attackTick, infernoRollDue)
+}
+
+// bossActionTick is the boss's RT once-per-attack moment against whatever it
+// fights: contact with the party, or the reach tick on a summon it was lured
+// onto. TB passes the tick directly (one turn is one action).
+func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
+	if m == nil || m.AttackCDFrames != 0 {
+		return false
+	}
+	if foe := m.AIFoe; foe != nil && foe.IsAlive() {
+		return cs.monsterCanAttackMonster(m, foe)
+	}
+	// Same reach gate as the normal attack: an adjacent melee boss is in contact
+	// at >1 tile of pixel distance.
+	dist := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y)
+	return m.State == monsterPkg.StateAttacking && m.StateTimer == 1 &&
+		cs.monsterCanAttackParty(m, dist, m.GetAttackRangePixels())
+}
+
 // updateBoss runs the boss's special behaviour. `ready` gates the evasive blink to
-// the boss's own cadence (RT: BossCD; TB: every turn). `attackTick` marks the
+// the boss's own special cooldown (RT: BossCD; TB: every turn). `attackTick` marks the
 // once-per-attack moment when an aggressive boss may blink (low HP) or cast
 // Inferno. Returns true when it handled the monster's action this tick (caller
 // skips the normal attack); false lets the normal melee/ranged attack proceed
 // (which honours IgnoresArmor).
-func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bool) bool {
+// infernoRollDue tells updateBoss that an AT-RANGE nova roll is allowed this
+// tick: RT passes it when the per-monster inferno cooldown elapsed, TB once per
+// monster pass. The nova's own authored radius still gates it either way, and a
+// melee-moment roll (attackTick) needs neither.
+func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, infernoRollDue bool) bool {
+	if m == nil || !m.IsBoss() {
+		return false
+	}
 	// Latch any HP loss since last tick so the evasive blink can fire when hit.
 	if m.BossLastHP > 0 && m.HitPoints < m.BossLastHP {
 		m.BossHurtPending = true
@@ -100,10 +144,11 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 		}
 	}
 
-	// The remaining specials (low-HP blink, Inferno) still fire only at the melee
-	// attack moment.
+	// The low-HP blink still fires only at the melee attack moment. Inferno is a
+	// RANGED nova (inferno_range_tiles) and may also roll from a distance, so it
+	// is handled after this gate.
 	if !attackTick {
-		return false
+		return cs.tryBossRangedInferno(m, infernoRollDue)
 	}
 	if m.TeleportAtHP > 0 && m.HitPoints <= m.TeleportAtHP && rand.Float64() < m.TeleportChance {
 		if cs.blinkMonsterRandom(m) {
@@ -111,11 +156,53 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 			return true
 		}
 	}
-	if m.InfernoChance > 0 && rand.Float64() < m.InfernoChance {
+	// Melee moment: the nova can replace the normal hit, as long as the party is
+	// inside its authored reach (always true at melee range for a sane radius).
+	if m.InfernoChance > 0 && cs.bossInfernoInRange(m) && rand.Float64() < m.InfernoChance {
 		cs.applyMonsterInferno(m)
+		m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
 		return true
 	}
 	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
+}
+
+// bossInfernoInRange reports whether the party is inside the nova's authored
+// radius. A boss with inferno_chance but no radius cannot reach the party at all
+// (load validation rejects that combination, so this is a belt-and-suspenders
+// guard against hand-built test monsters).
+func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
+	if m.InfernoRangeTiles <= 0 {
+		return false
+	}
+	reach := m.InfernoRangeTiles * float64(cs.game.config.GetTileSize())
+	return Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= reach
+}
+
+// bossInfernoRollCooldownFrames is the gap between AT-RANGE nova rolls. It is a
+// timing policy (not per-boss content), and it is armed after every cast so a
+// melee nova cannot be followed instantly by a ranged one.
+func (cs *CombatSystem) bossInfernoRollCooldownFrames() int {
+	return BossInfernoRangedRollSeconds * cs.game.config.GetTPS()
+}
+
+// tryBossRangedInferno rolls the nova from OUTSIDE melee reach: the party must be
+// within inferno_range_tiles and the caller's cooldown must have elapsed. Returns true
+// when the nova fired and consumed the boss's action this tick.
+func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bool) bool {
+	if m.InfernoChance <= 0 || cs.bossDisabled(m) {
+		return false
+	}
+	if !rollDue || m.InfernoCDFrames > 0 || !cs.bossInfernoInRange(m) {
+		return false
+	}
+	// The cooldown is armed by the ATTEMPT, not only by a hit, so a failed roll
+	// cannot be retried every frame.
+	m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
+	if rand.Float64() >= m.InfernoChance {
+		return false
+	}
+	cs.applyMonsterInferno(m)
+	return true
 }
 
 // summonBossAdds rallies the boss's adds (war-banner): up to SummonCount monsters
@@ -155,12 +242,12 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		if add == nil {
 			continue
 		}
-		add.IsEngagingPlayer = true // summons wake hostile
 		add.WasAttacked = true
+		add.BeginPlayerEngagement() // summons wake hostile
 		add.SummonedBy = m.ID
 		add.QuestProgressIgnored = true // runtime summons never count toward map-clear quests
 		cs.game.registerSpawnedMonster(add)
-		cs.game.refreshMonsterCollisionSolidity(add)
+		cs.game.refreshMonsterCollisionState(add)
 		spawned++
 	}
 	if spawned == 0 {
@@ -176,8 +263,8 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 		return 0, 0, false
 	}
 	tile := float64(cs.game.config.GetTileSize())
-	targetTX := int(targetX / tile)
-	targetTY := int(targetY / tile)
+	targetTX := TileIndex(targetX, tile)
+	targetTY := TileIndex(targetY, tile)
 
 	for radius := 0; radius < maxRadius; radius++ {
 		for dx := -radius; dx <= radius; dx++ {
@@ -213,7 +300,7 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 
 func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 	tile := float64(cs.game.config.GetTileSize())
-	tx, ty := int(x/tile), int(y/tile)
+	tx, ty := TileIndex(x, tile), TileIndex(y, tile)
 	ptx, pty := cs.game.GetPlayerTilePosition()
 	if tx == ptx && ty == pty {
 		return true
@@ -226,7 +313,7 @@ func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 		if o == nil || !o.IsAlive() {
 			continue
 		}
-		if int(o.X/tile) == tx && int(o.Y/tile) == ty {
+		if TileIndex(o.X, tile) == tx && TileIndex(o.Y, tile) == ty {
 			return true
 		}
 	}
@@ -235,31 +322,30 @@ func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
 
 // countLiveSummons counts living monsters this boss has summoned (for SummonMax).
 func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
-	w := cs.game.GetCurrentWorld()
-	if w == nil {
+	if m == nil {
 		return 0
 	}
-	n := 0
-	for _, o := range w.Monsters {
-		if o != nil && o.IsAlive() && o.SummonedBy == m.ID {
-			n++
-		}
-	}
-	return n
+	return cs.countLiveSummonsByOwner(m.ID)
 }
 
 // tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based
-// mode, mirroring the RT cadence. Without it the hurt-blink waits for the
+// mode, mirroring the RT BossCD cooldown. Without it the hurt-blink waits for the
 // monster turn, so a full party round of focused hits could kill the boss
 // before it ever dodged. Aggressive-phase specials still fire only on the
 // boss's own TB turn.
+//
+// DELIBERATELY the one direct updateBoss caller - do NOT route it through
+// runBossSpecials: this loop owns the per-frame BossCD tick, so the rider's own
+// tick would consume the blink cooldown twice per frame and halve its cadence.
+// The rider's other work is dead weight here anyway (an evasive boss sows no
+// traps and updateBoss returns before reading attackTick/infernoRollDue).
 func (cs *CombatSystem) tickEvasiveBossesTB() {
 	w := cs.game.GetCurrentWorld()
 	if w == nil {
 		return
 	}
 	for _, m := range w.Monsters {
-		if m == nil || !m.IsAlive() || !cs.isBoss(m) || !cs.bossEvasive(m) {
+		if m == nil || !m.IsAlive() || !m.IsBoss() || !cs.bossEvasive(m) {
 			continue
 		}
 		// Crowd control suppresses the blink like any other action.
@@ -270,7 +356,7 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 		if m.BossCD > 0 {
 			m.BossCD--
 		}
-		cs.updateBoss(m, ready, false)
+		cs.updateBoss(m, ready, false, false)
 	}
 }
 
@@ -287,7 +373,11 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		tx := rand.Intn(w.Width)
 		ty := rand.Intn(w.Height)
 		cx, cy := TileCenterFromTile(tx, ty, tile)
+		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
+			continue
+		}
 		if cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+			cs.game.releaseMonsterAttackPost(m)
 			m.X, m.Y = cx, cy
 			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
 			m.ResetPathfinding() // drop stale waypoints from the old position
@@ -301,8 +391,15 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
+	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := cs.damagePartyMemberElement(idx, member, m.InfernoDamage, "fire")
+		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
+		dealt := cs.damagePartyMemberParts(
+			idx,
+			member,
+			parts,
+			monsterPkg.DamageFire.String(),
+		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx)

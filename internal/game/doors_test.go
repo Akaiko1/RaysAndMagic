@@ -14,7 +14,7 @@ import (
 func newDoorTestGame(t *testing.T) *MMGame {
 	t.Helper()
 	cfg := loadTestConfig(t)
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
@@ -28,7 +28,10 @@ func newDoorTestGame(t *testing.T) *MMGame {
 }
 
 func doorNPC(x, y float64) *character.NPC {
-	return &character.NPC{X: x, Y: y, Name: "Gate", Sprite: "arena_gate", RenderCategory: "door"}
+	return &character.NPC{
+		X: x, Y: y, Name: "Gate", Sprite: "arena_gate", RenderCategory: "door",
+		Type: character.NPCTypeDoor, DoorBehavior: character.NPCDoorBehaviorChampionPortcullis,
+	}
 }
 
 // TestDoorPoseOrientation: the slab must span the doorway - N+S flanking walls
@@ -91,6 +94,9 @@ func TestDoorReconciler(t *testing.T) {
 	if g.collisionSystem.CanMoveTo("player", 5.5*ts, 5.5*ts) {
 		t.Fatal("closed door does not block the player")
 	}
+	if g.collisionSystem.CheckLineOfSight(4.5*ts, 5.5*ts, 6.5*ts, 5.5*ts) {
+		t.Fatal("closed door does not block line of sight")
+	}
 
 	champ.HitPoints = 0
 	g.refreshDoors()
@@ -99,6 +105,9 @@ func TestDoorReconciler(t *testing.T) {
 	}
 	if !g.npcDoorOpen(door) {
 		t.Fatal("open door not reported open")
+	}
+	if !g.collisionSystem.CheckLineOfSight(4.5*ts, 5.5*ts, 6.5*ts, 5.5*ts) {
+		t.Fatal("open door still blocks line of sight")
 	}
 	found := false
 	for _, m := range g.combatLogHistory {

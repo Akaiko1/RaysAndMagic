@@ -50,17 +50,6 @@ func (e *Entry) TotalKills() int {
 	return total
 }
 
-// KillsByTier folds the per-champion table into tier -> victories.
-func (e *Entry) KillsByTier() map[string]int {
-	out := map[string]int{}
-	for _, tiers := range e.Kills {
-		for tier, n := range tiers {
-			out[tier] += n
-		}
-	}
-	return out
-}
-
 // Board is the whole leaderboard, sorted by TotalPoints descending.
 type Board struct {
 	Entries []Entry `json:"entries"`

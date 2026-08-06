@@ -50,6 +50,27 @@ const (
 	cardSkill
 )
 
+// groupCardsBySection collapses each section into ONE contiguous run, keeping
+// both the sections' and the cards' first-appearance order. The page draws a
+// header whenever the section changes, so a section that reappears later in the
+// source order (a skill appended late in the save-pinned SkillType enum lands
+// after the Misc block) would otherwise print its header twice.
+func groupCardsBySection(cards []contentCard) []contentCard {
+	order := make([]string, 0, len(cards))
+	bySection := make(map[string][]contentCard, len(cards))
+	for _, card := range cards {
+		if _, seen := bySection[card.section]; !seen {
+			order = append(order, card.section)
+		}
+		bySection[card.section] = append(bySection[card.section], card)
+	}
+	out := make([]contentCard, 0, len(cards))
+	for _, section := range order {
+		out = append(out, bySection[section]...)
+	}
+	return out
+}
+
 // buildItemsCards assembles the Items page: weapons (by category) followed by
 // items (armor/accessory/consumable/quest). Runs once at startup.
 func buildItemsCards() []contentCard {
@@ -176,8 +197,8 @@ func buildSpellCards() []contentCard {
 		}
 		sort.SliceStable(keys, func(i, j int) bool {
 			a, b := config.GlobalSpells.Spells[keys[i]], config.GlobalSpells.Spells[keys[j]]
-			if a.Level != b.Level {
-				return a.Level < b.Level
+			if a.SpellPointsCost != b.SpellPointsCost {
+				return a.SpellPointsCost < b.SpellPointsCost
 			}
 			return a.Name < b.Name
 		})
@@ -386,7 +407,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	// Intellect / mastery / crit), so the player-formula card would lie - render
 	// the dedicated monster card instead.
 	if def.MonsterOnly {
-		subtitle := fmt.Sprintf("MONSTER ONLY  %s  Lvl %d", titleCase(def.School), def.Level)
+		subtitle := fmt.Sprintf("MONSTER ONLY  %s", titleCase(def.School))
 		if def.AoeRadiusTiles > 0 {
 			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
 		}
@@ -415,7 +436,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		baseDamage, _, _ = spells.CalculateSpellDamageByID(spells.SpellID(key), 0)
 	}
 
-	subtitle := fmt.Sprintf("SP %d  Lvl %d", def.SpellPointsCost, def.Level)
+	subtitle := fmt.Sprintf("SP %d", def.SpellPointsCost)
 	switch {
 	case baseDamage > 0:
 		subtitle += fmt.Sprintf("  Dmg %d", baseDamage)
@@ -498,15 +519,17 @@ func buildSkillCards() []contentCard {
 			description: st.Description(),
 		})
 	}
-	// Magic mastery + primary stats come from the same catalog texts the
-	// in-game tooltips quote (character.MagicMasteryDescription/StatDescription).
-	cards = append(cards, contentCard{
-		kind:        cardSkill,
-		section:     "Magic",
-		key:         "magic_mastery",
-		name:        "Magic Mastery",
-		description: character.MagicMasteryDescription(),
-	})
+	// Each school gets its own mastery policy. A generic card used to mix
+	// elemental and self-magic rules into one misleading description.
+	for _, school := range character.AllMagicSchools {
+		cards = append(cards, contentCard{
+			kind:        cardSkill,
+			section:     "Magic",
+			key:         school.String() + "_magic",
+			name:        school.DisplayName() + " Magic",
+			description: character.MagicMasteryDescription(school),
+		})
+	}
 	for _, statName := range stats.Names {
 		cards = append(cards, contentCard{
 			kind:        cardSkill,
@@ -527,19 +550,7 @@ func appendRow(rows []string, label, value string) []string {
 	return append(rows, label+": "+value)
 }
 
-func titleCase(s string) string {
-	if s == "" {
-		return ""
-	}
-	words := strings.Fields(s)
-	for i, w := range words {
-		if len(w) == 0 {
-			continue
-		}
-		words[i] = strings.ToUpper(w[:1]) + w[1:]
-	}
-	return strings.Join(words, " ")
-}
+func titleCase(s string) string { return config.TitleWords(s) }
 
 // tileSpriteThumbnail loads a tile's sprite image (for legend previews),
 // searching the same sprite dirs the game does. Returns nil for tiles with no

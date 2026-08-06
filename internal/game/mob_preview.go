@@ -81,6 +81,12 @@ func (p *MobPreview) Select(key string) {
 	stageX := g.camera.X + (1.1+0.35*def.GetSizeGameMultiplier())*ts
 	for i := 0; i < count; i++ {
 		m := monster.NewMonster3DFromConfig(stageX, 8.5*ts, key, g.config)
+		if m.IsChampion() {
+			// The editor reads this runtime instance immediately after Select.
+			// Mirror now so the first frame and stat sheet never expose the
+			// placeholder values in monsters.yaml.
+			g.mirrorChampionStats(m)
+		}
 		m.PassiveUntilAttacked = true
 		m.TetherRadius = 2 * ts
 		p.arena.Monsters = append(p.arena.Monsters, m)
@@ -89,8 +95,8 @@ func (p *MobPreview) Select(key string) {
 }
 
 // Step advances the sandbox one tick - the same monster sub-updates the RT
-// game loop runs: movement AI, overlap separation, band flocking, and the
-// frame-motion facing pass (without it walkers moonwalk on stale Direction).
+// game loop runs: movement AI, band flocking, and the frame-motion facing pass
+// (without it walkers moonwalk on stale Direction).
 func (p *MobPreview) Step() {
 	// Editor preview sandboxes share the global world manager; re-pin our stage
 	// in case another preview tab switched the current map.
@@ -101,7 +107,6 @@ func (p *MobPreview) Step() {
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.updateMonstersParallel()
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart) // walk-only window, matching the game loop
-	gl.separateOverlappingMonsters()
 	gl.updateMonsterBands()
 }
 

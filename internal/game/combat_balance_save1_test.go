@@ -6,6 +6,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -155,9 +156,16 @@ func avgIncomingPerHit(cs *CombatSystem, mobKey string, target *character.MMChar
 	mob := monsterPkg.NewMonster3DFromConfig(0, 0, mobKey, cs.game.config)
 	sum := 0
 	for i := 0; i < trials; i++ {
-		// Honour the attacker's armor-pierce (Orc Warlord's melee bypasses AC) and
-		// add its true damage (bypasses all mitigation).
-		sum += cs.mitigateCharacterDamage(mob.GetAttackDamage(), "physical", target, mob.IgnoresArmor) + mob.TrueDamage
+		// Honour the attacker's armor-pierce and keep typed true separate so
+		// school resistance applies to both while flat reduction touches normal.
+		// The school is the mob's AUTHORED melee school (melee_damage_type) -
+		// production melee stopped being uniformly physical.
+		sum += cs.mitigateCharacterDamageParts(
+			damagecalc.Parts{Normal: mob.GetAttackDamage(), True: mob.TrueDamage},
+			monsterMeleeSchool(mob),
+			target,
+			mob.IgnoresArmor,
+		).Total()
 	}
 	return sum / trials
 }
@@ -243,7 +251,16 @@ func TestCombatBalance_Save1PartyJungleAndCliffs(t *testing.T) {
 		row4 := func(label string, dmgType string, ignoreArmor bool, roll func() int) []int {
 			out := make([]int, 4)
 			for i, c := range party {
-				out[i] = avgMitigated(cs, c, dmgType, ignoreArmor, dn, roll) + ref.TrueDamage // true damage bypasses mitigation
+				total := 0
+				for n := 0; n < dn; n++ {
+					total += cs.mitigateCharacterDamageParts(
+						damagecalc.Parts{Normal: roll(), True: ref.TrueDamage},
+						dmgType,
+						c,
+						ignoreArmor,
+					).Total()
+				}
+				out[i] = total / dn
 			}
 			t.Logf("%-26s | %3d  %3d  %3d  %3d", label, out[0], out[1], out[2], out[3])
 			return out

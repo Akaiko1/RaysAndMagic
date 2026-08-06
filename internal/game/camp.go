@@ -35,9 +35,15 @@ func (g *MMGame) TryCamp() (string, bool) {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
+		// Bound covers every summon plus Bind Undead - real allies. NOT
+		// IsPartyControlled: that adds Charm, a countdown that breaks on any hit,
+		// so resting through it banks a full heal before the monster turns.
+		if m.Bound {
+			continue
+		}
 		// No resting mid-combat: a pursuer kited beyond the radius (or a
 		// ranged monster shooting from outside it) still blocks the camp.
-		if m.IsEngagingPlayer {
+		if m.TargetsParty() {
 			return "Enemies are upon you - you cannot rest mid-fight.", false
 		}
 		// Measure to the monster's box EDGE, not its center - a large monster

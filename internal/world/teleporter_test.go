@@ -8,7 +8,7 @@ import (
 )
 
 func TestRegisterTeleportersFromMapData_UsesProperties(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

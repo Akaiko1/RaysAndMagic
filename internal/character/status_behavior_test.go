@@ -4,7 +4,11 @@ package character
 // unconscious, dead, eradicated. Exercises the real apply/tick/cure entry
 // points end-to-end (condition flags AND clocks), one test per status family.
 
-import "testing"
+import (
+	"testing"
+
+	"ugataima/internal/config"
+)
 
 func statusTestChar() *MMCharacter {
 	return &MMCharacter{Name: "T", HitPoints: 50, MaxHitPoints: 50}
@@ -40,22 +44,36 @@ func TestCharPoisonLifecycle(t *testing.T) {
 	}
 }
 
+// TestCharPoisonTurnBased: a TB round consumes several seconds of duration, so
+// it must deal that many ticks - the total over the whole DoT matches RT.
 func TestCharPoisonTurnBased(t *testing.T) {
 	c := statusTestChar()
-	c.ApplyPoison(100)
-	c.TickPoisonTurn(60)
-	if c.HitPoints != 50-PoisonDamagePerTick {
-		t.Fatalf("TB poison must tick once per turn: HP=%d", c.HitPoints)
+	const tps = 60
+	const round = 3 * tps // one TB round = three seconds of DoT time
+
+	c.ApplyPoison(10 * tps)
+	c.TickPoisonTurn(round, tps)
+	if c.HitPoints != 50-3*PoisonDamagePerTick {
+		t.Fatalf("a 3s TB round must deal 3 poison ticks: HP=%d", c.HitPoints)
 	}
-	c.TickPoisonTurn(60) // 40 remaining -> expires this turn, still ticks
-	if c.HitPoints != 50-2*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
-		t.Fatalf("final TB turn must tick and clear: HP=%d poisoned=%v", c.HitPoints, c.HasCondition(ConditionPoisoned))
+	if c.PoisonFramesRemaining != 7*tps {
+		t.Fatalf("round consumed %d frames, want %d", 10*tps-c.PoisonFramesRemaining, round)
+	}
+	for c.PoisonFramesRemaining > 0 {
+		c.TickPoisonTurn(round, tps)
+	}
+	if c.HitPoints != 50-10*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
+		t.Fatalf("a 10s poison must deal 10 ticks in TB too and clear: HP=%d poisoned=%v",
+			c.HitPoints, c.HasCondition(ConditionPoisoned))
 	}
 }
 
 func TestCharBurnLifecycle(t *testing.T) {
 	c := statusTestChar()
-	const tps = 60 // ApplyBurn desyncs by GetTargetTPS()/2; keep clocks consistent
+	// ApplyBurn banks half a second of cadence off GetTargetTPS; the ticking
+	// clock must be that same one (as it is in the game) or the banked offset
+	// would be worth a whole second and buy an extra tick.
+	tps := config.GetTargetTPS()
 
 	c.ApplyBurn(2 * tps)
 	if !c.HasCondition(ConditionBurning) {
@@ -78,12 +96,41 @@ func TestCharBurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestCharBurnRefreshPreservesTickPhase(t *testing.T) {
+	c := statusTestChar()
+	tps := config.GetTargetTPS()
+
+	c.ApplyBurn(10 * tps)
+	advance := tps/2 - 10
+	for range advance {
+		c.updateBurn(tps)
+	}
+	if c.burnTickTimer != tps-10 {
+		t.Fatalf("setup burn phase = %d, want %d", c.burnTickTimer, tps-10)
+	}
+
+	c.ApplyBurn(20 * tps) // stronger refresh extends duration, not the next tick
+	if c.burnTickTimer != tps-10 {
+		t.Fatalf("burn refresh reset tick phase to %d, want %d", c.burnTickTimer, tps-10)
+	}
+	for range 10 {
+		c.updateBurn(tps)
+	}
+	if c.HitPoints != 50-BurnDamagePerTick {
+		t.Fatalf("refreshed burn delayed its due tick: HP=%d", c.HitPoints)
+	}
+}
+
 func TestCharBurnTurnBased(t *testing.T) {
 	c := statusTestChar()
-	c.ApplyBurn(60)
-	c.TickBurnTurn(60)
-	if c.HitPoints != 50-BurnDamagePerTick || c.HasCondition(ConditionBurning) {
-		t.Fatalf("TB burn must tick %d and clear on expiry: HP=%d", BurnDamagePerTick, c.HitPoints)
+	// ApplyBurn banks half a second of cadence (poison desync) measured in
+	// GetTargetTPS frames, so the test must tick on that same clock.
+	tps := config.GetTargetTPS()
+	c.ApplyBurn(3 * tps)
+	c.TickBurnTurn(3*tps, tps)
+	if c.HitPoints != 50-3*BurnDamagePerTick || c.HasCondition(ConditionBurning) {
+		t.Fatalf("a 3s TB round must deal 3 burn ticks (%d each) and clear on expiry: HP=%d",
+			BurnDamagePerTick, c.HitPoints)
 	}
 }
 
@@ -115,6 +162,25 @@ func TestCharStunDualClock(t *testing.T) {
 	c.ApplyCharStun(0, 0)
 	if c.IsStunned() || c.HasCondition(ConditionStunned) {
 		t.Fatal("empty apply must not stun")
+	}
+}
+
+func TestCharStunWeakRefreshPreservesModeExchangeRate(t *testing.T) {
+	c := statusTestChar()
+	c.ApplyCharStun(480, 4)
+	for range 119 {
+		c.tickStunFrames()
+	}
+	if c.StunFramesRemaining != 361 || c.StunTurnsRemaining != 4 || c.StunRate != 120 {
+		t.Fatalf("RT progress: frames=%d turns=%d rate=%d, want 361/4/120",
+			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+	}
+
+	c.ApplyCharStun(120, 1)
+	c.TickStunTurn()
+	if c.StunFramesRemaining != 360 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
+		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 360/3/120",
+			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
 	}
 }
 

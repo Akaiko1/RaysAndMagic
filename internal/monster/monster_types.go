@@ -1,5 +1,7 @@
 package monster
 
+import damagecalc "ugataima/internal/damage"
+
 type MonsterState int
 
 const (
@@ -11,32 +13,27 @@ const (
 	StateFleeing
 )
 
-type DamageType int
-
-// Damage school keys are shared by YAML/config/UI boundaries. Monster damage
-// converts the canonical string to DamageType before indexing resistances.
-const (
-	DamageSchoolPhysical = "physical"
-	DamageSchoolFire     = "fire"
-	DamageSchoolWater    = "water"
-	DamageSchoolAir      = "air"
-	DamageSchoolEarth    = "earth"
-	DamageSchoolSpirit   = "spirit"
-	DamageSchoolMind     = "mind"
-	DamageSchoolBody     = "body"
-	DamageSchoolLight    = "light"
-	DamageSchoolDark     = "dark"
-)
+// DamageType remains as a compatibility alias for monster APIs. The canonical
+// school type and catalog live in internal/damage.
+type DamageType = damagecalc.Type
 
 const (
-	DamagePhysical DamageType = iota
-	DamageFire
-	DamageWater
-	DamageAir
-	DamageEarth
-	DamageSpirit
-	DamageMind
-	DamageBody
-	DamageLight
-	DamageDark
+	DamagePhysical = damagecalc.Physical
+	DamageFire     = damagecalc.Fire
+	DamageWater    = damagecalc.Water
+	DamageAir      = damagecalc.Air
+	DamageEarth    = damagecalc.Earth
+	DamageSpirit   = damagecalc.Spirit
+	DamageMind     = damagecalc.Mind
+	DamageBody     = damagecalc.Body
+	DamageLight    = damagecalc.Light
+	DamageDark     = damagecalc.Dark
 )
+
+func DamageTypes() []DamageType {
+	return damagecalc.Types()
+}
+
+func ParseDamageType(school string) (DamageType, error) {
+	return damagecalc.ParseType(school)
+}

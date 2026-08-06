@@ -11,8 +11,13 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/testutil"
 	"ugataima/internal/world"
 )
+
+func testTileSizeClasses() map[string]float64 {
+	return testutil.UniformVisualSizeClasses(1)
+}
 
 // Shared fixtures for internal/game tests. Keep scenario-specific setup next to
 // its test; only reusable game, world, party, and champion setup belongs here.
@@ -40,6 +45,18 @@ func loadTestConfig(t *testing.T) *config.Config {
 	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	return cfg
+}
+
+// setTestWorldManager isolates tests from the process-wide world registry.
+// Tests built around MMGame.world should pass nil; integration-style tests can
+// install their own manager without leaking it into whichever test runs next.
+func setTestWorldManager(t *testing.T, manager *world.WorldManager) {
+	t.Helper()
+	previous := world.GlobalWorldManager
+	world.GlobalWorldManager = manager
+	t.Cleanup(func() {
+		world.GlobalWorldManager = previous
+	})
 }
 
 func newTestWorld(cfg *config.Config) *world.World3D {
@@ -71,8 +88,37 @@ func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
 		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),
 		sessionStartTime: time.Now(),
 	}
+	stripNewClassSkillsForLegacyFixtures(game.party)
 	game.collisionSystem.RegisterEntity(newPlayerCollisionEntity(game.camera.X, game.camera.Y))
 	return game
+}
+
+// Most legacy combat tests use the starting roster as neutral stat fixtures,
+// not as class-integration subjects. Keep their old baseline stable; dedicated
+// tests add and exercise each new class skill explicitly.
+func stripNewClassSkillsForLegacyFixtures(party *character.Party) {
+	if party == nil {
+		return
+	}
+	newSkills := []character.SkillType{
+		character.SkillBlaster,
+		character.SkillElementalMastery,
+		character.SkillAnimalBonding,
+		character.SkillSacrifice,
+		character.SkillImpenetrableDefense,
+		character.SkillLockpicking,
+		character.SkillNaturalHealer,
+	}
+	for _, roster := range [][]*character.MMCharacter{party.Members, party.Reserve, party.Captive} {
+		for _, member := range roster {
+			if member == nil {
+				continue
+			}
+			for _, skill := range newSkills {
+				delete(member.Skills, skill)
+			}
+		}
+	}
 }
 
 func tbBehaviorGame(t *testing.T, width, height int) (*MMGame, *GameLoop, float64) {
@@ -85,6 +131,24 @@ func tbBehaviorGame(t *testing.T, width, height int) (*MMGame, *GameLoop, float6
 		c.Luck = 0
 	}
 	return game, &GameLoop{game: game}, float64(cfg.GetTileSize())
+}
+
+// summonTileWorld is the harness for anything that SPAWNS or MOVES allies: it
+// primes the tile manager the free-tile search needs, and the world is roomy
+// enough to park an ally a dozen tiles out and still be INSIDE the map (out of
+// bounds reads as blocked and opaque, which breaks line of sight and makes an
+// ally close in for the wrong reason - it hid a broken follow rule once).
+func summonTileWorld(t *testing.T) (*MMGame, float64) {
+	t.Helper()
+	prev := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = prev })
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 8, 10, ts)
+	return game, ts
 }
 
 func placePlayerAtTile(game *MMGame, tx, ty int, tileSize float64) {
@@ -123,4 +187,18 @@ func fillTestParty(t *testing.T, g *MMGame) {
 		ch.HitPoints = ch.MaxHitPoints
 		g.party.Members = append(g.party.Members, ch)
 	}
+	stripNewClassSkillsForLegacyFixtures(g.party)
+}
+
+// tickZoneSpellOnce fires exactly one tick of every live cell of a spell, through
+// the production billing path.
+func tickZoneSpellOnce(cs *CombatSystem, spellID string) {
+	cs.game.ensureSteamZoneFieldIDs()
+	var firing []firingZoneCell
+	for i := range cs.game.steamZones {
+		if z := &cs.game.steamZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
+			firing = append(firing, firingZoneCell{cell: *z, ticks: 1})
+		}
+	}
+	cs.billZoneTicks(firing)
 }

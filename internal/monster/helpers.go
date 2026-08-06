@@ -25,7 +25,3 @@ func (m *Monster3D) tileToWorldCenter(tileX, tileY int) (float64, float64) {
 	ts := m.tileSize()
 	return float64(tileX)*ts + ts/2, float64(tileY)*ts + ts/2
 }
-
-func (m *Monster3D) worldToTileCenter(x, y float64) (float64, float64) {
-	return m.tileToWorldCenter(m.worldToTile(x), m.worldToTile(y))
-}

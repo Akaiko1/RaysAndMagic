@@ -1,6 +1,6 @@
 monsters:
   # All radius values are in TILES (1 tile = 64 pixels)
-  # alert_radius: detection/aggro range in tiles
+  # alert_radius: detection/aggro range in tiles (minimum 4 for active monsters)
   # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
 
   # Basic Monsters
@@ -13,7 +13,7 @@ monsters:
     experience: 15
     damage_min: 4
     damage_max: 8
-    alert_radius: 3
+    alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
     gold_min: 1
@@ -52,12 +52,6 @@ monsters:
     resistances: {}
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "forest_stream"
-        radius: 3
-      - type: "clearing"
-        radius: 2
-
   wolf:
     name: "Wolf"
     banding: true
@@ -67,7 +61,7 @@ monsters:
     experience: 35
     damage_min: 6
     damage_max: 9
-    alert_radius: 3
+    alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 0
@@ -90,7 +84,7 @@ monsters:
     experience: 120
     damage_min: 10
     damage_max: 20
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 5
@@ -112,7 +106,7 @@ monsters:
     experience: 25
     damage_min: 3
     damage_max: 5
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 0
@@ -136,7 +130,7 @@ monsters:
     experience: 45
     damage_min: 7
     damage_max: 12
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 2
@@ -162,6 +156,7 @@ monsters:
     experience: 180
     damage_min: 17
     damage_max: 25
+    melee_damage_type: "body"
     poison_chance: 0.20
     poison_duration_seconds: 20
     alert_radius: 4
@@ -192,6 +187,7 @@ monsters:
     experience: 620
     damage_min: 24
     damage_max: 38
+    melee_damage_type: "body"
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -219,6 +215,7 @@ monsters:
     experience: 950
     damage_min: 20
     damage_max: 32
+    melee_damage_type: "spirit"
     projectile_spell: "lightning"
     ranged_attack_range: 5
     alert_radius: 7
@@ -247,6 +244,7 @@ monsters:
     experience: 300
     damage_min: 15
     damage_max: 30
+    melee_damage_type: "earth"
     poison_chance: 0.33
     poison_duration_seconds: 23
     alert_radius: 4
@@ -274,7 +272,7 @@ monsters:
     experience: 2000
     damage_min: 34
     damage_max: 54
-    true_damage: 12  # black dragon: +12 unmitigable per hit
+    true_damage: 12  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "fire"
     alert_radius: 5
@@ -312,7 +310,7 @@ monsters:
     experience: 2000
     damage_min: 34
     damage_max: 54
-    true_damage: 10  # red dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "dark"
     ignite_chance: 0.30           # 30% to set a character ablaze
@@ -348,7 +346,7 @@ monsters:
     experience: 2000
     damage_min: 36
     damage_max: 58
-    true_damage: 10  # green dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.6  # attacks fast
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "earth"
@@ -382,7 +380,7 @@ monsters:
     experience: 2000
     damage_min: 32
     damage_max: 52
-    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.85
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "air"
@@ -568,12 +566,6 @@ monsters:
       earth: 25
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "forest_stream"
-        radius: 3
-      - type: "clearing"
-        radius: 2
-
   dire_wolf:
     name: "Dire Wolf"
     level: 5
@@ -582,7 +574,7 @@ monsters:
     experience: 125
     damage_min: 7
     damage_max: 17
-    alert_radius: 3  # 3 tiles (keen senses)
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
     gold_min: 2
@@ -605,6 +597,7 @@ monsters:
     experience: 550
     damage_min: 25
     damage_max: 35
+    melee_damage_type: "spirit"
     alert_radius: 6
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "alien_dark_bolt"
@@ -632,7 +625,7 @@ monsters:
     experience: 45
     damage_min: 4
     damage_max: 9
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 1
@@ -647,10 +640,6 @@ monsters:
       - "fern_patch"
       - "thicket"
       - "empty"
-    habitat_near:
-      - type: "thicket"
-        radius: 2
-
   treant:
     name: "Treant"
     level: 8
@@ -676,10 +665,6 @@ monsters:
       physical: 30
     habitat_preferences:
       - "empty"
-    habitat_near:
-      - type: "ancient_tree"
-        radius: 3
-
   pixie:
     name: "Pixie"
     level: 2
@@ -689,10 +674,11 @@ monsters:
     experience: 50
     damage_min: 12
     damage_max: 12
+    melee_damage_type: "mind"
     fireburst_chance: 0.33
     fireburst_damage_min: 6
     fireburst_damage_max: 18
-    alert_radius: 3  # 1 tile (timid, small detection range)
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "firebolt"
     ranged_attack_range: 3
@@ -716,10 +702,6 @@ monsters:
       - "mushroom_ring"
       - "firefly_swarm"
       - "empty"
-    habitat_near:
-      - type: "mushroom_ring"
-        radius: 2
-
   bandit:
     name: "Bandit"
     level: 3
@@ -728,7 +710,7 @@ monsters:
     experience: 55
     damage_min: 7
     damage_max: 10
-    alert_radius: 3  # 3 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 2  # 2 tiles (ranged knives)
     projectile_weapon: "throwing_knife"
     ranged_attack_range: 2
@@ -784,6 +766,7 @@ monsters:
     experience: 240
     damage_min: 17
     damage_max: 23
+    melee_damage_type: "body"
     attacks_per_round: 4
     attack_cooldown_multiplier: 0.25
     alert_radius: 5
@@ -839,10 +822,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "highlands_heather"
-    habitat_near:
-      - type: "highlands_rock_outcrop"
-        radius: 4
-
   # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
@@ -871,10 +850,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "highlands_heather"
-    habitat_near:
-      - type: "highlands_pine"
-        radius: 3
-
   # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
@@ -901,10 +876,6 @@ monsters:
       physical: 30
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_ruin_wall"
-        radius: 4
-
   # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
@@ -914,6 +885,7 @@ monsters:
     experience: 720
     damage_min: 28
     damage_max: 44
+    melee_damage_type: "earth"
     alert_radius: 4
     attack_radius: 1
     speed: 1.1
@@ -930,10 +902,6 @@ monsters:
       fire: -25
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_boulder"
-        radius: 3
-
   # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
@@ -962,10 +930,6 @@ monsters:
       dark: 30
     habitat_preferences:
       - "highlands_floor"
-    habitat_near:
-      - type: "highlands_ruin_wall"
-        radius: 4
-
   # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
@@ -977,6 +941,7 @@ monsters:
     experience: 1300
     damage_min: 24
     damage_max: 36
+    melee_damage_type: "dark"
     projectile_spell: "darkbolt"
     ranged_attack_range: 5
     alert_radius: 7
@@ -1000,10 +965,6 @@ monsters:
     habitat_preferences:
       - "highlands_floor"
       - "lich_nexus_floor"
-    habitat_near:
-      - type: "highlands_slate_wall"
-        radius: 4
-
   revenant:
     type: "undead"
     name: "Revenant"
@@ -1014,6 +975,7 @@ monsters:
     experience: 760
     damage_min: 24
     damage_max: 38
+    melee_damage_type: "spirit"
     alert_radius: 6
     attack_radius: 1
     speed: 1.3
@@ -1035,6 +997,40 @@ monsters:
     habitat_preferences:
       - "lich_nexus_floor"
 
+  # Summoned ONLY by the Summon Ice Elemental spell (no map letter, never spawns
+  # from a map). Its HP and damage are overwritten at summon time from the
+  # caster's Water mastery, so the values here are the Novice tier.
+  frost_elemental:
+    type: "elemental"
+    name: "Frost Elemental"
+    level: 12
+    max_hit_points: 250
+    armor_class: 35
+    experience: 0
+    damage_min: 15
+    damage_max: 15
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 11
+    alert_radius: 11
+    attack_radius: 11
+    speed: 1.1
+    gold_min: 0
+    gold_max: 0
+    sprite: "frost_elemental"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: []
+    resistances:
+      water: 100     # it IS ice
+      air: 40
+      physical: 30
+      mind: 100      # elemental: no mind to break
+      body: 100
+      fire: -50      # ice melts
+    habitat_preferences:
+      - "empty"
+
   lich_king:
     type: "undead"
     name: "Lich King"
@@ -1044,6 +1040,7 @@ monsters:
     experience: 1800
     damage_min: 32
     damage_max: 52
+    melee_damage_type: "dark"
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     alert_radius: 8
@@ -1142,6 +1139,7 @@ monsters:
   golden_thief_bug:
     type: "formless"
     name: "Golden Thief Bug"
+    boss: true
     level: 10
     max_hit_points: 1200
     armor_class: 55
@@ -1159,6 +1157,7 @@ monsters:
     ignores_armor: true
     inferno_chance: 0.10
     inferno_damage: 28
+    inferno_range_tiles: 8   # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
     teleport_at_hp: 300
     teleport_chance: 0.10
     passive_until_quest: "culverts_valves"
@@ -1253,6 +1252,7 @@ monsters:
     experience: 1000
     damage_min: 26
     damage_max: 40
+    melee_damage_type: "water"
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.6
     ally_heal_chance: 0.15
@@ -1285,6 +1285,7 @@ monsters:
     experience: 1500
     damage_min: 32
     damage_max: 48
+    melee_damage_type: "spirit"
     attacks_per_round: 2          # elite inherits the base ningyo's double strike
     attack_cooldown_multiplier: 0.6
     ally_heal_chance: 0.15
@@ -1313,6 +1314,7 @@ monsters:
   old_samurai:
     type: "formless"
     name: "Samurai Warlord"
+    boss: true
     level: 17
     max_hit_points: 1600
     armor_class: 50
@@ -1320,6 +1322,7 @@ monsters:
     experience: 3500
     damage_min: 30
     damage_max: 48
+    melee_damage_type: "dark"
     attack_radius: 1
     alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.6
@@ -1408,7 +1411,7 @@ monsters:
     experience: 1100
     damage_min: 36
     damage_max: 54
-    true_damage: 10  # jungle spearwoman: +10 unmitigable per hit
+    true_damage: 10  # typed physical true damage: bypasses armor/flat/dodge, not resistance
     projectile_weapon: "blowgun"
     ranged_attack_range: 6
     attack_radius: 5
@@ -1439,6 +1442,7 @@ monsters:
     experience: 1300
     damage_min: 30
     damage_max: 46
+    melee_damage_type: "mind"
     attacks_per_round: 2          # whirling blades
     attack_cooldown_multiplier: 0.7
     attack_radius: 1
@@ -1468,6 +1472,7 @@ monsters:
     experience: 1700
     damage_min: 30
     damage_max: 46
+    melee_damage_type: "mind"
     dispel_chance: 0.10           # 10% to strip a random active party buff on hit
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
@@ -1494,12 +1499,14 @@ monsters:
   gorilla_titan:
     type: "formless"
     name: "Gorilla Titan"
+    boss: true
     level: 23
     max_hit_points: 1700
     armor_class: 58
     experience: 2600
     damage_min: 49
     damage_max: 67
+    melee_damage_type: "body"
     attack_radius: 1
     alert_radius: 10  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.5
@@ -1533,6 +1540,7 @@ monsters:
   orc_hero_boss:
     type: "formless"
     name: "Orc Warlord"
+    boss: true
     level: 24
     max_hit_points: 2400
     armor_class: 52
@@ -1599,7 +1607,8 @@ monsters:
   # Champion mobs: a real character build (champions.yaml) on the monster AI.
   # HP / armor / damage / attack cadence are mirrored from the character at
   # spawn (game.applyChampionStats); the values below are pre-mirror placeholders.
-  # Arena-scoped so their letters never collide with wild spawns.
+  # Arena-scoped, so these lowercase markers may reuse wild-map letters.
+  # Arena champions are created by the duel flow, not placed in arena.map.
   hobbit_archer:
     name: "Hobbit Archer"
     type: human
@@ -1617,7 +1626,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: hobbit_archer
-    letter: "A"
+    letter: "a"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1641,7 +1650,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: weapon_master
-    letter: "W"
+    letter: "w"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1665,7 +1674,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: dark_elf_sorceress
-    letter: "S"
+    letter: "s"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1690,7 +1699,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: druid_enemy
-    letter: "D"
+    letter: "d"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1698,41 +1707,315 @@ monsters:
     # Warden of root and rain: nature schools bounce off, fire burns through.
     resistances: { earth: 50, water: 50, body: 30, fire: -25 }
 
-# Damage type mappings for resistances
-damage_types:
-  physical: 0
-  fire: 1
-  water: 2
-  air: 3
-  earth: 4
-  spirit: 5
-  mind: 6
-  body: 7
-  light: 8
-  dark: 9
 
-# Tile type mappings for habitat preferences
-tile_types:
-  empty: 0
-  tree: 1
-  ancient_tree: 2
-  thicket: 3
-  clearing: 4
-  forest_stream: 5
-  mushroom_ring: 6
-  firefly_swarm: 7
-  fern_patch: 8
-  moss_circle: 9
-  fallen_log: 10
-  boulder: 11
-  flower_patch: 12
-  highlands_floor: 13
-  highlands_pine: 14
-  highlands_rock_outcrop: 15
-  highlands_boulder: 16
-  highlands_heather: 17
-  highlands_stream: 18
-  highlands_ruin_wall: 19
-  highlands_slate_wall: 20
-  pyramid_floor: 21
-  lich_nexus_floor: 22
+  # --- Clock Tower (2026-07-16): the horologist's dungeon, L6-10 band ---
+  # Floor 2 fodder: animate dust that clots between the great gears. Clusters.
+  dust_slime:
+    name: "Dust Slime"
+    type: "construct"
+    banding: true
+    level: 22
+    max_hit_points: 950
+    armor_class: 26
+    experience: 1000
+    damage_min: 42
+    damage_max: 58
+    melee_damage_type: "earth"
+    alert_radius: 4
+    attack_radius: 1.2
+    speed: 1.1
+    gold_min: 30
+    gold_max: 80
+    sprite: "dust_slime"
+    letter: "b"
+    box_w: 52
+    box_h: 52
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    # A wad of grey lint: blades pass through, fire eats it alive.
+    resistances: { physical: 25, fire: -30 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 2 caster: a maintenance manual that learned to hold a grudge.
+  possessed_tome:
+    name: "Possessed Tome"
+    type: "construct"
+    level: 25
+    max_hit_points: 880
+    armor_class: 30
+    experience: 1300
+    damage_min: 48
+    damage_max: 66
+    alert_radius: 5
+    attack_radius: 1.2
+    projectile_weapon: "oak_staff"
+    ranged_attack_range: 4
+    speed: 1.5
+    gold_min: 40
+    gold_max: 110
+    sprite: "possessed_tome"
+    letter: "k"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 50, fire: -25 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 3 sentinel: fast, loud, and it WAKES THE WHOLE FLOOR when it rings.
+  alarm_clock:
+    name: "Alarm Sentry"
+    type: "construct"
+    level: 28
+    max_hit_points: 1150
+    armor_class: 38
+    experience: 1700
+    damage_min: 50
+    damage_max: 68
+    melee_damage_type: "earth"
+    alert_radius: 7
+    attack_radius: 1.2
+    attacks_per_round: 2
+    attack_cooldown_multiplier: 0.7
+    rally_on_aggro_tiles: 15   # the bell: wakes every horror within 15 tiles, once
+    rally_max_targets: 4       # but never starts a whole-floor chain at once
+    speed: 2.2
+    gold_min: 60
+    gold_max: 150
+    sprite: "alarm_clock"
+    letter: "l"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 100, spirit: 30 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 3 heavy: the tower's old longcase clocks, pendulums swung like mauls.
+  grandfather_clock:
+    name: "Grandfather Clock"
+    type: "construct"
+    level: 30
+    max_hit_points: 1900
+    armor_class: 52
+    experience: 2400
+    damage_min: 62
+    damage_max: 84
+    melee_damage_type: "earth"
+    alert_radius: 4
+    attack_radius: 1.4
+    attacks_per_round: 2
+    stun_char_chance: 0.15
+    stun_char_seconds: 2
+    stun_char_turns: 1
+    speed: 1.0
+    gold_min: 90
+    gold_max: 220
+    sprite: "grandfather_clock"
+    letter: "g"
+    box_w: 56
+    box_h: 56
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 100, physical: 15, fire: -20 }
+    habitat_preferences:
+      - "empty"
+
+  # Boss-only adds. They deliberately have their own definitions instead of
+  # scaling the ordinary map mobs: each encounter can be balanced independently,
+  # while the shared mummy/alien sprites remain the visual identity.
+  deathbound_mummy:
+    type: "undead"
+    name: "Deathbound Mummy"
+    level: 33
+    max_hit_points: 1050
+    armor_class: 48
+    experience: 0
+    damage_min: 48
+    damage_max: 66
+    melee_damage_type: "body"
+    poison_chance: 0.25
+    poison_duration_seconds: 30
+    alert_radius: 12
+    attack_radius: 1
+    speed: 1.25
+    gold_min: 0
+    gold_max: 0
+    sprite: "mummy"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
+    habitat_preferences:
+      - "empty"
+
+  enforcer_alien:
+    type: "formless"
+    name: "Enforcer Alien"
+    level: 35
+    max_hit_points: 1200
+    armor_class: 50
+    perfect_dodge: 10
+    experience: 0
+    damage_min: 52
+    damage_max: 72
+    true_damage: 8
+    melee_damage_type: "spirit"
+    alert_radius: 14
+    attack_radius: 1
+    projectile_spell: "alien_dark_bolt"
+    ranged_attack_range: 5
+    speed: 2.0
+    gold_min: 0
+    gold_max: 0
+    sprite: "alien"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    resistances: { fire: 35, dark: 45, physical: -35 }
+    habitat_preferences:
+      - "empty"
+
+  # ============ ENDGAME BOSS TRIAD (L32-35) ============
+  # Three capstones above the Orc Warlord tier. All formless (no Bind Undead
+  # cheese), all on the shared boss kit (boss.go).
+
+  # Quest-spawned (broodmother_nests on_complete_spawns): materializes in the
+  # Ember Crater once no dragon is left alive on the cliffs. Nest-rooted
+  # (speed 0, the idol precedent) - every threat is ranged; passive until
+  # struck, so the fight is always the player's choice.
+  dragon_brood_mother:
+    type: "formless"
+    name: "Brood Mother"
+    level: 32
+    max_hit_points: 4200
+    armor_class: 60
+    experience: 6500
+    damage_min: 70
+    damage_max: 100
+    true_damage: 20
+    melee_damage_type: "fire"
+    alert_radius: 14
+    attack_radius: 2
+    speed: 0
+    gold_min: 3000
+    gold_max: 6000
+    boss: true
+    passive_until_attacked: true
+    projectile_spell: "fireball"
+    ranged_attack_range: 11
+    inferno_chance: 0.22
+    inferno_damage: 150
+    inferno_range_tiles: 7
+    ignite_chance: 0.15
+    ignite_duration_seconds: 30
+    summon_chance: 0.25
+    summon_monsters: ["dragon"]
+    summon_count: 1
+    summon_max: 3
+    enrage_at_hp: 1260
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    trap_volley_count: 20
+    trap_volley_radius_tiles: 15
+    trap_volley_interval_seconds: 10
+    trap_volley_interval_turns: 3
+    trap_volley_damage: 40
+    sprite: "dragon_brood_mother"
+    box_w: 48
+    box_h: 48
+    size_class: huge
+    resistances: { fire: 100, dark: 50, physical: 30, mind: 60, water: -25 }
+    habitat_preferences:
+      - "empty"
+
+  # Dormant on the sanctum dais (grey seal) until every Elder Dragon falls -
+  # the reaper comes to collect when the four god-machines are dead.
+  ancient_god_of_death:
+    type: "formless"
+    name: "Ancient God of Death"
+    level: 33
+    max_hit_points: 3400
+    armor_class: 58
+    experience: 7000
+    damage_min: 66
+    damage_max: 92
+    true_damage: 15
+    melee_damage_type: "dark"
+    alert_radius: 12
+    attack_radius: 1
+    speed: 1.3
+    gold_min: 5000
+    gold_max: 8000
+    boss: true
+    ignores_armor: true
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 6
+    teleport_at_hp: 1100
+    teleport_chance: 0.15
+    stun_char_chance: 0.15
+    stun_char_seconds: 6
+    stun_char_turns: 2
+    summon_chance: 0.22
+    summon_monsters: ["deathbound_mummy"]
+    summon_count: 2
+    summon_max: 4
+    enrage_at_hp: 1150
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    sprite: "ancient_god_of_death"
+    box_w: 48
+    box_h: 48
+    size_class: huge
+    resistances: { dark: 100, mind: 100, body: 75, physical: 35, light: -80 }
+    habitat_preferences:
+      - "empty"
+
+  # The Pursuers' field commander. Dormant in the depths until the party purges
+  # their scouts (water_purge); then he hunts from anywhere on the map. His
+  # spirit weakness is the school of his own faction's trophy blaster.
+  alien_enforcer:
+    type: "formless"
+    name: "Alien Enforcer"
+    level: 35
+    max_hit_points: 3800
+    armor_class: 64
+    perfect_dodge: 20
+    experience: 8000
+    damage_min: 74
+    damage_max: 104
+    true_damage: 20
+    melee_damage_type: "air"
+    alert_radius: 14
+    attack_radius: 1
+    speed: 1.9
+    attacks_per_round: 2
+    attack_cooldown_multiplier: 0.5
+    gold_min: 6000
+    gold_max: 9000
+    boss: true
+    aggro_whole_map: true
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+    teleport_at_hp: 1300
+    teleport_chance: 0.20
+    stun_char_chance: 0.20
+    stun_char_seconds: 6
+    stun_char_turns: 2
+    summon_chance: 0.10
+    summon_monsters: ["enforcer_alien"]
+    summon_count: 2
+    summon_max: 4
+    enrage_at_hp: 1150
+    enrage_damage_mult: 1.4
+    enrage_cooldown_mult: 0.7
+    sprite: "alien_enforcer"
+    box_w: 48
+    box_h: 48
+    size_class: huge
+    resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
+    habitat_preferences:
+      - "empty"

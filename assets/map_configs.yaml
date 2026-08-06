@@ -3,6 +3,17 @@
 # `floor_texture_group` field (see tiles.yaml); the renderer builds one atlas
 # per biome. The "beach" group is selected dynamically by the renderer for
 # empty tiles bordering water.
+
+# Groups every biome inherits, for universal tiles that can turn up on any map.
+# Water (W) and deep water (Q) live in half the maps in the game, so their
+# texture is defined here once instead of copied into each biome - a biome that
+# forgot the copy used to render flat blue. A biome may still override a shared
+# group by naming it in its own floor_texture_groups.
+shared_floor_texture_groups:
+  water:
+    - "water_0"
+    - "water_1"
+
 biomes:
   forest:
     floor_texture_groups:
@@ -14,9 +25,6 @@ biomes:
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
-      water:
-        - "water_0"
-        - "water_1"
       forest_stream:
         - "forest_stream_0"
         - "forest_stream_1"
@@ -41,9 +49,6 @@ biomes:
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
-      water:
-        - "water_0"
-        - "water_1"
 
   water:
     floor_texture_groups:
@@ -52,9 +57,6 @@ biomes:
         - "underwater_floor_1"
         - "underwater_floor_2"
         - "underwater_floor_3"
-      water:
-        - "water_0"
-        - "water_1"
 
   church:
     floor_texture_groups:
@@ -63,6 +65,45 @@ biomes:
         - "church_floor_1"
         - "church_floor_2"
         - "church_floor_3"
+
+  clock_tower_workshop:
+    floor_texture_groups:
+      default:
+        - "clocktower_planks_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
+
+  clock_tower_gearworks:
+    floor_texture_groups:
+      default:
+        - "clocktower_grate_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
+
+  clock_tower_belfry:
+    floor_texture_groups:
+      default:
+        - "clocktower_mosaic_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
 
   arena:
     floor_texture_groups:
@@ -115,6 +156,27 @@ biomes:
         - "city_cobblestone_1"
         - "city_cobblestone_2"
         - "city_cobblestone_3"
+
+  # Both towns split their four floor variants into a walking group and a court
+  # group, so the plaza around the landmark reads as a deliberate paved circle
+  # instead of more street. Same split, same letters (. and ,) in each.
+  elf_city:
+    floor_texture_groups:
+      default:
+        - "elf_city_floor_0"
+        - "elf_city_floor_2"
+      court:
+        - "elf_city_floor_1"
+        - "elf_city_floor_3"
+
+  nomad_city:
+    floor_texture_groups:
+      default:
+        - "nomad_city_floor_0"
+        - "nomad_city_floor_1"
+        - "nomad_city_floor_3"
+      sand:
+        - "nomad_city_floor_2"
 
   highlands:
     floor_texture_groups:
@@ -173,14 +235,13 @@ biomes:
       # Wet flooded floodplain ground - varzea (tile letter ',').
       varzea:
         - "deep_jungle_floor_2"
-      water:
-        - "water_0"
-        - "water_1"
       beach:
         - "beach_sand_0"
         - "beach_sand_1"
+      # Ford: the same mossy flagstone as the ruin paving, read as sunken
+      # causeway slabs under the teal shallow-water tint of the tile.
       jungle_ford:
-        - "dragon_cliffs_bridge_1"
+        - "deep_jungle_floor_1"
 
 maps:
   forest:
@@ -259,6 +320,39 @@ maps:
           tile_y: 1
           sprite: "chest"
           random_weapon_count: 1
+
+  clock_tower_1:
+    name: "Clock Tower - Workshop"
+    file: "clock_tower_1.map"
+    biome: "clock_tower_workshop"
+    sky_texture: "clocktower_panorama"
+    sky_color: [38, 36, 46]
+    default_floor_color: [104, 82, 58]
+    ambient_light: 0.7
+    wall_torches: true
+    respawn_days: 3
+
+  clock_tower_2:
+    name: "Clock Tower - Gearworks"
+    file: "clock_tower_2.map"
+    biome: "clock_tower_gearworks"
+    sky_texture: "clocktower_panorama"
+    sky_color: [32, 30, 40]
+    default_floor_color: [92, 74, 48]
+    ambient_light: 0.6
+    wall_torches: true
+    respawn_days: 3
+
+  clock_tower_3:
+    name: "Clock Tower - Belfry Halls"
+    file: "clock_tower_3.map"
+    biome: "clock_tower_belfry"
+    sky_texture: "clocktower_panorama"
+    sky_color: [30, 28, 38]
+    default_floor_color: [96, 88, 66]
+    ambient_light: 0.6
+    wall_torches: true
+    respawn_days: 3
 
   arena:
     name: "The Grand Arena"
@@ -368,6 +462,33 @@ maps:
     sky_color: [120, 190, 230]
     sky_texture: "city_panorama"
     default_floor_color: [108, 102, 88]
+
+  # The two outland towns. Each stands inside its region and borrows that
+  # region's panorama - Silverbough in the highland pinewood where the elves
+  # actually live, Dunehold under the desert sky - so stepping through the gate
+  # does not change the weather, only the streets.
+  elf_city:
+    name: "Silverbough"
+    file: "elf_city.map"
+    biome: "elf_city"
+    town_portal_destination: true
+    sky_color: [150, 165, 180]
+    sky_texture: "highlands_panorama"
+    default_floor_color: [146, 150, 140]
+    # No wall_torches: the corner-torch system is for dark interiors, and a
+    # 31x23 town yields 16 inner corners - at noon that is embers raining on
+    # the plaza. Seabright does not set it either; the authored lamp posts (I)
+    # and lanterns are these towns' lighting fiction.
+
+  nomad_city:
+    name: "Dunehold"
+    file: "nomad_city.map"
+    biome: "nomad_city"
+    town_portal_destination: true
+    sky_color: [214, 184, 132]
+    sky_texture: "desert_panorama"
+    default_floor_color: [182, 150, 100]
+    # No wall_torches - see the note on elf_city above.
 
   highlands:
     name: "Misty Highlands"

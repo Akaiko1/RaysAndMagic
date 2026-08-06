@@ -74,6 +74,125 @@ func TestGetSpriteVariants(t *testing.T) {
 	}
 }
 
+func TestSpriteVisibleFrameBoundsFromImage(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 16, 4)) // four 4x4 frames
+	for frame := 0; frame < 4; frame++ {
+		// The visible body occupies the same two rows but shifts horizontally.
+		x := frame*4 + frame%2
+		img.SetNRGBA(x, 1, color.NRGBA{R: 255, A: 255})
+		img.SetNRGBA(x+1, 2, color.NRGBA{R: 255, A: 255})
+	}
+	// A nearly invisible fringe must not change authored visual scale.
+	img.SetNRGBA(15, 3, color.NRGBA{R: 255, A: 8})
+
+	want := image.Rect(0, 1, 3, 3)
+	compact := spriteVisibleFrameBoundsFromImage(img)
+	if !compact.known || compact.bounds != want || compact.frameWidth != 4 || compact.frameHeight != 4 {
+		t.Fatalf("compact visible bounds = %+v, want bounds=%v frame=4x4", compact, want)
+	}
+}
+
+func TestSpriteVisibleFrameBoundsDoesNotRetainAlphaMask(t *testing.T) {
+	tempDir := t.TempDir()
+	spritePath := filepath.Join(tempDir, "bounds_only.png")
+	img := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	img.SetNRGBA(2, 3, color.NRGBA{R: 20, G: 180, B: 40, A: 255})
+	file, err := os.Create(spritePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{"bounds_only": spritePath}
+	sm.spriteDirType = map[string]string{"bounds_only": "environment"}
+	bounds, frameWidth, frameHeight, known := sm.SpriteVisibleFrameBounds("bounds_only")
+	if !known || bounds != image.Rect(2, 3, 3, 4) || frameWidth != 8 || frameHeight != 8 {
+		t.Fatalf("visible bounds = %v frame=%dx%d known=%v", bounds, frameWidth, frameHeight, known)
+	}
+	if len(sm.alphaMasks) != 0 {
+		t.Fatalf("visible-bounds lookup retained %d pixel alpha masks", len(sm.alphaMasks))
+	}
+	if len(sm.visibleFrameBounds) != 1 {
+		t.Fatalf("compact visible-bounds cache has %d entries, want 1", len(sm.visibleFrameBounds))
+	}
+}
+
+func TestSpriteNamesWithPrefixUsesIndexedAssetsInStableOrder(t *testing.T) {
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{
+		"chest_wooden": "/unused/wooden.png",
+		"bag_rare":     "/unused/rare.png",
+		"bag":          "/unused/bag.png",
+		"bag_common":   "/unused/common.png",
+		"baggage":      "/unused/baggage.png",
+	}
+	got := sm.SpriteNamesWithPrefix("bag")
+	want := []string{"bag", "bag_common", "bag_rare", "baggage"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefix names = %v, want %v", got, want)
+	}
+}
+
+func TestSpriteOpaqueAtUsesColorKeyedCPUMask(t *testing.T) {
+	tempDir := t.TempDir()
+	spriteDir := filepath.Join(tempDir, "assets", "sprites", "environment")
+	if err := os.MkdirAll(spriteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	img.SetNRGBA(0, 0, color.NRGBA{255, 0, 255, 255})
+	img.SetNRGBA(1, 0, color.NRGBA{20, 180, 40, 255})
+	spritePath := filepath.Join(spriteDir, "hit_mask.png")
+	file, err := os.Create(spritePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{"hit_mask": spritePath}
+	sm.spriteDirType = map[string]string{"hit_mask": "environment"}
+	sm.SetColorKey(true, 255, 0, 255, 0, false)
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 0, 0); !known || opaque {
+		t.Fatalf("keyed background = opaque:%v known:%v, want false,true", opaque, known)
+	}
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 1, 0); !known || !opaque {
+		t.Fatalf("visible pixel = opaque:%v known:%v, want true,true", opaque, known)
+	}
+	if opaque, known := sm.SpriteOpaqueAt("hit_mask", 2, 0); !known || opaque {
+		t.Fatalf("out-of-bounds pixel = opaque:%v known:%v, want false,true", opaque, known)
+	}
+}
+
+func TestCachedAnimationLookupDoesNotAllocate(t *testing.T) {
+	sm := NewSpriteManager()
+	want := &SpriteAnimation{}
+	sm.animations[animationKey("orc", "walking")] = want
+
+	var got *SpriteAnimation
+	allocs := testing.AllocsPerRun(1000, func() {
+		got = sm.GetAnimation("orc", "walking")
+	})
+	if got != want {
+		t.Fatalf("cached animation = %p, want %p", got, want)
+	}
+	if allocs != 0 {
+		t.Fatalf("cached animation lookup allocated %.2f objects/run", allocs)
+	}
+}
+
 // applyColorKey must zero the alpha of pixels within tolerance of the key color
 // (default magenta), leave others untouched, and no-op when disabled.
 func TestApplyColorKey(t *testing.T) {

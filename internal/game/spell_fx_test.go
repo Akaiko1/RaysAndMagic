@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 )
 
 // TestEveryMagicSchoolHasImpactColor: every magic school must have an explosion
@@ -12,6 +13,32 @@ func TestEveryMagicSchoolHasImpactColor(t *testing.T) {
 	for _, school := range character.AllMagicSchools {
 		if _, ok := ElementColors[string(school)]; !ok {
 			t.Errorf("school %q has no ElementColors entry (spell hit would render gray)", school)
+		}
+	}
+}
+
+// Every projectile spell must author graphics.projectile_fx: without one it
+// falls back to the school orb, which is the same tinted blob for every spell in
+// the school - the flying body has to look like the spell's name.
+func TestEveryProjectileSpellAuthorsAFxStyle(t *testing.T) {
+	t.Chdir("../..")
+	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
+		t.Fatalf("spells: %v", err)
+	}
+	for key, def := range config.GlobalSpells.Spells {
+		if def == nil || !def.IsProjectile {
+			continue
+		}
+		style := ""
+		if def.Graphics != nil {
+			style = def.Graphics.ProjectileFx
+		}
+		if style == "" {
+			t.Errorf("projectile spell %q authors no graphics.projectile_fx (renders as the generic school orb)", key)
+			continue
+		}
+		if _, ok := spellFxStyleDraw[style]; !ok {
+			t.Errorf("spell %q: projectile_fx %q has no renderer", key, style)
 		}
 	}
 }

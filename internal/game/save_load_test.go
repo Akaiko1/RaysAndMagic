@@ -2,10 +2,10 @@ package game
 
 import (
 	"encoding/json"
-	"math"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -41,6 +41,20 @@ func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
 	}
 }
 
+func TestNormalizeItemFromConfigMigratesDragonHoardSetMembership(t *testing.T) {
+	loadTestConfig(t)
+
+	for _, saved := range []*items.Item{
+		{Name: "Gold Sword", Type: items.ItemWeapon, Set: ""},
+		{Name: "Golden Armor", Type: items.ItemArmor, Set: ""},
+	} {
+		normalizeItemFromConfig(saved)
+		if saved.Set != "dragon_hoard" {
+			t.Errorf("%s set after config migration = %q, want dragon_hoard", saved.Name, saved.Set)
+		}
+	}
+}
+
 func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	cfg := loadTestConfig(t)
 
@@ -61,6 +75,13 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.monsterTurnResolved = true
 	game.turnBasedSpRegenCount = 4
 	game.turnBasedExtraMonsterAction = true
+	schedulerMob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
+	schedulerMob.ID = "saved_scheduler_mob"
+	worldSave.Monsters = []*monster.Monster3D{schedulerMob}
+	game.turnBasedMonsterPassesLeft = 1
+	game.turnBasedMonsterPassDelay = 3
+	game.turnBasedMonsterStatusTick = true
+	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{schedulerMob: true}
 
 	game.torchLightActive = true
 	game.torchLightDuration = 120
@@ -70,6 +91,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.walkOnWaterActive = true
 	game.walkOnWaterDuration = 33
 	game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 60, Bonuses: character.UniformStatBonuses(2)})
+	game.steamZones = []SteamZone{{
+		SpellID: "hot_steam", FieldID: 77, MapKey: "forest", FramesLeft: 42,
+		IntervalFrames: 360, TickDamage: 3,
+	}}
 	game.waterBreathingActive = true
 	game.waterBreathingDuration = 25
 	game.underwaterReturnX = 96
@@ -115,6 +140,16 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
 		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)
 	}
+	if loaded.turnBasedMonsterPassesLeft != game.turnBasedMonsterPassesLeft ||
+		loaded.turnBasedMonsterPassDelay != game.turnBasedMonsterPassDelay ||
+		loaded.turnBasedMonsterStatusTick != game.turnBasedMonsterStatusTick {
+		t.Fatalf("mid-pass scheduler: got passes=%d delay=%d tick=%v, want %d/%d/%v",
+			loaded.turnBasedMonsterPassesLeft, loaded.turnBasedMonsterPassDelay, loaded.turnBasedMonsterStatusTick,
+			game.turnBasedMonsterPassesLeft, game.turnBasedMonsterPassDelay, game.turnBasedMonsterStatusTick)
+	}
+	if len(worldLoad.Monsters) != 1 || !loaded.turnBasedMonsterStunned[worldLoad.Monsters[0]] {
+		t.Fatalf("stunned monster was not restored into the mid-pass scheduler: monsters=%d stunned=%v", len(worldLoad.Monsters), loaded.turnBasedMonsterStunned)
+	}
 
 	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
@@ -159,7 +194,120 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != wantBless.Frames {
 		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
+	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
+		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
+	}
+	if len(loaded.steamZones) != 1 || loaded.steamZones[0].FieldID != 77 || loaded.nextSteamZoneFieldID != 77 {
+		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.steamZones, loaded.nextSteamZoneFieldID)
+	}
 
+}
+
+func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+	if len(game.party.Members) == 0 {
+		t.Fatal("test party has no members")
+	}
+	member := game.party.Members[0]
+	member.StunFramesRemaining = 361
+	member.StunTurnsRemaining = 4
+	member.StunRate = 120
+
+	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	mob.ID = "rated-clock-mob"
+	mob.StunFramesRemaining = 361
+	mob.StunTurnsRemaining = 4
+	mob.StunRate = 120
+	mob.RootFramesRemaining = 181
+	mob.RootTurnsRemaining = 2
+	mob.RootRate = 120
+	mob.ArmorShredPct = 20
+	mob.ArmorShredFramesRemaining = 361
+	mob.ArmorShredTurnsRemaining = 4
+	mob.ArmorShredRate = 120
+	mob.PounceCDFrames = 361
+	mob.PounceCDTurns = 2
+	mob.PounceCDRate = 240
+	mob.SoakDamage = 5
+	mob.SoakFrames = 361
+	mob.SoakTurns = 4
+	mob.SoakRate = 120
+	mob.InfernoCDFrames = 240 // ranged-nova cooldown: a reload must not refresh it
+	worldSave.Monsters = []*monster.Monster3D{mob}
+
+	raw, err := json.Marshal(game.buildSave(wmSave))
+	if err != nil {
+		t.Fatalf("marshal save: %v", err)
+	}
+	var save GameSave
+	if err := json.Unmarshal(raw, &save); err != nil {
+		t.Fatalf("unmarshal save: %v", err)
+	}
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+
+	loaded := newTestGame(cfg, worldLoad)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if len(loaded.party.Members) == 0 || len(worldLoad.Monsters) != 1 {
+		t.Fatalf("loaded party/monster counts = %d/%d, want nonzero/1",
+			len(loaded.party.Members), len(worldLoad.Monsters))
+	}
+
+	loadedMember := loaded.party.Members[0]
+	if loadedMember.StunRate != 120 {
+		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
+	}
+	loadedMember.TickStunTurn()
+	if loadedMember.StunFramesRemaining != 360 || loadedMember.StunTurnsRemaining != 3 {
+		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 360/3",
+			loadedMember.StunFramesRemaining, loadedMember.StunTurnsRemaining)
+	}
+
+	loadedMob := worldLoad.Monsters[0]
+	if loadedMob.InfernoCDFrames != 240 {
+		t.Errorf("inferno cadence = %d frames after reload, want 240 (a reload must not hand the boss a fresh nova roll)",
+			loadedMob.InfernoCDFrames)
+	}
+	if loadedMob.StunRate != 120 || loadedMob.RootRate != 120 ||
+		loadedMob.ArmorShredRate != 120 || loadedMob.PounceCDRate != 240 || loadedMob.SoakRate != 120 {
+		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",
+			loadedMob.StunRate, loadedMob.RootRate, loadedMob.ArmorShredRate,
+			loadedMob.PounceCDRate, loadedMob.SoakRate)
+	}
+	loadedMob.TickRootTurn()
+	if loadedMob.RootFramesRemaining != 120 || loadedMob.RootTurnsRemaining != 1 {
+		t.Fatalf("root after load/tick = %d frames/%d turns, want 120/1",
+			loadedMob.RootFramesRemaining, loadedMob.RootTurnsRemaining)
+	}
+	loadedMob.TickPounceCooldownTurn()
+	if loadedMob.PounceCDFrames != 240 || loadedMob.PounceCDTurns != 1 {
+		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 240/1",
+			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
+	}
+	loadedMob.TickArmorShredTurn()
+	if loadedMob.ArmorShredFramesRemaining != 360 || loadedMob.ArmorShredTurnsRemaining != 3 {
+		t.Fatalf("shred after load/tick = %d frames/%d turns, want 360/3",
+			loadedMob.ArmorShredFramesRemaining, loadedMob.ArmorShredTurnsRemaining)
+	}
+	loadedMob.TickSoakTurn()
+	if loadedMob.SoakFrames != 360 || loadedMob.SoakTurns != 3 {
+		t.Fatalf("soak after load/tick = %d frames/%d turns, want 360/3",
+			loadedMob.SoakFrames, loadedMob.SoakTurns)
+	}
 }
 
 func TestApplySaveMigratesSkillLevelToMastery(t *testing.T) {
@@ -411,7 +559,7 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	world.GlobalWorldManager = nil // interact focus reads GetCurrentWorld; pin it to w
 	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
 	game.camera.Angle = 0 // face the statue: it sits at +X from the camera
-	game.camera.FOV = cfg.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 
 	game.updateFocusedNPC()
 	if game.focusedNPC != statue {
@@ -433,82 +581,6 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	if !kept {
 		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
 	}
-}
-
-// Overlapping monsters must be pushed apart by the separation pass (engaged
-// pairs that overlap veto each other's every normal move and would otherwise
-// stay glued forever).
-func TestSeparateOverlappingMonsters(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := newTestWorld(cfg)
-	g := newTestGame(cfg, w)
-	gl := &GameLoop{game: g}
-
-	// Park the player away from the pair - pushes refuse to land on the player.
-	g.camera.X, g.camera.Y = 8, 8
-	g.collisionSystem.UpdateEntity("player", 8, 8)
-	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
-	b := monster.NewMonster3DFromConfig(66, 64, "goblin", cfg) // almost fully stacked
-	a.IsEngagingPlayer = true                                  // calm pairs pass through by design; engaged ones glue
-	w.Monsters = []*monster.Monster3D{a, b}
-	g.registerSpawnedMonster(a)
-	g.registerSpawnedMonster(b)
-
-	aw, _ := a.GetSize()
-	bw, _ := b.GetSize()
-	need := (aw + bw) / 2
-	for i := 0; i < 240; i++ {
-		gl.separateOverlappingMonsters()
-		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
-			return // separated
-		}
-	}
-	t.Fatalf("monsters still overlapping after separation pass: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
-		a.X, a.Y, b.X, b.Y, need)
-}
-
-// In a one-wide corridor (trees above and below) the least-penetration push is
-// blocked on both sides - the pair must fall back to separating ALONG the
-// corridor instead of staying glued (the goblins-stuck-between-trees bug).
-func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := world.NewWorld3D(cfg)
-	w.Width, w.Height = 7, 3
-	w.Tiles = make([][]world.TileType3D, w.Height)
-	for y := 0; y < w.Height; y++ {
-		w.Tiles[y] = make([]world.TileType3D, w.Width)
-		for x := 0; x < w.Width; x++ {
-			if y == 1 {
-				w.Tiles[y][x] = world.TileEmpty // the corridor
-			} else {
-				w.Tiles[y][x] = world.TileTree
-			}
-		}
-	}
-	g := newTestGame(cfg, w)
-	gl := &GameLoop{game: g}
-
-	// Stacked mid-corridor, offset slightly along Y so the LEAST penetration
-	// axis is the blocked cross-corridor one.
-	a := monster.NewMonster3DFromConfig(64*3+32, 96, "goblin", cfg)
-	b := monster.NewMonster3DFromConfig(64*3+34, 90, "goblin", cfg)
-	a.IsEngagingPlayer = true
-	b.IsEngagingPlayer = true
-	w.Monsters = []*monster.Monster3D{a, b}
-	g.registerSpawnedMonster(a)
-	g.registerSpawnedMonster(b)
-
-	aw, _ := a.GetSize()
-	bw, _ := b.GetSize()
-	need := (aw + bw) / 2
-	for i := 0; i < 300; i++ {
-		gl.separateOverlappingMonsters()
-		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
-			return // separated along the corridor
-		}
-	}
-	t.Fatalf("corridor pair still glued: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
-		a.X, a.Y, b.X, b.Y, need)
 }
 
 // creditClearedKillQuests completes a region kill quest when its target_map is
@@ -568,6 +640,132 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || q.Completed {
 		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
 	}
+}
+
+// A map can enter an old save before its authored markers are valid (the clock
+// tower briefly used uppercase monster letters). Such a save serializes an
+// empty roster. Once the map gains valid respawn_days spawns, that untracked
+// empty snapshot must not erase them again; an actual cleared farming map has
+// a respawn stamp and remains empty until its normal refresh window elapses.
+func TestSaveLoad_UntrackedEmptyRespawnRosterUsesAuthoredSpawns(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const mapKey = "respawn_test"
+
+	newAuthoredWorld := func() *world.World3D {
+		w := newTestWorld(cfg)
+		w.MonsterSpawns = []world.MonsterSpawn{{X: 0, Y: 0, MonsterKey: "bandit"}}
+		w.RespawnAuthoredMonsters()
+		return w
+	}
+	newManager := func(w *world.World3D) *world.WorldManager {
+		wm := world.NewWorldManager(cfg)
+		wm.CurrentMapKey = mapKey
+		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
+		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
+		return wm
+	}
+
+	for _, tc := range []struct {
+		name             string
+		respawnStamp     map[string]int
+		wantMonsters     int
+		wantRespawnStamp int
+	}{
+		{name: "legacy empty snapshot", wantMonsters: 1, wantRespawnStamp: 1},
+		{name: "tracked cleared roster", respawnStamp: map[string]int{mapKey: 3}, wantMonsters: 0, wantRespawnStamp: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wmSave := newManager(newAuthoredWorld())
+			gameSave := newTestGame(cfg, wmSave.LoadedMaps[mapKey])
+			save := gameSave.buildSave(wmSave)
+			save.MapKey = mapKey
+			save.MapMonsters = map[string][]MonsterSave{mapKey: []MonsterSave{}}
+			save.MapRespawnDay = tc.respawnStamp
+
+			worldLoad := newAuthoredWorld()
+			wmLoad := newManager(worldLoad)
+			oldWM := world.GlobalWorldManager
+			world.GlobalWorldManager = wmLoad
+			defer func() { world.GlobalWorldManager = oldWM }()
+
+			loaded := newTestGame(cfg, worldLoad)
+			if err := loaded.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			if got := len(worldLoad.Monsters); got != tc.wantMonsters {
+				t.Fatalf("monsters after load = %d, want %d", got, tc.wantMonsters)
+			}
+			resaved := loaded.buildSave(wmLoad)
+			if got := len(resaved.MapMonsters[mapKey]); got != tc.wantMonsters {
+				t.Fatalf("monsters after resave = %d, want %d", got, tc.wantMonsters)
+			}
+			if got := resaved.MapRespawnDay[mapKey]; got != tc.wantRespawnStamp {
+				t.Fatalf("respawn stamp after resave = %d, want %d", got, tc.wantRespawnStamp)
+			}
+			if tc.wantMonsters > 0 {
+				if worldLoad.Monsters[0].Key != "bandit" {
+					t.Fatalf("restored roster key = %q, want bandit", worldLoad.Monsters[0].Key)
+				}
+				if worldLoad.LastRespawnDay != loaded.dayNightDay+1 {
+					t.Fatalf("respawn stamp = %d, want %d", worldLoad.LastRespawnDay, loaded.dayNightDay+1)
+				}
+			}
+		})
+	}
+}
+
+// A respawn_days roster with NO stamp is of unknown age (a pre-stamp save):
+// arrival must rewind it to the CURRENT authored spawns immediately, so old
+// saves pick up re-authored maps on first entry. A stamped roster keeps its
+// normal refresh window.
+func TestRespawnOnArrival_UnstampedRosterRewindsToAuthored(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const mapKey = "respawn_test"
+
+	setup := func(stamp int) (*MMGame, *world.World3D) {
+		w := newTestWorld(cfg)
+		w.MonsterSpawns = []world.MonsterSpawn{
+			{X: 0, Y: 0, MonsterKey: "bandit"},
+			{X: 1, Y: 0, MonsterKey: "bandit"},
+		}
+		// Stale roster from an old save: one survivor of a smaller authoring.
+		w.Monsters = []*monster.Monster3D{monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)}
+		w.LastRespawnDay = stamp
+		wm := world.NewWorldManager(cfg)
+		wm.CurrentMapKey = mapKey
+		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
+		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
+		oldWM := world.GlobalWorldManager
+		world.GlobalWorldManager = wm
+		t.Cleanup(func() { world.GlobalWorldManager = oldWM })
+		return newTestGame(cfg, w), w
+	}
+
+	t.Run("unstamped: rewound on arrival", func(t *testing.T) {
+		g, w := setup(0)
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 2 {
+			t.Fatalf("unstamped roster must rewind to authored spawns, got %d monsters, want 2", got)
+		}
+		if w.LastRespawnDay != g.dayNightDay+1 {
+			t.Fatalf("rewind must stamp the day, got %d", w.LastRespawnDay)
+		}
+	})
+	t.Run("fresh stamp: untouched", func(t *testing.T) {
+		g, w := setup(1) // spawned "today" (dayNightDay 0 -> stamp 1)
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 1 {
+			t.Fatalf("freshly stamped roster must keep its refresh window, got %d monsters, want 1", got)
+		}
+	})
+	t.Run("expired stamp: rewound", func(t *testing.T) {
+		g, w := setup(1)
+		g.dayNightDay = 3 // 3 full phases later
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 2 {
+			t.Fatalf("expired stamp must rewind, got %d monsters, want 2", got)
+		}
+	})
 }
 
 // Hostility must survive save/load: a provoked monster (WasAttacked) stays
@@ -631,6 +829,87 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 	}
 }
 
+func TestSaveLoad_PreservesTurnBasedSightEngagementOnly(t *testing.T) {
+	for _, turnBased := range []bool{false, true} {
+		mode := "RT"
+		if turnBased {
+			mode = "TB"
+		}
+		t.Run(mode, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			wmSave := world.NewWorldManager(cfg)
+			worldSave := newTestWorld(cfg)
+			wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+			wmSave.CurrentMapKey = "forest"
+			game := newTestGame(cfg, worldSave)
+			game.turnBasedMode = turnBased
+			sighted := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+			sighted.IsEngagingPlayer = true
+			worldSave.Monsters = []*monster.Monster3D{sighted}
+			save := game.buildSave(wmSave)
+			if got := save.MapMonsters["forest"][0].TurnBasedSightEngaged; got != turnBased {
+				t.Fatalf("serialized sight engagement = %v, want %v", got, turnBased)
+			}
+
+			wmLoad := world.NewWorldManager(cfg)
+			worldLoad := newTestWorld(cfg)
+			wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+			wmLoad.CurrentMapKey = "forest"
+			oldWorldManager := world.GlobalWorldManager
+			world.GlobalWorldManager = wmLoad
+			t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+			loaded := newTestGame(cfg, worldLoad)
+			if err := loaded.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			if len(worldLoad.Monsters) != 1 || worldLoad.Monsters[0].IsEngagingPlayer != turnBased {
+				t.Fatalf("restored sight engagement = monsters:%d engaging:%v, want %v", len(worldLoad.Monsters), len(worldLoad.Monsters) == 1 && worldLoad.Monsters[0].IsEngagingPlayer, turnBased)
+			}
+		})
+	}
+}
+
+func TestSaveLoad_ResumesMidMonsterPassWithoutRestartingIt(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+	game.turnBasedMode = true
+	game.currentTurn = 1
+	game.monsterTurnResolved = false
+	mob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
+	mob.ID = "mid-pass-mob"
+	worldSave.Monsters = []*monster.Monster3D{mob}
+	game.turnBasedMonsterPassesLeft = 1
+	game.turnBasedMonsterPassDelay = 2
+	game.turnBasedMonsterStatusTick = true
+	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{mob: true}
+	save := game.buildSave(wmSave)
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+	loaded := newTestGame(cfg, worldLoad)
+	loaded.combat = NewCombatSystem(loaded)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	(&GameLoop{game: loaded}).updateMonstersTurnBased()
+	if loaded.turnBasedMonsterPassesLeft != 1 || loaded.turnBasedMonsterPassDelay != 1 {
+		t.Fatalf("resumed scheduler restarted instead of consuming delay: passes=%d delay=%d", loaded.turnBasedMonsterPassesLeft, loaded.turnBasedMonsterPassDelay)
+	}
+	if !loaded.turnBasedMonsterStatusTick || !loaded.turnBasedMonsterStunned[worldLoad.Monsters[0]] {
+		t.Fatal("resumed scheduler lost its already-ticked/stunned pass state")
+	}
+}
+
 // A sealed boss (passive-until-quest, no evade radius) that wandered off its
 // throne in a pre-fix save must snap back to its MAP spawn on load while its
 // quest is unfinished - the saved (wandered) position is discarded. Once the
@@ -685,7 +964,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 	if b := restoreBoss(quests.QuestStatusActive); b.X != throneX || b.Y != throneY {
 		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
 	} else if !b.BossDormant {
-		// Set at restore time, not waiting for refreshBoundAllyCache (which runs
+		// Set at restore time, not waiting for refreshMonsterAIState (which runs
 		// after input) - else a first-frame player action could damage the sealed boss.
 		t.Error("sealed boss must be flagged BossDormant immediately on load")
 	}
@@ -697,7 +976,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 }
 
 // TestSaveLoad_IdolWardSetOnRestore guards the idol-ward immediate-init: a warded
-// boss must be flagged BossWarded the instant a save loads (refreshBoundAllyCache
+// boss must be flagged BossWarded the instant a save loads (refreshMonsterAIState
 // runs AFTER input, so without the restore-time pass a first-frame player action
 // could damage a still-warded warlord). And with no live idol it must NOT be warded.
 func TestSaveLoad_IdolWardSetOnRestore(t *testing.T) {
@@ -802,6 +1081,96 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 	}
 	if !foundAdd {
 		t.Fatal("summoned add missing after load")
+	}
+}
+
+func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
+	gSave, _ := summonTileWorld(t)
+	cfg := gSave.config
+	wSave := gSave.world
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+
+	oldWM := world.GlobalWorldManager
+	world.GlobalWorldManager = wmSave
+	t.Cleanup(func() { world.GlobalWorldManager = oldWM })
+
+	caster := character.CreateCharacter("Druid", character.ClassDruid, cfg)
+	caster.MaxHitPoints, caster.HitPoints = 250, 250
+	caster.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
+	caster.Skills[character.SkillAnimalBonding].Mastery = character.MasteryGrandMaster
+	caster.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	gSave.party.Members = []*character.MMCharacter{caster}
+
+	if !gSave.combat.summonAnimalBondingBear(caster) {
+		t.Fatal("Animal Bonding could not place a bear")
+	}
+	bear := wSave.Monsters[len(wSave.Monsters)-1]
+	bear.HitPoints = bear.MaxHitPoints - 1
+	wantBear := MonsterRuntimeStatsSave{
+		MaxHitPoints: bear.MaxHitPoints,
+		ArmorClass:   bear.ArmorClass,
+		DamageMin:    bear.DamageMin,
+		DamageMax:    bear.DamageMax,
+	}
+
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID("summon_ice_elemental"))
+	if err != nil {
+		t.Fatalf("summon spell definition: %v", err)
+	}
+	if !gSave.combat.tryCastSummon(def, caster) {
+		t.Fatal("summon spell was not handled")
+	}
+	add := wSave.Monsters[len(wSave.Monsters)-1]
+	if add.MaxHitPoints != 1000 || add.DamageMin != 50 || add.DamageMax != 50 {
+		t.Fatalf("GM summon stats before save = %d HP, %d-%d damage", add.MaxHitPoints, add.DamageMin, add.DamageMax)
+	}
+	add.HitPoints = 777
+	wantElemental := MonsterRuntimeStatsSave{
+		MaxHitPoints: add.MaxHitPoints,
+		ArmorClass:   add.ArmorClass,
+		DamageMin:    add.DamageMin,
+		DamageMax:    add.DamageMax,
+	}
+	save := gSave.buildSave(wmSave)
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	world.GlobalWorldManager = wmLoad
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	wantByKey := map[string]struct {
+		hitPoints int
+		stats     MonsterRuntimeStatsSave
+	}{
+		"bear":            {hitPoints: bear.HitPoints, stats: wantBear},
+		"frost_elemental": {hitPoints: add.HitPoints, stats: wantElemental},
+	}
+	for _, m := range wLoad.Monsters {
+		want, ok := wantByKey[m.Key]
+		if !ok {
+			continue
+		}
+		got := MonsterRuntimeStatsSave{
+			MaxHitPoints: m.MaxHitPoints,
+			ArmorClass:   m.ArmorClass,
+			DamageMin:    m.DamageMin,
+			DamageMax:    m.DamageMax,
+		}
+		if m.HitPoints != want.hitPoints || got != want.stats {
+			t.Errorf("%s stats after load = HP %d, %+v; want HP %d, %+v",
+				m.Key, m.HitPoints, got, want.hitPoints, want.stats)
+		}
+		delete(wantByKey, m.Key)
+	}
+	for key := range wantByKey {
+		t.Errorf("%s missing after load", key)
 	}
 }
 

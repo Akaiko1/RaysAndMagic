@@ -11,7 +11,7 @@ import (
 // dragon_cliffs biome and verifies it wires up: a start, the violet teleporter,
 // the four area NPCs, and the 6 green + 3 gold dragons.
 func TestDragonCliffsMapLoads(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

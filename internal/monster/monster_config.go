@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"ugataima/internal/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,7 +23,7 @@ type MonsterDefinition struct {
 	Experience   int      `yaml:"experience"`
 	DamageMin    int      `yaml:"damage_min"`
 	DamageMax    int      `yaml:"damage_max"`
-	TrueDamage   int      `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
+	TrueDamage   int      `yaml:"true_damage,omitempty"` // typed per-attack damage: resistance applies; armor/flat/dodge do not
 	AlertRadius  float64  `yaml:"alert_radius"`
 	AttackRadius float64  `yaml:"attack_radius"`
 	Speed        float64  `yaml:"speed"`
@@ -37,56 +39,61 @@ type MonsterDefinition struct {
 	SizeClass string `yaml:"size_class"`
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
-	// damage, attack cadence, HP and armor onto this monster at spawn.
+	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
+	// damage school comes from that weapon, so melee_damage_type is invalid.
 	Champion string `yaml:"champion,omitempty"`
 	// size_game and size_multiplier are retired. The fields exist only so content
 	// still authoring them FAILS LOUD in validation instead of silently rendering
 	// at the wrong scale.
-	DeprecatedSizeGame       float64           `yaml:"size_game,omitempty"`
-	DeprecatedSizeMultiplier float64           `yaml:"size_multiplier,omitempty"`
-	Resistances              map[string]int    `yaml:"resistances"`
-	HabitatPrefs             []string          `yaml:"habitat_preferences"`
-	HabitatNear              []HabitatNearRule `yaml:"habitat_near"`
-	ProjectileSpell          string            `yaml:"projectile_spell"`
-	ProjectileWeapon         string            `yaml:"projectile_weapon"`
-	Flying                   bool              `yaml:"flying"`
-	RangedAttackRange        float64           `yaml:"ranged_attack_range"`
-	AttacksPerRound          int               `yaml:"attacks_per_round"`
-	AttackCooldownMult       float64           `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit          bool              `yaml:"passive_until_attacked"`
-	FireburstChance          float64           `yaml:"fireburst_chance"`
-	FireburstDamageMin       int               `yaml:"fireburst_damage_min"`
-	FireburstDamageMax       int               `yaml:"fireburst_damage_max"`
-	DragonBreathChance       float64           `yaml:"dragon_breath_chance,omitempty"`
-	DragonBreathType         string            `yaml:"dragon_breath_damage_type,omitempty"`
-	PiercingShotChance       float64           `yaml:"piercing_shot_chance,omitempty"`
-	PiercingShotTargets      int               `yaml:"piercing_shot_targets,omitempty"`
-	AllyHealChance           float64           `yaml:"ally_heal_chance,omitempty"`
-	AllyHealAmount           int               `yaml:"ally_heal_amount,omitempty"`
-	AllyHealRadius           float64           `yaml:"ally_heal_radius_tiles,omitempty"`
-	PoisonChance             float64           `yaml:"poison_chance"`
-	PoisonDurationSec        int               `yaml:"poison_duration_seconds"`
-	IgniteChance             float64           `yaml:"ignite_chance,omitempty"`
-	IgniteDurationSec        int               `yaml:"ignite_duration_seconds,omitempty"`
-	StunCharChance           float64           `yaml:"stun_char_chance,omitempty"`
-	StunCharSeconds          int               `yaml:"stun_char_seconds,omitempty"`
-	StunCharTurns            int               `yaml:"stun_char_turns,omitempty"`
-	DispelChance             float64           `yaml:"dispel_chance,omitempty"`
+	DeprecatedSizeGame       float64        `yaml:"size_game,omitempty"`
+	DeprecatedSizeMultiplier float64        `yaml:"size_multiplier,omitempty"`
+	Resistances              map[string]int `yaml:"resistances"`
+	HabitatPrefs             []string       `yaml:"habitat_preferences"`
+	ProjectileSpell          string         `yaml:"projectile_spell"`
+	ProjectileWeapon         string         `yaml:"projectile_weapon"`
+	Flying                   bool           `yaml:"flying"`
+	RangedAttackRange        float64        `yaml:"ranged_attack_range"`
+	AttacksPerRound          int            `yaml:"attacks_per_round"`
+	AttackCooldownMult       float64        `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit          bool           `yaml:"passive_until_attacked"`
+	FireburstChance          float64        `yaml:"fireburst_chance"`
+	FireburstDamageMin       int            `yaml:"fireburst_damage_min"`
+	FireburstDamageMax       int            `yaml:"fireburst_damage_max"`
+	DragonBreathChance       float64        `yaml:"dragon_breath_chance,omitempty"`
+	DragonBreathType         string         `yaml:"dragon_breath_damage_type,omitempty"`
+	MeleeDamageType          string         `yaml:"melee_damage_type,omitempty"`
+	PiercingShotChance       float64        `yaml:"piercing_shot_chance,omitempty"`
+	PiercingShotTargets      int            `yaml:"piercing_shot_targets,omitempty"`
+	AllyHealChance           float64        `yaml:"ally_heal_chance,omitempty"`
+	AllyHealAmount           int            `yaml:"ally_heal_amount,omitempty"`
+	AllyHealRadius           float64        `yaml:"ally_heal_radius_tiles,omitempty"`
+	PoisonChance             float64        `yaml:"poison_chance"`
+	PoisonDurationSec        int            `yaml:"poison_duration_seconds"`
+	IgniteChance             float64        `yaml:"ignite_chance,omitempty"`
+	IgniteDurationSec        int            `yaml:"ignite_duration_seconds,omitempty"`
+	StunCharChance           float64        `yaml:"stun_char_chance,omitempty"`
+	StunCharSeconds          int            `yaml:"stun_char_seconds,omitempty"`
+	StunCharTurns            int            `yaml:"stun_char_turns,omitempty"`
+	DispelChance             float64        `yaml:"dispel_chance,omitempty"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
 	PounceRangeTiles      float64             `yaml:"pounce_range_tiles"`
 	PounceCooldownSeconds float64             `yaml:"pounce_cooldown_seconds"`
 	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
+	// Boss is the explicit content classification. It drives boss AI, rewards,
+	// and exclusions from ambient systems; boss-only mechanics below require it.
+	Boss bool `yaml:"boss,omitempty"`
 	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
 	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee bypasses party armor class
 	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
+	InfernoRangeTiles float64 `yaml:"inferno_range_tiles,omitempty"`   // how far the nova reaches (required with inferno_chance); melee reach can still replace a hit with it
 	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile
 	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`       // 0..1 chance per action to blink (only below TeleportAtHP)
 	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
 	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
-	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with evade_radius_tiles)
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cooldown between evasive blinks (required with evade_radius_tiles)
 	// Summon: an aggressive boss rallies adds on its action.
 	SummonChance          float64  `yaml:"summon_chance,omitempty"`           // 0..1 chance per action to summon (needs summon_monsters)
 	SummonFirstGuaranteed bool     `yaml:"summon_first_guaranteed,omitempty"` // first successful summon ignores summon_chance; refill uses chance
@@ -97,10 +104,21 @@ type MonsterDefinition struct {
 	EnrageAtHP         int     `yaml:"enrage_at_hp,omitempty"`
 	EnrageDamageMult   float64 `yaml:"enrage_damage_mult,omitempty"`
 	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
+	// Trap volley (Brood Mother): every interval the boss re-sows a field of
+	// fire traps on random walkable tiles around itself; the new volley replaces
+	// the old one. Party members standing on a trap tile take fire damage.
+	TrapVolleyCount           int     `yaml:"trap_volley_count,omitempty"`
+	TrapVolleyRadiusTiles     float64 `yaml:"trap_volley_radius_tiles,omitempty"`
+	TrapVolleyIntervalSeconds float64 `yaml:"trap_volley_interval_seconds,omitempty"` // RT cadence
+	TrapVolleyIntervalTurns   int     `yaml:"trap_volley_interval_turns,omitempty"`   // TB cadence
+	TrapVolleyDamage          int     `yaml:"trap_volley_damage,omitempty"`
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
-	WardedByIdols    bool   `yaml:"warded_by_idols,omitempty"`    // boss: warded while any idol lives
-	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	WardedByIdols     bool    `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
+	AggroWholeMap     bool    `yaml:"aggro_whole_map,omitempty"`
+	RallyOnAggroTiles float64 `yaml:"rally_on_aggro_tiles,omitempty"` // alarm bell: on aggro, wake nearby monsters once
+	RallyMaxTargets   int     `yaml:"rally_max_targets,omitempty"`    // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
+	// boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
 	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
 	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
 	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
@@ -112,12 +130,6 @@ type MonsterDefinition struct {
 	TintColor []float64 `yaml:"tint_color,omitempty"`
 }
 
-// HabitatNearRule defines a rule for placing monsters near certain tile types
-type HabitatNearRule struct {
-	Type   string `yaml:"type"`
-	Radius int    `yaml:"radius"`
-}
-
 type MonsterLightConfig struct {
 	Enabled     bool    `yaml:"enabled"`
 	RadiusTiles float64 `yaml:"radius_tiles"`
@@ -126,20 +138,21 @@ type MonsterLightConfig struct {
 
 // MonsterYAMLConfig holds the complete monster configuration from YAML
 type MonsterYAMLConfig struct {
-	Monsters    map[string]MonsterDefinition `yaml:"monsters"`
-	DamageTypes map[string]int               `yaml:"damage_types"`
-	TileTypes   map[string]int               `yaml:"tile_types"`
+	Monsters map[string]MonsterDefinition `yaml:"monsters"`
 }
 
 // Global monster configuration
 var MonsterConfig *MonsterYAMLConfig
 
 // validateMonsterConfiguration checks for conflicts in monster letters.
-// Monster letters are allowed to be reused by biome-scoped definitions; the map
-// loader resolves biome-specific monsters before universal monsters.
+// ASCII map contract: lowercase a-z is reserved for monster spawns; tiles and
+// props use uppercase letters (or a letterless [tile:] token). Monster letters
+// may be reused by biome-scoped definitions; the map loader resolves
+// biome-specific monsters before universal monsters.
 func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	universalLetters := make(map[string][]string)
 	biomeLetters := make(map[string]map[string][]string)
+	var conflicts []string
 
 	for key, monster := range config.Monsters {
 		letter := monster.Letter
@@ -158,10 +171,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 	}
 
-	var conflicts []string
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
+		if monster.Letter != "" && (len(monster.Letter) != 1 || monster.Letter[0] < 'a' || monster.Letter[0] > 'z') {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has map letter %q - monster spawns must use one lowercase ASCII letter (a-z)", key, monster.Letter))
+		}
 		if monster.DeprecatedSizeGame != 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game - use size_class instead", key))
 		}
@@ -171,8 +186,19 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))
 		}
+		if strings.TrimSpace(monster.Champion) != "" && strings.TrimSpace(monster.MeleeDamageType) != "" {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' sets both champion and melee_damage_type - champion melee damage school comes from its equipped weapon", key))
+		}
+		if monster.requiresBossClassification() && !monster.Boss {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' authors boss-only behavior but lacks boss: true", key))
+		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		// A nova with no authored reach would silently become map-wide in TB (it
+		// used to) - make the radius explicit content, like every other range.
+		if monster.InfernoChance > 0 && monster.InfernoRangeTiles <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_range_tiles", key))
 		}
 		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets < 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative piercing_shot_targets", key))
@@ -192,20 +218,61 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.IgniteChance > 0 && monster.IgniteDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ignite_chance but no ignite_duration_seconds", key))
 		}
-		if monster.StunCharChance > 0 && monster.StunCharSeconds <= 0 && monster.StunCharTurns <= 0 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but no stun_char_seconds/turns", key))
+		if monster.StunCharChance > 0 && (monster.StunCharSeconds <= 0 || monster.StunCharTurns <= 0) {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but needs positive stun_char_seconds and stun_char_turns", key))
 		}
 		if monster.DragonBreathChance > 0 && strings.TrimSpace(monster.DragonBreathType) == "" {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has dragon_breath_chance but no dragon_breath_damage_type", key))
 		}
 		breathType := strings.ToLower(strings.TrimSpace(monster.DragonBreathType))
-		if breathType != "" && config.DamageTypes[breathType] == 0 && breathType != DamageSchoolPhysical {
-			if _, err := config.ConvertDamageType(breathType); err != nil {
+		if breathType != "" {
+			if damageType, err := ParseDamageType(breathType); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
+			} else {
+				monster.DragonBreathType = damageType.String()
 			}
 		}
+		meleeType := strings.ToLower(strings.TrimSpace(monster.MeleeDamageType))
+		if meleeType != "" {
+			if damageType, err := ParseDamageType(meleeType); err != nil {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown melee_damage_type %q", key, monster.MeleeDamageType))
+			} else {
+				monster.MeleeDamageType = damageType.String()
+			}
+		}
+		if monster.Resistances != nil {
+			resistances := make(map[string]int, len(monster.Resistances))
+			originals := make(map[string]string, len(monster.Resistances))
+			valid := true
+			for rawSchool, resistance := range monster.Resistances {
+				damageType, err := ParseDamageType(rawSchool)
+				if err != nil {
+					conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown resistance school %q", key, rawSchool))
+					valid = false
+					continue
+				}
+				school := damageType.String()
+				if previous, exists := originals[school]; exists {
+					conflicts = append(conflicts, fmt.Sprintf(
+						"Monster '%s' resistance schools %q and %q normalize to the same key %q",
+						key,
+						previous,
+						rawSchool,
+						school,
+					))
+					valid = false
+					continue
+				}
+				originals[school] = rawSchool
+				resistances[school] = resistance
+			}
+			if valid {
+				monster.Resistances = resistances
+			}
+		}
+		config.Monsters[key] = monster
 		// An evasive boss (blinks away while its quest is unfinished) needs a blink
-		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
+		// cooldown. A dormant boss (passive_until_quest with no evade_radius_tiles)
 		// just holds until the quest completes, so it needs neither.
 		if monster.EvadeRadiusTiles > 0 && monster.BossCooldownSecs <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has evade_radius_tiles but no boss_cooldown_seconds", key))
@@ -215,6 +282,18 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.EnrageAtHP > 0 && monster.EnrageDamageMult <= 0 && monster.EnrageCooldownMult <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has enrage_at_hp but neither enrage_damage_mult nor enrage_cooldown_mult", key))
+		}
+		if monster.RallyMaxTargets < 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative rally_max_targets", key))
+		}
+		if monster.hasTrapVolley() {
+			if monster.TrapVolleyCount <= 0 || monster.TrapVolleyRadiusTiles <= 0 || monster.TrapVolleyDamage <= 0 ||
+				monster.TrapVolleyIntervalSeconds <= 0 || monster.TrapVolleyIntervalTurns <= 0 {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' trap volley needs positive count, radius_tiles, damage, interval_seconds and interval_turns", key))
+			}
+		}
+		if monster.RallyMaxTargets > 0 && monster.RallyOnAggroTiles <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has rally_max_targets but no rally_on_aggro_tiles", key))
 		}
 		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
@@ -239,6 +318,70 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		return fmt.Errorf("monster configuration conflicts detected:\n%s", strings.Join(conflicts, "\n"))
 	}
 
+	return nil
+}
+
+// requiresBossClassification lists the mechanics whose scheduling and AI use
+// the explicit Boss classification. Keeping the list beside validation makes a
+// new boss-only YAML knob fail loud until it is deliberately classified.
+func (m MonsterDefinition) requiresBossClassification() bool {
+	return m.InfernoChance > 0 || m.InfernoDamage > 0 ||
+		m.TeleportAtHP > 0 || m.TeleportChance > 0 ||
+		m.PassiveUntilQuest != "" || m.EvadeRadiusTiles > 0 || m.BossCooldownSecs > 0 ||
+		m.SummonChance > 0 || m.SummonFirstGuaranteed || len(m.SummonMonsters) > 0 || m.SummonCount > 0 || m.SummonMax > 0 ||
+		m.EnrageAtHP > 0 || m.EnrageDamageMult > 0 || m.EnrageCooldownMult > 0 ||
+		m.hasTrapVolley() ||
+		m.WardedByIdols || m.AggroWholeMap || m.DeathRalliesType != ""
+}
+
+func (m MonsterDefinition) hasTrapVolley() bool {
+	return m.TrapVolleyCount != 0 ||
+		m.TrapVolleyRadiusTiles != 0 ||
+		m.TrapVolleyDamage != 0 ||
+		m.TrapVolleyIntervalSeconds != 0 ||
+		m.TrapVolleyIntervalTurns != 0
+}
+
+// ValidateCatalogReferences checks monster links that can only resolve after
+// the spell, weapon and loot catalogs have loaded.
+func ValidateCatalogReferences(monsters *MonsterYAMLConfig, gameConfig *config.Config) error {
+	if monsters == nil {
+		return fmt.Errorf("monster catalog is nil")
+	}
+	for key, def := range monsters.Monsters {
+		if def.ProjectileSpell != "" {
+			if spell, ok := config.GetSpellDefinition(def.ProjectileSpell); !ok || spell == nil {
+				return fmt.Errorf("monster %q references unknown projectile_spell %q", key, def.ProjectileSpell)
+			}
+			if gameConfig == nil {
+				return fmt.Errorf("monster %q projectile_spell %q cannot be validated without game config", key, def.ProjectileSpell)
+			}
+			if _, err := gameConfig.GetSpellConfig(def.ProjectileSpell); err != nil {
+				return fmt.Errorf("monster %q projectile_spell %q has no projectile physics: %w", key, def.ProjectileSpell, err)
+			}
+		}
+		if def.ProjectileWeapon != "" {
+			weapon, ok := config.GetWeaponDefinition(def.ProjectileWeapon)
+			if !ok || weapon == nil {
+				return fmt.Errorf("monster %q references unknown projectile_weapon %q", key, def.ProjectileWeapon)
+			}
+			if weapon.Physics == nil {
+				return fmt.Errorf("monster %q projectile_weapon %q has no projectile physics", key, def.ProjectileWeapon)
+			}
+		}
+		for i, summonKey := range def.SummonMonsters {
+			if _, ok := monsters.Monsters[summonKey]; !ok {
+				return fmt.Errorf("monster %q summon_monsters[%d] references unknown monster %q", key, i, summonKey)
+			}
+		}
+	}
+	if config.GlobalLoots != nil {
+		for monsterKey := range config.GlobalLoots.Loots {
+			if _, ok := monsters.Monsters[monsterKey]; !ok {
+				return fmt.Errorf("loots.%s has no matching monster definition", monsterKey)
+			}
+		}
+	}
 	return nil
 }
 
@@ -284,11 +427,6 @@ func (c *MonsterYAMLConfig) GetMonsterByKey(key string) (*MonsterDefinition, err
 	return &monster, nil
 }
 
-// GetMonsterByLetter returns monster definition by letter marker
-func (c *MonsterYAMLConfig) GetMonsterByLetter(letter string) (*MonsterDefinition, string, error) {
-	return c.GetMonsterByLetterForBiome(letter, "")
-}
-
 // GetMonsterByLetterForBiome resolves a monster spawn marker for a map biome.
 // Biome-specific definitions win over universal fallback definitions.
 func (c *MonsterYAMLConfig) GetMonsterByLetterForBiome(letter string, biome string) (*MonsterDefinition, string, error) {
@@ -325,29 +463,13 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 	return keys
 }
 
-// ConvertDamageType converts string damage type to DamageType enum
-func (c *MonsterYAMLConfig) ConvertDamageType(damageTypeStr string) (DamageType, error) {
-	damageTypeStr = strings.ToLower(strings.TrimSpace(damageTypeStr))
-	if typeInt, exists := c.DamageTypes[damageTypeStr]; exists {
-		return DamageType(typeInt), nil
-	}
-	return DamagePhysical, fmt.Errorf("unknown damage type: %s", damageTypeStr)
-}
-
-// ConvertTileType converts string tile type to integer
-func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
-	if typeInt, exists := c.TileTypes[tileTypeStr]; exists {
-		return typeInt, nil
-	}
-	return 0, fmt.Errorf("unknown tile type: %s", tileTypeStr)
-}
-
 // SetupMonsterFromConfig configures a monster from YAML definition
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
 	m.MonsterType = def.Type
-	// Size never changes after setup; cached so the per-tick callers (monster
-	// separation runs GetSize per overlapping pair) skip the config scan.
+	// Render/collision identity never changes after setup; cache it so hot
+	// frame/tick callers do not copy or scan the YAML definition.
+	m.cachedSprite = def.GetSpriteFromConfig()
 	m.cachedSizeW, m.cachedSizeH = def.GetSizeFromConfig()
 	m.cachedSizeMult = def.GetSizeGameMultiplier()
 	m.Level = def.Level
@@ -371,12 +493,11 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.Gold = def.GoldMin
 	}
 
-	// Set resistances
-	if MonsterConfig != nil {
-		for damageTypeStr, resistance := range def.Resistances {
-			if damageType, err := MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
-				m.Resistances[damageType] = resistance
-			}
+	// Set resistances from the canonical runtime school catalog. YAML keys were
+	// validated at load, so this no longer depends on the global config pointer.
+	for damageTypeStr, resistance := range def.Resistances {
+		if damageType, err := ParseDamageType(damageTypeStr); err == nil {
+			m.Resistances[damageType] = resistance
 		}
 	}
 
@@ -405,6 +526,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	m.DragonBreathChance = def.DragonBreathChance
 	m.DragonBreathDamageType = def.DragonBreathType
+	m.MeleeDamageType = def.MeleeDamageType
 	m.PiercingShotChance = def.PiercingShotChance
 	m.PiercingShotTargets = def.PiercingShotTargets
 	m.AllyHealChance = def.AllyHealChance
@@ -428,9 +550,16 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
+	m.Boss = def.Boss
 	m.IgnoresArmor = def.IgnoresArmor
 	m.InfernoChance = def.InfernoChance
 	m.InfernoDamage = def.InfernoDamage
+	m.InfernoRangeTiles = def.InfernoRangeTiles
+	m.TrapVolleyCount = def.TrapVolleyCount
+	m.TrapVolleyRadiusTiles = def.TrapVolleyRadiusTiles
+	m.TrapVolleyIntervalSeconds = def.TrapVolleyIntervalSeconds
+	m.TrapVolleyIntervalTurns = def.TrapVolleyIntervalTurns
+	m.TrapVolleyDamage = def.TrapVolleyDamage
 	m.TeleportAtHP = def.TeleportAtHP
 	m.TeleportChance = def.TeleportChance
 	m.PassiveUntilQuest = def.PassiveUntilQuest
@@ -446,6 +575,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.EnrageCooldownMult = def.EnrageCooldownMult
 	m.WardedByIdols = def.WardedByIdols
 	m.AggroWholeMap = def.AggroWholeMap
+	m.RallyOnAggroTiles = def.RallyOnAggroTiles
+	m.RallyMaxTargets = def.RallyMaxTargets
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
 	m.Banding = def.Banding
@@ -479,29 +610,26 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 // ValidSizeClasses is the fixed set of monster size-class names. The tile-height
 // per class is data-driven (config graphics.monster_size_classes); the NAMES are
 // the enum, so content validation can reject a typo without the config loaded.
-var ValidSizeClasses = map[string]bool{"small": true, "medium": true, "person": true, "large": true, "huge": true}
+var ValidSizeClasses = func() map[string]bool {
+	classes := make(map[string]bool)
+	for _, name := range config.ActorSizeClassNames() {
+		classes[name] = true
+	}
+	return classes
+}()
 
 // sizeClassHeights maps size class -> sprite height in tiles, wired from config
 // at boot via SetSizeClassHeights (monster package must not import the loaded
 // config instance, so the values are pushed in).
 var sizeClassHeights = map[string]float64{}
 
-// SetSizeClassHeights installs the class -> tile-height table (config
-// graphics.size_classes). Call once after loading config. It is the single
-// runtime source both monster AND NPC sizing resolve through (SizeClassTiles).
+// SetSizeClassHeights installs the monster view of the shared class -> tile
+// span table from config graphics.size_classes. Call once after loading config.
 func SetSizeClassHeights(m map[string]float64) {
 	sizeClassHeights = map[string]float64{}
 	for k, v := range m {
 		sizeClassHeights[k] = v
 	}
-}
-
-// SizeClassTiles returns the sprite height (tiles) for a size class and whether
-// it is defined. The one lookup shared by monster and NPC sizing, so the two
-// never resolve the same class differently.
-func SizeClassTiles(class string) (float64, bool) {
-	h, ok := sizeClassHeights[class]
-	return h, ok
 }
 
 // ValidateSizeClassHeights fails if the loaded height table omits any canonical
@@ -528,7 +656,7 @@ func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
 	if h, ok := sizeClassHeights[def.SizeClass]; ok {
 		return h
 	}
-	if h, ok := sizeClassHeights["person"]; ok {
+	if h, ok := sizeClassHeights[config.SizeClassPerson]; ok {
 		return h
 	}
 	return 0.8

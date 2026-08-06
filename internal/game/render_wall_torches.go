@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -25,6 +26,28 @@ type wallTorchPoint struct {
 	seed int
 }
 
+// wallTorchHostTile reports whether a torch may occupy this authored room
+// tile. Read TileData directly so traversal buffs such as Walk on Water cannot
+// turn water into permanent map dressing while the torch cache is rebuilt.
+func wallTorchHostTile(w *world.World3D, x, y int) bool {
+	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
+		return false
+	}
+	data := world.GlobalTileManager.GetTileData(w.GetTileAtGrid(x, y))
+	return data != nil && data.Walkable
+}
+
+// wallTorchBackingWall reports whether this tile draws an actual wall face.
+// Movement blockers are not interchangeable with walls here: water, scenery,
+// and other impassable floor tiles cannot physically support a corner torch.
+func wallTorchBackingWall(w *world.World3D, x, y int) bool {
+	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
+		return false
+	}
+	data := world.GlobalTileManager.GetTileData(w.GetTileAtGrid(x, y))
+	return data != nil && data.RenderType == config.TileRenderWall
+}
+
 // buildWallTorches scans the world for inner wall corners and caches torch
 // positions. Called from the same world-change hook that rebuilds the other
 // per-map caches; clears the list when the map doesn't enable torches.
@@ -39,17 +62,16 @@ func (r *Renderer) buildWallTorches() {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
-	blocked := func(x, y int) bool { return w.IsTileBlocking(x, y) }
 	for ty := 0; ty < w.Height; ty++ {
 		for tx := 0; tx < w.Width; tx++ {
-			if blocked(tx, ty) {
-				continue // torches hang in the room, not inside walls
+			if !wallTorchHostTile(w, tx, ty) {
+				continue // torches hang over authored room floor, never water
 			}
-			// Each pair of perpendicular blocking neighbours = one inner corner.
+			// Each pair of perpendicular wall faces = one inner corner.
 			for _, c := range [4]struct {
-				dx, dy int // blocked directions forming the corner
+				dx, dy int // wall directions forming the corner
 			}{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
-				if !blocked(tx+c.dx, ty) || !blocked(tx, ty+c.dy) {
+				if !wallTorchBackingWall(w, tx+c.dx, ty) || !wallTorchBackingWall(w, tx, ty+c.dy) {
 					continue
 				}
 				px := float64(tx)*ts + wallTorchCornerInset
@@ -113,8 +135,6 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 		col := mixColor([3]int{255, 90, 10}, [3]int{255, 220, 120}, 1-ph) // hot core -> ember tip
 		r.drawGlowRect(screen, float64(screenX)+sway, baseY-rise, size*(1.1-0.5*ph), col, alpha, additiveGlowBlend)
 	}
-	// Bright heart of the flame.
-	r.drawGlowSprite(screen, float64(screenX), baseY, size*2.4*flick, [3]int{255, 180, 60}, 0.55*flick, additiveGlowBlend)
 
 	// Crackling sparks: a few tiny embers that FLY out smoothly and die.
 	// Each spark's flight is one phase cycle; the cycle index seeds a fresh
@@ -135,4 +155,8 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 		r.drawGlowRect(screen, sx, sy, math.Max(1.5, size*0.35), [3]int{255, 250, 200},
 			flick*(1-ph)*0.95, additiveGlowBlend)
 	}
+
+	// Bright heart last so every white-pixel mote/spark above remains one
+	// consecutive DrawImage batch. Additive composition is order-independent.
+	r.drawGlowSprite(screen, float64(screenX), baseY, size*2.4*flick, [3]int{255, 180, 60}, 0.55*flick, additiveGlowBlend)
 }

@@ -33,9 +33,7 @@ func (r *Renderer) drawSpawnTileBorder(screen *ebiten.Image) {
 
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(radius) * ts
-	for _, d := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-		r.emitAuraEdge(screen, w.StartX, w.StartY, d, ts, perEdge, baseAlpha, maxDepth, rgb)
-	}
+	r.emitAuraTileEdges(screen, w.StartX, w.StartY, ts, perEdge, baseAlpha, maxDepth, rgb)
 }
 
 // Teleporter glow tuning: a DENSE field of varied-size motes that fall sky->ground

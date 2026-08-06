@@ -11,7 +11,7 @@ import (
 // biome and verifies it wires up: 50x50, a start, the 9 NPCs (exit, old man, 7
 // valves), and a Golden Thief Bug boss among the spawns.
 func TestCulvertsMapLoads(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

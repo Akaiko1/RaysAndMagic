@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 )
 
 // MockCollisionChecker implements CollisionChecker for testing
@@ -74,6 +75,25 @@ func (m *MockCollisionChecker) CanOccupyTilesWithHabitat(entityID string, x, y f
 
 func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
+}
+
+func TestHasPathToTileRejectsWalkablePocket(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	for _, wall := range [][2]int{{3, 1}, {5, 1}, {4, 0}, {4, 2}} {
+		checker.BlockTile(wall[0], wall[1])
+	}
+	startX, startY := tileToWorldCenter(1, 1)
+	m := &Monster3D{ID: "m", X: startX, Y: startY, Speed: 1.5}
+	goalX, goalY := tileToWorldCenter(4, 1)
+	if !checker.CanMoveToWithHabitat(m.ID, goalX, goalY, nil, false) {
+		t.Fatal("setup: isolated goal must itself be walkable")
+	}
+	if m.HasPathToTile(checker, 4, 1) {
+		t.Fatal("walkable pocket behind walls was reported as reachable")
+	}
+	if !m.HasPathToTile(checker, 2, 1) {
+		t.Fatal("ordinary adjacent tile was reported as unreachable")
+	}
 }
 
 // TestNextPathStepTile_RoutesAroundBarrier guards the turn-based fix: a mob
@@ -287,29 +307,6 @@ func TestTileCenterCalculation(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestTryMoveCardinal tests cardinal movement using the state speed.
-func TestTryMoveCardinal(t *testing.T) {
-	m := &Monster3D{
-		X:     32.0, // Tile (0,0) center
-		Y:     32.0,
-		Speed: 1.5,
-	}
-
-	checker := NewMockCollisionChecker(64.0)
-
-	// Try to move East (1, 0)
-	success := m.tryMoveCardinal(checker, 1, 0)
-
-	if !success {
-		t.Errorf("tryMoveCardinal failed when it should succeed")
-		t.Logf("Collision checks: %d, Last check at: (%f, %f)",
-			checker.checkCount, checker.lastX, checker.lastY)
-	}
-
-	t.Logf("After tryMoveCardinal East: Position = (%f, %f)", m.X, m.Y)
-	t.Logf("Expected intermediate: X should be > 32, Y should be 32")
 }
 
 // TestMonsterShakingScenario simulates the actual shaking bug using pathfinding
@@ -719,6 +716,26 @@ func createTestMonster(x, y float64) *Monster3D {
 	}
 }
 
+// A pursuit redirect must not be reused as the party's position for vision.
+// Regression: MonsterWrapper passed an evasive boss's self-target through the
+// old Update(playerX, playerY) API, so a boss several tiles from the party saw
+// itself at distance zero and entered a permanent false combat loop.
+func TestUpdateWithTarget_UsesRealPartyPositionForVision(t *testing.T) {
+	m := createTestMonster(100, 100)
+	checker := NewMockCollisionChecker(defaultTileSize)
+
+	// The party is well outside this monster's two-tile sight radius. Its pursuit
+	// target is deliberately its own position, exactly like an evasive boss.
+	m.UpdateWithTarget(checker, 100+10*defaultTileSize, 100, m.X, m.Y)
+
+	if m.IsEngagingPlayer {
+		t.Fatal("self pursuit target must not be interpreted as the party for aggro")
+	}
+	if m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking {
+		t.Fatalf("far party with self target entered combat state %v", m.State)
+	}
+}
+
 func TestMonsterEngagesWhenHit(t *testing.T) {
 	m := createTestMonster(100.0, 100.0)
 
@@ -731,7 +748,7 @@ func TestMonsterEngagesWhenHit(t *testing.T) {
 	}
 
 	// Monster takes damage from close range
-	damage := m.TakeDamage(10, DamagePhysical)
+	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Verify damage was applied
 	if damage != 10 {
@@ -799,7 +816,7 @@ func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 	playerX, playerY := 1060.0, 100.0
 
 	// Hit the monster from long range
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Verify initial engagement
 	if !m.IsEngagingPlayer {
@@ -808,7 +825,7 @@ func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 
 	// Run several AI update cycles - monster should stay engaged
 	for i := 0; i < 60; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Monster should still be engaging because WasAttacked is true
@@ -835,7 +852,7 @@ func TestMonsterDisengagesNormallyWithoutBeingHit(t *testing.T) {
 	playerX, playerY := 500.0, 100.0
 
 	// Run AI update - monster should disengage since WasAttacked is false
-	m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+	m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 
 	// Monster should disengage when player is far and WasAttacked is false
 	if m.IsEngagingPlayer {
@@ -852,7 +869,7 @@ func TestMonsterResistanceReducesDamage(t *testing.T) {
 	m.Resistances[DamageFire] = 50 // 50% fire resistance
 
 	// Hit with fire damage
-	damage := m.TakeDamage(20, DamageFire)
+	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 20}, DamageFire, 0)
 
 	// Should receive only 50% of damage
 	if damage != 10 {
@@ -878,7 +895,7 @@ func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
 	m.StateTimer = 50
 
 	// Take more damage
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// State should not change (still pursuing, not reset to alert)
 	if m.State != StatePursuing {
@@ -898,19 +915,19 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 	playerX, playerY := 800.0, 100.0
 
 	// First hit
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Run some AI updates
 	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Second hit
-	m.TakeDamage(10, DamagePhysical)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Run more AI updates
 	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Should still be engaged
@@ -931,7 +948,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 	playerX, playerY := 612.0, 100.0
 
 	// Hit the monster
-	m.TakeDamage(10, DamageFire)
+	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamageFire, 0)
 
 	initialX := m.X
 
@@ -1045,7 +1062,7 @@ func TestEngagedMonsterLeavesPatrolState(t *testing.T) {
 			AttackRadius: 128, AlertRadius: 320, Speed: 3.75,
 			SpawnX: 64 * 4, SpawnY: 64 * 4, TetherRadius: 64 * 20,
 		}
-		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4) // player 2 tiles away
+		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4, 64*6, 64*4) // player 2 tiles away
 		if m.State != StateAlert {
 			t.Errorf("engaged monster in %v should snap to StateAlert, got %v", start, m.State)
 		}
@@ -1113,6 +1130,43 @@ func TestFleeEnds_ReengagesOrWanders(t *testing.T) {
 	}
 }
 
+func TestFleeExpiresAtAuthoredBoundaryInBothModes(t *testing.T) {
+	const (
+		tps             = 120
+		durationSeconds = 7
+	)
+	newFleer := func() *Monster3D {
+		return &Monster3D{
+			ID: "flee_boundary", X: 320, Y: 320,
+			AlertRadius: 3 * 64, SpawnX: 320, SpawnY: 320, TetherRadius: 4 * 64,
+			HitPoints: 10, MaxHitPoints: 10,
+			State:  StateFleeing,
+			config: &config.Config{MonsterAI: config.MonsterAIConfig{FleeDuration: durationSeconds * tps}},
+		}
+	}
+
+	rt := newFleer()
+	rt.StateTimer = durationSeconds*tps - 1
+	if rt.finishFleeIfExpired(rt.X+20*defaultTileSize, rt.Y) {
+		t.Fatal("RT flee expired one tick before its authored duration")
+	}
+	rt.StateTimer++
+	if !rt.finishFleeIfExpired(rt.X+20*defaultTileSize, rt.Y) {
+		t.Fatal("RT flee did not expire at its authored duration")
+	}
+
+	tb := newFleer()
+	for turn := 1; turn <= durationSeconds; turn++ {
+		tb.NextFleeTurnStep(nil, tb.X+20*defaultTileSize, tb.Y, tps)
+		if turn < durationSeconds && tb.State != StateFleeing {
+			t.Fatalf("TB flee expired on turn %d, want turn %d", turn, durationSeconds)
+		}
+	}
+	if tb.State == StateFleeing {
+		t.Fatalf("TB flee remained active after %d turns", durationSeconds)
+	}
+}
+
 // A cornered fleer (every escape tile blocked) must still exit the flee state
 // by timeout - the old loop picked its OWN tile as the flee target, hit the
 // "already there" early-return every tick, never reached the timeout, and
@@ -1145,4 +1199,83 @@ func TestFlee_CorneredStillTimesOut(t *testing.T) {
 	if m.State != StateAlert || !m.IsEngagingPlayer {
 		t.Errorf("party at 2 tiles: state=%v engaged=%v, want Alert+engaged", m.State, m.IsEngagingPlayer)
 	}
+}
+
+func TestFleeObjectiveInvalidatesPreviousExactTileRoute(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	m := &Monster3D{
+		ID: "route_switch", X: 5*defaultTileSize + defaultTileSize/2, Y: 5*defaultTileSize + defaultTileSize/2,
+		Speed: 1.5, HitPoints: 10, MaxHitPoints: 10, State: StateFleeing,
+		MoveTargetState: StatePatrolling, MoveTargetTileX: 6, MoveTargetTileY: 5, HasMoveTarget: true,
+		PathTiles: []TileCoord{{X: 5, Y: 5}, {X: 6, Y: 5}}, PathIndex: 1,
+		PathTargetTileX: 6, PathTargetTileY: 5, LastPathCalcTick: 100,
+	}
+
+	target, ok := m.ensureFleeTarget(checker, m.X+2*defaultTileSize, m.Y)
+	if !ok {
+		t.Fatal("open map did not provide a flee objective")
+	}
+	if m.MoveTargetState != StateFleeing || !m.HasMoveTarget ||
+		m.MoveTargetTileX != target.X || m.MoveTargetTileY != target.Y {
+		t.Fatalf("flee objective was not installed: state=%v target=(%d,%d) has=%v",
+			m.MoveTargetState, m.MoveTargetTileX, m.MoveTargetTileY, m.HasMoveTarget)
+	}
+	if len(m.PathTiles) != 0 || m.PathIndex != 0 || m.LastPathCalcTick != 0 {
+		t.Fatalf("flee objective reused cached patrol route: path=%v index=%d last=%d",
+			m.PathTiles, m.PathIndex, m.LastPathCalcTick)
+	}
+
+	m.PathTiles = []TileCoord{{X: 5, Y: 5}, target}
+	m.PathIndex = 1
+	m.PathTargetTileX, m.PathTargetTileY = target.X, target.Y
+	m.LastPathCalcTick = 120
+	m.StateTimer = m.fleeDurationFrames() + 1
+	if !m.finishFleeIfExpired(m.X+20*defaultTileSize, m.Y) {
+		t.Fatal("expired flee state did not finish")
+	}
+	if len(m.PathTiles) != 0 || m.HasMoveTarget || m.LastPathCalcTick != 0 {
+		t.Fatalf("finished flee retained its route/objective: path=%v has=%v last=%d",
+			m.PathTiles, m.HasMoveTarget, m.LastPathCalcTick)
+	}
+}
+
+func TestCombatStateTransitionsInvalidatePreviousRoute(t *testing.T) {
+	seedRoute := func() *Monster3D {
+		return &Monster3D{
+			HitPoints: 10, MaxHitPoints: 10,
+			State:           StatePatrolling,
+			MoveTargetState: StatePatrolling, MoveTargetTileX: 8, MoveTargetTileY: 5, HasMoveTarget: true,
+			PathTiles: []TileCoord{{X: 5, Y: 5}, {X: 6, Y: 5}}, PathIndex: 1,
+			PathTargetTileX: 8, PathTargetTileY: 5, LastPathCalcTick: 60,
+		}
+	}
+	assertRouteCleared := func(t *testing.T, m *Monster3D) {
+		t.Helper()
+		if m.HasMoveTarget || len(m.PathTiles) != 0 || m.PathIndex != 0 || m.LastPathCalcTick != 0 {
+			t.Fatalf("transition retained route/objective: has=%v path=%v index=%d last=%d",
+				m.HasMoveTarget, m.PathTiles, m.PathIndex, m.LastPathCalcTick)
+		}
+	}
+
+	t.Run("begin combat", func(t *testing.T) {
+		m := seedRoute()
+		m.BeginCombatEngagement()
+		assertRouteCleared(t, m)
+	})
+
+	t.Run("end engagement", func(t *testing.T) {
+		m := seedRoute()
+		m.State = StatePursuing
+		m.IsEngagingPlayer = true
+		m.EndPlayerEngagement()
+		assertRouteCleared(t, m)
+	})
+
+	t.Run("forced stand down", func(t *testing.T) {
+		m := seedRoute()
+		m.State = StateAttacking
+		m.IsEngagingPlayer = true
+		m.StandDownFromCombat()
+		assertRouteCleared(t, m)
+	})
 }

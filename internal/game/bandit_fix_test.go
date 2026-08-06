@@ -8,6 +8,8 @@ import (
 
 // TestBanditSpawningFix tests that the DRY walkability check fix works
 func TestBanditSpawningFix(t *testing.T) {
+	setTestWorldManager(t, nil)
+
 	// Load configuration
 	cfg, err := config.LoadConfig("../../config.yaml")
 	if err != nil {
@@ -15,7 +17,7 @@ func TestBanditSpawningFix(t *testing.T) {
 	}
 
 	// Initialize the global tile manager
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}

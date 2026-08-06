@@ -5,8 +5,33 @@ import (
 	"math/rand"
 	"strconv"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/status"
+)
+
+// LootGuardAggroRadiusTiles is the complete sight and disengage radius for a
+// crate/lectern guard. It is an objective-specific exception: the usual alert
+// radius, spawn tether expansion, and disengage multiplier do not apply while
+// guarding or pursuing a sight-started guard encounter.
+const LootGuardAggroRadiusTiles = 7.0
+
+// AIBehaviorMode is the mode-independent priority order for a monster.
+// Real-time and turn-based code deliberately keep different movement cadence and
+// attack delivery, but they must agree on which high-level behavior owns a turn.
+// Target geometry and first-sight checks remain separate from this state choice.
+type AIBehaviorMode uint8
+
+const (
+	AIBehaviorInert AIBehaviorMode = iota
+	AIBehaviorBoundAlly
+	AIBehaviorPacified
+	AIBehaviorEvasive
+	AIBehaviorFightFoe
+	AIBehaviorRelentlessParty
+	AIBehaviorFleeing
+	AIBehaviorPassive
+	AIBehaviorSeekParty
 )
 
 // EncounterRewards represents rewards for completing an encounter
@@ -61,6 +86,114 @@ func (m *Monster3D) HatesActiveTrait() bool {
 	return false
 }
 
+// IsPassiveUntilProvoked is the one policy gate for creatures that ignore all
+// combat targets until the party truly attacks them. Hated active traits are an
+// explicit authored exception: they provoke the monster on sight.
+func (m *Monster3D) IsPassiveUntilProvoked() bool {
+	return m != nil && m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait()
+}
+
+// CurrentAIBehavior is the single source of truth for the precedence between
+// scripted/inert, controlled, redirected, fleeing, passive, and ordinary
+// monster behavior. It intentionally does not decide whether a normal monster
+// can first see the party; CanStartPlayerEngagement owns that geometry gate.
+func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
+	if m == nil || m.IsInertSetPiece() {
+		return AIBehaviorInert
+	}
+	if m.Bound {
+		return AIBehaviorBoundAlly
+	}
+	if m.Pacified {
+		return AIBehaviorPacified
+	}
+	if m.BossEvasive {
+		return AIBehaviorEvasive
+	}
+	if m.AIFoe != nil {
+		// A stale crossfire target must not wake a passive creature. Normal
+		// selection clears it too, but keeping the policy here makes every AI
+		// consumer obey the same passive-until-hit contract.
+		if m.IsPassiveUntilProvoked() {
+			return AIBehaviorPassive
+		}
+		return AIBehaviorFightFoe
+	}
+	if m.relentlessHunter() {
+		return AIBehaviorRelentlessParty
+	}
+	if m.State == StateFleeing {
+		return AIBehaviorFleeing
+	}
+	if m.IsPassiveUntilProvoked() {
+		return AIBehaviorPassive
+	}
+	return AIBehaviorSeekParty
+}
+
+// IsPartyControlled reports the two temporary party-applied control effects.
+// Bound monsters actively fight for the party; pacified monsters are neutral
+// until Charm breaks. Both must stay out of party-hostile collision, interaction,
+// and target-selection paths.
+func (m *Monster3D) IsPartyControlled() bool {
+	return m != nil && (m.Bound || m.Pacified)
+}
+
+// TargetsParty reports whether this monster currently owns a combat target on
+// the party. It is intentionally narrower than CurrentAIBehavior: an ordinary
+// monster still needs an active engagement, hit, relentless state, or combat
+// state before it blocks interaction or is ejected from the party tile.
+func (m *Monster3D) TargetsParty() bool {
+	if m == nil {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorBoundAlly,
+		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive:
+		return false
+	case AIBehaviorRelentlessParty:
+		return true
+	}
+	return m.IsEngagingPlayer || m.WasAttacked ||
+		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
+}
+
+// IsInCombat reports whether a monster currently has an active combat purpose,
+// regardless of which side it is fighting. It is deliberately distinct from
+// TargetsParty: a monster duelling a bound ally must not block party actions,
+// but it must not be treated as a calm stack or ambient guard either.
+func (m *Monster3D) IsInCombat() bool {
+	if m == nil || !m.IsAlive() {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
+		return false
+	case AIBehaviorBoundAlly:
+		return m.AIFoe != nil
+	case AIBehaviorFightFoe, AIBehaviorRelentlessParty:
+		return true
+	}
+	return m.IsEngagingPlayer || m.WasAttacked ||
+		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
+}
+
+// IsCalmForSocialBehavior reports whether this monster may participate in an
+// ambient social behavior such as ordinary banding or guarding a prop. Passive
+// monsters may still do so while calm; controlled, redirected, scripted,
+// fleeing, and already-hostile monsters may not.
+func (m *Monster3D) IsCalmForSocialBehavior() bool {
+	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.WasAttacked {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
+		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
+		return false
+	}
+	return m.State == StateIdle || m.State == StatePatrolling
+}
+
 // Global counter for unique monster IDs
 var nextMonsterID int = 1
 
@@ -87,9 +220,9 @@ type Monster3D struct {
 	// Combat stats
 	DamageMin int
 	DamageMax int
-	// TrueDamage is added to every attack and bypasses EVERYTHING on the target -
-	// armor, resists, Stone Skin/flat, dodge - landing straight on HP (folded into
-	// the hit's total, no separate message). Applies to melee AND ranged.
+	// TrueDamage is added to every attack with that attack's school. It meets the
+	// target's resistance, but bypasses armor/flat reduction and lands through
+	// dodge. It is folded into the hit total for melee, ranged, arcs, and AoE.
 	TrueDamage int
 	// Light emission (torch-like)
 	LightRadius    float64
@@ -118,9 +251,9 @@ type Monster3D struct {
 	LastPathCalcTick int
 	pathScratch      pathScratch
 	// Pursuit stall detection: a cached path is only recomputed when the target
-	// tile changes, so a path that became unwalkable (an engaged packmate now
-	// blocks the corridor) is followed forever. Track net progress and drop the
-	// path when pursuing goes nowhere, forcing A* against current positions.
+	// tile changes, so a route invalidated by a door or another dynamic obstacle
+	// can otherwise be followed forever. Track net progress and drop the path
+	// when pursuing goes nowhere, forcing A* against current state.
 	stallAnchorX float64
 	stallAnchorY float64
 	stallTimer   int
@@ -141,21 +274,24 @@ type Monster3D struct {
 	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
 	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
-	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (separation shoves / band snaps excluded)
+	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
 	FaceAccY            float64
 	StunTurnsRemaining  int  // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int  // Real-time stun duration in frames
+	StunRate            int  // Persisted frames-per-turn exchange rate keeping mode switches proportional
 	StunDRStacks        int  // Stun diminishing-returns chain length (0=fresh; caps -> immune)
 	StunDRMemoryTurns   int  // TB: stun-free turns left before the DR chain resets
 	StunDRMemoryFrames  int  // RT: stun-free frames left before the DR chain resets
 	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
+	RootRate            int  // Persisted frames-per-turn rate for the root clocks
 	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
 	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
 	// ArmorShredPct percent. Refreshes on hit, never stacks.
 	ArmorShredPct             int
 	ArmorShredTurnsRemaining  int
 	ArmorShredFramesRemaining int
+	ArmorShredRate            int  // Persisted frames-per-turn rate keeping mode switches proportional
 	Pilfered                  bool // Sleight of Hand already succeeded on this monster
 	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
 	// serpent dancer cards) - separate from monster-inflicted PoisonChance on
@@ -163,40 +299,84 @@ type Monster3D struct {
 	// or once per monster turn (TB).
 	PoisonedFramesRemaining int
 	poisonTickTimer         int
+	// BurnFramesRemaining is a party-inflicted burn DoT (Drakefang ignite):
+	// poison's hotter twin - 3% of MaxHitPoints (min 3) per second, stacks
+	// WITH poison (independent clocks, same cadence contract).
+	BurnFramesRemaining int
+	burnTickTimer       int
+	// Slow (Tarn Trident silt): EffectiveSpeed drops by SlowPct while active.
+	// Same rated dual-clock contract as armor shred. The ThisTurn latch is the
+	// Root pattern: TB ticks the clock BEFORE the monster moves, so the turn
+	// that consumed the last tick must still suffer the debuff (runtime-only).
+	SlowPct             int
+	SlowTurnsRemaining  int
+	SlowFramesRemaining int
+	SlowRate            int
+	slowPctThisTurn     int
+	// Weaken (Scalebreaker roar): outgoing damage drops by WeakenPct while
+	// active. Same rated dual-clock contract as armor shred; same TB latch.
+	WeakenPct             int
+	WeakenTurnsRemaining  int
+	WeakenFramesRemaining int
+	WeakenRate            int
+	weakenPctThisTurn     int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
-	Bound                    bool       // Bind Undead: under party control - hunts other monsters, ignores party
-	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
-	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
-	CharmedByParty           bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
-	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundAllyCache)
-	AITargetY                float64    // Per-frame pursuit target Y
-	AIFoe                    *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
-	Flying                   bool       // Whether the monster should be rendered above ground
-	RangedAttackRange        float64    // Optional ranged attack range override (pixels)
-	AttacksPerRound          int        // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
-	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
-	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
-	AttackCDFrames           int        // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
-	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin       int        // Fireburst damage min
-	FireburstDamageMax       int        // Fireburst damage max
-	DragonBreathChance       float64    // Chance for this attack to hit every living party member
-	DragonBreathDamageType   string     // Element used by dragon breath mitigation/resists
-	PiercingShotChance       float64    // Chance to fire an armor-piercing shot at multiple party members
-	PiercingShotTargets      int        // Number of party members hit by Piercing Shot (default 2)
-	AllyHealChance           float64    // Chance to heal self or a nearby allied monster instead of attacking
-	AllyHealAmount           int        // HP restored by the ally heal special
-	AllyHealRadiusPixels     float64    // Radius for ally heal target search
-	PoisonChance             float64    // Chance to apply poison on hit
-	PoisonDurationSec        int        // Poison duration in seconds
-	IgniteChance             float64    // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
-	IgniteDurationSec        int        // Burn duration in seconds
-	StunCharChance           float64    // Chance to stun the struck character (skips actions)
-	StunCharSeconds          int        // Stun duration in RT seconds
-	StunCharTurns            int        // Stun duration in TB turns
-	DispelChance             float64    // Chance to strip one random active party buff on hit
+	Bound                   bool       // Bind Undead: under party control - hunts other monsters, ignores party
+	BoundFramesRemaining    int        // Shared RT/TB bind duration in frames (0 = permanent, e.g. card summon)
+	Pacified                bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedFramesRemaining int        // Shared RT/TB charm duration in frames
+	CharmedByParty          bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
+	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
+	AITargetY               float64    // Per-frame pursuit target Y
+	AIFoe                   *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	// Loot guard is a calm, map-prop-specific assignment. The game owns target
+	// discovery and band membership; this struct only carries the serially
+	// prepared patrol tile into the parallel RT AI step.
+	LootGuarding bool
+	// LootGuardAlerted keeps the seven-tile guard radius through the active
+	// sight encounter after the game releases the calm guard reservation.
+	LootGuardAlerted     bool
+	LootGuardTargetKey   string
+	LootGuardTargetTileX int
+	LootGuardTargetTileY int
+	LootGuardSide        int
+	LootGuardPatrolAlt   bool
+	LootGuardMoveTileX   int
+	LootGuardMoveTileY   int
+	LootGuardPatrolUntil int64
+	// These are runtime-only coordination fields between the serial guard
+	// planner and the parallel RT AI. A post is reusable only after every
+	// current guard had an A* route to it; a failed route asks the serial pass
+	// to choose a different post on the next reconciliation.
+	LootGuardPostAssigned    bool
+	LootGuardPostMemberCount int
+	LootGuardPathBlocked     bool
+	Flying                   bool     // Whether the monster should be rendered above ground
+	RangedAttackRange        float64  // Optional ranged attack range override (pixels)
+	AttacksPerRound          int      // Turn-based melee attacks per monster round
+	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
+	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
+	AttackCDFrames           int      // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
+	FireburstChance          float64  // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin       int      // Fireburst damage min
+	FireburstDamageMax       int      // Fireburst damage max
+	DragonBreathChance       float64  // Chance for this attack to hit every living party member
+	DragonBreathDamageType   string   // Element used by dragon breath mitigation/resists
+	MeleeDamageType          string   // School of melee blows (canonical, normalized at load); "" = physical
+	PiercingShotChance       float64  // Chance to fire an armor-piercing shot at multiple party members
+	PiercingShotTargets      int      // Number of party members hit by Piercing Shot (default 2)
+	AllyHealChance           float64  // Chance to heal self or a nearby allied monster instead of attacking
+	AllyHealAmount           int      // HP restored by the ally heal special
+	AllyHealRadiusPixels     float64  // Radius for ally heal target search
+	PoisonChance             float64  // Chance to apply poison on hit
+	PoisonDurationSec        int      // Poison duration in seconds
+	IgniteChance             float64  // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
+	IgniteDurationSec        int      // Burn duration in seconds
+	StunCharChance           float64  // Chance to stun the struck character (skips actions)
+	StunCharSeconds          int      // Stun duration in RT seconds
+	StunCharTurns            int      // Stun duration in TB turns
+	DispelChance             float64  // Chance to strip one random active party buff on hit
 
 	// Loot
 	Gold  int
@@ -216,30 +396,52 @@ type Monster3D struct {
 	ProjectileSpell  string
 	ProjectileWeapon string
 
-	// Pounce/leap: PounceRangePixels > 0 enables it. Runtime cooldowns are
-	// tracked separately per mode (frames in real-time, turns in turn-based).
+	// Pounce/leap: PounceRangePixels > 0 enables it. Cooldown remainders are
+	// tracked per mode and share a persisted conversion rate.
 	PounceRangePixels     float64
 	PounceCooldownSeconds float64
 	PounceCDFrames        int // real-time cooldown countdown (frames)
 	PounceCDTurns         int // turn-based cooldown countdown (turns)
+	PounceCDRate          int // persisted frames-per-turn rate keeping mode switches proportional
 
+	// Boss is the static YAML classification. Runtime code uses IsBoss rather
+	// than inferring bosshood from the currently-authored special abilities.
+	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
 	IgnoresArmor      bool    // melee bypasses the party's armor class
 	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     // fire damage of that nova, pre-mitigation
-	TeleportAtHP      int     // when HP <= this, may blink to a random walkable tile
-	TeleportChance    float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
-	PassiveUntilQuest string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
-	EvadeRadiusTiles  float64 // evasive phase: blink when the party is within this many tiles
-	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
-	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
-	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundAllyCache)
-	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshBoundAllyCache)
+	InfernoRangeTiles float64 // how far the nova reaches (authored; 0 = melee moment only)
+	InfernoCDFrames   int     // RT: frames until the next AT-RANGE inferno roll (persisted; melee-moment rolls ignore it)
+	// Trap volley (Brood Mother): re-sows a fire-trap field around itself on a
+	// fixed cadence; the fresh volley replaces the old field.
+	TrapVolleyCount           int
+	TrapVolleyRadiusTiles     float64
+	TrapVolleyIntervalSeconds float64
+	TrapVolleyIntervalTurns   int
+	TrapVolleyDamage          int
+	TrapVolleyCDFrames        int     // RT frames until the next volley (persisted)
+	TrapVolleyTurnCD          int     // TB monster passes until the next volley (persisted)
+	TrapVolleyCDRate          int     // persisted frames-per-turn rate keeping mode switches proportional
+	TeleportAtHP              int     // when HP <= this, may blink to a random walkable tile
+	TeleportChance            float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
+	PassiveUntilQuest         string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	EvadeRadiusTiles          float64 // evasive phase: blink when the party is within this many tiles
+	BossCooldownSecs          float64 // RT cooldown between evasive blinks (seconds)
+	BossCD                    int     // RT cooldown (frames) between boss special actions (evasive blink)
+	BossAggro                 bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshMonsterAIState)
+	BossEvasive               bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
+	BossDormant               bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
-	WardedByIdols    bool   // static: this boss is warded while any WarlordIdol lives
-	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	WardedByIdols     bool    // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol       bool    // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	RallyOnAggroTiles float64 // alarm bell: on aggro, wake every monster within N tiles
+	RallyMaxTargets   int     // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
+	// RallyDone is persisted. It is consumed either by ringing or by being
+	// woken by another bell, so an alarm relay can never cascade across a map.
+	RallyDone        bool
 	AggroWholeMap    bool   // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
 	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
 	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
@@ -247,10 +449,33 @@ type Monster3D struct {
 	BandLeaderID     string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
 	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
 	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
-	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
-	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundAllyCache)
-	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending  bool   // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	// AttackPost is a transient logical reservation for a monster's current
+	// combat tile, whether it is attacking the party or another monster. It is
+	// deliberately not physical collision: combatants can pass through every
+	// monster while only one may settle and attack from a given tile.
+	// AttackPostTargetID invalidates a reservation when the combat target changes.
+	// AttackPostSince gives an already settled attacker priority if two monsters
+	// try to claim the same tile on one real-time frame.
+	AttackPost         bool
+	AttackPostTargetID string
+	AttackPostSince    int64
+	// AttackTransit is true only while a combatant physically shares another
+	// monster's claimed attack tile. It cannot attack there; party melee arcs
+	// skip this incidental overlap, while AoE continues to use real positions.
+	AttackTransit bool
+	// TransitStack* is render-only. It fans combatants that temporarily share a
+	// tile, without making them an actual calm band or changing combat.
+	TransitStackIndex int
+	TransitStackCount int
+	// TransitStackOffset* eases the render-only fan at tile boundaries. Pursuers
+	// keep their real path/position; only the visual anchor moves smoothly
+	// instead of snapping whenever two routes briefly enter/leave one tile.
+	TransitStackOffsetX float64
+	TransitStackOffsetY float64
+	Relentless          bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
+	BossWarded          bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
+	BossLastHP          int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending     bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.
 	SummonChance          float64  // 0..1 chance per action to summon
 	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance
@@ -278,9 +503,10 @@ type Monster3D struct {
 	// Configuration reference
 	config *config.Config
 
-	// Config-derived size, cached at SetupMonsterFromConfig (never changes).
-	// The separation pass calls GetSize per overlapping pair every tick - a
-	// by-name scan of monsters.yaml there cost ~10^5 string compares/tick.
+	// Immutable config-derived render/collision data, cached at setup. Rendering,
+	// collision registration, and overlap recovery read it frequently; none
+	// should copy or scan monsters.yaml.
+	cachedSprite   string
 	cachedSizeW    float64
 	cachedSizeH    float64
 	cachedSizeMult float64
@@ -319,6 +545,7 @@ type Monster3D struct {
 	SoakDamage int
 	SoakFrames int
 	SoakTurns  int
+	SoakRate   int // Persisted frames-per-turn rate keeping mode switches proportional
 }
 
 // IsChampion reports whether this mob rides a champions.yaml character build.
@@ -372,43 +599,78 @@ func (m *Monster3D) IsInertSetPiece() bool {
 	return m != nil && (m.BossDormant || m.BossWarded || m.WarlordIdol)
 }
 
-func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
-	return m.TakeDamageResist(damage, damageType, 0)
+// IsDamageInvulnerable reports the two encounter states that absorb every
+// damage source. Warlord idols are inert but deliberately remain destructible.
+func (m *Monster3D) IsDamageInvulnerable() bool {
+	return m != nil && (m.BossDormant || m.BossWarded)
 }
 
-// TakeDamageResist is TakeDamage with resistance piercing: resistPiercePct (0..100)
-// of the target's resistance to damageType is ignored before reduction. Used by
-// Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
-func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int) int {
+// IsBoss returns the explicit YAML classification copied at spawn time.
+func (m *Monster3D) IsBoss() bool { return m != nil && m.Boss }
+
+// DamageComponent is one school carried by a single hit. Armor is resolved by
+// the game before this boundary; the monster owns resistance, one shared flat
+// soak, HP mutation and attacked-state bookkeeping.
+type DamageComponent struct {
+	Parts           damagecalc.Parts
+	DamageType      DamageType
+	ResistPiercePct int
+}
+
+// TakeDamageParts is a single-school shorthand for TakeDamagePacket: normal and
+// true damage share the attack's element and resistance, and champion Stone Skin
+// soaks only the normal component.
+//
+// GAME CODE MUST NOT CALL THIS (or TakeDamagePacket) DIRECTLY - it is the
+// monster's own mitigation half and knows nothing about ARMOR. Every hit belongs
+// to CombatSystem.applyMonsterDamagePacket, which resolves target armor first;
+// calling in here is how monster-vs-monster damage used to skip armor entirely.
+// Kept for tests that exercise the monster half on its own.
+func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
+	return m.TakeDamagePacket([]DamageComponent{{
+		Parts:           parts,
+		DamageType:      damageType,
+		ResistPiercePct: resistPiercePct,
+	}}).Total()
+}
+
+// TakeDamagePacket is the single monster sink for one potentially multi-school
+// hit. Each school applies its own resistance, then one flat soak is subtracted
+// from the combined normal damage. A physical hit converted into several
+// elements therefore remains one hit instead of consuming Stone Skin once per
+// component.
+func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Parts {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
 	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
-	if m.BossDormant || m.BossWarded {
-		return 0
+	if m.IsDamageInvulnerable() {
+		return damagecalc.Parts{}
 	}
-	// Apply resistance (reduced by any piercing)
-	if resistance, exists := m.Resistances[damageType]; exists {
-		if resistPiercePct > 0 && resistance > 0 {
-			resistance = resistance * (100 - resistPiercePct) / 100
+
+	var dealt damagecalc.Parts
+	for _, component := range components {
+		resistance := 0
+		if m.Resistances != nil {
+			resistance = m.Resistances[component.DamageType]
 		}
-		damage = damage * (100 - resistance) / 100
-		if damage < 0 {
-			damage = 0
-		}
+		resisted := component.Parts.ApplyResistance(resistance, component.ResistPiercePct)
+		dealt.Normal += resisted.Normal
+		dealt.True += resisted.True
 	}
 
 	// Flat soak (champion Stone Skin) after resists, like the party's
-	// incoming-damage-reduction buff ordering.
+	// incoming-damage-reduction buff ordering. True damage bypasses it.
 	if m.SoakDamage > 0 && (m.SoakFrames > 0 || m.SoakTurns > 0) {
-		damage -= m.SoakDamage
-		if damage < 0 {
-			damage = 0
+		dealt.Normal -= m.SoakDamage
+		if dealt.Normal < 0 {
+			dealt.Normal = 0
 		}
 	}
 
 	// Apply damage
-	m.HitPoints -= damage
+	total := dealt.Total()
+	m.HitPoints -= total
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
@@ -418,62 +680,81 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
-		return damage
+		return dealt
 	}
 
 	// Being attacked always triggers engagement - chase the attacker
-	m.IsEngagingPlayer = true
-	m.State = StateAlert
-	m.StateTimer = 0
+	m.BeginPlayerEngagement()
 
-	return damage
+	return dealt
 }
 
 // ApplyPoison applies or refreshes a party-inflicted poison DoT (Venom-proc
-// cards). Mirrors character.ApplyPoison - refreshing never shortens an
+// cards and poisoned weapons). Immunity belongs here so every current and
+// future poison source follows the same rule. Refreshing never shortens an
 // existing, longer poison.
-func (m *Monster3D) ApplyPoison(frames int) {
-	if frames <= 0 {
-		return
+func (m *Monster3D) ApplyPoison(frames int) bool {
+	if m == nil || frames <= 0 || m.MonsterType == "undead" {
+		return false
 	}
-	status.Refresh(&m.PoisonedFramesRemaining, frames)
+	return status.Refresh(&m.PoisonedFramesRemaining, frames)
 }
 
-// poisonTickDamage deals one poison tick: 1% of max HP, minimum 1.
-func (m *Monster3D) poisonTickDamage() {
-	if m.HitPoints <= 0 {
+func (m *Monster3D) applyPercentDoTTicks(ticks, pct, minimum int) {
+	if ticks <= 0 || m.HitPoints <= 0 || m.IsDamageInvulnerable() {
 		return
 	}
-	dmg := m.MaxHitPoints / 100
-	if dmg < 1 {
-		dmg = 1
+	dmg := pct * m.MaxHitPoints / 100
+	if dmg < minimum {
+		dmg = minimum
 	}
-	m.HitPoints -= dmg
+	m.HitPoints -= dmg * ticks
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
 }
 
+func (m *Monster3D) tickPercentDoT(remaining, timer *int, elapsedFrames, pct, minimum int) {
+	ticks, _ := status.TickDoT(remaining, timer, elapsedFrames, m.dotTPS())
+	m.applyPercentDoTTicks(ticks, pct, minimum)
+}
+
+const (
+	monsterPoisonPercentPerTick = 1
+	monsterPoisonMinimumDamage  = 1
+	monsterBurnPercentPerTick   = 3
+	monsterBurnMinimumDamage    = 3
+)
+
+func (m *Monster3D) tickPoison(elapsedFrames int) {
+	m.tickPercentDoT(
+		&m.PoisonedFramesRemaining,
+		&m.poisonTickTimer,
+		elapsedFrames,
+		monsterPoisonPercentPerTick,
+		monsterPoisonMinimumDamage,
+	)
+}
+
+// dotTPS is the shared cadence reference for poison and burn ticks.
+func (m *Monster3D) dotTPS() int {
+	if m.config != nil {
+		return m.config.GetTPS()
+	}
+	return config.GetTargetTPS()
+}
+
 // TickPoison advances the poison timer by one REAL-TIME frame (RT mode),
 // dealing a tick once per second of real time.
 func (m *Monster3D) TickPoison() {
-	tps := 60
-	if m.config != nil {
-		tps = m.config.GetTPS()
-	} else {
-		tps = config.GetTargetTPS()
-	}
-	if deal, _ := status.TickDoTFrame(&m.PoisonedFramesRemaining, &m.poisonTickTimer, tps); deal {
-		m.poisonTickDamage()
-	}
+	m.tickPoison(1)
 }
 
-// TickPoisonTurn advances the poison timer by one TURN (TB mode) - one damage
-// tick per turn, duration measured in the same frame units ApplyPoison used.
-func (m *Monster3D) TickPoisonTurn(framesPerTurn int) {
-	if deal, _ := status.TickDoTTurn(&m.PoisonedFramesRemaining, &m.poisonTickTimer, framesPerTurn); deal {
-		m.poisonTickDamage()
-	}
+// TickPoisonTurn advances the poison timer by one TB round: the round consumes
+// elapsedFrames of duration and deals the damage that span is worth, so a
+// three-second round bites three times - exactly like the same span in RT.
+func (m *Monster3D) TickPoisonTurn(elapsedFrames int) {
+	m.tickPoison(elapsedFrames)
 }
 
 func (m *Monster3D) IsAlive() bool {
@@ -499,16 +780,13 @@ func (m *Monster3D) IsEnraged() bool {
 }
 
 func (m *Monster3D) GetTurnBasedAttackCount() int {
-	n := m.AttacksPerRound
-	if n < 1 {
-		n = tbAttacksForCooldownMult(m.AttackCooldownMultiplier)
-	}
+	n := TurnBasedAttackCount(m.AttacksPerRound, m.AttackCooldownMultiplier)
 	// RT/TB parity: cooldown speedups that make the monster strike faster in real
 	// time grant proportionally more turn-based swings. If AttacksPerRound is set,
 	// it is the explicit base; otherwise derive the base from the static cooldown
 	// multiplier. Enrage is a dynamic multiplier on top.
 	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
-		n *= tbAttacksForCooldownMult(m.EnrageCooldownMult)
+		n *= TurnBasedAttacksForCooldownMultiplier(m.EnrageCooldownMult)
 	}
 	return n
 }
@@ -517,14 +795,13 @@ func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
 }
 
-// CanPounce reports whether the monster has the leap ability configured.
 // TickRootTurn consumes one TB turn of a root effect; the monster stays
 // pinned for the WHOLE turn it started rooted (RootHeld), so an adjacent
 // rooted monster that only attacks still burns its root down each turn.
 func (m *Monster3D) TickRootTurn() {
 	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
 	if m.RootTurnsRemaining > 0 {
-		m.RootTurnsRemaining--
+		status.TickTurnRated(&m.RootTurnsRemaining, &m.RootFramesRemaining, &m.RootRate)
 	}
 }
 
@@ -547,40 +824,313 @@ func (m *Monster3D) ApplyArmorShred(pct, frames, turns int) {
 	if pct > m.ArmorShredPct {
 		m.ArmorShredPct = pct
 	}
-	if frames > m.ArmorShredFramesRemaining {
-		m.ArmorShredFramesRemaining = frames
-	}
-	if turns > m.ArmorShredTurnsRemaining {
-		m.ArmorShredTurnsRemaining = turns
+	if !status.RefreshDualRated(
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredRate,
+		frames,
+		turns,
+	) {
+		m.ArmorShredPct = 0
 	}
 }
 
 // TickArmorShredFrame burns one RT frame of the shred debuff.
 func (m *Monster3D) TickArmorShredFrame() {
-	if m.ArmorShredFramesRemaining > 0 {
-		m.ArmorShredFramesRemaining--
-		if m.ArmorShredFramesRemaining == 0 && m.ArmorShredTurnsRemaining == 0 {
-			m.ArmorShredPct = 0
-		}
+	if status.TickFrameRated(
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredRate,
+	) {
+		m.ArmorShredPct = 0
 	}
 }
 
 // TickArmorShredTurn burns one TB turn of the shred debuff.
 func (m *Monster3D) TickArmorShredTurn() {
-	if m.ArmorShredTurnsRemaining > 0 {
-		m.ArmorShredTurnsRemaining--
-		if m.ArmorShredTurnsRemaining == 0 && m.ArmorShredFramesRemaining == 0 {
-			m.ArmorShredPct = 0
-		}
+	if status.TickTurnRated(
+		&m.ArmorShredTurnsRemaining,
+		&m.ArmorShredFramesRemaining,
+		&m.ArmorShredRate,
+	) {
+		m.ArmorShredPct = 0
 	}
 }
 
+// ApplyBurn applies or refreshes a party-inflicted burn DoT (Drakefang
+// ignite). Refreshing never shortens an existing, longer burn.
+func (m *Monster3D) ApplyBurn(frames int) {
+	if frames <= 0 {
+		return
+	}
+	status.Refresh(&m.BurnFramesRemaining, frames)
+}
+
+func (m *Monster3D) tickBurn(elapsedFrames int) {
+	m.tickPercentDoT(
+		&m.BurnFramesRemaining,
+		&m.burnTickTimer,
+		elapsedFrames,
+		monsterBurnPercentPerTick,
+		monsterBurnMinimumDamage,
+	)
+}
+
+// TickBurn advances the burn timer by one REAL-TIME frame.
+func (m *Monster3D) TickBurn() {
+	m.tickBurn(1)
+}
+
+// TickBurnTurn advances the burn timer by one TB round (same span-for-span
+// contract as TickPoisonTurn).
+func (m *Monster3D) TickBurnTurn(elapsedFrames int) {
+	m.tickBurn(elapsedFrames)
+}
+
+// DoTTickTimers exposes the persisted sub-second cadence phase for poison and
+// burn without making the runtime timers mutable outside this package.
+func (m *Monster3D) DoTTickTimers() (poison, burn int) {
+	if m == nil {
+		return 0, 0
+	}
+	return m.poisonTickTimer, m.burnTickTimer
+}
+
+// RestoreDoTTickTimers restores cadence only for active effects. Validation is
+// shared with party members through the status package.
+func (m *Monster3D) RestoreDoTTickTimers(poison, burn int) {
+	if m == nil {
+		return
+	}
+	tps := m.dotTPS()
+	m.poisonTickTimer = status.RestoreDoTTickTimer(m.PoisonedFramesRemaining, poison, tps)
+	m.burnTickTimer = status.RestoreDoTTickTimer(m.BurnFramesRemaining, burn, tps)
+}
+
+// EffectiveSpeed is the movement speed combat and pathing must use: base speed
+// dragged down by an active slow (Tarn Trident silt). The ONE speed read point
+// for movement math.
+func (m *Monster3D) EffectiveSpeed() float64 {
+	if pct := activeRatedPercent(m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, 0); pct > 0 {
+		return m.Speed * float64(100-pct) / 100
+	}
+	return m.Speed
+}
+
+func refreshRatedPercent(activePct, framesRemaining, turnsRemaining, rate *int, pct, frames, turns int) {
+	if pct > 100 {
+		pct = 100
+	}
+	if pct > *activePct {
+		*activePct = pct
+	}
+	if !status.RefreshDualRated(framesRemaining, turnsRemaining, rate, frames, turns) {
+		*activePct = 0
+	}
+}
+
+func tickRatedPercentFrame(activePct, framesRemaining, turnsRemaining, rate, turnLatch *int) {
+	*turnLatch = 0
+	if status.TickFrameRated(framesRemaining, turnsRemaining, rate) {
+		*activePct = 0
+	}
+}
+
+func tickRatedPercentTurn(activePct, framesRemaining, turnsRemaining, rate, turnLatch *int) {
+	*turnLatch = 0
+	if *activePct > 0 && (*turnsRemaining > 0 || *framesRemaining > 0) {
+		*turnLatch = *activePct
+	}
+	if status.TickTurnRated(turnsRemaining, framesRemaining, rate) {
+		*activePct = 0
+	}
+}
+
+func activeRatedPercent(activePct, framesRemaining, turnsRemaining, turnLatch int) int {
+	if activePct > 0 && (framesRemaining > 0 || turnsRemaining > 0) {
+		return activePct
+	}
+	return turnLatch
+}
+
+// ApplySlow refreshes the slow debuff (never stacks; strongest percent wins).
+func (m *Monster3D) ApplySlow(pct, frames, turns int) {
+	refreshRatedPercent(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, pct, frames, turns)
+}
+
+// TickSlowFrame burns one RT frame of the slow debuff.
+func (m *Monster3D) TickSlowFrame() {
+	tickRatedPercentFrame(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, &m.slowPctThisTurn)
+}
+
+// TickSlowTurn burns one TB turn of the slow debuff, LATCHING this turn's
+// percentage first (Root pattern): a monster whose last slow tick is consumed
+// by this very turn still moves slowed through it.
+func (m *Monster3D) TickSlowTurn() {
+	tickRatedPercentTurn(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, &m.slowPctThisTurn)
+}
+
+// ActiveSlowPct is the slow percentage in force RIGHT NOW: the live clocks, or
+// the latched value for the TB turn that consumed the final tick.
+func (m *Monster3D) ActiveSlowPct() int {
+	return activeRatedPercent(m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, m.slowPctThisTurn)
+}
+
+// OutgoingDamage applies every source-side modifier to one complete outgoing
+// packet. Callers keep normal and true components together so Weaken can never
+// be forgotten on one half of a hit.
+func (m *Monster3D) OutgoingDamage(parts damagecalc.Parts) damagecalc.Parts {
+	if m == nil {
+		return parts
+	}
+	pct := activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
+	if pct <= 0 {
+		return parts
+	}
+	parts.Normal = parts.Normal * (100 - pct) / 100
+	parts.True = parts.True * (100 - pct) / 100
+	return parts
+}
+
+// ApplyWeaken refreshes the weaken debuff (never stacks; strongest percent wins).
+func (m *Monster3D) ApplyWeaken(pct, frames, turns int) {
+	refreshRatedPercent(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, pct, frames, turns)
+}
+
+// TickWeakenFrame burns one RT frame of the weaken debuff.
+func (m *Monster3D) TickWeakenFrame() {
+	tickRatedPercentFrame(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, &m.weakenPctThisTurn)
+}
+
+// TickWeakenTurn burns one TB turn of the weaken debuff, LATCHING this turn's
+// percentage first (Root pattern) - see TickSlowTurn.
+func (m *Monster3D) TickWeakenTurn() {
+	tickRatedPercentTurn(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, &m.weakenPctThisTurn)
+}
+
+// TurnDebuffLatches exposes the final-tick TB state needed by save/load while
+// keeping the runtime fields private.
+func (m *Monster3D) TurnDebuffLatches() (slowPct, weakenPct int) {
+	if m == nil {
+		return 0, 0
+	}
+	return m.slowPctThisTurn, m.weakenPctThisTurn
+}
+
+// RestoreTurnDebuffLatches resumes a saved multi-pass TB turn. RT loads pass
+// zeroes because live frame clocks own status state there.
+func (m *Monster3D) RestoreTurnDebuffLatches(slowPct, weakenPct int) {
+	if m == nil {
+		return
+	}
+	m.slowPctThisTurn = max(0, min(100, slowPct))
+	m.weakenPctThisTurn = max(0, min(100, weakenPct))
+}
+
+// ApplySoak activates or refreshes a champion's Stone Skin. The effect uses the
+// same rated dual-clock contract as stun/root so changing combat mode cannot
+// restore time already spent in the other mode.
+func (m *Monster3D) ApplySoak(damage, frames, turns int) {
+	if m == nil {
+		return
+	}
+	m.SoakDamage = damage
+	if !status.RefreshDualRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate, frames, turns) {
+		m.SoakDamage = 0
+	}
+}
+
+func (m *Monster3D) TickSoakFrame() {
+	if m == nil {
+		return
+	}
+	if status.TickFrameRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate) {
+		m.SoakDamage = 0
+	}
+}
+
+func (m *Monster3D) TickSoakTurn() {
+	if m == nil {
+		return
+	}
+	if status.TickTurnRated(&m.SoakTurns, &m.SoakFrames, &m.SoakRate) {
+		m.SoakDamage = 0
+	}
+}
+
+// CanPounce reports whether the monster has the leap ability configured.
 func (m *Monster3D) CanPounce() bool {
 	// A rooted monster is pinned to its tile - the leap is a movement.
 	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has
 	// already decremented the counter to 0 but the pin lasts the whole turn.
 	return m.PounceRangePixels > 0 && m.RootFramesRemaining <= 0 &&
 		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
+}
+
+// ArmPounceCooldown starts both mode clocks. The active clock drains its
+// counterpart proportionally, so changing combat mode cannot extend the wait.
+func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
+	if m == nil {
+		return
+	}
+	if tps <= 0 {
+		tps = config.GetTargetTPS()
+	}
+	frames := int(math.Round(m.PounceCooldownSeconds * float64(tps)))
+	if m.PounceCooldownSeconds > 0 && frames < 1 {
+		frames = 1
+	}
+	status.RefreshDualRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate, frames, turns)
+}
+
+func (m *Monster3D) TickPounceCooldownFrame() {
+	if m == nil {
+		return
+	}
+	status.TickFrameRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate)
+}
+
+func (m *Monster3D) TickPounceCooldownTurn() {
+	if m == nil {
+		return
+	}
+	status.TickTurnRated(&m.PounceCDTurns, &m.PounceCDFrames, &m.PounceCDRate)
+}
+
+// ArmTrapVolleyCooldown starts both authored mode clocks. The rated pair keeps
+// elapsed cooldown spent in one mode spent after switching to the other.
+func (m *Monster3D) ArmTrapVolleyCooldown(tps int) {
+	if m == nil {
+		return
+	}
+	if tps <= 0 {
+		tps = config.GetTargetTPS()
+	}
+	frames := int(math.Round(m.TrapVolleyIntervalSeconds * float64(tps)))
+	if m.TrapVolleyIntervalSeconds > 0 && frames < 1 {
+		frames = 1
+	}
+	status.RefreshDualRated(
+		&m.TrapVolleyCDFrames,
+		&m.TrapVolleyTurnCD,
+		&m.TrapVolleyCDRate,
+		frames,
+		m.TrapVolleyIntervalTurns,
+	)
+}
+
+func (m *Monster3D) TickTrapVolleyCooldownFrame() {
+	if m == nil {
+		return
+	}
+	status.TickFrameRated(&m.TrapVolleyCDFrames, &m.TrapVolleyTurnCD, &m.TrapVolleyCDRate)
+}
+
+func (m *Monster3D) TickTrapVolleyCooldownTurn() {
+	if m == nil {
+		return
+	}
+	status.TickTurnRated(&m.TrapVolleyTurnCD, &m.TrapVolleyCDFrames, &m.TrapVolleyCDRate)
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.
@@ -622,11 +1172,33 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 	return attackRange
 }
 
+// AllyFollowDistanceTiles is the escort distance every party ally holds when it
+// has no enemy to hunt. Attack range must not double as follow distance: an ally
+// with 11-tile reach would never take a step.
+const AllyFollowDistanceTiles = 3.0
+
+// PursuitReachPixels is the distance that satisfies pursuit of the current AI
+// target: attack range against a real target, escort distance while following the
+// party. Read by RT pursuit and both A* goal pickers - the one follow-distance
+// knob for every ally.
+func (m *Monster3D) PursuitReachPixels() float64 {
+	if m == nil {
+		return 0
+	}
+	if m.Bound && m.AIFoe == nil {
+		return AllyFollowDistanceTiles * m.tileSize()
+	}
+	return m.GetAttackRangePixels()
+}
+
 func (m *Monster3D) GetSpriteType() string {
+	if m.cachedSprite != "" {
+		return m.cachedSprite
+	}
 	// Resolve by the monster's own KEY (always set by NewMonster3DFromConfig),
 	// never by name: several monsters can share a display Name (the 4 elemental
-	// dragons are all "Dragon"), and a name scan returns a random match per call
-	// (Go map order) - which made dragons flicker through every color each frame.
+	// dragons are all "Dragon"). This fallback serves hand-built test monsters;
+	// normal runtime monsters cache the immutable sprite during setup.
 	if MonsterConfig != nil {
 		if def, err := MonsterConfig.GetMonsterByKey(m.Key); err == nil {
 			return def.GetSpriteFromConfig()

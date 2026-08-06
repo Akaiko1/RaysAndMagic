@@ -27,6 +27,7 @@ func TestSpacePickupGate_TapFiresOnce(t *testing.T) {
 func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
+	g.appScreen = AppScreenInGame
 	ui := &UISystem{game: g}
 
 	// Baseline: world layer, queue empty.
@@ -34,7 +35,8 @@ func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 
 	// Dialog opens; a click arrives while it is open and sits in the buffer.
 	g.dialogActive = true
-	ui.updateMouseState() // world->modal flip
+	ui.renderedModalSnapshot = ui.topModalSnapshot() // the dialog has been presented
+	ui.updateMouseState()                            // world->modal flip
 	g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: 100, y: 100, at: time.Now().UnixMilli()})
 
 	// Dialog closes: the buffered click belongs to the closed layer.
@@ -43,6 +45,8 @@ func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 	if n := len(g.mouseLeftClicks); n != 0 {
 		t.Fatalf("stale click survived the modal->world transition (%d left in queue)", n)
 	}
+	ui.renderedModalSnapshot = modalLayerSnapshot{} // the replacement world frame landed
+	ui.updateMouseState()                           // record the newly visible world layer
 
 	// Within one layer nothing flips, so buffered clicks (dialog double-click
 	// convention) survive frame boundaries.

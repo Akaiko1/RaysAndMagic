@@ -2,11 +2,10 @@ package game
 
 import (
 	"fmt"
-	"image"
 	"image/color"
 	"math"
 	"ugataima/internal/character"
-	"ugataima/internal/monster"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -16,20 +15,48 @@ import (
 
 // RenderingHelper provides common rendering operations
 type RenderingHelper struct {
-	game         *MMGame
-	textureCache map[string]*ebiten.Image // Cache for procedural textures
+	game                    *MMGame
+	textureCache            map[string]*ebiten.Image // Cache for procedural textures
+	visibleHeightScaleCache map[visibleHeightScaleKey]float64
+}
+
+type visibleHeightScaleKey struct {
+	spriteName      string
+	aspectFromWidth bool
+}
+
+func visibleHeightScaleForFrame(frameWidth, frameHeight, visibleHeight int, aspectFromWidth bool) (float64, bool) {
+	if frameWidth <= 0 || frameHeight <= 0 || visibleHeight <= 0 {
+		return 0, false
+	}
+	frameSpan := frameHeight
+	if aspectFromWidth {
+		frameSpan = frameWidth
+	}
+	return float64(frameSpan) / float64(visibleHeight), true
 }
 
 // NewRenderingHelper creates a new rendering helper
 func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	return &RenderingHelper{
-		game:         game,
-		textureCache: make(map[string]*ebiten.Image),
+		game:                    game,
+		textureCache:            make(map[string]*ebiten.Image),
+		visibleHeightScaleCache: make(map[visibleHeightScaleKey]float64),
 	}
 }
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
+	wallHeightF, floorBottomF := rh.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
+	wallHeight = int(wallHeightF)
+	return wallHeight, int(floorBottomF) - wallHeight
+}
+
+// CalculateWallDimensionsWithHeightF is the float-precision projection shared
+// by textured wall meshes. The integer wrapper remains for cache keys and the
+// wall-top occlusion buffer, while visible distant sprite walls keep their
+// subpixel top/bottom instead of stepping a whole pixel between frames.
+func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMultiplier float64) (wallHeight, floorBottom float64) {
 	// Division guard only - collision keeps the camera farther away than this.
 	// The wall's vanish-at-point-blank bug came from CAPPING the height while
 	// the floor anchor kept growing (the capped top sank below the screen);
@@ -44,11 +71,11 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 	baseHeight := float64(rh.game.config.GetScreenHeight()) / distance * rh.game.config.GetTileSize()
 
 	// Apply height multiplier
-	wallHeight = int(baseHeight * heightMultiplier)
+	wallHeight = baseHeight * heightMultiplier
 
 	// Sanity bound, reachable only inside the 1-unit epsilon above: GPU clips
 	// off-screen geometry, so huge-but-finite heights cost nothing.
-	if maxH := rh.game.config.GetScreenHeight() * 64; wallHeight > maxH {
+	if maxH := float64(rh.game.config.GetScreenHeight() * 64); wallHeight > maxH {
 		wallHeight = maxH
 	}
 	if wallHeight < 1 {
@@ -57,10 +84,7 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 
 	// Anchor wall bottom to the floor line at this distance for consistency
 	// with floor and sprite projection.
-	floorScreenY := rh.calculateFloorScreenY(distance)
-	wallTop = floorScreenY - wallHeight
-
-	return wallHeight, wallTop
+	return wallHeight, rh.calculateFloorScreenYF(distance)
 }
 
 // calculateFloorScreenY calculates the screen Y position where the floor appears
@@ -84,6 +108,10 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 // preventing the "drift" effect where sprites appeared to slide toward the
 // camera when viewed from medium distances (4+ tiles).
 func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
+	return int(rh.calculateFloorScreenYF(perpDist))
+}
+
+func (rh *RenderingHelper) calculateFloorScreenYF(perpDist float64) float64 {
 	screenHeight := float64(rh.game.config.GetScreenHeight())
 	tileSize := rh.game.config.GetTileSize()
 	horizon := screenHeight / 2
@@ -91,8 +119,7 @@ func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
 	if perpDist <= 0 {
 		perpDist = 1 // Avoid division by zero
 	}
-	p := (0.5 * screenHeight * tileSize) / perpDist
-	return int(horizon + p)
+	return horizon + (0.5*screenHeight*tileSize)/perpDist
 }
 
 // projectToScreenX converts a world position into screen X using the camera plane.
@@ -115,42 +142,81 @@ func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
 //
 // Reference: https://lodev.org/cgtutor/raycasting3.html
 func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX int, depth float64, ok bool) {
+	xf, d, ok := rh.projectToScreenXF(entityX, entityY)
+	return int(xf), d, ok
+}
+
+// cameraSpaceXY transforms a world point into camera space: tx is the
+// horizontal offset, ty the perpendicular depth. Shared by the point
+// projection and the segment-span projection below.
+func (rh *RenderingHelper) cameraSpaceXY(entityX, entityY float64) (tx, ty float64, ok bool) {
 	cam := rh.game.camera
 	dx := entityX - cam.X
 	dy := entityY - cam.Y
-
-	// Camera direction vector
 	dirX := math.Cos(cam.Angle)
 	dirY := math.Sin(cam.Angle)
-
-	// Camera plane vector (perpendicular to direction, scaled by FOV)
 	planeScale := math.Tan(cam.FOV / 2)
 	planeX := -dirY * planeScale
 	planeY := dirX * planeScale
-
-	// Invert the camera matrix to transform world coords to camera space
-	// | planeX  dirX |   | transformX |   | dx |
-	// | planeY  dirY | * | transformY | = | dy |
 	det := planeX*dirY - dirX*planeY
 	if math.Abs(det) < 1e-9 {
-		return 0, 0, false // Degenerate matrix
+		return 0, 0, false
 	}
 	invDet := 1.0 / det
-	transformX := invDet * (dirY*dx - dirX*dy)      // Horizontal offset in camera space
-	transformY := invDet * (-planeY*dx + planeX*dy) // Perpendicular distance (depth)
-
-	if transformY <= 0 {
-		return 0, 0, false // Behind camera
-	}
-
-	screenW := rh.game.config.GetScreenWidth()
-	screenX = int(float64(screenW) / 2 * (1 + transformX/transformY))
-	return screenX, transformY, true
+	return invDet * (dirY*dx - dirX*dy), invDet * (-planeY*dx + planeX*dy), true
 }
 
-// CreateBaseTexturedWallSlice creates a wall slice with base colors and textures but without distance-based shading.
-// Distance-based shading should be applied at draw time for better cache efficiency.
-func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D, width, height, wallSide int, textureCoord float64) *ebiten.Image {
+// projectSegmentSpanX projects a world segment's on-screen column span. Unlike
+// projecting the endpoints, an endpoint BEHIND the camera plane does not fail:
+// it is clamped to just in front of the plane ALONG THE SEGMENT, so the span
+// runs off the correct screen edge - the point-blank case where a cross's
+// center or corner is behind the party while its arm is still on screen.
+// ok=false only when the whole segment is behind the camera or the projection
+// degenerates.
+func (rh *RenderingHelper) projectSegmentSpanX(x0, y0, x1, y1 float64) (lo, hi int, ok bool) {
+	const nearEps = 0.5 // world units; projection at this depth lands far off-screen
+	tx0, ty0, ok0 := rh.cameraSpaceXY(x0, y0)
+	tx1, ty1, ok1 := rh.cameraSpaceXY(x1, y1)
+	if !ok0 || !ok1 {
+		return 0, 0, false
+	}
+	if ty0 < nearEps && ty1 < nearEps {
+		return 0, 0, false
+	}
+	// Camera space is linear in the world point, so the plane crossing
+	// interpolates exactly.
+	clamp := func(txA, tyA, txB, tyB float64) (float64, float64) {
+		if tyA >= nearEps {
+			return txA, tyA
+		}
+		s := (nearEps - tyA) / (tyB - tyA)
+		return txA + s*(txB-txA), nearEps
+	}
+	tx0, ty0 = clamp(tx0, ty0, tx1, ty1)
+	tx1, ty1 = clamp(tx1, ty1, tx0, ty0)
+	halfW := float64(rh.game.config.GetScreenWidth()) / 2
+	xa := halfW * (1 + tx0/ty0)
+	xb := halfW * (1 + tx1/ty1)
+	if xa > xb {
+		xa, xb = xb, xa
+	}
+	return int(xa), int(xb), true
+}
+
+// projectToScreenXF is projectToScreenX without the pixel truncation.
+func (rh *RenderingHelper) projectToScreenXF(entityX, entityY float64) (screenXf float64, depth float64, ok bool) {
+	transformX, transformY, okDet := rh.cameraSpaceXY(entityX, entityY)
+	if !okDet || transformY <= 0 {
+		return 0, 0, false // degenerate matrix, or behind the camera
+	}
+	screenW := rh.game.config.GetScreenWidth()
+	return float64(screenW) / 2 * (1 + transformX/transformY), transformY, true
+}
+
+// CreateBaseTexturedWallSlice creates a procedural or color-only wall slice
+// without distance shading. Sprite-textured walls are handled by the renderer's
+// direct column/mesh paths and never enter this cache.
+func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D, width, height, wallSide int) *ebiten.Image {
 	// Get the base color for this tile type
 	baseColor := rh.GetTileColor(tileType)
 
@@ -172,26 +238,11 @@ func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D
 	// Create the wall slice image
 	wallImage := ebiten.NewImage(width, height)
 
-	// First, try to use actual sprite texture if available for ANY tile type
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
-	}
-
-	if spriteName != "" {
-		// Use actual sprite texture - extract vertical slice
-		sprite := rh.game.sprites.GetSprite(spriteName)
-		if sprite != nil {
-			rh.applyWallSliceFromSprite(wallImage, sprite, finalColor, width, height, textureCoord)
-			return wallImage
-		}
-	}
-
 	// Fallback to procedural texture patterns when no sprite available
 	// Check if this is a textured wall type that needs special procedural patterns
 	if world.GlobalTileManager != nil {
 		renderType := world.GlobalTileManager.GetRenderType(tileType)
-		if renderType == "textured_wall" {
+		if renderType == config.TileRenderWall {
 			// Use appropriate procedural texture based on tile type
 			switch tileType {
 			case world.TileThicket:
@@ -276,79 +327,6 @@ func (rh *RenderingHelper) applyFoliageTextureCached(wallImage *ebiten.Image, fi
 	})
 }
 
-// applyWallSliceFromSprite extracts a vertical slice from a sprite texture for wall rendering.
-// This uses caching to avoid repeated sprite slice extraction and scaling operations.
-func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, sprite *ebiten.Image, finalColor color.RGBA, width, height int, textureCoord float64) {
-	spriteWidth := sprite.Bounds().Dx()
-	spriteHeight := sprite.Bounds().Dy()
-
-	// Calculate which column of the sprite to use based on textureCoord
-	textureX := int(textureCoord * float64(spriteWidth))
-	if textureX >= spriteWidth {
-		textureX = spriteWidth - 1
-	}
-	if textureX < 0 {
-		textureX = 0
-	}
-
-	sourceWidth := width
-	if sourceWidth < 1 {
-		sourceWidth = 1
-	}
-	if sourceWidth > spriteWidth {
-		sourceWidth = spriteWidth
-	}
-
-	// Create cache key including sprite dimensions, texture position, sampled strip width, and target size.
-	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_sw%d_%dx%d", spriteWidth, spriteHeight, textureX, sourceWidth, width, height)
-
-	// Grayscale distance/side shading, red component as reference
-	shading := float32(finalColor.R) / 255.0
-
-	// Check if we have this sprite slice cached
-	if cachedSlice, exists := rh.textureCache[cacheKey]; exists {
-		wallImage.DrawImage(cachedSlice, tintOptions(shading, shading, shading))
-		return
-	}
-
-	// Create a narrow strip from the sprite. This keeps real wall textures readable
-	// for ray widths > 1 and wraps at texture edges for seamless textures.
-	sliceImage := ebiten.NewImage(sourceWidth, spriteHeight)
-	drawSourceStrip := func(srcX, dstX, stripWidth int) {
-		if stripWidth <= 0 {
-			return
-		}
-		src := sprite.SubImage(image.Rect(srcX, 0, srcX+stripWidth, spriteHeight)).(*ebiten.Image)
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(dstX), 0)
-		sliceImage.DrawImage(src, opts)
-	}
-	if textureX+sourceWidth <= spriteWidth {
-		drawSourceStrip(textureX, 0, sourceWidth)
-	} else {
-		firstWidth := spriteWidth - textureX
-		drawSourceStrip(textureX, 0, firstWidth)
-		drawSourceStrip(0, firstWidth, sourceWidth-firstWidth)
-	}
-
-	// Create the final scaled slice for caching
-	scaledSlice := ebiten.NewImage(width, height)
-	drawOpts := &ebiten.DrawImageOptions{}
-
-	// Scale the slice to fit the wall dimensions
-	scaleX := float64(width) / float64(sourceWidth)
-	scaleY := float64(height) / float64(spriteHeight)
-	drawOpts.GeoM.Scale(scaleX, scaleY)
-
-	// Draw the scaled slice (white/uncolored for caching)
-	scaledSlice.DrawImage(sliceImage, drawOpts)
-
-	// Cache the scaled slice for reuse
-	rh.textureCache[cacheKey] = scaledSlice
-
-	wallImage.DrawImage(scaledSlice, tintOptions(shading, shading, shading))
-}
-
 // GetTileColor returns the base color for a tile type (reads from tile configuration)
 func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 	// Try to get color from tile configuration first
@@ -379,9 +357,54 @@ func (rh *RenderingHelper) billboardMetrics(entityX, entityY, distance, sizeTile
 	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
 
+// billboardMetricsF is billboardMetrics at float precision (see
+// projectSpriteMetricsF) - the renderer's collection pass uses it so draw
+// paths get subpixel-smooth verticals.
+func (rh *RenderingHelper) billboardMetricsF(entityX, entityY, distance, sizeTiles float64, minSize int) (screenXf, bottomF, sizeF float64, visible bool) {
+	if sizeTiles <= 0 {
+		sizeTiles = 1
+	}
+	return rh.projectSpriteMetricsF(entityX, entityY, distance, 0, sizeTiles, minSize)
+}
+
+// CalculateMonsterSpriteMetricsF is the float twin of CalculateMonsterSpriteMetrics.
+func (rh *RenderingHelper) CalculateMonsterSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
+	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+}
+
+// NPCSpriteMetricsF is the float twin of NPCSpriteMetrics (same routing).
+func (rh *RenderingHelper) NPCSpriteMetricsF(npc *character.NPC, ex, ey, distance float64) (screenXf, bottomF, sizeF float64, visible bool) {
+	sizeTiles, minSize := rh.npcBillboardParams(npc)
+	return rh.billboardMetricsF(ex, ey, distance, sizeTiles, minSize)
+}
+
+// npcBillboardParams resolves the (height-in-tiles, min-pixel-floor) pair an
+// NPC billboard projects with - the single routing table NPCSpriteMetrics and
+// its float twin share.
+func (rh *RenderingHelper) npcBillboardParams(npc *character.NPC) (sizeTiles float64, minSize int) {
+	if npc.GridSpanTiles >= 2 {
+		return float64(npc.GridSpanTiles), sceneryMinSpriteSize
+	}
+	size := rh.npcSizeTiles(npc)
+	if rh.game.npcIsWalkUpProp(npc) {
+		return size, rh.game.config.Graphics.Monster.MinSpriteSize
+	}
+	switch npcRenderCatOf(npc) {
+	case catScenery, catLandmark, catWideLandmark, catWall, catDoor:
+		return size, sceneryMinSpriteSize
+	default:
+		return size, rh.game.config.Graphics.NPC.MinSpriteSize
+	}
+}
+
 // sceneryMinSpriteSize is the pixel floor for prop standees (scenery/landmark/
 // wall/door): unlike people they may recede to almost nothing at range.
 const sceneryMinSpriteSize = 8
+
+// The Calculate*SpriteMetrics trio below are the PIXEL (int) view of the float
+// cores: truncating whole-pixel metrics is what made distant sprites jitter, so
+// draw paths must use the F twins. These stay for hit tests and the golden
+// size/near-cull tests, which reason in pixels by nature.
 
 // CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
 // distant mobs shrink freely). sizeTiles is height in tiles.
@@ -394,57 +417,143 @@ func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entity
 	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
-// CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
-// distant NPCs stay readable). NPCs remain visible when walked up to, matching
-// loot containers instead of disappearing under a near-cull.
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.NPC.MinSpriteSize)
+// CalculateGroundContainerSpriteMetricsF is the float twin of
+// CalculateGroundContainerSpriteMetrics. Loot bags and chests use the same
+// float projection as every other standee so they do not reintroduce distant
+// whole-pixel jitter.
+func (rh *RenderingHelper) CalculateGroundContainerSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
+	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
-// npcSizeTiles resolves an NPC's sprite height in tiles: a shared size_class
-// (same table as monsters) wins, else the raw size_tiles number.
+// npcSizeTiles resolves an NPC's quantized frame span from the same config
+// table used by monsters and tile standees. A real content load validates every
+// class; 1.0 is only a defensive fallback for hand-built test NPCs.
 func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
-	if npc.SizeClass != "" {
-		if h, ok := monster.SizeClassTiles(npc.SizeClass); ok {
-			return h
+	if rh != nil && rh.game != nil && rh.game.config != nil {
+		if value, ok := config.ResolveSizeClassTiles(rh.game.config.Graphics.SizeClasses, npc.SizeClass); ok {
+			category := npcRenderCatOf(npc)
+			if category == catNPC {
+				return value
+			}
+			aspectFromWidth := category == catLandmark && rh.game.config.Graphics.Standee.Enabled
+			return value * rh.visibleHeightFrameScale(npcSpriteName(npc), aspectFromWidth)
 		}
 	}
-	return npc.SizeTiles
+	return 1.0
+}
+
+// visibleHeightFrameScale converts a class's target VISIBLE height into the
+// full-frame span consumed by the projection code. Transparent source padding
+// therefore cannot force content authors back to per-object decimal sizes.
+// Crossed landmarks author projected width and derive full height from texture
+// aspect, so their conversion uses frame width. Flat fallback sprites and
+// ordinary props use frame height.
+func (rh *RenderingHelper) visibleHeightFrameScale(spriteName string, aspectFromWidth bool) float64 {
+	if rh == nil || rh.game == nil || rh.game.sprites == nil || spriteName == "" {
+		return 1
+	}
+	key := visibleHeightScaleKey{spriteName: spriteName, aspectFromWidth: aspectFromWidth}
+	if value, ok := rh.visibleHeightScaleCache[key]; ok {
+		return value
+	}
+	resolveFraction := func(name string) (float64, bool) {
+		bounds, frameWidth, frameHeight, known := rh.game.sprites.SpriteVisibleFrameBounds(name)
+		visibleHeight := bounds.Dy()
+		if !known {
+			return 0, false
+		}
+		scale, ok := visibleHeightScaleForFrame(frameWidth, frameHeight, visibleHeight, aspectFromWidth)
+		if !ok || scale <= 0 {
+			return 0, false
+		}
+		return 1 / scale, true
+	}
+	names := rh.game.sprites.GetSpriteVariants(spriteName)
+	if len(names) == 0 {
+		names = []string{spriteName}
+	}
+	fractionSum := 0.0
+	resolved := 0
+	for _, name := range names {
+		if fraction, ok := resolveFraction(name); ok {
+			fractionSum += fraction
+			resolved++
+		}
+	}
+	value := 1.0
+	if resolved > 0 && fractionSum > 0 {
+		value = float64(resolved) / fractionSum
+	}
+	rh.visibleHeightScaleCache[key] = value
+	return value
 }
 
 // NPCSpriteMetrics projects an NPC billboard through the correct path
-// (environment/landmark props vs person NPCs). Single source for both the
-// renderer and click hit-testing so drawing and hit-tests never diverge.
+// (environment/landmark props vs person NPCs; grid-span facades project the
+// WHOLE span so hover/click rects cover every footprint tile). Single source
+// for both the renderer and click hit-testing so drawing and hit-tests never
+// diverge; the routing lives in npcBillboardParams, shared with the float twin.
 func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
-	size := rh.npcSizeTiles(npc)
-	if rh.game.npcIsWalkUpProp(npc) {
-		return rh.CalculateGroundContainerSpriteMetrics(ex, ey, distance, size)
-	}
-	// One sizing formula for all NPCs (billboardMetrics); only the minimum
-	// pixel floor differs - props may recede far smaller than people.
-	switch npcRenderCatOf(npc) {
-	case catScenery, catLandmark, catWall, catDoor:
-		return rh.billboardMetrics(ex, ey, distance, size, sceneryMinSpriteSize)
-	default:
-		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)
-	}
+	sizeTiles, minSize := rh.npcBillboardParams(npc)
+	return rh.billboardMetrics(ex, ey, distance, sizeTiles, minSize)
 }
 
 // CalculateEnvironmentSpriteMetrics sizes an environment TILE sprite (trees,
 // rocks): billboardMetrics' model plus the tile-type height multiplier, and a
 // fixed 5.0 near-cull (env tiles keep it even in turn-based mode).
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
+}
+
+// CalculateEnvironmentSpriteMetricsF is the float twin of
+// CalculateEnvironmentSpriteMetrics.
+func (rh *RenderingHelper) CalculateEnvironmentSpriteMetricsF(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenXf, bottomF, sizeF float64, visible bool) {
+	return rh.projectSpriteMetricsF(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
+}
+
+// envHeightMultiplier is the visual size multiplier from the tile definition
+// (trees = 2.0, ferns = 1.0, ...), scaled by the caller's factor.
+func (rh *RenderingHelper) envHeightMultiplier(tileType world.TileType3D, sizeScale float64) float64 {
+	aspectFromWidth := false
+	if world.GlobalTileManager != nil {
+		aspectFromWidth = world.GlobalTileManager.GetRenderType(tileType) == config.TileRenderLandmarkStandee &&
+			rh.game.config.Graphics.Standee.Enabled
+	}
+	return rh.envHeightMultiplierForMode(tileType, sizeScale, aspectFromWidth)
+}
+
+// flatEnvHeightMultiplier resolves the same authored visible-height contract
+// for the legacy raycast fallback. It never uses the crossed-landmark width
+// interpretation because this path draws one flat sprite.
+func (rh *RenderingHelper) flatEnvHeightMultiplier(tileType world.TileType3D, sizeScale float64) float64 {
+	return rh.envHeightMultiplierForMode(tileType, sizeScale, false)
+}
+
+func (rh *RenderingHelper) envHeightMultiplierForMode(tileType world.TileType3D, sizeScale float64, aspectFromWidth bool) float64 {
 	if sizeScale <= 0 {
 		sizeScale = 1
 	}
-	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
-	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
+	// 1.0 mirrors TileManager.GetSizeTiles' own defensive default: content
+	// validation guarantees a class in a real load, so this only covers an
+	// ad-hoc test manager with no tile database.
+	heightMultiplier := 1.0
 	if world.GlobalTileManager != nil {
 		heightMultiplier = world.GlobalTileManager.GetSizeTiles(tileType)
+		renderType := world.GlobalTileManager.GetRenderType(tileType)
+		// Static swarm tiles draw their authored fixed mote layout procedurally;
+		// night motes are separate moving emissions. Both paths are selected
+		// by tile content rather than by a hardcoded tile key.
+		// Only the natural cross authors frame WIDTH and skips the alpha
+		// normalization; a crossed_prop authors visible height like the flat
+		// standee it replaced.
+		if renderType != config.TileRenderCrossedStandee && !isFireflySwarmTile(tileType) {
+			heightMultiplier *= rh.visibleHeightFrameScale(
+				world.GlobalTileManager.GetSprite(tileType),
+				aspectFromWidth,
+			)
+		}
 	}
-	heightMultiplier *= sizeScale
-
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, sceneryMinSpriteSize)
+	return heightMultiplier * sizeScale
 }
 
 // projectSpriteMetrics is the shared projection core for floor-anchored
@@ -464,32 +573,44 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 //   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
 //     so sprites appear grounded rather than floating
 func (rh *RenderingHelper) projectSpriteMetrics(entityX, entityY, distance, minDistance, heightMultiplier float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
+	screenXf, bottomF, sizeF, ok := rh.projectSpriteMetricsF(entityX, entityY, distance, minDistance, heightMultiplier, minSize)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	spriteSize = int(sizeF)
+	return int(screenXf), int(bottomF) - spriteSize, spriteSize, true
+}
+
+// projectSpriteMetricsF is projectSpriteMetrics before pixel truncation:
+// float screen-X center, float floor-anchor BOTTOM, float size. The renderer
+// draws from these so distant sprites move subpixel-smoothly - deriving the
+// top edge from independently truncated ints (int(floor)-int(size)) makes a
+// far object's edges hop +/-1px out of phase while walking, a visible shake
+// once open-world sightlines reach 40+ tiles.
+func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, minDistance, heightMultiplier float64, minSize int) (screenXf, bottomF, sizeF float64, visible bool) {
 	if distance > rh.game.camera.ViewDist || distance < minDistance {
 		return 0, 0, 0, false
 	}
 
-	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
+	screenXf, perpDist, ok := rh.projectToScreenXF(entityX, entityY)
 	if !ok {
 		return 0, 0, 0, false
 	}
 
-	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	if maxS := rh.game.config.GetScreenHeight() * 64; spriteSize > maxS {
-		spriteSize = maxS
+	sizeF = float64(rh.game.config.GetScreenHeight()) / perpDist * rh.game.config.GetTileSize() * heightMultiplier
+	if maxS := float64(rh.game.config.GetScreenHeight() * 64); sizeF > maxS {
+		sizeF = maxS
 	}
-	if spriteSize < minSize {
-		spriteSize = minSize
+	if minF := float64(minSize); sizeF < minF {
+		sizeF = minF
 	}
 
-	screenW := rh.game.config.GetScreenWidth()
-	if screenX < -spriteSize || screenX > screenW+spriteSize {
+	screenW := float64(rh.game.config.GetScreenWidth())
+	if screenXf < -sizeF || screenXf > screenW+sizeF {
 		return 0, 0, 0, false
 	}
 
-	floorScreenY := rh.calculateFloorScreenY(perpDist)
-	screenY = floorScreenY - spriteSize
-
-	return screenX, screenY, spriteSize, true
+	return screenXf, rh.calculateFloorScreenYF(perpDist), sizeF, true
 }
 
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
@@ -498,15 +619,20 @@ func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, hei
 	return int(float64(rh.game.config.GetScreenHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
-// RenderBackgroundLayers renders sky and ground layers
-func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
+// RenderSkyBackground draws the panorama or its solid-color fallback. The
+// perspective floor is rendered separately by the floor shader.
+func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 	if !rh.drawSkyPanorama(screen) {
 		// Draw cached solid-color sky fallback.
 		skyOpts := &ebiten.DrawImageOptions{}
 		screen.DrawImage(rh.game.skyImg, skyOpts)
 	}
+}
 
-	// Draw cached ground
+// DrawGroundFallback covers the lower half when the floor shader is unavailable.
+// The normal shader path is fully opaque, so drawing this first would only add
+// a redundant half-screen source draw and fill cost.
+func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
 	groundOpts.GeoM.Translate(0, float64(rh.game.config.GetScreenHeight()/2))
 	screen.DrawImage(rh.game.groundImg, groundOpts)
@@ -515,22 +641,22 @@ func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
 // floorShaderSrc is a Kage fragment shader that renders the perspective
 // floor. Per-fragment logic:
 //
-//	samplePx = floor(px/2)-2 + 1               # 2x2 block quantization
-//	rowDist  = RowDistFactor / (samplePx.y - Horizon)
-//	s        = 2-samplePx.x / ScreenSize.x - 1
+//	rowDist  = RowDistFactor / (px.y - Horizon)
+//	s        = 2-px.x / ScreenSize.x - 1
 //	floorX   = camX + rowDist-DirCos + rowDist-PlaneCos-s
 //	floorY   = camY + rowDist-DirSin + rowDist-PlaneSin-s
 //	tx, ty   = floor(floor[XY] / TileSize)
 //	base     = floorColorMap[tx, ty]
 //	idx      = floorTextureIndexMap[tx, ty].r - 1
-//	texel    = atlas[idx-TexW + int(localX-TexW), int(localY-TexH)]
-//	weight   = 0.8 - (1 - smoothstep(1.5, 5.0, texelsPerPixel))
-//	color    = mix(base, texel, weight) - brightness(dist, lights)
+//	mip      = clamp(log2(max(texelsX, texelsY)), 0, MaxMip)
+//	texel    = trilinear(atlas, idx, mip)      # manual mips - Kage has none
+//	color    = mix(base, texel, 0.8) - brightness(dist, lights)
 //
 // Inputs:
 //
 //	Images[0] = floorColorMap (worldWxworldH RGBA8 base colors)
-//	Images[1] = floorTexAtlas (horizontal strip of N floor textures)
+//	Images[1] = floorTexAtlas (horizontal strip of N floor textures, mip
+//	            chain strips stacked below - see buildFloorTexAtlas)
 //	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
 const floorShaderSrc = `//kage:unit pixels
 
@@ -552,8 +678,55 @@ var Ambient float
 var ViewerAmbient float
 var TexCount float
 var TexTileSize vec2
+var MaxMip float
 var LightCount float
 var Lights [32]vec4
+
+// sampleFloorMip does one sharp-bilinear tap inside a texture's atlas cell at
+// the given mip level. Level k's strip starts at y = TexH*2*(1-0.5^k) with
+// cells scaled by 0.5^k; texel lookups wrap inside the cell so tiling stays
+// seamless (Kage samples nearest-only natively). The sharpen factor squeezes
+// magnification interpolation into a ~1px band at texel seams; it only
+// applies at level 0 - minified levels use plain bilinear.
+func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
+	scale := pow(0.5, level)
+	cw := TexTileSize.x * scale
+	ch := TexTileSize.y * scale
+	yOff := TexTileSize.y * 2.0 * (1.0 - scale)
+	fx := lx*cw - 0.5
+	fy := ly*ch - 0.5
+	bx := floor(fx)
+	by := floor(fy)
+	sharp := 1.0
+	if level < 0.5 && texelsPerPixel < 1.0 {
+		sharp = 1.0 / texelsPerPixel
+	}
+	fracX := clamp((fx-bx-0.5)*sharp+0.5, 0.0, 1.0)
+	fracY := clamp((fy-by-0.5)*sharp+0.5, 0.0, 1.0)
+	x0 := mod(bx, cw)
+	x1 := mod(bx+1.0, cw)
+	y0 := mod(by, ch)
+	y1 := mod(by+1.0, ch)
+	cellX := atlasIndex * cw
+	// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
+	// space; Ebitengine converts them to the target source internally.
+	base := imageSrc0Origin()
+	c00 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, yOff+y0+0.5))
+	c10 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, yOff+y0+0.5))
+	c01 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, yOff+y1+0.5))
+	c11 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, yOff+y1+0.5))
+	return mix(mix(c00, c10, fracX), mix(c01, c11, fracX), fracY)
+}
+
+// sampleFloorTrilinear blends the two mip levels bracketing mip.
+func sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel float) vec4 {
+	k0 := floor(mip)
+	k1 := min(k0+1.0, MaxMip)
+	return mix(
+		sampleFloorMip(atlasIndex, lx, ly, k0, texelsPerPixel),
+		sampleFloorMip(atlasIndex, lx, ly, k1, texelsPerPixel),
+		fract(mip))
+}
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
@@ -597,51 +770,50 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 			ly += 1.0
 		}
 
-		// Texel footprint of one screen pixel (horizontal), used both for the
-		// sharp-bilinear band below and the far-field detail fade.
+		// Texel footprint of one screen pixel. Horizontal grows linearly with
+		// rowDist; VERTICAL grows with rowDist^2 (one screen row near the
+		// horizon spans rowDist^2/RowDistFactor world units) and dominates
+		// there. Point/bilinear sampling of a footprint many texels wide is
+		// the ripple-while-moving: each step lands on different texels. The
+		// mip level pre-averages exactly that footprint.
 		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
 		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
 		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
+		vertTexels := rowDist * rowDist / RowDistFactor * TexTileSize.y / TileSize
 
-		// Sharp-bilinear sample inside this texture's atlas cell, wrapping
-		// texel lookups within the cell so tiling stays seamless (4-tap mix as
-		// in the sky shader; Kage samples nearest-only natively). Plain
-		// bilinear smears magnified pixel art, so when one texel spans several
-		// screen pixels the interpolation is squeezed into a ~1-pixel band at
-		// texel seams - crisp texels, antialiased edges - and relaxes back to
-		// ordinary bilinear by the 1:1 footprint.
-		fx := lx*TexTileSize.x - 0.5
-		fy := ly*TexTileSize.y - 0.5
-		bx := floor(fx)
-		by := floor(fy)
-		sharp := 1.0
-		if texelsPerPixel < 1.0 {
-			sharp = 1.0 / texelsPerPixel
+		// Anisotropic-lite mip selection. The honest vertical footprint grows
+		// with rowDist^2, so an isotropic max-axis mip turns the texture flat
+		// within a few tiles. Bias the vertical term 9x down - detail carries
+		// ~3x farther on the quadratic term - and cover the undersampling gap
+		// with 3 taps spread along the column's world step so the
+		// ripple-while-moving stays gone. Raise the 9.0 for sharper/farther,
+		// lower for calmer.
+		foot := max(texelsPerPixel, vertTexels/9.0)
+		mip := 0.0
+		if foot > 1.0 {
+			mip = min(log2(foot), MaxMip)
 		}
-		fracX := clamp((fx-bx-0.5)*sharp+0.5, 0.0, 1.0)
-		fracY := clamp((fy-by-0.5)*sharp+0.5, 0.0, 1.0)
-		x0 := mod(bx, TexTileSize.x)
-		x1 := mod(bx+1.0, TexTileSize.x)
-		y0 := mod(by, TexTileSize.y)
-		y1 := mod(by+1.0, TexTileSize.y)
-		cellX := atlasIndex * TexTileSize.x
-		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
-		// space; Ebitengine converts them to the target source internally.
-		base := imageSrc0Origin()
-		c00 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y0+0.5))
-		c10 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y0+0.5))
-		c01 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y1+0.5))
-		c11 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y1+0.5))
-		texColor := mix(mix(c00, c10, fracX), mix(c01, c11, fracX), fracY)
 
-		// In the far field one screen pixel spans many source texels; without
-		// mipmaps that shimmers, so fade texture detail toward the tile's flat
-		// color by the horizontal texel footprint. Bilinear absorbs the first
-		// ~2 texels/pixel cleanly, so detail persists further than the old
-		// nearest-sample fade did.
-		textureWeight := 0.8 * (1.0 - smoothstep(2.0, 6.0, texelsPerPixel))
+		// Tap positions: this pixel's ray plus +/- a third of a screen row
+		// along the same column - together they span the pixel's true
+		// vertical footprint. Tile-local coords wrap; the tap keeps this
+		// pixel's texture even if a neighbour tile differs (subpixel blur).
+		rowDistB := RowDistFactor / (p + 0.33)
+		rowDistC := RowDistFactor / (p - 0.33)
+		rayX := DirCos + PlaneCos*s
+		rayY := DirSin + PlaneSin*s
+		lxB := fract((CamPos.x + rowDistB*rayX) / TileSize)
+		lyB := fract((CamPos.y + rowDistB*rayY) / TileSize)
+		lxC := fract((CamPos.x + rowDistC*rayX) / TileSize)
+		lyC := fract((CamPos.y + rowDistC*rayY) / TileSize)
+		texColor := (sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel) +
+			sampleFloorTrilinear(atlasIndex, lxB, lyB, mip, texelsPerPixel) +
+			sampleFloorTrilinear(atlasIndex, lxC, lyC, mip, texelsPerPixel)) / 3.0
 
-		rgb = texColor.rgb*textureWeight + rgb*(1.0-textureWeight)
+		// Keep the floor material visible across the whole view. The old
+		// footprint fade replaced it with the flat tile colour in the distance,
+		// which read as fog rather than a textured floor.
+		rgb = texColor.rgb*0.8 + rgb*0.2
 	}
 
 	dx := floorX - CamPos.x
@@ -747,6 +919,23 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 }
 `
 
+// wrapPanoramaOffset keeps source coordinates near the panorama's own width
+// before they are converted to float32 GPU vertices. Real-time rotation leaves
+// camera.Angle unbounded; after enough left turns, a large negative source X
+// loses subpixel precision and mod() can expose an atlas-gap column at the wrap.
+// Removing whole panorama periods is visually identical and keeps the shader's
+// per-pixel wrap in a numerically stable range.
+func wrapPanoramaOffset(offset, width float64) float64 {
+	if width <= 0 || math.IsNaN(offset) || math.IsInf(offset, 0) {
+		return 0
+	}
+	offset = math.Mod(offset, width)
+	if offset < 0 {
+		offset += width
+	}
+	return offset
+}
+
 // drawSkyPanorama draws the sky with an isotropic pixel scale (horizontal scale
 // equals vertical scale) so panorama features don't appear stretched at any
 // resolution. The visible source span auto-adapts to screen width, which means
@@ -799,7 +988,8 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 	pixelsPerRadian := srcSpan / rh.game.camera.FOV
 	bx := float64(bounds.Min.X)
 	by := float64(bounds.Min.Y)
-	sx0 := bx + rh.game.camera.Angle*pixelsPerRadian - srcSpan/2
+	centerOffset := wrapPanoramaOffset(rh.game.camera.Angle*pixelsPerRadian, srcW)
+	sx0 := bx + centerOffset - srcSpan/2
 	sx1 := sx0 + srcSpan
 	sy0 := by
 	sy1 := by + srcH

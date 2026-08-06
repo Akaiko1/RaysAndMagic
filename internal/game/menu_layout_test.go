@@ -32,9 +32,13 @@ func assertNoCollisions(t *testing.T, menu string, region uiBox, boxes []uiBox) 
 // or leaves the menu's bounds. Add a builder to the menus slice to cover a new one.
 func TestMenuLayout_NoCollisions(t *testing.T) {
 	resolutions := []struct{ w, h int }{
-		{1280, 720},
 		{1024, 768},
+		{1280, 720},
+		{1366, 768},
 		{1920, 1080},
+		{2560, 1440},
+		{3440, 1440},
+		{3840, 2160},
 	}
 
 	type menuCase struct {
@@ -54,6 +58,12 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 	}
 	menus := []menuCase{
 		staticMenu("main-menu", mainMenuLayoutBoxes),
+		staticMenu("audio-settings-entry", func(w, h int) (uiBox, []uiBox) {
+			return audioSettingsLayoutBoxes(w, h, true)
+		}),
+		staticMenu("audio-settings-esc", func(w, h int) (uiBox, []uiBox) {
+			return audioSettingsLayoutBoxes(w, h, false)
+		}),
 		staticMenu("tabbed-menu", tabbedMenuLayoutBoxes),
 		staticMenu("inventory", inventoryLayoutBoxes),
 		staticMenu("characters", charactersLayoutBoxes),
@@ -124,8 +134,9 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 	}
 
 	for _, res := range resolutions {
+		logicalW, logicalH := logicalScreenSize(res.w, res.h)
 		for _, m := range menus {
-			for _, build := range m.build(res.w, res.h) {
+			for _, build := range m.build(logicalW, logicalH) {
 				name, region, boxes := build()
 				t.Run(fmt.Sprintf("%dx%d/%s", res.w, res.h, name), func(t *testing.T) {
 					assertNoCollisions(t, name, region, boxes)
@@ -150,5 +161,39 @@ func TestUiBox_OverlapContains(t *testing.T) {
 	}
 	if a.contains(uiBox{"e", 1, 1, 20, 20}) {
 		t.Error("a must not contain a larger box")
+	}
+}
+
+// The spell trader's price line is a full text line under each icon. It shipped
+// folded into a magic "icon + 14" cell and a five-digit price ("22000 g") put
+// its descenders on the frame of the icon in the row below - so the cell model
+// is pinned here, per cell, at the geometry the renderer actually uses.
+func TestSpellTraderPriceLineStaysInItsCell(t *testing.T) {
+	const dialogX, dialogY = 100, 50
+	const frameMargin = 3 // widest selection frame drawn around an icon
+
+	if w := debugTextWidth("22000 g"); w > spellTraderPriceBoxW {
+		t.Errorf("widest price is %dpx, box is %dpx", w, spellTraderPriceBoxW)
+	}
+	for slot := 0; slot < spellTraderPerPage; slot++ {
+		x, y, _, _ := spellTraderIconRect(dialogX, dialogY, slot)
+		px, py, pw, ph := spellTraderPriceRect(x, y)
+		if py < y+spellTraderIconSize+frameMargin {
+			t.Errorf("slot %d: price starts at %d, inside the icon frame ending at %d",
+				slot, py, y+spellTraderIconSize+frameMargin)
+		}
+		if below := slot + spellTraderGridCols; below < spellTraderPerPage {
+			_, by, _, _ := spellTraderIconRect(dialogX, dialogY, below)
+			if py+ph > by-frameMargin {
+				t.Errorf("slot %d: price ends at %d, the icon below frames from %d", slot, py+ph, by-frameMargin)
+			}
+		}
+		if slot%spellTraderGridCols < spellTraderGridCols-1 {
+			nx, ny, _, _ := spellTraderIconRect(dialogX, dialogY, slot+1)
+			npx, _, _, _ := spellTraderPriceRect(nx, ny)
+			if px+pw > npx {
+				t.Errorf("slot %d: price ends at %d, the next price starts at %d", slot, px+pw, npx)
+			}
+		}
 	}
 }

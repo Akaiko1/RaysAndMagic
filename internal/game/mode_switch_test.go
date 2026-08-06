@@ -1,0 +1,452 @@
+package game
+
+import (
+	"testing"
+
+	"ugataima/internal/character"
+	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/spells"
+	"ugataima/internal/world"
+)
+
+func TestModeSwitch_PreservesRTCooldowns(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based mode
+	for i, member := range game.party.Members {
+		member.RTCooldown = 40 + i
+		member.OffHandRTCooldown = 20 + i
+		member.NextTBAttackOffHand = i%2 == 0
+	}
+	game.spellInputCooldown = 9
+
+	game.ToggleTurnBasedMode() // TB -> RT
+	if game.turnBasedMode || !game.turnBasedTurnSuspended {
+		t.Fatalf("TB -> RT = turnBased:%v suspended:%v, want false/true", game.turnBasedMode, game.turnBasedTurnSuspended)
+	}
+	assertModeSwitchCooldowns(t, game)
+
+	game.ToggleTurnBasedMode() // RT -> TB, resume the prior turn
+	if !game.turnBasedMode || game.turnBasedTurnSuspended {
+		t.Fatalf("RT -> TB = turnBased:%v suspended:%v, want true/false", game.turnBasedMode, game.turnBasedTurnSuspended)
+	}
+	assertModeSwitchCooldowns(t, game)
+}
+
+// Bear Trap must retain its root when Tab switches to RT. Traps and weapon
+// riders share the same dual-clock status: a champion cannot evade a trap just
+// because the party changed combat modes.
+func TestModeSwitch_BearTrapRootPinsMinotaurAndWeaponMasterInRT(t *testing.T) {
+	for _, monsterKey := range []string{"minotaur", "weapon_master"} {
+		t.Run(monsterKey, func(t *testing.T) {
+			game, _, tileSize := tbBehaviorGame(t, 8, 8)
+			placePlayerAtTile(game, 1, 1, tileSize)
+			if monsterKey == "weapon_master" {
+				primeTestChampions(t, game)
+			}
+
+			m := monsterPkg.NewMonster3DFromConfig(4*tileSize+tileSize/2, tileSize+tileSize/2, monsterKey, game.config)
+			if monsterKey == "weapon_master" && !m.IsChampion() {
+				t.Fatal("weapon_master must retain its champion marker")
+			}
+			m.WasAttacked = true
+			m.BeginPlayerEngagement()
+			m.State = monsterPkg.StatePursuing
+			m.AITargetX, m.AITargetY = game.camera.X, game.camera.Y
+			game.world.Monsters = []*monsterPkg.Monster3D{m}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+			game.combat.fireTrap(&PlacedTrap{Key: "bear_trap", X: m.X, Y: m.Y}, m)
+			if m.RootTurnsRemaining <= 0 || m.RootFramesRemaining <= 0 {
+				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.RootTurnsRemaining, m.RootFramesRemaining)
+			}
+
+			game.ToggleTurnBasedMode() // TB -> RT while the root is still active
+			startX, startY := m.X, m.Y
+			m.UpdateWithTarget(game.collisionSystem.Snapshot(), game.camera.X, game.camera.Y, game.camera.X, game.camera.Y)
+			if m.X != startX || m.Y != startY {
+				t.Fatalf("rooted %s moved after TB -> RT: (%.1f, %.1f) -> (%.1f, %.1f)", monsterKey, startX, startY, m.X, m.Y)
+			}
+		})
+	}
+}
+
+func assertModeSwitchCooldowns(t *testing.T, game *MMGame) {
+	t.Helper()
+	for i, member := range game.party.Members {
+		if want := 40 + i; member.RTCooldown != want {
+			t.Errorf("member %d main RT cooldown = %d, want %d", i, member.RTCooldown, want)
+		}
+		if want := 20 + i; member.OffHandRTCooldown != want {
+			t.Errorf("member %d off-hand RT cooldown = %d, want %d", i, member.OffHandRTCooldown, want)
+		}
+		if want := i%2 == 0; member.NextTBAttackOffHand != want {
+			t.Errorf("member %d TB hand cursor = %v, want %v", i, member.NextTBAttackOffHand, want)
+		}
+	}
+	if game.spellInputCooldown != 9 {
+		t.Errorf("spell input cooldown = %d, want 9", game.spellInputCooldown)
+	}
+}
+
+func TestModeSwitch_ResumesTurnBasedState(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	game.currentTurn = 0
+	game.partyActionsUsed = 2
+	game.party.Members[0].ActionsRemaining = 2
+	game.party.Members[0].NextTBAttackOffHand = true
+	game.party.Members[1].ActionsRemaining = 1
+	for i := 2; i < len(game.party.Members); i++ {
+		game.party.Members[i].ActionsRemaining = 0
+	}
+
+	game.ToggleTurnBasedMode()
+	game.ToggleTurnBasedMode()
+
+	if game.currentTurn != 0 || game.partyActionsUsed != 2 {
+		t.Fatalf("resumed party turn = current:%d actionsUsed:%d, want 0/2", game.currentTurn, game.partyActionsUsed)
+	}
+	if got := game.party.Members[0].ActionsRemaining; got != 2 {
+		t.Errorf("member 0 actions after resume = %d, want 2", got)
+	}
+	if got := game.party.Members[1].ActionsRemaining; got != 1 {
+		t.Errorf("member 1 actions after resume = %d, want 1", got)
+	}
+	if !game.party.Members[0].NextTBAttackOffHand {
+		t.Error("resuming the turn reset the dual-wield hand cursor")
+	}
+}
+
+func TestModeSwitch_FreshTurnBasedEntryStartsRound(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	game.turnBasedMode = false
+	game.currentTurn = 1
+	game.partyActionsUsed = 2
+	for _, member := range game.party.Members {
+		member.ActionsRemaining = 0
+	}
+
+	game.ToggleTurnBasedMode()
+
+	if !game.turnBasedMode || game.turnBasedTurnSuspended {
+		t.Fatalf("fresh RT -> TB = turnBased:%v suspended:%v, want true/false", game.turnBasedMode, game.turnBasedTurnSuspended)
+	}
+	if game.currentTurn != 0 || game.partyActionsUsed != 0 {
+		t.Fatalf("fresh TB turn = current:%d actionsUsed:%d, want 0/0", game.currentTurn, game.partyActionsUsed)
+	}
+	if game.party.Members[0].ActionsRemaining == 0 {
+		t.Fatal("fresh TB entry did not grant the party an action")
+	}
+}
+
+func TestModeSwitch_PreservesMonsterAIState(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		state       monsterPkg.MonsterState
+		engaging    bool
+		wasAttacked bool
+	}{
+		{
+			name:     "sight engagement",
+			state:    monsterPkg.StatePursuing,
+			engaging: true,
+		},
+		{
+			name:        "sticky combat",
+			state:       monsterPkg.StateAttacking,
+			engaging:    true,
+			wasAttacked: true,
+		},
+		{
+			name:        "flee",
+			state:       monsterPkg.StateFleeing,
+			wasAttacked: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			game, _, tileSize := tbBehaviorGame(t, 12, 12)
+			game.turnBasedMode = false
+			placePlayerAtTile(game, 4, 4, tileSize)
+
+			m := monsterPkg.NewMonster3DFromConfig(7*tileSize+tileSize/2, 4*tileSize+tileSize/2, "goblin", game.config)
+			m.State = tc.state
+			m.StateTimer = 37
+			m.IsEngagingPlayer = tc.engaging
+			m.WasAttacked = tc.wasAttacked
+			game.world.Monsters = []*monsterPkg.Monster3D{m}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+			game.ToggleTurnBasedMode()
+
+			if m.State != tc.state || m.StateTimer != 37 || m.IsEngagingPlayer != tc.engaging || m.WasAttacked != tc.wasAttacked {
+				t.Fatalf("RT -> TB changed monster AI: state=%v timer=%d engaging=%v attacked=%v; want %v/37/%v/%v",
+					m.State, m.StateTimer, m.IsEngagingPlayer, m.WasAttacked,
+					tc.state, tc.engaging, tc.wasAttacked)
+			}
+		})
+	}
+}
+
+func TestModeSwitch_ResumesPendingMonsterTurn(t *testing.T) {
+	game, gl, _ := tbBehaviorGame(t, 5, 5)
+	game.currentTurn = 1
+	game.monsterTurnResolved = false
+	game.turnBasedExtraMonsterAction = true
+	game.turnBasedMonsterPassesLeft = 1
+	game.turnBasedMonsterPassDelay = 3
+	game.turnBasedMonsterStatusTick = true
+
+	game.ToggleTurnBasedMode()
+	game.ToggleTurnBasedMode()
+
+	if game.currentTurn != 1 || game.monsterTurnResolved {
+		t.Fatalf("resumed monster turn = current:%d resolved:%v, want 1/false", game.currentTurn, game.monsterTurnResolved)
+	}
+	if !game.turnBasedExtraMonsterAction || game.turnBasedMonsterPassesLeft != 1 || game.turnBasedMonsterPassDelay != 3 || !game.turnBasedMonsterStatusTick {
+		t.Errorf("monster turn scheduling was reset: extra=%v passes=%d delay=%d statusTick=%v",
+			game.turnBasedExtraMonsterAction, game.turnBasedMonsterPassesLeft, game.turnBasedMonsterPassDelay, game.turnBasedMonsterStatusTick)
+	}
+
+	// The resumed pass was midway through its delay. It must still resolve and
+	// return control to the party rather than remaining stuck on monster turn.
+	for i := 0; i < 4; i++ {
+		gl.updateMonstersTurnBased()
+	}
+	if game.currentTurn != 0 || !game.monsterTurnResolved {
+		t.Fatalf("resumed monster turn did not complete: current:%d resolved:%v", game.currentTurn, game.monsterTurnResolved)
+	}
+}
+
+func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
+	t.Run("main hand", func(t *testing.T) {
+		game, _, _ := tbBehaviorGame(t, 5, 5)
+		member := game.party.Members[0]
+		member.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
+		member.ActionsRemaining = 1
+		want := game.combat.WeaponCooldownFrames(member)
+
+		game.consumeSelectedCharWeaponAction()
+		if member.RTCooldown != want {
+			t.Fatalf("TB main-hand cooldown = %d, want %d", member.RTCooldown, want)
+		}
+
+		game.ToggleTurnBasedMode()
+		if game.rtActionReady(0, rtActWeapon) {
+			t.Fatal("TB main-hand swing became immediately ready after switching to RT")
+		}
+	})
+
+	t.Run("spell action preserves longer prior cooldown", func(t *testing.T) {
+		game, _, _ := tbBehaviorGame(t, 5, 5)
+		member := game.party.Members[0]
+		member.ActionsRemaining = 1
+		member.RTCooldown = 53
+
+		game.consumeSelectedCharActionWithRTCooldown(37)
+		if member.RTCooldown != 53 {
+			t.Fatalf("TB spell action shortened carried RT cooldown to %d, want 53", member.RTCooldown)
+		}
+	})
+
+	t.Run("off hand", func(t *testing.T) {
+		game, _, _ := tbBehaviorGame(t, 5, 5)
+		member := game.party.Members[0]
+		makeDualWielder(t, member)
+		member.ActionsRemaining = 1
+		member.NextTBAttackOffHand = true
+		want := game.combat.OffHandWeaponCooldownFrames(member)
+
+		game.consumeSelectedCharWeaponAction()
+		if member.RTCooldown != 0 || member.OffHandRTCooldown != want {
+			t.Fatalf("TB off-hand cooldowns = main:%d off:%d, want 0/%d", member.RTCooldown, member.OffHandRTCooldown, want)
+		}
+		if member.NextTBAttackOffHand {
+			t.Fatal("off-hand TB swing did not advance the hand cursor")
+		}
+	})
+}
+
+func TestTurnBasedMonsterAttackCarriesRTCadenceAcrossModeSwitch(t *testing.T) {
+	game, gl, tileSize := tbBehaviorGame(t, 12, 12)
+	placePlayerAtTile(game, 6, 6, tileSize)
+
+	mob := monsterPkg.NewMonster3DFromConfig(7*tileSize+tileSize/2, 6*tileSize+tileSize/2, "goblin", game.config)
+	mob.WasAttacked = true
+	mob.BeginPlayerEngagement()
+	game.world.Monsters = []*monsterPkg.Monster3D{mob}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshMonsterAIState()
+
+	runOneMonsterTurn(game, gl)
+	if mob.AttackCDFrames != mob.AttackCooldownFrames() {
+		t.Fatalf("TB monster attack left RT cooldown %d, want %d", mob.AttackCDFrames, mob.AttackCooldownFrames())
+	}
+
+	game.ToggleTurnBasedMode()
+	hpBefore := partyHPSum(game)
+	wrapper := CreateMonsterWrapper(mob, game.collisionSystem, game.collisionSystem.Snapshot(), game)
+	wrapper.Update()
+	wrapper.ApplyCollisionUpdate()
+	game.combat.HandleMonsterInteractions()
+	if got := partyHPSum(game); got != hpBefore {
+		t.Fatalf("monster gained a free strike on the first RT frame: HP %d -> %d", hpBefore, got)
+	}
+}
+
+func TestTurnBasedChampionAttackCarriesBothRTHandCadences(t *testing.T) {
+	game, gl, tileSize := tbBehaviorGame(t, 12, 12)
+	primeTestChampions(t, game)
+	fillTestParty(t, game)
+	placePlayerAtTile(game, 6, 6, tileSize)
+
+	champion := monsterPkg.NewMonster3DFromConfig(7*tileSize+tileSize/2, 6*tileSize+tileSize/2, "weapon_master", game.config)
+	champion.ChampionTier = "impossible"
+	game.mirrorChampionStats(champion)
+	champion.WasAttacked = true
+	champion.BeginPlayerEngagement()
+	game.world.Monsters = []*monsterPkg.Monster3D{champion}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshMonsterAIState()
+
+	runOneMonsterTurn(game, gl)
+	if want := champion.AttackCooldownFrames(); champion.AttackCDFrames != want {
+		t.Fatalf("TB champion main-hand cooldown = %d, want %d", champion.AttackCDFrames, want)
+	}
+	template := game.championTemplateFor(champion)
+	if template == nil {
+		t.Fatal("weapon master template missing")
+	}
+	if want := game.combat.OffHandWeaponCooldownFrames(template); champion.OffHandCDFrames != want {
+		t.Fatalf("TB champion off-hand cooldown = %d, want %d", champion.OffHandCDFrames, want)
+	}
+}
+
+func TestTurnBasedBossSpecialCarriesRTCadenceAcrossModeSwitch(t *testing.T) {
+	game, gl := newSpecialsTestGame(t)
+	boss := spawnSpecialsMonster(game, "golden_thief_bug", 3, 2)
+	aggro(boss)
+	noSummons(boss)
+	boss.InfernoChance = 1
+	boss.TeleportChance = 0
+
+	runTBMonsterTurns(game, gl, 1)
+	castsAfterTB := countCombatLog(game, "Inferno scorches")
+	if castsAfterTB == 0 {
+		t.Fatal("TB boss did not cast Inferno")
+	}
+	if want := boss.AttackCooldownFrames(); boss.AttackCDFrames != want {
+		t.Fatalf("TB boss special RT cooldown = %d, want %d", boss.AttackCDFrames, want)
+	}
+
+	game.ToggleTurnBasedMode()
+	boss.State = monsterPkg.StateAttacking
+	boss.StateTimer = 0
+	wrapper := CreateMonsterWrapper(boss, game.collisionSystem, game.collisionSystem.Snapshot(), game)
+	wrapper.Update()
+	wrapper.ApplyCollisionUpdate()
+	game.combat.HandleMonsterInteractions()
+	if got := countCombatLog(game, "Inferno scorches"); got != castsAfterTB {
+		t.Fatalf("boss gained a free RT special after its TB cast: log entries %d -> %d", castsAfterTB, got)
+	}
+}
+
+func TestTurnBasedMoveInvalidatesStaleRTPathOnly(t *testing.T) {
+	game, gl, tileSize := tbBehaviorGame(t, 12, 12)
+	mob := monsterPkg.NewMonster3DFromConfig(3*tileSize+tileSize/2, 3*tileSize+tileSize/2, "goblin", game.config)
+	mob.PathTiles = []monsterPkg.TileCoord{{X: 3, Y: 3}, {X: 4, Y: 3}, {X: 5, Y: 3}}
+	mob.PathIndex = 2
+	mob.PathTargetTileX = 8
+	mob.PathTargetTileY = 3
+	mob.LastPathCalcTick = 17
+	mob.HasMoveTarget = true
+	mob.MoveTargetState = monsterPkg.StateFleeing
+	mob.MoveTargetTileX = 2
+	mob.MoveTargetTileY = 7
+	game.world.Monsters = []*monsterPkg.Monster3D{mob}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	nextX, nextY := TileCenterFromTile(3, 4, tileSize)
+	if !gl.commitMonsterMoveTB(mob, nextX, nextY) {
+		t.Fatal("setup: TB move failed")
+	}
+	if len(mob.PathTiles) != 0 || mob.PathIndex != 0 || mob.PathTargetTileX != 0 ||
+		mob.PathTargetTileY != 0 || mob.LastPathCalcTick != 0 {
+		t.Fatalf("TB move retained stale RT route: path=%v index=%d target=(%d,%d) tick=%d",
+			mob.PathTiles, mob.PathIndex, mob.PathTargetTileX, mob.PathTargetTileY, mob.LastPathCalcTick)
+	}
+	if !mob.HasMoveTarget || mob.MoveTargetState != monsterPkg.StateFleeing ||
+		mob.MoveTargetTileX != 2 || mob.MoveTargetTileY != 7 {
+		t.Fatalf("TB move erased shared flee objective: active=%v state=%v target=(%d,%d)",
+			mob.HasMoveTarget, mob.MoveTargetState, mob.MoveTargetTileX, mob.MoveTargetTileY)
+	}
+}
+
+func TestTurnBasedSmartAttackIgnoresRetainedRTCooldown(t *testing.T) {
+	combat := newTestCombatSystemWithConfig(t)
+	game := combat.game
+	game.turnBasedMode = true
+	member := game.party.Members[0]
+	member.Class = character.ClassKnight
+	spell, err := spells.CreateSpellItem("firebolt")
+	if err != nil {
+		t.Fatalf("create firebolt: %v", err)
+	}
+	member.Equipment[items.SlotSpell] = spell
+	member.SpellPoints, member.MaxSpellPoints = 99, 99
+	member.RTCooldown = 999
+	game.selectedChar = 0
+
+	acted, spellID := combat.SmartAttack()
+	if !acted || spellID != "firebolt" {
+		t.Fatalf("TB SmartAttack with retained RT cooldown = acted:%v spell:%q, want true/firebolt", acted, spellID)
+	}
+}
+
+func TestSaveLoad_PreservesSuspendedTurnBasedTurn(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	wm := world.NewWorldManager(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+
+	game := newTestGame(cfg, w)
+	game.combat = NewCombatSystem(game)
+	game.turnBasedMode = true
+	game.currentTurn = 0
+	game.partyActionsUsed = 1
+	game.party.Members[0].ActionsRemaining = 0
+	game.party.Members[1].ActionsRemaining = 1
+	game.party.Members[1].NextTBAttackOffHand = true
+	game.ToggleTurnBasedMode() // suspend the party turn in RT
+
+	save := game.buildSave(wm)
+	if !save.TurnBasedTurnSuspended || save.TurnBased {
+		t.Fatalf("saved mode state = turnBased:%v suspended:%v, want false/true", save.TurnBased, save.TurnBasedTurnSuspended)
+	}
+
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wm
+	defer func() { world.GlobalWorldManager = oldWorldManager }()
+
+	loaded := newTestGame(cfg, w)
+	loaded.combat = NewCombatSystem(loaded)
+	if err := loaded.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	loaded.ToggleTurnBasedMode()
+
+	if !loaded.turnBasedMode || loaded.turnBasedTurnSuspended {
+		t.Fatalf("loaded mode state = turnBased:%v suspended:%v, want true/false", loaded.turnBasedMode, loaded.turnBasedTurnSuspended)
+	}
+	if loaded.currentTurn != 0 || loaded.partyActionsUsed != 1 {
+		t.Fatalf("loaded party turn = current:%d actionsUsed:%d, want 0/1", loaded.currentTurn, loaded.partyActionsUsed)
+	}
+	if got := loaded.party.Members[0].ActionsRemaining; got != 0 {
+		t.Errorf("loaded member 0 actions = %d, want 0", got)
+	}
+	if got := loaded.party.Members[1].ActionsRemaining; got != 1 {
+		t.Errorf("loaded member 1 actions = %d, want 1", got)
+	}
+	if !loaded.party.Members[1].NextTBAttackOffHand {
+		t.Error("loaded TB hand cursor was reset")
+	}
+}

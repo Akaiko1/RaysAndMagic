@@ -48,14 +48,23 @@ type World3D struct {
 	Tiles              [][]TileType3D
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
-	NPCs               []*character.NPC
-	Items              []*character.WorldItem
-	Teachers           []*character.SkillTeacher
-	config             *config.Config
+	// MonsterSpawns is the authored roster (retained verbatim) and
+	// LastRespawnDay the day/night phase count when it was last spawned -
+	// respawn_days maps (the clock tower) rebuild the roster from it.
+	MonsterSpawns  []MonsterSpawn
+	LastRespawnDay int
+	NPCs           []*character.NPC
+	Items          []*character.WorldItem
+	Teachers       []*character.SkillTeacher
+	config         *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
 	// to "oob_cliff".
 	OutOfBoundsKey string
+	// flyBoundary marks tiles Fly may never cross even though they are not on
+	// the world's outer ring. The unified world sets it to its void filler so
+	// the party cannot fly out of a region except through a carved passage.
+	flyBoundary func(tileX, tileY int) bool
 	// Starting position from map file
 	StartX int
 	StartY int
@@ -115,7 +124,7 @@ func (w *World3D) loadFromMapFile() {
 
 // CanProjectileMoveTo reports whether a projectile (or spell) may occupy (x,y).
 // Projectiles fly OVER floor-level obstacles - chasms and water (render_type
-// "floor_only") are ground-level, so a bolt sails across them; only solid
+// "floor") are ground-level, so a bolt sails across them; only solid
 // wall/billboard tiles stop it. Player/monster movement still uses CanMoveTo.
 func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
 	tileSize := w.config.GetTileSize()
@@ -129,7 +138,7 @@ func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
 	}
 	// Blocking tile: a floor-only blocker (pit/water) is ground-level - fly over
 	// it; a wall/billboard blocker stops the projectile.
-	if GlobalTileManager != nil && GlobalTileManager.GetRenderType(w.Tiles[tileY][tileX]) == "floor_only" {
+	if GlobalTileManager != nil && GlobalTileManager.GetRenderType(w.Tiles[tileY][tileX]) == config.TileRenderFloor {
 		return true
 	}
 	return false
@@ -332,9 +341,8 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 		// Get monster size from YAML config
 		width, height := monster.GetSize()
 
-		// The game promotes a monster to a solid engaged blocker only after its
-		// per-frame AI target is known. Defaulting map-loaded monsters to walkable
-		// prevents a peaceful mob from blocking the first player input after load.
+		// Map-loaded monsters begin physically walkable. The game later promotes a
+		// party attacker only to a logical attack-post marker, never a blocker.
 		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
 		collisionSystem.RegisterEntity(entity)
 	}
@@ -345,17 +353,29 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
-	// Fly: the party passes through ANYTHING except the map's border ring -
-	// the edge stays solid so the party can never leave the map. MOVEMENT
-	// only: projectiles keep real terrain collision (isTileBlockingTerrain),
-	// or every bolt would sail through walls while the party flies.
 	if w.flyActive {
-		if tileX == 0 || tileY == 0 || tileX == w.Width-1 || tileY == w.Height-1 {
-			return true
-		}
-		return false
+		return w.IsTileBlockingForFly(tileX, tileY)
 	}
 	return w.isTileBlockingTerrain(tileX, tileY)
+}
+
+// IsTileBlockingForFly is the Fly movement rule: the party passes through
+// ANYTHING except the map's border ring - the edge stays solid so the party
+// can never leave the map. The unified world adds its void filler
+// (flyBoundary) so flight cannot leave a region except through a carved
+// passage. MOVEMENT only: projectiles keep real terrain collision
+// (isTileBlockingTerrain), or every bolt would sail through walls while the
+// party flies. Exported separately from IsTileBlocking so game-side checks
+// that already know Fly is active don't depend on the world's transient fly
+// flag being synced.
+func (w *World3D) IsTileBlockingForFly(tileX, tileY int) bool {
+	if tileX <= 0 || tileY <= 0 || tileX >= w.Width-1 || tileY >= w.Height-1 {
+		return true
+	}
+	if w.flyBoundary != nil && w.flyBoundary(tileX, tileY) {
+		return true
+	}
+	return false
 }
 
 // IsTileBlockingTerrainAt exposes the raw terrain rule (no Fly override) for
@@ -416,8 +436,9 @@ func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []stri
 			return false
 		}
 
-		// Flying monsters can pass over transparent solid tiles (e.g., boulders)
-		if flying && GlobalTileManager.IsSolid(tile) && GlobalTileManager.IsTransparent(tile) {
+		// TileManager owns the complete flight exception: existing transparent
+		// scenery plus content-authored open airspace such as water and chasms.
+		if flying && GlobalTileManager.CanFlyOver(tile) {
 			return false
 		}
 
@@ -519,6 +540,7 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 
 // loadMonstersFromMapData loads monsters from map spawn data
 func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
+	w.MonsterSpawns = monsterSpawns
 	for _, spawn := range monsterSpawns {
 		if w.InitialMonsterKeys == nil {
 			w.InitialMonsterKeys = make(map[string]struct{})
@@ -530,6 +552,25 @@ func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
 		w.Monsters = append(w.Monsters, newMonster)
+	}
+}
+
+// RespawnAuthoredMonsters rebuilds the authored roster of a respawn_days
+// farming map. Party-charms intentionally remain: they survive map departure
+// and must still be killable later for their normal XP and loot. The caller owns
+// collision bookkeeping: unregister the old roster's entities first, register
+// the new one after.
+func (w *World3D) RespawnAuthoredMonsters() {
+	preserved := make([]*monster.Monster3D, 0)
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && (m.CharmedByParty || m.Pacified) {
+			preserved = append(preserved, m)
+		}
+	}
+	w.Monsters = preserved
+	for _, spawn := range w.MonsterSpawns {
+		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
+		w.Monsters = append(w.Monsters, monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config))
 	}
 }
 

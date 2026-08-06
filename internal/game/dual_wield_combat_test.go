@@ -558,7 +558,7 @@ func TestEquipmentMeleeAttack_SwingsOffHandWhenMainHandUnequipped(t *testing.T) 
 func setupSummonableWorld(t *testing.T, cs *CombatSystem) {
 	t.Helper()
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("load tile config: %v", err)
 	}

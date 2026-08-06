@@ -1,57 +1,93 @@
-# Deep Jungle (biome: jungle) — 50x50, Amazon river-threaded wilderness
-# River Q splits south (várzea , + landing +) from north (terra-firme . + lost city)
-# Cross at fords S only. Tiles: . terra-firme , várzea : plaza/ruin S ford Q water
-#   walls: # foliage R ruin K cliff | trees: V vine-tree (2-tile, blocks sight) Y palms (2-tile, see-through) | decor: G fern O log
-#   (old T trunk-wall & P desert-palm tiles still exist for the editor, just unused here)
-# Monsters: o ocelot j goblin h huntress d serpent_dancer x hexer g gorilla w warlord i idol
-# NPCs: deep_jungle_exit (riverboat back to Seabright). + = landing.
+# Deep Jungle (biome: jungle) - 50x50, Amazon river-threaded wilderness
+# Tiles: . terra-firme  , varzea  : ruin/plaza paving  S ford  Q deep water
+#   walls: # foliage  R Maya ruin  K cliff   trees: V vine-tree  Y palm
+#   decor: G fern  O log
+# Monsters: o ocelot  j goblin  h huntress  d serpent_dancer  x hexer
+#   g gorilla_titan  w orc_hero_boss  i jungle_idol
+#
+# THE RIVER'S EMBRACE. The Great River comes in at the north edge, and at the
+# fork (y7) it SPLITS: the west arm swings wide, the east arm runs straight,
+# and between them lies the ISLAND - the whole Lost City stands on it, ringed
+# by water. The arms rejoin below the island (y22) and run south out of the
+# map. Three crossings only:
+#   the WEST BRIDGE (x24-26, y14) - sunken causeway stones to the west gate
+#   the EAST BRIDGE (x39-41, y17) - the same, to the east gate
+#   the LOWER FORD (x28-30, y40) - the only link between the two banks' varzea
+#
+# THE LOST CITY (the island, x28-37, y10-19): stone walls, gates west and
+# east off the bridges, paved courts. At its heart the ROUND ARENA (x30-35,
+# y12-17, gates north and south): the Orc Warlord holds the centre at (32,15)
+# and his four warding idols stand around him INSIDE it - (31,13) (34,13)
+# (31,16) (34,16) - his ward is map-wide, so breaking it is an in-arena job.
+# Hexers and serpent dancers hold the courts; the treasury nook is at (29,11).
+#
+# WEST BANK
+#   The SERPENT GEOGLYPH (x6-15, y2-7): the old paving IS a snake seen from
+#     above, and the tome lectern stands on its crown.
+#   THE GREAT KAPOK (x3-11, y12-19): one vast tree - a double spiral of
+#     trunk-wood; walk in at (11,15), round the coil, and in its heart sit the
+#     gorilla titan and a golden hoard.
+#   THE OXBOW (x4-11, y24-30): a cut-off loop gone still; a golden hoard on
+#     the islet over deep water; a SUNKEN IDOL head on the east trail; one
+#     stepping stone (7,24) that walks into the water and stops.
+#   The varzea south: the POISON POOL (x14-15, y39-40) steaming in the middle
+#     of the flood-forest; a WAYSTONE ruin-fern-ruin at (18-20,35); the
+#     LANDING hub at the west wall, where the corridor from the desert opens.
+# EAST BANK
+#   Thicket country north, a smugglers' cache at (44,6); the MANGROVES south
+#   with the STILT PLATFORM (x43-46, y39-43) - sealed, vault the rootwall.
+#
+# CAPABILITY GATES - rewards only, never a route; Fly clears both.
+# gate: water (8,27) chest_golden - the oxbow islet, wants Walk on Water
+# gate: jump (44,41) spell_lectern - the stilt platform: stand (42,41), vault
+#   the rootwall at (43,41)
 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-VKKKKKKKKKKKKKOKVKK##KKKKKKKK#KOKKKRRRRRRR#GKKKKKV
-V...Y..........#.O...#.....#..OG.RRRQQQQQRRR@....V  >[npc:chest_wooden]
-V........O#.....................RRQQRRRRRQQRR....V
-V................O........O....RQQRR..:..RRQQR...V
-V....................O........RRQR.x::::::.RQRR..V
-V..V.####V.........h...:::.Y..RQR.::::h::::.RQR.YV
-VG...#@.#.d#...G...O..:...:..RRQR::i:::::i::RQRR.V  >[npc:spell_lectern]
-V....#..#.V........O.V:h:.:..RQR.:::::::::::.RQR.V
-V..O.##......:::#V....:Y..:#ORQR.:::::::::::.RQR.V
-V...........:...:#.....:::..::::::::::w::::::RQR.V
-V.......x..:.#...:#.........YRQR.:::::::::::.RQR.V
-V........Y.:.x:..:...........RQR.:::::::::::.RQR.V
-VY....G....:.....:.........h.RRQR::i:::::i::RQRR.V
-V...###.....:...:........Y..O.RQR#:::d:x:::.RQR..V
-V...#GG......:::O.........O...RRQ:.:::::::.RQRR@.V  >[npc:chest_iron]
-V...#G..O.YYh.........x........R:QRR..:..RRQQR##.V
-V.........#@G.#......Y.O.......:RRQQRR:RRQQRR....V  >[npc:chest_wooden]
-V.........YY....V..........G.j...RRRQQ:QQRRR.....V
-V............O.....Y......V........RRR:RRR.......V
-V...Y.....V.....d.......G.............:........V.V
-V.....jG............#..G....Y....................V
-V.............#.......Y.....QQQQ.o............VO.V
-V.........................SQQQQQQ................V
-V......Go...........#.....SQQQQQQQ....O.Y..j.....V
-V............Y....GV...#.QSQQQQQQQQ......Y.......V
-V..............G.#......QQS.....QQQQ.............V
-V.#........G...##......QQQS......QQQQ......#.....V
-V...Y...V..O.........VQQQ.S.....V.QQQQ........#..V
-VQ..............O..QQQQQ........Y...QQQ..S#...#..V
-VQ#G.......OYQQQQQQQQQQ..V..........VQQQQSQQQQ...V
-VQQ..V.#.S.QQQQQQQQQQQ...........G...OQQQSQQQQQQQV
-VQQQQ....SQQQQQQQQQQQ.V.....#..#.......QQSQQQQQQQV
-V.QQQQQQQSQQQ.QQQQQ.....#O....#..........SQQQQQQQV
-V.QQQQQQQSQ..............#.Y.......O.....S,...QQQV
-V..QQQQQQS......,....V,....Y.,..Y...,..Y..G......V
-V.Y.,QQ..S,,Y..,..##.#,..V..,...,....#..Q...o.,..V
-V....,,,..#,,,,Y,..,.,.,.,..,.,.Y.,j.QQQQQQQ.....V
-V,...Y.Y..,...,...,,..,#..,...o#,.,,QQQQQQQQQ.,,.V
-V#,..,,...,,Y..,.,..,,j,,....,.,..,,QQQQ@QQQQ.,.,V  >[npc:chest_golden]
-V,..GV...,.o.Y,,,.,.,,.,,..,.,..,,..QQQ..OQQQV...V
-V.,Y.,,,...,..,,..Y...,..,.,,.,,.,.QQQ.Og..QQQ,..V
-V,,,,,,,.V.,.,,,.,.,.,...Y,,,,,.,,.,QQQ...QQQ,..OV
-VY,,.,,.,..,,Y,,.Oo,,,,.,,,#,,,O..,,QQQQ.QQQQ..,,V
-V,,,,,,,,,,,,,,Y,.,.,.,,,,,,,,,,,,,,QQQQSQQQQ,,Y,V
-V.@.@,,,,,,,Y,j,...,,,.,,,,.Y,.,,.,,,QQQSQQQ,Y,,,V  >[npc:tavern], [npc:deep_jungle_exit]
-V,,,,,,,,,,,Y,..,,,,Y.,,,,.,,,,,,Y,,,,,,S,,,Y,,.,V
-V..,,+,,,,,,,,,,Y,,,,.,,,,,,.,,,.Y,,,,,,,,,.,,,Y,V
-V..,,,,,,,,,,,,,,,YY,,,,,,,,,,,,,,,,,#Y.,Y,,,,,,,V
+V.Y...................O..............Y.QQQ....@Y.V  >[npc:chest_wooden]
+V...Y.@:j.........O.............K.....QQQ.Y...V..V  >[npc:spell_lectern]
+V.GG...j:::.........O......VV....o.Y.QQQ.........V
+V.G........::........Y..............QQQ.Y....YVVVV
+V...........::.........O.....YY..Y.QQQ......V....V
+V.............::.........O...Y...QQQQ.Y..........V
+V.............::.h.............QQQQQQQQ..KK......V
+V.YG.O.......d............O..QQQ.......QQQK..YV..V
+V.....G....................QQQ@........QQQ.......V  >[npc:chest_iron]
+V.Y................Y..G..QQQRRRRRRRRRR.QQQ.......V
+Vh...........Y...VV.....QQQ.R...:.dx.R.QQQ.V.....V
+V...VVVVVVV.............QQQ.R.iR.RRi.RxQQQ..V....V
+V.GV.......Vh.......VV..QQQ.RxR....R.R.QQQ....G..V
+V.GV.VVVVV.V............SSS.::R....R.R.QQQ.......V
+V..V.V...V.........O....QQQ.R.R.w..RxR.QQQ.Y.....V
+V..V...g@V.VG.........:.QQQ.R.R....R.R.QQQ..V....V  >[npc:chest_golden]
+V..V.V...V.V.....VV.....QQQQR.iRR.Ri::.SSS.......V
+V..V.VVVVV.V.........G:.QQQQR.dx.:...RQQQK.......V
+V.h.VVVVVVV.Y...........QQQQRRRRRRRRRRQQQKK......V
+V...G................:....QQQ........QQQ...j.....V
+V.QQ............h.......VV.QQQ.....QQQ.RRR.......V
+V....................:.V....YQQQQQQ.....GR.....V.V
+V.o..........GQQ..O.....VV...QQQQ.........RR.....V
+V....WWSWWW.....Y...:.......QQQY............RR...V
+V...WQQQQQQW...............YQQQ.....OVG.....GR...V
+V...WQQQQQQW.GRRG...:......QQQY.....V.V.....R....V
+V...WQQQ@QQW...............QQQ.......V....RR.....V  >[npc:chest_golden]
+V...WQQQQQQW.....o.:.....Y.QQQ.....V.V.V......V..V
+V...WQQQQQQW.G.G............QQQ....V.O.GV........V
+V....WWWWWW...G....:........QQQ...GV.............V
+V...........o...............QQQ..................V
+V..YY..............:G......YQQQY.......V.........V
+V.G................G@Y..V..VQQQ..................V  >[npc:chest_wooden]
+V,,,,,,,Y,Y,,,,,,,:G,OO,,,,,QQQ,,,.,.,.,.,,,,,,,,V
+V,,,,,,,,,,,O,,,,,RGRG,,,,OYQQQ,,.,.,.,.,.V,Y,,,,V
+V,,,,Y,,,,,,,,,,,:,,,,,,,,,,QQQYO,,,,,,,,,,,o,V,,V
+V,,,,Y,,,,j,,,,,,,,,,,,,,,,VQQQ,,,,,,,,,,,Y,,,,,,V
+V,GY,,,,O,,,,G,,,,,,,,,,,,,YQQQY,,,,,,,,,,,,,,,V,V
+V,,,,,,,,,,Y,,QQG,,,,,,,,,,,QQQ,O,,,,,,,,,,RRRR,,V
+V,,G,,,,,,,,,GQQ,,,,,,,,,,,,SSS,,,,,,,,,,,,R,,R,,V
+V,,,,,Y,,,,,,,,,,,,,,,,,,,,@QQQ,Y,,,,,,,,,,R@,R,,V  >[npc:deep_jungle_exit], [npc:spell_lectern]
+V,,,,,Y,,Y,,,,,,,,,,,,,,,,,,QQQY,Y,,,,O,,,,R,,R,,V
+V,,,,,,,OO,,O,,,,,,VV,,,,,,,QQQ,,,,,,,,,,,,RRRR,,V
+V,,,,,,,,,,,O,,,,,,,,,j,,,OYQQQ,,,,,Y,,,,,O,,,,Y,V
+V,,@,,,,,,,,,,,,,GG,,,,,,,,,QQQ,,Y,,,,,,,,,,,,,,,V  >[npc:tavern]
+V,,,,,,,,,,,,,,,,,,,,o,,Y,,YQQQ,Y,,,,,,,,,,VY,,,,V
+V,,,+,,,,,,,,,,,Y,j,,,,,,,,,QQQY,,,,,,,,,,,,,,,,,V
+V,,,,,,,,,,,,,,,,,,,,,,,O,,YQQQ,,,,,,,,,,,,,,,,,,V
 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV

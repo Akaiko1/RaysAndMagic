@@ -10,8 +10,6 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
-
-	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // ContainerKind tags a GroundContainer with how it was spawned, controlling a
@@ -77,8 +75,13 @@ type GroundContainerRenderInfo struct {
 	ScreenX    int
 	ScreenY    int
 	SpriteSize int
-	Distance   float64
-	Visible    bool
+	// Float metrics are the renderer's canonical projection. The integer
+	// values above preserve existing pixel-hit-test rounding.
+	ScreenXF float64
+	BottomF  float64
+	SizeF    float64
+	Distance float64
+	Visible  bool
 }
 
 // effectiveSprite returns the sprite name to draw / hit-test for this container.
@@ -170,7 +173,9 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 			reward.ID, reward.TileX, reward.TileY, chestMap)
 	}
 	tileSize := float64(g.config.GetTileSize())
-	x, y := TileCenterFromTile(reward.TileX, reward.TileY, tileSize)
+	// Rewards are authored map-local; a merged region projects to unified coords.
+	chestTX, chestTY := projectTileToCurrentWorld(chestMap, reward.TileX, reward.TileY)
+	x, y := TileCenterFromTile(chestTX, chestTY, tileSize)
 
 	chestItems := randomWeaponRewards(reward.RandomWeaponCount)
 	chestItems = append(chestItems, fixedWeaponRewards(reward.Weapons)...)
@@ -347,14 +352,13 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 	if len(g.groundContainers) == 0 {
 		return -1
 	}
-	currentMap := currentMapKey()
 	playerX, playerY := g.camera.X, g.camera.Y
 	maxDistSq := maxDist * maxDist
 	bestIdx := -1
 	bestDistSq := 0.0
 	for i := range g.groundContainers {
 		c := &g.groundContainers[i]
-		if c.MapKey != "" && c.MapKey != currentMap {
+		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
 			continue
 		}
 		dx := c.X - playerX
@@ -391,6 +395,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
 		g.invalidateContainerFanCache()
 		return
+	}
+	if c.Kind == ContainerKindTreasureChest {
+		g.playSound(soundChestOpen)
 	}
 
 	for _, it := range c.Items {
@@ -440,7 +447,10 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.ScreenXF, info.BottomF, info.SizeF, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetricsF(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.ScreenX = int(info.ScreenXF)
+	info.SpriteSize = int(info.SizeF)
+	info.ScreenY = int(info.BottomF) - info.SpriteSize
 	return info
 }
 
@@ -479,7 +489,7 @@ func (g *MMGame) ensureContainerFanOffsets() {
 	groups := make(map[tileKey][]int, len(g.groundContainers))
 	for i := range g.groundContainers {
 		o := &g.groundContainers[i]
-		k := tileKey{o.MapKey, int(o.X / tile), int(o.Y / tile)}
+		k := tileKey{o.MapKey, TileIndex(o.X, tile), TileIndex(o.Y, tile)}
 		groups[k] = append(groups[k], i)
 	}
 	g.containerFanOffsets = make(map[*GroundContainer][2]float64)
@@ -542,7 +552,31 @@ func (g *MMGame) groundContainerHitTestFromInfo(info GroundContainerRenderInfo, 
 	}
 	sprite := g.sprites.GetSprite(spriteName)
 	drawLeft := info.ScreenX - info.SpriteSize/2
-	return spriteHitTest(sprite, mouseX, mouseY, drawLeft, info.ScreenY, info.SpriteSize)
+	if sprite == nil || info.SpriteSize <= 0 {
+		return false
+	}
+	if mouseX < drawLeft || mouseX >= drawLeft+info.SpriteSize ||
+		mouseY < info.ScreenY || mouseY >= info.ScreenY+info.SpriteSize {
+		return false
+	}
+	spriteW := sprite.Bounds().Dx()
+	spriteH := sprite.Bounds().Dy()
+	if spriteW == 0 || spriteH == 0 {
+		return false
+	}
+	scaleX := float64(info.SpriteSize) / float64(spriteW)
+	scaleY := float64(info.SpriteSize) / float64(spriteH)
+	localX := int(float64(mouseX-drawLeft) / scaleX)
+	localY := int(float64(mouseY-info.ScreenY) / scaleY)
+	if localX < 0 || localX >= spriteW || localY < 0 || localY >= spriteH {
+		return false
+	}
+	if opaque, known := g.sprites.SpriteOpaqueAt(spriteName, localX, localY); known {
+		return opaque
+	}
+	// Missing/undecodable authored art already renders as a placeholder. Keep
+	// that placeholder interactable by its visible rectangle.
+	return true
 }
 
 // currentMapKey returns the active map key, with nil-safety for early-init or
@@ -561,34 +595,10 @@ func groundContainerTileIsValid(mapKey string, tileX, tileY int) bool {
 	if world.GlobalWorldManager == nil {
 		return true
 	}
-	w, ok := world.GlobalWorldManager.LoadedMaps[mapKey]
-	if !ok || w == nil {
+	w := world.GlobalWorldManager.WorldByKey(mapKey)
+	if w == nil {
 		return true
 	}
-	return !w.IsTileBlocking(tileX, tileY)
-}
-
-// spriteHitTest is a pixel-perfect hit test against an image-backed sprite.
-// Used by all ground-container interaction (click-to-pick-up/open).
-func spriteHitTest(sprite *ebiten.Image, mouseX, mouseY, drawLeft, drawTop, spriteSize int) bool {
-	if sprite == nil || spriteSize <= 0 {
-		return false
-	}
-	if mouseX < drawLeft || mouseX >= drawLeft+spriteSize || mouseY < drawTop || mouseY >= drawTop+spriteSize {
-		return false
-	}
-	spriteW := sprite.Bounds().Dx()
-	spriteH := sprite.Bounds().Dy()
-	if spriteW == 0 || spriteH == 0 {
-		return false
-	}
-	scaleX := float64(spriteSize) / float64(spriteW)
-	scaleY := float64(spriteSize) / float64(spriteH)
-	localX := int(float64(mouseX-drawLeft) / scaleX)
-	localY := int(float64(mouseY-drawTop) / scaleY)
-	if localX < 0 || localX >= spriteW || localY < 0 || localY >= spriteH {
-		return false
-	}
-	_, _, _, a := sprite.At(localX, localY).RGBA()
-	return a > 0
+	tx, ty := projectTileToCurrentWorld(mapKey, tileX, tileY)
+	return !w.IsTileBlocking(tx, ty)
 }

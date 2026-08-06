@@ -3,6 +3,7 @@ package collision
 import (
 	"fmt"
 	"math"
+	"sync"
 )
 
 // DebugCanMoveTo runs the same checks as CanMoveTo but returns a human-readable reason
@@ -57,7 +58,9 @@ func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (
 	return true, "ok"
 }
 
-// GetAllEntities returns a slice of all entities in the collision system
+// GetAllEntities returns a slice of all entities in the collision system.
+// TEST/diagnostic accessor - gameplay resolves entities by ID or through a
+// Snapshot, never by scanning the whole registry.
 func (cs *CollisionSystem) GetAllEntities() []*Entity {
 	entities := make([]*Entity, 0, len(cs.entities))
 	for _, e := range cs.entities {
@@ -84,7 +87,10 @@ type TileChecker interface {
 // projectile movement only checks TILES (world.CanProjectileMoveTo), never
 // other entities, so this holds - and (3) the entities map itself is never
 // mutated (Register/Unregister) inside a parallel phase. Breaking any of these
-// requires adding a lock here first.
+// entity-registry invariants requires adding a lock around the registry first.
+// The smaller dynamic sight overlay has its own RWMutex: CastRay may read it
+// while a sight-blocking entity moves, without putting ordinary projectile
+// UpdateEntity calls behind a global collision lock.
 //
 // The parallel MONSTER updater does NOT qualify for the above: a monster's
 // movement/AI decision reads OTHER entities' bounding boxes and collision types
@@ -98,31 +104,91 @@ type TileChecker interface {
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity
-	tileSize    float64
+	// sightBlockerTiles is a reference-counted overlay of tiles occupied by
+	// explicitly sight-blocking entities. Registration is the single state
+	// transition for both movement collision and dynamic LOS occlusion.
+	sightBlockerTiles map[sightTileKey]int
+	sightMu           sync.RWMutex
+	// engagedPosts indexes the (few) CollisionTypeMonsterEngaged entities so
+	// attack-post reservation queries scan a handful, not every entity.
+	// Maintained by RegisterEntity/UnregisterEntity/SetEntityCollisionType.
+	engagedPosts map[string]*Entity
+	tileSize     float64
 }
 
 // NewCollisionSystem creates a new collision system
 func NewCollisionSystem(tileChecker TileChecker, tileSize float64) *CollisionSystem {
 	return &CollisionSystem{
-		tileChecker: tileChecker,
-		entities:    make(map[string]*Entity),
-		tileSize:    tileSize,
+		tileChecker:       tileChecker,
+		entities:          make(map[string]*Entity),
+		sightBlockerTiles: make(map[sightTileKey]int),
+		engagedPosts:      make(map[string]*Entity),
+		tileSize:          tileSize,
 	}
 }
 
 // RegisterEntity adds an entity to the collision system
 func (cs *CollisionSystem) RegisterEntity(entity *Entity) {
+	if entity == nil {
+		panic("collision: RegisterEntity called with nil")
+	}
+	previous := cs.entities[entity.ID]
 	cs.entities[entity.ID] = entity
+	if entity.CollisionType == CollisionTypeMonsterEngaged {
+		cs.engagedPosts[entity.ID] = entity
+	} else {
+		delete(cs.engagedPosts, entity.ID)
+	}
+	if (previous != nil && previous.blocksSight) || entity.blocksSight {
+		cs.sightMu.Lock()
+		cs.indexEntitySightTiles(previous, -1)
+		cs.indexEntitySightTiles(entity, 1)
+		cs.sightMu.Unlock()
+	}
 }
 
 // UnregisterEntity removes an entity from the collision system
 func (cs *CollisionSystem) UnregisterEntity(id string) {
+	entity := cs.entities[id]
 	delete(cs.entities, id)
+	delete(cs.engagedPosts, id)
+	if entity != nil && entity.blocksSight {
+		cs.sightMu.Lock()
+		cs.indexEntitySightTiles(entity, -1)
+		cs.sightMu.Unlock()
+	}
+}
+
+// SetEntityCollisionType flips an entity's collision type, keeping the
+// engaged-post index in sync. All type changes must come through here - a
+// direct field write would leave IsMonsterAttackPostReserved blind to the
+// claim. Single-threaded like every other live-system mutation.
+func (cs *CollisionSystem) SetEntityCollisionType(id string, t CollisionType) {
+	entity, exists := cs.entities[id]
+	if !exists {
+		return
+	}
+	entity.CollisionType = t
+	if t == CollisionTypeMonsterEngaged {
+		cs.engagedPosts[id] = entity
+	} else {
+		delete(cs.engagedPosts, id)
+	}
 }
 
 // UpdateEntity updates an entity's position in the collision system
 func (cs *CollisionSystem) UpdateEntity(id string, x, y float64) {
 	if entity, exists := cs.entities[id]; exists {
+		if entity.blocksSight {
+			cs.sightMu.Lock()
+			cs.indexEntitySightTiles(entity, -1)
+			entity.BoundingBox.MoveTo(x, y)
+			cs.indexEntitySightTiles(entity, 1)
+			cs.sightMu.Unlock()
+			return
+		}
+		// Parallel projectile updates take this path: they touch only their own
+		// bounding box and never the shared sight index.
 		entity.BoundingBox.MoveTo(x, y)
 	}
 }
@@ -282,21 +348,45 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, moving
 // shouldIgnoreCollisionTypes is the type-only decision behind
 // shouldIgnoreEntityCollision, factored out so CollisionSnapshot (which holds
 // value copies, not *Entity pointers) can share it. CollisionTypeMonsterEngaged
-// must reflect a monster genuinely fighting - callers that derive it (e.g.
-// game.refreshMonsterCollisionSolidity) need a real combat signal, not mere
-// proximity, or two calm/dormant monsters stop passing through each other here.
+// identifies a logical combat attack post; whether it blocks physically remains
+// the entity's separate Solid flag. The normal gameplay path keeps these posts
+// non-solid so transit mobs and the party can pass through them.
 func shouldIgnoreCollisionTypes(moving, other CollisionType) bool {
-	// A non-engaged monster is walkable to and through the party. Once it is
-	// promoted to MonsterEngaged, the player blocks its path so it cannot flee
-	// or pursue through the party.
-	if moving == CollisionTypeMonster && other == CollisionTypePlayer {
+	// A normal monster and a logical attack-post marker must both cross the
+	// party while they are routing toward a different combat target. Attack
+	// posts are deliberately non-solid in gameplay, but this keeps snapshots
+	// and explicit solid-entity callers consistent with that rule.
+	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
+		other == CollisionTypePlayer {
 		return true
 	}
 
-	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
+	// Allow only non-engaged monsters to walk through each other to prevent
+	// pathfinding deadlocks in generic solid-entity scenarios.
 	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
 		(other == CollisionTypeMonster || other == CollisionTypeMonsterEngaged) {
 		return moving == CollisionTypeMonster && other == CollisionTypeMonster
+	}
+	return false
+}
+
+// IsMonsterAttackPostReserved reports whether another monster has claimed the
+// logical tile containing (x,y) as its combat attack post. The marker is
+// CollisionTypeMonsterEngaged even though the entity is intentionally non-solid.
+// Movement may pass through the tile; only settling to attack must avoid it.
+func (cs *CollisionSystem) IsMonsterAttackPostReserved(entityID string, x, y float64) bool {
+	if cs == nil || cs.tileSize <= 0 {
+		return false
+	}
+	tileX, tileY := bucketCoord(x, cs.tileSize), bucketCoord(y, cs.tileSize)
+	for id, entity := range cs.engagedPosts {
+		if id == entityID || entity.BoundingBox == nil {
+			continue
+		}
+		if bucketCoord(entity.BoundingBox.X, cs.tileSize) == tileX &&
+			bucketCoord(entity.BoundingBox.Y, cs.tileSize) == tileY {
+			return true
+		}
 	}
 	return false
 }
@@ -311,9 +401,8 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 }
 
 // CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
-// Used by the monster separation pass: two overlapping monsters veto each
-// other's every move through the normal check, so pushing them apart must
-// consult terrain alone.
+// Recovery and path-start checks use it when the actor already occupies an
+// entity-blocked position and must validate terrain without vetoing itself.
 func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
@@ -321,49 +410,6 @@ func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float
 	}
 	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
 	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
-}
-
-// GetCollisions returns all current collisions between entities
-func (cs *CollisionSystem) GetCollisions() []CollisionPair {
-	var collisions []CollisionPair
-
-	// Convert entities to slice for indexed iteration
-	entities := make([]*Entity, 0, len(cs.entities))
-	for _, entity := range cs.entities {
-		entities = append(entities, entity)
-	}
-
-	// Check all pairs
-	for i := 0; i < len(entities); i++ {
-		for j := i + 1; j < len(entities); j++ {
-			if entities[i].BoundingBox.Intersects(entities[j].BoundingBox) {
-				collisions = append(collisions, CollisionPair{
-					Entity1: entities[i],
-					Entity2: entities[j],
-				})
-			}
-		}
-	}
-
-	return collisions
-}
-
-// GetNearbyEntities returns entities within a certain distance of a point
-func (cs *CollisionSystem) GetNearbyEntities(x, y, radius float64, excludeID string) []*Entity {
-	var nearby []*Entity
-	searchPoint := Point{X: x, Y: y}
-
-	for id, entity := range cs.entities {
-		if id == excludeID {
-			continue
-		}
-
-		if entity.BoundingBox.DistanceToPoint(searchPoint) <= radius {
-			nearby = append(nearby, entity)
-		}
-	}
-
-	return nearby
 }
 
 // RaycastHit represents the result of a raycast operation
@@ -378,22 +424,25 @@ type RaycastHit struct {
 
 // CastRay performs a DDA-based raycast between two points
 func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
-	return castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, sightOnly)
+	cs.sightMu.RLock()
+	defer cs.sightMu.RUnlock()
+	return castRayTiles(cs.tileChecker, cs.tileSize, cs.sightBlockerTiles, x1, y1, x2, y2, sightOnly)
 }
 
-// castRayTiles is CastRay's body, parametrized over (tileChecker, tileSize) -
-// both immutable for the lifetime of a map, so it needs no entity access and is
-// shared verbatim by CollisionSnapshot.CheckLineOfSight.
-func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
+// castRayTiles is CastRay's body, parametrized over the authored tiles and the
+// compact dynamic sight overlay. It needs no entity access and is shared
+// verbatim by CollisionSnapshot.CheckLineOfSight.
+func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles map[sightTileKey]int, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
 	inv := 1.0 / tileSize
+	hasSightBlockers := sightOnly && len(sightBlockerTiles) > 0
 
 	// Current tile
-	tx := int(x1 * inv)
-	ty := int(y1 * inv)
+	tx := tileCoord(x1, inv)
+	ty := tileCoord(y1, inv)
 
 	// Target tile
-	gx := int(x2 * inv)
-	gy := int(y2 * inv)
+	gx := tileCoord(x2, inv)
+	gy := tileCoord(y2, inv)
 
 	dx := x2 - x1
 	dy := y2 - y1
@@ -474,7 +523,7 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 floa
 		}
 
 		// Check for hit based on mode
-		if sightOnly && tileChecker.IsTileOpaque(tx, ty) {
+		if sightOnly && (tileChecker.IsTileOpaque(tx, ty) || hasSightBlockers && sightBlockerTiles[sightTileKey{x: tx, y: ty}] > 0) {
 			hitX := x1 + dx*t
 			hitY := y1 + dy*t
 			dist := math.Hypot(hitX-x1, hitY-y1)
@@ -505,25 +554,6 @@ func (cs *CollisionSystem) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 type CollisionPair struct {
 	Entity1 *Entity
 	Entity2 *Entity
-}
-
-// GetCollisionDistance returns the overlap distance between two colliding entities
-func (cp *CollisionPair) GetCollisionDistance() float64 {
-	return cp.Entity1.BoundingBox.Distance(cp.Entity2.BoundingBox)
-}
-
-// GetCollisionNormal returns the collision normal vector (normalized)
-func (cp *CollisionPair) GetCollisionNormal() (float64, float64) {
-	dx := cp.Entity2.BoundingBox.X - cp.Entity1.BoundingBox.X
-	dy := cp.Entity2.BoundingBox.Y - cp.Entity1.BoundingBox.Y
-
-	// Normalize
-	length := math.Sqrt(dx*dx + dy*dy)
-	if length == 0 {
-		return 0, 0
-	}
-
-	return dx / length, dy / length
 }
 
 // GetEntityByID returns the entity with the given ID, or nil if not found

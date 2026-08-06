@@ -40,6 +40,20 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"arena_parry":       (*Renderer).drawMeleeFxArenaParry,
 	"arena_lion":        (*Renderer).drawMeleeFxArenaLion,
 	"arena_cesti":       (*Renderer).drawMeleeFxArenaCesti,
+	"clock_cogfang":     (*Renderer).drawMeleeFxClockCogfang,
+	"clock_chime":       (*Renderer).drawMeleeFxClockChime,
+	"clock_minute":      (*Renderer).drawMeleeFxClockMinute,
+	"clock_mainspring":  (*Renderer).drawMeleeFxClockMainspring,
+	"clock_escapement":  (*Renderer).drawMeleeFxClockEscapement,
+	"dragon_fang":       (*Renderer).drawMeleeFxDragonFang,
+	"dragon_jaws":       (*Renderer).drawMeleeFxDragonJaws,
+	"dragon_ember_egg":  (*Renderer).drawMeleeFxDragonEmberEgg,
+	"dragon_broodspike": (*Renderer).drawMeleeFxDragonBroodspike,
+	"dragon_tarn":       (*Renderer).drawMeleeFxDragonTarn,
+	"dragon_hatchling":  (*Renderer).drawMeleeFxDragonHatchling,
+	"dragon_roar":       (*Renderer).drawMeleeFxDragonRoar,
+	"dragon_eye":        (*Renderer).drawMeleeFxDragonEye,
+	"tech_vibro":        (*Renderer).drawMeleeFxTechVibro,
 }
 
 // validateWeaponFxStyles fails fast when a weapon effect names a style with no
@@ -58,7 +72,8 @@ func validateWeaponFxStyles() {
 			}
 		}
 		if def.Graphics.ProjectileFx != "" {
-			if _, ok := weaponProjectileFxStyleDraw[def.Graphics.ProjectileFx]; !ok {
+			fx, ok := weaponProjectileFxStyles[def.Graphics.ProjectileFx]
+			if !ok || fx.side == nil || fx.headOn == nil {
 				panic(fmt.Sprintf("weapon %q: unknown weapon projectile_fx style %q", key, def.Graphics.ProjectileFx))
 			}
 		}
@@ -104,23 +119,12 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 	} else if n > 260 {
 		n = 260
 	}
-	// Grid sections are stable across frames (stable per-section jitter); one
-	// extra section pins the strip's end exactly to the blade edge.
-	ts := make([]float64, 0, n+2)
-	for i := 0; i <= n; i++ {
-		t := float64(i) / float64(n)
-		if t >= lead {
-			break
-		}
-		ts = append(ts, t)
-	}
-	ts = append(ts, lead)
 
 	src := r.ensureSoftGlow()
 	srcMid := float32(softGlowSize) / 2
 	step := 0.5 / float64(n)
-	verts := make([]ebiten.Vertex, 0, len(ts)*2)
-	for i, t := range ts {
+	verts := r.standeeVerts[:0]
+	appendSection := func(i int, t float64) {
 		x, y := st.path(t)
 		tb := math.Min(t, 1-step)
 		x1, y1 := st.path(tb)
@@ -157,16 +161,35 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 			ebiten.Vertex{DstX: float32(x - nx*w), DstY: float32(y - ny*w), SrcX: float32(softGlowSize), SrcY: srcMid, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: ca},
 		)
 	}
+
+	// Grid sections are stable across frames (stable per-section jitter); one
+	// extra section pins the strip's end exactly to the blade edge.
+	section := 0
+	for i := 0; i <= n; i++ {
+		t := float64(i) / float64(n)
+		if t >= lead {
+			break
+		}
+		appendSection(section, t)
+		section++
+	}
+	appendSection(section, lead)
 	if len(verts) < 4 {
+		r.standeeVerts = verts[:0]
 		return
 	}
-	idx := make([]uint16, 0, (len(ts)-1)*6)
-	for i := 1; i < len(ts); i++ {
+
+	sectionCount := len(verts) / 2
+	idx := r.standeeIdx[:0]
+	for i := 1; i < sectionCount; i++ {
 		a0 := uint16(2*i - 2)
 		idx = append(idx, a0, a0+1, a0+2, a0+1, a0+3, a0+2)
 	}
-	opts := &ebiten.DrawTrianglesOptions{Blend: st.blend, Filter: ebiten.FilterLinear}
-	screen.DrawTriangles(verts, idx, src, opts)
+	r.meleeTriOpts.Blend = st.blend
+	r.meleeTriOpts.Filter = ebiten.FilterLinear
+	screen.DrawTriangles(verts, idx, src, &r.meleeTriOpts)
+	r.standeeVerts = verts[:0]
+	r.standeeIdx = idx[:0]
 }
 
 // drawSparkStar draws a 4-point twinkle: a bright core with four tapering

@@ -109,6 +109,90 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	}
 }
 
+func TestInventoryDropZonesRespectModalBlocker(t *testing.T) {
+	tests := []struct {
+		name string
+		drop func(*UISystem)
+	}{
+		{name: "quick slot to bag", drop: func(ui *UISystem) { ui.quickInvDropZone(0, 0, 100, 100) }},
+		{name: "bag to equipment", drop: func(ui *UISystem) { ui.equipSlotDropZone(items.SlotMainHand, 0, 0, 100, 100) }},
+		{name: "bag cell swap", drop: func(ui *UISystem) { ui.inventoryCellDropZone(1, 0, 0, 100, 100) }},
+		{name: "bag tail move", drop: func(ui *UISystem) { ui.inventoryEmptyDropZone(0, 0, 100, 100) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			game, _, _ := tbBehaviorGame(t, 20, 20)
+			ui := NewUISystem(game)
+			game.menuOpen = true
+			game.statPopupOpen = true
+			game.party.Inventory = []items.Item{
+				{Name: "First", Type: items.ItemConsumable},
+				{Name: "Second", Type: items.ItemConsumable},
+			}
+			quick := items.Item{Name: "Quick", Type: items.ItemConsumable}
+			game.party.Members[0].QuickSlots[0] = &quick
+			game.dragSrc = dragFromInventory
+			if tt.name == "quick slot to bag" {
+				game.dragSrc = dragFromQuickSlot
+				game.dragQuickChar = 0
+				game.dragQuickSlot = 0
+			}
+			game.dragInvIndex = 0
+			game.dragDropAt = 1
+			game.dragCurX, game.dragCurY = 5, 5
+
+			tt.drop(ui)
+
+			if game.dragSrc == dragNone {
+				t.Fatal("modal-blocked drop was resolved and cleared")
+			}
+			if len(game.party.Inventory) != 2 || game.party.Inventory[0].Name != "First" || game.party.Inventory[1].Name != "Second" {
+				t.Fatalf("modal-blocked drop mutated inventory: %+v", game.party.Inventory)
+			}
+			if game.party.Members[0].QuickSlots[0] == nil {
+				t.Fatal("modal-blocked drop removed the quick-slot item")
+			}
+		})
+	}
+}
+
+func TestQuickSlotDrop_TakesOnlyDraggedStackUnits(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 20, 20)
+	ch := game.party.Members[0]
+	game.party.Inventory = []items.Item{{
+		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3, InstanceID: 42,
+	}}
+
+	// Shift-drag is represented by a positive partial quantity. It must leave
+	// the two remaining potions in the bag and place only one in the quick slot.
+	game.dragSrc = dragFromInventory
+	game.dragInvIndex = 0
+	game.dragSplitQuantity = 1
+	game.dragItem = game.party.Inventory[0]
+	game.dragItem.Quantity = 1
+	game.resolveQuickSlotDrop(0, 0)
+
+	if ch.QuickSlots[0] == nil || ch.QuickSlots[0].Count() != 1 || ch.QuickSlots[0].InstanceID != 42 {
+		t.Fatalf("quick slot fragment = %+v, want one original-lineage potion", ch.QuickSlots[0])
+	}
+	if len(game.party.Inventory) != 1 || game.party.Inventory[0].Count() != 2 || game.party.Inventory[0].InstanceID == 42 {
+		t.Fatalf("bag remainder = %+v, want two rekeyed potions", game.party.Inventory)
+	}
+
+	// A second partial drop onto the same quick slot merges the quantity there,
+	// while leaving one potion in the bag.
+	game.dragSrc = dragFromInventory
+	game.dragInvIndex = 0
+	game.dragSplitQuantity = 1
+	game.dragItem = game.party.Inventory[0]
+	game.dragItem.Quantity = 1
+	game.resolveQuickSlotDrop(0, 0)
+	if ch.QuickSlots[0].Count() != 2 || game.party.Inventory[0].Count() != 1 {
+		t.Fatalf("second partial drop quick=%+v bag=%+v, want 2 and 1", ch.QuickSlots[0], game.party.Inventory)
+	}
+}
+
 // Equipping gear via a quick slot is a free swap - it must not spend a turn-based
 // action or set a real-time cooldown (only spells/traps are combat actions).
 func TestQuickSlot_EquipIsFree(t *testing.T) {

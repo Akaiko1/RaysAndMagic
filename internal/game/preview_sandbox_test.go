@@ -18,7 +18,7 @@ func setupPreviewSandboxTest(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := loadTestConfig(t)
 	if world.GlobalTileManager == nil {
-		tm := world.NewTileManager()
+		tm := world.NewTileManager(testTileSizeClasses())
 		if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 			t.Fatalf("load tiles: %v", err)
 		}

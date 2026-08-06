@@ -20,7 +20,7 @@ func TestUpdateFocusedNPC_CenterAndRangeRules(t *testing.T) {
 	g := &MMGame{
 		config: cfg,
 		world:  w,
-		camera: &FirstPersonCamera{X: 320, Y: 320, Angle: 0, FOV: cfg.GetCameraFOV(), ViewDist: cfg.GetViewDistance()},
+		camera: &FirstPersonCamera{X: 320, Y: 320, Angle: 0, FOV: squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()), ViewDist: cfg.GetViewDistance()},
 	}
 	g.renderHelper = NewRenderingHelper(g)
 

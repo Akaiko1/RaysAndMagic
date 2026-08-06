@@ -79,9 +79,6 @@ func TestOutgoingDamageBonusFiltersByDamageType(t *testing.T) {
 	if got := game.combatBuffOutBonusForDamageType("fire"); got != 5 {
 		t.Errorf("fire outgoing bonus = %d, want 5", got)
 	}
-	if got := game.combatBuffOutBonus(); got != 8 {
-		t.Errorf("aggregate outgoing bonus = %d, want 8", got)
-	}
 }
 
 func TestStoneSkinReductionScalesWithMastery(t *testing.T) {
@@ -239,15 +236,15 @@ func TestSpellDamageScalingStatBySchool(t *testing.T) {
 	}
 
 	// The tooltip label must match the formula's scaling stat.
-	if got := spellDamageStatLabel("mind", false); got != "Personality" {
+	if got := spells.DamageStatLabel("mind", false); got != "Personality" {
 		t.Errorf("mind label = %q, want Personality", got)
 	}
-	if got := spellDamageStatLabel("fire", false); got != "Intellect" {
+	if got := spells.DamageStatLabel("fire", false); got != "Intellect" {
 		t.Errorf("fire label = %q, want Intellect", got)
 	}
 	// A non-self school flagged scales_with_personality (e.g. ray_of_light) adds
 	// a Personality term on top of Intellect - the label must name both.
-	if got := spellDamageStatLabel("light", true); got != "Intellect + Personality" {
+	if got := spells.DamageStatLabel("light", true); got != "Intellect + Personality" {
 		t.Errorf("light+personality label = %q, want 'Intellect + Personality'", got)
 	}
 }

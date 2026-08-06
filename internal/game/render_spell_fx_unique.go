@@ -24,6 +24,18 @@ var spellFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, float64, float6
 	"starburst":    (*Renderer).drawSpellFxStarburst,
 	"disintegrate": (*Renderer).drawSpellFxDisintegrate,
 	"ray_of_light": (*Renderer).drawSpellFxRayOfLight,
+	"rock":         (*Renderer).drawSpellFxRock,
+	"stone_bud":    (*Renderer).drawSpellFxStoneBud,
+	"swarm":        (*Renderer).drawSpellFxSwarm,
+	"ice_shard":    (*Renderer).drawSpellFxIceShard,
+	"fire_dart":    (*Renderer).drawSpellFxFireDart,
+	"sparks":       (*Renderer).drawSpellFxSparks,
+	"shadow_bolt":  (*Renderer).drawSpellFxShadowBolt,
+	"void_needle":  (*Renderer).drawSpellFxVoidNeedle,
+	"shackle":      (*Renderer).drawSpellFxShackle,
+	"charm_bloom":  (*Renderer).drawSpellFxCharm,
+	"psi_lance":    (*Renderer).drawSpellFxPsiLance,
+	"lash":         (*Renderer).drawSpellFxLash,
 }
 
 // validateProjectileFxStyles fails fast on a projectile_fx naming a style with
@@ -33,9 +45,17 @@ func validateProjectileFxStyles() {
 		return
 	}
 	for key, def := range config.GlobalSpells.Spells {
-		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+		if def.Graphics == nil {
+			continue
+		}
+		if def.Graphics.ProjectileFx != "" {
 			if _, ok := spellFxStyleDraw[def.Graphics.ProjectileFx]; !ok {
 				panic(fmt.Sprintf("spell %q: unknown projectile_fx style %q", key, def.Graphics.ProjectileFx))
+			}
+		}
+		if def.Graphics.NovaFx != "" {
+			if _, ok := novaFxSpawn[def.Graphics.NovaFx]; !ok {
+				panic(fmt.Sprintf("spell %q: unknown nova_fx style %q", key, def.Graphics.NovaFx))
 			}
 		}
 	}
@@ -55,61 +75,44 @@ func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX 
 	deep := [3]int{200, 40, 10}
 	soot := [3]int{80, 25, 8}
 
-	// Cooling wake: shed fire puffs drifting behind, orange -> soot as they age.
+	// Smoke wake: soot puffs peeling off and rising behind.
 	for k := 0; k < 7; k++ {
 		ph := frac(fc*0.02*(0.7+auraHash(id, k, 61, 0)*0.6) + auraHash(id, k, 62, 0))
-		px := cx - dirX*ph*size*3.4 + (auraHash(id, k, 63, 0)-0.5)*size*0.8
+		px := cx - dirX*ph*size*3.0 + (auraHash(id, k, 63, 0)-0.5)*size*0.8
 		py := cy - ph*ph*size*0.9 + (auraHash(id, k, 64, 0)-0.5)*size*0.4
-		r.drawGlowSprite(screen, px, py, size*(0.55+0.5*ph),
-			mixColor(deep, soot, ph), (1-ph)*0.5, additiveGlowBlend)
+		r.drawGlowSprite(screen, px, py, size*(0.5+0.5*ph),
+			mixColor(deep, soot, ph), (1-ph)*0.45, additiveGlowBlend)
 	}
 
-	// Round silhouette first - the unifying ball the puffs churn inside.
-	r.drawGlowSprite(screen, cx, cy, size*1.55, deep, 0.55, additiveGlowBlend)
-
-	// Fire puffs: STABLE positions churning slowly around the centre (no
-	// per-frame rehash), breathing radius; hotter toward the middle.
-	const puffs = 12
-	ballR := size * 0.62
-	for k := 0; k < puffs; k++ {
-		ang := auraHash(id, k, 65, 0)*2*math.Pi + fc*0.02*(1+auraHash(id, k, 66, 0))
-		rad := math.Sqrt(auraHash(id, k, 67, 0)) * ballR
-		rad *= 0.9 + 0.12*math.Sin(fc*0.11+float64(k))
-		px := cx + math.Cos(ang)*rad
-		py := cy + math.Sin(ang)*rad*0.92
-		edge := rad / (ballR + 1)
-		flick := 0.8 + 0.2*math.Sin(fc*0.23+float64(k)*2.1)
-		r.drawGlowSprite(screen, px, py, size*0.7, deep, 0.22*flick, additiveGlowBlend)
-		r.drawGlowSprite(screen, px, py, size*0.42, mixColor(flame, deep, edge), 0.5*flick*critBoost, additiveGlowBlend)
-		if edge < 0.5 {
-			r.drawGlowSprite(screen, px, py, size*0.24, heart, (1-edge)*0.5*flick, additiveGlowBlend)
-		}
+	// Burning core: concentric SOLID layers, so the ball keeps a silhouette at
+	// every scale instead of scattering into orange dots.
+	pulse := 1 + 0.06*math.Sin(fc*0.19)
+	for k := 0; k < 12; k++ { // ragged, churning edge
+		a := auraHash(id, k, 65, 0)*2*math.Pi + fc*0.02
+		rad := size * 0.55 * (0.75 + 0.25*math.Sin(fc*0.17+float64(k)*1.7))
+		r.drawGlowSprite(screen, cx+math.Cos(a)*rad, cy+math.Sin(a)*rad*0.9, size*0.5, deep, 0.5, additiveGlowBlend)
 	}
+	// Body painted SOURCE-OVER: additive layers only add light and stay a dim
+	// smudge on a dark scene, while opaque layers give the ball real mass.
+	r.drawGlowSprite(screen, cx, cy, size*1.7*pulse*critBoost, deep, 0.9, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*1.2*pulse, mixColor(deep, flame, 0.6), 1, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*0.8*pulse, flame, 1, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*0.4*pulse, heart, 1, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*1.9*pulse, flame, 0.35, additiveGlowBlend) // bloom
 
-	// Flame tongues off the crown, card-ignite style: each rises on its own
-	// life-cycle, wobbling and cooling as it climbs.
-	for k := 0; k < 7; k++ {
+	// Flame tongues licking off the crown: SHORT and fat, or they read as a crown
+	// of petals instead of fire clinging to the ball.
+	for k := 0; k < 5; k++ {
 		life := auraHash(id, k, 68, 0)
-		ph := frac(fc*0.02*(0.6+life*0.8) + life)
+		ph := frac(fc*0.03*(0.6+life*0.8) + life)
 		rise := 1 - ph
-		wob := math.Sin(fc*0.15+life*6.28+float64(k)) * size * 0.22 * ph
-		px := cx + (auraHash(id, k, 69, 0)-0.5)*size*1.0 + wob
-		py := cy - size*0.45 - ph*size*1.35
-		bs := size * (0.2 + 0.24*rise)
-		r.drawGlowSprite(screen, px, py, bs*1.7, deep, rise*0.45, additiveGlowBlend)
-		r.drawGlowSprite(screen, px, py, bs, mixColor(flame, heart, rise*0.4), rise*0.8, additiveGlowBlend)
-		if rise > 0.55 {
-			r.drawGlowSprite(screen, px, py, bs*0.5, heart, (rise-0.55)/0.45, additiveGlowBlend)
-		}
+		root := -math.Pi/2 + (life-0.5)*2.4 // fan across the upper crown
+		r.fxTongue(screen, cx+math.Cos(root)*size*0.45, cy+math.Sin(root)*size*0.45,
+			size*(0.2+0.35*rise), size*0.62*rise, root, fc*0.2+life*6.28, deep, flame, heart, rise)
 	}
 
-	// Spat sparks.
-	for k := 0; k < 4; k++ {
-		sa := auraHash(id, k, 70, int(fc)) * 2 * math.Pi
-		sr := size * (0.7 + auraHash(id, k, 71, int(fc))*0.8)
-		r.drawGlowRect(screen, cx+math.Cos(sa)*sr, cy+math.Sin(sa)*sr*0.8,
-			math.Max(2, size*0.08), heart, 0.8, additiveGlowBlend)
-	}
+	// Amber embers, never white: white specks read as UI pixels, not fire.
+	r.fxEmbers(screen, id, 7, cx, cy, size, dirX, [3]int{255, 205, 95}, flame, soot, 70)
 }
 
 // Lightning - not an orb but a crackling bolt: a jagged chain re-rolled every
@@ -171,16 +174,20 @@ func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size float64, _
 	murk := [3]int{40, 95, 45}
 	beat := 0.8 + 0.25*math.Sin(fc*0.22) + 0.1*math.Sin(fc*0.44)
 
-	// Membrane + heart beating in counterphase.
-	r.drawGlowSprite(screen, cx, cy, size*1.6*beat, murk, 0.5, additiveGlowBlend)
-	r.drawGlowSprite(screen, cx, cy, size*0.75*(1.7-beat), toxic, 0.85*critBoost, additiveGlowBlend)
+	// Membrane and heart beat in counterphase, painted SOURCE-OVER so the blight
+	// has mass; additive alone left a dim green smudge at projectile scale.
+	r.drawGlowSprite(screen, cx, cy, size*1.75*beat, murk, 0.95, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*1.15*beat, mixColor(murk, toxic, 0.35), 1, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*0.6*(1.7-beat), toxic, critBoost, ebiten.BlendSourceOver)
+	r.drawGlowSprite(screen, cx, cy, size*2.0*beat, toxic, 0.22, additiveGlowBlend) // sickly halo
 
-	// Warts crawling over the membrane surface.
-	for k := 0; k < 9; k++ {
+	// Warts crawling over the membrane surface - small and many, or they read as
+	// a handful of green blocks stuck to a dot.
+	for k := 0; k < 14; k++ {
 		a := auraHash(id, k, 76, 0)*2*math.Pi + fc*0.03
-		rad := size * 0.78 * beat
+		rad := size * (0.62 + 0.2*auraHash(id, k, 78, 0)) * beat
 		r.drawGlowSprite(screen, cx+math.Cos(a)*rad, cy+math.Sin(a)*rad*0.85,
-			size*0.2, mixColor(murk, toxic, auraHash(id, k, 77, 0)*0.5), 0.6, additiveGlowBlend)
+			size*0.2, mixColor(murk, toxic, 0.3+auraHash(id, k, 77, 0)*0.5), 0.95, ebiten.BlendSourceOver)
 	}
 
 	// Viscous drips: swell at the underside, then tear off and fall.
@@ -219,20 +226,15 @@ func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size float6
 	// Core trembles - a mind under strain.
 	wx := cx + math.Sin(fc*0.31)*size*0.12
 	wy := cy + math.Sin(fc*0.43+1.3)*size*0.1
-	r.drawGlowSprite(screen, wx, wy, size*1.1*critBoost, lav, 0.7, additiveGlowBlend)
-	r.drawGlowSprite(screen, wx, wy, size*0.5, white, 0.95, additiveGlowBlend)
+	r.drawGlowSprite(screen, wx, wy, size*1.3*critBoost, lav, 0.8, additiveGlowBlend)
+	r.drawGlowSprite(screen, wx, wy, size*0.75, mixColor(lav, white, 0.5), 0.9, additiveGlowBlend)
+	r.drawGlowSprite(screen, wx, wy, size*0.4, white, 1, additiveGlowBlend)
 
-	// Sonar pings: flattened rings expanding and fading, staggered thirds.
+	// Sonar pings: flattened rings of solid ticks, expanding and fading in thirds.
 	for k := 0; k < 3; k++ {
 		u := frac(fc/36 + float64(k)/3)
 		rad := (0.3 + 1.9*u) * size
-		alpha := (1 - u) * 0.5
-		const pts = 14
-		for j := 0; j < pts; j++ {
-			a := float64(j) / pts * 2 * math.Pi
-			r.drawGlowSprite(screen, wx+math.Cos(a)*rad, wy+math.Sin(a)*rad*0.55,
-				size*0.16*(1-u*0.5), lav, alpha, additiveGlowBlend)
-		}
+		r.fxRing(screen, wx, wy, rad, rad*0.55, size*0.14*(1-u*0.4), fc*0.02, 14, lav, (1-u)*0.85)
 	}
 
 	// Thought-orbs on an elliptical orbit, each with a short fading tail.

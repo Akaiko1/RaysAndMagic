@@ -10,9 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -34,4 +34,6 @@ jobs:
         # Ebiten init opens a GLFW window at package init time, which fails on
         # headless CI without DISPLAY. xvfb-run provides a virtual framebuffer
         # so package init succeeds and tests can run.
-        run: xvfb-run --auto-servernum go test -race -timeout 5m ./...
+        # 15m: internal/game under -race takes 210-260s on a fast machine; a
+        # 2-core runner with a cold cache blows straight through 5m.
+        run: xvfb-run --auto-servernum go test -race -timeout 15m ./...

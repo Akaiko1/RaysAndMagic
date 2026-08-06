@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -17,6 +18,7 @@ type pendingMortar struct {
 	FramesLeft  int
 	SpellID     string
 	Damage      int
+	TrueDamage  int
 	Crit        bool
 	Caster      *character.MMCharacter
 	RadiusTiles float64
@@ -36,7 +38,8 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	landY := cs.game.camera.Y + dirY*dist
 
 	_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
-	totalDamage, isCrit := cs.rollSpellCritDamage(spellID, caster, totalDamage)
+	parts := cs.spellDamageParts(spellID, caster, totalDamage)
+	parts, isCrit := cs.rollSpellCritParts(spellID, caster, parts)
 
 	// Flight time from the spell's authored projectile speed (validateSpellAuthoring
 	// guarantees a mortar spell has physics.speed_tiles > 0); a wall may clip the
@@ -55,7 +58,8 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		X: landX, Y: landY,
 		FramesLeft:  frames,
 		SpellID:     string(spellID),
-		Damage:      totalDamage,
+		Damage:      parts.Normal,
+		TrueDamage:  parts.True,
 		Crit:        isCrit,
 		Caster:      caster,
 		RadiusTiles: spellDef.AoeRadiusTiles,
@@ -122,7 +126,6 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		name = def.Name
 	}
 	damageTypeStr := normalizeDamageTypeStr(m.School)
-	damageType := convertToMonsterDamageType(damageTypeStr)
 	dmg := m.Damage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	radius := m.RadiusTiles * float64(cs.game.config.GetTileSize())
 	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
@@ -130,14 +133,17 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
 	for _, target := range cs.game.world.Monsters {
-		if target == nil || !target.IsAlive() || bossInvulnerable(target) {
+		if target == nil || !target.IsAlive() || isPurePartySummon(target) || target.IsDamageInvulnerable() {
 			continue
 		}
 		if Distance(m.X, m.Y, target.X, target.Y) > radius {
 			continue
 		}
-		reduced := applyMonsterArmor(dmg, damageTypeStr, target.EffectiveArmorClass(), false)
-		actual := target.TakeDamageResist(reduced, damageType, resistPierce)
+		actual := cs.applyMonsterDamagePacket(
+			target,
+			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg, True: m.TrueDamage}, damageTypeStr, resistPierce),
+			monsterDamageOptions{},
+		).Total()
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
 		if !target.IsAlive() {

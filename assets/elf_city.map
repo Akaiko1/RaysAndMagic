@@ -1,0 +1,33 @@
+# Silverbough (biome: elf_city) - 31x23 elven town in the Misty Highlands
+# The elves live in the highland pinewood (elf_archer / elf_swordsman are both
+# biomes: ["highlands"]), so their town stands there, not in the forest that
+# only carries their name. Reached through the arch at (2,10) on highlands.map;
+# no monsters inside the wall.
+# Tiles: % laurel marble wall | A seastone  B root-grown  C glasslight halls
+#        . mosaic street  , court rosette | L Archive  H Ranger Hall  O Moon Pavilion
+#        F fountain  I lamp post  N bench  T planter  Y mirror board  Z sapling
+# NPCs: elf_city_archive (spells), elf_city_apothecary (potions),
+#       elf_city_bowyer (bows and scout kit), elf_city_exit (gate)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%.BBBB....,,,,,,,,,....BBBB...%
+%.BBBB....,,,,,L,,,....BBBB...%
+%.BBBB....,,,,,,,,,....BBBB...%
+%.........,,I,,@,,I...........%  >[npc:elf_city_archive]
+%.........,,,,,,,,,...........%
+%..........Y..................%
+%.AAAA.T......................%
+%.AAAA...................H....%
+%.AAAA@......Z,,,Z.......@....%  >[npc:elf_city_apothecary], [npc:elf_city_bowyer]
+%.AAAA.N.....,,,,,............%
+%.AAAA.T....,,,O,,,...........%
+%.AAAA.......,,,,,............%
+%............Z,,,Z............%
+%...........I.....I...........%
+%...F...................CCCCC.%
+%.T...N.................CCCCC.%
+%.BBBBB................AAAAA..%
+%.BBBBB................AAAAA..%
+%.BBBBB.....I.....I....AAAAA..%
+%.............................%
+%.............+@..............%  >[npc:elf_city_exit]
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

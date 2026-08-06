@@ -3,7 +3,9 @@ package character
 import (
 	"fmt"
 	"strings"
+
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/status"
@@ -130,6 +132,10 @@ type MMCharacter struct {
 	// Stun: skips the character's actions. RT counts frames, TB counts turns.
 	StunFramesRemaining int
 	StunTurnsRemaining  int
+	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// ScaleStacks: equipped scale-growth armor accumulated this combat.
+	// Runtime-only - stacks shed the moment combat ends (never saved).
+	ScaleStacks int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -154,6 +160,12 @@ type MMCharacter struct {
 	// decremented on each attack/spell, set to 0 on party movement (which
 	// immediately ends the round). Unused in real-time.
 	ActionsRemaining int
+
+	// TBRoundActionFloor is the personal action floor actually credited at the
+	// start of the current TB round. Equipment changes may withdraw that
+	// credited portion, but equipping an action-floor weapon mid-round cannot
+	// mint fresh actions. Persisted through CharacterSave for suspended rounds.
+	TBRoundActionFloor int
 
 	// RTCooldown is this character's remaining real-time action cooldown in
 	// frames. While > 0 the member is "busy" (grayed in the HUD, skipped by
@@ -236,21 +248,26 @@ func (c *MMCharacter) AnyWeaponHandReady() bool {
 	return c.IsDualWielding() && c.OffHandRTCooldown <= 0
 }
 
-// HasWeaponInEitherHand reports whether a weapon (not a shield/nothing) is
-// equipped in the main hand or, for a Dual Wielding character, the off-hand.
-func (c *MMCharacter) HasWeaponInEitherHand() bool {
+// MainHandArmed reports whether the main hand carries a weapon. Only weapons
+// ever occupy that slot, so its occupancy IS the test - and it can be empty:
+// a caster or an unarmed brawler fights with nothing there.
+func (c *MMCharacter) MainHandArmed() bool {
 	if c == nil {
 		return false
 	}
-	if _, ok := c.Equipment[items.SlotMainHand]; ok {
-		return true
-	}
-	return c.IsDualWielding()
+	_, ok := c.Equipment[items.SlotMainHand]
+	return ok
 }
 
-// CanAct reports whether this character can take actions this turn: alive
-// (HP > 0) AND not unconscious. Dead/KO characters are skipped by the
-// turn-based scheduler entirely (no gray frame, can't be selected).
+// HasWeaponInEitherHand reports whether a weapon (not a shield/nothing) is
+// equipped in the main hand or, for a Dual Wielding character, the off-hand.
+func (c *MMCharacter) HasWeaponInEitherHand() bool {
+	return c.MainHandArmed() || c.IsDualWielding()
+}
+
+// CanAct reports whether this character is alive and conscious. It is used for
+// targeting and round bookkeeping; actor-specific gates additionally account
+// for statuses such as stun.
 func (c *MMCharacter) CanAct() bool {
 	if c == nil || c.HitPoints <= 0 {
 		return false
@@ -261,6 +278,13 @@ func (c *MMCharacter) CanAct() bool {
 		}
 	}
 	return true
+}
+
+// CanUseCombatAction reports whether this character may be the actor for an
+// attack, spell, or trap. CanAct deliberately remains the broader "living
+// target" predicate: stunned heroes can still be hit, healed, and revived.
+func (c *MMCharacter) CanUseCombatAction() bool {
+	return c.CanAct() && !c.IsStunned()
 }
 
 type CharacterClass int
@@ -288,6 +312,9 @@ const (
 	PromotionLich
 )
 
+// IsArchmage / IsLich are the promotion predicates. IsLich drives party traits
+// (hates.yaml aggro); IsArchmage currently has no gameplay caller and exists as
+// its symmetric twin for tests and future promotion rules.
 func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
 func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
 
@@ -340,21 +367,7 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	for _, sk := range stats.Skills {
-		st, ok := SkillTypeFromKey(sk)
-		if !ok {
-			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
-		}
-		mastery := MasteryNovice
-		if startTier, ok := stats.SkillStartMastery[sk]; ok {
-			m, ok := masteryFromKey(startTier)
-			if !ok {
-				panic(fmt.Sprintf("class %q: unknown skill_start_mastery value %q for %q in config.yaml", key, startTier, sk))
-			}
-			mastery = m
-		}
-		c.Skills[st] = &Skill{Mastery: mastery}
-	}
+	c.ensureClassKitSkills(stats, key)
 
 	for _, entry := range stats.Magic {
 		school := MagicSchoolID(entry.School)
@@ -392,6 +405,47 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 			c.Equipment[items.SlotSpell] = spellItem
 		}
 	}
+}
+
+func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) bool {
+	if c.Skills == nil {
+		c.Skills = make(map[SkillType]*Skill)
+	}
+	added := false
+	for _, sk := range stats.Skills {
+		st, ok := SkillTypeFromKey(sk)
+		if !ok {
+			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
+		}
+		mastery := MasteryNovice
+		if startTier, ok := stats.SkillStartMastery[sk]; ok {
+			m, ok := masteryFromKey(startTier)
+			if !ok {
+				panic(fmt.Sprintf("class %q: unknown skill_start_mastery value %q for %q in config.yaml", key, startTier, sk))
+			}
+			mastery = m
+		}
+		if _, exists := c.Skills[st]; !exists {
+			c.Skills[st] = &Skill{Mastery: mastery}
+			added = true
+		}
+	}
+	return added
+}
+
+// EnsureClassKitSkills migrates an existing character to the current
+// data-authored class kit. It only adds absent skills; earned mastery remains
+// untouched.
+func (c *MMCharacter) EnsureClassKitSkills(cfg *config.Config) bool {
+	if c == nil || cfg == nil {
+		return false
+	}
+	key := c.Class.Key()
+	stats, ok := cfg.Characters.Classes[key]
+	if !ok {
+		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
+	}
+	return c.ensureClassKitSkills(stats, key)
 }
 
 func isKnownMagicSchool(id MagicSchoolID) bool {
@@ -506,17 +560,18 @@ func (c *MMCharacter) Update() {
 }
 
 // UpdateWithMode updates the character with knowledge of the current game mode
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
+// and reports whether an RT regeneration cadence completed this frame.
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
 	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
 	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
 	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
 	// mirroring monster poison's RT-frame-vs-TB-turn split.
 	if turnBasedMode {
-		return
+		return false
 	}
 
 	// Use normal timer-based regeneration in real-time mode
-	c.updateRegenAndPoison()
+	return c.updateRegenAndPoison()
 }
 
 // A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
@@ -525,47 +580,67 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 // mode switch ends it on whichever runs out first - never permanent.
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
+// Rated: the TB clock drains proportionally so toggling combat mode cannot
+// hand the stun its frozen turn count back.
 func (c *MMCharacter) tickStunFrames() {
-	if status.TickFrame(&c.StunFramesRemaining, &c.StunTurnsRemaining) {
+	if status.TickFrameRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
 func (c *MMCharacter) TickStunTurn() {
-	if status.TickTurn(&c.StunTurnsRemaining, &c.StunFramesRemaining) {
+	if status.TickTurnRated(&c.StunTurnsRemaining, &c.StunFramesRemaining, &c.StunRate) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
-// TickPoisonTurn advances poison by one TURN (TB mode) - one damage tick per
-// turn, duration measured in the same frame units ApplyPoison used. Mirrors
+// TickPoisonTurn advances poison by one TB round: the round consumes
+// elapsedFrames of duration and deals the damage that span is worth (one tick
+// per second, so a three-second round bites three times). Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
-func (c *MMCharacter) TickPoisonTurn(framesPerTurn int) {
-	deal, expired := status.TickDoTTurn(&c.PoisonFramesRemaining, &c.poisonTickTimer, framesPerTurn)
+func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int) {
+	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	if deal {
-		c.dotDamage(PoisonDamagePerTick)
-	}
+	c.dotDamage(PoisonDamagePerTick * ticks)
 }
 
-// TickBurnTurn advances ignite by one TURN (TB mode), mirroring TickPoisonTurn.
-func (c *MMCharacter) TickBurnTurn(framesPerTurn int) {
-	deal, expired := status.TickDoTTurn(&c.BurnFramesRemaining, &c.burnTickTimer, framesPerTurn)
+// TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
+func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int) {
+	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	if deal {
-		c.dotDamage(BurnDamagePerTick)
-	}
+	c.dotDamage(BurnDamagePerTick * ticks)
 }
 
-// dotDamage lands one DoT tick on a still-standing character; Unconscious is
-// set by the game loop's knockOut sweep, not here.
+// DoTTickTimers exposes the persisted sub-second cadence phase for poison and
+// burn without making the runtime timers mutable outside this package.
+func (c *MMCharacter) DoTTickTimers() (poison, burn int) {
+	if c == nil {
+		return 0, 0
+	}
+	return c.poisonTickTimer, c.burnTickTimer
+}
+
+// RestoreDoTTickTimers restores cadence only for active effects. Validation is
+// shared with monsters through the status package.
+func (c *MMCharacter) RestoreDoTTickTimers(poison, burn int) {
+	if c == nil {
+		return
+	}
+	tps := config.GetTargetTPS()
+	c.poisonTickTimer = status.RestoreDoTTickTimer(c.PoisonFramesRemaining, poison, tps)
+	c.burnTickTimer = status.RestoreDoTTickTimer(c.BurnFramesRemaining, burn, tps)
+}
+
+// dotDamage lands DoT damage on a still-standing character; Unconscious is
+// set by the game loop's knockOut sweep, not here. A zero amount (no tick this
+// call) is a no-op.
 func (c *MMCharacter) dotDamage(amount int) {
-	if c.HitPoints <= 0 {
+	if c.HitPoints <= 0 || amount <= 0 {
 		return
 	}
 	c.HitPoints -= amount
@@ -576,7 +651,7 @@ func (c *MMCharacter) dotDamage(amount int) {
 
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
 // via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison() {
+func (c *MMCharacter) updateRegenAndPoison() bool {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = 60
@@ -587,13 +662,15 @@ func (c *MMCharacter) updateRegenAndPoison() {
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
-		return
+		return false
 	}
+	regenCadenceCompleted := false
 	// Regenerate spell points on a fixed cadence.
 	c.spellRegenTimer++
 	if c.spellRegenTimer >= ManaRegenIntervalFrames {
 		c.RegenerateSpellPoints()
 		c.spellRegenTimer = 0 // Reset timer
+		regenCadenceCompleted = true
 	}
 	// Troll Card(s): regenerate a % of max HP on the same cadence.
 	if c.BonusRegenPct > 0 {
@@ -601,8 +678,22 @@ func (c *MMCharacter) updateRegenAndPoison() {
 		if c.hpRegenTimer >= ManaRegenIntervalFrames {
 			c.hpRegenTimer = 0
 			c.ApplyCardRegenTick()
+			regenCadenceCompleted = true
 		}
 	}
+	return regenCadenceCompleted
+}
+
+// ResetRealtimeRegenCadence clears the RT-side progress after the TB cadence
+// pays out. Conversely, an RT payout resets the game-owned TB counter. The
+// first cadence to complete therefore owns the payout and switching modes
+// cannot award a second one immediately.
+func (c *MMCharacter) ResetRealtimeRegenCadence() {
+	if c == nil {
+		return
+	}
+	c.spellRegenTimer = 0
+	c.hpRegenTimer = 0
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
@@ -669,13 +760,19 @@ func (c *MMCharacter) CurePoison() {
 
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
 // both can run at once. The tick is desynced (starts half a second in) so burn
-// and poison ticks don't land on the same frame.
+// and poison ticks don't land on the same frame. The banked half second is
+// measured on the SAME clock the ticks run on (GetTargetTPS == the game config's
+// TPS); a shorter ticking clock would make the bank worth a full second and buy
+// the burn an extra tick.
 func (c *MMCharacter) ApplyBurn(frames int) {
 	if frames <= 0 {
 		return
 	}
+	wasActive := c.BurnFramesRemaining > 0
 	if status.Refresh(&c.BurnFramesRemaining, frames) {
-		c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
+		if !wasActive {
+			c.burnTickTimer = config.GetTargetTPS() / 2 // desync the first tick from poison
+		}
 		c.AddCondition(ConditionBurning)
 	}
 }
@@ -688,10 +785,8 @@ const (
 )
 
 func (c *MMCharacter) updateBurn(tps int) {
-	deal, expired := status.TickDoTFrame(&c.BurnFramesRemaining, &c.burnTickTimer, tps)
-	if deal {
-		c.dotDamage(BurnDamagePerTick)
-	}
+	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
+	c.dotDamage(BurnDamagePerTick * ticks)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -700,7 +795,7 @@ func (c *MMCharacter) updateBurn(tps int) {
 // ApplyCharStun stuns the character for the given RT frames / TB turns (max with
 // any existing stun). A stunned character takes no action until it wears off.
 func (c *MMCharacter) ApplyCharStun(frames, turns int) {
-	if status.RefreshDual(&c.StunFramesRemaining, &c.StunTurnsRemaining, frames, turns) {
+	if status.RefreshDualRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate, frames, turns) {
 		c.AddCondition(ConditionStunned)
 	}
 }
@@ -711,68 +806,11 @@ func (c *MMCharacter) IsStunned() bool {
 }
 
 func (c *MMCharacter) updatePoison(tps int) {
-	deal, expired := status.TickDoTFrame(&c.PoisonFramesRemaining, &c.poisonTickTimer, tps)
-	if deal {
-		c.dotDamage(PoisonDamagePerTick)
-	}
+	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
+	c.dotDamage(PoisonDamagePerTick * ticks)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-}
-
-func (c *MMCharacter) GetDisplayInfo() string {
-	className := c.ClassDisplayName()
-	condition := "OK"
-	if len(c.Conditions) > 0 {
-		condNames := make([]string, 0, len(c.Conditions))
-		for _, cond := range c.Conditions {
-			condNames = append(condNames, cond.String())
-		}
-		condition = strings.Join(condNames, ", ")
-	}
-
-	// Add equipment info
-	weaponInfo := "No weapon"
-	if weapon, hasWeapon := c.Equipment[items.SlotMainHand]; hasWeapon {
-		weaponInfo = weapon.Name
-	}
-
-	spellInfo := "No spell"
-	// Check unified spell slot
-	if spell, hasSpell := c.Equipment[items.SlotSpell]; hasSpell {
-		spellInfo = spell.Name
-	}
-
-	return fmt.Sprintf("%s\n%s Lv.%d\nHP: %d/%d\nSP: %d/%d\n%s\nW:%s\nS:%s",
-		c.Name, className, c.Level,
-		c.HitPoints, c.MaxHitPoints,
-		c.SpellPoints, c.MaxSpellPoints,
-		condition, weaponInfo, spellInfo)
-}
-
-func (c *MMCharacter) GetDetailedInfo() string {
-	info := fmt.Sprintf("%s\n", c.Name)
-	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
-	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
-
-	info += "ATTRIBUTES:\n"
-	info += fmt.Sprintf("Might: %d  Intellect: %d\n", c.Might, c.Intellect)
-	info += fmt.Sprintf("Personality: %d  Endurance: %d\n", c.Personality, c.Endurance)
-	info += fmt.Sprintf("Accuracy: %d  Speed: %d  Luck: %d\n\n", c.Accuracy, c.Speed, c.Luck)
-
-	info += "SKILLS:\n"
-	for skillType, skill := range c.Skills {
-		info += fmt.Sprintf("%s: %d (%s)\n", skillType, skill.Level(), skill.Mastery)
-	}
-
-	info += "\nMAGIC SCHOOLS:\n"
-	for school, magicSkill := range c.MagicSchools {
-		info += fmt.Sprintf("%s: %d (%s) - %d spells\n",
-			school.DisplayName(), magicSkill.Level(),
-			magicSkill.Mastery, len(magicSkill.KnownSpells))
-	}
-
-	return info
 }
 
 // String returns the display name of the class (Stringer interface).
@@ -968,12 +1006,16 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 		return false // Unknown weapon cannot be equipped
 	}
 
-	if weaponDef.Category == "blaster" && c.HasAnyWeaponSkill() {
-		return true // universally usable - but not for a class trained in NO weapon at all
-	}
 	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
 	// weapon training entirely.
 	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
+		return true
+	}
+	// Firearms need no training to point and shoot: anyone with real weapon
+	// training can fire a blaster untrained (the Blaster skill only makes it
+	// better - mastery true damage, crit, cooldown). See
+	// weaponCategorySkillOptional.
+	if WeaponCategorySkillOptional(weaponDef.Category) && c.HasAnyWeaponSkill() {
 		return true
 	}
 	requiredSkill, ok := WeaponSkillForCategory(weaponDef.Category)
@@ -1119,10 +1161,7 @@ func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
 // (the same weapon already sitting in the slot). Guards UnequipItem: a
 // character whose only weapon skill is Martial Arts could never equip anything
 // else, so unequipping SlotMainHand would leave them permanently weaponless -
-// everyone else can always re-equip some other weapon they know. Also gates
-// the "blaster" universal-weapon fallback (see CanEquipWeaponByName): every
-// class in the current roster already has a real weapon skill, so this is a
-// no-op for them and only keeps a Monk-like class unarmed.
+// everyone else can always re-equip some other weapon they know.
 //
 // Membership goes through Category() (the single source of what's a weapon
 // skill) rather than a numeric SkillType range - a range silently drops any
@@ -1132,8 +1171,7 @@ func (c *MMCharacter) HasAnyWeaponSkill() bool {
 	for skill := range c.Skills {
 		// Martial Arts IS a weapon skill but is excluded here on purpose: it only
 		// ever gates the Monk's fists (already in the slot), so it can't rescue an
-		// unequipped main hand or justify the blaster fallback. Explicit exclusion,
-		// not a range accident.
+		// unequipped main hand. Explicit exclusion, not a range accident.
 		if skill.IsWeaponSkill() && skill != SkillMartialArts {
 			return true
 		}
@@ -1251,7 +1289,7 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 			luckBonus += bonus
 		}
 	}
-	// Armor-set bonuses: this loop is the only place that sees the whole
+	// Equipment-set bonuses: this loop is the only place that sees the whole
 	// equipped kit together, so completed sets add their bonuses here.
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
 		mightBonus += set.BonusMight
@@ -1265,8 +1303,10 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
 }
 
-// forEachCompletedSet visits every armor set whose pieces_required is met by
-// the equipped items. Zero allocations on purpose: this runs inside
+// forEachCompletedSet visits every equipment set completed by the equipped
+// items. Count-based sets use pieces_required; exact-piece sets use their
+// required_pieces list, so duplicate weapons cannot replace their armor. Zero
+// allocations on purpose: this runs inside
 // calculateEquipmentBonuses, i.e. inside EVERY effective-stat read. Each set
 // is visited once - counted at its lowest-slot piece (the "owner"); the inner
 // rescan is bounded by the handful of equipment slots.
@@ -1290,28 +1330,136 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 		if !owner {
 			continue
 		}
-		if set := config.GetItemSet(it.Set); set != nil && count >= set.PiecesRequired {
+		if set := config.GetItemSet(it.Set); set != nil && c.hasCompletedSet(it.Set, set, count) {
 			fn(set)
 		}
 	}
 }
 
-// SetStunDurationPct sums stun-duration shifts from completed armor sets
-// (padded quilt: -50 halves stuns suffered by the wearer). Clamped at -90.
+func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {
+	if len(set.RequiredPieces) == 0 {
+		return count >= set.PiecesRequired
+	}
+	for _, requiredKey := range set.RequiredPieces {
+		found := false
+		for _, equipped := range c.Equipment {
+			if equipped.Set == setKey && setPieceKey(equipped) == requiredKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// setPieceKey resolves a saved equipped item to its data key. Exact-piece
+// sets need keys rather than names, because the YAML key is their stable
+// authored identity across item and weapon catalogs.
+func setPieceKey(item items.Item) string {
+	if item.Type == items.ItemWeapon {
+		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
+		if ok {
+			return key
+		}
+		return ""
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if ok {
+		return key
+	}
+	return ""
+}
+
+// SetStunDurationPct sums stun-duration shifts from completed armor sets.
+// The combat layer combines this with per-item shifts before applying the
+// single global duration floor.
 func (c *MMCharacter) SetStunDurationPct() int {
 	total := 0
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
 		total += set.StunDurationPct
 	})
-	if total < -90 {
-		total = -90
-	}
 	return total
+}
+
+// SetCritChanceBonus returns the flat critical-chance percentage points granted
+// by completed equipment sets. It applies to every player critical-hit roll,
+// including weapon attacks and damage spells.
+func (c *MMCharacter) SetCritChanceBonus() int {
+	total := 0
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		total += set.BonusCritChance
+	})
+	return total
+}
+
+// SetFieryRipostePct sums fiery-riposte shares from completed sets (the
+// Drakeforged pair): melee attackers take this % of dealt damage back as fire.
+func (c *MMCharacter) SetFieryRipostePct() int {
+	total := 0
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		total += set.FieryRipostePct
+	})
+	return total
+}
+
+// forEachEquippedItemDefinition visits typed items.yaml definitions for the
+// current equipment. New item mechanics use this path instead of duplicating
+// definition lookups in each combat subsystem.
+func (c *MMCharacter) forEachEquippedItemDefinition(fn func(*config.ItemDefinitionConfig)) {
+	if c == nil {
+		return
+	}
+	for _, it := range c.Equipment {
+		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok && def != nil {
+			fn(def)
+		}
+	}
+}
+
+// ProjectileReflectPct returns the strongest equipped projectile reflection
+// chance. Multiple mirror shields do not stack into guaranteed reflection.
+func (c *MMCharacter) ProjectileReflectPct() int {
+	best := 0
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		if def.ProjectileReflectPct > best {
+			best = def.ProjectileReflectPct
+		}
+	})
+	return best
+}
+
+// ItemStatusDurationPct sums per-item shifts applied to every hostile status.
+func (c *MMCharacter) ItemStatusDurationPct() int {
+	total := 0
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		total += def.StatusDurationPct
+	})
+	return total
+}
+
+// ScaleStackParams returns the strongest scale growth contract on the equipped
+// items. Per-stack value and cap always come from the same YAML definition.
+func (c *MMCharacter) ScaleStackParams() (perStack, maxStacks int) {
+	c.forEachEquippedItemDefinition(func(def *config.ItemDefinitionConfig) {
+		if def.ScaleStackAC > perStack ||
+			(def.ScaleStackAC == perStack && def.ScaleStackMax > maxStacks) {
+			perStack = def.ScaleStackAC
+			maxStacks = def.ScaleStackMax
+		}
+	})
+	return perStack, maxStacks
 }
 
 // GearResistPct sums the character's % resistance to a damage school from equipped gear.
 func (c *MMCharacter) GearResistPct(school string) int {
-	key := "resist_" + strings.ToLower(strings.TrimSpace(school))
+	damageType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return 0
+	}
+	key := "resist_" + damageType.String()
 	total := 0
 	for _, it := range c.Equipment {
 		total += it.Attributes[key]

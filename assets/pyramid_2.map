@@ -1,27 +1,33 @@
-# Pyramid Level 2 (biome: pyramid)
+# Pyramid Level 2 - The Labyrinth of the Bull (biome: pyramid)
 # Symbols: % = pyramid wall   . = stone floor   + = start
 # Monster spawns: n = minotaur
-# @ = NPC placeholder: stairs down/up
+# Three concentric ring walls, gaps OFFSET so you circle: outer ring opens
+# south (15,17), middle ring opens east and west (7,11)/(23,11), inner court opens north and
+# south (15,9)/(15,13). Minotaurs walk the rings; the Bull Court holds two.
+# THE HIDDEN POCKET: the golden chest sits inside the ring-wall thickness at
+# (25,3), entered only from the north outer gallery above it - a suspicious
+# one-tile dead end, now actually reachable (on the old map this chest was
+# walled solid and could never be opened). Iron chest in the court.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%............%%%............%%
-%%............%%%............%%
-%%...n........%%%...n........%%
-%%...........................%%
-%%........n...%.%........n...%%
-%%............%.%............%%
-%%@...........%.%............%%  >[npc:chest_iron]
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%@%%%%%%%%  >[npc:chest_golden]
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%
-%%%%%.....................%%%%%
-%%%%%.....................%%%%%
-%%%%%.....................%%%%%
-%%%%%....n............n...%%%%%
-%%%%%.....................%%%%%
-%%%%%..........n..........%%%%%
-%%%%%.....................%%%%%
-%%%%%.......@.....@.......%%%%%  >[npc:pyramid_stairs_to_1], [npc:pyramid_stairs_to_3]
-%%%%%%%%%%%%%%%+%%%%%%%%%%%%%%%
+%%...n.....................n@%%  >[npc:chest_golden]
+%%.%%%%%%%%%%%%%%%%%%%%%.%%%n%%
+%%.%.....n...............%.%.%%
+%%.%.%%%%%%%%%%.%%%%%%%%%%.%.%%
+%%.%.%..............n......n..%
+%%.%.%.%%%%%%%%%%%%%%%%%.%.%.%%
+%%.%.%.%...............%.%.%.%%
+%%.%.%.%.%%%%%%.%%%%%%.%.%.%.%%
+%%.%.%.%.%...........%.%.%.%.%%
+%%.%n%...%....nnn.@..%...%n%.%%  >[npc:chest_iron]
+%%.%.%.%.%...........%.%.%.%.%%
+%%.%.%.%.%%%%%%.%%%%%%.%.%.%.%%
+%%.%.%.%..........n.....%.%.%%%
+%%.%.%.%%%%%%%%%%%%%%%%%.%.%.%%
+%%.%.%....n............n..%.%%%
+%%.%.%%%%%%%%%%.%%%%%%%%%%%.%%%
+%%.%..........................%
+%%.%%%%%%%%%%%%.%%%%%%%%%%%%.%%
+%%......n.....................%
+%%.....@........+........@...%%  >[npc:pyramid_stairs_to_1], [npc:pyramid_stairs_to_3]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

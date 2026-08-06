@@ -1,5 +1,7 @@
 package character
 
+import "strings"
+
 type SkillType int
 
 const (
@@ -56,6 +58,14 @@ const (
 	// SkillMartialArts: unarmed combat - gates the Monk's fists. Appended last:
 	// SkillType persists as a raw int, so new skills go at the end, never mid-block.
 	SkillMartialArts
+	// New skills MUST remain appended: SkillType is persisted as a raw integer.
+	SkillBlaster
+	SkillElementalMastery
+	SkillAnimalBonding
+	SkillSacrifice
+	SkillImpenetrableDefense
+	SkillLockpicking
+	SkillNaturalHealer
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -111,6 +121,20 @@ func (s SkillType) String() string {
 		return "Iron Body"
 	case SkillSpiritualTraining:
 		return "Spiritual Training"
+	case SkillBlaster:
+		return "Blaster"
+	case SkillElementalMastery:
+		return "Elemental Mastery"
+	case SkillAnimalBonding:
+		return "Animal Bonding"
+	case SkillSacrifice:
+		return "Sacrifice"
+	case SkillImpenetrableDefense:
+		return "Impenetrable Defense"
+	case SkillLockpicking:
+		return "Lockpicking"
+	case SkillNaturalHealer:
+		return "Natural Healer"
 	default:
 		return "Unknown"
 	}
@@ -146,11 +170,13 @@ func (m SkillMastery) String() string {
 	}
 }
 
-// masteryFromKey resolves a lowercase config.yaml mastery key (class kit
-// skill_start_mastery) to its SkillMastery. Returns false for an unknown key.
-// MasteryFromKey resolves a YAML mastery key (novice/expert/master/grandmaster).
+// MasteryFromKey is the EXPORTED hook over masteryFromKey so other packages'
+// tests (champion tiers) can parse a YAML mastery key; production parsing stays
+// inside this package.
 func MasteryFromKey(key string) (SkillMastery, bool) { return masteryFromKey(key) }
 
+// masteryFromKey resolves a lowercase config.yaml mastery key (class kit
+// skill_start_mastery) to its SkillMastery. Returns false for an unknown key.
 func masteryFromKey(key string) (SkillMastery, bool) {
 	switch key {
 	case "novice":
@@ -170,6 +196,9 @@ type Skill struct {
 	Mastery SkillMastery
 }
 
+// MasteryForLevel converts an OLD save's numeric skill level back to a mastery
+// tier. Migration only - current saves carry mastery, and the level they also
+// write is the derived label (see Skill.Level).
 func MasteryForLevel(level int) SkillMastery {
 	if level < MinSkillLevel {
 		return MasteryNovice
@@ -180,6 +209,8 @@ func MasteryForLevel(level int) SkillMastery {
 	return SkillMastery(level - 1)
 }
 
+// Level mirrors MagicSkill.Level: a DERIVED LABEL (Mastery+1) for display and
+// legacy-save migration only. Mastery is the stored truth.
 func (s *Skill) Level() int {
 	return int(s.Mastery) + 1
 }
@@ -196,31 +227,38 @@ func (s *Skill) IncreaseMastery() bool {
 // types. Weapon/armor category strings coincide with these keys; the category
 // lookups below gate on the SkillType const-block ranges.
 var skillTypeByKey = map[string]SkillType{
-	"sword":              SkillSword,
-	"dagger":             SkillDagger,
-	"axe":                SkillAxe,
-	"spear":              SkillSpear,
-	"bow":                SkillBow,
-	"mace":               SkillMace,
-	"staff":              SkillStaff,
-	"martial_arts":       SkillMartialArts,
-	"leather":            SkillLeather,
-	"chain":              SkillChain,
-	"plate":              SkillPlate,
-	"shield":             SkillShield,
-	"bodybuilding":       SkillBodybuilding,
-	"meditation":         SkillMeditation,
-	"merchant":           SkillMerchant,
-	"repair":             SkillRepair,
-	"identify_item":      SkillIdentifyItem,
-	"disarm_trap":        SkillDisarmTrap,
-	"learning":           SkillLearning,
-	"arms_master":        SkillArmsMaster,
-	"trapper":            SkillTrapper,
-	"sleight_of_hand":    SkillSleightOfHand,
-	"dual_wielding":      SkillDualWielding,
-	"iron_body":          SkillIronBody,
-	"spiritual_training": SkillSpiritualTraining,
+	"sword":                SkillSword,
+	"dagger":               SkillDagger,
+	"axe":                  SkillAxe,
+	"spear":                SkillSpear,
+	"bow":                  SkillBow,
+	"mace":                 SkillMace,
+	"staff":                SkillStaff,
+	"martial_arts":         SkillMartialArts,
+	"leather":              SkillLeather,
+	"chain":                SkillChain,
+	"plate":                SkillPlate,
+	"shield":               SkillShield,
+	"bodybuilding":         SkillBodybuilding,
+	"meditation":           SkillMeditation,
+	"merchant":             SkillMerchant,
+	"repair":               SkillRepair,
+	"identify_item":        SkillIdentifyItem,
+	"disarm_trap":          SkillDisarmTrap,
+	"learning":             SkillLearning,
+	"arms_master":          SkillArmsMaster,
+	"trapper":              SkillTrapper,
+	"sleight_of_hand":      SkillSleightOfHand,
+	"dual_wielding":        SkillDualWielding,
+	"iron_body":            SkillIronBody,
+	"spiritual_training":   SkillSpiritualTraining,
+	"blaster":              SkillBlaster,
+	"elemental_mastery":    SkillElementalMastery,
+	"animal_bonding":       SkillAnimalBonding,
+	"sacrifice":            SkillSacrifice,
+	"impenetrable_defense": SkillImpenetrableDefense,
+	"lockpicking":          SkillLockpicking,
+	"natural_healer":       SkillNaturalHealer,
 }
 
 // SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)
@@ -242,6 +280,7 @@ func SkillTypeFromKey(key string) (SkillType, bool) {
 var weaponSkills = map[SkillType]bool{
 	SkillSword: true, SkillDagger: true, SkillAxe: true, SkillSpear: true,
 	SkillBow: true, SkillMace: true, SkillStaff: true, SkillMartialArts: true,
+	SkillBlaster: true,
 }
 
 var armorSkills = map[SkillType]bool{
@@ -254,9 +293,9 @@ func (s SkillType) IsWeaponSkill() bool { return weaponSkills[s] }
 func (s SkillType) IsArmorSkill() bool  { return armorSkills[s] }
 
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
-// SkillType that gates wielding/proficiency bonuses. The "blaster" category
-// returns (0, false) because it's universally usable - callers handle that
-// special case explicitly.
+// SkillType that gates wielding/proficiency bonuses. A category listed in
+// weaponCategorySkillOptional still resolves here - its skill pays mastery
+// bonuses - but does not gate equipping (see CanEquipWeaponByName).
 func WeaponSkillForCategory(category string) (SkillType, bool) {
 	if category == "throwing" {
 		return SkillDagger, true // throwing weapons use the dagger skill
@@ -266,6 +305,21 @@ func WeaponSkillForCategory(category string) (SkillType, bool) {
 		return 0, false
 	}
 	return t, true
+}
+
+// weaponCategorySkillOptional lists weapon categories anyone can fire untrained:
+// "blaster" is every FIREARM (matchlocks, the Clockwork Pistol, the Alien
+// Blaster) - you point it and pull the trigger. Their skill remains a real
+// weapon skill and still pays mastery/crit/cooldown bonuses; only the equip gate
+// is waived. Single source of that rule for equipping, tooltips, and the editor.
+var weaponCategorySkillOptional = map[string]bool{
+	"blaster": true,
+}
+
+// WeaponCategorySkillOptional reports whether a category can be equipped
+// without its weapon skill.
+func WeaponCategorySkillOptional(category string) bool {
+	return weaponCategorySkillOptional[strings.ToLower(category)]
 }
 
 // ArmorSkillForCategory maps an armor category string (lowercased) to the

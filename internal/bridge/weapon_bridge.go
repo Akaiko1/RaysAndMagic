@@ -30,6 +30,7 @@ func getWeaponFromConfig(weaponKey string) (*items.WeaponDefinitionFromYAML, boo
 		Category:            weaponDef.Category,
 		Rarity:              weaponDef.Rarity,
 		Value:               weaponDef.Value,
+		Set:                 weaponDef.Set,
 		EquipPersonalityMin: weaponDef.EquipPersonalityMin,
 	}, true
 }

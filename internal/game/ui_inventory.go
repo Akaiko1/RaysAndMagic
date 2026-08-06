@@ -3,30 +3,35 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // drawInventoryContent draws the inventory tab content
-func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRect) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	layout := computeInventoryContentLayout(layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight})
+	layout := computeInventoryContentLayout(content)
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
 	gridX, gridY, gridSize := layout.grid.x, layout.grid.y, layout.grid.w
 
-	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
-	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
-		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems()),
-		paperX, contentY+29)
+	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, content.y+10, color.RGBA{232, 222, 190, 255})
+	// Items counts UNITS (stacks summed); slots = grid entries, so the label
+	// can't read as a bug when a 5-stack fills one cell.
+	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Items: %d (%d slots, %d shown)",
+		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems(),
+		len(ui.game.party.Inventory), len(ui.game.inventoryViewIndices(ui.inventoryTab))),
+		paperX, content.y+29)
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_grid_panel"), gridX, gridY, gridSize, gridSize)
@@ -38,7 +43,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	var tooltipX, tooltipY int
 
 	for _, slotInfo := range inventoryPaperdollSlots {
-		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
+		x, y, size := scaleInventorySourceSquare(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
+		w, h := size, size
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 		// While dragging an equippable item, glow every slot it can go into - from
@@ -58,6 +64,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
 				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
 			if !dragging {
+				// The complete authored icon square belongs on top of the paperdoll.
+				// Do not crop, mask, or realign the artwork inside that square.
 				ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
 			}
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
@@ -75,20 +83,23 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		}
 	}
 
-	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
+	ui.drawInventoryTabs(screen, gridX, gridY-24, gridSize)
 	pageSize := len(inventoryGridSlots)
-	totalPages := pageCount(len(ui.game.party.Inventory), pageSize)
+	// The active tab decides WHICH bag entries are on show; the cells still carry
+	// their absolute bag index, which is what every handler below acts on.
+	view := ui.game.inventoryViewIndices(ui.inventoryTab)
+	totalPages := pageCount(len(view), pageSize)
 	// Clamp every frame so the page stays valid when the inventory shrinks
 	// (equip/discard) out from under the current page.
 	clampPage(&ui.inventoryPage, totalPages)
-	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
-		idx := pageStart + slot
-		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
+		idx := inventoryCellIndex(view, ui.inventoryPage, pageSize, slot)
+		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[slot])
 		// Empty cell (guard against the LIVE length - a double-click below can
-		// equip/use mid-loop and shrink the bag). Dropping a dragged item on an
-		// empty cell moves it to the end (bag is a packed slice).
-		if idx >= len(ui.game.party.Inventory) {
+		// equip/use mid-loop and shrink the bag, staling the view). Dropping a
+		// dragged item on an empty cell moves it to the end (bag is a packed
+		// slice), whichever tab is showing.
+		if idx < 0 || idx >= len(ui.game.party.Inventory) {
 			if !ui.inventoryContextOpen {
 				if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
 					isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
@@ -112,7 +123,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
 		}
 		// Hide the icon of the cell currently being dragged out of.
-		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory && ui.game.dragInvIndex == idx
+		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
+			ui.game.dragInvIndex == idx && ui.game.dragSplitQuantity == 0
 		if !dragging {
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
 		}
@@ -170,7 +182,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ui.drawInventoryContextMenu(screen)
 
 	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", layout.instructions[0].x, layout.instructions[0].y)
-	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
+	drawDebugText(screen, "Right-click an inventory item for actions. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
 }
 
 // drawInventoryPager draws the inventory grid's pager. It's a no-op when the
@@ -225,9 +237,14 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 }
 
 const (
-	inventoryPaperdollSourceW = 300
-	inventoryPaperdollSourceH = 450
-	inventoryGridSourceSize   = 300
+	inventoryPaperdollSourceW = 683
+	inventoryPaperdollSourceH = 1024
+	inventoryPaperdollLayoutW = 300
+	inventoryPaperdollLayoutH = 450
+	// The high-resolution grid PNG is authored against this normalized logical
+	// canvas. Keeping its children in layout pixels avoids replacing working
+	// click geometry when the raster source is re-exported at a higher density.
+	inventoryGridLayoutSize = 300
 )
 
 type inventorySourceRect struct {
@@ -242,31 +259,32 @@ type inventoryPaperdollSlot struct {
 	rect inventorySourceRect
 }
 
-// Paper-doll slots: uniform 39x39 so every equipped icon renders at the same
-// size. Each rect is centered on the original (variable-sized) slot's center so
-// it still lines up with the drawn slot boxes on inventory_paperdoll_panel.
+// Paperdoll item rectangles cover the complete repeated slot artwork. Their
+// coordinates are measured independently from the production image; the source
+// art deliberately uses one identical 118x118 master slot in every position.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
-	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 39}},
-	{items.SlotSpell, inventorySourceRect{218, 40, 39, 39}},
-	{items.SlotHelmet, inventorySourceRect{131, 57, 39, 39}},
-	{items.SlotMainHand, inventorySourceRect{54, 166, 39, 39}},
-	{items.SlotArmor, inventorySourceRect{131, 167, 39, 39}},
-	{items.SlotOffHand, inventorySourceRect{207, 166, 39, 39}},
-	{items.SlotGauntlets, inventorySourceRect{54, 237, 39, 39}},
-	{items.SlotBelt, inventorySourceRect{131, 238, 39, 39}},
-	{items.SlotCloak, inventorySourceRect{207, 238, 39, 39}},
-	{items.SlotRing1, inventorySourceRect{57, 309, 39, 39}},
-	{items.SlotRing2, inventorySourceRect{205, 309, 39, 39}},
-	{items.SlotBoots, inventorySourceRect{131, 358, 39, 39}},
+	{items.SlotAmulet, inventorySourceRect{112, 138, 118, 118}},
+	{items.SlotSpell, inventorySourceRect{452, 138, 118, 118}},
+	{items.SlotHelmet, inventorySourceRect{282, 136, 118, 118}},
+	{items.SlotMainHand, inventorySourceRect{92, 402, 118, 118}},
+	{items.SlotArmor, inventorySourceRect{282, 360, 118, 118}},
+	{items.SlotOffHand, inventorySourceRect{470, 402, 118, 118}},
+	{items.SlotGauntlets, inventorySourceRect{92, 572, 118, 118}},
+	{items.SlotBelt, inventorySourceRect{282, 514, 118, 118}},
+	{items.SlotCloak, inventorySourceRect{470, 572, 118, 118}},
+	{items.SlotRing1, inventorySourceRect{110, 742, 118, 118}},
+	{items.SlotRing2, inventorySourceRect{452, 742, 118, 118}},
+	{items.SlotBoots, inventorySourceRect{282, 830, 118, 118}},
 }
 
-// Grid slots: uniform 45x45 (the dominant size; were sloppily 44 in column 2
-// and the bottom row). Positions kept as authored so they stay on the panel art.
+// Grid slots use the normalized 300x300 layout canvas above. The one-pixel
+// offsets are measured from the current 1024px raster's dark recess centres;
+// bag icons retain their separate 4px inset at draw time.
 var inventoryGridSlots = []inventorySourceRect{
-	{43, 42, 45, 45}, {100, 42, 45, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
-	{43, 99, 45, 45}, {100, 99, 45, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
-	{43, 155, 45, 45}, {100, 155, 45, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
-	{43, 212, 45, 45}, {100, 212, 45, 45}, {156, 212, 45, 45}, {212, 212, 45, 45},
+	{42, 42, 45, 45}, {99, 42, 45, 45}, {155, 42, 45, 45}, {212, 42, 45, 45},
+	{42, 99, 45, 45}, {99, 99, 45, 45}, {155, 99, 45, 45}, {212, 99, 45, 45},
+	{42, 156, 45, 45}, {99, 156, 45, 45}, {155, 156, 45, 45}, {212, 156, 45, 45},
+	{42, 213, 45, 45}, {99, 213, 45, 45}, {155, 213, 45, 45}, {212, 213, 45, 45},
 }
 
 func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
@@ -277,11 +295,36 @@ func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventor
 	return x, y, w, h
 }
 
-// inventoryInputBlocked reports whether a modal popup should swallow inventory
-// clicks. The revival picker holds an inventory index across frames, so any
-// click that mutates inventory (equip, use, discard) would invalidate it.
+// scaleInventorySourceSquare keeps an authored square centered after scaling.
+// Rounding its center and size once avoids the drift caused by independently
+// truncating the left edge, top edge, width, and height.
+func scaleInventorySourceSquare(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int) {
+	if srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || r.w <= 0 || r.h <= 0 {
+		return dstX, dstY, 0
+	}
+	scaleX := float64(dstW) / float64(srcW)
+	scaleY := float64(dstH) / float64(srcH)
+	size := max(1, int(math.Round(float64(min(r.w, r.h))*min(scaleX, scaleY))))
+	centerX := float64(dstX) + (float64(r.x)+float64(r.w)/2)*scaleX
+	centerY := float64(dstY) + (float64(r.y)+float64(r.h)/2)*scaleY
+	x := int(math.Round(centerX - float64(size)/2))
+	y := int(math.Round(centerY - float64(size)/2))
+	return x, y, size
+}
+
+// inventoryHardBlocked reports modal state that forbids even a picked-up split
+// fragment. inventoryInputBlocked additionally blocks ordinary inventory clicks
+// while that fragment is waiting for its destination.
+func (ui *UISystem) inventoryHardBlocked() bool {
+	return ui.modalLayerOwnsInput()
+}
+
+// inventoryInputBlocked reports whether a modal popup or picked-up fragment
+// should swallow ordinary inventory clicks. The revival picker holds an
+// inventory index across frames, so any click that mutates inventory (equip,
+// use, discard) would invalidate it.
 func (ui *UISystem) inventoryInputBlocked() bool {
-	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
+	return ui.inventoryHardBlocked() || ui.game.dragPickedUp
 }
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
@@ -321,6 +364,17 @@ func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item,
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
 	}
+	// Stack count badge, bottom-right. Every icon surface (bag, quick slots,
+	// merchant grids, stash) shares this renderer, so stacks read the same
+	// everywhere.
+	if n := item.Count(); n > 1 {
+		label := fmt.Sprintf("x%d", n)
+		lw := debugTextWidth(label)
+		bx := iconX + iconSize - lw - 4
+		by := iconY + iconSize - debugTextCharHeight - 2
+		drawFilledRect(screen, bx-2, by-1, lw+4, debugTextCharHeight+2, color.RGBA{18, 14, 20, 210})
+		drawDebugTextColored(screen, label, bx, by, color.RGBA{240, 230, 200, 255})
+	}
 }
 
 // itemDiscardable: quest items are undiscardable unless the item itself opts
@@ -336,124 +390,120 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	}
 	menuW := 140
 	menuH := 24
+	idx := ui.inventoryContextIndex
+	canSplit := idx >= 0 && idx < len(ui.game.party.Inventory) &&
+		ui.game.party.Inventory[idx].Stackable() && ui.game.party.Inventory[idx].Count() > 1
+	if canSplit {
+		menuH *= 2
+	}
 	x := ui.inventoryContextX
 	y := ui.inventoryContextY
 	drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
 	drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
-	drawCenteredDebugText(screen, "Discard", x, y, menuW, menuH)
+	drawCenteredDebugText(screen, "Discard", x, y, menuW, 24)
+	if canSplit {
+		drawCenteredDebugText(screen, "Split...", x, y+24, menuW, 24)
+	}
+	// The context menu is part of the character hub, not a layer above it. Keep
+	// it visible under a modal, but never let its discard/split mutations bypass
+	// the same inventoryInputBlocked contract used by every inventory slot.
+	if ui.inventoryInputBlocked() {
+		return
+	}
 
-	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
-		idx := ui.inventoryContextIndex
+	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
 		if idx >= 0 && idx < len(ui.game.party.Inventory) {
 			item := ui.game.party.Inventory[idx]
 			if !itemDiscardable(item) {
 				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
 			} else {
-				ui.game.party.RemoveItem(idx)
+				ui.game.party.ConsumeOneAt(idx) // stacks discard one unit per click
 				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
 			}
 		}
 		ui.inventoryContextOpen = false
+	} else if canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48) {
+		ui.openStackSplitPicker(stackSplitPickerInventory, idx, ui.game.party.Inventory[idx])
 	} else if ui.game.consumeLeftClick() {
 		ui.inventoryContextOpen = false
 	}
 }
 
-// drawCharactersContent draws the characters tab content
-func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	layout := computeCharacterContentLayout(layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight})
-	drawDebugText(screen, "CHARACTER INFO", layout.title.x, layout.title.y)
-
+// drawCharactersContent shows the complete selected-character record in one
+// fullscreen dashboard. No fixed row budget is allowed to hide authored skills.
+func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRect) {
+	layout := computeCharacterContentLayout(content)
+	drawCenteredDebugText(screen, "CHARACTER OVERVIEW", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
 	if len(ui.game.party.Members) == 0 {
-		drawDebugText(screen, "No party members.", layout.title.x, contentY+40)
+		drawDebugText(screen, "No party members.", layout.title.x, layout.title.y+24)
 		return
 	}
 
-	// Only show the selected character
 	charIndex := ui.game.selectedChar
 	if charIndex < 0 || charIndex >= len(ui.game.party.Members) {
 		charIndex = 0
 	}
 	member := ui.game.party.Members[charIndex]
+	if member == nil {
+		return
+	}
 	mouseX, mouseY := ebiten.CursorPosition()
 	var tooltip string
 	var tooltipX, tooltipY int
+	textColor := color.RGBA{240, 240, 240, 255}
+	headingColor := color.RGBA{235, 200, 120, 255}
+	const (
+		sectionTextInset = 18
+		sectionTitleY    = 16
+		sectionBodyY     = 37
+		sectionRowH      = 16
+	)
 
-	// All character-sheet text gets a drop shadow so it lifts off the parchment.
-	// A local closure shadows the package draw so every call below is covered.
-	drawDebugTextColored := drawDebugTextShadowed
-
-	portraitX, portraitY, portraitSize := layout.portrait.x, layout.portrait.y, layout.portrait.w
-	scrollX, scrollY := layout.scroll.x, layout.scroll.y
-	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), layout.scroll.x, layout.scroll.y, layout.scroll.w, layout.scroll.h, 16)
+	drawSection := func(r layoutRect, title string) {
+		ui.drawPatternFrame(screen, "menu_panel_slot", r.x, r.y, r.w, r.h, menuPanelFrameSlice)
+		drawDebugTextShadowed(screen, title, r.x+sectionTextInset, r.y+sectionTitleY, headingColor)
+	}
+	drawSection(layout.profile, "PROFILE")
+	drawSection(layout.attributes, "ATTRIBUTES")
+	drawSection(layout.magic, "MAGIC SCHOOLS")
+	drawSection(layout.skills, "SKILLS")
+	drawSection(layout.combat, "COMBAT AND RESISTANCES")
 
 	portraitName := ui.game.fullPortraitSpriteName(member)
-	portrait := ui.game.sprites.GetSprite(portraitName)
-	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
-	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
-
-	// Light text over a dark outline (drawDebugTextShadowed): white body for
-	// readable values, warm gold for section headers so they stand out.
-	textColor := color.RGBA{240, 240, 240, 255}
-	mutedTextColor := color.RGBA{235, 200, 120, 255}
-	scrollTextX := scrollX + 26
-	scrollTextY := scrollY + 18
-
-	// Header
-	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.ClassDisplayName(), member.Level)
-	drawDebugTextColored(screen, clipDebugText(header, layout.scroll.right()-scrollTextX-20), scrollTextX, scrollTextY, textColor)
-
-	if ui.characterPage == 1 {
-		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, layout.scroll.right()-scrollTextX-20, textColor, mutedTextColor)
-		drawDebugText(screen, "Use 1-4 keys to switch character", layout.instructions.x, layout.instructions.y)
-		ui.drawCharacterPager(screen, layout.pager.x, layout.pager.y, layout.pager.w)
-		return
+	ui.drawPatternFrame(screen, "menu_panel_frame", layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
+	drawImageScaled(screen, ui.game.sprites.GetSprite(portraitName), layout.portrait.x, layout.portrait.y, layout.portrait.w, layout.portrait.h)
+	profileX := layout.profile.x + sectionTextInset
+	profileW := layout.profile.w - 2*sectionTextInset
+	profileY := layout.portraitFrame.bottom() + 10
+	profileLines := []string{
+		member.Name,
+		member.ClassDisplayName(),
+		fmt.Sprintf("Level: %d", member.Level),
+		fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints),
+		fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints),
+		fmt.Sprintf("Experience: %d", member.Experience),
 	}
-
-	// Core info
-	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), 180), scrollTextX, scrollTextY+22, textColor)
-	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), 174), scrollTextX+190, scrollTextY+22, textColor)
-	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Experience: %d", member.Experience), 180), scrollTextX, scrollTextY+38, textColor)
-
+	for i, line := range profileLines {
+		lineColor := textColor
+		if i < 2 {
+			lineColor = headingColor
+		}
+		drawDebugTextShadowed(screen, clipDebugText(line, profileW), profileX, profileY+i*16, lineColor)
+	}
 	statusText := "Status: Normal"
 	if len(member.Conditions) > 0 {
 		names := make([]string, 0, len(member.Conditions))
 		for _, cond := range member.Conditions {
 			names = append(names, cond.String())
 		}
-		statusText = fmt.Sprintf("Status: %s", strings.Join(names, ", "))
+		statusText = "Status: " + strings.Join(names, ", ")
 	}
-	drawDebugTextColored(screen, clipDebugText(statusText, 174), scrollTextX+190, scrollTextY+38, textColor)
-
-	// Column layout for the scroll body: two columns side-by-side fit within
-	// scrollW=420 (minus padding). All sections below stay within scrollH=300.
-	const (
-		rowH     = 14
-		colGap   = 190
-		statRows = 4 // 7 stats split 4 + 3 across two columns
-		// skillRowsWithMagic / skillRowsNoMagic: a class with no magic schools
-		// at all (Arms Master, Knight, Thief, ...) never draws that section, so
-		// its rows go to skills instead - Arms Master alone has 12 skills,
-		// more than the 8-slot budget a magic-using class leaves room for.
-		skillRowsWithMagic = 4 // up to 8 skills shown across two columns
-		skillRowsNoMagic   = 7 // up to 14 skills shown across two columns
-		magicRows          = 3 // up to 6 magic schools shown across two columns
-	)
-	col1X := scrollTextX
-	col2X := scrollTextX + colGap
-	hasMagic := len(member.MagicSchools) > 0
-	skillRows := skillRowsWithMagic
-	if !hasMagic {
-		skillRows = skillRowsNoMagic
+	for i, line := range wrapDebugText(statusText, profileW) {
+		drawDebugTextShadowed(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
 	}
 
-	// Stats - 2 columns
-	drawDebugTextColored(screen, "STATS", scrollTextX, scrollTextY+60, mutedTextColor)
-	statY := scrollTextY + 76
-	// Combat runs on EFFECTIVE stats - show them, with the gear/buff delta in
-	// brackets so the player sees both ("Might: 18 (+3)").
 	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
-	statLines := []struct {
+	stats := []struct {
 		name      string
 		base, eff int
 	}{
@@ -465,144 +515,141 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		{"Speed", member.Speed, effSpeed},
 		{"Luck", member.Luck, effLuck},
 	}
-	for i, stat := range statLines {
-		x := col1X
-		if i >= statRows {
-			x = col2X
-		}
-		y := statY + (i%statRows)*rowH
+	for i, stat := range stats {
+		x := layout.attributes.x + sectionTextInset
+		y := layout.attributes.y + sectionBodyY + i*sectionRowH
 		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
-		drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
+		drawDebugTextShadowed(screen, clipDebugText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
 		if delta := stat.eff - stat.base; delta != 0 {
-			clr := color.RGBA{130, 210, 130, 255} // bonus green
+			clr := color.RGBA{130, 210, 130, 255}
 			if delta < 0 {
-				clr = color.RGBA{215, 120, 110, 255} // debuff red
+				clr = color.RGBA{215, 120, 110, 255}
 			}
-			drawDebugTextColored(screen, fmt.Sprintf(" (%+d)", delta), x+debugTextWidth(line), y, clr)
+			drawDebugTextShadowed(screen, fmt.Sprintf(" (%+d)", delta), x+debugTextWidth(line), y, clr)
 		}
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
+		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
 			tooltip = statTooltipText(stat.name)
-			tooltipX = mouseX + 16
-			tooltipY = mouseY + 8
+			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
 	}
 
-	// Skills - 2 columns
-	skillY := statY + statRows*rowH + 12
-	drawDebugTextColored(screen, "SKILLS", col1X, skillY, mutedTextColor)
-	skillY += rowH + 2
-	skillIdx := 0
-	for _, st := range character.AllSkills {
-		if skillIdx >= skillRows*2 {
-			break // ran out of column space; rest is hidden
-		}
-		s, ok := member.Skills[st]
-		if !ok || s == nil {
-			continue
-		}
-		line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level(), s.Mastery.String())
-		x := col1X
-		if skillIdx >= skillRows {
-			x = col2X
-		}
-		y := skillY + (skillIdx%skillRows)*rowH
-		drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
-			tooltip = masteryTooltipTextForSkill(st)
-			tooltipX = mouseX + 16
-			tooltipY = mouseY + 8
-		}
-		skillIdx++
+	type schoolLine struct {
+		id   character.MagicSchoolID
+		text string
 	}
-	if skillIdx == 0 {
-		drawDebugTextColored(screen, "None", col1X, skillY, textColor)
-	}
-
-	// Magic schools - 2 columns. Skipped entirely for a class with none at
-	// all (see skillRowsNoMagic above): no header, no "None" filler, no
-	// reserved space - those characters never had a school to show.
-	if hasMagic {
-		magicY := skillY + skillRows*rowH + 12
-		drawDebugTextColored(screen, "MAGIC SCHOOLS", col1X, magicY, mutedTextColor)
-		magicY += rowH + 2
-		schoolIdx := 0
-		for _, school := range character.AllMagicSchools {
-			if schoolIdx >= magicRows*2 {
-				break
-			}
-			ms, ok := member.MagicSchools[school]
-			if !ok || ms == nil {
-				continue
-			}
-			line := fmt.Sprintf("%s %d (%s)",
-				school.DisplayName(), ms.Level(), ms.Mastery)
-			x := col1X
-			if schoolIdx >= magicRows {
-				x = col2X
-			}
-			y := magicY + (schoolIdx%magicRows)*rowH
-			drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
-				tooltip = magicMasteryTooltipText()
-				tooltipX = mouseX + 16
-				tooltipY = mouseY + 8
-			}
-			schoolIdx++
+	var schools []schoolLine
+	for _, school := range character.AllMagicSchools {
+		if ms := member.MagicSchools[school]; ms != nil {
+			schools = append(schools, schoolLine{school, fmt.Sprintf("%s %d (%s)", school.DisplayName(), ms.Level(), ms.Mastery)})
 		}
-		if schoolIdx == 0 {
-			drawDebugTextColored(screen, "None", col1X, magicY, textColor)
+	}
+	if len(schools) == 0 {
+		drawDebugTextShadowed(screen, "None", layout.magic.x+sectionTextInset, layout.magic.y+sectionBodyY, textColor)
+	} else {
+		rows := max(1, (layout.magic.h-sectionBodyY-12)/sectionRowH)
+		cols := max(1, (len(schools)+rows-1)/rows)
+		colW := (layout.magic.w - 2*sectionTextInset) / cols
+		for i, school := range schools {
+			x := layout.magic.x + sectionTextInset + (i/rows)*colW
+			y := layout.magic.y + sectionBodyY + (i%rows)*sectionRowH
+			drawDebugTextShadowed(screen, clipDebugText(school.text, colW-8), x, y, textColor)
+			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = magicMasteryTooltipText(school.id)
+				tooltipX, tooltipY = mouseX+16, mouseY+8
+			}
 		}
 	}
 
-	// Instructions
-	drawDebugText(screen, "Use 1-4 keys to switch character", layout.instructions.x, layout.instructions.y)
-	ui.drawCharacterPager(screen, layout.pager.x, layout.pager.y, layout.pager.w)
+	type skillLine struct {
+		id   character.SkillType
+		text string
+	}
+	var skillsList []skillLine
+	for _, skillID := range character.AllSkills {
+		if skill := member.Skills[skillID]; skill != nil {
+			skillsList = append(skillsList, skillLine{skillID, fmt.Sprintf("%s %d (%s)", skillID.String(), skill.Level(), skill.Mastery.String())})
+		}
+	}
+	if len(skillsList) == 0 {
+		drawDebugTextShadowed(screen, "None", layout.skills.x+sectionTextInset, layout.skills.y+sectionBodyY, textColor)
+	} else {
+		rows := max(1, (layout.skills.h-sectionBodyY-12)/sectionRowH)
+		cols := max(1, (len(skillsList)+rows-1)/rows)
+		colW := (layout.skills.w - 2*sectionTextInset) / cols
+		for i, skill := range skillsList {
+			x := layout.skills.x + sectionTextInset + (i/rows)*colW
+			y := layout.skills.y + sectionBodyY + (i%rows)*sectionRowH
+			drawDebugTextShadowed(screen, clipDebugText(skill.text, colW-8), x, y, textColor)
+			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = masteryTooltipTextForSkill(skill.id)
+				tooltipX, tooltipY = mouseX+16, mouseY+8
+			}
+		}
+	}
 
+	m := ui.game.combat.PhysicalMitigationBreakdown(member)
+	combatX := layout.combat.x + sectionTextInset
+	combatW := layout.combat.w - 2*sectionTextInset
+	combatGap := 14
+	leftW := max(1, combatW*60/100)
+	rightX := combatX + leftW + combatGap
+	rightW := max(1, layout.combat.right()-sectionTextInset-rightX)
+
+	weaponLine := func(label string, slot items.EquipSlot, cooldownFrames int) string {
+		weapon, ok := member.Equipment[slot]
+		if !ok || lookupWeaponConfigByName(weapon.Name) == nil {
+			return label + ": None"
+		}
+		preview := ui.game.combat.calculateWeaponDamagePreview(weapon, member)
+		crit := ui.game.combat.CalculateWeaponCritChance(weapon, member)
+		tps := max(1, ui.game.config.GetTPS())
+		return fmt.Sprintf("%s: %d dmg, %d%% crit, %.1fs CD", label, preview.Total, crit, float64(cooldownFrames)/float64(tps))
+	}
+
+	leftLines := []struct {
+		text    string
+		heading bool
+	}{
+		{"OFFENSE", true},
+		{fmt.Sprintf("Physical attack bonus: +%d", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String())), false},
+		{fmt.Sprintf("Universal crit: %d%%", ui.game.combat.totalCriticalChance(0, member)), false},
+		{weaponLine("Main hand", items.SlotMainHand, ui.game.combat.WeaponCooldownFrames(member)), false},
+		{weaponLine("Off hand", items.SlotOffHand, ui.game.combat.OffHandWeaponCooldownFrames(member)), false},
+		{"DEFENSE", true},
+		{fmt.Sprintf("Armor Class: %d", m.ArmorClass), false},
+		{fmt.Sprintf("Armor: -%d%% physical / -%d%% other", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)), false},
+		{fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member)), false},
+		{fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct), false},
+		{fmt.Sprintf("Flat reduction: %d skill / %d buff", m.SkillFlat, m.FlatBuff), false},
+		{fmt.Sprintf("Projectile reflection: %d%%", member.ProjectileReflectPct()), false},
+		{fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct()), false},
+		{fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct())), false},
+	}
+	for i, line := range leftLines {
+		lineColor := textColor
+		if line.heading {
+			lineColor = headingColor
+		}
+		y := layout.combat.y + sectionBodyY + i*sectionRowH
+		drawDebugTextShadowed(screen, clipDebugText(line.text, leftW), combatX, y, lineColor)
+	}
+
+	resistY := layout.combat.y + sectionBodyY
+	drawDebugTextShadowed(screen, "RESISTANCES", rightX, resistY, headingColor)
+	resistY += sectionRowH
+	resistTypes := damagecalc.Types()
+	for i, school := range resistTypes {
+		y := resistY + i*sectionRowH
+		line := fmt.Sprintf("%s: %d%%", config.TitleWords(school.String()), ui.game.schoolResistPct(member, school.String()))
+		drawDebugTextShadowed(screen, clipDebugText(line, rightW), rightX, y, textColor)
+	}
+	partyBuffY := resistY + len(resistTypes)*sectionRowH + 5
+	drawDebugTextShadowed(screen, clipDebugText(fmt.Sprintf("Party resist buff: +%d%%", ui.game.combatBuffResistPct()), rightW), rightX, partyBuffY, headingColor)
+
+	drawCenteredDebugText(screen, "Use the party strip or keys 1-4 to switch character", layout.instructions.x, layout.instructions.y, layout.instructions.w, layout.instructions.h)
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
 	}
-}
-
-func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *character.MMCharacter, x, y, maxWidth int, textColor, headingColor color.Color) {
-	if member == nil {
-		return
-	}
-	// Drop shadow on all sheet text (see drawCharactersContent).
-	drawDebugTextColored := drawDebugTextShadowed
-
-	// Physical mitigation is a PIPELINE, not a single number: combat applies armor %,
-	// THEN resistance %, floors at 1, THEN the flat reductions (skill + buff, which
-	// CAN finish a hit off to 0). Show the steps in that order; the breakdown comes
-	// from CombatSystem so it can't drift from mitigateCharacterDamage.
-	m := ui.game.combat.PhysicalMitigationBreakdown(member)
-
-	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
-	lines := []string{
-		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType("physical")),
-		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
-		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% elemental)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
-		fmt.Sprintf("2. Physical resistance: -%d%%", m.ResistPct),
-		fmt.Sprintf("3. Skill reduction: -%d flat", m.SkillFlat),
-		fmt.Sprintf("4. Flat buff reduction: -%d", m.FlatBuff),
-	}
-	for i, line := range lines {
-		drawDebugTextColored(screen, clipDebugText(line, maxWidth), x, y+50+i*16, textColor)
-	}
-
-	drawDebugTextColored(screen, "RESISTANCES", x, y+158, headingColor)
-	buffResist := ui.game.combatBuffResistPct()
-	schools := []string{"physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark"}
-	const colGap = 190
-	for i, school := range schools {
-		total := ui.game.schoolResistPct(member, school)
-		colX := x
-		if i >= 5 {
-			colX += colGap
-		}
-		rowY := y + 178 + (i%5)*18
-		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", strings.Title(school), total), colGap-10), colX, rowY, textColor)
-	}
-	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }
 
 const pagerBtnW, pagerBtnH = 30, 18
@@ -625,51 +672,37 @@ func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label strin
 	return enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH)
 }
 
-func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
-	if ui.drawPagerButton(screen, x, y, "<", ui.characterPage > 0) {
-		ui.characterPage--
-	}
-	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.characterPage < 1) {
-		ui.characterPage++
-	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, pagerBtnH-2)
-}
-
-// drawSpellbookContent draws the spellbook tab content
-func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+// drawSpellbookContent draws the spellbook tab content. The parchment spread
+// contains spell cards only; identity, navigation, controls and quick slots
+// live in the surrounding fullscreen hub.
+func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRect) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	// Trappers (thief) carry a trap book instead of a magic spellbook.
 	if hasTrapBook(currentChar) {
-		ui.drawTrapBookContent(screen, panelX, contentY, contentHeight)
+		ui.drawTrapBookContent(screen, content)
 		return
 	}
 	schools := spellbookSchoolsWithSpells(currentChar)
 
 	// Validate and fix selected school index if it's out of bounds
-	if ui.game.selectedSchool >= len(schools) {
+	if ui.game.selectedSchool < 0 || ui.game.selectedSchool >= len(schools) {
 		ui.game.selectedSchool = 0
-		ui.game.selectedSpell = 0
+		ui.game.selectedSpell = -1
 	}
 
-	bl := computeBookLayout(panelX, contentY, contentHeight)
+	bl := computeBookLayout(content)
+	header := fmt.Sprintf("%s - Spellbook", currentChar.Name)
+	if ui.game.selectedSchool >= 0 && ui.game.selectedSchool < len(schools) {
+		header += " - " + schools[ui.game.selectedSchool].DisplayName() + " Magic"
+	}
+	drawCenteredDebugText(screen, header, bl.header.x, bl.header.y, bl.header.w, bl.header.h)
 
 	// Draw bookmarks first so the book sprite hides the inserted portion.
 	if len(schools) > 0 {
-		var selSchool character.MagicSchoolID
-		if ui.game.selectedSchool < len(schools) {
-			selSchool = schools[ui.game.selectedSchool]
-		}
-		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bl.bookX, bl.bookY, bl.scaleX, bl.scaleY)
+		ui.drawSpellbookSchoolTabs(screen, schools, ui.game.selectedSchool, bl)
 	}
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
-
-	leftTextX := bl.srcX(92)
-	leftTextW := bl.srcW(350)
-
-	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, bl.srcY(72), leftTextW, 20)
-	// SP counter is shown in the party panel; no need to duplicate it in the book.
-	// School name is shown by the active bookmark; no header needed on the right page.
 
 	if len(schools) == 0 {
 		drawCenteredDebugText(screen, "No magic schools available", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
@@ -681,33 +714,36 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	var spellTooltipID spells.SpellID
 	var tooltipX, tooltipY int
 
-	if ui.game.selectedSchool >= len(schools) {
+	if ui.game.selectedSchool < 0 || ui.game.selectedSchool >= len(schools) {
 		return
 	}
 
 	selectedSchool := schools[ui.game.selectedSchool]
-	// School tabs are drawn before the book so they appear inserted; click handling lives inside drawSpellbookSchoolTabs.
-
 	schoolSpells := currentChar.GetSpellsForSchool(selectedSchool)
 	if ui.game.selectedSpell >= len(schoolSpells) {
 		ui.game.selectedSpell = 0
 	}
+	perSpread := bl.cardsPerSpread()
+	totalPages := pageCount(len(schoolSpells), perSpread)
+	if ui.game.selectedSpell >= 0 {
+		ui.spellPage = ui.game.selectedSpell / perSpread
+	}
+	clampPage(&ui.spellPage, totalPages)
 
 	if len(schoolSpells) == 0 {
-		drawCenteredDebugText(screen, "No learned spells", leftTextX, bl.bookY+bl.bookH/2-8, leftTextW, 20)
+		drawCenteredDebugText(screen, "No learned spells", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 	} else {
 		mouseX, mouseY := ebiten.CursorPosition()
-
-		for spellIndex, spellID := range schoolSpells {
-			if spellIndex >= 2*bl.cardsPerPage {
-				break
-			}
+		pageStart := ui.spellPage * perSpread
+		pageEnd := min(len(schoolSpells), pageStart+perSpread)
+		for spellIndex := pageStart; spellIndex < pageEnd; spellIndex++ {
+			spellID := schoolSpells[spellIndex]
 			def, err := spells.GetSpellDefinitionByID(spellID)
 			if err != nil {
 				continue
 			}
 
-			cardX, cardY := bl.cardPos(spellIndex)
+			cardX, cardY := bl.cardPos(spellIndex - pageStart)
 			if cardY+bl.cardH > bl.gridMaxY {
 				continue
 			}
@@ -716,7 +752,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 			ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
-			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, isSelected)
+			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, selectedSchool, isSelected)
 
 			if isHovering {
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
@@ -738,12 +774,11 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		}
 	}
 
-	// Draw spellbook controls
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bl.bookX+20, contentY+contentHeight-28, bl.bookW-40, 20)
-
-	// Quick-slot bar below the book, narrow + centred so cells stay compact.
-	qbW := 360
-	ui.drawTabQuickSlotBar(screen, bl.bookX+(bl.bookW-qbW)/2, bl.bookY+bl.bookH+16, qbW)
+	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
+		ui.game.selectedSpell = -1
+	}
+	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Cast  Click: Select  Double-click: Equip fast spell", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {
@@ -757,48 +792,18 @@ func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.
 	return schools
 }
 
-func (ui *UISystem) drawSpellbookSchoolTabs(screen *ebiten.Image, schools []character.MagicSchoolID, selectedSchool character.MagicSchoolID, bookX, bookY int, scaleX, scaleY float64) {
+func (ui *UISystem) drawSpellbookSchoolTabs(screen *ebiten.Image, schools []character.MagicSchoolID, selectedSchool int, bl bookLayout) {
 	if len(schools) == 0 {
 		return
 	}
-	tabW := int(72 * scaleX)
-	tabH := int(112 * scaleY)
-	if tabW < 44 {
-		tabW = 44
-	}
-	if tabH < 68 {
-		tabH = 68
-	}
-	gap := int(10 * scaleX)
-	if gap < 4 {
-		gap = 4
-	}
-	// Bookmarks start from the left side of the book. They are drawn before the
-	// book sprite so the inserted lower portion is hidden behind the page.
-	startX := bookX + int(40*scaleX)
-	// Show roughly the upper half of the tab; the lower half is hidden behind the book.
-	visibleFrac := 0.55
-	hiddenH := int(float64(tabH) * (1 - visibleFrac))
-	for i, school := range schools {
-		tabX := startX + i*(tabW+gap)
-		tabY := bookY - (tabH - hiddenH)
-		if school == selectedSchool {
-			// Pull the selected bookmark slightly further up.
-			tabY -= int(10 * scaleY)
-		}
-		// Click region covers the entire bookmark sprite - the lower portion is
-		// only visually hidden by the book, the bookmark itself is still the target.
-		ui.handleSpellbookSchoolClick(tabX, tabY, tabW, tabH, i, school)
-		drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_tab_"+school.String()), tabX, tabY, tabW, tabH)
+	for i, tab := range bl.schoolTabRects(len(schools), selectedSchool) {
+		school := schools[i]
+		ui.handleSpellbookSchoolClick(tab, i, school)
+		drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_tab_"+school.String()), tab.x, tab.y, tab.w, tab.h)
 	}
 }
 
-func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, iconSize int, spellID spells.SpellID, def spells.SpellDefinition, currentChar *character.MMCharacter, selected bool) {
-	if selected {
-		// Selected spell: dark gold border, contrasts against the parchment pages.
-		vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 3, color.RGBA{170, 115, 30, 255}, false)
-	}
-
+func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, iconSize int, spellID spells.SpellID, def spells.SpellDefinition, currentChar *character.MMCharacter, school character.MagicSchoolID, selected bool) {
 	iconX := x + (w-iconSize)/2
 	iconY := y + 6
 	iconName := spellTooltipIconName(spellID)
@@ -808,6 +813,18 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{42, 32, 45, 255})
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{218, 170, 72, 255})
 		drawCenteredDebugText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
+	}
+	if selected {
+		// Keep selection wholly on the icon. The school-colored nested strokes
+		// read as an edge glow without covering the parchment or neighboring card.
+		glow := color.RGBAModel.Convert(SchoolColor(school.String())).(color.RGBA)
+		outer := glow
+		outer.A = 80
+		middle := glow
+		middle.A = 150
+		drawRectBorder(screen, iconX-4, iconY-4, iconSize+8, iconSize+8, 1, outer)
+		drawRectBorder(screen, iconX-2, iconY-2, iconSize+4, iconSize+4, 1, middle)
+		drawRectBorder(screen, iconX-1, iconY-1, iconSize+2, iconSize+2, 1, glow)
 	}
 
 	name := truncateName(def.Name, 12)
@@ -820,7 +837,7 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
 	}
 	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
+	drawCenteredDebugText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, debugTextCharHeight)
 	if currentChar.SpellPoints < cost {
 		// Red icon outline signals "not enough SP".
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
@@ -878,7 +895,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
 			} else if item.Type == items.ItemWeapon {
 				if currentChar.CanEquipWeaponByName(item.Name) {
-					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 							currentChar.Name, item.Name))
 					}
@@ -888,7 +905,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 				}
 			} else if item.Type == items.ItemArmor {
 				if currentChar.CanEquipArmor(item) {
-					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 							currentChar.Name, item.Name))
 					}
@@ -897,7 +914,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 						currentChar.Name, item.Name))
 				}
 			} else if item.Type == items.ItemAccessory {
-				if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
 					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 						currentChar.Name, item.Name))
 				}
@@ -938,7 +955,7 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 			if item, exists := currentChar.Equipment[slot]; exists {
 				itemName := item.Name
-				if ui.game.party.UnequipItemToInventory(slot, ui.game.selectedChar) {
+				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar) {
 					ui.game.AddCombatMessage(fmt.Sprintf("%s unequipped %s!",
 						currentChar.Name, itemName))
 				} else {
@@ -959,26 +976,35 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 	// Mouse state is updated once per frame in updateMouseState().
 }
 
+const (
+	inventoryCampButtonW           = 120
+	inventoryCampButtonH           = 26
+	inventoryCampNoticeGap         = 6
+	inventoryCampToQuickLabelGap   = 8
+	inventoryCampButtonNoticeBlock = inventoryCampButtonH + inventoryCampNoticeGap + debugTextCharHeight
+)
+
 // drawCampButton renders the Camp button under the inventory grid: spend
 // CampFoodCost food to fully restore the party in the field - unless enemies
 // are within CampEnemyRadiusTiles (TryCamp refuses). The result line stays
 // visible under the button.
 func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
-	const btnW, btnH = 120, 26
-	btnX := gridX + (gridW-btnW)/2
+	btnX := gridX + (gridW-inventoryCampButtonW)/2
 	mouseX, mouseY := ebiten.CursorPosition()
-	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y, btnX+btnW, y+btnH)
+	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y,
+		btnX+inventoryCampButtonW, y+inventoryCampButtonH)
 
 	fill := color.RGBA{30, 45, 30, 255}
 	if hover {
 		fill = color.RGBA{50, 75, 50, 255}
 	}
-	drawFilledRect(screen, btnX, y, btnW, btnH, fill)
-	drawRectBorder(screen, btnX, y, btnW, btnH, 2, color.RGBA{100, 120, 100, 255})
-	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost), btnX, y, btnW, btnH)
+	drawFilledRect(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, fill)
+	drawRectBorder(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, 2, color.RGBA{100, 120, 100, 255})
+	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost),
+		btnX, y, inventoryCampButtonW, inventoryCampButtonH)
 
 	if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
-		ui.game.consumeLeftClickIn(btnX, y, btnX+btnW, y+btnH) {
+		ui.game.consumeLeftClickIn(btnX, y, btnX+inventoryCampButtonW, y+inventoryCampButtonH) {
 		ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
 	}
 
@@ -988,6 +1014,7 @@ func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
 			clr = color.RGBA{120, 210, 120, 255}
 		}
 		noticeX := gridX + (gridW-debugTextWidth(ui.campNotice))/2
-		drawDebugTextColored(screen, ui.campNotice, noticeX, y+btnH+6, clr)
+		drawDebugTextColored(screen, ui.campNotice, noticeX,
+			y+inventoryCampButtonH+inventoryCampNoticeGap, clr)
 	}
 }

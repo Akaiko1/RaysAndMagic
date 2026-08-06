@@ -40,8 +40,8 @@ func tileOf(m *monsterPkg.Monster3D, tile float64) [2]int {
 	return [2]int{int(m.X / tile), int(m.Y / tile)}
 }
 
-// TestSeparateStackedMonstersTB_SplitsAndIsIdempotent covers the fix: two mobs
-// the real-time push left stacked on one tile are pulled onto DISTINCT tiles in
+// TestSeparateStackedMonstersTB_SplitsAndIsIdempotent covers a legacy/save
+// overlap: two non-combat mobs on one tile are pulled onto distinct tiles in
 // turn-based mode, and a second pass leaves them put (idempotent = no jitter).
 func TestSeparateStackedMonstersTB_SplitsAndIsIdempotent(t *testing.T) {
 	// Both stacked on tile (3,3) center (tileSize 64 -> 3*64+32 = 224).
@@ -71,9 +71,9 @@ func TestSeparateStackedMonstersTB_SplitsAndIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestSeparateStackedMonstersTB_HalfTileOffsetSameTile covers the exact bug the
-// player hit: the RT pixel push left the pair half a tile apart but on the SAME
-// tile - TB centring alone would stack them, so they must still be split.
+// TestSeparateStackedMonstersTB_HalfTileOffsetSameTile covers two off-centre
+// actors that still occupy the same logical tile. TB centring alone would stack
+// them, so non-combat actors must still be split.
 func TestSeparateStackedMonstersTB_HalfTileOffsetSameTile(t *testing.T) {
 	// Both on tile (3,3): one at centre, one ~half a tile off but same tile int.
 	g, a, b := tbSepGame(t, 224, 224, 224+24, 224)
@@ -84,5 +84,60 @@ func TestSeparateStackedMonstersTB_HalfTileOffsetSameTile(t *testing.T) {
 	g.separateStackedMonstersTB()
 	if tileOf(a, tile) == tileOf(b, tile) {
 		t.Fatalf("half-offset same-tile pair must be split onto distinct tiles")
+	}
+}
+
+func TestSeparateStackedMonstersTB_PreservesOnlyCalmSocialStacks(t *testing.T) {
+	g, a, b := tbSepGame(t, 224, 224, 224, 224)
+	tile := float64(g.config.GetTileSize())
+	for _, m := range []*monsterPkg.Monster3D{a, b} {
+		m.Banding = true
+		m.IsEngagingPlayer = false
+		m.State = monsterPkg.StateIdle
+	}
+
+	g.separateStackedMonstersTB()
+	if tileOf(a, tile) != tileOf(b, tile) {
+		t.Fatal("a calm social band must remain stacked in turn-based mode")
+	}
+
+	for _, m := range []*monsterPkg.Monster3D{a, b} {
+		m.WasAttacked = true
+		m.State = monsterPkg.StateFleeing
+	}
+	g.separateStackedMonstersTB()
+	if tileOf(a, tile) == tileOf(b, tile) {
+		t.Fatal("a non-calm band member must no longer preserve an intentional stack")
+	}
+}
+
+func TestSeparateStackedMonstersTB_DoesNotScatterOntoCombatTransitTile(t *testing.T) {
+	g, a, b := tbSepGame(t, 224, 224, 224, 224)
+	tile := float64(g.config.GetTileSize())
+
+	// The first free destination in bandScatterRing is east of the stack.
+	// A party-targeting combatant is excluded from stack repair, but its tile
+	// must still be unavailable to the actor that gets scattered.
+	tx, ty := TileCenterFromTile(4, 3, tile)
+	transit := &monsterPkg.Monster3D{
+		ID:               "mob_transit",
+		Name:             "Attacker",
+		X:                tx,
+		Y:                ty,
+		HitPoints:        100,
+		MaxHitPoints:     100,
+		IsEngagingPlayer: true,
+		State:            monsterPkg.StatePursuing,
+	}
+	g.world.Monsters = append(g.world.Monsters, transit)
+	g.collisionSystem.RegisterEntity(collision.NewEntity(
+		transit.ID, transit.X, transit.Y, 48, 48, collision.CollisionTypeMonster, false,
+	))
+
+	g.separateStackedMonstersTB()
+
+	transitTile := tileOf(transit, tile)
+	if tileOf(a, tile) == transitTile || tileOf(b, tile) == transitTile {
+		t.Fatalf("legacy stack scattered onto combat transit tile %v", transitTile)
 	}
 }

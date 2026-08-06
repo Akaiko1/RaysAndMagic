@@ -12,7 +12,7 @@ import (
 // NPC (pure-wilderness zone), one Orc Warlord, and the four warding idols.
 // Catches unresolved tile letters / NPC keys.
 func TestDeepJungleMapLoads(t *testing.T) {
-	tm := NewTileManager()
+	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}

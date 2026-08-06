@@ -12,8 +12,14 @@ import (
 // TileManager handles tile configuration and properties
 type TileManager struct {
 	tileData     map[string]*config.TileData
+	sizeClasses  map[string]float64
 	typeToKey    map[TileType3D]string
 	keyToType    map[string]TileType3D // Map from key to tile type
+	// denseTileData is the flat TileType3D -> data table behind GetTileData:
+	// render paths resolve tiles per column per frame, so one slice index
+	// replaces the two map hops (type -> key -> data). Derived from typeToKey
+	// in createTypeMapping; YAML stays the source of truth.
+	denseTileData []*config.TileData
 	letterToType map[string]TileType3D // Map from letter to tile type
 	typeToLetter map[TileType3D]string // Map from tile type to letter
 	// shortLabelToType / typeToShortLabel place letterless GENERAL tiles via a
@@ -29,31 +35,104 @@ type TileManager struct {
 }
 
 // NewTileManager creates a new tile manager
-func NewTileManager() *TileManager {
-	return &TileManager{
+func NewTileManager(sizeClasses map[string]float64) *TileManager {
+	if sizeClasses == nil {
+		panic("world: NewTileManager requires an explicit size-class table")
+	}
+	tm := &TileManager{
 		tileData:        make(map[string]*config.TileData),
+		sizeClasses:     sizeClasses,
 		typeToKey:       make(map[TileType3D]string),
 		keyToType:       make(map[string]TileType3D),
 		letterToType:    make(map[string]TileType3D),
 		typeToLetter:    make(map[TileType3D]string),
 		nextDynamicType: 1000, // Start dynamic types at 1000 to avoid conflicts
 	}
+	return tm
 }
 
-// validateTileConfiguration checks for conflicts in tile letters
-// validTileRenderTypes is the closed set of render_type values the renderer
-// actually dispatches on. An unknown value would load fine and then render
-// NOTHING (the legacy "flooring_object" died exactly that way), so it is a
-// load-time error, never a silent invisible tile.
-var validTileRenderTypes = map[string]bool{
-	"floor_only": true, "textured_wall": true, "environment_sprite": true,
-	"tree_sprite": true, "landmark": true,
-}
-
+// validateTileConfiguration checks for conflicts in tile letters.
+// ASCII map contract: lowercase a-z belongs exclusively to monster spawns.
+// Lettered terrain/props therefore use uppercase letters (or punctuation and
+// digits); free-standing decor uses the letterless [tile:short_label] form.
 func (tm *TileManager) validateTileConfiguration() error {
 	for key, data := range tm.tileData {
-		if !validTileRenderTypes[data.RenderType] {
-			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: floor_only|textured_wall|environment_sprite|tree_sprite|landmark)", key, data.RenderType)
+		if !config.IsTileRenderType(data.RenderType) {
+			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: %s)", key, data.RenderType, strings.Join(config.TileRenderTypes(), "|"))
+		}
+		if !config.IsTileProceduralEffect(data.ProceduralEffect) {
+			return fmt.Errorf("tile %q has unknown procedural_effect %q", key, data.ProceduralEffect)
+		}
+		if data.ProceduralEffect == config.TileEffectFireflySwarm && data.RenderType != config.TileRenderStandee {
+			return fmt.Errorf("tile %q procedural_effect %q requires render_type %q", key, data.ProceduralEffect, config.TileRenderStandee)
+		}
+		isClassedSprite := data.RenderType == config.TileRenderStandee ||
+			config.IsCrossedRenderType(data.RenderType) ||
+			data.RenderType == config.TileRenderLandmarkStandee
+		// Movement reads walkable alone, so that - not solid - is the test: a
+		// blocker the party walks around must not be the one sprite class that
+		// swings round to face them.
+		if data.RenderType == config.TileRenderStandee && !data.Walkable && !data.WallMounted {
+			return fmt.Errorf("tile %q is a camera-facing standee that blocks movement - use crossed_prop, mark it wall_mounted, or make it walkable", key)
+		}
+		// Only the flat standee sticks to a neighbouring wall.
+		if data.WallMounted && data.RenderType != config.TileRenderStandee {
+			return fmt.Errorf("tile %q uses wall_mounted but render_type is %q, want standee", key, data.RenderType)
+		}
+		// no_spin pins a pose, so it only means something where there IS a spin;
+		// a cross is static by construction.
+		if data.NoSpin && data.RenderType != config.TileRenderStandee &&
+			data.RenderType != config.TileRenderLandmarkStandee {
+			return fmt.Errorf("tile %q uses no_spin but render_type %q never spins", key, data.RenderType)
+		}
+		if data.FlyOver && (data.Walkable || data.Solid || !data.Transparent || data.RenderType != config.TileRenderFloor) {
+			return fmt.Errorf("tile %q uses fly_over but is not a transparent, non-solid, non-walkable floor", key)
+		}
+		if data.RemovedSizeTiles != nil {
+			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
+		}
+		if isClassedSprite {
+			// A sprite-drawn class with no sprite loads fine and then renders
+			// NOTHING - the same silent-invisible-tile trap the render_type check
+			// above exists for. Its size and width also come from the source
+			// texture, so the art is not optional.
+			if data.Sprite == "" {
+				return fmt.Errorf("tile %q render_type %q requires a sprite", key, data.RenderType)
+			}
+			if data.HeightMultiplier != 0 {
+				return fmt.Errorf("tile %q uses removed billboard height_multiplier - use size_class", key)
+			}
+			if data.SizeClass == "" {
+				return fmt.Errorf("tile %q render_type %q requires size_class", key, data.RenderType)
+			}
+			if _, ok := config.ResolveSizeClassTiles(tm.sizeClasses, data.SizeClass); !ok {
+				return fmt.Errorf("tile %q has unknown size_class %q", key, data.SizeClass)
+			}
+			if !config.IsTileSizeClass(data.RenderType, data.SizeClass) {
+				return fmt.Errorf("tile %q render_type %q cannot use size_class %q", key, data.RenderType, data.SizeClass)
+			}
+		} else if data.SizeClass != "" {
+			return fmt.Errorf("tile %q render_type %q must not set size_class", key, data.RenderType)
+		}
+		if nightMotes := data.NightMotes; nightMotes != nil {
+			if data.RenderType != config.TileRenderCrossedStandee {
+				return fmt.Errorf("tile %q uses night_motes but render_type is %q, want crossed_standee", key, data.RenderType)
+			}
+			if nightMotes.GlowColor == [3]int{} || nightMotes.CoreColor == [3]int{} {
+				return fmt.Errorf("tile %q night_motes require non-zero glow_color and core_color", key)
+			}
+			for _, color := range [][3]int{nightMotes.GlowColor, nightMotes.CoreColor} {
+				for _, channel := range color {
+					if channel < 0 || channel > 255 {
+						return fmt.Errorf("tile %q night_motes color channel %d is outside 0..255", key, channel)
+					}
+				}
+			}
+		}
+		for _, excludedKey := range data.ExcludedUnderFloorTiles {
+			if _, ok := tm.tileData[excludedKey]; !ok {
+				return fmt.Errorf("tile %q excludes unknown under-floor tile %q", key, excludedKey)
+			}
 		}
 		// Every authored tile carries an explicit organizational `type` (editor
 		// palette grouping). Special tiles (teleporters/traps) have their own
@@ -63,6 +142,9 @@ func (tm *TileManager) validateTileConfiguration() error {
 		}
 		if !config.ValidTileTypes[data.Type] {
 			return fmt.Errorf("tile %q has missing or unknown type %q (valid: floor|water|marker|wall|wall_decor|nature|rock|structure|prop)", key, data.Type)
+		}
+		if len(data.Letter) == 1 && data.Letter[0] >= 'a' && data.Letter[0] <= 'z' {
+			return fmt.Errorf("tile %q uses lowercase map letter %q - a-z is reserved for monster spawns; use uppercase or a letterless [tile:] prop", key, data.Letter)
 		}
 	}
 
@@ -234,6 +316,12 @@ func (tm *TileManager) createTypeMapping() {
 			tm.nextDynamicType++
 		}
 	}
+
+	// Rebuild the flat GetTileData table (unmapped types stay nil).
+	tm.denseTileData = make([]*config.TileData, int(tm.nextDynamicType))
+	for tileType, key := range tm.typeToKey {
+		tm.denseTileData[tileType] = tm.tileData[key]
+	}
 }
 
 // createLetterMappings creates bidirectional mappings between letters and tile types
@@ -273,11 +361,10 @@ func (tm *TileManager) GetShortLabelFromType(tileType TileType3D) string {
 
 // GetTileData returns the configuration data for a tile type
 func (tm *TileManager) GetTileData(tileType TileType3D) *config.TileData {
-	key, ok := tm.typeToKey[tileType]
-	if !ok {
+	if int(tileType) < 0 || int(tileType) >= len(tm.denseTileData) {
 		return nil
 	}
-	return tm.tileData[key]
+	return tm.denseTileData[tileType]
 }
 
 // GetTileDataByKey returns the configuration data for a tile by its string key
@@ -293,7 +380,8 @@ func (tm *TileManager) GetTileTypeFromKey(key string) (TileType3D, bool) {
 	return tileType, ok
 }
 
-// GetAllTileKeys returns all available tile keys from the loaded configuration
+// GetAllTileKeys returns all available tile keys from the loaded configuration.
+// Used by the sprite golden test to sweep every authored tile.
 func (tm *TileManager) GetAllTileKeys() []string {
 	keys := make([]string, 0, len(tm.tileData))
 	for key := range tm.tileData {
@@ -335,6 +423,14 @@ func (tm *TileManager) IsWalkable(tileType TileType3D) bool {
 	return data.Walkable
 }
 
+// CanFlyOver reports whether a flying monster may ignore this tile's ordinary
+// movement block. Transparent solid scenery keeps its established fly-over
+// behavior; open gaps such as water and chasms opt in explicitly in content.
+func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
+}
+
 // IsOpaque returns whether a tile type blocks sight
 func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)
@@ -343,7 +439,8 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case "tree_sprite", "environment_sprite", "landmark":
+		case config.TileRenderStandee, config.TileRenderCrossedStandee,
+			config.TileRenderCrossedProp, config.TileRenderLandmarkStandee:
 			return true
 		}
 	}
@@ -366,23 +463,16 @@ func (tm *TileManager) GetHeightMultiplier(tileType TileType3D) float64 {
 	return data.HeightMultiplier
 }
 
-// GetSizeTiles returns the visual sprite scale for billboard-style tiles.
-// size_tiles is the canonical content key. height_multiplier remains as a
-// fallback for older tile YAML where billboard scale and wall height shared one
-// field.
+// GetSizeTiles resolves the visual frame span for billboard-style tiles from
+// the shared class table. Content validation guarantees the class exists in a
+// real game load; 1.0 is only a defensive fallback for ad-hoc test managers.
 func (tm *TileManager) GetSizeTiles(tileType TileType3D) float64 {
 	data := tm.GetTileData(tileType)
 	if data == nil {
 		return 1.0
 	}
-	if data.SizeTiles > 0 {
-		return data.SizeTiles
-	}
-	switch data.RenderType {
-	case "tree_sprite", "environment_sprite", "landmark":
-		if data.HeightMultiplier > 0 {
-			return data.HeightMultiplier
-		}
+	if value, ok := config.ResolveSizeClassTiles(tm.sizeClasses, data.SizeClass); ok {
+		return value
 	}
 	return 1.0
 }
@@ -407,7 +497,7 @@ func (tm *TileManager) GetSprite(tileType TileType3D) string {
 func (tm *TileManager) GetRenderType(tileType TileType3D) string {
 	data := tm.GetTileData(tileType)
 	if data == nil {
-		return "textured_wall" // Default render type
+		return config.TileRenderWall // Default render type
 	}
 	return data.RenderType
 }
@@ -424,13 +514,12 @@ func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 	return data.FloorColor
 }
 
-// InheritsFloor reports whether a tile should take the surrounding biome floor
-// (colour + texture) rather than painting its own floor_color - see
-// config.TileData.InheritFloor. Marker tiles (spawn, teleporters) set this so
-// they blend into the ground like a mob-spawn cell.
+// InheritsFloor reports whether a tile takes the surrounding biome floor
+// (colour + texture). TileData owns the policy: floor-only markers opt in with
+// inherit_floor, while objects without an authored floor inherit by default.
 func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)
-	return data != nil && data.InheritFloor
+	return data.InheritsNeighbourFloor()
 }
 
 // floorVoteNeighbours are the 8 neighbours that vote on an inherited floor,
@@ -443,15 +532,34 @@ var floorVoteNeighbours = []struct{ dx, dy, w int }{
 
 // DominantNeighbourFloor returns the dominant authored, steppable floor tile among
 // the 8 neighbours of (x,y) - orthogonal neighbours weighted double, with a
-// deterministic tie-break by neighbour order. Only real ground votes: render_type
-// "floor_only" AND walkable, non-solid, and not itself an inherit_floor marker
-// (so spawn/teleporters never stamp their own square under an entity). Cells where
-// skip(nx,ny) is true are ignored (e.g. other entity-placeholder cells). ok is
-// false when no floor neighbour exists, leaving the fallback to the caller. Single
-// source for both under-entity floors (map load) and inherit_floor markers (render).
+// deterministic tie-break by neighbour order. It has no owner-specific exclusions;
+// use DominantNeighbourFloorForTile when choosing the floor beneath a tile that
+// declares excluded_under_floor_tiles. Cells where skip(nx,ny) is true are ignored
+// (e.g. other entity-placeholder cells). ok is false when no floor neighbour exists,
+// leaving the fallback to the caller.
 func (tm *TileManager) DominantNeighbourFloor(tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	return tm.dominantNeighbourFloorForTile(TileEmpty, tiles, width, height, x, y, skip)
+}
+
+// DominantNeighbourFloorForTile is the shared inherited-floor vote for an object
+// tile. Its excluded_under_floor_tiles keys are ignored without changing which
+// floors other objects or ordinary entity cells may choose.
+func (tm *TileManager) DominantNeighbourFloorForTile(tileType TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	return tm.dominantNeighbourFloorForTile(tileType, tiles, width, height, x, y, skip)
+}
+
+func (tm *TileManager) dominantNeighbourFloorForTile(owner TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	ownerData := tm.GetTileData(owner)
 	isFloor := func(t TileType3D) bool {
-		return tm.GetRenderType(t) == "floor_only" &&
+		if ownerData != nil {
+			candidateKey := tm.GetTileKey(t)
+			for _, excludedKey := range ownerData.ExcludedUnderFloorTiles {
+				if candidateKey == excludedKey {
+					return false
+				}
+			}
+		}
+		return tm.GetRenderType(t) == config.TileRenderFloor &&
 			tm.IsWalkable(t) && !tm.IsSolid(t) && !tm.InheritsFloor(t)
 	}
 	counts := make(map[TileType3D]int)
@@ -507,74 +615,6 @@ func (tm *TileManager) HasFloorNearColor(tileType TileType3D) bool {
 	return color[0] != 0 || color[1] != 0 || color[2] != 0
 }
 
-// SetTileProperty allows dynamic modification of tile properties at runtime
-func (tm *TileManager) SetTileProperty(tileType TileType3D, property string, value interface{}) error {
-	key, ok := tm.typeToKey[tileType]
-	if !ok {
-		return fmt.Errorf("unknown tile type: %d", tileType)
-	}
-
-	data := tm.tileData[key]
-	if data == nil {
-		return fmt.Errorf("no data found for tile type: %d", tileType)
-	}
-
-	switch property {
-	case "solid":
-		if val, ok := value.(bool); ok {
-			data.Solid = val
-		} else {
-			return fmt.Errorf("solid property requires boolean value")
-		}
-	case "transparent":
-		if val, ok := value.(bool); ok {
-			data.Transparent = val
-		} else {
-			return fmt.Errorf("transparent property requires boolean value")
-		}
-	case "walkable":
-		if val, ok := value.(bool); ok {
-			data.Walkable = val
-		} else {
-			return fmt.Errorf("walkable property requires boolean value")
-		}
-	case "height_multiplier":
-		if val, ok := value.(float64); ok {
-			data.HeightMultiplier = val
-		} else {
-			return fmt.Errorf("height_multiplier property requires float64 value")
-		}
-	case "wall_height_multiplier":
-		if val, ok := value.(float64); ok {
-			data.WallHeightMultiplier = val
-		} else {
-			return fmt.Errorf("wall_height_multiplier property requires float64 value")
-		}
-	case "size_tiles":
-		if val, ok := value.(float64); ok {
-			data.SizeTiles = val
-		} else {
-			return fmt.Errorf("size_tiles property requires float64 value")
-		}
-	case "sprite":
-		if val, ok := value.(string); ok {
-			data.Sprite = val
-		} else {
-			return fmt.Errorf("sprite property requires string value")
-		}
-	case "render_type":
-		if val, ok := value.(string); ok {
-			data.RenderType = val
-		} else {
-			return fmt.Errorf("render_type property requires string value")
-		}
-	default:
-		return fmt.Errorf("unknown property: %s", property)
-	}
-
-	return nil
-}
-
 // GetTileKey returns the configuration key for a tile type
 func (tm *TileManager) GetTileKey(tileType TileType3D) string {
 	return tm.typeToKey[tileType]
@@ -603,17 +643,6 @@ func (tm *TileManager) ListSpecialTiles() map[string]*config.TileData {
 		}
 	}
 	return result
-}
-
-// IsSpecialTile reports whether a key came from special_tiles.yaml.
-func (tm *TileManager) IsSpecialTile(key string) bool {
-	return tm.specialTileKeys[key]
-}
-
-// GetTileTypeFromLetter returns the tile type for a given letter
-func (tm *TileManager) GetTileTypeFromLetter(letter string) (TileType3D, bool) {
-	tileType, ok := tm.letterToType[letter]
-	return tileType, ok
 }
 
 // GetTileTypeFromLetterForBiome returns the tile type for a given letter in a specific biome
@@ -653,33 +682,7 @@ func (tm *TileManager) tileSupportsbiome(tileData *config.TileData, biome string
 	return false
 }
 
-// GetTileKeyFromLetter returns the tile key for a given letter
-// This works for all tiles, including dynamically assigned ones
-func (tm *TileManager) GetTileKeyFromLetter(letter string) (string, bool) {
-	if tileType, ok := tm.letterToType[letter]; ok {
-		return tm.typeToKey[tileType], true
-	}
-	return "", false
-}
-
 // GetLetterFromTileType returns the letter for a given tile type
 func (tm *TileManager) GetLetterFromTileType(tileType TileType3D) string {
 	return tm.typeToLetter[tileType]
-}
-
-// GetLetterFromTileKey returns the letter for a given tile key
-func (tm *TileManager) GetLetterFromTileKey(key string) string {
-	if data, ok := tm.tileData[key]; ok {
-		return data.Letter
-	}
-	return ""
-}
-
-// GetAllLetterMappings returns all letter to tile type mappings
-func (tm *TileManager) GetAllLetterMappings() map[string]TileType3D {
-	result := make(map[string]TileType3D)
-	for letter, tileType := range tm.letterToType {
-		result[letter] = tileType
-	}
-	return result
 }

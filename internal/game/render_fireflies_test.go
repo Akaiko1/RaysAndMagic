@@ -1,6 +1,11 @@
 package game
 
-import "testing"
+import (
+	"testing"
+
+	"ugataima/internal/config"
+	"ugataima/internal/world"
+)
 
 func TestFireflySwarmMoteLayout(t *testing.T) {
 	if got, want := len(fireflySwarmMotes), 10; got != want {
@@ -27,5 +32,26 @@ func TestFireflySwarmFlickerRangeAndMotion(t *testing.T) {
 	}
 	if !changed {
 		t.Fatal("fireflySwarmFlicker stayed constant")
+	}
+}
+
+func TestFireflySwarmDispatchesFromAuthoredEffect(t *testing.T) {
+	cfg := loadTestConfig(t)
+	previous := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = previous })
+	tm := world.NewTileManager(cfg.Graphics.SizeClasses)
+	if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	world.GlobalTileManager = tm
+	tileType, ok := tm.GetTileTypeFromKey("firefly_swarm")
+	if !ok {
+		t.Fatal("firefly_swarm tile is missing")
+	}
+	if tile := tm.GetTileData(tileType); tile == nil || tile.ProceduralEffect != config.TileEffectFireflySwarm {
+		t.Fatalf("firefly_swarm procedural effect = %+v", tile)
+	}
+	if !isFireflySwarmTile(tileType) {
+		t.Fatal("authored firefly swarm effect did not reach render dispatch")
 	}
 }

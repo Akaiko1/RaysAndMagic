@@ -82,6 +82,7 @@ func (g *MMGame) resetTimedEffects() {
 	g.recomputeStatBonuses()
 	g.combatBuffs = nil
 	g.steamZones = nil
+	g.nextSteamZoneFieldID = 0
 	for _, b := range g.timedBuffs() {
 		*b.active = false
 		*b.duration = 0

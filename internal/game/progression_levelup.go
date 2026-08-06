@@ -34,6 +34,11 @@ type levelUpChoiceRequest struct {
 	selected      []bool
 	title         string
 	onComplete    func()
+	// padToMinimum keeps this request topped up to MinLevelUpOptions with random
+	// mastery upgrades, both when built and when it becomes the active popup.
+	// Level-ups set it; the promotion spell picker deliberately does not (its
+	// options are that school's spells, and a mastery row would not belong).
+	padToMinimum bool
 }
 
 // isMultiSelect reports whether this request is a "pick K of N" picker.
@@ -87,6 +92,7 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 		selection:     0,
 		maxSelections: 1,
 		selected:      make([]bool, len(options)),
+		padToMinimum:  true,
 	})
 }
 
@@ -166,6 +172,7 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	if !g.party.SwapActiveReserve(activeIdx, reserveIdx) {
 		return false
 	}
+	g.clearFocusMode()
 	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
 	// current bonuses, the benched one sheds them - otherwise a swap freezes a
 	// buff on the bench forever (or the newcomer fights unbuffed). Route through
@@ -426,11 +433,12 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 	var options []levelUpChoiceOption
 	add := func(opt levelUpChoiceOption) {
 		setLevelUpOptionDisplay(char, &opt)
-		switch strings.ToLower(opt.choice.Type) {
-		case "weapon_mastery", "armor_mastery", "magic_mastery":
-			if !opt.hasMastery {
-				return
-			}
+		// SAME pickability rule as pruneLevelUpOptions: a maxed mastery or an
+		// already-known spell is not an offer, and must not occupy a slot that
+		// padLevelUpOptions would otherwise fill (level_up.yaml repeats some
+		// spells across levels - the Archer is offered Lightning at 3 AND 9).
+		if !levelUpOptionPickable(char, &opt) {
+			return
 		}
 		options = append(options, opt)
 	}
@@ -543,6 +551,12 @@ func (g *MMGame) pruneLevelUpOptions(req *levelUpChoiceRequest) bool {
 		}
 	}
 	req.options = kept
+	if req.padToMinimum {
+		// A dropped option must be REPLACED, not silently missing: state can
+		// change between building the request and showing it (stacked popups, a
+		// trader purchase, a lectern), so re-pad with random mastery upgrades.
+		req.options = padLevelUpOptions(char, req.options)
+	}
 	if len(req.selected) > 0 {
 		req.selected = make([]bool, len(req.options))
 	}
@@ -579,8 +593,7 @@ func magicMasteryOptionLabel(char *character.MMCharacter, school character.Magic
 }
 
 // skillTypeFromKey resolves a level-up choice key (weapon or armor category)
-// to its SkillType. "throwing" and "blaster" aren't level-up choices and are
-// intentionally not accepted here.
+// to its SkillType. "throwing" aliases Dagger and is not a distinct choice.
 func skillTypeFromKey(key string) (character.SkillType, bool) {
 	key = strings.ToLower(key)
 	if skill, ok := character.WeaponSkillForCategory(key); ok && key != "throwing" {

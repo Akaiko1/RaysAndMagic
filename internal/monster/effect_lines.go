@@ -2,9 +2,9 @@ package monster
 
 import (
 	"fmt"
-	"strings"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 )
 
 // EffectLine is a character-independent monster mechanic line. School tints the
@@ -47,6 +47,16 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 			add(fmt.Sprintf("Ranged weapon: %s", d.ProjectileWeapon))
 		}
 	}
+	if d.MeleeDamageType != "" {
+		school := normalizeEffectSchool(d.MeleeDamageType)
+		addSchool(school, fmt.Sprintf("Melee strikes as %s damage", school))
+	}
+	if d.hasTrapVolley() {
+		addSchool(damagecalc.Fire.String(), fmt.Sprintf(
+			"Trap field: sows %d fire traps (%.0f dmg) within %.0f tiles every %.0fs / %d turns",
+			d.TrapVolleyCount, float64(d.TrapVolleyDamage), d.TrapVolleyRadiusTiles,
+			d.TrapVolleyIntervalSeconds, d.TrapVolleyIntervalTurns))
+	}
 	if d.PounceRangeTiles > 0 {
 		add(fmt.Sprintf("Pounce: %.1f tiles every %.0fs", d.PounceRangeTiles, d.PounceCooldownSeconds))
 	}
@@ -54,7 +64,7 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 		add(fmt.Sprintf("Poison: %.0f%% for %ds", d.PoisonChance*100, d.PoisonDurationSec))
 	}
 	if d.IgniteChance > 0 {
-		addSchool("fire", fmt.Sprintf("Ignite: %.0f%% for %ds", d.IgniteChance*100, d.IgniteDurationSec))
+		addSchool(damagecalc.Fire.String(), fmt.Sprintf("Ignite: %.0f%% for %ds", d.IgniteChance*100, d.IgniteDurationSec))
 	}
 	if d.StunCharChance > 0 {
 		add(fmt.Sprintf("Stun: %.0f%% (%ds / %d turns)", d.StunCharChance*100, d.StunCharSeconds, d.StunCharTurns))
@@ -63,7 +73,7 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 		add(fmt.Sprintf("Dispel buff: %.0f%%", d.DispelChance*100))
 	}
 	if d.FireburstChance > 0 {
-		addSchool("fire", fmt.Sprintf("Fireburst: %.0f%% for %d-%d", d.FireburstChance*100, d.FireburstDamageMin, d.FireburstDamageMax))
+		addSchool(damagecalc.Fire.String(), fmt.Sprintf("Fireburst: %.0f%% for %d-%d", d.FireburstChance*100, d.FireburstDamageMin, d.FireburstDamageMax))
 	}
 	if d.DragonBreathChance > 0 {
 		school := normalizeEffectSchool(d.DragonBreathType)
@@ -79,9 +89,9 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 }
 
 func normalizeEffectSchool(school string) string {
-	school = strings.ToLower(strings.TrimSpace(school))
-	if school == "" {
-		return "physical"
+	damageType, err := damagecalc.ParseType(school)
+	if err != nil {
+		return damagecalc.Physical.String()
 	}
-	return school
+	return damageType.String()
 }

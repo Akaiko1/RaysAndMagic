@@ -9,10 +9,11 @@ import (
 	"ugataima/internal/world"
 )
 
-// Door NPCs (render_category "door") bar a doorway while a duel champion lives
-// on their map: drawn and solid only while closed. Closed-ness is DERIVED every
-// frame from "any living champion here" - no persisted door state, so it
-// self-heals across save-load and map switches (same pattern as ward idols).
+// Champion portcullises (type "door", door_behavior "champion_portcullis")
+// bar a doorway while a duel champion lives on their map: drawn and solid only
+// while closed. Closed-ness is DERIVED every frame from "any living champion
+// here" - no persisted door state, so it self-heals across save-load and map
+// switches (same pattern as ward idols).
 
 // npcIsDoor is the single category test for the door render class. Unlike
 // npcIsWall it does not depend on standee mode: the collision block applies in
@@ -22,9 +23,20 @@ func (g *MMGame) npcIsDoor(npc *character.NPC) bool {
 }
 
 // npcDoorOpen: an open door is invisible and non-interactive - the render
-// collector and the focus/click resolvers all skip through this one test.
+// collector and the focus/click resolvers all skip through this one test. Two
+// explicit door behaviors share the render class: a lockable door is open once
+// unlocked (Visited); the champion portcullis is open while no champion lives.
 func (g *MMGame) npcDoorOpen(npc *character.NPC) bool {
-	return g.npcIsDoor(npc) && !g.doorsClosed
+	if !g.npcIsDoor(npc) {
+		return false
+	}
+	if character.IsLockedDoor(npc) {
+		return npc.Visited // a closed locked door stays interactive so it can be opened
+	}
+	if character.IsChampionPortcullisDoor(npc) {
+		return !g.doorsClosed
+	}
+	return false
 }
 
 // doorPose returns the render pose for a door: centered on its tile with the
@@ -62,6 +74,7 @@ func (g *MMGame) refreshDoors() {
 	}
 	if g.doorsClosed && !closed {
 		g.AddCombatMessage("The portcullises rise - the way is open!")
+		g.playSound(soundDoorOpen)
 	}
 	g.doorsClosed = closed
 
@@ -77,12 +90,12 @@ func (g *MMGame) refreshDoors() {
 	}
 	ts := float64(g.config.GetTileSize())
 	for _, npc := range g.world.NPCs {
-		if npc == nil || !g.npcIsDoor(npc) {
-			continue
+		if !character.IsChampionPortcullisDoor(npc) {
+			continue // locked doors have their own persisted per-door registration
 		}
 		id := fmt.Sprintf("door:%.0f:%.0f", npc.X, npc.Y)
 		if !g.doorEntityIDs[id] {
-			g.collisionSystem.RegisterEntity(collision.NewEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
+			g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity(id, npc.X, npc.Y, ts*0.9, ts*0.9, collision.CollisionTypeNPC, true))
 			g.doorEntityIDs[id] = true
 		}
 	}

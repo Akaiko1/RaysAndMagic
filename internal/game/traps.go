@@ -37,23 +37,21 @@ type PlacedTrap struct {
 	swirlTick    int
 }
 
-// trapAt returns the index of the trap occupying a tile on the current map, or -1.
+// trapAt returns the index of the trap occupying a tile on the current world, or -1.
 func (g *MMGame) trapAt(tileX, tileY int) int {
-	mapKey := currentMapKey()
 	for i := range g.traps {
-		if g.traps[i].MapKey == mapKey && g.traps[i].TileX == tileX && g.traps[i].TileY == tileY {
+		if mapKeyOnCurrentWorld(g.traps[i].MapKey) && g.traps[i].TileX == tileX && g.traps[i].TileY == tileY {
 			return i
 		}
 	}
 	return -1
 }
 
-// ownerTrapCount counts the character's armed traps on the current map.
+// ownerTrapCount counts the character's armed traps on the current world.
 func (g *MMGame) ownerTrapCount(owner *character.MMCharacter) int {
-	mapKey := currentMapKey()
 	n := 0
 	for i := range g.traps {
-		if g.traps[i].MapKey == mapKey && g.traps[i].Owner == owner {
+		if mapKeyOnCurrentWorld(g.traps[i].MapKey) && g.traps[i].Owner == owner {
 			n++
 		}
 	}
@@ -146,7 +144,7 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 // clicked entry, slotted or not) - gates and placement shared with the quick
 // slot path.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
-	if caster == nil || !hasTrapBook(caster) {
+	if !caster.CanUseCombatAction() || !hasTrapBook(caster) {
 		return "", false
 	}
 	def, ok := config.GetTrapDefinition(trapKey)
@@ -201,12 +199,12 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	ts := float64(cs.game.config.GetTileSize())
 	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
-	curX, curY := int(cs.game.camera.X/ts), int(cs.game.camera.Y/ts)
+	curX, curY := TileIndex(cs.game.camera.X, ts), TileIndex(cs.game.camera.Y, ts)
 	lastX, lastY := curX, curY
 
 	for step := 1; step <= TrapPlaceRangeTiles; step++ {
-		tx := int((cs.game.camera.X + dirX*float64(step)*ts) / ts)
-		ty := int((cs.game.camera.Y + dirY*float64(step)*ts) / ts)
+		tx := TileIndex((cs.game.camera.X + dirX*float64(step)*ts), ts)
+		ty := TileIndex((cs.game.camera.Y + dirY*float64(step)*ts), ts)
 		if tx == lastX && ty == lastY {
 			continue
 		}
@@ -224,7 +222,7 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	// world-space; the sweep fires on the monster's true position). Closest
 	// pulled flank wins - mirrors the melee front->side priority.
 	if mon := cs.nearestPulledFlankMonster(); mon != nil {
-		return int(mon.X / ts), int(mon.Y / ts), true
+		return TileIndex(mon.X, ts), TileIndex(mon.Y, ts), true
 	}
 	if lastX == curX && lastY == curY {
 		return 0, 0, false // facing straight into a wall
@@ -258,10 +256,10 @@ func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
 	ts := float64(cs.game.config.GetTileSize())
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
 			continue
 		}
-		if int(m.X/ts) == tileX && int(m.Y/ts) == tileY {
+		if TileIndex(m.X, ts) == tileX && TileIndex(m.Y, ts) == tileY {
 			return m
 		}
 	}
@@ -275,11 +273,10 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 	if len(cs.game.traps) == 0 {
 		return
 	}
-	mapKey := currentMapKey()
 	w := 0
 	for i := range cs.game.traps {
 		t := cs.game.traps[i]
-		if t.MapKey == mapKey {
+		if mapKeyOnCurrentWorld(t.MapKey) {
 			if victim := cs.monsterOnTile(t.TileX, t.TileY); victim != nil {
 				cs.fireTrap(&t, victim)
 				continue // one-shot: drop the trap
@@ -294,6 +291,9 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 // fireTrap applies a trap's payload to the victim (and, for AoE, everything
 // in radius), with messages and burst VFX.
 func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
+	if isPurePartySummon(victim) {
+		return
+	}
 	def, ok := config.GetTrapDefinition(t.Key)
 	if !ok {
 		return
@@ -302,23 +302,23 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
-		dmgType := convertToMonsterDamageType(def.Element)
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
 			for _, m := range cs.game.world.Monsters {
-				if m == nil || !m.IsAlive() || Distance(t.X, t.Y, m.X, m.Y) > radius {
+				if m == nil || !m.IsAlive() || isPurePartySummon(m) ||
+					Distance(t.X, t.Y, m.X, m.Y) > radius {
 					continue
 				}
-				cs.applyTrapDamage(m, dmg, def.Element, dmgType, def.Name)
+				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			}
 		} else {
-			cs.applyTrapDamage(victim, dmg, def.Element, dmgType, def.Name)
+			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
 		}
 	}
 
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
-	if bossInvulnerable(victim) {
+	if victim.IsDamageInvulnerable() {
 		return
 	}
 
@@ -329,37 +329,33 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 
 	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)
 	if def.RootTurns > 0 {
-		if cs.game.turnBasedMode {
-			if turnsRoot > victim.RootTurnsRemaining {
-				victim.RootTurnsRemaining = turnsRoot
-			}
-		} else if frames := secsRoot * cs.game.config.GetTPS(); frames > victim.RootFramesRemaining {
-			victim.RootFramesRemaining = frames
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", victim.Name))
+		cs.applyMonsterRoot(victim, turnsRoot, secsRoot*cs.game.config.GetTPS())
 	}
 }
 
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
-func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
-	if bossInvulnerable(m) {
-		return // invulnerable boss (sealed or idol-warded) - no trap damage, FX, or aggro
+func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, sourceName string) {
+	if isPurePartySummon(m) || m.IsDamageInvulnerable() {
+		return // transparent summon or invulnerable boss: no damage, FX, or aggro
 	}
-	// Phys-to-element conversion cards apply to physical trap damage too - a
-	// physical trap is as much "party physical damage" as a swing or an arrow.
-	var convShares []physConvShare
-	if element == "physical" {
-		dmg, convShares = cs.game.splitPhysConversions(dmg)
-	}
-	// Trap damage runs the same armor->resist path as any hit: armor mitigates by
-	// element (physical fully, elemental on the reduced cap), then resistances.
-	dmg = applyMonsterArmor(dmg, element, m.EffectiveArmorClass(), false)
-	actual := m.TakeDamageResist(dmg, dmgType, 0)
-	actual += cs.applyPhysConversionShares(m, convShares, false)
-	cs.markMonsterHit(m)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
+	// Traps use the shared party packet builder so physical conversion stays one
+	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
+	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
+	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
+	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
+	cs.reportIndirectHit(m, actual, sourceName)
 	cs.finishIndirectKill(m)
+}
+
+// reportIndirectHit shows a trap/zone hit exactly like a weapon hit minus the
+// view kick: flash, sparks, and a log line with damage and remaining HP. Kill
+// credit stays with finishIndirectKill, which the caller runs next.
+func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
+	cs.markMonsterHit(m)
+	cs.spawnHitSparks(m)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s! (HP: %d/%d)",
+		m.Name, dealt, sourceName, m.HitPoints, m.MaxHitPoints))
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,
@@ -378,21 +374,20 @@ func (gl *GameLoop) updateTraps() {
 	if len(g.traps) == 0 {
 		return
 	}
-	mapKey := currentMapKey()
 	w := 0
 	for i := range g.traps {
 		t := g.traps[i]
 		// Lifetime ticks on every map (armed steel doesn't care where you are).
 		t.FramesLeft--
 		if t.FramesLeft <= 0 {
-			if t.MapKey == mapKey {
+			if mapKeyOnCurrentWorld(t.MapKey) {
 				if def, ok := config.GetTrapDefinition(t.Key); ok {
 					g.spawnTrapSwirl(t.X, t.Y, def.Element) // fizzle puff
 				}
 			}
 			continue // expired: drop
 		}
-		if t.MapKey == mapKey {
+		if mapKeyOnCurrentWorld(t.MapKey) {
 			t.swirlTick++
 			if t.swirlTick >= trapSwirlPeriodTicks {
 				t.swirlTick = 0
@@ -419,9 +414,10 @@ func (g *MMGame) spawnTrapSwirl(x, y float64, element string) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
+	element = normalizeDamageTypeStr(element)
 	baseColor, ok := ElementColors[element]
 	if !ok {
-		baseColor = ElementColors["physical"]
+		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
 	}
 	const n = 3
 	const ringRadius = 13.0 // world units around the tile center

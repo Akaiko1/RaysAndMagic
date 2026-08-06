@@ -2,10 +2,10 @@ package character
 
 import (
 	"fmt"
-
 	"strings"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 )
 
@@ -21,7 +21,7 @@ import (
 // so existing combat references keep working unchanged.
 const (
 	// MasteryWeaponTrueDamagePerTier: bonus TRUE damage per weapon-mastery tier
-	// (ignores armor, lands through dodges). Expert +3 / Master +6 / GM +9.
+	// (resistance applies; armor/flat/dodge do not). Expert +3 / Master +6 / GM +9.
 	MasteryWeaponTrueDamagePerTier = 3
 	// WeaponGMCritBonus: extra crit % a Grandmaster gets with their mastered weapon.
 	WeaponGMCritBonus = 7
@@ -86,6 +86,10 @@ const (
 	ArmorMitigationK            = 45
 	ArmorPhysicalMitigationCap  = 75
 	ArmorElementalMitigationCap = 33
+	// TurnBasedTurnSeconds is the real-time equivalent one turn-based round
+	// consumes for periodic effects (DoTs, damage zones). Shared with the game's
+	// TurnBasedPeriodicEffectSeconds so cards can state ticks per turn.
+	TurnBasedTurnSeconds = 3
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing (buff magnitudes stay flat; duration
 	// scales via SpellMasteryDurationBonusPct).
@@ -93,9 +97,10 @@ const (
 	// SpellMasteryDurationBonusPct: +% spell duration per mastery tier above
 	// Novice (100/120/140/160% of the YAML duration).
 	SpellMasteryDurationBonusPct = 20
-	// MagicGMResistPiercePct: a Grandmaster's spells ignore this % of the
-	// target's resistance to the school's damage type.
-	MagicGMResistPiercePct = 50
+	// SelfMagicGMResistPiercePct: a Grandmaster Body/Mind/Spirit caster's
+	// damaging spells ignore this % of the matching resistance. Elemental
+	// schools, including Light/Dark, use Elemental Mastery instead.
+	SelfMagicGMResistPiercePct = 50
 	// MerchantPricePctPerTier: % better buy AND sell prices per the party's best
 	// Merchant tier.
 	MerchantPricePctPerTier = 5
@@ -112,7 +117,83 @@ const (
 	// ((tier+1)*this), that a melee hit also fires the slotted quick-spell for
 	// free (0 SP), mirroring the Pixie Card's free Fire Bolt proc.
 	SpiritualTrainingProcPctPerTier = 10
+	// AnimalBondingSummonMax: maximum living Animal Bonding bears per Druid.
+	AnimalBondingSummonMax = 2
+	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
+	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.
+	DoorForceChancePct    = 20
+	DoorMaxNonKeyAttempts = 3
 )
+
+var (
+	elementalMasteryPiercePct = [...]int{10, 20, 35, 50}
+	animalBondingProcPct      = [...]int{5, 8, 12, 15}
+	animalBondingStatPct      = [...]int{40, 60, 80, 100}
+	animalBondingHPPct        = [...]int{100, 200, 300, 500}
+	sacrificeRedirectPct      = [...]int{10, 20, 30, 50}
+	impenetrableDefenseFlat   = [...]int{3, 5, 7, 10}
+	lockpickingChancePct      = [...]int{20, 35, 50, 60}
+	naturalHealerBonusPct     = [...]int{20, 40, 60, 100}
+)
+
+func masteryTableValue(table [4]int, tier int) int {
+	if tier < int(MasteryNovice) {
+		return 0
+	}
+	if tier > int(MasteryGrandMaster) {
+		tier = int(MasteryGrandMaster)
+	}
+	return table[tier]
+}
+
+func ElementalMasteryPiercePct(tier int) int {
+	return masteryTableValue(elementalMasteryPiercePct, tier)
+}
+
+func AnimalBondingProcPct(tier int) int {
+	return masteryTableValue(animalBondingProcPct, tier)
+}
+
+func AnimalBondingStatPct(tier int) int {
+	return masteryTableValue(animalBondingStatPct, tier)
+}
+
+func AnimalBondingHPPct(tier int) int {
+	return masteryTableValue(animalBondingHPPct, tier)
+}
+
+func SacrificeRedirectPct(tier int) int {
+	return masteryTableValue(sacrificeRedirectPct, tier)
+}
+
+func ImpenetrableDefenseReduction(tier int) int {
+	return masteryTableValue(impenetrableDefenseFlat, tier)
+}
+
+func LockpickingChancePct(tier int) int {
+	return masteryTableValue(lockpickingChancePct, tier)
+}
+
+func NaturalHealerBonusPct(tier int) int {
+	return masteryTableValue(naturalHealerBonusPct, tier)
+}
+
+func elementalMagicSchoolNames() string {
+	var names []string
+	for _, school := range AllMagicSchools {
+		if school.IsElemental() {
+			names = append(names, school.DisplayName())
+		}
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + ", and " + names[len(names)-1]
+	}
+}
 
 // TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
 // given Trapper tier, on top of its 1-turn base: Novice/Expert +0, Master +1,
@@ -240,19 +321,31 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 		}
 		out = append(out, fmt.Sprintf("Attack cooldown x%.2f (%d%% %s than standard)", mult, int(d*100+0.5), rel))
 	}
-	if def.Physics != nil && (def.DamageType == "" || def.DamageType == "physical") {
+	damageType, damageTypeErr := damagecalc.ParseType(def.DamageType)
+	if def.Physics != nil && (def.DamageType == "" || (damageTypeErr == nil && damageType == damagecalc.Physical)) {
 		out = append(out, fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct))
 	}
 	return out
 }
 
-// MagicMasteryDescription explains what a magic school's mastery grants - one
-// text for the in-game tooltip and the map editor.
-func MagicMasteryDescription() string {
+// MagicMasteryDescription explains only the selected school's rules. Keeping
+// the school in the contract prevents one tooltip from leaking unrelated
+// elemental/self-magic policies into every school row.
+func MagicMasteryDescription(school MagicSchoolID) string {
+	name := school.DisplayName()
+	base := fmt.Sprintf(
+		"%s Magic: spells with a duration last +%d%% per mastery tier above Novice. "+
+			"Projectiles, damage zones, and healing spells gain +%d damage or healing per tier above Novice.",
+		name, SpellMasteryDurationBonusPct, MasterySpellEffectPerLevel)
+	if school.IsElemental() {
+		gmBonus := int(MasteryGrandMaster) * MasterySpellEffectPerLevel
+		return fmt.Sprintf(
+			"%s At Grandmaster, that +%d damage becomes %s true damage.",
+			base, gmBonus, name)
+	}
 	return fmt.Sprintf(
-		"Magic Mastery: +%d%% spell duration and +%d damage/healing per mastery tier above Novice. "+
-			"Grandmaster: projectile and zone spells ignore %d%% of enemy resistance.",
-		SpellMasteryDurationBonusPct, MasterySpellEffectPerLevel, MagicGMResistPiercePct)
+		"%s At Grandmaster, damaging spells ignore %d%% of enemy %s Resistance.",
+		base, SelfMagicGMResistPiercePct, name)
 }
 
 // AllSkills is every skill in canonical (enum) order.
@@ -263,6 +356,8 @@ var AllSkills = []SkillType{
 	SkillIdentifyItem, SkillDisarmTrap, SkillLearning, SkillArmsMaster,
 	SkillTrapper, SkillSleightOfHand,
 	SkillDualWielding, SkillIronBody, SkillSpiritualTraining,
+	SkillBlaster, SkillElementalMastery, SkillAnimalBonding, SkillSacrifice,
+	SkillImpenetrableDefense, SkillLockpicking, SkillNaturalHealer,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
@@ -283,45 +378,51 @@ func (s SkillType) Category() string {
 // / Grandmaster 3 (bonuses scale per tier above Novice unless noted).
 func (s SkillType) Description() string {
 	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff:
-		return fmt.Sprintf("Proficiency to wield %ss. Weapon Mastery: +%d true damage per level "+
-			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster:
+		// A skill-optional category (blaster) needs no training to fire; its
+		// skill only pays the mastery bonuses.
+		lead := fmt.Sprintf("Proficiency to wield %ss.", weaponNoun(s))
+		if WeaponCategorySkillOptional(weaponNoun(s)) {
+			lead = fmt.Sprintf("Anyone can fire a %s untrained - this skill only makes it better.", weaponNoun(s))
+		}
+		return fmt.Sprintf("%s Weapon Mastery: +%d true damage per tier above Novice "+
+			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
 			"strikes ignore Perfect Dodge.",
-			weaponNoun(s), MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
+			lead, MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillMartialArts:
-		return fmt.Sprintf("Proficiency fighting unarmed. Weapon Mastery: +%d true damage per level "+
-			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit unarmed and "+
+		return fmt.Sprintf("Proficiency fighting unarmed. Weapon Mastery: +%d true damage per tier above Novice "+
+			"(resistance applies; ignores armor/flat reduction and lands through dodges). Grandmaster: +%d%% crit unarmed and "+
 			"strikes ignore Perfect Dodge.",
 			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillLeather, SkillChain, SkillPlate:
-		return fmt.Sprintf("Required to wear %s armor. Armor Mastery: +%d base AC per level. "+
+		return fmt.Sprintf("Required to wear %s armor. Armor Mastery: +%d base AC per tier above Novice. "+
 			"Grandmaster: +%d%% Perfect Dodge while wearing this armor type.",
 			weaponNoun(s), MasteryArmorACPerLevel, ArmorGMDodgeBonus)
 	case SkillShield:
-		return fmt.Sprintf("Required to use a shield (off-hand). Armor Mastery: +%d base AC per level. "+
+		return fmt.Sprintf("Required to use a shield (off-hand). Armor Mastery: +%d base AC per tier above Novice. "+
 			"Grandmaster: +%d%% Perfect Dodge while a shield is equipped.",
 			MasteryArmorACPerLevel, ArmorGMDodgeBonus)
 	case SkillBodybuilding:
-		return fmt.Sprintf("Bodybuilding: +%d max HP per level. Grandmaster: +%d%% max HP.",
+		return fmt.Sprintf("Bodybuilding: +%d max HP per tier above Novice. Grandmaster: +%d%% max HP.",
 			BodybuildingHPPerTier, BodybuildingGMMaxHPPct)
 	case SkillMeditation:
-		return fmt.Sprintf("Meditation: +%d spell points per regen tick per level (faster mana recovery). "+
+		return fmt.Sprintf("Meditation: +%d spell points per regen tick per tier above Novice. "+
 			"Grandmaster: -%d%% spell point cost on all spells and traps.",
 			MeditationRegenPerTier, MeditationGMSpellCostReductionPct)
 	case SkillLearning:
-		return fmt.Sprintf("Learning: +%d%% experience gained per level. "+
+		return fmt.Sprintf("Learning: +%d%% experience gained per tier above Novice. "+
 			"Grandmaster: +%d%% experience to the whole party.",
 			LearningXPPctPerTier, LearningGMPartyXPPct)
 	case SkillArmsMaster:
-		return fmt.Sprintf("Arms Master: +%d damage with any weapon per level (stacks with the weapon's "+
+		return fmt.Sprintf("Arms Master: +%d damage with any weapon per tier above Novice (stacks with the weapon's "+
 			"own mastery). Grandmaster: +%d%% crit with any weapon.",
 			ArmsMasterDamagePerTier, ArmsMasterGMCritBonus)
 	case SkillMerchant:
-		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level "+
+		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per tier above Novice "+
 			"(the party's best Merchant applies).", MerchantPricePctPerTier)
 	case SkillDisarmTrap:
 		return fmt.Sprintf("Disarm Trap: the party's best active user disarms chest traps with %d/%d/%d/%d%% chance at Novice/Expert/Master/Grandmaster. "+
-			"Each trained character also reduces all damage taken by 0/%d/%d/%d after armor and resistance.",
+			"Each trained character also reduces normal hit damage by 0/%d/%d/%d after armor and resistance; true damage and damage over time bypass it.",
 			DisarmTrapAvoidBasePct,
 			DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct,
 			DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct,
@@ -330,8 +431,8 @@ func (s SkillType) Description() string {
 			2*DisarmTrapDamageReductionPerTier,
 			3*DisarmTrapDamageReductionPerTier)
 	case SkillTrapper:
-		return fmt.Sprintf("Trapper: traps deal +%d damage per mastery level; control traps "+
-			"last +%d RT sec per level and up to +%d TB turns at Grandmaster. "+
+		return fmt.Sprintf("Trapper: traps deal +%d damage per tier above Novice; control traps "+
+			"last +%d RT sec per tier above Novice and gain up to +%d TB turns at Grandmaster. "+
 			"Trap damage scales with Intellect and Accuracy.",
 			TrapperDamagePerTier, TrapperSecondsPerTier, TrapperTurnBonus(int(MasteryGrandMaster)))
 	case SkillSleightOfHand:
@@ -345,15 +446,42 @@ func (s SkillType) Description() string {
 		return "Identify Item: no effect yet (planned: reveal unidentified loot)."
 	case SkillDualWielding:
 		return fmt.Sprintf("Dual Wielding: Novice unlocks a second weapon in the off-hand, each with its "+
-			"own cooldown. From Expert on, -%d%% cooldown on both weapons per level above Novice.",
+			"own cooldown. From Expert on, -%d%% cooldown on both weapons per mastery tier above Novice.",
 			DualWieldingCDReductionPerTier)
 	case SkillIronBody:
-		return fmt.Sprintf("Iron Body: +%d Armor Class per level, Novice included. Grandmaster: +%d%% Perfect Dodge.",
+		return fmt.Sprintf("Iron Body: +%d Armor Class per mastery tier, Novice included. Grandmaster: +%d%% Perfect Dodge.",
 			IronBodyACPerTier, IronBodyGMDodgeBonus)
 	case SkillSpiritualTraining:
 		return fmt.Sprintf("Spiritual Training: %d-%d%% chance (by mastery, Novice included) that a melee "+
 			"attack also casts the slotted offensive quick-spell for free (no spell points spent).",
 			SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
+	case SkillElementalMastery:
+		return fmt.Sprintf("Elemental Mastery: %s spells ignore %d/%d/%d/%d%% of matching enemy resistance at Novice/Expert/Master/Grandmaster.",
+			elementalMagicSchoolNames(),
+			ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(1),
+			ElementalMasteryPiercePct(2), ElementalMasteryPiercePct(3))
+	case SkillAnimalBonding:
+		return fmt.Sprintf("Animal Bonding: each successful attack or spell cast has a %d/%d/%d/%d%% chance to summon one allied bear. "+
+			"A Druid can have up to %d living bears at once. The bear has %d/%d/%d/%d%% of the Druid's maximum HP and copies %d/%d/%d/%d%% of their current Armor Class and attack damage.",
+			AnimalBondingProcPct(0), AnimalBondingProcPct(1), AnimalBondingProcPct(2), AnimalBondingProcPct(3),
+			AnimalBondingSummonMax,
+			AnimalBondingHPPct(0), AnimalBondingHPPct(1), AnimalBondingHPPct(2), AnimalBondingHPPct(3),
+			AnimalBondingStatPct(0), AnimalBondingStatPct(1), AnimalBondingStatPct(2), AnimalBondingStatPct(3))
+	case SkillSacrifice:
+		return fmt.Sprintf("Sacrifice: redirects %d/%d/%d/%d%% of mitigated hit damage from another party member to this Paladin. "+
+			"If several living Paladins have Sacrifice, only the strongest applies.",
+			SacrificeRedirectPct(0), SacrificeRedirectPct(1), SacrificeRedirectPct(2), SacrificeRedirectPct(3))
+	case SkillImpenetrableDefense:
+		return fmt.Sprintf("Impenetrable Defense: reduces normal damage taken by %d/%d/%d/%d after armor and resistance. True damage and damage over time bypass it.",
+			ImpenetrableDefenseReduction(0), ImpenetrableDefenseReduction(1),
+			ImpenetrableDefenseReduction(2), ImpenetrableDefenseReduction(3))
+	case SkillLockpicking:
+		return fmt.Sprintf("Lockpicking: %d/%d/%d/%d%% chance to open a locked door. Three failed non-key attempts jam the lock; a key still opens it.",
+			LockpickingChancePct(0), LockpickingChancePct(1), LockpickingChancePct(2), LockpickingChancePct(3))
+	case SkillNaturalHealer:
+		return fmt.Sprintf("Natural Healer: healing spells restore %d/%d/%d/%d%% more HP at Novice/Expert/Master/Grandmaster.",
+			NaturalHealerBonusPct(0), NaturalHealerBonusPct(1),
+			NaturalHealerBonusPct(2), NaturalHealerBonusPct(3))
 	default:
 		return ""
 	}
@@ -370,7 +498,7 @@ func weaponNoun(s SkillType) string {
 	// Derive from String() (lowercased) so the noun can never drift from the
 	// canonical name - load-bearing: WeaponNoun() keys the cooldown table.
 	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff,
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster,
 		SkillLeather, SkillChain, SkillPlate:
 		return strings.ToLower(s.String())
 	default:

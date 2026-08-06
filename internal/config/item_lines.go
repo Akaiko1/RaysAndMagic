@@ -4,14 +4,24 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	damagecalc "ugataima/internal/damage"
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
 // tooltip and the map-editor card (same contract as the weapon/spell/trap
 // EffectLines). New YAML fields get a line HERE, and every consumer shows it.
 
-// nonPhysicalSchools is the resist-collapse order (matches damage schools).
-var nonPhysicalSchools = []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
+func nonPhysicalDamageSchools() []damagecalc.Type {
+	all := damagecalc.Types()
+	out := make([]damagecalc.Type, 0, len(all)-1)
+	for _, school := range all {
+		if school != damagecalc.Physical {
+			out = append(out, school)
+		}
+	}
+	return out
+}
 
 // StatBonusLines lists the item's flat stat bonuses and scaling-divisor
 // bonuses (divisors are STAT bonuses computed from the base stat - they feed
@@ -44,6 +54,31 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 	return parts
 }
 
+// ItemMechanicLines lists the per-item special-mechanic rows - projectile
+// reflection, hostile-status duration, growing scales, draught wards. ONE
+// formatter shared by EffectLines (editor) and the unified in-game tooltip,
+// so the two can never drift (tooltip parity contract).
+func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
+	var lines []string
+	hasTimedBuff := d.HasTimedBuff()
+	if d.ProjectileReflectPct > 0 {
+		lines = append(lines, fmt.Sprintf("Mirror scales: %d%% chance to turn a projectile back at its shooter", d.ProjectileReflectPct))
+	}
+	if d.StatusDurationPct != 0 {
+		lines = append(lines, fmt.Sprintf("Hostile statuses on the wearer last %d%% as long", 100+d.StatusDurationPct))
+	}
+	if d.ScaleStackAC > 0 {
+		lines = append(lines, fmt.Sprintf("Growing scales: +%d AC per hit taken (max +%d), shed after combat", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
+	}
+	if hasTimedBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+		lines = append(lines, fmt.Sprintf("Party ward: %s resistance +%d%% for %ds", TitleWords(d.ResistBuffSchool), d.ResistBuffSchoolPct, d.BuffDurationSeconds))
+	}
+	if hasTimedBuff && d.BuffArmorClass > 0 {
+		lines = append(lines, fmt.Sprintf("Party stoneskin: armor class +%d for %ds", d.BuffArmorClass, d.BuffDurationSeconds))
+	}
+	return lines
+}
+
 // PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
 // the item grants none. One formatter for the wording, shared by EffectLines
 // and the unified armor tooltip (which builds its own EFFECTS section).
@@ -60,19 +95,23 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 	if len(d.Resistances) == 0 {
 		return nil
 	}
-	allEqual, common := true, d.Resistances[nonPhysicalSchools[0]]
-	for _, s := range nonPhysicalSchools {
-		if d.Resistances[s] != common {
+	nonPhysicalSchools := nonPhysicalDamageSchools()
+	allEqual, common := true, d.Resistances[nonPhysicalSchools[0].String()]
+	for _, school := range nonPhysicalSchools {
+		if d.Resistances[school.String()] != common {
 			allEqual = false
 			break
 		}
 	}
 	if allEqual && common > 0 {
-		phys := d.Resistances["physical"]
+		phys := d.Resistances[damagecalc.Physical.String()]
 		if phys > 0 {
-			return []string{fmt.Sprintf("Resist +%d%% to all damage (+%d%% physical)", common, phys)}
+			if phys == common {
+				return []string{fmt.Sprintf("+%d%% resistance to every damage school", common)}
+			}
+			return []string{fmt.Sprintf("+%d%% resistance to every non-physical school; +%d%% Physical resistance", common, phys)}
 		}
-		return []string{fmt.Sprintf("Resist +%d%% to all damage except physical", common)}
+		return []string{fmt.Sprintf("+%d%% resistance to every non-physical school", common)}
 	}
 	schools := make([]string, 0, len(d.Resistances))
 	for s := range d.Resistances {
@@ -89,7 +128,7 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 }
 
 // EffectLines is the full character-independent mechanics list: armor values,
-// stat bonuses, resistances and consumable behavior.
+// stat bonuses, resistances, consumable behavior, and authored tooltip effects.
 func (d *ItemDefinitionConfig) EffectLines() []string {
 	var lines []string
 	if d.ArmorClassBase > 0 {
@@ -117,6 +156,7 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if ln := d.PartyArmorLine(); ln != "" {
 		lines = append(lines, ln)
 	}
+	lines = append(lines, d.ItemMechanicLines()...)
 	if d.CurePoison {
 		lines = append(lines, "Cures poison")
 	}
@@ -136,6 +176,7 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, "Offers a party member the path of the Lich")
 	}
+	lines = append(lines, d.TooltipEffects...)
 	if cl := d.CardEffectLines(); len(cl) > 0 {
 		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
 	}
@@ -143,14 +184,35 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	return lines
 }
 
-// SetLines describes the armor set this piece belongs to and its completed-set
+// TooltipUsageLines returns authored usage text for simple item cards. The
+// copy prevents a presentation caller from mutating the loaded YAML config.
+func (d *ItemDefinitionConfig) TooltipUsageLines() []string {
+	return append([]string(nil), d.TooltipUsage...)
+}
+
+// SetLines describes the equipment set this item belongs to and its completed
 // bonus - shared by the item tooltip and the map-editor card.
 func (d *ItemDefinitionConfig) SetLines() []string {
-	set := GetItemSet(d.Set)
+	return EquipmentSetLines(d.Set)
+}
+
+// SetLines describes the equipment set this weapon belongs to and its completed
+// bonus - shared by the weapon tooltip and the map-editor card.
+func (w *WeaponDefinitionConfig) SetLines() []string {
+	if w == nil {
+		return nil
+	}
+	return EquipmentSetLines(w.Set)
+}
+
+// EquipmentSetLines is the shared player-facing formatter for item and weapon
+// set membership. Set names and numerical bonuses remain authored in items.yaml.
+func EquipmentSetLines(setKey string) []string {
+	set := GetItemSet(setKey)
 	if set == nil {
 		return nil
 	}
-	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.PiecesRequired)}
+	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.RequiredPieceCount())}
 	var parts []string
 	for _, b := range []struct {
 		label string
@@ -165,6 +227,12 @@ func (d *ItemDefinitionConfig) SetLines() []string {
 	}
 	if set.StunDurationPct != 0 {
 		parts = append(parts, fmt.Sprintf("stuns suffered %d%% duration", 100+set.StunDurationPct))
+	}
+	if set.BonusCritChance != 0 {
+		parts = append(parts, fmt.Sprintf("critical chance %+d%%", set.BonusCritChance))
+	}
+	if set.FieryRipostePct != 0 {
+		parts = append(parts, fmt.Sprintf("melee attackers take %d%% back as fire", set.FieryRipostePct))
 	}
 	if len(parts) > 0 {
 		lines = append(lines, "Set bonus: "+strings.Join(parts, ", "))
@@ -205,13 +273,13 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, "Walk on water")
 	}
 	if d.CardHealOnAtkPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% to self-heal %d on attack", d.CardHealOnAtkPct, d.CardHealAmount))
+		p = append(p, fmt.Sprintf("%d%% to self-heal %d on weapon attack", d.CardHealOnAtkPct, d.CardHealAmount))
 	}
 	if d.CardLethalSavePct != 0 {
 		p = append(p, fmt.Sprintf("%d%% to cheat death (half HP+SP)", d.CardLethalSavePct))
 	}
 	if d.CardMoveAoePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on move: %d pure to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
+		p = append(p, fmt.Sprintf("%d%% on move: %d physical true damage to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
 	}
 	if d.CardSummonChance != 0 {
 		line := fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit)
@@ -221,10 +289,10 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: disintegrate the target", d.CardDisintegratePct))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: disintegrate (undead and dragons immune)", d.CardDisintegratePct))
 	}
 	if d.CardRegenPct != 0 {
-		p = append(p, fmt.Sprintf("Regenerate %d%% max HP per tick", d.CardRegenPct))
+		p = append(p, fmt.Sprintf("Regenerate %d%% max HP per regeneration tick", d.CardRegenPct))
 	}
 	if d.CardDoubleAttackPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% on melee hit: attack again", d.CardDoubleAttackPct))
@@ -233,13 +301,13 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% a melee swing casts a Fire Bolt instead", d.CardSpellProcPct))
 	}
 	if d.CardDodgeBonusPct != 0 {
-		p = append(p, fmt.Sprintf("+%d Perfect Dodge", d.CardDodgeBonusPct))
+		p = append(p, fmt.Sprintf("+%d%% Perfect Dodge", d.CardDodgeBonusPct))
 	}
 	if d.CardArmorBonus != 0 {
 		p = append(p, fmt.Sprintf("+%d Armor Class", d.CardArmorBonus))
 	}
 	if d.CardThornsPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% of incoming damage reflected", d.CardThornsPct))
+		p = append(p, fmt.Sprintf("%d%% of damage received from monster hits reflected", d.CardThornsPct))
 	}
 	if d.CardPhysToDarkPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as dark", d.CardPhysToDarkPct))
@@ -248,7 +316,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as light", d.CardPhysToLightPct))
 	}
 	if d.CardPoisonProcPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: poison for %ds", d.CardPoisonProcPct, d.CardPoisonDurationSec))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: poison for %ds", d.CardPoisonProcPct, d.CardPoisonDurationSec))
 	}
 	if d.CardMeleeDmgPct != 0 {
 		p = append(p, fmt.Sprintf("+%d%% melee damage", d.CardMeleeDmgPct))
@@ -270,22 +338,22 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("+%d%% gold from kills", d.CardGoldFindPct))
 	}
 	if d.CardBonusBoltPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on attack: fire a bonus bolt", d.CardBonusBoltPct))
+		p = append(p, fmt.Sprintf("%d%% on weapon attack: fire a bonus bolt", d.CardBonusBoltPct))
 	}
 	if d.CardVolleyBonusPct != 0 {
 		p = append(p, fmt.Sprintf("%d%% a bow shot looses an extra arrow", d.CardVolleyBonusPct))
 	}
 	if d.CardStunOnHitPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: stun the target", d.CardStunOnHitPct))
+		p = append(p, fmt.Sprintf("%d%% on direct hit: stun the target", d.CardStunOnHitPct))
 	}
 	if d.CardPoisonResistPct != 0 {
-		p = append(p, fmt.Sprintf("%d%% resist poison", d.CardPoisonResistPct))
+		p = append(p, fmt.Sprintf("%d%% chance to resist monster poison", d.CardPoisonResistPct))
 	}
 	if d.CardCritBonusPct != 0 {
 		p = append(p, fmt.Sprintf("+%d%% critical hit chance", d.CardCritBonusPct))
 	}
 	if d.CardArmorPiercePct != 0 {
-		p = append(p, fmt.Sprintf("%d%% on hit: ignore armor", d.CardArmorPiercePct))
+		p = append(p, fmt.Sprintf("%d%% on melee hit: ignore armor", d.CardArmorPiercePct))
 	}
 	if len(d.CardBonusVs) > 0 {
 		keys := make([]string, 0, len(d.CardBonusVs))

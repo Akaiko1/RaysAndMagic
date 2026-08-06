@@ -1,6 +1,7 @@
 package quests
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -559,5 +560,162 @@ func TestQuestManager_MarkCompleted(t *testing.T) {
 	}
 	if _, err := qm.ClaimRewards("slay_boss"); err != nil {
 		t.Errorf("completed quest should be claimable, got %v", err)
+	}
+}
+
+func TestQuestManager_AutoClaimCompletionAndRestore(t *testing.T) {
+	cfg := &QuestConfig{Quests: map[string]*QuestDefinition{
+		"objective": {
+			Name: "Objective", Type: QuestTypeKill, TargetMonster: "boss",
+			TargetCount: 1, IsStartingQuest: true, AutoClaim: true,
+		},
+	}}
+	qm := NewQuestManager(cfg)
+	qm.InitializeStartingQuests()
+
+	completed := qm.OnMonsterKilled("boss", "")
+	if len(completed) != 1 || !completed[0].RewardsClaimed {
+		t.Fatalf("auto-claim completion = %+v", completed)
+	}
+	if _, err := qm.ClaimRewards("objective"); err == nil {
+		t.Fatal("auto-claimed objective exposed a second claim")
+	}
+
+	qm.Reset()
+	qm.RestoreQuestProgress("objective", QuestStatusCompleted, 1, 0, false)
+	if q := qm.GetQuest("objective"); q == nil || !q.RewardsClaimed {
+		t.Fatalf("completed legacy objective was not normalized on restore: %+v", q)
+	}
+}
+
+func TestValidateQuestConfigRejectsRewardedAutoClaim(t *testing.T) {
+	cfg := &QuestConfig{Quests: map[string]*QuestDefinition{
+		"broken_objective": {
+			Name:          "Broken Objective",
+			Type:          QuestTypeKill,
+			TargetMonster: "boss",
+			TargetCount:   1,
+			AutoClaim:     true,
+			Rewards:       QuestRewards{Gold: 1},
+		},
+	}}
+	err := validateQuestConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "auto_claim") {
+		t.Fatalf("rewarded auto-claim validation = %v", err)
+	}
+}
+
+func TestValidateQuestConfigRequiresStableUniqueSpawnIDs(t *testing.T) {
+	makeConfig := func(spawns []QuestSpawn) *QuestConfig {
+		return &QuestConfig{Quests: map[string]*QuestDefinition{
+			"spawn_test": {
+				Name: "Spawn Test", Type: QuestTypeKill, TargetMonster: "rat",
+				TargetCount: 1, OnCompleteSpawns: spawns,
+			},
+		}}
+	}
+	if err := validateQuestConfig(makeConfig([]QuestSpawn{{
+		Map: "forest", Monster: "rat",
+	}})); err == nil || !strings.Contains(err.Error(), "needs id") {
+		t.Fatalf("missing spawn ID validation = %v", err)
+	}
+	if err := validateQuestConfig(makeConfig([]QuestSpawn{
+		{ID: "boss", Map: "forest", Monster: "rat"},
+		{ID: "boss", Map: "forest", Monster: "rat"},
+	})); err == nil || !strings.Contains(err.Error(), "repeats") {
+		t.Fatalf("duplicate spawn ID validation = %v", err)
+	}
+	cfg := makeConfig([]QuestSpawn{{
+		ID: " stable_boss ", Map: " forest ", Monster: " rat ",
+	}})
+	if err := validateQuestConfig(cfg); err != nil {
+		t.Fatalf("valid spawn rejected: %v", err)
+	}
+	spawn := cfg.Quests["spawn_test"].OnCompleteSpawns[0]
+	if spawn.ID != "stable_boss" || spawn.Map != "forest" || spawn.Monster != "rat" {
+		t.Fatalf("spawn identity was not canonicalized: %+v", spawn)
+	}
+
+	cfg.Quests["spawn_test"].OnCompleteTiles = []QuestTileChange{{
+		Map:  " forest ",
+		Tile: " bridge ",
+	}}
+	if err := validateQuestConfig(cfg); err != nil {
+		t.Fatalf("valid tile change rejected: %v", err)
+	}
+	change := cfg.Quests["spawn_test"].OnCompleteTiles[0]
+	if change.Map != "forest" || change.Tile != "bridge" {
+		t.Fatalf("tile change was not canonicalized: %+v", change)
+	}
+}
+
+func TestQuestProgressStringForMultipleTargets(t *testing.T) {
+	q := &Quest{
+		Definition: &QuestDefinition{
+			Type:           QuestTypeKill,
+			TargetMonsters: []string{"boss_a", "boss_b"},
+			TargetCount:    2,
+		},
+		CurrentCount: 1,
+	}
+	if got := q.GetProgressString(); got != "1/2 targets killed" {
+		t.Fatalf("multi-target progress = %q", got)
+	}
+}
+
+func TestEncounterOnlyQuestRequiresMatchingSource(t *testing.T) {
+	cfg := &QuestConfig{Quests: map[string]*QuestDefinition{
+		"hunt": {
+			Name:            "Authored Hunt",
+			Type:            QuestTypeKill,
+			TargetMonster:   "elder_dragon",
+			TargetCount:     1,
+			IsStartingQuest: true,
+			EncounterOnly:   true,
+		},
+	}}
+	qm := NewQuestManager(cfg)
+	qm.InitializeStartingQuests()
+
+	if completed := qm.OnMonsterKilled("elder_dragon", ""); len(completed) != 0 {
+		t.Fatal("ordinary kill completed an encounter-only quest")
+	}
+	if got := qm.GetQuest("hunt").CurrentCount; got != 0 {
+		t.Fatalf("ordinary kill count = %d, want 0", got)
+	}
+	completed := qm.OnMonsterKilledFromSource("elder_dragon", "", "hunt")
+	if len(completed) != 1 || completed[0].ID != "hunt" {
+		t.Fatalf("matching encounter source completed %+v, want hunt", completed)
+	}
+}
+
+func TestVictoryCompletedUsesAuthoredFlag(t *testing.T) {
+	cfg := &QuestConfig{Quests: map[string]*QuestDefinition{
+		"ordinary": {
+			Name:            "Ordinary",
+			Type:            QuestTypeKill,
+			TargetMonster:   "goblin",
+			TargetCount:     1,
+			IsStartingQuest: true,
+		},
+		"finale": {
+			Name:            "Finale",
+			Type:            QuestTypeKill,
+			TargetMonster:   "boss",
+			TargetCount:     1,
+			IsStartingQuest: true,
+			AutoClaim:       true,
+			Victory:         true,
+		},
+	}}
+	qm := NewQuestManager(cfg)
+	qm.InitializeStartingQuests()
+	qm.MarkCompleted("ordinary")
+	if qm.VictoryCompleted() {
+		t.Fatal("ordinary completed quest triggered victory")
+	}
+	qm.MarkCompleted("finale")
+	if !qm.VictoryCompleted() {
+		t.Fatal("authored victory quest did not trigger victory")
 	}
 }

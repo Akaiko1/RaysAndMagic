@@ -9,15 +9,16 @@ NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
   (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
 
 ### Render category and size
-- `render_category` is REQUIRED and sets how the NPC renders: `standee`, `animated`
-  (a person with a `w == h*4` idle sheet, turns to face the party), `scenery` (a
+- `render_category` is REQUIRED and sets how the NPC renders: `npc` (a person;
+  a `w == h*4` idle sheet animates automatically), `scenery` (a
   prop), `landmark` (tall crossed monument), `wall_mounted` (a flush wall standee,
   slides onto the adjacent wall), `door` (a doorway blocker - stands ACROSS the
   opening between two flanking walls, drawn and solid only while a living champion
   mob is on the map; see the arena portcullis), or `invisible` (no sprite).
-- Size: people use `size_class: person` (shared with monsters, from
-  `config.yaml graphics.size_classes`); props use `size_tiles` (height in tiles,
-  `1.0` == a 1-tile wall). Set exactly one.
+- Size: people use `size_class: person`. Props and landmarks select one of
+  `tiny_prop`, `small_prop`, `medium_prop`, `full_tile`, `tall_prop`,
+  `large_prop`, or `structure`. The target visible heights live once under
+  `config.yaml graphics.size_classes`; raw per-object sizes are rejected.
 
 ## Step 1: Define the NPC
 Add an entry under `npcs:` in `assets/npcs.yaml`.
@@ -29,7 +30,7 @@ npcs:
     name: "Archmage Merlin"
     type: "spell_trader"
     sprite: "elf_warrior"
-    render_category: "animated"  # a person with a 4-frame idle sheet; see "Render category" below
+    render_category: "npc"       # a person; a 4-frame idle sheet animates automatically
     size_class: "person"         # people use the shared person size (config graphics.size_classes)
     dialogue:
       greeting: "Greetings, traveler!"
@@ -43,12 +44,11 @@ npcs:
 
 Notes:
 - The YAML key (`fireball`) is the spells.yaml SpellID. A catalog entry only
-  authors the price: `name`, `school`, `level`, `description` and
-  `requirements` are backfilled from spells.yaml at load
+  authors the price: `name`, `school` and `description` are backfilled from
+  spells.yaml at load
   (`backfillTraderSpells`); a missing `cost` fails the load.
-- Default requirement is the spell's own level; author an explicit
-  `requirements:` block (`min_level`, `schools` list) only to override it.
-- A character must already have the matching magic school to learn the spell.
+- There are no spell-level or mastery requirements.
+- A character must already have the matching magic school open to learn the spell.
 - Dialogue strings are used. You can use `{name}`, `{spell}`, `{cost}` or printf-style placeholders.
 
 ### Merchant example (sell + buy)
@@ -97,8 +97,8 @@ npcs:
     name: "Abandoned Shipwreck"
     type: "encounter"
     sprite: "shipwreck"
-    render_category: "scenery"   # standee/animated/wall/landmark/scenery/invisible
-    size_tiles: 1.0              # props use size_tiles; people use size_class
+    render_category: "scenery"   # npc/wall_mounted/door/landmark/scenery/invisible
+    size_class: medium_prop       # quantized visible height from config.yaml
     transparent: true
     dialogue:
       greeting: "You hear voices inside the wreck."
@@ -167,6 +167,6 @@ The `@` marks the NPC tile; the tag binds it to your NPC key.
 ## Testing checklist
 - NPC appears at intended map location.
 - Interaction works with `T`.
-- Spell trader teaches spells with requirements and proper dialogue.
+- Spell trader teaches priced spells to characters with the matching open school.
 - Merchant buy/sell works as expected.
 - Encounter spawns monsters and rewards properly.

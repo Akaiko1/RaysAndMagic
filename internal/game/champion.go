@@ -96,6 +96,12 @@ func (g *MMGame) championTemplate(key, tierName string) *character.MMCharacter {
 }
 
 // championTemplateFor resolves the template for a live champion mob.
+//
+// READ-ONLY: this is the SHARED cached build for that key+tier, not a per-mob
+// copy - every champion of the tier and every later caller sees the same object.
+// Callers that need to tweak stats must copy first (note that a shallow copy
+// still shares Equipment / MagicSchools / Skills, so replace those fields rather
+// than writing into them).
 func (g *MMGame) championTemplateFor(m *monster.Monster3D) *character.MMCharacter {
 	return g.championTemplate(m.ChampionKey, championTierOf(m))
 }
@@ -149,7 +155,13 @@ func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *charac
 // weapon's riders, then roll damage through the character pipeline (weapon +
 // effective stats + crit). Every champion attack path funnels through it.
 func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.MMCharacter, weapon items.Item) (*config.WeaponDefinitionConfig, int) {
-	wd := lookupWeaponConfigByName(weapon.Name)
+	// An empty hand is legal (the slot lookup yields a zero Item): swing
+	// unarmed with no weapon def instead of warning about weapon ''. A
+	// non-empty name that fails the lookup still warns - that IS a content bug.
+	var wd *config.WeaponDefinitionConfig
+	if weapon.Name != "" {
+		wd = lookupWeaponConfigByName(weapon.Name)
+	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
 	if crit, _ := cs.RollWeaponCriticalChance(weapon, ch); crit {
@@ -191,15 +203,36 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	if ch == nil {
 		return false
 	}
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
 	wd, dmg := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
-	dtype := "physical"
+	return cs.applyChampionMeleeSwingToParty(m, wd, championMeleeHit(m, wd, dmg))
+}
+
+func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, damage int) monsterCharacterHit {
+	// Champion melee uses the equipped weapon as its damage-school SSOT.
+	// Monster config rejects melee_damage_type on champion definitions.
+	damageType := monster.DamagePhysical.String()
+	armorPiercePct := 0
 	if wd != nil && wd.DamageType != "" {
-		dtype = wd.DamageType
+		damageType = wd.DamageType
 	}
+	if wd != nil {
+		armorPiercePct = wd.ArmorPiercePct
+	}
+	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
+	hit.ArmorPiercePct = armorPiercePct
+	return hit
+}
+
+// applyChampionMeleeSwingToParty applies one already-rolled champion hand swing
+// to the party formation. Clean party attacks and mixed summon/party crossfire
+// share this sink so the selected hand's damage, riders, arc, and AoE cannot
+// diverge or re-roll between targets caught by the same swing.
+func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, hit monsterCharacterHit) bool {
 	if wd != nil && wd.AoeRadiusTiles > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-			cs.monsterHitCharacter(m, member, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
+			cs.monsterHitCharacter(m, member, m.Name, hit)
 		})
 		return true
 	}
@@ -216,7 +249,7 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	}
 	targets := cs.randomLivingMembers(n)
 	for _, t := range targets {
-		cs.monsterHitCharacter(m, t, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
+		cs.monsterHitCharacter(m, t, m.Name, hit)
 	}
 	return len(targets) > 0
 }
@@ -225,20 +258,19 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 // (summon), giving that swing the SAME weapon mechanics the party gets in PvE:
 // one damage roll spread across the arc/AoE it catches among summons, plus - as
 // an ADDITIONAL action, when the same swing's geometry reaches the party - the
-// champion's normal vs-party hit (championMeleeStrike, untouched). AoE never
-// re-rolls and never stacks with the arc (the weapon is one or the other).
+// selected hand's normal formation hit. AoE never re-rolls and never stacks
+// with the arc (the weapon is one or the other).
 func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D, offHand bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
 		return
 	}
+	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
 	weapon := championHandWeapon(ch, offHand)
 	wd, dmg := cs.championSwingDamage(m, ch, weapon)
-	dtype := monster.DamagePhysical
-	if wd != nil && wd.DamageType != "" {
-		dtype = convertToMonsterDamageType(wd.DamageType)
-	}
+	hit := championMeleeHit(m, wd, dmg)
+	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
 	ts := float64(cs.game.config.GetTileSize())
 	facing := math.Atan2(foe.Y-m.Y, foe.X-m.X)
 	partyCaught := false
@@ -249,7 +281,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		r := wd.AoeRadiusTiles * ts
 		for _, o := range cs.game.world.Monsters {
 			if o != nil && o.Bound && o.IsAlive() && Distance(m.X, m.Y, o.X, o.Y) <= r {
-				cs.strikeMonsterFor(m, o, dmg, dtype)
+				cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.IgnoresArmor, hit.IgnoresDodge, false)
 			}
 		}
 		partyCaught = Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) <= r
@@ -268,12 +300,12 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		}
 		var cands []meleeArcCandidate
 		for _, o := range cs.game.world.Monsters {
-			if o == nil || !o.Bound || !o.IsAlive() {
+			if o == nil || !o.Bound || !o.IsAlive() || monsterInAttackTransit(o) {
 				continue
 			}
 			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
 				summon := o
-				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, dmg, dtype) }})
+				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit, wd, false) }})
 			}
 		}
 		if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, cs.game.camera.X, cs.game.camera.Y); ok {
@@ -282,10 +314,11 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		applyMeleeArc(cands, arc)
 	}
 
-	// Party caught in the same sweep: the champion's normal vs-party hit (whole
-	// party for AoE, arc_type members for an arc) - reused as-is.
+	// Party caught in the same sweep: apply the already-rolled selected-hand hit.
+	// Re-entering championMeleeStrike here would silently switch an off-hand
+	// attack back to the main hand and roll its damage/riders a second time.
 	if partyCaught {
-		cs.championMeleeStrike(m, false)
+		cs.applyChampionMeleeSwingToParty(m, wd, hit)
 	}
 }
 
@@ -317,7 +350,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 	if m.HasRangedAttack() {
 		if m.AttackCDFrames == 0 {
 			m.AttackCDFrames = m.AttackCooldownFrames()
-			m.AttackAnimFrames = MonsterAttackAnimFrames
+			cs.game.armMonsterAttackAnimation(m)
 			cs.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
 		}
 		return true
@@ -335,7 +368,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		struck = true
 	}
 	if struck {
-		m.AttackAnimFrames = MonsterAttackAnimFrames
+		cs.game.armMonsterAttackAnimation(m)
 	}
 	return true
 }
@@ -346,9 +379,12 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 // roll through championSwingDamage with their main hand (the ranged weapon);
 // plain monsters keep their authored damage band.
 func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) int {
+	// Weaken is NOT applied here: hitFromMonster owns it for every direct hit,
+	// while projectile constructors snapshot it when the shot is committed.
+	// Applying it here as well would double-dip.
 	if m != nil && m.IsChampion() && cs.game != nil {
 		if ch := cs.game.championTemplateFor(m); ch != nil {
-			_, total := cs.championSwingDamage(m, ch, ch.Equipment[items.SlotMainHand])
+			_, total := cs.championSwingDamage(m, ch, championHandWeapon(ch, false))
 			return total
 		}
 	}
@@ -382,7 +418,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 		struck = true
 	}
 	if struck {
-		m.AttackAnimFrames = MonsterAttackAnimFrames
+		cs.game.armMonsterAttackAnimation(m)
 	}
 	return true
 }
@@ -434,7 +470,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 		m.Experience = tier.Experience
 	}
 
-	weapon := ch.Equipment[items.SlotMainHand]
+	weapon := championHandWeapon(ch, false)
 	wd, _, found := config.GetWeaponDefinitionByName(weapon.Name)
 	if found && wd != nil {
 		cs.applyChampionHandRiders(m, ch, wd) // main-hand defaults until the first swing re-arms
@@ -464,13 +500,10 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 
 	// Gear resistances (resist_<school> item attributes) ADD to the mob's
 	// authored table. Safe to add: this runs once per instance.
-	if monster.MonsterConfig != nil {
-		for school := range monster.MonsterConfig.DamageTypes {
-			if pct := ch.GearResistPct(school); pct != 0 {
-				if dt, err := monster.MonsterConfig.ConvertDamageType(school); err == nil {
-					m.Resistances[dt] += pct
-				}
-			}
+	for _, damageType := range monster.DamageTypes() {
+		school := damageType.String()
+		if pct := ch.GearResistPct(school); pct != 0 {
+			m.Resistances[damageType] += pct
 		}
 	}
 	m.ChampionMirrored = true
@@ -559,6 +592,9 @@ func (g *MMGame) arenaTierSpentToday(tierName string) bool {
 func (g *MMGame) dialogueChoiceLabel(choice *character.NPCDialogueChoice) string {
 	if choice == nil {
 		return ""
+	}
+	if choice.Action == "cast_buff" && choice.Cost > 0 {
+		return fmt.Sprintf("%s (%d gold)", choice.Text, choice.Cost)
 	}
 	if choice.Action == "start_arena_duel" && g.arenaTierSpentToday(choice.Tier) {
 		if g.dayNightIsNight {
@@ -672,7 +708,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	// swallowed by the tier HP clamp.
 	g.mirrorChampionStats(m)
 	m.WasAttacked = true // engage immediately: the duel starts now
-	m.IsEngagingPlayer = true
+	m.BeginPlayerEngagement()
 	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("%s (%s) steps onto the sand. The portcullises slam down!", m.Name, choice.Tier))
 }
@@ -795,18 +831,23 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		return
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s!", m.Name, def.Name))
+	if def.IncomingDamageReduction > 0 || def.StunRadiusTiles > 0 {
+		// Projectile casts play at projectile creation. Direct champion spells
+		// have no projectile, so their school cue belongs at the cast itself.
+		cs.game.playMonsterSpellSound(def, m)
+	}
 
 	switch {
 	case def.IncomingDamageReduction > 0:
-		m.SoakDamage = scaledIncomingDamageReduction(def, ch)
-		m.SoakFrames = cs.CalculateSpellDurationFrames(spellID, ch)
+		frames := cs.CalculateSpellDurationFrames(spellID, ch)
 		// Stun convention: 1s per TB turn, floored at 1 whenever the soak is
 		// active (a sub-1s duration would truncate to 0 turns and, since TB never
 		// ticks SoakFrames, never expire in turn-based play).
-		m.SoakTurns = m.SoakFrames / cs.game.config.GetTPS()
-		if m.SoakTurns < 1 && m.SoakFrames > 0 {
-			m.SoakTurns = 1
+		turns := frames / cs.game.config.GetTPS()
+		if turns < 1 && frames > 0 {
+			turns = 1
 		}
+		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, turns)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
 
 	case def.StunRadiusTiles > 0:
@@ -825,8 +866,19 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
-		total, _ = cs.rollSpellCritDamage(spellID, ch, total)
-		cs.spawnMonsterSpellProjectileDamage(m, spellID, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster, total)
+		parts := cs.spellDamageParts(spellID, ch, total)
+		parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+		// Champion spells use the spell's own damage packet. Weapon mastery true
+		// damage and dodge-pierce belong only to weapon strikes.
+		cs.spawnMonsterSpellProjectileDamage(
+			m,
+			spellID,
+			cs.game.camera.X,
+			cs.game.camera.Y,
+			ProjectileOwnerMonster,
+			parts,
+			false,
+		)
 	}
 }
 

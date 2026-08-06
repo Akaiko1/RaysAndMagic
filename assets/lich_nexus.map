@@ -1,30 +1,40 @@
 # Lich Nexus (biome: lich_nexus)
-# Symbols: % = nexus wall   . = obsidian floor   + = start
+# Symbols: % = nexus wall  . = obsidian floor  + = start
+#   $ = wall-mounted glowing skull ([tile:skull]) - placeholder mood until the
+#   proper nexus decor set exists; the geometry leaves slots for it everywhere.
 # Monster spawns: q = lich   k = lich king   r = revenant
-# Four rooms: three hold 1 lich + 2 revenants; the far (lower-right) room holds 1 lich king + 3 revenants.
-# Entrance (+) is top-center; exit portal (@) is bottom-center.
+#
+# THE DESCENT: entrance -> the GALLERY OF SKULLS, a one-wide stair with a
+# revenant on the steps and skull pairs at its mouth -> the NORTH HALL:
+#   west chapel - a lich's cell        east chapel - the watch (lich + guard)
+# -> the RING: two side stairs (x10 / x22) around the sanctum -> THE SANCTUM:
+# west and east doors, each flanked by a mounted skull; the lich king waits
+# between two revenant heralds; a third skull watches the hall door outside.
+# -> the SOUTH HALL: west chapel - a lich's cell; east chapel - the OSSUARY
+# (revenants only; its blind east end is a reserved secret slot)
+# -> the exit portal chamber at the far south.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%...........%%%%+%%%%...........%%
-%%...........%%%%.%%%%...........%%
-%%..r........%%%%.%%%%.r.........%%
-%%.....q.....%%%%.%%%%....q......%%
-%%...............................%%
-%%.......r...%%%%.%%%%..r........%%
-%%...........%%%%.%%%%...........%%
-%%...........%%%%.%%%%...........%%
-%%%%%%%%%%%%%%.......%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%.......%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%.......%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%.......%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%.......%%%%%%%%%%%%%%
-%%...........%%%%.%%%%...........%%
-%%...........%%%%.%%%%...........%%
-%%..r........%%%%.%%%%.r.........%%
-%%.....q..................k......%%
-%%...........%%%%.%%%%.r.........%%
-%%.......r...%%%%.%%%%......r....%%
-%%...........%%%%.%%%%...........%%
-%%...........%%%%@%%%%...........%%  >[npc:lich_nexus_exit]
+%%%%%%%%%%%%%%%%+%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%.....%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%$...$%%%%%%%%%%%%%%%%  >[tile:skull], [tile:skull]
+%%%%%%%%%%%%%%%...%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%%%%
+%%%......%...............%.....@%%%  >[npc:chest_wooden]
+%%%.q....@...r......r....%.r..q.%%%  >[npc:wooden_door]
+%%%......%......$........@.r....%%%  >[npc:wooden_door], [tile:skull]
+%%%%%%%%%%.%%%%%%%%%%%.%%%%%%%%%%%%
+%%%%%%%%%%.%%%%%%%%%%%.%%%%%%%%%%%%
+%%%%%%%%%%.%%$......%%.%%%%%%%%%%%%  >[tile:skull]
+%%%%%%%%%%.@.r..k..r.@.%%%%%%%%%%%%  >[npc:reinforced_door], [npc:reinforced_door]
+%%%%%%%%%%.%%......$%%.%%%%%%%%%%%%  >[tile:skull]
+%%%%%%%%%%.%%%%.%%%%%%.%%%%%%%%%%%%
+%%%......%.....%.......%.%......%%%
+%%%.q....@..r..........%...r.r..%%%  >[npc:wooden_door]
+%%%......%.............@.%.....@%%%  >[npc:wooden_door], [npc:chest_wooden]
+%%%%%%%%%%%%%%%%.%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%@...@%%%%%%%%%%%%%%%%  >[npc:lich_nexus_exit], [npc:chest_iron]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

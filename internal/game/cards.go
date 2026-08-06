@@ -40,9 +40,9 @@ func (g *MMGame) splitPhysConversions(damage int) (int, []physConvShare) {
 		element string
 		pct     int
 	}{
-		{"fire", g.cardPhysToFirePct()},
-		{"dark", g.cardPhysToDarkPct()},
-		{"light", g.cardPhysToLightPct()},
+		{monsterPkg.DamageFire.String(), g.cardPhysToFirePct()},
+		{monsterPkg.DamageDark.String(), g.cardPhysToDarkPct()},
+		{monsterPkg.DamageLight.String(), g.cardPhysToLightPct()},
 	} {
 		var amt int
 		damage, amt = splitPhysToFire(damage, c.pct)
@@ -522,7 +522,7 @@ func (g *MMGame) maybeCardMoveBurst() {
 	if ts <= 0 {
 		return
 	}
-	tx, ty := int(g.camera.X/ts), int(g.camera.Y/ts)
+	tx, ty := TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)
 	if tx == g.cardBurstTileX && ty == g.cardBurstTileY {
 		return
 	}

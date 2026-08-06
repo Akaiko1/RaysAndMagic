@@ -1,10 +1,26 @@
 package character
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"ugataima/internal/config"
 )
+
+func TestLoadNPCConfigRejectsRemovedSizeTiles(t *testing.T) {
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+	path := filepath.Join(t.TempDir(), "npcs.yaml")
+	data := []byte("npcs:\n  legacy:\n    name: Legacy\n    type: quest_giver\n    size_tiles: 0.75\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := LoadNPCConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "removed size_tiles") {
+		t.Fatalf("LoadNPCConfig error = %v, want removed size_tiles rejection", err)
+	}
+}
 
 func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 	if _, err := config.LoadItemConfig(filepath.Join("..", "..", "assets", "items.yaml")); err != nil {
@@ -71,10 +87,22 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 	}
 }
 
-// Trader catalogs list only spell IDs; backfillTraderSpells must fill
-// name/school/level/cost/requirements from spells.yaml, and the learn gate's
-// min-level must equal the spell's own level (so it can't drift - this is the
-// structural fix for the old Water Breathing level mismatch).
+func TestMerchantStockItemEffectiveCurrency(t *testing.T) {
+	plain := &MerchantStockItem{}
+	if got := plain.EffectiveCurrency(CurrencyArenaPoints); got != CurrencyArenaPoints {
+		t.Fatalf("shop currency = %q, want %q", got, CurrencyArenaPoints)
+	}
+
+	override := &MerchantStockItem{CurrencyItem: "black_dragon_scale"}
+	want := CurrencyItemPrefix + "black_dragon_scale"
+	if got := override.EffectiveCurrency(""); got != want {
+		t.Fatalf("entry currency = %q, want %q", got, want)
+	}
+}
+
+// Trader catalogs author spell IDs and costs; backfillTraderSpells must fill
+// name, school and description from spells.yaml without inventing a purchase
+// level or mastery gate.
 func TestBackfillTraderSpells(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
@@ -98,24 +126,36 @@ func TestBackfillTraderSpells(t *testing.T) {
 
 	// Lake trader: a Body spell entry given as just an ID is fully backfilled.
 	heal := get("spell_trader_mage", "heal")
-	if heal.Name == "" || heal.School != "body" || heal.Level == 0 || heal.Cost <= 0 || heal.Requirements == nil {
+	if heal.Name == "" || heal.School != "body" || heal.Cost <= 0 {
 		t.Errorf("heal not backfilled: %+v", heal)
 	}
 
-	// Water Breathing's purchase gate equals its spell level (was a hardcoded 5).
+	// Catalog entries carry price + identity only - there is no purchase gate to
+	// backfill, so a bare ID must still resolve its school and cost.
 	wb := get("city_spell_shop", "water_breathing")
-	def, _ := config.GetSpellDefinition("water_breathing")
-	if wb.Requirements == nil || wb.Requirements.MinLevel != def.Level {
-		t.Errorf("water_breathing min-level should equal spell level %d, got %+v", def.Level, wb.Requirements)
+	if wb.Name == "" || wb.School != "water" || wb.Cost <= 0 {
+		t.Errorf("water_breathing not backfilled: %+v", wb)
 	}
 
-	// Corner trader: an explicit cost override is preserved (not replaced by the tier default).
-	wow := get("mtrader0", "walk_on_water")
+	// An explicit cost override is preserved (not replaced by a tier default).
+	wow := get("city_spell_shop", "walk_on_water")
 	if wow.Cost != 500 {
-		t.Errorf("corner walk_on_water cost should be 500, got %d", wow.Cost)
+		t.Errorf("city walk_on_water cost should be its authored 500, got %d", wow.Cost)
 	}
-	if len(NPCConfigInstance.NPCs["mtrader0"].Spells) != 1 {
-		t.Errorf("corner trader should sell exactly one spell, got %d", len(NPCConfigInstance.NPCs["mtrader0"].Spells))
+
+	// Mira CASTS her water charms for gold instead of teaching them, so she
+	// carries no shop stock at all - the service lives in her dialogue.
+	if got := len(NPCConfigInstance.NPCs["mtrader0"].Spells); got != 0 {
+		t.Errorf("Mira should sell no spells (she casts them), got %d", got)
+	}
+	casts := map[string]int{}
+	for _, c := range NPCConfigInstance.NPCs["mtrader0"].Dialogue.Choices {
+		if c != nil && c.Action == "cast_buff" {
+			casts[c.Buff] = c.DurationSeconds
+		}
+	}
+	if casts["walk_on_water"] != 300 || casts["water_breathing"] != 600 {
+		t.Errorf("Mira's paid casts = %v, want walk_on_water 300s and water_breathing 600s", casts)
 	}
 
 	// City sells elemental only - no Light/Dark.
@@ -126,7 +166,59 @@ func TestBackfillTraderSpells(t *testing.T) {
 	}
 }
 
+func TestValidatePricedChoicesWalksNestedDialogue(t *testing.T) {
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+	NPCConfigInstance = &NPCConfig{NPCs: map[string]*NPCData{
+		"nested_service": {
+			Dialogue: &NPCDialogue{Choices: []*NPCDialogueChoice{
+				{
+					Text:   "Ask about magic",
+					Action: "info",
+					Choices: []*NPCDialogueChoice{
+						{
+							Text:            "Cast it",
+							Action:          "cast_buff",
+							Buff:            "walk_on_water",
+							DurationSeconds: 300,
+							Cost:            -100,
+						},
+					},
+				},
+			}},
+		},
+	}}
+
+	if err := validatePricedChoices(); err == nil {
+		t.Fatal("nested cast_buff with negative cost passed priced-choice validation")
+	}
+}
+
+func TestNPCDialogueHasActionWalksNestedChoices(t *testing.T) {
+	dialogue := &NPCDialogue{Choices: []*NPCDialogueChoice{
+		{
+			Text:   "Ask about services",
+			Action: "info",
+			Choices: []*NPCDialogueChoice{
+				{Text: "Rest", Action: "tavern_rest"},
+			},
+		},
+	}}
+
+	if !dialogue.HasAction("tavern_rest") {
+		t.Fatal("nested tavern_rest action was not found")
+	}
+	if dialogue.HasAction("start_arena_duel") {
+		t.Fatal("missing action was reported as present")
+	}
+}
+
 func TestCreateNPCFromConfig_EncounterMessages(t *testing.T) {
+	// NPC validation checks spell traders against the LOADED spell config; a
+	// shuffled-in test may have left a reduced one behind, so load the real set.
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
 	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}

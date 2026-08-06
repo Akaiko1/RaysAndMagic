@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -20,6 +21,8 @@ const (
 	auraColBrightMin   = 0.4  // dimmest a stream can be (1.0 = full); rest is random per stream
 	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]xbase period
 )
+
+var auraCardinalDirections = [...][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 // auraEdgeParams returns the edge-bubble tuning from the impassable-aura
 // config with defaults applied - shared by the impassable aura, trap borders,
@@ -41,12 +44,26 @@ func (r *Renderer) auraEdgeParams() (baseAlpha float64, perEdge, radius int) {
 	return baseAlpha, perEdge, radius
 }
 
+func (r *Renderer) emitAuraTileEdges(
+	screen *ebiten.Image,
+	tx, ty int,
+	ts float64,
+	perEdge int,
+	baseAlpha, maxDepth float64,
+	rgb [3]int,
+) {
+	for _, direction := range auraCardinalDirections {
+		r.emitAuraEdge(screen, tx, ty, direction, ts, perEdge, baseAlpha, maxDepth, rgb)
+	}
+}
+
 // drawImpassableTileAura draws a subtle stream of rising "bubble" pixels along
-// the ground edges of impassable billboard tiles (rocks/cliffs) that border a
-// walkable tile. Trees and textured walls are skipped - they already read as
-// solid. The effect tells the player which tiles block movement without
-// cluttering the scene; bubbles take the tile's own floor colour so they blend
-// in, and are depth-tested against walls so they hide correctly behind geometry.
+// the ground edges of blocking tiles that border a walkable one and have opted
+// in with impassable_aura. Nothing earns the hint from its render type: see
+// tileShowsImpassableAura for why the inference was dropped. The effect tells
+// the player which tiles block movement without cluttering the scene; bubbles
+// take the tile's own floor colour so they blend in, and are depth-tested
+// against walls so they hide correctly behind geometry.
 func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 	if !r.game.config.Graphics.ImpassableAura.Enabled || r.game.world == nil || world.GlobalTileManager == nil {
 		return
@@ -55,14 +72,12 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 	baseAlpha, perEdge, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
-	camTX := int(r.game.camera.X / ts)
-	camTY := int(r.game.camera.Y / ts)
+	camTX := TileIndex(r.game.camera.X, ts)
+	camTY := TileIndex(r.game.camera.Y, ts)
 	maxDepth := float64(radius) * ts
 
 	// Cardinal neighbours: a bubble edge is drawn only where the blocker faces a
 	// walkable tile, so the aura outlines the boundary instead of filling clusters.
-	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-
 	for ty := camTY - radius; ty <= camTY+radius; ty++ {
 		if ty < 0 || ty >= r.game.world.Height {
 			continue
@@ -75,17 +90,13 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				continue
 			}
 			tile := r.game.world.Tiles[ty][tx]
-			showAura := isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile))
-			if td := world.GlobalTileManager.GetTileData(tile); td != nil && td.ImpassableAura {
-				showAura = true // floor pit (chasm): blocks but reads like ground
-			}
-			if !showAura {
-				continue // trees, textured walls, ordinary floors: not ambiguous
+			if !tileShowsImpassableAura(world.GlobalTileManager.GetTileData(tile)) {
+				continue
 			}
 			// Interior tiles of a blocker cluster (all four neighbours also
 			// block) have no walkable-facing edge - skip before the colour work.
 			interior := true
-			for _, d := range dirs {
+			for _, d := range auraCardinalDirections {
 				if !r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					interior = false
 					break
@@ -107,7 +118,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				clampColor(int(float64(base[2]) * auraColorBoost)),
 			}
 			r.statAuraTiles++
-			for _, d := range dirs {
+			for _, d := range auraCardinalDirections {
 				if r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					continue // edge faces another blocker -> interior, skip
 				}
@@ -115,6 +126,29 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 			}
 		}
 	}
+}
+
+// tileEdgeSamplePoint is the world position of sample s (of perEdge) along
+// tile (tx,ty)'s edge in direction d, inset from the corners. THE shared
+// sampling for every tile-edge emitter, so aura bubbles and trap flames stand
+// on exactly the same line.
+func tileEdgeSamplePoint(tx, ty int, d [2]int, ts float64, s, perEdge int) (wx, wy float64) {
+	f := (float64(s) + 0.5) / float64(perEdge)
+	if d[0] != 0 { // east/west edge: fixed X, vary Y
+		if d[0] > 0 {
+			wx = float64(tx+1) * ts
+		} else {
+			wx = float64(tx) * ts
+		}
+		return wx, (float64(ty) + f) * ts
+	}
+	// north/south edge: fixed Y, vary X
+	if d[1] > 0 {
+		wy = float64(ty+1) * ts
+	} else {
+		wy = float64(ty) * ts
+	}
+	return (float64(tx) + f) * ts, wy
 }
 
 // emitAuraEdge samples points along the shared border between blocker tile
@@ -145,25 +179,7 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 	edgeKey := d[0]*2 + d[1]
 
 	for s := 0; s < perEdge; s++ {
-		// Fractional position along the edge (0..1), inset from the corners.
-		f := (float64(s) + 0.5) / float64(perEdge)
-
-		var wx, wy float64
-		if d[0] != 0 { // east/west edge: fixed X, vary Y
-			if d[0] > 0 {
-				wx = float64(tx+1) * ts
-			} else {
-				wx = float64(tx) * ts
-			}
-			wy = (float64(ty) + f) * ts
-		} else { // north/south edge: fixed Y, vary X
-			if d[1] > 0 {
-				wy = float64(ty+1) * ts
-			} else {
-				wy = float64(ty) * ts
-			}
-			wx = (float64(tx) + f) * ts
-		}
+		wx, wy := tileEdgeSamplePoint(tx, ty, d, ts, s, perEdge)
 
 		// Per-stream brightness so the wall of bubbles shimmers unevenly instead
 		// of being a flat band.
@@ -191,12 +207,18 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 	}
 }
 
-// isAuraBillboardRenderType reports whether a tile's render type is an
-// "ambiguous" impassable billboard (rock/cliff/bush) that benefits from the
-// ground-bubble hint. Trees (tree_sprite) and textured walls already read as
-// solid, and floor_only tiles aren't blockers.
-func isAuraBillboardRenderType(rt string) bool {
-	return rt == "environment_sprite"
+// tileShowsImpassableAura reports whether a BLOCKING tile draws the ground
+// bubble. Authored opt-in only, via impassable_aura.
+//
+// The hint used to be inferred from the render type, which caught every solid
+// flat standee and put a bubble under most of the world's scenery. Crossed
+// classes made that inference obsolete: a cross reads as an impassable volume
+// on its own, and no solid flat standee can be authored any more (the tile
+// validator rejects one). So the bubble is now reserved for the case geometry
+// genuinely cannot express - ground that looks walkable and is not, like a
+// chasm floor - and an author asks for it by name.
+func tileShowsImpassableAura(data *config.TileData) bool {
+	return data != nil && data.ImpassableAura
 }
 
 // auraTileColor returns the average RGB of a tile's billboard sprite texture

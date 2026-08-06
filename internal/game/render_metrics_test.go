@@ -14,23 +14,30 @@ func TestBillboardSizingSingleFormula(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.renderHelper = NewRenderingHelper(game)
 	game.camera.Angle = 0
-	game.camera.FOV = game.config.GetCameraFOV()
+	game.camera.FOV = squareProjectionFOV(game.config.GetScreenWidth(), game.config.GetScreenHeight())
 	game.camera.ViewDist = game.config.GetViewDistance()
 
-	person := &character.NPC{RenderCategory: "npc", SizeTiles: 1}
-	prop := &character.NPC{RenderCategory: "scenery", SizeTiles: 1}
+	person := &character.NPC{RenderCategory: "npc", SizeClass: "full_tile"}
+	prop := &character.NPC{RenderCategory: "scenery", SizeClass: "full_tile"}
 
 	// Close: both floors are irrelevant - the shared formula must agree exactly.
 	nx, ny := game.camera.X+2*ts, game.camera.Y
 	near := Distance(game.camera.X, game.camera.Y, nx, ny)
 	_, _, personSize, pv := game.renderHelper.NPCSpriteMetrics(person, nx, ny, near)
 	_, _, propSize, sv := game.renderHelper.NPCSpriteMetrics(prop, nx, ny, near)
-	_, _, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetrics(nx, ny, near, 1)
+	containerX, containerY, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetrics(nx, ny, near, 1)
 	if !pv || !sv || !cv {
 		t.Fatal("close-range billboards must be visible")
 	}
 	if personSize != propSize || personSize != contSize {
 		t.Fatalf("close-range sizes diverged: person=%d prop=%d container=%d - the single formula split", personSize, propSize, contSize)
+	}
+	containerXF, containerBottomF, containerSizeF, containerFloatVisible := game.renderHelper.CalculateGroundContainerSpriteMetricsF(nx, ny, near, 1)
+	if !containerFloatVisible {
+		t.Fatal("close-range float container metrics must be visible")
+	}
+	if gotX, gotY, gotSize := int(containerXF), int(containerBottomF)-int(containerSizeF), int(containerSizeF); gotX != containerX || gotY != containerY || gotSize != contSize {
+		t.Fatalf("container float/int projections diverged: float=(%d,%d,%d) int=(%d,%d,%d)", gotX, gotY, gotSize, containerX, containerY, contSize)
 	}
 
 	// Far: only the per-category minimum pixel floor may differ.
@@ -46,5 +53,33 @@ func TestBillboardSizingSingleFormula(t *testing.T) {
 	}
 	if propFar > personFar {
 		t.Fatalf("prop floor (%d) must not exceed the person floor (%d)", propFar, personFar)
+	}
+}
+
+func TestVisibleHeightScaleIgnoresTransparentFramePadding(t *testing.T) {
+	plain, ok := visibleHeightScaleForFrame(512, 512, 512, false)
+	if !ok {
+		t.Fatal("full frame did not resolve")
+	}
+	padded, ok := visibleHeightScaleForFrame(512, 512, 256, false)
+	if !ok {
+		t.Fatal("padded frame did not resolve")
+	}
+	const targetHeight = 0.5
+	if got := targetHeight * plain * 512 / 512; got != targetHeight {
+		t.Fatalf("full-frame visible height = %v, want %v", got, targetHeight)
+	}
+	if got := targetHeight * padded * 256 / 512; got != targetHeight {
+		t.Fatalf("padded visible height = %v, want %v", got, targetHeight)
+	}
+}
+
+func TestVisibleHeightScaleUsesLandmarkWidthContract(t *testing.T) {
+	scale, ok := visibleHeightScaleForFrame(512, 1024, 768, true)
+	if !ok {
+		t.Fatal("landmark frame did not resolve")
+	}
+	if got := 2.0 * scale * 768 / 512; got != 2.0 {
+		t.Fatalf("landmark visible height = %v, want 2", got)
 	}
 }

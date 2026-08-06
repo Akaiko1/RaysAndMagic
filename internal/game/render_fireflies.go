@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -27,7 +28,11 @@ var fireflySwarmMotes = [...]struct {
 }
 
 func isFireflySwarmTile(tileType world.TileType3D) bool {
-	return world.GlobalTileManager != nil && world.GlobalTileManager.GetTileKey(tileType) == "firefly_swarm"
+	if world.GlobalTileManager == nil {
+		return false
+	}
+	tile := world.GlobalTileManager.GetTileData(tileType)
+	return tile != nil && tile.ProceduralEffect == config.TileEffectFireflySwarm
 }
 
 func fireflySwarmSeed(tileX, tileY int) int {
@@ -47,6 +52,12 @@ func fireflySwarmFlicker(seed int, frameCount int64) float64 {
 		return 1.25
 	}
 	return f
+}
+
+type fireflyMoteDraw struct {
+	x, y                 float64
+	glowSize, coreSize   float64
+	glowAlpha, coreAlpha float64
 }
 
 func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, distance float64) {
@@ -70,6 +81,8 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 	coreBase := math.Max(1.25, size*0.018)
 	globalFlicker := fireflySwarmFlicker(seed, r.game.frameCount)
 
+	var draws [len(fireflySwarmMotes)]fireflyMoteDraw
+	drawCount := 0
 	for i, mote := range fireflySwarmMotes {
 		localPhase := auraHash(seed, i, 41, 0) * 2 * math.Pi
 		slowPulse := 0.66 + 0.34*math.Sin(frame*0.070+localPhase) +
@@ -86,9 +99,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		x := drawLeft + mote.u*size + driftX
 		y := drawTop + mote.v*size + driftY
 		// Per-mote occlusion: the whole-swarm visibility gate is ANY-column, so a
-		// swarm only peeking past a wall/tree edge would still draw every mote -
-		// including ones deep behind the wall (looked like walls didn't occlude).
-		// Skip a mote whose own screen column is behind a nearer wall/tree.
+		// swarm only peeking past a wall/tree edge would still draw every mote.
 		if col := int(x); col >= 0 && col < len(depthBuf) && s.depthPerp >= depthBuf[col] {
 			continue
 		}
@@ -98,7 +109,21 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		}
 		scale := 0.82 + 0.36*auraHash(seed, i, 42, 0)
 
-		r.drawGlowSprite(screen, x, y, glowBase*scale, [3]int{255, 218, 80}, 0.50*alpha, additiveGlowBlend)
-		r.drawGlowRect(screen, x, y, coreBase*scale, [3]int{255, 252, 170}, 0.95*alpha, additiveGlowBlend)
+		draws[drawCount] = fireflyMoteDraw{
+			x: x, y: y,
+			glowSize: glowBase * scale, coreSize: coreBase * scale,
+			glowAlpha: 0.50 * alpha, coreAlpha: 0.95 * alpha,
+		}
+		drawCount++
+	}
+
+	// Group equal sources so Ebitengine can batch halos and cores separately.
+	for i := 0; i < drawCount; i++ {
+		d := draws[i]
+		r.drawGlowSprite(screen, d.x, d.y, d.glowSize, [3]int{255, 218, 80}, d.glowAlpha, additiveGlowBlend)
+	}
+	for i := 0; i < drawCount; i++ {
+		d := draws[i]
+		r.drawGlowRect(screen, d.x, d.y, d.coreSize, [3]int{255, 252, 170}, d.coreAlpha, additiveGlowBlend)
 	}
 }

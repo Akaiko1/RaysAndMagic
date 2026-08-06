@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -14,7 +15,13 @@ import (
 
 const menuPanelFrameSlice = 16
 
-// drawOverlayInterfaces draws overlay interfaces like menus and dialogs
+// drawOverlayInterfaces draws overlay interfaces like menus and dialogs.
+//
+// CLICKS RESOLVE TOP-DOWN, DRAWING RUNS BOTTOM-UP. The map overlay opens from a
+// quest item inside the character hub, so it floats ABOVE a hub that stays open:
+// its close button lands on top of the hub's inventory grid. Handling its input
+// first is what keeps that button clickable - the hub's own handlers would
+// otherwise consume the click while drawing underneath.
 func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
 	if ui.game.menuOpen {
 		ui.drawTabbedMenu(screen)
@@ -55,12 +62,12 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		// Title
 		drawDebugText(screen, "Main Menu", px+16, py+14)
 		// Options
-		for i, label := range mainMenuOptions {
+		for i, option := range mainMenuOptions {
 			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
 			if i == ui.game.mainMenuSelection {
 				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
 			}
-			drawDebugText(screen, label, tx, ty)
+			drawDebugText(screen, option.label, tx, ty)
 		}
 		tipsY := py + mainMenuTipsTopY()
 		for i, tip := range mainMenuControlTips {
@@ -80,6 +87,13 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		drawDebugText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
+	case MenuSettings:
+		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
+		ui.drawAudioSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset, "Audio Settings")
+		back := audioBackRect(settingsLayout.px, settingsLayout.py, settingsLayout.panelH, settingsLayout.contentInset)
+		ui.drawBackButton(screen, back.x1, back.y1, func() {
+			ui.game.closeAudioSettings()
+		})
 	}
 }
 
@@ -258,11 +272,13 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
 func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
-	layout := computeTabbedMenuLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
+	viewportBottom := gameplayViewportBottom(ui.game)
+	layout := computeTabbedMenuLayout(ui.game.config.GetScreenWidth(), viewportBottom)
 
-	// Draw main background and frame
-	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
-	drawNineSlice(screen, menuFrame, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
+	// The hub owns only the gameplay viewport. The persistent party HUD below
+	// stays fully visible and remains the one mouse selector for characters.
+	drawFilledRect(screen, 0, 0, screen.Bounds().Dx(), viewportBottom, color.RGBA{5, 7, 12, 205})
+	ui.drawPatternFrame(screen, "menu_panel_frame", layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
 
 	for i, tabInfo := range tabbedMenuTabs {
 		tabRect := layout.tabs[i]
@@ -274,43 +290,34 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		}
 		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
-		// Draw tab text centered
-		topHalf := tabRect.h / 2
-		drawCenteredDebugText(screen, tabInfo.label, tabRect.x, tabRect.y, tabRect.w, topHalf)
-		drawCenteredDebugText(screen, tabInfo.key, tabRect.x, tabRect.y+topHalf, tabRect.w, tabRect.h-topHalf)
+		// One line leaves the decorative top/bottom rails clear at every scale.
+		drawCenteredDebugText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
-		// Handle mouse clicks on tabs
-		ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
+		// A modal above the hub owns the click queue; tabs must not consume one of
+		// its buttons through the overlay (topModalLayer).
+		if !ui.modalLayerOwnsInput() {
+			ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
+		}
 	}
-
 	// Handle mouse clicks on close button
-	ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
-
-	// Draw close button background
-	mouseX, mouseY := ebiten.CursorPosition()
-	isCloseHovering := mouseX >= layout.close.x && mouseX < layout.close.right() &&
-		mouseY >= layout.close.y && mouseY < layout.close.bottom()
-
-	if isCloseHovering {
-		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{150, 50, 50, 200}) // Red hover
-	} else {
-		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{100, 100, 100, 150}) // Gray normal
+	if !ui.modalLayerOwnsInput() {
+		ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 	}
 
-	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw content based on selected tab
 	switch ui.game.currentTab {
 	case TabInventory:
-		ui.drawInventoryContent(screen, layout.content.x, layout.content.y, layout.content.h)
+		ui.drawInventoryContent(screen, layout.content)
 	case TabCharacters:
-		ui.drawCharactersContent(screen, layout.content.x, layout.content.y, layout.content.h)
+		ui.drawCharactersContent(screen, layout.content)
 	case TabSpellbook:
-		ui.drawSpellbookContent(screen, layout.content.x, layout.content.y, layout.content.h)
+		ui.drawSpellbookContent(screen, layout.content)
 	case TabQuests:
-		ui.drawQuestsContent(screen, layout.content.x, layout.content.y, layout.content.h)
+		ui.drawQuestsContent(screen, layout.content)
 	case TabCards:
-		ui.drawCardsContent(screen, layout.content.x, layout.content.y, layout.content.h)
+		ui.drawCardsContent(screen, layout.content)
 	}
 
 	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
@@ -320,11 +327,10 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 // drawCardsContent shows the party's active monster-card collection as an
 // art grid (icon + name + effect per slot) plus a combined-effects summary.
 // View-only: cards are slotted/removed at the Card Collector NPC.
-func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	content := layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight}
+func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeCardsContentLayout(content)
-	drawDebugText(screen, "Active Card Collection", layout.title.x, layout.title.y)
-	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y)
+	drawCenteredDebugText(screen, "Active Card Collection", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
+	drawCenteredDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y, layout.subtitle.w, layout.subtitle.h)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hover []string
@@ -368,6 +374,7 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
 			ui.game.selectedSpell = -1
+			ui.spellPage = 0
 		}
 		ui.game.currentTab = tab
 	}
@@ -380,9 +387,26 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 	}
 }
 
+// dispatchCharacterHubWorldAction closes the hub before a world-facing action
+// observes game state. Failed actions restore the hub so the player can correct
+// the selection; successful actions always return to the world. Mouse and
+// keyboard dispatch share this one transition.
+func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
+	wasOpen := g.menuOpen
+	g.menuOpen = false
+	if action() {
+		return true
+	}
+	g.menuOpen = wasOpen
+	return false
+}
+
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
-func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchoolID) {
-	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
+func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex int, school character.MagicSchoolID) {
+	if ui.modalLayerOwnsInput() {
+		return
+	}
+	if ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
 		currentTime := ui.game.mouseLeftClickAt
 		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
 			withinDoubleClickWindow(currentTime, ui.game.lastSchoolClickTime)
@@ -390,6 +414,7 @@ func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, sc
 		ui.game.selectedSchool = schoolIndex
 		// Don't auto-select a spell - wait for the user to click one.
 		ui.game.selectedSpell = -1
+		ui.spellPage = 0
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
@@ -403,8 +428,38 @@ func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, sc
 	}
 }
 
+// syncCharacterHubClickContext prevents one screen's first click from pairing
+// with a click made for another character or tab. It runs before any Draw-phase
+// hub widget consumes the queued click.
+func (ui *UISystem) syncCharacterHubClickContext() {
+	if ui.game == nil || !ui.game.menuOpen {
+		ui.hubInteractionOpen = false
+		return
+	}
+	if ui.hubInteractionOpen && ui.hubInteractionChar == ui.game.selectedChar && ui.hubInteractionTab == ui.game.currentTab {
+		return
+	}
+	ui.hubInteractionOpen = true
+	ui.hubInteractionChar = ui.game.selectedChar
+	ui.hubInteractionTab = ui.game.currentTab
+	ui.lastClickTime = time.Time{}
+	ui.lastClickedItem = -1
+	ui.lastEquipClickTime = time.Time{}
+	ui.lastClickedSlot = items.EquipSlot(-1)
+	ui.lastTrapClickTime = 0
+	ui.lastClickedTrap = -1
+	ui.game.lastSpellClickTime = 0
+	ui.game.lastClickedSpell = -1
+	ui.game.lastClickedSchool = -1
+	ui.game.lastSchoolClickTime = 0
+	ui.game.lastSchoolClickedIdx = -1
+}
+
 // handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
 func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
+	if ui.modalLayerOwnsInput() {
+		return
+	}
 	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
 		currentTime := ui.game.mouseLeftClickAt
 
@@ -418,13 +473,9 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 		ui.game.selectedSpell = spellIndex
 
 		if doubleClick {
-			// Double-click detected - cast the spell directly. In turn-based
-			// mode, a successful cast consumes one action slot for the active
-			// character (just like F-key on the equipped spell), so it can't
-			// be spammed beyond their Speed-derived budget.
-			if ui.game.combat.CastSelectedSpell() {
-				ui.game.consumeSelectedCharAction()
-			}
+			// Double-click binds the highlighted spell as the character's fast
+			// spell and deliberately keeps the book open. Enter/F owns casting.
+			ui.game.combat.EquipSelectedSpell()
 			ui.game.lastSpellClickTime = 0
 			ui.game.lastClickedSpell = -1
 			ui.game.lastClickedSchool = -1
@@ -443,6 +494,10 @@ func (ui *UISystem) updateMouseState() {
 	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
+	if ui.modalRedrawBarrierActive() {
+		ui.dropQueuedClicks()
+		return
+	}
 	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
 	// drop the queues (a click aimed at one layer must not fire in the next).
 	// Runs before this frame's clicks enqueue; within one layer (dialog
@@ -453,10 +508,28 @@ func (ui *UISystem) updateMouseState() {
 		ui.game.prevWorldClickAllowed = allowed
 	}
 	ui.game.pruneClickQueues(now)
-	ui.updateQuickDrag()
-	ui.updateStashDrag()
+	inputLayer := ui.topModalLayer()
+	suppressLeftClick := false
+	if inputLayer == modalLayerNone {
+		suppressLeftClick = ui.updateQuickDrag()
+	} else if !ui.game.dragPickedUp && (ui.game.dragArmed || ui.game.dragActive) {
+		// Ownership lost mid-gesture: the release edge is a one-tick event and
+		// would be missed while the updater is skipped, leaving an armed/active
+		// drag to resurrect when the layer returns. Cancel it; only a picked-up
+		// split fragment is deliberate state that survives the freeze.
+		ui.game.clearDrag()
+	}
+	// The stash is either its standalone modal or a manager embedded in the NPC
+	// dialog. A higher modal must not let a release resolve later against a
+	// newly uncovered stash cell - same rule: cancel everything transient, keep
+	// only the deliberately picked-up split fragment.
+	if inputLayer == modalLayerStash || inputLayer == modalLayerDialog {
+		suppressLeftClick = ui.updateStashDrag() || suppressLeftClick
+	} else if !ui.game.stashDragPickedUp && (ui.game.stashDragArmed || ui.game.stashDragActive || ui.game.stashDragDrop) {
+		ui.game.clearStashDrag()
+	}
 
-	if leftJustPressed {
+	if leftJustPressed && !suppressLeftClick {
 		x, y := ebiten.CursorPosition()
 		ui.game.mouseLeftClicks = append(ui.game.mouseLeftClicks, queuedClick{x: x, y: y, at: now})
 		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = x, y

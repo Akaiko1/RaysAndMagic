@@ -5,10 +5,10 @@ package game
 
 // Headless backwards-walker detector - a DEBUG MODULE, not a regression test.
 // Runs the real forest map through the RT frame pieces in game-loop order
-// (Update -> separation -> bands -> frame-motion facing) and flags every tick
+// (Update -> bands -> frame-motion facing) and flags every tick
 // where a monster's FACING opposes its own AI walk, attributing the cause:
-// a separation shove / band snap overriding the walk in the frame-motion
-// displacement, or a stale Direction while gliding under the facing threshold.
+// a band snap overriding the walk in the frame-motion displacement, or a stale
+// Direction while gliding under the facing threshold.
 //
 // Run with: RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_BackwardsWalkers -v
 import (
@@ -49,7 +49,7 @@ func TestDebugSim_BackwardsWalkers(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager()
+	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestDebugSim_BackwardsWalkers(t *testing.T) {
 			}
 			m.Update(g.collisionSystem, g.camera.X, g.camera.Y)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m)
+			g.refreshMonsterCollisionState(m)
 		}
 		// AI-only displacement snapshot, before shoves/snaps.
 		aiX := map[*monster.Monster3D]float64{}
@@ -129,7 +129,6 @@ func TestDebugSim_BackwardsWalkers(t *testing.T) {
 		}
 
 		gl.faceMonstersAlongFrameMotion(start)
-		gl.separateOverlappingMonsters()
 		gl.updateMonsterBands()
 
 		// Pack coherence: a stacked band member must face like its leader.

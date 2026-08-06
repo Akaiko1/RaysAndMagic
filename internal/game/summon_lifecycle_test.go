@@ -104,45 +104,11 @@ func TestMapSwitchRemovesCrumbledBoundAllyCollision(t *testing.T) {
 	}
 }
 
-// A card ally with no enemy to hunt tags along with the party (its AI target is
-// the party), rather than parking in place.
-func TestCardAllyFollowsPartyWhenIdle(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 20, 20)
-	placePlayerAtTile(game, 10, 10, ts)
-	huntress := monsterPkg.NewMonster3DFromConfig(float64(3)*ts, float64(3)*ts, "masked_huntress", game.config)
-	markCardAlly(huntress)
-	game.world.Monsters = []*monsterPkg.Monster3D{huntress} // no enemy on the map
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	game.refreshBoundAllyCache()
-	if huntress.AIFoe != nil {
-		t.Fatal("no enemy present - the card ally should have no foe")
-	}
-	tx, ty := game.combat.monsterAITargetPoint(huntress)
-	if tx != game.camera.X || ty != game.camera.Y {
-		t.Errorf("idle card ally should target the party (%.0f,%.0f), got (%.0f,%.0f)", game.camera.X, game.camera.Y, tx, ty)
-	}
-}
-
-// Bind Undead uses the same idle-follow fallback as a card ally. It still
-// switches to a hostile target as soon as one is found by the per-frame cache.
-func TestBoundUndeadFollowsPartyWhenIdle(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 20, 20)
-	placePlayerAtTile(game, 10, 10, ts)
-	skel := monsterPkg.NewMonster3DFromConfig(float64(3)*ts, float64(3)*ts, "skeleton", game.config)
-	game.combat.applyBindUndead(skel, 300, "Bind Undead")
-	game.world.Monsters = []*monsterPkg.Monster3D{skel} // no enemy on the map
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	game.refreshBoundAllyCache()
-	if skel.AIFoe != nil {
-		t.Fatal("no enemy present - the bound undead should have no foe")
-	}
-	tx, ty := game.combat.monsterAITargetPoint(skel)
-	if tx != game.camera.X || ty != game.camera.Y {
-		t.Errorf("idle bound undead should target the party (%.0f,%.0f), got (%.0f,%.0f)", game.camera.X, game.camera.Y, tx, ty)
-	}
-}
+// Idle-follow used to be pinned here by asserting only that monsterAITargetPoint
+// returns the party. That is the INTENT, not the outcome: an ally can target the
+// party and never take a step (a summon with 11-tile reach did exactly that). The
+// real guard now measures the settled distance per reach class in
+// ally_control_test.go.
 
 // A charmed mob snaps out of the charm and re-aggros both on any hit and when
 // the charm wears off; then, being an ordinary enemy again, it rewards the party
@@ -169,8 +135,8 @@ func TestCharmAggressionAndReward(t *testing.T) {
 	game.combat.applyPacify(m2, 120, "Charm")
 	m2.PacifiedFramesRemaining = 1
 	gl.updateControlledMonsters()
-	if m2.Pacified || !m2.WasAttacked {
-		t.Errorf("charm expiry must re-aggro (Pacified=%v WasAttacked=%v)", m2.Pacified, m2.WasAttacked)
+	if m2.Pacified || !m2.WasAttacked || !m2.IsEngagingPlayer {
+		t.Errorf("charm expiry must re-aggro (Pacified=%v WasAttacked=%v Engaging=%v)", m2.Pacified, m2.WasAttacked, m2.IsEngagingPlayer)
 	}
 
 	// A formerly-charmed enemy, once slain, rewards the party like any enemy.
@@ -289,7 +255,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("skeleton")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		game.combat.applyBindUndead(target, 120, "Bind Undead")
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != target {
 			t.Fatal("a mob must target a nearby bound undead")
 		}
@@ -299,7 +265,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("masked_huntress")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		markCardAlly(target)
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != target {
 			t.Fatal("a mob must target a nearby card ally")
 		}
@@ -309,7 +275,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("goblin")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		game.combat.applyPacify(target, 120, "Charm")
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != nil {
 			t.Fatal("a charmed monster is neutral and must not be a crossfire target")
 		}
@@ -354,6 +320,7 @@ func TestControlledMonsterRewardRules(t *testing.T) {
 	t.Run("card_ally", func(t *testing.T) {
 		target := monsterPkg.NewMonster3DFromConfig(0, 0, "masked_huntress", game.config)
 		target.HitPoints, target.Experience, target.Gold = 1, 40, 17
+		target.PerfectDodge = 0 // reward test; the killing blow must be deterministic
 		killer := makeKiller()
 		game.world.Monsters = []*monsterPkg.Monster3D{target, killer}
 		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

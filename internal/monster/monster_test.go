@@ -14,20 +14,25 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		def     MonsterDefinition
 		wantErr bool
 	}{
-		{"inferno chance without damage", MonsterDefinition{InfernoChance: 0.1}, true},
+		{"inferno chance without damage", MonsterDefinition{Boss: true, InfernoChance: 0.1}, true},
+		{"inferno chance without range", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28}, true},
+		{"inferno fully configured", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8}, false},
 		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
 		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
-		{"dormant boss (passive, no evade) is valid", MonsterDefinition{PassiveUntilQuest: "q"}, false},
-		{"evasive without cooldown", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
-		{"evasive fully configured", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
-		{"summon chance without monsters", MonsterDefinition{SummonChance: 0.2}, true},
-		{"summon configured", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
+		{"boss-only behavior needs boss flag", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, true},
+		{"bare boss is valid", MonsterDefinition{Boss: true}, false},
+		{"dormant boss (passive, no evade) is valid", MonsterDefinition{Boss: true, PassiveUntilQuest: "q"}, false},
+		{"evasive without cooldown", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
+		{"evasive fully configured", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
+		{"summon chance without monsters", MonsterDefinition{Boss: true, SummonChance: 0.2}, true},
+		{"summon configured", MonsterDefinition{Boss: true, SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
 		{"dragon breath chance without damage type", MonsterDefinition{DragonBreathChance: 0.33}, true},
 		{"dragon breath configured", MonsterDefinition{DragonBreathChance: 0.33, DragonBreathType: "fire"}, false},
-		{"enrage without effect", MonsterDefinition{EnrageAtHP: 100}, true},
-		{"enrage with damage mult", MonsterDefinition{EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
+		{"enrage without effect", MonsterDefinition{Boss: true, EnrageAtHP: 100}, true},
+		{"enrage with damage mult", MonsterDefinition{Boss: true, EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
 		{"fully configured boss", MonsterDefinition{
-			InfernoChance: 0.1, InfernoDamage: 28,
+			Boss:          true,
+			InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8,
 			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
 			SummonChance: 0.1, SummonMonsters: []string{"rat"},
 			EnrageAtHP: 100, EnrageCooldownMult: 0.6,
@@ -38,8 +43,7 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 			tc.def.SizeClass = "person" // these cases exercise other rules, not size
 		}
 		cfg := &MonsterYAMLConfig{
-			Monsters:    map[string]MonsterDefinition{"boss": tc.def},
-			DamageTypes: map[string]int{"physical": 0, "fire": 1},
+			Monsters: map[string]MonsterDefinition{"boss": tc.def},
 		}
 		err := validateMonsterConfiguration(cfg)
 		if tc.wantErr && err == nil {
@@ -51,10 +55,89 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 	}
 }
 
-func TestConvertDamageTypeNormalizesExternalKeys(t *testing.T) {
-	cfg := &MonsterYAMLConfig{DamageTypes: map[string]int{"physical": 0, "fire": 1}}
-	if got, err := cfg.ConvertDamageType(" FIRE "); err != nil || got != DamageFire {
-		t.Fatalf("ConvertDamageType( FIRE ) = (%v, %v), want (%v, nil)", got, err, DamageFire)
+func TestSetupMonsterFromConfig_CopiesBossClassification(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{Name: "Boss", Boss: true})
+	if !m.IsBoss() {
+		t.Fatal("boss: true must be copied to the runtime monster")
+	}
+}
+
+func TestSetupMonsterFromConfig_CachesSprite(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{Name: "Dragon", Sprite: "dragon_gold"})
+	if got := m.GetSpriteType(); got != "dragon_gold" {
+		t.Fatalf("sprite = %q, want dragon_gold", got)
+	}
+}
+
+func TestValidateMonsterConfiguration_AlarmRally(t *testing.T) {
+	cases := []struct {
+		name    string
+		def     MonsterDefinition
+		wantErr bool
+	}{
+		{"uncapped rally is valid", MonsterDefinition{RallyOnAggroTiles: 12}, false},
+		{"capped rally is valid", MonsterDefinition{RallyOnAggroTiles: 12, RallyMaxTargets: 4}, false},
+		{"negative cap is invalid", MonsterDefinition{RallyOnAggroTiles: 12, RallyMaxTargets: -1}, true},
+		{"cap without rally is invalid", MonsterDefinition{RallyMaxTargets: 4}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+				"alarm": {SizeClass: "person", RallyOnAggroTiles: tc.def.RallyOnAggroTiles, RallyMaxTargets: tc.def.RallyMaxTargets},
+			}}
+			err := validateMonsterConfiguration(cfg)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseDamageTypeNormalizesExternalKeys(t *testing.T) {
+	if got, err := ParseDamageType(" FIRE "); err != nil || got != DamageFire {
+		t.Fatalf("ParseDamageType( FIRE ) = (%v, %v), want (%v, nil)", got, err, DamageFire)
+	}
+}
+
+func TestValidateMonsterConfigurationRejectsUnknownResistanceSchool(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"bad_resist": {
+			SizeClass:   "person",
+			Resistances: map[string]int{"flame-ish": 50},
+		},
+	}}
+	if err := validateMonsterConfiguration(cfg); err == nil {
+		t.Fatal("unknown resistance school passed validation")
+	}
+}
+
+func TestValidateMonsterConfigurationCanonicalizesDamageSchools(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"typed": {
+			SizeClass:        "person",
+			DragonBreathType: " FIRE ",
+			Resistances:      map[string]int{" DARK ": 50},
+		},
+	}}
+	if err := validateMonsterConfiguration(cfg); err != nil {
+		t.Fatalf("validate monster: %v", err)
+	}
+	def := cfg.Monsters["typed"]
+	if def.DragonBreathType != "fire" || def.Resistances["dark"] != 50 {
+		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.DragonBreathType, def.Resistances)
+	}
+
+	cfg.Monsters["typed"] = MonsterDefinition{
+		SizeClass:   "person",
+		Resistances: map[string]int{"dark": 10, " DARK ": 20},
+	}
+	if err := validateMonsterConfiguration(cfg); err == nil {
+		t.Fatal("duplicate resistance aliases passed validation")
 	}
 }
 

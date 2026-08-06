@@ -33,6 +33,10 @@ func loadTestArenaData(t *testing.T) {
 
 func TestApplyTestArena(t *testing.T) {
 	cfg := loadTestConfig(t)
+	previousQuestManager := quests.GlobalQuestManager
+	t.Cleanup(func() {
+		quests.GlobalQuestManager = previousQuestManager
+	})
 	loadTestArenaData(t)
 
 	// Forest world with monsters whose loot tables are non-empty. Enough
@@ -64,7 +68,7 @@ func TestApplyTestArena(t *testing.T) {
 			},
 		},
 	}
-	world.GlobalWorldManager = wm
+	setTestWorldManager(t, wm)
 
 	game := newTestGame(cfg, forest)
 	game.combat = NewCombatSystem(game) // required for XP-driven level-ups

@@ -1,9 +1,13 @@
 package monster
 
-import "testing"
+import (
+	"testing"
+
+	damagecalc "ugataima/internal/damage"
+)
 
 // TestTakeDamageResist_Pierce: resistance piercing reduces the effective
-// resistance before damage reduction. TakeDamage (pierce 0) is the baseline.
+// resistance before damage reduction. Pierce 0 is the baseline.
 func TestTakeDamageResist_Pierce(t *testing.T) {
 	mk := func() *Monster3D {
 		return &Monster3D{
@@ -13,17 +17,17 @@ func TestTakeDamageResist_Pierce(t *testing.T) {
 	}
 
 	// No pierce: 100 fire vs 50% resist -> 50 damage.
-	base := mk().TakeDamageResist(100, DamageFire, 0)
+	base := mk().TakeDamageParts(damagecalc.Parts{Normal: 100}, DamageFire, 0)
 	if base != 50 {
 		t.Fatalf("no-pierce fire damage = %d, want 50", base)
 	}
 	// 50% pierce: resistance halved to 25% -> 75 damage.
-	pierced := mk().TakeDamageResist(100, DamageFire, 50)
+	pierced := mk().TakeDamageParts(damagecalc.Parts{Normal: 100}, DamageFire, 50)
 	if pierced != 75 {
 		t.Errorf("50%%-pierce fire damage = %d, want 75", pierced)
 	}
 	// Pierce on a type with no resistance is a no-op.
-	if d := mk().TakeDamageResist(100, DamagePhysical, 50); d != 100 {
+	if d := mk().TakeDamageParts(damagecalc.Parts{Normal: 100}, DamagePhysical, 50); d != 100 {
 		t.Errorf("pierce vs no-resistance = %d, want 100", d)
 	}
 }
@@ -39,12 +43,12 @@ func TestTakeDamageResist_PierceIgnoresVulnerability(t *testing.T) {
 		}
 	}
 
-	base := mk().TakeDamageResist(100, DamageFire, 0)
+	base := mk().TakeDamageParts(damagecalc.Parts{Normal: 100}, DamageFire, 0)
 	if base != 150 {
 		t.Fatalf("no-pierce vulnerable fire damage = %d, want 150", base)
 	}
 	// Pierce must not shrink the vulnerability bonus.
-	pierced := mk().TakeDamageResist(100, DamageFire, 50)
+	pierced := mk().TakeDamageParts(damagecalc.Parts{Normal: 100}, DamageFire, 50)
 	if pierced != 150 {
 		t.Errorf("50%%-pierce vulnerable fire damage = %d, want 150 (pierce should not touch vulnerability)", pierced)
 	}
@@ -54,7 +58,7 @@ func TestTakeDamageResist_PierceIgnoresVulnerability(t *testing.T) {
 // flag (its quest unseals it) restores normal damage + engagement.
 func TestDormantBossInvulnerable(t *testing.T) {
 	m := &Monster3D{HitPoints: 1600, MaxHitPoints: 1600, BossDormant: true}
-	if got := m.TakeDamage(500, DamagePhysical); got != 0 {
+	if got := m.TakeDamageParts(damagecalc.Parts{Normal: 500}, DamagePhysical, 0); got != 0 {
 		t.Errorf("sealed boss took %d damage, want 0", got)
 	}
 	if m.HitPoints != 1600 {
@@ -65,7 +69,7 @@ func TestDormantBossInvulnerable(t *testing.T) {
 	}
 
 	m.BossDormant = false
-	if got := m.TakeDamage(500, DamagePhysical); got != 500 {
+	if got := m.TakeDamageParts(damagecalc.Parts{Normal: 500}, DamagePhysical, 0); got != 500 {
 		t.Errorf("unsealed boss took %d damage, want 500", got)
 	}
 	if !m.IsEngagingPlayer {
@@ -82,14 +86,20 @@ func TestEnrageScalesTurnBasedAttacks(t *testing.T) {
 		mult float64
 		want int
 	}{{0, 1}, {1.0, 1}, {0.9, 2}, {0.6, 2}, {0.5, 2}, {0.49, 4}, {0.25, 4}, {0.2, 8}} {
-		if got := tbAttacksForCooldownMult(c.mult); got != c.want {
-			t.Errorf("tbAttacksForCooldownMult(%.2f) = %d, want %d", c.mult, got, c.want)
+		if got := TurnBasedAttacksForCooldownMultiplier(c.mult); got != c.want {
+			t.Errorf("TurnBasedAttacksForCooldownMultiplier(%.2f) = %d, want %d", c.mult, got, c.want)
 		}
 	}
 
 	fast := &Monster3D{AttackCooldownMultiplier: 0.6}
 	if got := fast.GetTurnBasedAttackCount(); got != 2 {
 		t.Errorf("cooldown-only TB attacks = %d, want 2", got)
+	}
+	if got := TurnBasedAttackCount(0, 0.3); got != 4 {
+		t.Errorf("cooldown-derived TB attacks = %d, want 4", got)
+	}
+	if got := TurnBasedAttackCount(1, 0.3); got != 1 {
+		t.Errorf("explicit attacks_per_round must win: got %d, want 1", got)
 	}
 
 	m := &Monster3D{

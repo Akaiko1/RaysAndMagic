@@ -1,54 +1,79 @@
-# Seabright Culverts (biome: culverts) — 50x50 sewer maze
-# Symbols: % = wall   . = floor   + = start
-# Monsters: r = rat   v = bat   t = thief bug   y = Golden Thief Bug (boss)
-# NPCs: culverts_exit, culverts_oldman (Sewerman Garran), culvert_valve_1..7
+# Seabright Culverts (biome: culverts) - 50x50, four quarters on a canal cross
+# Symbols: . floor  + start  W canal water (impassable)
+#   walls, ONE STONE PER QUARTER so you always know where you are:
+#   % old brick (NW)   = slate (NE)   # mossgrown (SW)   B masonry (SE)
+#   P = fern patch (walkable)   F = glow-flies (walkable)
+# Monsters: r rat  v bat  t thief bug  y Golden Thief Bug (boss)
+#
+# THE CANALS cross at mid-map (x24-25 and y24-25), walkways on both banks,
+# and exactly FOUR plank bridges out along the arms: x11-12 and x37-38 over
+# the east-west channel, y11-12 and y37-38 over the north-south one. At the
+# crossing lies THE CONFLUENCE: Sewerman Garran stands on its north-west
+# plaza, the last valve (7) on its south-east one.
+#
+# NW - THE OLD WORKS (% brick): the entrance sewer, the tool room, and two
+#   round cisterns: R1 (x3-9, y7-13, valve 1 at its heart) and the great
+#   cistern R3 (x12-20, y12-19, valve 2 + a chest). Doors to the walkways at
+#   (21,5)... via the tool room east wall, (5,21) and (16,21).
+# NE - THE SLUICEWORKS (= slate): five long galleries linked at ALTERNATING
+#   ends (east, west, east, west...) - a switchback, not a maze. Valve 3 at
+#   gallery 1's east end, valve 4 at gallery 4's west mouth; the iron chest
+#   pays out the full switchback at gallery 5's east dead end. Bats roost.
+# SW - THE OVERGROWN (# mossy): grotto country - ferns, glow-flies, and the
+#   THIEF-BUG NEST (x11-19); the mud gallery (y37-38) links to the deep
+#   grotto (valve 5) and the bugs' larder. THE POCKET: a one-wide slit at
+#   (3,46) hides an iron chest - suspicious dead end, worth the squeeze.
+# SE - THE VAULT WARREN (B masonry): a grid of storerooms (barrels, vermin),
+#   valve 6 in the east hall, and in the far corner THE TREASURE VAULT:
+#   the Golden Thief Bug over the golden chest, door at (42,45).
+# Monsters (unchanged counts): r x19, v x25, t x28, y x1. Valves: 7.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%@............................%.................%%  >[npc:culverts_exit]
-%.+......%.%%.%.%%%..%%...%.%.%.%.%.%.%%%.%.%.%.%%
-%.....@.....%.%.........%.%.%...%.%r....%r%...%..%  >[npc:culverts_oldman]
-%........%%...%r%.%%%%%r%.%..%..%.%.%%%.%.%.%.%.%%
-%..........v%.%.%...%...%.%.%...%.........%.%..v%%
-%..........%%.%.%%%.%.%.%.%.%.........=.%%%.%%%.@%  >[npc:chest_iron]
-%.....%.%.....%..@%...%...%.....t..F....%...%...%%  >[npc:chest_wooden]
-%%%.%...%.%%%.%.%.%..v%.%.r.%...ttF...=.%.%%%.%.%%
-%...%.v.%.....%.@...%.%.%.......FF......%.......@%  >[npc:barrel_blue], [npc:barrel_green]
-%.%.%.%%%%%...%.%%%.%.%@%.%%%..ttF....=.%.%..r=.%%  >[npc:chest_wooden]
-%.....%.............%.%.%...%.........v...%.....@%  >[npc:barrel_green]
-%..%%.....%.%%%.%...%.%.%.%.%.........=.....=.=.=%
-%.....%.............%r....%.......=.%...%.%....@=%  >[npc:chest_wooden]
-%.%r.%%.%.%.........%.%%%.%%%%%..==.%.%%%...=====%
-%.......%.....t.....%...%..r..%...=.....%.=.....@%  >[npc:barrel_green]
-%.%%%%%%%.%....F...%%%.v%%%.%.%.=t==..%...===.=.%%
-%.......%v..v.FF......%.%.......=...=...=....v=.%%
-%.%%%...%v..v...F...%.%...%%%%===...=====.=.=...@%  >[npc:chest_iron]
-%.....%.............%...%.%.......=..t....=.....%%
-%.v.%%%%%..%%...%%%.%%.%%.%.%%..=..=.%.%....%%%.%%
-%...%.@.%.......%...%.....r.%...=...........%...%%  >[npc:barrel_green]
-%@%.%.%.%.%.%%%.%.....%.%%%.%.===.=.........%.%.%%  >[npc:barrel_blue]
-%.........%...%...%..v.v....%........t.v.t..%t..%%
-%%%.....%%%%..%.%.@%%.%%..%.%%%%%%%.......P.%.%.%%  >[npc:chest_wooden]
-%...%.%..v....%.....%.%.....%........tP..P......%%
-%...%.%%.....%%.%%%.....%%%%%.%.......PPPP..%.BBB%
-%...t.%...%...v...%...%.%.............PPP...%...B%
-%.%%%%..%%%%%..%%.%.%..........%%.%...........B@B%  >[npc:culvert_valve_7]
-%......t%.v...%.....%.............%.......%...B.B%
-%.%%..........%.%.%%............%.%.%.%%%%%.%%B.@%  >[npc:barrel_red]
-%.....................t...t.....%.%v.......v..B.B%
-%.%%##........#....%%...........%.%.%%%.%%%%%.B.B%
-%.........tt....#...%....r.r........%..r........B%
-%.%.#....ttt...####.......v.....%%%%%.%%%%%%%...B%
-%...#.............#.%................@B.......B@B%  >[npc:chest_wooden], [npc:culvert_valve_6]
-%.%%%#........#.#.#.%%..%.%.%..%%.%.BB..B.BBBBB.B%
-%..v..........#.#.....%...%.......%...B.B.B..v..B%
-%.%.##.%%.%.#.#..........%%%%%%..%%.B............%
-%.%...%.....#.#...............%.%...B............%
-%.%.%.%.###.#.#....ttt...%%.%.%.%.%.BB...........%
-%r..%.....#.@.#....tt..P....%.%...%.B...........@%  >[npc:barrel_blue], [npc:culvert_valve_2]
-%.%%.###..#####....t.PPP..%.%.%.%.%.B.....@......%  >[npc:culvert_valve_4]
-%.....#.......#.....PPPP...r%.%.....B............%
-%%%%%r..%..##r##.........%.%..%.%%..B..........t.%
-%.@.%.%.%...#.....%.%.%.......%...%..........y...%  >[npc:barrel_blue]
-%.%.....%...###..%%.%.%%.%%%%%%.%..B.Br..........%
-%@........%........v%...v.......%................%  >[npc:chest_golden]
-%%%%%r%%%%%%%.%%%%%@%%%%@%%%%%%%%%@BBB...@......@%  >[npc:barrel_blue], [npc:barrel_blue], [npc:culvert_valve_5], [npc:culvert_valve_3], [npc:culvert_valve_1]
+%@.....%%%%%%%%%%%%%%%..WW..=.................@.F%  >[npc:culverts_exit], [npc:culvert_valve_3]
+%.+....%%%%%%%%%%@%%%%..WW..=...v......Fv........%  >[npc:barrel_red]
+%...............v...%%..WW.....tt......F.........%
+%......%.......v.v...%..WW..=..............F.....%
+%......%%%%%%%%%%.%%....WW..====================.%
+%%.%%%%%%%%%%.......%%..WW..=....................%
+%%..%%%%%...........%%..WW..=..v.....v.F......@..%  >[npc:chest_wooden]
+%%.%.....%..........%%r.WW..=....................%
+%%.%.r...%..........%%..WW..=.===================%
+%%....@..%..........%%..WW..=..................@.%  >[npc:culvert_valve_1], [npc:barrel_blue]
+%%.%...r.%..........%@......=..v.v.....F.v..tt...%  >[npc:barrel_blue]
+%%.%.@...%....%%.%%.%%......=....................%  >[npc:chest_wooden]
+%%..%%.%%...@%.....%%%..WW..====================.%  >[npc:barrel_red]
+%...........%..vv..@%%..WW..=....................%  >[npc:chest_wooden]
+%...................%%..WW..=....t..v..F....v....%
+%..r....v...%..r@r..%%..WW..=..................@.%  >[npc:culvert_valve_2], [npc:culvert_valve_4]
+%.....@.....%.......%%..WW..=.===================%  >[npc:culverts_oldman]
+%...........@%.....%%%..WW..=....................%  >[npc:barrel_red]
+%.............%%.%%.%%..WW.......v....vF..v....@.%  >[npc:chest_iron]
+%@r.................%%..WW..=@.@.................%  >[npc:barrel_blue], [npc:barrel_blue], [npc:barrel_blue]
+%%%%%.%%%%%%%%%%.%%%%%..WW..=====================%
+%.......r..........r....WW....r..................%
+%.......................WW.......................%
+%WWWWWWWWWW..WWWWWWWWWWWWWWWWWWWWWWWW..WWWWWWWWWW%
+%WWWWWWWWWW..WWWWWWWWWWWWWWWWWWWWWWWW..WWWWWWWWWW%
+%.......................WW..............r........%
+%..............r........WW.......................%
+%#####.#########.#####..WW..BBBBB.BBBBBBBBBBBBBBB%
+%........@#.........##..WW..B@....@B.....@B.....@%  >[npc:barrel_green], [npc:culvert_valve_7], [npc:barrel_green], [npc:barrel_red], [npc:barrel_blue]
+%........@#.P.......##..WW..B......B.v....B...r..%  >[npc:barrel_green]
+%.PPr.....#...ttt...##..WW..B......B.t....B...v..%
+%...F.......ttt....P##..WW..B.............B......%
+%....r....#.......P.##..WW..B......B....t........%
+%..P......#......P..##..WW..B......B......B......%
+%.........#..ttt....##r.WW..BBB.BBBBBBB.BBBBBBBBB%
+%.........#.P.......##..WW..B..v..@B.....@B.....@%  >[npc:barrel_blue], [npc:barrel_red], [npc:barrel_green]
+%...................##......B...t..B..v...B......%
+%...................#@.............B..t.......v..%  >[npc:barrel_red]
+%.......P...@#......##..WW..B.............B...v..%  >[npc:barrel_blue]
+%............#......##..WW..B......B......B......%
+%....rt.............##..WW..B......B......B......%
+%............#....t.##..WW.rBBBBBBBBB.BBBBBBBBBBB%
+%............#....t@##..WW..B............@B.....@%  >[npc:chest_wooden], [npc:barrel_red], [npc:culvert_valve_6]
+%............#......##..WW..B.t...........B......%
+%.#tt......r.#......##..WW..B.t.......v......y...%
+%.#@.........#....t@##..WW..B.........t...B......%  >[npc:chest_iron], [npc:chest_wooden]
+%..#.........#....t.##..WW..B.............B......%
+%@..................##..WW..B...................@%  >[npc:culvert_valve_5], [npc:chest_golden]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

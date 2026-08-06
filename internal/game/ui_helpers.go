@@ -1,9 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"log"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -11,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -33,35 +36,60 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-func drawWrappedDebugText(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
-	lines := truncateWrappedLines(wrapDebugText(text, area.w), maxLines, area.w)
-	for i, line := range lines {
-		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
-	}
-}
-
-// partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
-// horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
-// Portrait width comes from UIConfig (not derived from screen width) so going
-// fullscreen does not stretch the party row - it stays at its design size and
-// the row is centered with empty side margins.
+// partyPortraitLayout returns the responsive four-card HUD strip. Card slots
+// span the viewport, while the authored card and portrait pixels keep their
+// native vertical size. Horizontal card art is composed from unscaled pieces.
 func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, startY int) {
-	portraitWidth = g.config.UI.PartyPortraitWidth
-	if portraitWidth <= 0 {
-		portraitWidth = g.config.GetScreenWidth() / 4 // safety fallback for old configs
-	}
-	portraitHeight = g.config.UI.PartyPortraitHeight
+	screenWidth := g.config.GetScreenWidth()
+	screenHeight := g.config.GetScreenHeight()
+	portraitWidth = max(1, screenWidth/4)
+	portraitHeight = partyHUDHeight()
 	baseLeft = (g.config.GetScreenWidth() - portraitWidth*4) / 2
-	if baseLeft < 0 {
-		baseLeft = 0
-	}
-	startY = g.config.GetScreenHeight() - portraitHeight
+	startY = screenHeight - portraitHeight
 	return
 }
 
-// wrapText delegates to the standalone wrapText function in ui_dialogs.go
-func (ui *UISystem) wrapText(text string, maxWidth int) []string {
-	return wrapText(text, maxWidth)
+const (
+	partyCardPanelNativeWidth  = 256
+	partyCardPanelNativeHeight = 100
+	partyCardFrameReserve      = 3
+	partyCardInnerFrameGap     = 1
+	partyCardOuterFrameGap     = 2
+	partyHUDWorldClearance     = 2
+)
+
+func partyHUDHeight() int {
+	return partyCardPanelNativeHeight + partyCardFrameReserve*2
+}
+
+// gameplayViewportBottomWithPartyHUD is the pure screen-size form of the HUD
+// boundary. Layout probes use it without constructing a game, while runtime
+// code additionally accounts for the HUD visibility toggle below.
+func gameplayViewportBottomWithPartyHUD(screenHeight int) int {
+	return max(0, screenHeight-partyHUDHeight()-partyHUDWorldClearance)
+}
+
+// gameplayViewportBottom is the shared boundary between the 3D view and the
+// party HUD. World renderers and HUD renderers must use this boundary so
+// window-size changes cannot make mobs sink behind the cards.
+func gameplayViewportBottom(g *MMGame) int {
+	if g == nil {
+		return 0
+	}
+	if !g.showPartyStats {
+		return g.config.GetScreenHeight()
+	}
+	return gameplayViewportBottomWithPartyHUD(g.config.GetScreenHeight())
+}
+
+// partyCardPanelRect reserves an outer gutter for selection and cooldown
+// frames. Nothing belonging to the painted card is drawn in that gutter.
+func partyCardPanelRect(slotX, slotY, slotW, slotH int) (x, y, w, h int) {
+	x = slotX + partyCardFrameReserve
+	y = slotY + partyCardFrameReserve
+	w = max(1, slotW-partyCardFrameReserve*2)
+	h = min(partyCardPanelNativeHeight, max(1, slotH-partyCardFrameReserve*2))
+	return
 }
 
 // Merchant buy/sell grid geometry. Two side-by-side icon grids (buy left, sell
@@ -75,7 +103,39 @@ const (
 	merchantRowGap   = 10
 	merchantPriceH   = 14 // price line drawn under each icon
 	merchantGridW    = merchantGridCols*merchantIconSize + (merchantGridCols-1)*merchantIconGapX
+	// merchantPriceBoxW is the width the price line may occupy. It is derived
+	// from the COLUMN PITCH (icon + gap), not the icon, because the label is
+	// centred under its icon and must stop short of the neighbouring cell: at
+	// pitch 56 a wider box let a compound price ("x3 +20000g") overlap the
+	// price beside it.
+	merchantPriceBoxW = merchantIconSize + merchantIconGapX - 2
 )
+
+// merchantPriceLabel is the ONE place a merchant price line is fitted to its
+// box. Both grids (buy and sell) pass their composed label through it, so no
+// currency form can overrun the cell no matter how it is worded.
+func merchantPriceLabel(text string) string {
+	return clipDebugText(text, merchantPriceBoxW)
+}
+
+// merchantPriceRect is the drawn box for a cell's price line: centred on the
+// icon, one pixel clear of each neighbour.
+func merchantPriceRect(cellX, cellY, cellW, cellH int) (x, y, w, h int) {
+	return cellX - (merchantPriceBoxW-cellW)/2, cellY + cellH, merchantPriceBoxW, merchantPriceH
+}
+
+// compactCoinAmount renders a gold amount for a NARROW label: exact below
+// 10000, k-suffixed above it (20000 -> "20k", 12500 -> "12.5k"). Used only
+// where a price shares its line with another currency.
+func compactCoinAmount(n int) string {
+	if n < 10000 {
+		return strconv.Itoa(n)
+	}
+	if n%1000 == 0 {
+		return strconv.Itoa(n/1000) + "k"
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1000), ".0") + "k"
+}
 
 // merchantGridLayout returns the two grid origins, the grid top, and the pager
 // row Y. Single source for both the renderer and the click handler so cell rects
@@ -123,6 +183,267 @@ func clampPage(page *int, total int) {
 	}
 }
 
+// modalLayerID identifies the top input-owning layer. A bool cannot distinguish
+// close, open, sibling replacement, or a parent/child transition.
+type modalLayerID uint8
+
+const (
+	modalLayerNone modalLayerID = iota
+	modalLayerGameOver
+	modalLayerMainMenu
+	modalLayerSaveRename
+	modalLayerDialog
+	modalLayerSkillTrainer
+	modalLayerMap
+	modalLayerCombatLog
+	modalLayerVictory
+	modalLayerHighScores
+	modalLayerStat
+	modalLayerRevival
+	modalLayerHeal
+	modalLayerTownPortal
+	modalLayerPromotion
+	modalLayerRoster
+	modalLayerStash
+	modalLayerStackSplit
+	modalLayerLevelChoice
+	modalLayerCount
+)
+
+// topModalLayerFor is the single source of truth for modal identity and visual
+// priority. Cases are ordered from the last-drawn (topmost) layer downward.
+// stackSplitOpen is passed explicitly because that transient picker belongs to
+// UISystem while every other modal flag belongs to MMGame.
+func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
+	if g == nil {
+		return modalLayerNone
+	}
+	switch {
+	case g.currentLevelUpChoice() != nil:
+		return modalLayerLevelChoice
+	case stackSplitOpen:
+		return modalLayerStackSplit
+	case g.stashScreenOpen:
+		return modalLayerStash
+	case g.rosterScreenOpen:
+		return modalLayerRoster
+	case g.promotionPickerOpen:
+		return modalLayerPromotion
+	case g.townPortalPickerOpen:
+		return modalLayerTownPortal
+	case g.healPickerOpen:
+		return modalLayerHeal
+	case g.revivalPickerOpen:
+		return modalLayerRevival
+	case g.statPopupOpen:
+		return modalLayerStat
+	case g.showHighScores:
+		return modalLayerHighScores
+	case g.gameVictory:
+		return modalLayerVictory
+	case g.combatLogOpen:
+		return modalLayerCombatLog
+	case g.mapOverlayOpen:
+		return modalLayerMap
+	case g.dialogActive && g.skillTrainerPopup:
+		return modalLayerSkillTrainer
+	case g.dialogActive:
+		return modalLayerDialog
+	case g.mainMenuOpen && g.saveRenameOpen:
+		return modalLayerSaveRename
+	case g.mainMenuOpen:
+		return modalLayerMainMenu
+	case g.gameOver:
+		return modalLayerGameOver
+	default:
+		return modalLayerNone
+	}
+}
+
+func (ui *UISystem) topModalLayer() modalLayerID {
+	if ui == nil {
+		return modalLayerNone
+	}
+	return topModalLayerFor(ui.game, ui.stackSplitPicker.open)
+}
+
+// modalLayerSnapshot is the complete identity of the modal frame the player
+// actually saw. The layer alone is insufficient: changing Main -> Load, a save
+// page, or a dialog branch replaces clickable content without changing layer.
+// Keep the value comparable so the Update/Draw barrier remains allocation-free.
+type modalLayerSnapshot struct {
+	layer   modalLayerID
+	state   [12]int
+	stateID uint64
+	// contentRev is the explicit revision for modal-content mutations the
+	// derived fields below cannot see (a stash cell-to-cell move keeps every
+	// count and the gold unchanged). Bumped via bumpModalContentRev.
+	contentRev uint64
+	// Derived party-content identity, set for every open layer: any transaction
+	// a modal displays (buy, sell, teach, train, hire, deposit) moves at least
+	// one of these, so new mutation paths are covered without a manual bump.
+	// partyRev backs the counts up for length-neutral mutations (a purchase
+	// merged into an existing stack, a partial stack drain, a bench swap).
+	gold        int
+	arenaPoints int
+	bagLen      int
+	partyLen    int
+	reserveLen  int
+	partyRev    uint64
+	dialogNPC   *character.NPC
+	dialogNode  *character.NPCDialogueChoice
+	levelChoice *levelUpChoiceRequest
+}
+
+// bumpModalContentRev marks a modal-content mutation that the snapshot's
+// derived fields cannot detect. While a modal is open this arms the redraw
+// barrier for one frame, so the next Update cannot act on the stale image.
+func (g *MMGame) bumpModalContentRev() {
+	if g != nil {
+		g.modalContentRev++
+	}
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// topModalSnapshot adds the visible sub-state of the top layer to its identity.
+// Selection and page fields are included when they alter what the next click
+// would mean; cosmetic animation state deliberately stays out of the snapshot.
+func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
+	if ui == nil || ui.game == nil {
+		return modalLayerSnapshot{}
+	}
+	g := ui.game
+	s := modalLayerSnapshot{layer: ui.topModalLayer()}
+	if s.layer != modalLayerNone {
+		// Content identity for every open layer. Restricted to open modals so a
+		// world-side mutation (loot pickup) never stalls world Updates.
+		s.contentRev = g.modalContentRev
+		if g.party != nil {
+			s.gold = g.party.Gold
+			s.arenaPoints = g.party.ArenaPoints
+			s.bagLen = len(g.party.Inventory)
+			s.partyLen = len(g.party.Members)
+			s.reserveLen = len(g.party.Reserve)
+			s.partyRev = g.party.ContentRevision()
+		}
+	}
+	switch s.layer {
+	case modalLayerMainMenu:
+		s.state[0] = int(g.mainMenuMode)
+		s.state[1] = g.mainMenuSelection
+		s.state[2] = g.slotSelection
+		s.state[3] = g.savePage
+		// MenuSettings: Down then Right across two pre-Draw Updates must not
+		// adjust a channel whose highlight the player has not seen move.
+		s.state[4] = g.audioSettingsSelection
+	case modalLayerSaveRename:
+		s.state[0] = int(g.mainMenuMode)
+		s.state[1] = g.saveRenameSlot
+	case modalLayerDialog, modalLayerSkillTrainer:
+		s.dialogNPC = g.dialogNPC
+		s.dialogNode = g.currentDialogNode()
+		s.state[0] = g.dialogTab
+		s.state[1] = g.selectedChoice
+		s.state[2] = g.selectedCharIdx
+		s.state[3] = g.dialogSelectedSpell
+		s.state[4] = g.skillTrainerPage
+		s.state[5] = g.merchantBuyPage
+		s.state[6] = g.merchantSellPage
+		s.state[7] = g.spellTraderPage
+		s.state[8] = g.cardCollectorInvPage
+		// The tavern embeds the stash and roster managers in its tabs; their
+		// visible sub-state must be part of the dialog's identity too.
+		s.state[9] = boolInt(g.stashShowCards)
+		s.state[10] = g.stashInvPage
+		s.state[11] = g.rosterSelectedActive
+	case modalLayerVictory:
+		s.state[0] = boolInt(g.victoryScoreSaved)
+	case modalLayerStat:
+		s.state[0] = g.statPopupCharIdx
+	case modalLayerRevival:
+		s.state[0] = g.revivalPickerItemIdx
+	case modalLayerHeal:
+		s.state[0] = g.healPickerItemIdx
+	case modalLayerPromotion:
+		s.state[0] = int(g.promotionPickerKind)
+		s.state[1] = g.promotionPickerItemIdx
+	case modalLayerRoster:
+		s.state[0] = g.rosterSelectedActive
+	case modalLayerStash:
+		s.state[0] = boolInt(g.stashShowCards)
+		s.state[1] = g.stashInvPage
+	case modalLayerStackSplit:
+		s.state[0] = int(ui.stackSplitPicker.source)
+		s.state[1] = ui.stackSplitPicker.from
+		s.state[2] = ui.stackSplitPicker.quantity
+		s.stateID = ui.stackSplitPicker.id
+	case modalLayerLevelChoice:
+		s.levelChoice = g.currentLevelUpChoice()
+		if s.levelChoice != nil {
+			s.state[0] = g.levelUpChoiceIdx
+			s.state[1] = s.levelChoice.selection
+			s.state[2] = s.levelChoice.selectedCount()
+		}
+	}
+	return s
+}
+
+func isOverlayModalLayer(layer modalLayerID) bool {
+	switch layer {
+	case modalLayerMainMenu, modalLayerSaveRename, modalLayerDialog, modalLayerSkillTrainer, modalLayerMap:
+		return true
+	default:
+		return false
+	}
+}
+
+// claimQueueIfModalChanged is the checkpoint form of rule 3 in UISystem.Draw.
+// Clicks queued for one identity never carry into a newly opened child, sibling,
+// parent, or uncovered lower layer.
+func (ui *UISystem) claimQueueIfModalChanged(inputLayer *modalLayerSnapshot) bool {
+	if ui == nil || inputLayer == nil {
+		return false
+	}
+	current := ui.topModalSnapshot()
+	if current == *inputLayer {
+		return false
+	}
+	ui.dropQueuedClicks()
+	*inputLayer = current
+	return true
+}
+
+// dropQueuedClicks discards both buffered click queues. Used wherever a modal
+// layer owns the frame: a press it did not consume was aimed at its dim, and a
+// press queued before it opened was aimed at the interface it replaced.
+func (ui *UISystem) dropQueuedClicks() {
+	if ui == nil || ui.game == nil {
+		return
+	}
+	ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
+	ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
+}
+
+// modalRedrawBarrierActive covers every Update between a modal identity change
+// and the Draw that presents that identity. This includes close, open, sibling,
+// and parent/child transitions.
+func (ui *UISystem) modalRedrawBarrierActive() bool {
+	return ui != nil && ui.game != nil && ui.game.appScreen == AppScreenInGame &&
+		ui.renderedModalSnapshot != ui.topModalSnapshot()
+}
+
+// modalLayerOwnsInput is the lower-layer gate shared by the HUD and character
+// hub. It includes both a currently open modal and the one-frame redraw barrier.
+func (ui *UISystem) modalLayerOwnsInput() bool {
+	return ui != nil && (ui.renderedModalSnapshot.layer != modalLayerNone || ui.topModalLayer() != modalLayerNone)
+}
+
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 	if w <= 0 || h <= 0 {
 		return
@@ -163,16 +484,33 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 // and reports whether a queued left click landed on it. canClick=false still
 // draws but leaves any queued click unconsumed (e.g. mid-drag, popup just opened).
 func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool) bool {
-	mouseX, mouseY := ebiten.CursorPosition()
-	btnCol := color.RGBA{120, 60, 60, 180}
-	if mouseX >= x && mouseX < x+size && mouseY >= y && mouseY < y+size {
-		btnCol = color.RGBA{200, 60, 60, 220}
-	}
-	drawFilledRect(screen, x, y, size, size, btnCol)
-	ui.drawInterfaceIcon(screen, "icon_close", x+2, y+2, size-4, size-4)
+	ui.drawCloseButtonVisual(screen, x, y, size, size)
 	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
 }
 
+// Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
+// reads as "already pressed" (the map overlay used to paint the hover colour
+// permanently), and three hand-rolled variants had drifted apart.
+var (
+	closeButtonRestColor  = color.RGBA{100, 100, 100, 150}
+	closeButtonHoverColor = color.RGBA{150, 50, 50, 200}
+)
+
+// drawCloseButtonVisual paints the shared close button WITHOUT touching the
+// click queue, for layers whose input is claimed in an earlier pass.
+func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) {
+	mouseX, mouseY := ebiten.CursorPosition()
+	col := closeButtonRestColor
+	if mouseX >= x && mouseX < x+w && mouseY >= y && mouseY < y+h {
+		col = closeButtonHoverColor
+	}
+	drawFilledRect(screen, x, y, w, h, col)
+	ui.drawInterfaceIcon(screen, "icon_close", x, y, w, h)
+}
+
+// drawNineSlice: corners 1:1, edges and centre STRETCHED. Right for painted
+// panels drawn near their native size (menu_panel_wide and kin); pattern
+// frames go through drawPatternFrame instead.
 func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
 		return
@@ -420,6 +758,39 @@ func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 	ui.tooltipY = y
 }
 
+// drawWrappedTextWithOverflow draws wrapped copy into area (clipped to
+// maxLines) and, when anything had to be cut, offers the WHOLE text on hover.
+// Every panel showing authored NPC copy should use this instead of the bare
+// drawWrappedDebugText, so a long greeting is never silently swallowed by a
+// fixed-height box.
+func (ui *UISystem) drawWrappedTextWithOverflow(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
+	full := wrapDebugText(text, area.w)
+	shown := truncateWrappedLines(full, maxLines, area.w)
+	for i, line := range shown {
+		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
+	}
+	rows := len(shown)
+	if rows < 1 {
+		rows = 1
+	}
+	ui.offerClippedTextTooltip(full, len(full) > len(shown), area.x, area.y, area.w, rows*lineHeight)
+}
+
+// offerClippedTextTooltip is THE mechanism for "the box was too small": any
+// panel that had to truncate authored copy passes the full wrapped text and
+// the rect it drew the clipped version in, and hovering that rect pops the
+// whole thing as a tooltip. No-op when nothing was cut.
+func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x, y, w, h int) {
+	if !clipped || len(fullLines) == 0 || w <= 0 || h <= 0 {
+		return
+	}
+	mouseX, mouseY := ebiten.CursorPosition()
+	if !isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+		return
+	}
+	ui.queueTooltip(fullLines, mouseX+12, mouseY+8)
+}
+
 func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 	if len(lines) == 0 {
 		return
@@ -504,24 +875,24 @@ func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
 // schoolPlateColor maps a magic school to its nameplate base hue (darkened +
 // brushed by drawMetalPlate). Used for spell-item / spellbook nameplates.
 func schoolPlateColor(school string) color.Color {
-	switch strings.ToLower(school) {
-	case "fire":
+	switch convertToMonsterDamageType(school) {
+	case monsterPkg.DamageFire:
 		return color.RGBA{220, 70, 40, 255}
-	case "water":
+	case monsterPkg.DamageWater:
 		return color.RGBA{60, 130, 220, 255}
-	case "air":
+	case monsterPkg.DamageAir:
 		return color.RGBA{150, 205, 225, 255}
-	case "earth":
+	case monsterPkg.DamageEarth:
 		return color.RGBA{150, 120, 60, 255}
-	case "spirit":
+	case monsterPkg.DamageSpirit:
 		return color.RGBA{230, 215, 120, 255}
-	case "mind":
+	case monsterPkg.DamageMind:
 		return color.RGBA{200, 120, 215, 255}
-	case "body":
+	case monsterPkg.DamageBody:
 		return color.RGBA{90, 195, 110, 255}
-	case "light":
+	case monsterPkg.DamageLight:
 		return color.RGBA{240, 225, 140, 255}
-	case "dark":
+	case monsterPkg.DamageDark:
 		return color.RGBA{135, 95, 170, 255}
 	default:
 		return color.RGBA{120, 128, 148, 255} // steel
@@ -699,6 +1070,25 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	blit(0, 0, col)
 }
 
+// drawScaledMetalCenteredText scales the cached outlined-label renderer so a
+// large heading keeps the same brushed-metal body as rarity names. The Game
+// Over heading intentionally stays on drawScaledCenteredText with its flat red
+// fill; Victory uses this variant for gold.
+func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA) {
+	if text == "" || scale <= 0 {
+		return
+	}
+	img := outlinedLabelImage(text, base)
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(
+		float64(cx)-float64(w)*scale/2,
+		float64(cy)-float64(h)*scale/2,
+	)
+	screen.DrawImage(img, op)
+}
+
 // drawDebugText draws left-aligned OUTLINED white text - the game-wide default,
 // replacing raw ebitenutil.DebugPrintAt(screen, ...) so every label stays legible
 // over any background.
@@ -835,18 +1225,20 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 // drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
 // rather than a flat fill.
 var (
-	raritySilver  = color.RGBA{210, 216, 230, 255} // uncommon
-	rarityGold    = color.RGBA{255, 215, 0, 255}   // rare
-	rarityFire    = color.RGBA{220, 80, 20, 255}   // legendary
-	rarityEmerald = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
+	raritySilver   = color.RGBA{210, 216, 230, 255} // uncommon
+	rarityGold     = color.RGBA{255, 215, 0, 255}   // rare
+	rarityFire     = color.RGBA{220, 80, 20, 255}   // legendary
+	rarityEmerald  = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
+	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
 )
 
 // metallicColors marks which base tints get the metal-gradient text treatment.
 var metallicColors = map[color.RGBA]bool{
-	raritySilver:  true,
-	rarityGold:    true,
-	rarityFire:    true,
-	rarityEmerald: true,
+	raritySilver:   true,
+	rarityGold:     true,
+	rarityFire:     true,
+	rarityEmerald:  true,
+	focusModeMetal: true,
 }
 
 // asMetal reports whether col is a registered rarity metal (so the text renders
@@ -929,8 +1321,8 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	return skill.Description()
 }
 
-func magicMasteryTooltipText() string {
-	return character.MagicMasteryDescription()
+func magicMasteryTooltipText(school character.MagicSchoolID) string {
+	return character.MagicMasteryDescription(school)
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

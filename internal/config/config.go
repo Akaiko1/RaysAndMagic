@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/stats"
 
@@ -34,13 +36,28 @@ func cooldownMultLine(label string, mult float64) string {
 	return fmt.Sprintf("%s %+.0f%%", label, pct)
 }
 
+const weaponStatusSecondsPerTurn = 2
+
+// WeaponStatusTurns converts the shared authored seconds field used by weapon
+// shred/root/slow/weaken into its turn-based clock.
+func WeaponStatusTurns(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	return (seconds + weaponStatusSecondsPerTurn - 1) / weaponStatusSecondsPerTurn
+}
+
+func weaponStatusDurationLabel(seconds int) string {
+	return fmt.Sprintf("%ds RT / %d turns TB", seconds, WeaponStatusTurns(seconds))
+}
+
 func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w == nil {
 		return nil
 	}
 	var lines []string
-	if w.DamageType != "" && w.DamageType != "physical" {
-		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(w.DamageType)))
+	if damageType, err := damagecalc.ParseType(w.DamageType); err == nil && damageType != damagecalc.Physical {
+		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
 		turns := w.StunTurns
@@ -80,10 +97,18 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		lines = append(lines, fmt.Sprintf("Bonus vs stunned targets: x%.1f", w.BonusVsStunned))
 	}
 	if w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Sunder: hits strip %d%% of the target's armor for %ds", w.ArmorShredPct, w.ArmorShredSeconds))
+		lines = append(lines, fmt.Sprintf(
+			"Sunder: hits strip %d%% of the target's armor for %s",
+			w.ArmorShredPct,
+			weaponStatusDurationLabel(w.ArmorShredSeconds),
+		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Root Chance: %.0f%% (pins in place %ds - not a stun)", w.RootChance*100, w.RootSeconds))
+		lines = append(lines, fmt.Sprintf(
+			"Root Chance: %.0f%% (pins in place %s - not a stun)",
+			w.RootChance*100,
+			weaponStatusDurationLabel(w.RootSeconds),
+		))
 	}
 	if w.ArmorClassBonus > 0 {
 		lines = append(lines, fmt.Sprintf("Armor Class %+d while wielded", w.ArmorClassBonus))
@@ -103,14 +128,80 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w.EquipPersonalityMin > 0 {
 		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
 	}
+	// Drakeforged tier signature riders.
+	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Ignite Chance: %.0f%% (burns %ds)", w.IgniteChance*100, w.IgniteSeconds))
+	}
+	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Brood Venom: %.0f%% chance to poison (%ds)", w.PoisonChance*100, w.PoisonSeconds))
+	}
+	if w.ExecuteBelowPct > 0 {
+		lines = append(lines, fmt.Sprintf("The Maw: targets left under %d%% HP are devoured outright", w.ExecuteBelowPct))
+	}
+	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
+		lines = append(lines, fmt.Sprintf("Clutchburst: kills explode for %d fire within %.0f tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+	}
+	if w.TrueDamage > 0 {
+		lines = append(lines, fmt.Sprintf("True Damage: +%d (ignores armor and dodge)", w.TrueDamage))
+	}
+	if w.SlowPct > 0 && w.SlowSeconds > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"Silt: hits slow the target %d%% for %s",
+			w.SlowPct,
+			weaponStatusDurationLabel(w.SlowSeconds),
+		))
+	}
+	if w.WeakenPct > 0 && w.WeakenSeconds > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"Sundering Roar: the target deals %d%% less damage for %s",
+			w.WeakenPct,
+			weaponStatusDurationLabel(w.WeakenSeconds),
+		))
+	}
+	if w.RicochetTargets > 0 {
+		targetLabel := "enemies"
+		if w.RicochetTargets == 1 {
+			targetLabel = "enemy"
+		}
+		lines = append(lines, fmt.Sprintf(
+			"Ricochet: the bolt leaps to %d further %s within %.0f tiles",
+			w.RicochetTargets,
+			targetLabel,
+			w.RicochetRangeTiles,
+		))
+	}
+	if w.SpellEchoPct > 0 {
+		lines = append(lines, fmt.Sprintf("Echo: %d%% chance your offensive spell repeats itself, free", w.SpellEchoPct))
+	}
+	if w.PartyFireWhileRunning {
+		lines = append(lines, "On the Wing: the whole party may attack while running")
+	}
+	if w.TBActionsPerRound > 0 {
+		lines = append(lines, fmt.Sprintf("Autofire: at least %d actions per turn-based round for the wielder", w.TBActionsPerRound))
+	}
+	lines = append(lines, w.SetLines()...)
 	return lines
 }
 
+// titleCaseLower capitalizes the FIRST letter only (damage-type labels).
 func titleCaseLower(s string) string {
 	if s == "" {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// TitleWords capitalizes every space-separated word - the display form for
+// YAML keys (schools, rarities, categories). It replaces strings.Title
+// (deprecated since Go 1.18) and is the ONE implementation shared by the game,
+// the character card templates and the map editor: content keys are ASCII by
+// project rule, so no Unicode word-boundary handling is needed.
+func TitleWords(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		words[i] = titleCaseLower(w)
+	}
+	return strings.Join(words, " ")
 }
 
 // Config holds all game configuration values
@@ -158,9 +249,12 @@ type DayNightPackConfig struct {
 }
 
 // PackMemberConfig is one monster kind and its count within a mixed pack phase.
+// QuestProgress opts this member into normal kill-quest tracking. Ambient pack
+// members are ignored by default so they do not block map-clear objectives.
 type PackMemberConfig struct {
-	Monster string `yaml:"monster"`
-	Count   int    `yaml:"count"`
+	Monster       string `yaml:"monster"`
+	Count         int    `yaml:"count"`
+	QuestProgress bool   `yaml:"quest_progress,omitempty"`
 }
 
 // PhaseMembers resolves the monster kinds this pack spawns for the given phase:
@@ -255,6 +349,15 @@ type WorldConfig struct {
 	TileSize  int `yaml:"tile_size"`
 	MapWidth  int `yaml:"map_width"`
 	MapHeight int `yaml:"map_height"`
+	// OpenWorld merges the outdoor maps into one unified world at load time
+	// (rules in assets/open_world.yaml). Pointer so an absent key defaults ON.
+	OpenWorld *bool `yaml:"open_world"`
+}
+
+// OpenWorldEnabled reports whether the unified open world is on (default true;
+// set world.open_world: false in config.yaml for the classic split maps).
+func (c *Config) OpenWorldEnabled() bool {
+	return c.World.OpenWorld == nil || *c.World.OpenWorld
 }
 
 type MovementConfig struct {
@@ -311,7 +414,6 @@ func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float
 type MeleeAttackConfig struct {
 	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
 	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
-	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
@@ -329,16 +431,12 @@ type WeaponGraphicsConfig struct {
 }
 
 type CameraConfig struct {
-	FieldOfView  float64 `yaml:"field_of_view"`
 	ViewDistance float64 `yaml:"view_distance"`
 }
 
 type UIConfig struct {
-	SpellInputCooldown  int `yaml:"spell_input_cooldown"`
-	PartyPortraitHeight int `yaml:"party_portrait_height"`
-	PartyPortraitWidth  int `yaml:"party_portrait_width"`
-	CompassRadius       int `yaml:"compass_radius"`
-	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
+	SpellInputCooldown int `yaml:"spell_input_cooldown"`
+	DamageBlinkFrames  int `yaml:"damage_blink_frames"`
 }
 
 type CharacterConfig struct {
@@ -432,12 +530,42 @@ type SpellDefinitionConfig struct {
 	// through, and listed under, any of them; it files into whichever open
 	// school the learner has.
 	Schools         []string `yaml:"schools,omitempty"`
-	Level           int      `yaml:"level"`
 	SpellPointsCost int      `yaml:"spell_points_cost"`
+	// Category selects optional cast behavior. "buff" is a beneficial timed
+	// effect with no per-character real-time cooldown.
+	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
-	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
-	// fall back to SpellCooldownDefaultSecondsForLevel(level).
-	CooldownSeconds    float64 `yaml:"cooldown_seconds,omitempty"`
+	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
+	// REQUIRED - validated at load, so no spell can fall back to a guessed cadence.
+	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
+	// DamageByMastery authors the EXACT damage per mastery tier
+	// [Novice, Expert, Master, Grandmaster], for spells whose ladder is dictated
+	// rather than derived from SP cost (Earthquake 50/100/200/400 doubles; the
+	// cost-based MasteryScaledDamage cannot express that). Takes precedence over
+	// the cost formula wherever a spell authors it. Exactly 4 entries.
+	DamageByMastery []int `yaml:"damage_by_mastery,omitempty"`
+	// SummonMonster is the monster key a summon spell brings in as a party ally,
+	// capped at SummonMax live copies per caster-party. SummonHPByMastery and
+	// SummonDamageByMastery are per-tier ladders (Novice..GM) applied to the
+	// spawned monster, so the summon scales with the caster instead of the
+	// monsters.yaml baseline.
+	SummonMonster         string `yaml:"summon_monster,omitempty"`
+	SummonMax             int    `yaml:"summon_max,omitempty"`
+	SummonHPByMastery     []int  `yaml:"summon_hp_by_mastery,omitempty"`
+	SummonDamageByMastery []int  `yaml:"summon_damage_by_mastery,omitempty"`
+	// JumpTiles > 0 makes the spell a short-range self teleport: the party lands
+	// this many tiles straight ahead (blocked destination = refused, no SP).
+	JumpTiles float64 `yaml:"jump_tiles,omitempty"`
+	// Firewall placement: a ZoneWidthTiles-wide line of zone cells laid ACROSS
+	// the party's facing, ZoneAheadTiles in front. Both require zone_radius_tiles.
+	ZoneAheadTiles float64 `yaml:"zone_ahead_tiles,omitempty"`
+	ZoneWidthTiles int     `yaml:"zone_width_tiles,omitempty"`
+	// StandeeDestroyChance is the per-target chance (0..1) that the spell topples
+	// a crossed-standee tile (tree/dune/rock) it damaged.
+	StandeeDestroyChance float64 `yaml:"standee_destroy_chance,omitempty"`
+	// SparesParty exempts the caster's own party from a party-centred nova
+	// (Earthquake shakes the ground under monsters only; Inferno does not).
+	SparesParty        bool    `yaml:"spares_party,omitempty"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
@@ -457,6 +585,9 @@ type SpellDefinitionConfig struct {
 	// Damage-formula modifiers (data-driven; default behaviour when unset).
 	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool `yaml:"scales_with_personality,omitempty"` // also add Personality/divisor to spell damage
+	// MasteryDamagePerTier is an explicit per-school-mastery damage step for
+	// special non-projectile spells such as Inferno.
+	MasteryDamagePerTier int `yaml:"mastery_damage_per_tier,omitempty"`
 
 	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
 	// every monster within that radius of the caster - no damage. RT uses
@@ -471,12 +602,12 @@ type SpellDefinitionConfig struct {
 
 	// Party combat buffs (applied for `duration` seconds). Optional Grandmaster
 	// fields make the magnitude scale linearly by spell-school mastery.
-	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of all incoming party damage
+	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of incoming hit damage across all schools
 	ResistBuffPctGrandmaster           int    `yaml:"resist_buff_pct_grandmaster,omitempty"`           // optional GM-scaled % reduction cap
 	OutgoingDamageBonus                int    `yaml:"outgoing_damage_bonus,omitempty"`                 // base flat add to party outgoing damage
 	OutgoingDamageBonusGrandmaster     int    `yaml:"outgoing_damage_bonus_grandmaster,omitempty"`     // optional GM-scaled outgoing damage cap
 	OutgoingDamageType                 string `yaml:"outgoing_damage_type,omitempty"`                  // empty/"all" applies to all damage; "physical" only to weapon/arrow damage
-	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
+	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of normal hit damage (floors at 0)
 	IncomingDamageReductionGrandmaster int    `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
 	// Bind Undead: on hit, takes control of an UNDEAD target for the duration - it
@@ -517,12 +648,13 @@ type SpellDefinitionConfig struct {
 	MapWide bool `yaml:"map_wide,omitempty"`
 
 	// Per-school party resist buff (Fire Shield: fire +50 for the duration).
-	// Distinct from ResistBuffPct, which reduces ALL incoming damage.
+	// Distinct from ResistBuffPct, which reduces incoming hits of every school.
 	ResistBuffSchool    string `yaml:"resist_buff_school,omitempty"`
 	ResistBuffSchoolPct int    `yaml:"resist_buff_school_pct,omitempty"`
 
-	// Fly: the party walks through any tile except the map's border while the
-	// buff lasts. OutdoorOnly gates casting to maps with a day/night sky.
+	// Fly: terrain collision allows every tile except the map's border while the
+	// buff lasts. Entity-based doors still block. OutdoorOnly gates casting to
+	// maps with a day/night sky.
 	Fly         bool `yaml:"fly,omitempty"`
 	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
 
@@ -530,8 +662,8 @@ type SpellDefinitionConfig struct {
 	TownPortal bool `yaml:"town_portal,omitempty"`
 
 	// MortarRangeTiles (Stone Blossom): the projectile arcs over everything -
-	// no collisions in flight - and detonates exactly this many tiles out (or
-	// at the wall that cuts the arc short), splashing AoeRadiusTiles + stun.
+	// no collisions in flight - and detonates exactly this many tiles out,
+	// splashing AoeRadiusTiles + stun.
 	MortarRangeTiles float64 `yaml:"mortar_range_tiles,omitempty"`
 
 	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
@@ -576,7 +708,7 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
-	// AI behavior timers (in frames, 60fps)
+	// AI behavior timers in engine update ticks (see engine.tps).
 	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
 	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
 	AttackCooldown  int `yaml:"attack_cooldown"`
@@ -598,7 +730,6 @@ type MonsterAIConfig struct {
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
 	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
 	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
-	AlertLosBlockedMultiplier    float64 `yaml:"alert_los_blocked_multiplier"`    // reduced detection through trees/walls
 	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection x this (hysteresis)
 	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at <= range x this (exit at > range)
 
@@ -608,15 +739,18 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig        `yaml:"colors"`
-	Sprite             SpriteConfig        `yaml:"sprite"`
-	BrightnessMin      float64             `yaml:"brightness_min"`
-	Monster            MonsterRenderConfig `yaml:"monster"`
-	NPC                NPCRenderConfig     `yaml:"npc"`
-	// SizeClasses maps a size class (small/medium/person/large/huge) to sprite
-	// height in tile units (1.0 == a 1-tile wall). Monsters and person-NPCs pick
-	// a class instead of a raw number so sizes stay quantized and readable.
+	RaysPerScreenWidth int          `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig `yaml:"colors"`
+	// RemovedSprite catches the retired graphics.sprite block so a stale config
+	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
+	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
+	BrightnessMin float64             `yaml:"brightness_min"`
+	Monster       MonsterRenderConfig `yaml:"monster"`
+	NPC           NPCRenderConfig     `yaml:"npc"`
+	// SizeClasses is the single quantized visual-scale table for world sprites.
+	// Actor classes set frame height; prop/landmark classes set visible alpha
+	// height; tree sprites interpret their selected class as frame width and keep
+	// source aspect. Content names a class instead of a raw per-object number.
 	SizeClasses map[string]float64 `yaml:"size_classes"`
 	// ContainerSizeTiles maps a ground-container kind (loot_bag/treasure_chest)
 	// to sprite height in tile units.
@@ -635,10 +769,45 @@ type GraphicsConfig struct {
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
 
 	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
-	// standee degrades to a single (non-crossed) standee plane - ~4x fewer draws
-	// for distant trees whose cross is sub-pixel anyway. <=0 disables the LOD
-	// (always full crossed standee). Trees only; other standees are unaffected.
+	// standee degrades to a single (non-crossed) standee plane. <=0 disables the
+	// distant LOD. Close trees always retain the full slab.
 	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
+
+	// NightMotes controls the moving motes emitted by authored tree tiles at night.
+	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+}
+
+// NightMoteRenderConfig controls the shared runtime budget and timing for
+// moving night motes. Per-tile night_motes data only selects the palette.
+type NightMoteRenderConfig struct {
+	EmissionRadiusTiles     float64 `yaml:"emission_radius_tiles"`
+	EmissionIntervalSeconds float64 `yaml:"emission_interval_seconds"`
+	EmissionChance          float64 `yaml:"emission_chance"`
+	MaxPerTree              int     `yaml:"max_per_tree"`
+	LifetimeSeconds         float64 `yaml:"lifetime_seconds"`
+	MaxActive               int     `yaml:"max_active"`
+}
+
+func validateNightMoteRenderConfig(nightMotes NightMoteRenderConfig) error {
+	if nightMotes.EmissionRadiusTiles <= 0 {
+		return fmt.Errorf("graphics.night_motes.emission_radius_tiles must be > 0")
+	}
+	if nightMotes.EmissionIntervalSeconds <= 0 {
+		return fmt.Errorf("graphics.night_motes.emission_interval_seconds must be > 0")
+	}
+	if nightMotes.EmissionChance < 0 || nightMotes.EmissionChance > 1 {
+		return fmt.Errorf("graphics.night_motes.emission_chance must be in [0, 1]")
+	}
+	if nightMotes.MaxPerTree <= 0 {
+		return fmt.Errorf("graphics.night_motes.max_per_tree must be > 0")
+	}
+	if nightMotes.LifetimeSeconds <= 0 {
+		return fmt.Errorf("graphics.night_motes.lifetime_seconds must be > 0")
+	}
+	if nightMotes.MaxActive < nightMotes.MaxPerTree {
+		return fmt.Errorf("graphics.night_motes.max_active must be >= max_per_tree")
+	}
+	return nil
 }
 
 // StandeeConfig tunes the board-game standee rendering mode.
@@ -655,9 +824,9 @@ type StandeeConfig struct {
 	// direction (degrees per second), so tokens swivel smoothly instead of
 	// snapping.
 	TurnSpeedDegPerSec float64 `yaml:"turn_speed_deg_per_sec"`
-	// NPCSpinDegPerSec slowly spins NPC tokens (people, statues, valves,
-	// buildings) in place, showcase-style; 0 disables. Scenery tile tokens
-	// (grass, trees, rocks) never spin.
+	// NPCSpinDegPerSec slowly spins non-person NPC props (scenery and landmarks)
+	// in place, showcase-style; 0 disables. Terrain tile sprites (grass, trees,
+	// rocks) use EnvFaceDegPerSec instead.
 	NPCSpinDegPerSec float64 `yaml:"npc_spin_deg_per_sec"`
 	// EnvFaceDegPerSec makes scenery tile tokens (grass, ferns, rocks) slowly
 	// turn to face the camera at this rate; 0 keeps them at a fixed diagonal.
@@ -700,8 +869,13 @@ type ColorsConfig struct {
 	ForestBg [3]int `yaml:"forest_bg"`
 }
 
+// SpriteConfig is the RETIRED graphics.sprite block. Both of its knobs were
+// tree-named but scaled every flat billboard: height came from
+// tree_height_multiplier and width was a single hardcoded ratio of it. Flat
+// sprites now take their size from the tile's own size_class and their width
+// from the source texture aspect, so the block only exists to reject stale
+// content instead of silently ignoring it.
 type SpriteConfig struct {
-	PlaceholderSize      int     `yaml:"placeholder_size"`
 	TreeHeightMultiplier float64 `yaml:"tree_height_multiplier"`
 	TreeWidthMultiplier  float64 `yaml:"tree_width_multiplier"`
 }
@@ -730,6 +904,10 @@ type ProjectileRenderConfig struct {
 	// ImpactStars scatters the impact burst as twinkling 4-point stars instead
 	// of square pixels (plasma/energy impacts).
 	ImpactStars bool `yaml:"impact_stars,omitempty"`
+	// NovaFx selects the ground effect a NON-projectile area spell paints over
+	// its reach (Earthquake's rubble). Empty = only the per-monster impact
+	// bursts. Validated against the novaFxSpawn registry at boot.
+	NovaFx string `yaml:"nova_fx,omitempty"`
 }
 
 type TileConfig struct {
@@ -740,6 +918,13 @@ type TileLightConfig struct {
 	Enabled     bool    `yaml:"enabled"`
 	RadiusTiles float64 `yaml:"radius_tiles"`
 	Intensity   float64 `yaml:"intensity"`
+}
+
+// TileNightMoteConfig opts one authored tree tile into the night-mote effect.
+// Presence is the allowlist; colours stay in content instead of render code.
+type TileNightMoteConfig struct {
+	GlowColor [3]int `yaml:"glow_color"`
+	CoreColor [3]int `yaml:"core_color"`
 }
 
 // ValidTileTypes is the closed set of authored tile `type` values: a purely
@@ -767,43 +952,54 @@ type TileData struct {
 	Solid       bool   `yaml:"solid"`
 	Transparent bool   `yaml:"transparent"`
 	Walkable    bool   `yaml:"walkable"`
+	// FlyOver explicitly marks transparent, non-walkable floor terrain such as
+	// water or a chasm as open airspace for flying monsters. It does not apply
+	// to walls, doors, or opaque terrain.
+	FlyOver bool `yaml:"fly_over,omitempty"`
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
-	// HeightMultiplier is a legacy fallback for old tile YAML.
+	// HeightMultiplier remains only to reject legacy billboard authoring.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
 	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
-	SizeTiles            float64 `yaml:"size_tiles,omitempty"`
-	Sprite               string  `yaml:"sprite"`
-	RenderType           string  `yaml:"render_type"`
-	FloorColor           [3]int  `yaml:"floor_color"`
-	FloorNearColor       [3]int  `yaml:"floor_near_color"`
+	SizeClass            string  `yaml:"size_class,omitempty"`
+	// RemovedSizeTiles catches the retired raw YAML key so a stale or mistyped
+	// content entry fails loudly instead of silently falling back to 1 tile.
+	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
+	Sprite           string   `yaml:"sprite"`
+	RenderType       string   `yaml:"render_type"`
+	ProceduralEffect string   `yaml:"procedural_effect,omitempty"`
+	FloorColor       [3]int   `yaml:"floor_color"`
+	FloorNearColor   [3]int   `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
-	// this tile type. Empty = no texture overlay (renderer falls back to base
-	// color). The "beach" group is picked dynamically for empty tiles
-	// bordering water - see the renderer.
+	// this tile type. Objects without a group or floor_color inherit the
+	// dominant neighbouring floor; floor-only tiles fall back to the map base.
+	// The "beach" group is picked dynamically for empty tiles bordering water.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
-	// InheritFloor makes a floor_only marker tile (spawn point, teleporter) take
-	// the surrounding biome floor colour + texture instead of painting its own
-	// floor_color square - like the ground under a mob spawn. The floor_color is
-	// then reused only as the tint for the tile's decoration (spawn border /
-	// teleporter glow), not the floor itself.
-	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
+	// InheritFloor forces a floor marker (spawn point, teleporter) to take
+	// the surrounding biome floor even when it has a floor_color. Regular
+	// non-floor objects without an authored floor inherit automatically; see
+	// InheritsNeighbourFloor.
+	InheritFloor bool `yaml:"inherit_floor,omitempty"`
+	// ExcludedUnderFloorTiles lists tile keys this object must ignore when it
+	// inherits its floor from neighbouring cells. It is evaluated by the shared
+	// dominant-floor vote used by the game renderer and map viewer.
+	ExcludedUnderFloorTiles []string `yaml:"excluded_under_floor_tiles,omitempty"`
 	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
 	// not rotate; a fountain keeps the showcase spin).
 	NoSpin bool `yaml:"no_spin,omitempty"`
-	// WallColor paints a textured_wall's 3D surface fallback (and doubles as
+	// WallColor paints a wall's 3D surface fallback (and doubles as
 	// its schematic map swatch). Non-wall solid tiles author MapColor instead:
 	// it is ONLY the schematic map/minimap obstacle color (a tree is not a wall).
 	WallColor [3]int   `yaml:"wall_color,omitempty"`
 	MapColor  [3]int   `yaml:"map_color,omitempty"`
 	Letter    string   `yaml:"letter"`
-	Biomes       []string `yaml:"biomes,omitempty"`
+	Biomes    []string `yaml:"biomes,omitempty"`
 	// ShortLabel is a multi-char placement token for GENERAL (universal) tiles
 	// that have no single-char letter - placed in maps via a >[tile:short_label]
 	// def at an '@' position, like NPCs/special tiles. Frees such tiles from the
 	// scarce single-char letter space; the map editor's "general" palette uses it.
 	ShortLabel string `yaml:"short_label,omitempty"`
-	// WallMounted makes an ordinary standee tile (render_type environment_sprite)
+	// WallMounted makes an ordinary standee tile
 	// stick flush to the nearest solid neighbour and orient along that wall - the
 	// tile-side twin of NPC wall_mounted, for decorations (banners, paintings, a
 	// mounted skull). Placed on a walkable floor cell adjacent to a wall; falls
@@ -811,13 +1007,90 @@ type TileData struct {
 	// (w == h*4) cycle frames like any standee.
 	WallMounted bool `yaml:"wall_mounted,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
-	// (render_type floor_only) that blocks movement but reads like walkable
+	// (render_type floor) that blocks movement but reads like walkable
 	// ground - e.g. a chasm pit. Wall/billboard blockers get the aura
 	// automatically; ordinary impassable floors (water) leave this false.
 	ImpassableAura      bool                   `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
+	NightMotes          *TileNightMoteConfig   `yaml:"night_motes,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
+}
+
+// Tile render classes describe HOW a tile is drawn, never WHAT the content is.
+// Keep the authored YAML values and every runtime dispatcher on these constants.
+const (
+	TileRenderFloor   = "floor"
+	TileRenderWall    = "wall"
+	TileRenderStandee = "standee"
+	// TileRenderCrossedStandee is the natural crossed volume: trees, rocks,
+	// dunes. size_class is the projected frame WIDTH (tree = the standard 2.0;
+	// a smaller class makes a narrower tree). Degrades to one camera-facing
+	// plane past graphics.tree_standee_lod_tiles and is the class canopy shade
+	// and earthquake toppling act on.
+	TileRenderCrossedStandee = "crossed_standee"
+	// TileRenderCrossedProp is the built crossed volume: boilers, crates,
+	// screens, logs. Same two-plane geometry, but size_class is the VISIBLE
+	// HEIGHT like every other prop, it never turns to face the camera at any
+	// distance, and it takes part in no tree mechanic.
+	TileRenderCrossedProp     = "crossed_prop"
+	TileRenderLandmarkStandee = "landmark_standee"
+)
+
+// TileEffectFireflySwarm selects the procedural fixed-swarm renderer.
+const TileEffectFireflySwarm = "firefly_swarm"
+
+var tileRenderTypes = [...]string{
+	TileRenderFloor,
+	TileRenderWall,
+	TileRenderStandee,
+	TileRenderCrossedStandee,
+	TileRenderCrossedProp,
+	TileRenderLandmarkStandee,
+}
+
+// IsCrossedRenderType reports whether a render type draws two perpendicular
+// planes. Geometry dispatchers (tile cache, raycast skip, prewarm, opacity)
+// treat both crossed classes alike; the tree MECHANICS - billboard LOD, canopy
+// shade, earthquake toppling - stay keyed to TileRenderCrossedStandee.
+func IsCrossedRenderType(renderType string) bool {
+	return renderType == TileRenderCrossedStandee || renderType == TileRenderCrossedProp
+}
+
+// TileRenderTypes returns the closed authored render-class set. The copy keeps
+// callers from mutating the renderer's source of truth.
+func TileRenderTypes() []string {
+	return append([]string(nil), tileRenderTypes[:]...)
+}
+
+// IsTileRenderType reports whether value belongs to the closed render-class set.
+func IsTileRenderType(value string) bool {
+	for _, candidate := range tileRenderTypes {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// IsTileProceduralEffect reports whether effect belongs to the closed authored
+// procedural-effect set. Empty means no procedural effect.
+func IsTileProceduralEffect(effect string) bool {
+	return effect == "" || effect == TileEffectFireflySwarm
+}
+
+// HasExplicitFloor reports whether a tile authors the ground beneath itself.
+// A zero FloorColor is the existing config sentinel for an unset colour.
+func (td *TileData) HasExplicitFloor() bool {
+	return td != nil && (td.FloorTextureGroup != "" || td.FloorColor != [3]int{})
+}
+
+// InheritsNeighbourFloor is the one policy shared by the game and map viewer:
+// objects inherit the dominant adjacent floor unless they author one explicitly.
+// Floor-only marker tiles opt in with inherit_floor because their floor_color is
+// usually an effect tint rather than a real ground surface.
+func (td *TileData) InheritsNeighbourFloor() bool {
+	return td != nil && (td.InheritFloor || (td.RenderType != TileRenderFloor && !td.HasExplicitFloor()))
 }
 
 type SpecialTileConfig struct {
@@ -839,13 +1112,17 @@ type MapConfig struct {
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.
 	AmbientLight float64 `yaml:"ambient_light,omitempty"`
-	// CanopyShade locally lowers ambient light where tree_sprite tiles are dense.
+	// CanopyShade locally lowers ambient light where crossed standees are dense.
 	// It keeps open areas at normal map ambient while making forests feel shaded.
 	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
 	// WallTorches places a flickering torch (particle flame + point light) at
 	// every inner wall corner of the map - the classic dungeon/temple dressing
 	// for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
+	// RespawnDays > 0 makes the map a FARMING zone: on arrival, if at least this
+	// many day/night phase changes have passed since the roster was last spawned,
+	// the authored monsters respawn in full (the clock tower winds new horrors).
+	RespawnDays int `yaml:"respawn_days,omitempty"`
 	// ClearEncounter: a single map-wide encounter - ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
@@ -928,6 +1205,10 @@ type MapTreasureChestRewardConfig struct {
 type MapConfigs struct {
 	Maps   map[string]MapConfig   `yaml:"maps"`
 	Biomes map[string]BiomeConfig `yaml:"biomes"`
+	// SharedFloorTextureGroups are floor-texture groups every biome gets for
+	// free, for universal tiles (water) that can appear on any map. A biome
+	// listing the same group name overrides the shared one.
+	SharedFloorTextureGroups map[string][]string `yaml:"shared_floor_texture_groups,omitempty"`
 }
 
 // WeaponSystemConfig contains the complete weapon system configuration
@@ -935,14 +1216,13 @@ type WeaponSystemConfig struct {
 	Weapons map[string]*WeaponDefinitionConfig `yaml:"weapons"`
 	// WeaponCooldownMultipliers is the per-weapon-TYPE real-time attack-cooldown
 	// multiplier (1.0 = baseline sword), keyed by the canonical weapon-skill
-	// noun (sword/dagger/axe/spear/bow/mace/staff). Types not listed default to
+	// noun (sword/dagger/axe/spear/bow/mace/staff/blaster). Types not listed default to
 	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
 	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
 }
 
 // WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
-// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown - so a
-// weapon whose category maps to no skill (e.g. the alien blaster) is neutral.
+// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown.
 func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 	if GlobalWeapons != nil {
 		if m, ok := GlobalWeapons.WeaponCooldownMultipliers[skillNoun]; ok && m > 0 {
@@ -975,9 +1255,10 @@ type WeaponDefinitionConfig struct {
 	// hit. Same semantics as the spell field of the same name: splash uses
 	// the base damage, applies the victim's armor reduction, and skips
 	// crits/disintegrate/stun.
-	AoeRadiusTiles float64            `yaml:"aoe_radius_tiles,omitempty"`
-	Rarity         string             `yaml:"rarity"`
-	Value          int                `yaml:"value,omitempty"`
+	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
+	Rarity         string  `yaml:"rarity"`
+	Value          int     `yaml:"value,omitempty"`
+	Set            string  `yaml:"set,omitempty"` // equipment-set key from items.yaml
 	// NoLoot excludes the weapon from every GENERATED rarity pool (chest
 	// catalog rolls, rarity-rack merchant stock) - for class-kit weapons like
 	// the Monk's fists that exist only pre-equipped. Authored loot tables and
@@ -994,9 +1275,9 @@ type WeaponDefinitionConfig struct {
 	// wielder casts while this weapon is in their main hand (e.g. Archmage
 	// Staff = 0.8 -> -20% spell cooldown). 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
-	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
+	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
-	// plain arrow. Cosmetic only; damage stays weapon-based.
+	// plain arrow. Ranged magic weapons must use the same school for DamageType.
 	ProjectileSchool string `yaml:"projectile_school,omitempty"`
 
 	// --- Arena unique-tier signature riders ---
@@ -1025,6 +1306,44 @@ type WeaponDefinitionConfig struct {
 	// EquipPersonalityMin, when > 0, lets ANY character with this much effective
 	// Personality wield the weapon even without its category skill (Lanista's Scepter).
 	EquipPersonalityMin int `yaml:"equip_personality_min,omitempty"`
+
+	// --- Drakeforged tier signature riders ---
+	// IgniteChance sets the struck monster burning for IgniteSeconds (Drakefang).
+	IgniteChance  float64 `yaml:"ignite_chance,omitempty"`
+	IgniteSeconds int     `yaml:"ignite_seconds,omitempty"`
+	// PoisonChance envenoms the struck monster for PoisonSeconds (Hatchling Fang).
+	PoisonChance  float64 `yaml:"poison_chance,omitempty"`
+	PoisonSeconds int     `yaml:"poison_seconds,omitempty"`
+	// ExecuteBelowPct: a surviving target left at or under this % of max HP dies
+	// outright - the jaws close (Wyrmcleaver).
+	ExecuteBelowPct int `yaml:"execute_below_pct,omitempty"`
+	// DeathBurst: a target KILLED by this weapon bursts, dealing fire damage to
+	// monsters within the radius (Ember Egg).
+	DeathBurstDamage      int     `yaml:"death_burst_damage,omitempty"`
+	DeathBurstRadiusTiles float64 `yaml:"death_burst_radius_tiles,omitempty"`
+	// TrueDamage adds a flat component that bypasses armor and dodge, resisted
+	// only by the school (Broodspike).
+	TrueDamage int `yaml:"true_damage,omitempty"`
+	// Slow drags the target's movement by SlowPct for SlowSeconds (Tarn Trident).
+	SlowPct     int `yaml:"slow_pct,omitempty"`
+	SlowSeconds int `yaml:"slow_seconds,omitempty"`
+	// Weaken cuts the target's outgoing damage by WeakenPct for WeakenSeconds
+	// (Scalebreaker roar).
+	WeakenPct     int `yaml:"weaken_pct,omitempty"`
+	WeakenSeconds int `yaml:"weaken_seconds,omitempty"`
+	// Ricochet: after impact the bolt leaps to further enemies within the
+	// authored seek radius - unlike the straight-line pierce.
+	RicochetTargets    int     `yaml:"ricochet_targets,omitempty"`
+	RicochetRangeTiles float64 `yaml:"ricochet_range_tiles,omitempty"`
+	// SpellEchoPct: spells cast by the wielder repeat once, free, this % of the
+	// time (Verdant Eye).
+	SpellEchoPct int `yaml:"spell_echo_pct,omitempty"`
+	// PartyFireWhileRunning: while ANY party member wields this, the whole party
+	// may attack on the move (Wyrmspine Wing).
+	PartyFireWhileRunning bool `yaml:"party_fire_while_running,omitempty"`
+	// TBActionsPerRound is the wielder's personal turn-based action floor.
+	// Speed bonus actions stack on top.
+	TBActionsPerRound int `yaml:"tb_actions_per_round,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
@@ -1058,6 +1377,82 @@ var GlobalWeapons *WeaponSystemConfig
 var GlobalItems *ItemSystemConfig
 var GlobalLoots *LootTablesConfig
 
+// ResolveSizeClassTiles resolves one authored visual-size class from the
+// supplied config table. Zero/negative values are never valid visual scales.
+// Keeping this lookup here lets monsters, NPCs, and tile standees share one
+// data source without importing one another's packages.
+func ResolveSizeClassTiles(classes map[string]float64, class string) (float64, bool) {
+	value, ok := classes[class]
+	return value, ok && class != "" && value > 0
+}
+
+// SizeClassPerson is the shared humanoid actor frame-height class.
+const SizeClassPerson = "person"
+
+var actorSizeClassNames = []string{"small", "medium", SizeClassPerson, "large", "huge"}
+
+var propSizeClassNames = []string{
+	"tiny_prop", "small_prop", "medium_prop", "full_tile",
+	"tall_prop", "large_prop", "structure",
+}
+
+// SizeClassTree is the standard crossed-standee width class.
+const SizeClassTree = "tree"
+
+func sizeClassSet(names []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+var actorSizeClasses = sizeClassSet(actorSizeClassNames)
+var propSizeClasses = sizeClassSet(propSizeClassNames)
+
+// ActorSizeClassNames returns the closed actor frame-height class set.
+func ActorSizeClassNames() []string {
+	return append([]string(nil), actorSizeClassNames...)
+}
+
+// VisualSizeClassNames returns every valid authored visual-size class.
+func VisualSizeClassNames() []string {
+	names := make([]string, 0, len(actorSizeClassNames)+len(propSizeClassNames)+1)
+	names = append(names, actorSizeClassNames...)
+	names = append(names, propSizeClassNames...)
+	return append(names, SizeClassTree)
+}
+
+// IsActorSizeClass reports whether class is valid for actor frame height.
+func IsActorSizeClass(class string) bool {
+	_, ok := actorSizeClasses[class]
+	return ok
+}
+
+// IsPropSizeClass reports whether class is valid for visible-height props.
+func IsPropSizeClass(class string) bool {
+	_, ok := propSizeClasses[class]
+	return ok
+}
+
+// IsCrossedStandeeSizeClass reports whether class is valid as a crossed-
+// standee frame width.
+func IsCrossedStandeeSizeClass(class string) bool {
+	return class == SizeClassTree || IsPropSizeClass(class)
+}
+
+// IsTileSizeClass reports whether a class has the right sizing semantics for
+// the tile render type that consumes it.
+func IsTileSizeClass(renderType, class string) bool {
+	if renderType == TileRenderCrossedStandee {
+		return IsCrossedStandeeSizeClass(class)
+	}
+	return (renderType == TileRenderStandee ||
+		renderType == TileRenderCrossedProp ||
+		renderType == TileRenderLandmarkStandee) &&
+		IsPropSizeClass(class)
+}
+
 // LoadConfig loads the configuration from config.yaml
 func LoadConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
@@ -1069,10 +1464,40 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
-	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to a single plane
+	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
 	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
+	config.Graphics.NightMotes = NightMoteRenderConfig{
+		EmissionRadiusTiles:     10,
+		EmissionIntervalSeconds: 2,
+		EmissionChance:          0.20,
+		MaxPerTree:              3,
+		LifetimeSeconds:         7,
+		MaxActive:               96,
+	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if config.World.TileSize <= 0 {
+		return nil, fmt.Errorf("world.tile_size must be > 0")
+	}
+	if config.Graphics.RemovedSprite != nil {
+		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
+	}
+	for class, value := range config.Graphics.SizeClasses {
+		if class == "" || value <= 0 {
+			return nil, fmt.Errorf("graphics.size_classes contains invalid class %q = %v", class, value)
+		}
+		if !IsActorSizeClass(class) && !IsPropSizeClass(class) && class != SizeClassTree {
+			return nil, fmt.Errorf("graphics.size_classes contains unknown class %q", class)
+		}
+	}
+	for _, class := range VisualSizeClassNames() {
+		if _, ok := ResolveSizeClassTiles(config.Graphics.SizeClasses, class); !ok {
+			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
+		}
+	}
+	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
 	}
 
@@ -1113,10 +1538,136 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	return &spellConfig, nil
 }
 
+func canonicalDamageSchool(raw string) (string, error) {
+	damageType, err := damagecalc.ParseType(raw)
+	if err != nil {
+		return "", err
+	}
+	return damageType.String(), nil
+}
+
+func canonicalMagicSchool(raw string) (string, error) {
+	damageType, err := damagecalc.ParseType(raw)
+	if err != nil {
+		return "", err
+	}
+	if damageType == damagecalc.Physical {
+		return "", fmt.Errorf("%q is not a magic school", raw)
+	}
+	return damageType.String(), nil
+}
+
+func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
+	if values == nil {
+		return nil, nil
+	}
+	canonical := make(map[string]int, len(values))
+	originals := make(map[string]string, len(values))
+	for raw, value := range values {
+		school, err := canonicalDamageSchool(raw)
+		if err != nil {
+			return nil, err
+		}
+		if previous, exists := originals[school]; exists {
+			return nil, fmt.Errorf("damage schools %q and %q normalize to the same key %q", previous, raw, school)
+		}
+		originals[school] = raw
+		canonical[school] = value
+	}
+	return canonical, nil
+}
+
 // validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.School != "" {
+			school, err := canonicalDamageSchool(def.School)
+			if err != nil {
+				return fmt.Errorf("spell '%s': unsupported school %q", id, def.School)
+			}
+			def.School = school
+		}
+		for i, school := range def.Schools {
+			canonical, err := canonicalDamageSchool(school)
+			if err != nil {
+				return fmt.Errorf("spell '%s': schools[%d] is unsupported: %q", id, i, school)
+			}
+			def.Schools[i] = canonical
+		}
+		if def.ResistBuffSchool != "" {
+			school, err := canonicalDamageSchool(def.ResistBuffSchool)
+			if err != nil {
+				return fmt.Errorf("spell '%s': unsupported resist_buff_school %q", id, def.ResistBuffSchool)
+			}
+			def.ResistBuffSchool = school
+		}
+		if n := len(def.DamageByMastery); n > 0 {
+			if n != 4 {
+				return fmt.Errorf("spell '%s': damage_by_mastery needs exactly 4 entries (Novice..Grandmaster), got %d", id, n)
+			}
+			for i, v := range def.DamageByMastery {
+				if v < 0 {
+					return fmt.Errorf("spell '%s': damage_by_mastery[%d] is negative", id, i)
+				}
+				if i > 0 && v < def.DamageByMastery[i-1] {
+					return fmt.Errorf("spell '%s': damage_by_mastery must not decrease (entry %d)", id, i)
+				}
+			}
+		}
+		if def.SummonMonster != "" {
+			if def.SummonMax <= 0 {
+				return fmt.Errorf("spell '%s': summon_monster requires a positive summon_max", id)
+			}
+			for name, ladder := range map[string][]int{
+				"summon_hp_by_mastery":     def.SummonHPByMastery,
+				"summon_damage_by_mastery": def.SummonDamageByMastery,
+			} {
+				if n := len(ladder); n != 0 && n != 4 {
+					return fmt.Errorf("spell '%s': %s needs exactly 4 entries (Novice..Grandmaster), got %d", id, name, n)
+				}
+			}
+		}
+		if (def.SummonMax > 0 || len(def.SummonHPByMastery) > 0 || len(def.SummonDamageByMastery) > 0) && def.SummonMonster == "" {
+			return fmt.Errorf("spell '%s': summon_max/summon ladders require summon_monster", id)
+		}
+		if (def.ZoneAheadTiles > 0 || def.ZoneWidthTiles > 0) && def.ZoneRadiusTiles <= 0 {
+			return fmt.Errorf("spell '%s': zone_ahead_tiles/zone_width_tiles require zone_radius_tiles", id)
+		}
+		if def.StandeeDestroyChance < 0 || def.StandeeDestroyChance > 1 {
+			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
+		}
+		hasStunEffect := def.StunChance > 0 || def.StunRadiusTiles > 0
+		if hasStunEffect && (def.StunDurationSeconds <= 0 || def.StunDurationTurns <= 0) {
+			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds and stun_duration_turns", id)
+		}
+		if !hasStunEffect && (def.StunDurationSeconds != 0 || def.StunDurationTurns != 0) {
+			return fmt.Errorf("spell '%s': stun durations require stun_chance or stun_radius_tiles", id)
+		}
+		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
+		switch {
+		case isBuff && def.CooldownSeconds != 0:
+			// Buffs return a zero RT cooldown before this field is read, so an
+			// authored value would silently do nothing.
+			return fmt.Errorf("spell '%s': category buff must not author cooldown_seconds (buffs have no real-time cooldown)", id)
+		case !isBuff && def.CooldownSeconds <= 0:
+			return fmt.Errorf("spell '%s': cooldown_seconds is required and must be > 0", id)
+		}
+		if def.MasteryDamagePerTier < 0 {
+			return fmt.Errorf("spell '%s': mastery_damage_per_tier cannot be negative", id)
+		}
+		if def.MasteryDamagePerTier > 0 && !def.MapWide && def.PartyAoeRadiusTiles <= 0 {
+			return fmt.Errorf("spell '%s': mastery_damage_per_tier requires map_wide or party_aoe_radius_tiles", id)
+		}
+		switch strings.ToLower(strings.TrimSpace(def.Category)) {
+		case "":
+		case "buff":
+			if !def.IsUtility || def.Duration <= 0 {
+				return fmt.Errorf("spell '%s': category %q requires a timed utility spell", id, def.Category)
+			}
+		default:
+			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
+		}
 		if len(def.StatBonuses) > 0 {
 			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
 				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
@@ -1127,11 +1678,11 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 				}
 			}
 		}
-		switch strings.TrimSpace(def.OutgoingDamageType) {
-		case "", "all", "physical":
-		default:
+		outgoingType := strings.ToLower(strings.TrimSpace(def.OutgoingDamageType))
+		if outgoingType != "" && outgoingType != "all" && outgoingType != damagecalc.Physical.String() {
 			return fmt.Errorf("spell '%s': unsupported outgoing_damage_type %q", id, def.OutgoingDamageType)
 		}
+		def.OutgoingDamageType = outgoingType
 		// A mortar spell's arc timing is derived from its projectile speed; require
 		// it so the flight never silently falls back to a code default.
 		if def.MortarRangeTiles > 0 && (def.Physics == nil || def.Physics.SpeedTiles <= 0) {
@@ -1165,17 +1716,26 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	if err := validateWeaponConfig(&weaponConfig); err != nil {
 		return nil, err
 	}
-
-	// Set global weapon config for easy access
-	GlobalWeapons = &weaponConfig
+	if err := validateEquipmentSetReferences(GlobalItems, &weaponConfig); err != nil {
+		return nil, err
+	}
 
 	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
-	weaponDefByName = make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
-	weaponKeyByName = make(map[string]string, len(weaponConfig.Weapons))
+	weaponDefsByName := make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
+	weaponKeysByName := make(map[string]string, len(weaponConfig.Weapons))
 	for key, def := range weaponConfig.Weapons {
-		weaponDefByName[def.Name] = def
-		weaponKeyByName[def.Name] = key
+		if prev, dup := weaponKeysByName[def.Name]; dup {
+			return nil, fmt.Errorf("weapons %q and %q share display name %q - display names must be unique", prev, key, def.Name)
+		}
+		weaponDefsByName[def.Name] = def
+		weaponKeysByName[def.Name] = key
 	}
+
+	// Publish the catalog and its indexes together only after all validation
+	// succeeds. Name lookup is load-bearing for saved weapon instances.
+	GlobalWeapons = &weaponConfig
+	weaponDefByName = weaponDefsByName
+	weaponKeyByName = weaponKeysByName
 
 	return &weaponConfig, nil
 }
@@ -1209,11 +1769,67 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
 		}
+		if def.DamageType != "" {
+			damageType, err := canonicalDamageSchool(def.DamageType)
+			if err != nil {
+				return fmt.Errorf("weapon '%s' has unsupported damage_type %q", key, def.DamageType)
+			}
+			def.DamageType = damageType
+		}
+		if def.ProjectileSchool != "" {
+			school, err := canonicalDamageSchool(def.ProjectileSchool)
+			if err != nil {
+				return fmt.Errorf("weapon '%s' has unsupported projectile_school %q", key, def.ProjectileSchool)
+			}
+			def.ProjectileSchool = school
+		}
+		if IsMagicRangedWeapon(def) {
+			school, err := canonicalMagicSchool(def.ProjectileSchool)
+			if err != nil {
+				return fmt.Errorf("ranged magic weapon '%s' has invalid projectile_school %q: %w", key, def.ProjectileSchool, err)
+			}
+			def.ProjectileSchool = school
+			if def.DamageType != school {
+				return fmt.Errorf("ranged magic weapon '%s' damage_type %q does not match projectile_school %q", key, def.DamageType, school)
+			}
+		}
 		if def.BonusStat != "" && !validWeaponBonusStats[def.BonusStat] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat %q", key, def.BonusStat)
 		}
 		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
+		}
+		if err := validateChanceDuration(key, "ignite", def.IgniteChance, def.IgniteSeconds); err != nil {
+			return err
+		}
+		if err := validateChanceDuration(key, "poison", def.PoisonChance, def.PoisonSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "slow", def.SlowPct, def.SlowSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "weaken", def.WeakenPct, def.WeakenSeconds); err != nil {
+			return err
+		}
+		if def.ExecuteBelowPct < 0 || def.ExecuteBelowPct > 100 {
+			return fmt.Errorf("weapon '%s': execute_below_pct must be in [0,100]", key)
+		}
+		if def.DeathBurstDamage < 0 || def.DeathBurstRadiusTiles < 0 ||
+			(def.DeathBurstDamage == 0) != (def.DeathBurstRadiusTiles == 0) {
+			return fmt.Errorf("weapon '%s': death_burst_damage and death_burst_radius_tiles must both be positive or both be zero", key)
+		}
+		if def.TrueDamage < 0 {
+			return fmt.Errorf("weapon '%s': true_damage must not be negative", key)
+		}
+		if def.RicochetTargets < 0 || def.RicochetRangeTiles < 0 ||
+			(def.RicochetTargets == 0) != (def.RicochetRangeTiles == 0) {
+			return fmt.Errorf("weapon '%s': ricochet_targets and ricochet_range_tiles must both be positive or both be zero", key)
+		}
+		if def.SpellEchoPct < 0 || def.SpellEchoPct > 100 {
+			return fmt.Errorf("weapon '%s': spell_echo_pct must be in [0,100]", key)
+		}
+		if def.TBActionsPerRound < 0 {
+			return fmt.Errorf("weapon '%s': tb_actions_per_round must not be negative", key)
 		}
 		if isProjectileWeapon(def) {
 			if def.Physics == nil {
@@ -1226,6 +1842,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)
 			}
 		} else {
+			if def.RicochetTargets > 0 {
+				return fmt.Errorf("melee weapon '%s' defines ricochet fields (projectile-only)", key)
+			}
 			if def.Physics != nil {
 				return fmt.Errorf("melee weapon '%s' should not define projectile physics", key)
 			}
@@ -1243,12 +1862,70 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 	return nil
 }
 
+func validateChanceDuration(weaponKey, effect string, chance float64, seconds int) error {
+	if chance < 0 || chance > 1 {
+		return fmt.Errorf("weapon '%s': %s_chance must be in [0,1]", weaponKey, effect)
+	}
+	if seconds < 0 || (chance == 0) != (seconds == 0) {
+		return fmt.Errorf("weapon '%s': %s_chance and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
+	}
+	return nil
+}
+
+func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
+	if pct < 0 || pct > 100 {
+		return fmt.Errorf("weapon '%s': %s_pct must be in [0,100]", weaponKey, effect)
+	}
+	if seconds < 0 || (pct == 0) != (seconds == 0) {
+		return fmt.Errorf("weapon '%s': %s_pct and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
+	}
+	return nil
+}
+
 func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
 	category := strings.ToLower(strings.TrimSpace(def.Category))
 	return def.Range > 3 ||
 		strings.Contains(category, "bow") ||
 		strings.Contains(category, "throwing") ||
 		strings.Contains(category, "blaster")
+}
+
+// IsMagicRangedWeapon is the shared staff/book rule for validation, rendering,
+// and runtime audio. Range remains data-driven rather than inferred by category.
+func IsMagicRangedWeapon(def *WeaponDefinitionConfig) bool {
+	if def == nil || !isProjectileWeapon(def) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(def.Category)) {
+	case "staff", "book":
+		return true
+	default:
+		return false
+	}
+}
+
+// RangedWeaponSoundCategories returns the authored categories of every
+// non-magic projectile weapon in the loaded weapon catalog.
+func RangedWeaponSoundCategories() []string {
+	if GlobalWeapons == nil {
+		return nil
+	}
+	categories := make(map[string]struct{})
+	for _, def := range GlobalWeapons.Weapons {
+		if def == nil || !isProjectileWeapon(def) || IsMagicRangedWeapon(def) {
+			continue
+		}
+		category := strings.ToLower(strings.TrimSpace(def.Category))
+		if category != "" {
+			categories[category] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(categories))
+	for category := range categories {
+		result = append(result, category)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // MustLoadWeaponConfig loads the weapon configuration and panics on error
@@ -1268,11 +1945,13 @@ type ItemSystemConfig struct {
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
 
-// ItemSetConfig is one armor set: once PiecesRequired items carrying the set
-// key are equipped on a single character, the bonuses apply to that character.
+// ItemSetConfig is one equipment set. A count-based set activates once
+// PiecesRequired equipped pieces carry its set key. RequiredPieces, when set,
+// names the exact YAML keys needed for a mixed weapon-and-armor set.
 type ItemSetConfig struct {
-	Name           string `yaml:"name"`
-	PiecesRequired int    `yaml:"pieces_required"`
+	Name           string   `yaml:"name"`
+	PiecesRequired int      `yaml:"pieces_required"`
+	RequiredPieces []string `yaml:"required_pieces,omitempty"`
 	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
 	// halves them - the padded set's quilting).
 	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
@@ -1283,6 +1962,24 @@ type ItemSetConfig struct {
 	BonusAccuracy    int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed       int `yaml:"bonus_speed,omitempty"`
 	BonusLuck        int `yaml:"bonus_luck,omitempty"`
+	// BonusCritChance adds flat percentage points to every critical-hit roll:
+	// weapon attacks and damage spells alike.
+	BonusCritChance int `yaml:"bonus_crit_chance,omitempty"`
+	// FieryRipostePct: melee attackers take this share of the damage they deal
+	// the wearer back as FIRE (the Drakeforged pair answering in kind).
+	FieryRipostePct int `yaml:"fiery_riposte_pct,omitempty"`
+}
+
+// RequiredPieceCount is the player-facing size of a set. Exact-piece sets
+// derive it from their explicit list so their authored contract stays truthful.
+func (s *ItemSetConfig) RequiredPieceCount() int {
+	if s == nil {
+		return 0
+	}
+	if len(s.RequiredPieces) > 0 {
+		return len(s.RequiredPieces)
+	}
+	return s.PiecesRequired
 }
 
 // GetItemSet returns a set definition by key, or nil if unknown.
@@ -1294,18 +1991,23 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	Name         string `yaml:"name"`
-	Type         string `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType    string `yaml:"armor_category,omitempty"`
-	Description  string `yaml:"description"`          // Gameplay-neutral summary (optional)
-	Flavor       string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
-	EquipSlot    string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value        int    `yaml:"value,omitempty"`      // Gold value
-	Rarity       string `yaml:"rarity,omitempty"`
-	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
-	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
-	Discardable  bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
-	Set          string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType   string `yaml:"armor_category,omitempty"`
+	Description string `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
+	// Keeping their text in YAML lets the game tooltip and map-editor card share
+	// the same wording without item-key-specific presentation code.
+	TooltipEffects []string `yaml:"tooltip_effects,omitempty"`
+	TooltipUsage   []string `yaml:"tooltip_usage,omitempty"`
+	EquipSlot      string   `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value          int      `yaml:"value,omitempty"`      // Gold value
+	Rarity         string   `yaml:"rarity,omitempty"`
+	OpensMap       bool     `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich   bool     `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Discardable    bool     `yaml:"discardable,omitempty"`   // quest item the player may still throw away
+	Set            string   `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -1330,11 +2032,11 @@ type ItemDefinitionConfig struct {
 	CardRangedDmgPct      int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
 	CardMeleeTrueDmg      int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
 	CardPhysToFirePct     int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
-	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on attacking
+	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
 	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
 	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
 	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
-	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // pure damage dealt by the move-burst
+	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
 	CardWalkOnWater       bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
 	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
 	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
@@ -1355,7 +2057,7 @@ type ItemDefinitionConfig struct {
 	CardMaxHPBonus        int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
 	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
 	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
-	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on any attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
 	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
 	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
 	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
@@ -1366,6 +2068,16 @@ type ItemDefinitionConfig struct {
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
 	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
+	// ProjectileReflectPct: chance an incoming monster projectile is turned
+	// back at its shooter (Broodscale Aegis mirror-scale).
+	ProjectileReflectPct int `yaml:"projectile_reflect_pct,omitempty"`
+	// StatusDurationPct shifts the duration of every hostile status suffered by
+	// the wearer. It is deliberately broader than set-level stun_duration_pct.
+	StatusDurationPct int `yaml:"status_duration_pct,omitempty"`
+	// Scale stacks: each damaging hit grows one stack worth ScaleStackAC, up to
+	// ScaleStackMax; stacks shed once combat ends.
+	ScaleStackAC  int `yaml:"scale_stack_ac,omitempty"`
+	ScaleStackMax int `yaml:"scale_stack_max,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`
@@ -1373,10 +2085,36 @@ type ItemDefinitionConfig struct {
 	Revive               bool `yaml:"revive,omitempty"`
 	FullHeal             bool `yaml:"full_heal,omitempty"`
 	CurePoison           bool `yaml:"cure_poison,omitempty"` // clears the Poisoned condition on use
+	DoorKey              int  `yaml:"door_key,omitempty"`    // 1: a single-use key, consumed opening a matching door
+	MasterKey            int  `yaml:"master_key,omitempty"`  // 1: the Skeleton Key, opens ANY door, never consumed
 	// Mana restoration (mirror of heal_base/heal_endurance_divisor for SP):
 	// restores mana_base + Personality/mana_personality_divisor spell points.
 	ManaBase               int `yaml:"mana_base,omitempty"`
 	ManaPersonalityDivisor int `yaml:"mana_personality_divisor,omitempty"`
+	// Elemental draughts: a timed party-wide school resist (Fire Shield's buff
+	// slot) or a flat armor-class buff; both need buff_duration_seconds.
+	ResistBuffSchool string `yaml:"resist_buff_school,omitempty"`
+	// DeprecatedResistBuffPct catches the spell-only key in item YAML instead
+	// of letting yaml.v3 ignore it and silently create a draught with no ward.
+	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
+	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
+	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
+	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
+	StatusIcon              string `yaml:"status_icon,omitempty"`
+}
+
+// MinHostileStatusDurationPct is the strongest combined duration reduction
+// allowed for hostile timed statuses. A landed status always keeps at least
+// 10% of its authored duration.
+const MinHostileStatusDurationPct = -90
+
+// HasTimedBuff reports whether this definition carries a complete timed combat
+// buff payload. Validation guarantees that published item configs also have the
+// required consumable type and status icon.
+func (d *ItemDefinitionConfig) HasTimedBuff() bool {
+	return d != nil &&
+		d.BuffDurationSeconds > 0 &&
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -1392,17 +2130,29 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	if err := validateItemConfig(&itemCfg); err != nil {
 		return nil, err
 	}
-	GlobalItems = &itemCfg
-
+	if err := validateEquipmentSetReferences(&itemCfg, GlobalWeapons); err != nil {
+		return nil, err
+	}
 	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
 	// called per-hit and per-frame via the card collection (cardCollectionKey),
 	// where a linear scan of every item showed up as a hot-path cost.
-	itemDefByName = make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
-	itemKeyByName = make(map[string]string, len(itemCfg.Items))
+	// Display names must be UNIQUE: they are load-bearing identity for stack
+	// merging (items.SameStack), item-backed merchant currency, and this very
+	// index (a duplicate would clobber map-order-nondeterministically).
+	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
+	itemKeysByName := make(map[string]string, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
-		itemDefByName[def.Name] = def
-		itemKeyByName[def.Name] = key
+		if prev, dup := itemKeysByName[def.Name]; dup {
+			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
+		}
+		itemDefsByName[def.Name] = def
+		itemKeysByName[def.Name] = key
 	}
+
+	// Keep the catalog and lookup index in sync on every successful reload.
+	GlobalItems = &itemCfg
+	itemDefByName = itemDefsByName
+	itemKeyByName = itemKeysByName
 
 	return &itemCfg, nil
 }
@@ -1426,6 +2176,19 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 // typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
+		if def == nil {
+			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		resistances, err := canonicalDamageIntMap(def.Resistances)
+		if err != nil {
+			return fmt.Errorf("item '%s' has invalid resistances: %w", key, err)
+		}
+		def.Resistances = resistances
+		cardResists, err := canonicalDamageIntMap(def.CardResistBonus)
+		if err != nil {
+			return fmt.Errorf("item '%s' has invalid card_resist_bonus: %w", key, err)
+		}
+		def.CardResistBonus = cardResists
 		if def.EquipSlot != "" {
 			if _, ok := items.EquipSlotFromName(def.EquipSlot); !ok {
 				return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
@@ -1433,6 +2196,47 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if def.Set != "" && cfg.Sets[def.Set] == nil {
 			return fmt.Errorf("item '%s' references unknown set %q", key, def.Set)
+		}
+		if def.ProjectileReflectPct < 0 || def.ProjectileReflectPct > 100 {
+			return fmt.Errorf("item '%s': projectile_reflect_pct must be in [0,100]", key)
+		}
+		if def.StatusDurationPct < MinHostileStatusDurationPct {
+			return fmt.Errorf("item '%s': status_duration_pct must be at least %d", key, MinHostileStatusDurationPct)
+		}
+		if def.ScaleStackAC < 0 || def.ScaleStackMax < 0 ||
+			(def.ScaleStackAC == 0) != (def.ScaleStackMax == 0) {
+			return fmt.Errorf("item '%s': scale_stack_ac and scale_stack_max must both be positive or both be zero", key)
+		}
+		if def.DeprecatedResistBuffPct != 0 {
+			return fmt.Errorf("item '%s': resist_buff_pct is spell-only; use resist_buff_school_pct with resist_buff_school", key)
+		}
+		if def.ResistBuffSchool != "" {
+			school, err := canonicalMagicSchool(def.ResistBuffSchool)
+			if err != nil {
+				return fmt.Errorf("item '%s' has invalid resist_buff_school %q", key, def.ResistBuffSchool)
+			}
+			def.ResistBuffSchool = school
+		}
+		if def.ResistBuffSchoolPct < 0 || def.ResistBuffSchoolPct > 100 {
+			return fmt.Errorf("item '%s': resist_buff_school_pct must be in [0,100]", key)
+		}
+		if (def.ResistBuffSchool == "") != (def.ResistBuffSchoolPct == 0) {
+			return fmt.Errorf("item '%s': resist_buff_school and resist_buff_school_pct must be set together", key)
+		}
+		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
+			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
+		}
+		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0
+		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
+		if hasBuffEffect && def.Type != "consumable" {
+			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
+		}
+		if hasBuffEffect && (def.BuffDurationSeconds <= 0 || def.StatusIcon == "") {
+			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
+		}
+		if hasBuffMetadata && !hasBuffEffect {
+			return fmt.Errorf("item '%s': buff metadata has no resist or armor effect", key)
 		}
 		switch def.Type {
 		case "consumable":
@@ -1460,6 +2264,62 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if set == nil || set.Name == "" || set.PiecesRequired <= 0 {
 			return fmt.Errorf("item set '%s': name and positive pieces_required are required", name)
 		}
+		if set.FieryRipostePct < 0 || set.FieryRipostePct > 100 {
+			return fmt.Errorf("item set '%s': fiery_riposte_pct must be in [0,100]", name)
+		}
+	}
+	return nil
+}
+
+// validateEquipmentSetReferences checks the cross-catalog links that cannot
+// live in either items.yaml or weapons.yaml alone. When weapons are not loaded
+// yet, weapon keys are deferred to the normal runtime load order (weapons first,
+// then items); item keys are still checked immediately.
+func validateEquipmentSetReferences(itemCfg *ItemSystemConfig, weaponCfg *WeaponSystemConfig) error {
+	if itemCfg == nil {
+		return nil
+	}
+	for setKey, set := range itemCfg.Sets {
+		if set == nil || len(set.RequiredPieces) == 0 {
+			continue
+		}
+		if len(set.RequiredPieces) != set.PiecesRequired {
+			return fmt.Errorf("item set %q required_pieces has %d entries, want pieces_required %d", setKey, len(set.RequiredPieces), set.PiecesRequired)
+		}
+		seen := make(map[string]bool, len(set.RequiredPieces))
+		for _, pieceKey := range set.RequiredPieces {
+			pieceKey = strings.TrimSpace(pieceKey)
+			if pieceKey == "" {
+				return fmt.Errorf("item set %q has an empty required_pieces entry", setKey)
+			}
+			if seen[pieceKey] {
+				return fmt.Errorf("item set %q names required piece %q more than once", setKey, pieceKey)
+			}
+			seen[pieceKey] = true
+			if def, ok := itemCfg.Items[pieceKey]; ok {
+				if def == nil || def.Set != setKey {
+					return fmt.Errorf("item set %q requires item %q, which does not declare set %q", setKey, pieceKey, setKey)
+				}
+				continue
+			}
+			if weaponCfg == nil {
+				continue // weapon key is checked once both catalogs are available
+			}
+			def, ok := weaponCfg.Weapons[pieceKey]
+			if !ok || def == nil {
+				return fmt.Errorf("item set %q references unknown required piece %q", setKey, pieceKey)
+			}
+			if def.Set != setKey {
+				return fmt.Errorf("item set %q requires weapon %q, which declares set %q", setKey, pieceKey, def.Set)
+			}
+		}
+	}
+	if weaponCfg != nil {
+		for weaponKey, def := range weaponCfg.Weapons {
+			if def != nil && def.Set != "" && itemCfg.Sets[def.Set] == nil {
+				return fmt.Errorf("weapon %q references unknown set %q", weaponKey, def.Set)
+			}
+		}
 	}
 	return nil
 }
@@ -1484,6 +2344,10 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 
 type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
+	// BossLoot is appended to the normal loot table of every YAML-classified
+	// boss. This keeps universal boss drops data-driven without giving kills,
+	// theft, crates, and editor views divergent tables.
+	BossLoot []LootEntry `yaml:"boss_loot,omitempty"`
 	// Named weighted pools (distinct from the per-monster Loots lists above):
 	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
 	// containers (sword racks) that grant a random ZONE item, never a unique -
@@ -1508,10 +2372,11 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
-	Rolls             int               `yaml:"rolls"`
-	LootTable         string            `yaml:"loot_table,omitempty"`
-	RollSources       []CrateRollSource `yaml:"roll_sources,omitempty"`
-	SpecialRolls      []CrateRollSource `yaml:"special_rolls,omitempty"`
+	Rolls            int               `yaml:"rolls"`
+	LootTable        string            `yaml:"loot_table,omitempty"`
+	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`
+	SpecialRolls     []CrateRollSource `yaml:"special_rolls,omitempty"`
+	InteractionSound string            `yaml:"interaction_sound,omitempty"`
 	// FreeRest: opening the crate also rests the party for free (a campfire) -
 	// full HP/SP, no food cost. One-time like any crate.
 	FreeRest bool `yaml:"free_rest,omitempty"`
@@ -1522,11 +2387,11 @@ type CrateConfig struct {
 	BonusAmount int    `yaml:"bonus_amount,omitempty"`
 	// BonusChancePct gates the stat bonus (a barrel may turn out empty).
 	// 0/unset = always.
-	BonusChancePct int `yaml:"bonus_chance_pct,omitempty"`
-	TrapDamage        int               `yaml:"trap_damage,omitempty"`
-	TrapDamageTypes   []string          `yaml:"trap_damage_types,omitempty"`
-	TrapIgnite        bool              `yaml:"trap_ignite,omitempty"`
-	TrapIgniteSeconds int               `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
+	BonusChancePct    int      `yaml:"bonus_chance_pct,omitempty"`
+	TrapDamage        int      `yaml:"trap_damage,omitempty"`
+	TrapDamageTypes   []string `yaml:"trap_damage_types,omitempty"`
+	TrapIgnite        bool     `yaml:"trap_ignite,omitempty"`
+	TrapIgniteSeconds int      `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
 }
 
 // DefaultTrapIgniteSeconds is the burn duration for a trap_ignite crate that
@@ -1554,10 +2419,38 @@ func GetCrateConfig(npcKey string) *CrateConfig {
 	return GlobalLoots.Crates[npcKey]
 }
 
+// CrateSoundKeys returns the authored interaction sounds used by crate-like
+// world props. The audio boot contract validates these keys before gameplay.
+func CrateSoundKeys() []string {
+	if GlobalLoots == nil {
+		return nil
+	}
+	unique := make(map[string]struct{})
+	for _, crate := range GlobalLoots.Crates {
+		if crate != nil && crate.InteractionSound != "" {
+			unique[crate.InteractionSound] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(unique))
+	for key := range unique {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 type LootEntry struct {
 	Type   string  `yaml:"type"` // weapon|item
 	Key    string  `yaml:"key"`
 	Chance float64 `yaml:"chance"`
+	Rolls  int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+}
+
+func (e LootEntry) RollCount() int {
+	if e.Rolls > 0 {
+		return e.Rolls
+	}
+	return 1
 }
 
 type WeightedLootTable struct {
@@ -1582,14 +2475,75 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := yaml.Unmarshal(data, &loots); err != nil {
 		return nil, err
 	}
+	if err := validateMonsterLoot(&loots); err != nil {
+		return nil, err
+	}
 	if err := validateWeightedLootTables(&loots); err != nil {
 		return nil, err // don't publish invalid data to the process global
+	}
+	if err := validateBossLoot(&loots); err != nil {
+		return nil, err
 	}
 	if err := validateCrates(&loots); err != nil {
 		return nil, err
 	}
 	GlobalLoots = &loots
 	return &loots, nil
+}
+
+func validateLootEntry(scope string, index int, e LootEntry) error {
+	if e.Chance < 0 || e.Chance > 1 {
+		return fmt.Errorf("%s[%d] %q: chance must be in [0,1]", scope, index, e.Key)
+	}
+	if e.Rolls < 0 {
+		return fmt.Errorf("%s[%d] %q: rolls must not be negative", scope, index, e.Key)
+	}
+	return validateLootCatalogReference(fmt.Sprintf("%s[%d]", scope, index), e.Type, e.Key)
+}
+
+func validateLootCatalogReference(scope, entryType, key string) error {
+	switch entryType {
+	case "weapon":
+		if GlobalWeapons == nil {
+			return fmt.Errorf("%s %q: weapons not loaded", scope, key)
+		}
+		if _, ok := GlobalWeapons.Weapons[key]; !ok {
+			return fmt.Errorf("%s: unknown weapon key %q", scope, key)
+		}
+	case "item":
+		if GlobalItems == nil {
+			return fmt.Errorf("%s %q: items not loaded", scope, key)
+		}
+		if _, ok := GetItemDefinition(key); !ok {
+			return fmt.Errorf("%s: unknown item key %q", scope, key)
+		}
+	default:
+		return fmt.Errorf("%s %q has bad type %q (want weapon|item)", scope, key, entryType)
+	}
+	return nil
+}
+
+func validateMonsterLoot(lt *LootTablesConfig) error {
+	for monsterKey, entries := range lt.Loots {
+		scope := fmt.Sprintf("loots.%s", monsterKey)
+		for i, entry := range entries {
+			if err := validateLootEntry(scope, i, entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateBossLoot validates the global entries appended to every boss table.
+// They use the same independent-chance contract as normal monster loot.
+func validateBossLoot(lt *LootTablesConfig) error {
+	for i, e := range lt.BossLoot {
+		if err := validateLootEntry("boss_loot", i, e); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateWeightedLootTables fail-fast checks every named pool: positive rolls,
@@ -1614,23 +2568,8 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 			if e.Weight <= 0 {
 				return fmt.Errorf("loot_table %q: entry %q weight must be > 0", name, e.Key)
 			}
-			switch e.Type {
-			case "weapon":
-				if GlobalWeapons == nil {
-					return fmt.Errorf("loot_table %q: weapons not loaded for entry %q", name, e.Key)
-				}
-				if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
-					return fmt.Errorf("loot_table %q: unknown weapon key %q", name, e.Key)
-				}
-			case "item":
-				if GlobalItems == nil {
-					return fmt.Errorf("loot_table %q: items not loaded for entry %q", name, e.Key)
-				}
-				if _, ok := GetItemDefinition(e.Key); !ok {
-					return fmt.Errorf("loot_table %q: unknown item key %q", name, e.Key)
-				}
-			default:
-				return fmt.Errorf("loot_table %q: entry %q has bad type %q (want weapon|item)", name, e.Key, e.Type)
+			if err := validateLootCatalogReference(fmt.Sprintf("loot_table %q entry", name), e.Type, e.Key); err != nil {
+				return err
 			}
 		}
 	}
@@ -1644,13 +2583,16 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c == nil {
 			return fmt.Errorf("crate %q is empty", key)
 		}
+		c.InteractionSound = strings.TrimSpace(c.InteractionSound)
 		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {
 			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
 		}
 		for i, damageType := range c.TrapDamageTypes {
-			if !validCrateTrapDamageType(damageType) {
+			canonical, err := canonicalDamageSchool(damageType)
+			if err != nil {
 				return fmt.Errorf("crate %q: trap_damage_types[%d] has unsupported damage type %q", key, i, damageType)
 			}
+			c.TrapDamageTypes[i] = canonical
 		}
 		// Effect fields apply to EVERY crate shape (loot_table ones included),
 		// so they validate before the loot_table early-out.
@@ -1676,10 +2618,15 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
 		}
+		totalWeight := 0
 		for i, src := range c.RollSources {
 			if err := validateCrateRollSource(key, "roll_sources", i, src, true); err != nil {
 				return err
 			}
+			totalWeight += src.Weight
+		}
+		if len(c.RollSources) > 0 && totalWeight != 100 {
+			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %d", key, totalWeight)
 		}
 		for i, src := range c.SpecialRolls {
 			if err := validateCrateRollSource(key, "special_rolls", i, src, false); err != nil {
@@ -1693,18 +2640,22 @@ func validateCrates(lt *LootTablesConfig) error {
 	return nil
 }
 
-func validCrateTrapDamageType(damageType string) bool {
-	switch strings.TrimSpace(damageType) {
-	case "physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {
-	if requireWeight && src.Weight <= 0 {
-		return fmt.Errorf("crate %q %s[%d]: weight must be > 0", crate, sourceName, idx)
+	if requireWeight {
+		if src.Weight < 1 || src.Weight > 100 {
+			return fmt.Errorf("crate %q %s[%d]: weight must be 1..100", crate, sourceName, idx)
+		}
+		if src.ChancePct != 0 {
+			return fmt.Errorf("crate %q %s[%d]: chance_pct is only valid in special_rolls", crate, sourceName, idx)
+		}
+	} else if src.Weight != 0 {
+		return fmt.Errorf("crate %q %s[%d]: weight is only valid in roll_sources", crate, sourceName, idx)
+	}
+	if src.LegendaryPct < 0 || src.LegendaryPct > 100 {
+		return fmt.Errorf("crate %q %s[%d]: legendary_pct must be 0..100", crate, sourceName, idx)
+	}
+	if src.Pool != "rare" && src.LegendaryPct != 0 {
+		return fmt.Errorf("crate %q %s[%d]: legendary_pct is only valid for pool rare", crate, sourceName, idx)
 	}
 	switch src.Pool {
 	case "nothing":
@@ -1731,7 +2682,7 @@ func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSou
 		}
 		return nil
 	default:
-		return fmt.Errorf("crate %q %s[%d]: pool must be \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
+		return fmt.Errorf("crate %q %s[%d]: pool must be \"nothing\", \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
 	}
 }
 
@@ -1804,11 +2755,31 @@ func MustLoadLootTables(filename string) *LootTablesConfig {
 	return lt
 }
 
-func GetLootTable(monsterKey string) []LootEntry {
+// GetLootTable returns the complete ordinary loot table for one monster.
+// Boss classification is authored in monsters.yaml and passed by the caller so
+// the universal boss pool is resolved identically by every consumer.
+func GetLootTable(monsterKey string, isBoss bool) []LootEntry {
 	if GlobalLoots == nil {
 		return nil
 	}
-	return GlobalLoots.Loots[monsterKey]
+	authored := GlobalLoots.Loots[monsterKey]
+	if !isBoss || len(GlobalLoots.BossLoot) == 0 {
+		return authored
+	}
+	entries := make([]LootEntry, 0, len(authored)+len(GlobalLoots.BossLoot))
+	entries = append(entries, authored...)
+	return append(entries, GlobalLoots.BossLoot...)
+}
+
+// GetBossLoot returns the globally-authored entries appended to every boss's
+// normal loot table. Gameplay must NOT call this: it resolves loot through
+// GetLootTable(key, isBoss), which merges these entries in - the door/key test
+// uses it to prove that merge really happens.
+func GetBossLoot() []LootEntry {
+	if GlobalLoots == nil {
+		return nil
+	}
+	return GlobalLoots.BossLoot
 }
 
 // Helper functions for easy access to commonly used values
@@ -1822,14 +2793,6 @@ func (c *Config) GetScreenHeight() int {
 
 func (c *Config) GetTileSize() float64 {
 	return float64(c.World.TileSize)
-}
-
-func (c *Config) GetMapWidth() int {
-	return c.World.MapWidth
-}
-
-func (c *Config) GetMapHeight() int {
-	return c.World.MapHeight
 }
 
 func (c *Config) GetMoveSpeed() float64 {
@@ -1923,10 +2886,6 @@ func GetSpellsBySchool(schoolKey string) []string {
 	// level-up spell picker, which would otherwise reshuffle every run.
 	sort.Strings(spells)
 	return spells
-}
-
-func (c *Config) GetCameraFOV() float64 {
-	return c.Camera.FieldOfView
 }
 
 func (c *Config) GetViewDistance() float64 {

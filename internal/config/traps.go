@@ -17,11 +17,12 @@ type TrapDefinitionConfig struct {
 	Name            string  `yaml:"name"`
 	Description     string  `yaml:"description"`
 	Icon            string  `yaml:"icon"`
-	Level           int     `yaml:"level"`            // owner level required
-	SPCost          int     `yaml:"sp_cost"`          // spell points to place
-	CooldownSeconds float64 `yaml:"cooldown_seconds"` // RT cadence after placing
-	LifetimeSeconds int     `yaml:"lifetime_seconds"` // armed trap despawns after this
-	Element         string  `yaml:"element"`          // particle colour/shape family
+	Level           int     `yaml:"level"`              // owner level required
+	SPCost          int     `yaml:"sp_cost"`            // spell points to place
+	CooldownSeconds float64 `yaml:"cooldown_seconds"`   // RT cooldown after placing
+	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this
+	Element         string  `yaml:"element"`            // particle colour/shape family
+	ArmedFx         string  `yaml:"armed_fx,omitempty"` // bespoke armed-tile renderer (trapFxStyleDraw); empty = edge glow
 	DamageBase      int     `yaml:"damage_base,omitempty"`
 	AoeRadiusTiles  float64 `yaml:"aoe_radius_tiles,omitempty"`
 	StunTurns       int     `yaml:"stun_turns,omitempty"`
@@ -87,6 +88,11 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 		if t.Element == "" {
 			return fmt.Errorf("trap %q: missing element", key)
 		}
+		element, err := canonicalDamageSchool(t.Element)
+		if err != nil {
+			return fmt.Errorf("trap %q: unsupported element %q", key, t.Element)
+		}
+		t.Element = element
 		if t.Level <= 0 {
 			return fmt.Errorf("trap %q: level must be positive", key)
 		}

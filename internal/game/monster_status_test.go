@@ -2,8 +2,10 @@ package game
 
 import (
 	"testing"
+
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 )
 
@@ -104,15 +106,24 @@ func TestMonsterPoisonKillRT_FinalizedByIndirectSweep(t *testing.T) {
 
 	tps := game.config.GetTPS()
 	m.ApplyPoison(2 * tps)
+	m.State = monsterPkg.StatePursuing
+	m.StateTimer = 7
 
 	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, game: game}
-	for i := 0; i < tps+1; i++ { // outlast one poison tick (1/sec)
+	for i := 0; i < tps-1; i++ {
 		mw.snapshot = game.collisionSystem.Snapshot()
 		mw.Update()
 		mw.ApplyCollisionUpdate()
 	}
+	timerBeforeDeath := m.StateTimer
+	mw.snapshot = game.collisionSystem.Snapshot()
+	mw.Update() // first poison tick kills the monster on this frame
+	mw.ApplyCollisionUpdate()
 	if m.IsAlive() {
 		t.Fatalf("setup: expected the 1-HP monster to die from its first poison tick, got HP %d", m.HitPoints)
+	}
+	if m.StateTimer != timerBeforeDeath {
+		t.Fatalf("poison-killed RT monster still advanced AI: state timer %d -> %d", timerBeforeDeath, m.StateTimer)
 	}
 
 	game.reusableDeadSet = make(map[string]bool) // NewMMGame normally allocates this
@@ -160,6 +171,49 @@ func TestMonsterPoisonKillTB_FinalizesKill(t *testing.T) {
 	gl.finalizeIndirectKills() // same-frame sweep, as the real Update loop runs it
 	if len(game.deadMonsterIDs) != before+1 {
 		t.Error("TB poison kill should register in deadMonsterIDs via finalizeIndirectKills - monster was never finalized")
+	}
+}
+
+// TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound: one TB round both
+// CONSUMES three seconds of DoT duration and DEALS three seconds of damage.
+// Billing only one tick per round made every DoT 3x weaker in TB than in RT.
+func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = true
+	tps := g.config.GetTPS()
+	wantStep := TurnBasedPeriodicEffectSeconds * tps
+
+	member := g.party.Members[0]
+	member.HitPoints, member.MaxHitPoints = 100, 100
+	member.ApplyPoison(2 * wantStep)
+	member.ApplyBurn(2 * wantStep)
+	g.startPartyTurn()
+	if member.PoisonFramesRemaining != wantStep || member.BurnFramesRemaining != wantStep {
+		t.Fatalf("party DoT remainder = poison %d burn %d, want %d each",
+			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
+	}
+	wantTicks := TurnBasedPeriodicEffectSeconds
+	if want := 100 - wantTicks*(character.PoisonDamagePerTick+character.BurnDamagePerTick); member.HitPoints != want {
+		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
+	}
+
+	mob := &monsterPkg.Monster3D{
+		ID: "tb_periodic_victim", Name: "Rat", X: 64, Y: 0,
+		HitPoints: 100, MaxHitPoints: 100, PassiveUntilAttacked: true,
+	}
+	mob.ApplyPoison(2 * wantStep)
+	g.world.Monsters = []*monsterPkg.Monster3D{mob}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	gl := &GameLoop{game: g}
+	g.currentTurn = 1
+	g.monsterTurnResolved = false
+	gl.updateMonstersTurnBased()
+	if mob.PoisonedFramesRemaining != wantStep {
+		t.Fatalf("monster poison remainder = %d, want %d", mob.PoisonedFramesRemaining, wantStep)
+	}
+	if want := 100 - wantTicks; mob.HitPoints != want { // 1% of 100 max HP per tick
+		t.Fatalf("monster poison must deal %d 1%% ticks per round: HP=%d, want %d", wantTicks, mob.HitPoints, want)
 	}
 }
 
@@ -230,7 +284,12 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 		member.MaxHitPoints = 50
 		member.Luck = 0
 		member.Equipment = nil
-		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamage(10, "fire", member, false) - 2
+		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamageParts(
+			damagecalc.Parts{Normal: 10, True: 2},
+			monsterPkg.DamageFire.String(),
+			member,
+			false,
+		).Total()
 	}
 
 	monster := &monsterPkg.Monster3D{
@@ -267,7 +326,10 @@ func TestMonsterProjectileAoEUsesDamageablePartyMembersNotCanAct(t *testing.T) {
 	}
 	cs.game.party.Members[1].AddCondition(character.ConditionUnconscious)
 
-	cs.applyMonsterProjectileDamageAoE(nil, "Archmage", 10, "fire", 0)
+	cs.applyMonsterProjectileDamageAoE(nil, "Archmage", monsterCharacterHit{
+		Parts:      damagecalc.Parts{Normal: 10},
+		DamageType: "fire",
+	})
 
 	for i, member := range cs.game.party.Members {
 		if member.HitPoints >= 50 {
@@ -363,5 +425,36 @@ func TestLethalDoTTick_RoutesThroughKnockOut(t *testing.T) {
 	}
 	if len(g.combatLogHistory) <= msgsBefore {
 		t.Error("expected a combat message from the knockOut sweep")
+	}
+}
+
+// TestTurnBasedDoTResolvesTickByTick: a TB round must resolve its three seconds
+// of poison/burn ONE TICK AT A TIME with the lethal sweep between them, exactly
+// as RT does per frame. Batching the whole round let poison zero a member before
+// burn ticked at all (dotDamage no-ops at 0 HP) and gave the Lich Card a single
+// cheat-death roll instead of one per lethal tick.
+func TestTurnBasedDoTResolvesTickByTick(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = true
+	tps := g.config.GetTPS()
+	round := TurnBasedPeriodicEffectSeconds * tps
+
+	member := g.party.Members[0]
+	member.MaxHitPoints, member.HitPoints = 100, 1
+	member.ApplyPoison(2 * round)
+	member.ApplyBurn(2 * round)
+
+	g.startPartyTurn()
+
+	// Poison's first tick is lethal, so the round must knock the member out
+	// there - and burn must NOT have silently vanished into a 0-HP no-op.
+	if !member.HasCondition(character.ConditionUnconscious) {
+		t.Fatalf("a lethal DoT tick must knock the member out (HP=%d conditions=%v)",
+			member.HitPoints, member.Conditions)
+	}
+	if member.BurnFramesRemaining != 2*round-round {
+		t.Errorf("burn duration = %d, want %d - the round must still consume burn time",
+			member.BurnFramesRemaining, 2*round-round)
 	}
 }

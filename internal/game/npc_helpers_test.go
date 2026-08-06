@@ -5,39 +5,25 @@ import (
 	"ugataima/internal/character"
 )
 
-func TestCanCharacterLearnNPCSpell(t *testing.T) {
-	spell := &character.NPCSpell{
-		School: "water",
-		Requirements: &character.SpellRequirements{
-			MinLevel: 3,
-			Schools: []character.SpellSchoolRequirement{
-				{
-					School:   "water",
-					MinLevel: 2,
-				},
-			},
-		},
-	}
+// Buying a spell requires ONLY an open school (user rule): availability is
+// controlled by the trader's price and stock, not by character level or mastery.
+func TestCanCharacterLearnNPCSpell_NeedsOpenSchoolOnly(t *testing.T) {
+	spell := &character.NPCSpell{School: "water"}
 	char := &character.MMCharacter{
-		Level: 3,
+		Level: 1,
 		MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{
-			character.MagicSchoolWater: {Mastery: character.MasteryExpert},
+			character.MagicSchoolWater: {Mastery: character.MasteryNovice},
 		},
 	}
 
+	// Level 1 with Novice water still qualifies - no level or mastery gate.
 	if !canCharacterLearnNPCSpell(char, spell) {
-		t.Fatalf("expected character to meet requirements")
+		t.Fatal("an open school at Novice must be enough to learn a water spell")
 	}
 
-	char.Level = 2
-	if canCharacterLearnNPCSpell(char, spell) {
-		t.Fatalf("expected min level requirement to fail")
-	}
-
-	char.Level = 3
-	char.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Mastery: character.MasteryNovice}
-	if canCharacterLearnNPCSpell(char, spell) {
-		t.Fatalf("expected water skill requirement to fail")
+	// A closed school is the only rejection.
+	if canCharacterLearnNPCSpell(char, &character.NPCSpell{School: "fire"}) {
+		t.Fatal("a character with no fire school must not be able to learn fire spells")
 	}
 }
 

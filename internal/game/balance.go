@@ -2,7 +2,7 @@ package game
 
 import (
 	"ugataima/internal/character"
-	"ugataima/internal/spells"
+	"ugataima/internal/config"
 )
 
 // Balance constants are the single source of truth shared by combat formulas
@@ -28,11 +28,20 @@ const (
 	MeditationGMSpellCostReductionPct = character.MeditationGMSpellCostReductionPct
 )
 
+// turnBasedPeriodicEffectFrames converts the shared seconds-per-round policy to
+// the frame unit used by poison, burn, and persistent damage zones.
+func turnBasedPeriodicEffectFrames(tps int) int {
+	if tps <= 0 {
+		tps = config.GetTargetTPS()
+	}
+	return tps * TurnBasedPeriodicEffectSeconds
+}
+
 // Game-only mastery constants (not needed by the editor) stay here.
 const (
 	// Canonical values live in character/catalog.go (shared with tooltips and
 	// the map editor); these are package-local aliases.
-	MagicGMResistPiercePct     = character.MagicGMResistPiercePct
+	SelfMagicGMResistPiercePct = character.SelfMagicGMResistPiercePct
 	MasterySpellEffectPerLevel = character.MasterySpellEffectPerLevel
 )
 
@@ -66,9 +75,24 @@ const (
 	// level-up combat message and applied in checkLevelUp.
 	StatPointsPerLevel = 5
 
-	// XPRequiredPerLevel multiplied by current level gives the XP needed for
-	// the next level: required = currentLevel * XPRequiredPerLevel.
+	// XPRequiredPerLevel multiplied by current level gives the LINEAR branch of
+	// the XP needed for the next level (see xpStepCost). It alone defines the
+	// curve through L12 - the early game is exactly the classic 100 x L.
 	XPRequiredPerLevel = 100
+
+	// XPQuadPerLevel is the quadratic branch coefficient of xpStepCost; it
+	// takes over from L13 (8 x 13^2 > 100 x 13). Monster XP grows roughly
+	// quadratically with a zone's level (~2.2 x L^2: bandit L5 = 55, dust
+	// slime L22 = 1000, grandfather clock L30 = 2400), so a purely linear
+	// level cost makes kills-per-level FALL as ~1/L - post-20 farming used to
+	// run away (~29 level-appropriate kills per level at L5, only ~5 at L30).
+	// The L^2 branch holds the pace FLAT at ~15 zone-level kills per level in
+	// a 4-hero party (8 / (2.2/4)), L13 through L50.
+	// Tuning: 6 -> ~11 kills/level, 10 -> ~18. Totals to REACH a level:
+	// L13=7800, L20=22360, L30=71040, L50=326000. Pinned by
+	// TestXPStepCostCurve; the pacing note in config.yaml (characters:)
+	// mirrors this - keep both in sync.
+	XPQuadPerLevel = 8
 
 	// LevelUpChoiceInterval: a class-progression choice is offered every Nth
 	// level (3, 6, 9, 12, ...).
@@ -102,22 +126,44 @@ const (
 	// turn-based mode (frames are derived from TPS at the call site).
 	TurnBasedInputCooldownSeconds = 0.15
 
-	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
-	// trigger reaches when starting / entering turn-based mode.
-	TurnBasedVisionRangeTiles = 6.0
+	// TurnBasedCalmStackSeparationRadiusTiles bounds the small amount of ambient
+	// cleanup TB performs for calm, non-banded monster stacks. It is a workload
+	// limit, not an alert or combat radius.
+	TurnBasedCalmStackSeparationRadiusTiles = 6.0
 
-	// PackAggroRadiusTiles: when a monster is hit, same-name neighbors
-	// within this radius become aggressive too.
-	PackAggroRadiusTiles = 8.0
+	// PartyInteractionCombatRadiusTiles blocks world interaction while a hostile
+	// combatant is nearby. It intentionally does not control monster
+	// sight, movement, or turn participation.
+	PartyInteractionCombatRadiusTiles = 6.0
+
+	// TurnBasedPackAggroRadiusTiles is the explicit TB-only exception: after a
+	// party-caused hit, same-key neighbours inside this radius may join only if
+	// each has direct line of sight to the party.
+	TurnBasedPackAggroRadiusTiles = 8.0
 
 	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = 3
 
+	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
+	// TB round for periodic damage effects. Poison and burn still deal one tick
+	// per round; Hot Steam's authored three-second cadence also becomes one tick.
+	TurnBasedPeriodicEffectSeconds = character.TurnBasedTurnSeconds
+
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
 	TurnBasedExtraMonsterActionDelaySeconds = 0.18
+
+	// BossInfernoRangedRollSeconds is how often a boss may roll its nova from
+	// OUTSIDE melee reach (inside reach the nova replaces a normal hit and rides
+	// the attack cadence). Cooldown policy, not per-boss content - the reach itself
+	// is authored per monster as inferno_range_tiles.
+	BossInfernoRangedRollSeconds = 2
+
+	// TurnBasedPounceCooldownTurns is the TB counterpart of a monster's authored
+	// real-time pounce cooldown. Both clocks are armed together across Tab.
+	TurnBasedPounceCooldownTurns = 2
 
 	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
@@ -156,10 +202,9 @@ const (
 	RTCooldownMinFrames = 12
 	RTCooldownMaxFrames = 900
 
-	// Spell cooldowns are authored in seconds per spell (spells.yaml
-	// `cooldown_seconds`); see SpellCooldownDefaultSecondsForLevel for the
-	// fallback when a spell omits it. The authored seconds are the cooldown at
-	// the reference Speed below; Speed scales it via spellCooldownSpeedFactor.
+	// Non-buff spell cooldowns are required in spells.yaml as
+	// `cooldown_seconds`. The authored seconds are the cooldown at the reference
+	// Speed below; Speed scales it via spellCooldownSpeedFactor.
 	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
 	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
 	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
@@ -194,9 +239,18 @@ const BoundAllySeekTiles = 10.0
 // (~0.1s at 120 TPS) makes the reaction read clearly.
 const MonsterHitFlashFrames = 12
 
-// MonsterAttackAnimFrames: how long a striking monster plays its movement
-// cycle (a readable lunge) - without it attackers froze on the rest pose.
+// MonsterAttackAnimFrames is the legacy strike window for monsters without a
+// dedicated attack sheet. Keep it stable: their walk-sheet lunge already has
+// the intended timing.
 const MonsterAttackAnimFrames = 18
+
+// AuthoredMonsterAttackFPS is the playback rate for a dedicated attack sheet.
+// Four frames at 10 FPS make a readable 0.4-second one-shot instead of squeezing
+// the whole attack into the 0.15-second fallback lunge.
+const AuthoredMonsterAttackFPS = 10
+
+// NPCIdleAnimationFPS keeps four-frame standing NPC loops calm and unobtrusive.
+const NPCIdleAnimationFPS = 4
 
 // volleySpacingFrac: tiles between successive darts of a volley (party bows and
 // monster/champion projectiles trail their darts by the same stream spacing).
@@ -232,10 +286,6 @@ const (
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
 // of attacking. 0.6 = heal anyone at or below 60% HP; healthier party -> attack.
 const SmartHealWoundedPct = 0.6
-
-// SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
-// quotes the same default); this alias keeps game-side call sites unchanged.
-var SpellCooldownDefaultSecondsForLevel = spells.SpellCooldownDefaultSecondsForLevel
 
 // Sprite animation timing.
 const (

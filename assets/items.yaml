@@ -1,6 +1,7 @@
-# Armor sets: items carrying the same `set:` key power a party-wide bonus once
-# pieces_required of them are equipped on ONE character. Bonuses use the same
-# attribute vocabulary as items (bonus_*) plus set-only effects.
+# Equipment sets: pieces carrying the same `set:` key power a wearer bonus once
+# pieces_required of them are equipped on ONE character. required_pieces names
+# exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
+# Bonuses use the same attribute vocabulary as items (bonus_*) plus set-only effects.
 item_sets:
   padded:
     name: "Pit Fighter's Quilt"
@@ -10,6 +11,40 @@ item_sets:
     name: "Coliseum Ringmail"
     pieces_required: 4
     bonus_endurance: 10
+  dragon_hoard:
+    name: "Dragon's Hoard"
+    pieces_required: 2
+    required_pieces: ["golden_armor", "gold_sword"]
+    bonus_crit_chance: 75
+  # Clock tower sets (5 pieces each, sold by the Clockmaker for clock hands).
+  # Each set has a distinct identity - the scout, the duelist, the juggernaut.
+  cogleather:
+    name: "Cogleather Rig"
+    pieces_required: 5
+    bonus_speed: 8
+    bonus_luck: 4
+  chainwork:
+    name: "Chainwork Regalia"
+    pieces_required: 5
+    bonus_accuracy: 6
+    bonus_endurance: 5
+  clockplate:
+    name: "Clockplate Bulwark"
+    pieces_required: 5
+    bonus_might: 6
+    stun_duration_pct: -50
+
+  # Drakeforged pair (Scalewright tier): shield + gauntlets answer in fire.
+  drakeforged:
+    name: "Drakeforged"
+    pieces_required: 2
+    required_pieces: ["broodscale_aegis", "drakehide_gauntlets"]
+    fiery_riposte_pct: 50   # melee attackers take half the damage they deal back as fire
+  # Regalia of the Still Court (Ancient God of Death drops; 4th piece reserved).
+  still_court:
+    name: "Regalia of the Still Court"
+    pieces_required: 3
+    bonus_endurance: 20
 
 items:
   # Armor Endurance AC scaling is category-wide by design:
@@ -379,28 +414,28 @@ items:
     name: "Black Dragon Statuette"
     type: "quest"
     description: "An obsidian statuette of the black desert dragon"
-    flavor: "Cold stone holds the shape of a sleeping wyrm."
+    flavor: "Not stone. Cold metal, seamed, with a row of small marks stamped inside the mouth."
     rarity: "legendary"
 
   red_dragon_statuette:
     name: "Red Dragon Statuette"
     type: "quest"
     description: "A ruby-red statuette of the red dragon"
-    flavor: "Its scales catch the light like banked embers."
+    flavor: "The seams are riveted. No carver made this, whatever the priests say."
     rarity: "legendary"
 
   green_dragon_statuette:
     name: "Green Dragon Statuette"
     type: "quest"
     description: "An emerald-green statuette of the green dragon"
-    flavor: "A small serpent of stone and jungle venom."
+    flavor: "Turn it over and something inside clicks across into a new position."
     rarity: "legendary"
 
   gold_dragon_statuette:
     name: "Gold Dragon Statuette"
     type: "quest"
     description: "A golden statuette of the storm dragon"
-    flavor: "Tiny wings of hammered gold seem ready to stir."
+    flavor: "It warms in your hand, and a bead of light crosses the eye once."
     rarity: "legendary"
 
   ancient_linen_wrap:
@@ -515,6 +550,7 @@ items:
     name: "Golden Armor"
     type: "armor"
     armor_category: "plate"
+    set: "dragon_hoard"
     description: "Gilded plate fit for a dragon's hoard"
     flavor: "Heavy gold that turns blades and heads alike."
     equip_slot: "armor"
@@ -755,7 +791,7 @@ items:
     name: "Thief King Signet"
     type: "accessory"
     description: "A stolen signet ring crowned with a golden beetle"
-    flavor: "The bug's stolen signet; fortune favours whoever wears a thief's crown."
+    flavor: "Warm, and a green spark crosses it now and then. The gold beetle was soldered on later."
     equip_slot: "ring"
     bonus_luck: 12
     rarity: "rare"
@@ -1038,7 +1074,7 @@ items:
     name: "Golden Idol"
     type: "trinket"
     description: "A small solid-gold idol from the lost city's hoard"
-    flavor: "Heavier than it looks, and worth a small fortune in any port."
+    flavor: "Heavier than it looks, and it grows warm whenever the warlord's men come near."
     rarity: "legendary"
     value: 1300
 
@@ -1485,3 +1521,479 @@ items:
     flavor: "A stamped card of a wolf, mid-howl beneath a pale moon."
     rarity: "legendary"
     value: 500
+
+  # --- Clock Tower (2026-07-16): the horologist's dungeon ---
+  clock_hand:
+    name: "Clock Hand"
+    type: "trinket"
+    description: "A filigreed hand pried from a tower mechanism - the Clockmaker pays for these"
+    flavor: "Time, broken off at the wrist."
+    rarity: "uncommon"
+    value: 320
+
+  brass_gear:
+    name: "Brass Gear"
+    type: "trinket"
+    description: "A toothy cog still warm from turning"
+    flavor: "Somewhere in the tower, a hole shaped like this."
+    rarity: "common"
+    value: 200
+
+  mainspring_coil:
+    name: "Mainspring Coil"
+    type: "trinket"
+    description: "A tempered spiral wound tight with stubborn energy"
+    flavor: "It remembers every hour it was never allowed to strike."
+    rarity: "uncommon"
+    value: 480
+
+  pocket_watch:
+    name: "Pocket Watch"
+    type: "trinket"
+    description: "A gentleman's watch, still keeping somebody's time"
+    flavor: "The second hand runs backwards when nobody watches."
+    rarity: "rare"
+    value: 1760
+
+  clock_oil:
+    name: "Clock Oil"
+    type: "consumable"
+    description: "A vial of fine horologist's oil - loosens joints and old wounds alike"
+    flavor: "One drop quiets a century of squeaking."
+    heal_base: 20
+    heal_endurance_divisor: 4
+    rarity: "uncommon"
+    value: 90
+
+  # --- Door keys (2026-07-18). door_key = 1: a single-use key consumed when it
+  # opens a matching door. master_key = 1: the Skeleton Key - opens ANY door and
+  # is never consumed. Keys are trinkets so they stack in the bag and can be sold.
+  ordinary_key:
+    name: "Ordinary Key"
+    type: "trinket"
+    description: "A plain iron key - fits the simple lock of a wooden door"
+    flavor: "One turn, one door, and it never turns again."
+    tooltip_effects:
+      - "Opens wooden doors"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Consumed when it opens a door"
+    rarity: "common"
+    value: 30
+    door_key: 1
+
+  inlaid_key:
+    name: "Inlaid Key"
+    type: "trinket"
+    description: "A silver key set with a sapphire eye - bites reinforced and steel locks alike"
+    flavor: "The gem is warm. The lock it seeks is warmer."
+    tooltip_effects:
+      - "Opens reinforced and steel doors"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Consumed when it opens a door"
+    rarity: "rare"
+    value: 180
+    door_key: 1
+
+  skeleton_key:
+    name: "Skeleton Key"
+    type: "trinket"
+    description: "A bone-wrought master key that opens any door in the land - and is never spent"
+    flavor: "Every lock was cut from the same first key. This is that key."
+    tooltip_effects:
+      - "Opens any locked door"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Never consumed"
+    rarity: "legendary"
+    value: 900
+    master_key: 1
+
+  cogleather_helm:
+    name: "Cogleather Helm"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "A hardened-leather helm with jeweler's goggles"
+    flavor: "Light enough to hear the tower tick."
+    equip_slot: "helmet"
+    armor_class_base: 3
+    endurance_scaling_divisor: 10
+    bonus_speed: 2
+    rarity: "rare"
+    value: 2200
+
+  cogleather_jacket:
+    name: "Cogleather Jacket"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Oiled straps and pocketed leather, cut for climbing gearwork"
+    flavor: "It creaks in time with the pendulums."
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 10
+    bonus_speed: 3
+    rarity: "rare"
+    value: 3400
+
+  cogleather_pauldrons:
+    name: "Cogleather Pauldrons"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Layered leather cog-guards for the off arm"
+    flavor: "Luck is a mechanism like any other."
+    equip_slot: "offhand"
+    armor_class_base: 3
+    endurance_scaling_divisor: 10
+    bonus_luck: 3
+    rarity: "rare"
+    value: 2600
+
+  cogleather_gloves:
+    name: "Cogleather Gloves"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Thin key-winder's gloves that never slip"
+    flavor: "Made for fingers that count teeth."
+    equip_slot: "gauntlets"
+    armor_class_base: 2
+    endurance_scaling_divisor: 10
+    bonus_accuracy: 3
+    rarity: "rare"
+    value: 2400
+
+  cogleather_boots:
+    name: "Cogleather Boots"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Soft-soled boots that read the floor's vibrations"
+    flavor: "The stairs never hear them coming."
+    equip_slot: "boots"
+    armor_class_base: 4
+    endurance_scaling_divisor: 10
+    bonus_speed: 4
+    rarity: "rare"
+    value: 2600
+
+  chainwork_helm:
+    name: "Chainwork Helm"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "A brass helm over fine chain aventail"
+    flavor: "Every link a second, every second armored."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 7
+    bonus_accuracy: 2
+    rarity: "rare"
+    value: 2800
+
+  chainwork_hauberk:
+    name: "Chainwork Hauberk"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Interwoven chain driven by a ticking escapement"
+    flavor: "It tightens where the blow lands."
+    equip_slot: "armor"
+    armor_class_base: 8
+    endurance_scaling_divisor: 7
+    bonus_accuracy: 3
+    rarity: "rare"
+    value: 4200
+
+  chainwork_pauldrons:
+    name: "Chainwork Pauldrons"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Cog-guards of riveted chain for the off arm"
+    flavor: "They ratchet a notch tighter each parry."
+    equip_slot: "offhand"
+    armor_class_base: 5
+    endurance_scaling_divisor: 7
+    bonus_endurance: 3
+    rarity: "rare"
+    value: 3200
+
+  chainwork_gauntlets:
+    name: "Chainwork Gauntlets"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Chain-backed gauntlets with wind-up knuckles"
+    flavor: "Turn the key. Count to three."
+    equip_slot: "gauntlets"
+    armor_class_base: 3
+    endurance_scaling_divisor: 7
+    bonus_might: 2
+    bonus_accuracy: 2
+    rarity: "rare"
+    value: 3000
+
+  chainwork_greaves:
+    name: "Chainwork Greaves"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Chain greaves with geared ankle joints"
+    flavor: "The tower's stairs built these."
+    equip_slot: "boots"
+    armor_class_base: 4
+    endurance_scaling_divisor: 7
+    bonus_endurance: 2
+    rarity: "rare"
+    value: 3200
+
+  clockplate_helm:
+    name: "Clockplate Helm"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "A sealed brass helm, dials where the visor should be"
+    flavor: "Through these lenses, everything is a mechanism."
+    equip_slot: "helmet"
+    armor_class_base: 5
+    endurance_scaling_divisor: 5
+    bonus_might: 2
+    rarity: "rare"
+    value: 3600
+
+  clockplate_cuirass:
+    name: "Clockplate Cuirass"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Layered plates driven by a ticking escapement over the heart"
+    flavor: "It winds itself on the wearer's heartbeat."
+    equip_slot: "armor"
+    armor_class_base: 10
+    endurance_scaling_divisor: 5
+    bonus_might: 3
+    rarity: "rare"
+    value: 5200
+
+  clockplate_pauldrons:
+    name: "Clockplate Pauldrons"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Interlocking cog-plates that turn blows aside"
+    flavor: "Every parry ratchets them one tooth tighter."
+    equip_slot: "offhand"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    bonus_might: 2
+    rarity: "rare"
+    value: 4000
+
+  clockplate_gauntlets:
+    name: "Clockplate Gauntlets"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Key-driven fists with spring-steel snap"
+    flavor: "Let go on three."
+    equip_slot: "gauntlets"
+    armor_class_base: 4
+    endurance_scaling_divisor: 5
+    bonus_might: 4
+    rarity: "rare"
+    value: 3800
+
+  clockplate_greaves:
+    name: "Clockplate Greaves"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Motorized legplates that carry their own weight"
+    flavor: "And some of yours."
+    equip_slot: "boots"
+    armor_class_base: 5
+    endurance_scaling_divisor: 5
+    bonus_endurance: 3
+    rarity: "rare"
+    value: 3800
+
+  chrono_cape:
+    name: "Chrono Cape"
+    type: "accessory"
+    description: "A midnight cape with a pendulum clasp that swings a half-second ahead"
+    flavor: "It billows before the wind arrives."
+    equip_slot: "cloak"
+    armor_class_base: 4
+    personality_scaling_divisor: 5
+    rarity: "rare"
+    value: 3400
+
+  # ================= DRAKEFORGED ARMOR (Scalewright tier) =================
+  broodscale_aegis:
+    name: "Broodscale Aegis"
+    type: "armor"
+    armor_category: "shield"
+    description: "A round shield of black brood-scale; bolts remember the way home"
+    flavor: "The mother's own flank, and it still refuses arrows."
+    equip_slot: "offhand"
+    armor_class_base: 7
+    projectile_reflect_pct: 20
+    resistances:
+      fire: 40
+    set: "drakeforged"
+    rarity: "legendary"
+    value: 6000
+
+  drakehide_gauntlets:
+    name: "Drakehide Gauntlets"
+    type: "armor"
+    armor_category: "leather"
+    description: "Gauntlets of green-edged hide that thicken with every blow taken"
+    flavor: "Hit them. Go on. They like it."
+    equip_slot: "gauntlets"
+    armor_class_base: 5
+    endurance_scaling_divisor: 10
+    bonus_might: 5
+    scale_stack_ac: 1
+    scale_stack_max: 8
+    resistances:
+      fire: 25
+    set: "drakeforged"
+    rarity: "legendary"
+    value: 5500
+
+  # ================= REGALIA OF THE STILL COURT (god drops) =================
+  deathgod_helm:
+    name: "Helm of the Still Court"
+    type: "armor"
+    armor_category: "plate"
+    description: "A horned mask of black iron and gold; it watches the living politely"
+    flavor: "Wearing a god's face is only rude if he minds."
+    equip_slot: "helmet"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    bonus_intellect: 10
+    resistances:
+      dark: 50
+    set: "still_court"
+    rarity: "legendary"
+    value: 6500
+
+  deathgod_greaves:
+    name: "Greaves of the Still Court"
+    type: "armor"
+    armor_category: "plate"
+    description: "Leg plates chased with gold scripture that no one living can read"
+    flavor: "They walk the quiet halls whether you do or not."
+    equip_slot: "boots"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    resistances:
+      body: 50
+    set: "still_court"
+    rarity: "legendary"
+    value: 6500
+
+  deathgod_aegis:
+    name: "Aegis of the Still Court"
+    type: "armor"
+    armor_category: "shield"
+    description: "A black-gold ward with a cyan heart; misfortune slides off it"
+    flavor: "The court does not take appointments. It takes shields."
+    equip_slot: "offhand"
+    armor_class_base: 7
+    status_duration_pct: -50
+    resistances:
+      dark: 30
+    set: "still_court"
+    rarity: "legendary"
+    value: 7000
+
+  # ================= DRAGON SCALES (Scalewright currency) =================
+  # Trophy trinkets and the Scalewright's crafting currency. Exact scale counts
+  # and gold surcharges live only in the merchant inventory in npcs.yaml.
+  black_dragon_scale:
+    name: "Black Dragon Scale"
+    type: "trinket"
+    description: "A palm-wide scale of the Brood Mother, still warm"
+    flavor: "Bolt holes along one edge, where it was fastened to something bigger. The Scalewright pays and does not discuss it."
+    rarity: "legendary"
+    value: 1200
+
+  red_dragon_scale:
+    name: "Red Dragon Scale"
+    type: "trinket"
+    description: "A red scale edged in gold, shed by desert fire"
+    flavor: "Smells faintly of a very bad afternoon."
+    rarity: "rare"
+    value: 350
+
+  green_dragon_scale:
+    name: "Green Dragon Scale"
+    type: "trinket"
+    description: "A green scale slick as riverglass"
+    flavor: "The venom wiped off. Probably."
+    rarity: "rare"
+    value: 350
+
+  gold_dragon_scale:
+    name: "Gold Dragon Scale"
+    type: "trinket"
+    description: "A gold scale that sparks faintly in a storm"
+    flavor: "Worth its weight, and it throws sparks at steel indoors too."
+    rarity: "rare"
+    value: 600
+
+  # ================= ELEMENTAL DRAUGHTS =================
+  # Counterplay potions for the endgame triad: each wards one school for a
+  # minute, party-wide. Dropped by dragons and the clock tower's works.
+  flame_ward_draught:
+    name: "Flame Ward Draught"
+    type: "consumable"
+    description: "A red draught that drinks the heat out of dragonfire"
+    flavor: "Brewed against the Brood Mother's breath."
+    resist_buff_school: "fire"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "flame_ward_draught"
+    rarity: "rare"
+    value: 300
+
+  storm_ward_draught:
+    name: "Storm Ward Draught"
+    type: "consumable"
+    description: "A pale blue swirl that grounds the lightning around you"
+    flavor: "The tide-warden's arcs slide right off."
+    resist_buff_school: "air"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "storm_ward_draught"
+    rarity: "rare"
+    value: 300
+
+  gloom_ward_draught:
+    name: "Gloom Ward Draught"
+    type: "consumable"
+    description: "A violet dark that swallows darker things"
+    flavor: "The Still Court finds nothing to reap in you."
+    resist_buff_school: "dark"
+    resist_buff_school_pct: 50
+    buff_duration_seconds: 60
+    status_icon: "gloom_ward_draught"
+    rarity: "rare"
+    value: 300
+
+  stoneskin_draught:
+    name: "Stoneskin Draught"
+    type: "consumable"
+    description: "Earth and ore in suspension; your skin remembers the mountain"
+    flavor: "Chew before swallowing."
+    buff_armor_class: 15
+    buff_duration_seconds: 60
+    status_icon: "stoneskin_draught"
+    rarity: "rare"
+    value: 350

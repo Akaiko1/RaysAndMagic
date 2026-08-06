@@ -19,21 +19,27 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name             string               `yaml:"name"`
-	Type             string               `yaml:"type"`
-	Description      string               `yaml:"description"`
-	Sprite           string               `yaml:"sprite"`
-	VisitedSprite    string               `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin           bool                 `yaml:"no_spin,omitempty"` // pin the token to a fixed pose (a box pile does not rotate)
-	RenderCategory   string               `yaml:"render_category"`       // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
-	PromptVerb       string               `yaml:"prompt_verb,omitempty"` // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
+	Name          string `yaml:"name"`
+	Type          string `yaml:"type"`
+	Description   string `yaml:"description"`
+	Sprite        string `yaml:"sprite"`
+	VisitedSprite string `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool   `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
+	// Its span and sprite aspect are its complete visual-size contract, so it is
+	// mutually exclusive with size_class and no_spin.
+	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"`
+	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
+	RenderCategory   string               `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string               `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
-	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
-	SizeTiles        float64              `yaml:"size_tiles,omitempty"`
+	SizeClass        string               `yaml:"size_class,omitempty"` // shared quantized visual-size tier
+	RemovedSizeTiles *float64             `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	NightOnly        bool                 `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
 	RejectsLich      bool                 `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
@@ -58,20 +64,37 @@ type NPCData struct {
 	// Lectern (type "spell_lectern") behavior block. Loot-crate behavior lives
 	// in loots.yaml `crates:` keyed by the NPC key.
 	Lectern *NPCLectern `yaml:"lectern,omitempty"`
+	// Door (type "door", render_category "door"): DoorBehavior is explicit so
+	// a special portcullis cannot accidentally acquire lock mechanics. Locked
+	// doors use items.yaml keys (not display names) and optional stat thresholds.
+	// The Skeleton Key (master_key attribute) opens every locked door regardless
+	// of the authored key list.
+	DoorBehavior    string           `yaml:"door_behavior,omitempty"`
+	LockLabel       string           `yaml:"lock_label,omitempty"`
+	DoorKeyItemKeys []string         `yaml:"door_key_items,omitempty"`
+	DoorStatReqs    []NPCDoorStatReq `yaml:"door_stat_reqs,omitempty"`
+}
+
+// NPCDoorStatReq is one "force it open" option: a single member whose effective
+// Stat meets Value may open the door by force (never consumes anything).
+type NPCDoorStatReq struct {
+	Stat  string `yaml:"stat"`  // Might|Intellect (effective stat)
+	Value int    `yaml:"value"` // threshold the member must meet
 }
 
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
 // summons when that statuette is offered, plus a short label for the choice.
 type NPCSummon struct {
-	Statuette string `yaml:"statuette"`
-	Monster   string `yaml:"monster"`
-	Label     string `yaml:"label"`
+	Statuette      string `yaml:"statuette"`
+	Monster        string `yaml:"monster"`
+	Label          string `yaml:"label"`
+	QuestID        string `yaml:"quest_id,omitempty"`
+	LockedResponse string `yaml:"locked_response,omitempty"`
 }
 
 // NPCDialogue represents the dialogue options for an NPC
 type NPCDialogue struct {
 	Greeting         string `yaml:"greeting"`
-	Teaching         string `yaml:"teaching,omitempty"`
 	InsufficientGold string `yaml:"insufficient_gold,omitempty"`
 	AlreadyKnown     string `yaml:"already_known,omitempty"`
 	Success          string `yaml:"success,omitempty"`
@@ -82,6 +105,10 @@ type NPCDialogue struct {
 	// VisitedMessage. See npc_dialogue.go.
 	ActiveMessage    string `yaml:"active_message,omitempty"`
 	CompletedMessage string `yaml:"completed_message,omitempty"`
+	// QuestMessages overrides the legacy shared bodies for each step of a
+	// multi-quest chain. Missing entries or fields fall back to the shared
+	// Greeting/ActiveMessage/CompletedMessage above.
+	QuestMessages map[string]NPCQuestMessages `yaml:"quest_messages,omitempty"`
 	// QuestGreeting is the offer-state body shown on a spell-trader's QUESTS tab,
 	// so the quest hook there differs from the shop-welcome Greeting on the Spells
 	// tab. Unset -> the Quests tab falls back to Greeting (fine for pure quest NPCs,
@@ -91,13 +118,28 @@ type NPCDialogue struct {
 	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
 
+// NPCQuestMessages is the dialogue body for one quest in a giver's chain.
+// The quest's lifecycle state selects Offer, Active or Completed.
+type NPCQuestMessages struct {
+	Offer     string `yaml:"offer,omitempty"`
+	Active    string `yaml:"active,omitempty"`
+	Completed string `yaml:"completed,omitempty"`
+}
+
 // NPCDialogueChoice represents a dialogue choice option
 type NPCDialogueChoice struct {
 	Text    string `yaml:"text"`
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
-	Tier    string `yaml:"tier,omitempty"`     // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
+	// RequiresQuest gates this choice behind another quest being finished and
+	// paid out. It is what makes a quest CHAIN on one giver: the second offer
+	// stays hidden until the first is turned in.
+	RequiresQuest string `yaml:"requires_quest,omitempty"`
+	// QuestStep keeps an informational choice attached to the current step of a
+	// multi-quest chain. It does not activate or complete the quest.
+	QuestStep string `yaml:"quest_step,omitempty"`
+	Tier      string `yaml:"tier,omitempty"` // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
 	// Branching dialogue (action "info"): when this choice is picked the dialog
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
@@ -108,9 +150,55 @@ type NPCDialogueChoice struct {
 	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
 	Cost   int `yaml:"cost,omitempty"`
 	Amount int `yaml:"amount,omitempty"`
-	// SummonIndex is set at runtime (not from YAML) when statue summon choices
-	// are built from the held statuettes; it indexes NPC.Summons.
-	SummonIndex int `yaml:"-"`
+	// cast_buff: the NPC casts a party buff for Cost gold. Buff names a timed
+	// party buff (walk_on_water, water_breathing, ...) and DurationSeconds is
+	// the authored span - a paid service, NOT a spell the party learns.
+	Buff            string `yaml:"buff,omitempty"`
+	DurationSeconds int    `yaml:"duration_seconds,omitempty"`
+	// RuntimeOptionIndex is set only on choices synthesized at runtime. It
+	// indexes the action-specific source for that choice (for example
+	// NPC.Summons or a derived door-unlock list); authored YAML choices must not
+	// depend on it.
+	RuntimeOptionIndex int `yaml:"-"`
+}
+
+// walkDialogueChoices is the single depth-first traversal for authored choices.
+// Returning true stops the walk early.
+func walkDialogueChoices(choices []*NPCDialogueChoice, visit func(*NPCDialogueChoice) bool) bool {
+	for _, choice := range choices {
+		if choice == nil {
+			continue
+		}
+		if visit(choice) || walkDialogueChoices(choice.Choices, visit) {
+			return true
+		}
+	}
+	return false
+}
+
+// WalkChoices visits every authored choice in depth-first order. Configuration
+// validators share this traversal so a nested action cannot bypass rules that a
+// root action must obey.
+func (d *NPCDialogue) WalkChoices(visit func(*NPCDialogueChoice) error) error {
+	if d == nil || visit == nil {
+		return nil
+	}
+	var visitErr error
+	walkDialogueChoices(d.Choices, func(choice *NPCDialogueChoice) bool {
+		visitErr = visit(choice)
+		return visitErr != nil
+	})
+	return visitErr
+}
+
+// HasAction reports whether any authored choice at any depth uses action.
+func (d *NPCDialogue) HasAction(action string) bool {
+	if d == nil || action == "" {
+		return false
+	}
+	return walkDialogueChoices(d.Choices, func(choice *NPCDialogueChoice) bool {
+		return choice.Action == action
+	})
 }
 
 // NPCEncounter represents an encounter definition
@@ -135,24 +223,10 @@ type EncounterMonster struct {
 
 // NPCSpell represents a spell that an NPC can teach
 type NPCSpell struct {
-	Name         string             `yaml:"name"`
-	School       string             `yaml:"school"`
-	Level        int                `yaml:"level"`
-	Cost         int                `yaml:"cost"`
-	Description  string             `yaml:"description"`
-	Requirements *SpellRequirements `yaml:"requirements,omitempty"`
-}
-
-// SpellRequirements represents requirements to learn a spell
-type SpellRequirements struct {
-	MinLevel int                      `yaml:"min_level,omitempty"`
-	Schools  []SpellSchoolRequirement `yaml:"schools,omitempty"`
-}
-
-// SpellSchoolRequirement represents a required magic school level.
-type SpellSchoolRequirement struct {
-	School   string `yaml:"school"`
-	MinLevel int    `yaml:"min_level,omitempty"`
+	Name        string `yaml:"name"`
+	School      string `yaml:"school"`
+	Cost        int    `yaml:"cost"`
+	Description string `yaml:"description"`
 }
 
 // NPCItem represents an item that an NPC can sell
@@ -161,6 +235,15 @@ type NPCItem struct {
 	Name     string `yaml:"name"`
 	Cost     int    `yaml:"cost"`
 	Quantity int    `yaml:"quantity"`
+	// Tab groups this entry under a named shop tab (the Clockmaker's armor
+	// sets). All-or-nothing per merchant: mixed tabbed/untabbed stock fails
+	// validation, an untabbed shop keeps the classic single grid.
+	Tab string `yaml:"tab,omitempty"`
+	// CurrencyItem prices THIS entry in an item key (Scalewright: per-colour
+	// scales), overriding the shop currency; GoldCost is a gold surcharge paid
+	// on top of it.
+	CurrencyItem string `yaml:"currency_item,omitempty"`
+	GoldCost     int    `yaml:"gold_cost,omitempty"`
 }
 
 // Global NPC configuration
@@ -205,6 +288,11 @@ func LoadNPCConfig(filename string) error {
 	if err := validateCratesAndLecterns(&config); err != nil {
 		return err
 	}
+	for key, npc := range config.NPCs {
+		if npc != nil && npc.RemovedSizeTiles != nil {
+			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
+		}
+	}
 	return nil
 }
 
@@ -217,7 +305,7 @@ func validateNPCTypes(cfg *NPCConfig) error {
 			if npc != nil {
 				got = npc.Type
 			}
-			return fmt.Errorf("NPC %q has missing or unknown type %q (valid: encounter|quest_giver|merchant|spell_trader|skill_trainer|card_collector|loot_crate|spell_lectern)", key, got)
+			return fmt.Errorf("NPC %q has missing or unknown type %q (valid: %s)", key, got, strings.Join(NPCTypeOrder, "|"))
 		}
 	}
 	return nil
@@ -261,13 +349,10 @@ func validateCratesAndLecterns(cfg *NPCConfig) error {
 // their price data (a free rest / zero-food ration is a content bug).
 func validatePricedChoices() error {
 	for npcKey, npc := range NPCConfigInstance.NPCs {
-		if npc.Dialogue == nil {
+		if npc == nil || npc.Dialogue == nil {
 			continue
 		}
-		for _, c := range npc.Dialogue.Choices {
-			if c == nil {
-				continue
-			}
+		if err := npc.Dialogue.WalkChoices(func(c *NPCDialogueChoice) error {
 			switch c.Action {
 			case "tavern_rest":
 				if c.Cost <= 0 {
@@ -281,16 +366,27 @@ func validatePricedChoices() error {
 				if c.Cost <= 0 || c.Amount <= 0 {
 					return fmt.Errorf("npc %q: buy_food choice requires cost > 0 and amount > 0", npcKey)
 				}
+			case "cast_buff":
+				// The buff NAME is checked against the live buff registry at game
+				// construction (validateNPCCastBuffs) - this layer owns the numbers.
+				if c.Cost <= 0 || c.DurationSeconds <= 0 || c.Buff == "" {
+					return fmt.Errorf("npc %q: cast_buff choice requires buff, cost > 0 and duration_seconds > 0", npcKey)
+				}
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 // backfillTraderSpells fills each spell_trader entry's intrinsic data (name,
-// school, level, description, min-level gate) from spells.yaml keyed by the entry
-// ID, so a catalog only authors the price. Cost stays per-entry (a shop property)
-// and is required (fail-fast). Spells must already be loaded.
+// school, description) from spells.yaml keyed by the entry ID, so a catalog only
+// authors the price. Cost stays per-entry (a shop property) and is required
+// (fail-fast), so it must never be guessed. The purchase path separately
+// requires the selected character to have the matching school open.
+// Spells must already be loaded.
 func backfillTraderSpells() error {
 	if NPCConfigInstance == nil {
 		return nil
@@ -317,16 +413,8 @@ func backfillTraderSpells() error {
 			if sp.School == "" {
 				sp.School = def.School
 			}
-			if sp.Level == 0 {
-				sp.Level = def.Level
-			}
 			if sp.Description == "" {
 				sp.Description = def.Description
-			}
-			if sp.Requirements == nil {
-				// Gate purchase on the spell's own level; the school-open check is
-				// already enforced by canCharacterLearnNPCSpell.
-				sp.Requirements = &SpellRequirements{MinLevel: def.Level}
 			}
 		}
 	}
@@ -370,16 +458,22 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Transparent:      data.Transparent,
 		GroundTile:       data.GroundTile,
 		SizeClass:        data.SizeClass,
-		SizeTiles:        data.SizeTiles,
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
+		NightOnly:        data.NightOnly,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
+		GridSpanTiles:    data.GridSpanTiles,
+		GridSpanDir:      data.GridSpanDir,
 		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 		Lectern:          data.Lectern,
+		DoorBehavior:     data.DoorBehavior,
+		LockLabel:        data.LockLabel,
+		DoorKeyItemKeys:  data.DoorKeyItemKeys,
+		DoorStatReqs:     data.DoorStatReqs,
 	}
 
 	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an
@@ -429,9 +523,12 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 			qty = 1 // authored without quantity: single copy; negative = unlimited
 		}
 		stock = append(stock, &MerchantStockItem{
-			Item:     item,
-			Cost:     cost,
-			Quantity: qty,
+			Item:         item,
+			Cost:         cost,
+			Quantity:     qty,
+			Tab:          entry.Tab,
+			CurrencyItem: entry.CurrencyItem,
+			GoldCost:     entry.GoldCost,
 		})
 	}
 	return stock
@@ -441,6 +538,11 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 // keep their authored order up front, weapons follow GROUPED by category
 // (sword/bow/mace/...) and named alphabetically within each group.
 func groupMerchantWeapons(stock []*MerchantStockItem) {
+	for _, m := range stock {
+		if m != nil && m.Tab != "" {
+			return // tabbed shop: the authored tab order IS the layout
+		}
+	}
 	weaponCat := func(m *MerchantStockItem) string {
 		if m.Item.Type != items.ItemWeapon {
 			return "" // non-weapon: sorts before every weapon, keeps authored order
