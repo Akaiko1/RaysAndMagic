@@ -1135,9 +1135,13 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, 
 	return x >= drawLeft+inset && x < drawLeft+spriteSize-inset && y >= screenY && y < screenY+spriteSize
 }
 
+// walkableSearchRadiusTiles is the normal walkable-tile search radius: the
+// single-shot lookup's cap, and the expanding search's first tier and step.
+const walkableSearchRadiusTiles = 10
+
 // FindNearestWalkableTile finds the closest walkable tile to the given position (DRY helper)
 func (g *MMGame) FindNearestWalkableTile(targetX, targetY float64) (float64, float64) {
-	return g.findNearestWalkableTileWithMaxRadius(targetX, targetY, 10, nil)
+	return g.findNearestWalkableTileWithMaxRadius(targetX, targetY, walkableSearchRadiusTiles, nil)
 }
 
 // FindNearestWalkableTileMustSucceed finds walkable tile with expanding search - MUST find one
@@ -1156,10 +1160,14 @@ func (g *MMGame) findNearestWalkableTileMustSucceed(targetX, targetY float64, ac
 	}
 
 	// Start with normal search radius, then expand until we find something
-	for maxRadius := 10; maxRadius <= worldInst.Width && maxRadius <= worldInst.Height; maxRadius += 10 {
+	for maxRadius := walkableSearchRadiusTiles; maxRadius <= worldInst.Width && maxRadius <= worldInst.Height; maxRadius += walkableSearchRadiusTiles {
 		x, y := g.findNearestWalkableTileWithMaxRadius(targetX, targetY, maxRadius, accept)
 		if x != -1 && y != -1 {
-			fmt.Printf("Found walkable tile at radius %d: (%.1f, %.1f)\n", maxRadius, x, y)
+			// The first tier is the normal case - only an EXPANDED search is
+			// worth a log line (the position snapped unusually far).
+			if maxRadius > walkableSearchRadiusTiles {
+				fmt.Printf("Found walkable tile at radius %d: (%.1f, %.1f)\n", maxRadius, x, y)
+			}
 			return x, y
 		}
 	}

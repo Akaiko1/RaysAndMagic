@@ -155,7 +155,13 @@ func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *charac
 // weapon's riders, then roll damage through the character pipeline (weapon +
 // effective stats + crit). Every champion attack path funnels through it.
 func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.MMCharacter, weapon items.Item) (*config.WeaponDefinitionConfig, int) {
-	wd := lookupWeaponConfigByName(weapon.Name)
+	// An empty hand is legal (the slot lookup yields a zero Item): swing
+	// unarmed with no weapon def instead of warning about weapon ''. A
+	// non-empty name that fails the lookup still warns - that IS a content bug.
+	var wd *config.WeaponDefinitionConfig
+	if weapon.Name != "" {
+		wd = lookupWeaponConfigByName(weapon.Name)
+	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
 	if crit, _ := cs.RollWeaponCriticalChance(weapon, ch); crit {
@@ -378,7 +384,7 @@ func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) int {
 	// Applying it here as well would double-dip.
 	if m != nil && m.IsChampion() && cs.game != nil {
 		if ch := cs.game.championTemplateFor(m); ch != nil {
-			_, total := cs.championSwingDamage(m, ch, ch.Equipment[items.SlotMainHand])
+			_, total := cs.championSwingDamage(m, ch, championHandWeapon(ch, false))
 			return total
 		}
 	}
@@ -464,7 +470,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 		m.Experience = tier.Experience
 	}
 
-	weapon := ch.Equipment[items.SlotMainHand]
+	weapon := championHandWeapon(ch, false)
 	wd, _, found := config.GetWeaponDefinitionByName(weapon.Name)
 	if found && wd != nil {
 		cs.applyChampionHandRiders(m, ch, wd) // main-hand defaults until the first swing re-arms
