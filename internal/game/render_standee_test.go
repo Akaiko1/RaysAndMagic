@@ -8,6 +8,51 @@ import (
 	"testing"
 )
 
+func TestStandeeRenderSourceSizeBoundsDerivedTexturePayload(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		wantW, wantH  int
+	}{
+		{name: "shipped scale stays exact", width: 512, height: 512, wantW: 512, wantH: 512},
+		{name: "wide oversized source halves", width: 2048, height: 1024, wantW: 1024, wantH: 512},
+		{name: "four k source reaches one megapixel", width: 4096, height: 4096, wantW: 1024, wantH: 1024},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotW, gotH := standeeRenderSourceSize(tt.width, tt.height)
+			if gotW != tt.wantW || gotH != tt.wantH {
+				t.Fatalf("bounded size = %dx%d, want %dx%d", gotW, gotH, tt.wantW, tt.wantH)
+			}
+			if int64(gotW)*int64(gotH) > standeeRenderSourceMaxPixels {
+				t.Fatalf("bounded source still exceeds pixel cap: %dx%d", gotW, gotH)
+			}
+		})
+	}
+}
+
+func TestPrewarmUploadBatchBoundaries(t *testing.T) {
+	tests := []struct {
+		name      string
+		images    int
+		bytes     int64
+		nextBytes int64
+		wantFlush bool
+	}{
+		{name: "empty batch accepts oversized first image", nextBytes: prewarmUploadBatchBytes + 1, wantFlush: false},
+		{name: "under both limits", images: 1, bytes: 1024, nextBytes: 1024, wantFlush: false},
+		{name: "byte limit", images: 1, bytes: prewarmUploadBatchBytes, nextBytes: 1, wantFlush: true},
+		{name: "image count limit", images: prewarmUploadBatchImages, wantFlush: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := prewarmUploadBatchFull(tt.images, tt.bytes, tt.nextBytes); got != tt.wantFlush {
+				t.Fatalf("flush = %v, want %v", got, tt.wantFlush)
+			}
+		})
+	}
+}
+
 // Ray-segment math behind standee tokens: t is the perpendicular depth (ray
 // built as dir + plane-s with |dir| = 1), u the position along the token.
 func TestStandeeColumnHit(t *testing.T) {

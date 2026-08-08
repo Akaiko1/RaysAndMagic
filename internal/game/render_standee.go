@@ -69,6 +69,55 @@ func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) stande
 	return key
 }
 
+const standeeRenderSourceMaxPixels = 1024 * 1024
+
+func standeeRenderSourceSize(width, height int) (int, int) {
+	for width > 0 && height > 0 && int64(width)*int64(height) > standeeRenderSourceMaxPixels {
+		width = max(1, (width+1)/2)
+		height = max(1, (height+1)/2)
+	}
+	return width, height
+}
+
+// boundedStandeeRenderSource prevents one high-resolution campaign sprite from
+// multiplying into an equally large core plus two mip chains. Geometry still
+// uses the authored size class; only the texture sampling source is reduced.
+func (r *Renderer) boundedStandeeRenderSource(key standeeCoreKey, src *ebiten.Image) *ebiten.Image {
+	if src == nil {
+		return nil
+	}
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	targetW, targetH := standeeRenderSourceSize(w, h)
+	if targetW == w && targetH == h {
+		return src
+	}
+	if cached := r.standeeRenderSourceCache[key]; cached != nil {
+		return cached
+	}
+	pixels := make([]byte, 4*w*h)
+	src.ReadPixels(pixels)
+	cpuLevel := &image.RGBA{
+		Pix:    pixels,
+		Stride: 4 * w,
+		Rect:   image.Rect(0, 0, w, h),
+	}
+	for cpuLevel.Bounds().Dx() != targetW || cpuLevel.Bounds().Dy() != targetH {
+		nextW := max(targetW, (cpuLevel.Bounds().Dx()+1)/2)
+		nextH := max(targetH, (cpuLevel.Bounds().Dy()+1)/2)
+		cpuLevel = downsampleMip(cpuLevel, image.Pt(nextW, nextH))
+		if cpuLevel == nil {
+			return src
+		}
+	}
+	bounded := ebiten.NewImageFromImage(cpuLevel)
+	if r.standeeRenderSourceCache == nil {
+		r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
+	}
+	r.standeeRenderSourceCache[key] = bounded
+	return bounded
+}
+
 type standeeMipLayer uint8
 
 const (
@@ -808,6 +857,10 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 // aliases dst (grown), so the caller reclaims it after drawing. See
 // drawStandeeSprite's doc for the parameter meanings.
 func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
+	sprite = r.boundedStandeeRenderSource(coreKey, sprite)
+	if sprite == nil {
+		return standeeSlab{}, false
+	}
 	screenW := r.game.config.GetScreenWidth()
 	cam := r.game.camera
 	halfFovTan := math.Tan(cam.FOV / 2)
@@ -1426,72 +1479,98 @@ func (r *Renderer) reserveStandeeBuffers() {
 	}
 }
 
-// flushPrewarmedImageUploads submits every map image and generated mip as a
-// source before gameplay. One ReadPixels on the tiny destination flushes the
-// whole command queue (graphicscommand.ReadPixels drains it), so the buffered
-// WritePixels uploads land once here instead of stalling the first frame that
-// draws each image; reading every source instead would pay that stall - plus a
-// full-image GPU readback - per sprite.
+const (
+	prewarmUploadBatchBytes  int64 = 16 << 20
+	prewarmUploadBatchImages       = 64
+)
+
+func prewarmUploadBatchFull(imageCount int, batchBytes, nextImageBytes int64) bool {
+	return imageCount > 0 &&
+		(imageCount >= prewarmUploadBatchImages || batchBytes+nextImageBytes > prewarmUploadBatchBytes)
+}
+
+// flushPrewarmedImageUploads submits bounded batches before gameplay. The tiny
+// destination still provides one synchronization point per batch, but the
+// driver never has to retain the entire region's pending uploads at once.
 func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *mipChain) {
 	if len(images) == 0 {
 		return
 	}
-	target := ebiten.NewImage(len(images)+2, 1)
-	defer target.Deallocate()
-	x := 0
+	flush := func(batch []*ebiten.Image, warmShaders bool) {
+		target := ebiten.NewImage(len(batch)+2, 1)
+		defer target.Deallocate()
+		x := 0
+		for _, img := range batch {
+			bounds := img.Bounds()
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Translate(float64(-bounds.Min.X), float64(-bounds.Min.Y))
+			opts.GeoM.Scale(1/float64(bounds.Dx()), 1/float64(bounds.Dy()))
+			opts.GeoM.Translate(float64(x), 0)
+			target.DrawImage(img, opts)
+			x++
+		}
+
+		if warmShaders && stickerMips != nil && coreMips != nil &&
+			len(stickerMips.levels) > 0 && len(coreMips.levels) > 0 {
+			stickerLevel1 := min(1, len(stickerMips.levels)-1)
+			stickerLevel2 := min(2, len(stickerMips.levels)-1)
+			coreLevel := min(1, len(coreMips.levels)-1)
+			origin := stickerMips.levels[0].Bounds().Min
+			srcX, srcY := float32(origin.X)+0.5, float32(origin.Y)+0.5
+			indices := []uint32{0, 1, 2, 1, 3, 2}
+			shaderOpts := func() *ebiten.DrawTrianglesShaderOptions {
+				opts := &ebiten.DrawTrianglesShaderOptions{}
+				opts.Images[0] = stickerMips.levels[0]
+				opts.Images[1] = stickerMips.levels[stickerLevel1]
+				opts.Images[2] = stickerMips.levels[stickerLevel2]
+				opts.Images[3] = coreMips.levels[coreLevel]
+				return opts
+			}
+
+			if r.standeeTrilinearShader != nil {
+				left := float32(x)
+				vertices := []ebiten.Vertex{
+					{DstX: left, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
+					{DstX: left + 1, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
+					{DstX: left, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
+					{DstX: left + 1, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
+				}
+				target.DrawTrianglesShader32(vertices, indices, r.standeeTrilinearShader, shaderOpts())
+				x++
+			}
+			if r.standeeVolumeShader != nil {
+				left := float32(x)
+				vertices := []ebiten.Vertex{
+					{DstX: left, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
+					{DstX: left + 1, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
+					{DstX: left, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
+					{DstX: left + 1, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
+				}
+				target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
+			}
+		}
+		target.ReadPixels(make([]byte, 4*(len(batch)+2)))
+	}
+
+	batch := make([]*ebiten.Image, 0, prewarmUploadBatchImages)
+	var batchBytes int64
 	for img := range images {
 		bounds := img.Bounds()
 		if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 			continue
 		}
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(-bounds.Min.X), float64(-bounds.Min.Y))
-		opts.GeoM.Scale(1/float64(bounds.Dx()), 1/float64(bounds.Dy()))
-		opts.GeoM.Translate(float64(x), 0)
-		target.DrawImage(img, opts)
-		x++
+		imageBytes := int64(bounds.Dx()) * int64(bounds.Dy()) * 4
+		if prewarmUploadBatchFull(len(batch), batchBytes, imageBytes) {
+			flush(batch, false)
+			batch = batch[:0]
+			batchBytes = 0
+		}
+		batch = append(batch, img)
+		batchBytes += imageBytes
 	}
-
-	if stickerMips != nil && coreMips != nil &&
-		len(stickerMips.levels) > 0 && len(coreMips.levels) > 0 {
-		stickerLevel1 := min(1, len(stickerMips.levels)-1)
-		stickerLevel2 := min(2, len(stickerMips.levels)-1)
-		coreLevel := min(1, len(coreMips.levels)-1)
-		origin := stickerMips.levels[0].Bounds().Min
-		srcX, srcY := float32(origin.X)+0.5, float32(origin.Y)+0.5
-		indices := []uint32{0, 1, 2, 1, 3, 2}
-		shaderOpts := func() *ebiten.DrawTrianglesShaderOptions {
-			opts := &ebiten.DrawTrianglesShaderOptions{}
-			opts.Images[0] = stickerMips.levels[0]
-			opts.Images[1] = stickerMips.levels[stickerLevel1]
-			opts.Images[2] = stickerMips.levels[stickerLevel2]
-			opts.Images[3] = coreMips.levels[coreLevel]
-			return opts
-		}
-
-		if r.standeeTrilinearShader != nil {
-			left := float32(x)
-			vertices := []ebiten.Vertex{
-				{DstX: left, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left + 1, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left + 1, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-			}
-			target.DrawTrianglesShader32(vertices, indices, r.standeeTrilinearShader, shaderOpts())
-			x++
-		}
-		if r.standeeVolumeShader != nil {
-			left := float32(x)
-			vertices := []ebiten.Vertex{
-				{DstX: left, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left + 1, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left + 1, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-			}
-			target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
-		}
+	if len(batch) > 0 {
+		flush(batch, true)
 	}
-	target.ReadPixels(make([]byte, 4*(len(images)+2)))
 }
 
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {

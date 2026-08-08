@@ -282,10 +282,9 @@ type MMGame struct {
 	skyPanorama       *ebiten.Image
 	currentSkyTexture string
 	skyShader         *ebiten.Shader // lazily compiled, reused across frames
-	// skyPanoramaCache holds every decoded sky backdrop for the session: a
-	// day/night flip or map switch swaps pointers instead of paying a mid-frame
-	// PNG decode (a night panorama costs ~20ms = dropped frames at the flip).
-	// Filled by prewarmSkyPanoramas at boot; misses still decode-and-fill.
+	// skyPanoramaCache holds backdrops owned by the current render-resident map
+	// regions. Both phases are prepared together, so a day/night flip is a
+	// pointer swap while unrelated visited skies can be released.
 	skyPanoramaCache map[string]*ebiten.Image
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
@@ -1455,48 +1454,58 @@ func (g *MMGame) updateSkyPanorama(textureName string) {
 	if textureName == "" {
 		return
 	}
+	g.skyPanorama = g.ensureSkyPanoramaCached(textureName)
+}
+
+func (g *MMGame) ensureSkyPanoramaCached(textureName string) *ebiten.Image {
+	if textureName == "" {
+		return nil
+	}
 	if img, ok := g.skyPanoramaCache[textureName]; ok {
-		g.skyPanorama = img
-		return
+		return img
 	}
 	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
 	if err != nil {
 		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
-		return
+		return nil
 	}
 	if g.skyPanoramaCache == nil {
 		g.skyPanoramaCache = make(map[string]*ebiten.Image)
 	}
 	g.skyPanoramaCache[textureName] = img
-	g.skyPanorama = img
+	return img
 }
 
-// prewarmSkyPanoramas decodes every shipped sky backdrop once at game start.
-// The whole set stays resident for the session - skies are the one art family
-// small in count yet paid for at the worst moment (mid-frame on a phase flip).
+func skyTextureNamesForMap(mapKey string) []string {
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return nil
+	}
+	mc := wm.MapConfigs[mapKey]
+	if mc == nil || mc.SkyTexture == "" {
+		return nil
+	}
+	names := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	for _, night := range []bool{false, true} {
+		name := mc.SkyTexture
+		if variant := skyVariantName(mc.SkyTexture, night); skyTextureExists(variant) {
+			name = variant
+		}
+		if _, exists := seen[name]; exists || !skyTextureExists(name) {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
+// prewarmSkyPanoramas prepares only the initial map's phase pair. Visible
+// neighbour prewarm uses the same helper and residency manifest later.
 func (g *MMGame) prewarmSkyPanoramas() {
-	entries, err := os.ReadDir("assets/sprites/sky")
-	if err != nil {
-		return
-	}
-	if g.skyPanoramaCache == nil {
-		g.skyPanoramaCache = make(map[string]*ebiten.Image)
-	}
-	for _, entry := range entries {
-		fileName := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(fileName, ".png") {
-			continue
-		}
-		name := strings.TrimSuffix(fileName, ".png")
-		if _, ok := g.skyPanoramaCache[name]; ok {
-			continue
-		}
-		img, err := loadPNGAsEbiten(filepath.Join("assets/sprites/sky", fileName))
-		if err != nil {
-			fmt.Printf("[Sky] failed to prewarm %q: %v\n", fileName, err)
-			continue
-		}
-		g.skyPanoramaCache[name] = img
+	for _, name := range skyTextureNamesForMap(currentMapKey()) {
+		g.ensureSkyPanoramaCached(name)
 	}
 }
 

@@ -169,6 +169,9 @@ func (gl *GameLoop) updateExploration() {
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
 	gl.game.syncOpenWorldRegion()
+	if gl.renderer != nil {
+		gl.renderer.syncVisibleMapRenderResidency()
+	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration).
 	// An RT payout clears partial TB progress so toggling modes cannot pay both

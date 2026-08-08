@@ -161,6 +161,50 @@ func TestResetMapRenderResourceResidencyClearsWallRipmaps(t *testing.T) {
 	}
 }
 
+func TestWallRipmapBudgetFallsBackBeforeAllocation(t *testing.T) {
+	smallRipmapBytes := wallRipmapByteSize(8, 8)
+	tests := []struct {
+		name         string
+		residentByte int64
+	}{
+		{name: "one byte over budget", residentByte: wallRipmapBudgetBytes - smallRipmapBytes + 1},
+		{name: "budget exhausted", residentByte: wallRipmapBudgetBytes},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := ebiten.NewImage(8, 8)
+			defer source.Deallocate()
+			r := &Renderer{wallRipmapBytes: tt.residentByte}
+			rm := r.wallRipmapFor(source)
+			if rm != nil && len(rm.levels) > 0 {
+				t.Fatal("over-budget source built a usable ripmap")
+			}
+			if cached := r.wallRipmaps[source]; cached == nil {
+				t.Fatal("fallback decision was not cached")
+			}
+			if _, _, _, ok := r.wallMipSource(source); ok {
+				t.Fatal("budget fallback exposed an unusable ripmap")
+			}
+			r.clearWallRipmaps()
+		})
+	}
+}
+
+func TestWallRipmapPerTextureBudgetRejectsOversizedSource(t *testing.T) {
+	if bytes := wallRipmapByteSize(1024, 1024); bytes <= wallRipmapPerTextureBudgetBytes {
+		t.Fatalf("test source is not oversized: ripmap bytes = %d", bytes)
+	}
+	source := ebiten.NewImage(1024, 1024)
+	defer source.Deallocate()
+	r := &Renderer{}
+	if rm := r.wallRipmapFor(source); rm != nil && len(rm.levels) > 0 {
+		t.Fatal("oversized wall built a ripmap")
+	}
+	if cached := r.wallRipmaps[source]; cached == nil {
+		t.Fatal("oversized wall fallback decision was not cached")
+	}
+}
+
 // The crossover quads are drawn over the base quad with source-over blending.
 // Their vertex color is premultiplied, and the draw options MUST declare that:
 // DrawTriangles' default is straight alpha, under which Ebitengine multiplies

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -41,6 +42,22 @@ type mapNPCPrewarmResource struct {
 type mapMonsterPrewarmResource struct {
 	key        string
 	spriteName string
+}
+
+type mapRenderSourceKey struct {
+	name          string
+	animationType string
+}
+
+// mapRenderRegionResources is the single ownership manifest for one logical
+// region. The same manifest drives retention and eviction, so resource scope
+// cannot drift between source images and their derived render caches.
+type mapRenderRegionResources struct {
+	standees  map[standeeCoreKey]struct{}
+	sources   map[mapRenderSourceKey]struct{}
+	processed map[processedSpriteKey]struct{}
+	walls     map[*ebiten.Image]struct{}
+	skies     map[string]struct{}
 }
 
 type mapRenderPrewarmStats struct {
@@ -103,9 +120,8 @@ func sortedStringSet(set map[string]struct{}) []string {
 }
 
 // collectMapRenderPrewarmPlan enumerates every resource the requested logical
-// map can reveal later. In the unified open world, mapKey scopes heavy
-// standees to one placed region instead of eagerly retaining all five regions;
-// decoded source sheets stay shared, and the previous region's standees remain
+// map can reveal later. In the unified open world, mapKey scopes both source
+// images and derived resources to one placed region; the previous region stays
 // resident across a seam. In particular it includes authored respawns, both
 // day/night packs, NPC-triggered and boss-triggered summons, visited NPC art,
 // encounter reward chests, and the indexed loot-bag family.
@@ -139,11 +155,6 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 	containerDecode := make(map[string]struct{})
 	containerSprites := make(map[string]struct{})
 
-	addContainerDecode := func(name string) {
-		if name = normalizedAuthoredSpriteName(name); name != "" {
-			containerDecode[name] = struct{}{}
-		}
-	}
 	addContainerSprite := func(name string) {
 		name = normalizedAuthoredSpriteName(name)
 		if name == "" {
@@ -152,29 +163,33 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		containerDecode[name] = struct{}{}
 		containerSprites[name] = struct{}{}
 	}
-	addRewardSprites := func(rewards *monster.EncounterRewards, heavy bool) {
-		if rewards == nil {
+	addRewardSprites := func(rewards *monster.EncounterRewards, inScope bool) {
+		if rewards == nil || !inScope {
 			return
 		}
-		add := addContainerDecode
-		if heavy {
-			add = addContainerSprite
-		}
 		if rewards.TreasureChest != nil {
-			add(rewards.TreasureChest.Sprite)
+			addContainerSprite(rewards.TreasureChest.Sprite)
 		}
 		for i := range rewards.TreasureChests {
-			add(rewards.TreasureChests[i].Sprite)
+			addContainerSprite(rewards.TreasureChests[i].Sprite)
 		}
 	}
 
 	if tm := world.GlobalTileManager; tm != nil {
-		// Static map art is a small shared set and can be visible across a
-		// stitched-region boundary at the 50-tile camera distance. Warm it for
-		// the physical world once; only the much heavier NPC/monster standees
-		// below are scoped to the logical region.
-		for _, tileType := range r.mapRenderTileTypes {
-			tileTypes[tileType] = struct{}{}
+		if scope.region == nil {
+			for _, tileType := range r.mapRenderTileTypes {
+				tileTypes[tileType] = struct{}{}
+			}
+		} else {
+			// The stitched world caches cover every region. Inventory only tiles
+			// physically placed in this logical region; the retained neighbour
+			// provides the art visible across a seam.
+			for ty := scope.region.OffsetY; ty < scope.region.OffsetY+scope.region.Height; ty++ {
+				for tx := scope.region.OffsetX; tx < scope.region.OffsetX+scope.region.Width; tx++ {
+					x, y := TileCenterFromTile(tx, ty, scope.tileSize)
+					tileTypes[currentWorld.GetTileAt(x, y)] = struct{}{}
+				}
+			}
 		}
 		for tileType := range tileTypes {
 			if isFireflySwarmTile(tileType) {
@@ -197,6 +212,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 		}
 		for i := range r.treeTilesCache {
+			if !scope.containsTile(r.treeTilesCache[i].tileX, r.treeTilesCache[i].tileY) {
+				continue
+			}
 			name := r.treeTilesCache[i].spriteName
 			if name == "" {
 				name = treeStandeeSpriteName(r.treeTilesCache[i].tileType)
@@ -215,6 +233,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		}
 		for i := range r.transparentSpritesCache {
 			resource := r.transparentSpritesCache[i]
+			if !scope.containsTile(resource.tileX, resource.tileY) {
+				continue
+			}
 			if isFireflySwarmTile(resource.tileType) {
 				continue
 			}
@@ -244,13 +265,10 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 			warmBounds := npc.SizeClass != "" && category != catNPC
 			for _, name := range []string{baseName, visitedName} {
-				if name == "" {
+				if name == "" || !inScope {
 					continue
 				}
 				npcDecodeSprites[name] = struct{}{}
-				if !inScope {
-					continue
-				}
 				npcSprites[mapNPCPrewarmResource{
 					name: name, prefix: prefix, stableImage: stableImage,
 					warmVisibleBounds: warmBounds,
@@ -258,12 +276,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			}
 		}
 		for _, summon := range npc.Summons {
-			if summon != nil && summon.Monster != "" {
+			if inScope && summon != nil && summon.Monster != "" {
 				decodeMonsterKeys[summon.Monster] = struct{}{}
-				if inScope {
-					// Resolved below together with authored and live monsters.
-					monsterKeys[summon.Monster] = struct{}{}
-				}
+				monsterKeys[summon.Monster] = struct{}{}
 			}
 		}
 		if encounter := npc.EncounterData; encounter != nil {
@@ -271,8 +286,8 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 				if encounterMonster == nil || encounterMonster.Type == "" {
 					continue
 				}
-				decodeMonsterKeys[encounterMonster.Type] = struct{}{}
 				if inScope {
+					decodeMonsterKeys[encounterMonster.Type] = struct{}{}
 					monsterKeys[encounterMonster.Type] = struct{}{}
 				}
 			}
@@ -287,25 +302,19 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			continue
 		}
 		inScope := scope.containsWorld(mon.X, mon.Y)
-		if name := normalizedAuthoredSpriteName(mon.GetSpriteType()); name != "" {
+		if name := normalizedAuthoredSpriteName(mon.GetSpriteType()); inScope && name != "" {
 			resource := mapMonsterPrewarmResource{key: mon.Key, spriteName: name}
 			monsterDecode[resource] = struct{}{}
-			if inScope {
-				monsterSprites[resource] = struct{}{}
-			}
+			monsterSprites[resource] = struct{}{}
 		}
-		if mon.Key != "" {
+		if inScope && mon.Key != "" {
 			decodeMonsterKeys[mon.Key] = struct{}{}
-			if inScope {
-				monsterKeys[mon.Key] = struct{}{}
-			}
+			monsterKeys[mon.Key] = struct{}{}
 		}
 		for _, key := range mon.SummonMonsters {
-			if key != "" {
+			if inScope && key != "" {
 				decodeMonsterKeys[key] = struct{}{}
-				if inScope {
-					monsterKeys[key] = struct{}{}
-				}
+				monsterKeys[key] = struct{}{}
 			}
 		}
 		addRewardSprites(mon.EncounterRewards, inScope)
@@ -314,27 +323,21 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		if spawn.MonsterKey == "" {
 			continue
 		}
-		decodeMonsterKeys[spawn.MonsterKey] = struct{}{}
 		if scope.containsTile(spawn.X, spawn.Y) {
+			decodeMonsterKeys[spawn.MonsterKey] = struct{}{}
 			monsterKeys[spawn.MonsterKey] = struct{}{}
 		}
 	}
 
 	for _, pack := range r.game.config.DayNight.Packs {
-		sameWorld := pack.Map == mapKey
-		if wm := world.GlobalWorldManager; wm != nil {
-			sameWorld = wm.WorldByKey(pack.Map) == currentWorld
-		}
-		if !sameWorld {
+		if pack.Map != mapKey {
 			continue
 		}
 		for _, night := range []bool{false, true} {
 			for _, member := range pack.PhaseMembers(night) {
 				if member.Monster != "" {
 					decodeMonsterKeys[member.Monster] = struct{}{}
-					if pack.Map == mapKey {
-						monsterKeys[member.Monster] = struct{}{}
-					}
+					monsterKeys[member.Monster] = struct{}{}
 				}
 			}
 		}
@@ -385,7 +388,6 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 	}
 	for i := range r.game.groundContainers {
 		container := &r.game.groundContainers[i]
-		addContainerDecode(container.effectiveSprite())
 		if scope.containsWorld(container.X, container.Y) {
 			addContainerSprite(container.effectiveSprite())
 		}
@@ -452,30 +454,67 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 }
 
 type mapRenderPrewarmer struct {
-	renderer          *Renderer
-	imagesByName      map[string]*ebiten.Image
-	uploads           map[*ebiten.Image]struct{}
-	standees          map[standeeCoreKey]struct{}
-	animations        map[[2]string]struct{}
-	shaderStickerMips *mipChain
-	shaderCoreMips    *mipChain
-	stats             mapRenderPrewarmStats
+	renderer           *Renderer
+	imagesByName       map[string]*ebiten.Image
+	uploads            map[*ebiten.Image]struct{}
+	pendingUploads     map[*ebiten.Image]struct{}
+	pendingUploadBytes int64
+	resources          *mapRenderRegionResources
+	animations         map[[2]string]struct{}
+	shaderStickerMips  *mipChain
+	shaderCoreMips     *mipChain
+	stats              mapRenderPrewarmStats
 }
 
 func newMapRenderPrewarmer(r *Renderer) *mapRenderPrewarmer {
 	return &mapRenderPrewarmer{
-		renderer:     r,
-		imagesByName: make(map[string]*ebiten.Image),
-		uploads:      make(map[*ebiten.Image]struct{}),
-		standees:     make(map[standeeCoreKey]struct{}),
-		animations:   make(map[[2]string]struct{}),
+		renderer:       r,
+		imagesByName:   make(map[string]*ebiten.Image),
+		uploads:        make(map[*ebiten.Image]struct{}),
+		pendingUploads: make(map[*ebiten.Image]struct{}),
+		resources: &mapRenderRegionResources{
+			standees:  make(map[standeeCoreKey]struct{}),
+			sources:   make(map[mapRenderSourceKey]struct{}),
+			processed: make(map[processedSpriteKey]struct{}),
+			walls:     make(map[*ebiten.Image]struct{}),
+			skies:     make(map[string]struct{}),
+		},
+		animations: make(map[[2]string]struct{}),
 	}
 }
 
 func (p *mapRenderPrewarmer) addUpload(img *ebiten.Image) {
-	if img != nil {
-		p.uploads[img] = struct{}{}
+	if img == nil {
+		return
 	}
+	if _, seen := p.uploads[img]; seen {
+		return
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return
+	}
+	imageBytes := int64(bounds.Dx()) * int64(bounds.Dy()) * 4
+	if prewarmUploadBatchFull(len(p.pendingUploads), p.pendingUploadBytes, imageBytes) {
+		p.flushUploads(false)
+	}
+	p.uploads[img] = struct{}{}
+	p.pendingUploads[img] = struct{}{}
+	p.pendingUploadBytes += imageBytes
+}
+
+func (p *mapRenderPrewarmer) flushUploads(warmShaders bool) {
+	if len(p.pendingUploads) == 0 {
+		return
+	}
+	var stickerMips, coreMips *mipChain
+	if warmShaders {
+		stickerMips = p.shaderStickerMips
+		coreMips = p.shaderCoreMips
+	}
+	p.renderer.flushPrewarmedImageUploads(p.pendingUploads, stickerMips, coreMips)
+	p.pendingUploads = make(map[*ebiten.Image]struct{})
+	p.pendingUploadBytes = 0
 }
 
 func (p *mapRenderPrewarmer) sprite(name string) *ebiten.Image {
@@ -491,6 +530,7 @@ func (p *mapRenderPrewarmer) sprite(name string) *ebiten.Image {
 	}
 	img := p.renderer.game.sprites.GetSprite(name)
 	p.imagesByName[name] = img
+	p.resources.sources[mapRenderSourceKey{name: name}] = struct{}{}
 	p.addUpload(img)
 	p.stats.spriteFiles++
 	return img
@@ -509,6 +549,7 @@ func (p *mapRenderPrewarmer) animationFrames(name, animationType string) []*ebit
 	if anim == nil || len(anim.Frames) == 0 {
 		return nil
 	}
+	p.resources.sources[mapRenderSourceKey{name: name, animationType: animationType}] = struct{}{}
 	p.stats.animationSheets++
 	for _, frame := range anim.Frames {
 		p.addUpload(frame)
@@ -521,13 +562,14 @@ func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, sta
 		return
 	}
 	key := makeStandeeCoreKey(p.renderer.prefixedStandeeKeyName(prefix, name), img, stableImage)
-	if _, seen := p.standees[key]; seen {
+	if _, seen := p.resources.standees[key]; seen {
 		return
 	}
-	p.standees[key] = struct{}{}
+	p.resources.standees[key] = struct{}{}
 	if p.renderer.standeeCoreCache[key] != nil {
 		return
 	}
+	img = p.renderer.boundedStandeeRenderSource(key, img)
 	p.addUpload(img)
 	core := p.renderer.standeeCoreSilhouette(key, img)
 	p.addUpload(core)
@@ -618,8 +660,6 @@ func (p *mapRenderPrewarmer) decodeMonster(resource mapMonsterPrewarmResource) {
 	}
 }
 
-const maxMapRenderResidentMaps = 2
-
 func (r *Renderer) deallocateStandeeKeys(keys, keep map[standeeCoreKey]struct{}) {
 	if len(keys) == 0 {
 		return
@@ -632,6 +672,10 @@ func (r *Renderer) deallocateStandeeKeys(keys, keep map[standeeCoreKey]struct{})
 		if core := r.standeeCoreCache[key]; core != nil {
 			deallocate[core] = struct{}{}
 			delete(r.standeeCoreCache, key)
+		}
+		if source := r.standeeRenderSourceCache[key]; source != nil {
+			deallocate[source] = struct{}{}
+			delete(r.standeeRenderSourceCache, key)
 		}
 		for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
 			mipKey := standeeMipKey{frame: key, layer: layer}
@@ -654,6 +698,12 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 	if r == nil {
 		return
 	}
+	for len(r.mapRenderResidentMapKeys) > 0 {
+		evicted := r.mapRenderResidentMapKeys[0]
+		r.mapRenderResidentMapKeys = r.mapRenderResidentMapKeys[1:]
+		r.deallocateMapRenderRegion(r.mapRenderResourcesByMap[evicted], r.retainedMapRenderResources())
+		delete(r.mapRenderResourcesByMap, evicted)
+	}
 	allKeys := make(map[standeeCoreKey]struct{}, len(r.standeeCoreCache))
 	for key := range r.standeeCoreCache {
 		allKeys[key] = struct{}{}
@@ -663,27 +713,42 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 	}
 	r.deallocateStandeeKeys(allKeys, nil)
 	r.clearWallRipmaps()
+	for key, img := range r.processedSpriteCache {
+		if img != nil {
+			img.Deallocate()
+		}
+		delete(r.processedSpriteCache, key)
+	}
 	r.standeeCoreCache = nil
+	r.standeeRenderSourceCache = nil
 	r.standeeMipCache = nil
 	r.mapRenderResidentMapKeys = nil
-	r.mapRenderStandeeKeysByMap = nil
-	r.mapRenderSharedResourcesReady = false
-	r.mapRenderSharedStandeeKeys = nil
+	r.mapRenderResourcesByMap = nil
 	r.mapRenderResourcePrewarmPending = false
-	r.mapRenderResourcePrewarmMapKey = ""
+	r.mapRenderResourcePrewarmMapKeys = nil
 }
 
 func (r *Renderer) scheduleMapRenderResourcePrewarm(mapKey string) {
 	if r == nil {
 		return
 	}
-	r.mapRenderResourcePrewarmMapKey = mapKey
+	for _, resident := range r.mapRenderResidentMapKeys {
+		if resident == mapKey {
+			return
+		}
+	}
+	for _, queued := range r.mapRenderResourcePrewarmMapKeys {
+		if queued == mapKey {
+			return
+		}
+	}
+	r.mapRenderResourcePrewarmMapKeys = append(r.mapRenderResourcePrewarmMapKeys, mapKey)
 	r.mapRenderResourcePrewarmPending = true
 }
 
 // prepareMapRenderResidency returns false when mapKey is already resident.
-// New regions are committed only after prewarm succeeds, so a visible old
-// region is never evicted and immediately rebuilt during the same crossing.
+// Visible-region reconciliation owns eviction; this helper only touches an
+// existing region or reserves a new one for the pending prewarm.
 func (r *Renderer) prepareMapRenderResidency(mapKey string) bool {
 	for i, resident := range r.mapRenderResidentMapKeys {
 		if resident != mapKey {
@@ -696,53 +761,311 @@ func (r *Renderer) prepareMapRenderResidency(mapKey string) bool {
 	return true
 }
 
-// commitMapRenderResidency installs a completed region and then enforces the
-// LRU limit. The temporary third set lets the keep-set preserve standees shared
-// by the newly entered region and the previous side of the seam.
-func (r *Renderer) commitMapRenderResidency(mapKey string, standeeKeys map[standeeCoreKey]struct{}) {
-	if r.mapRenderStandeeKeysByMap == nil {
-		r.mapRenderStandeeKeysByMap = make(map[string]map[standeeCoreKey]struct{})
-	}
-	r.mapRenderStandeeKeysByMap[mapKey] = standeeKeys
-	r.mapRenderResidentMapKeys = append(r.mapRenderResidentMapKeys, mapKey)
-	for len(r.mapRenderResidentMapKeys) > maxMapRenderResidentMaps {
-		evicted := r.mapRenderResidentMapKeys[0]
-		r.mapRenderResidentMapKeys = r.mapRenderResidentMapKeys[1:]
-		keep := make(map[standeeCoreKey]struct{}, len(r.mapRenderSharedStandeeKeys))
-		for key := range r.mapRenderSharedStandeeKeys {
-			keep[key] = struct{}{}
+type mapRenderViewPoint struct {
+	x float64
+	y float64
+}
+
+const (
+	mapRenderViewArcSegments       = 12
+	mapRenderUnloadDistanceInTiles = 8
+)
+
+func mapRenderPointInRect(p mapRenderViewPoint, minX, minY, maxX, maxY float64) bool {
+	return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY
+}
+
+func mapRenderPointInPolygon(p mapRenderViewPoint, polygon []mapRenderViewPoint) bool {
+	inside := false
+	for i, j := 0, len(polygon)-1; i < len(polygon); j, i = i, i+1 {
+		a, b := polygon[i], polygon[j]
+		if (a.y > p.y) == (b.y > p.y) {
+			continue
 		}
-		for _, resident := range r.mapRenderResidentMapKeys {
-			for key := range r.mapRenderStandeeKeysByMap[resident] {
-				keep[key] = struct{}{}
+		x := (b.x-a.x)*(p.y-a.y)/(b.y-a.y) + a.x
+		if p.x < x {
+			inside = !inside
+		}
+	}
+	return inside
+}
+
+func mapRenderSegmentsIntersect(a, b, c, d mapRenderViewPoint) bool {
+	cross := func(p, q, r mapRenderViewPoint) float64 {
+		return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x)
+	}
+	onSegment := func(p, q, r mapRenderViewPoint) bool {
+		const epsilon = 1e-9
+		return math.Abs(cross(p, q, r)) <= epsilon &&
+			r.x >= math.Min(p.x, q.x)-epsilon && r.x <= math.Max(p.x, q.x)+epsilon &&
+			r.y >= math.Min(p.y, q.y)-epsilon && r.y <= math.Max(p.y, q.y)+epsilon
+	}
+	abC, abD := cross(a, b, c), cross(a, b, d)
+	cdA, cdB := cross(c, d, a), cross(c, d, b)
+	if (abC > 0 && abD < 0 || abC < 0 && abD > 0) &&
+		(cdA > 0 && cdB < 0 || cdA < 0 && cdB > 0) {
+		return true
+	}
+	return onSegment(a, b, c) || onSegment(a, b, d) ||
+		onSegment(c, d, a) || onSegment(c, d, b)
+}
+
+func mapRenderRegionIntersectsView(region *world.OpenWorldRegion, tileSize, cameraX, cameraY, angle, fov, distance float64) bool {
+	if region == nil || tileSize <= 0 || fov <= 0 || distance <= 0 {
+		return false
+	}
+	minX := float64(region.OffsetX) * tileSize
+	minY := float64(region.OffsetY) * tileSize
+	maxX := float64(region.OffsetX+region.Width) * tileSize
+	maxY := float64(region.OffsetY+region.Height) * tileSize
+	camera := mapRenderViewPoint{x: cameraX, y: cameraY}
+	if mapRenderPointInRect(camera, minX, minY, maxX, maxY) {
+		return true
+	}
+
+	// Circumscribe each small arc segment so the polygon never misses a region
+	// that touches the circular far edge of the actual camera sector.
+	step := fov / mapRenderViewArcSegments
+	arcDistance := distance / math.Cos(step/2)
+	polygon := make([]mapRenderViewPoint, 1, mapRenderViewArcSegments+2)
+	polygon[0] = camera
+	for i := 0; i <= mapRenderViewArcSegments; i++ {
+		a := angle - fov/2 + float64(i)*step
+		polygon = append(polygon, mapRenderViewPoint{
+			x: cameraX + math.Cos(a)*arcDistance,
+			y: cameraY + math.Sin(a)*arcDistance,
+		})
+	}
+
+	rect := [4]mapRenderViewPoint{
+		{x: minX, y: minY}, {x: maxX, y: minY},
+		{x: maxX, y: maxY}, {x: minX, y: maxY},
+	}
+	for _, p := range polygon {
+		if mapRenderPointInRect(p, minX, minY, maxX, maxY) {
+			return true
+		}
+	}
+	for _, p := range rect {
+		if mapRenderPointInPolygon(p, polygon) {
+			return true
+		}
+	}
+	for i, a := range polygon {
+		b := polygon[(i+1)%len(polygon)]
+		for j, c := range rect {
+			d := rect[(j+1)%len(rect)]
+			if mapRenderSegmentsIntersect(a, b, c, d) {
+				return true
 			}
 		}
-		r.deallocateStandeeKeys(r.mapRenderStandeeKeysByMap[evicted], keep)
-		delete(r.mapRenderStandeeKeysByMap, evicted)
+	}
+	return false
+}
+
+func visibleOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, fovMargin, distanceMargin float64) []string {
+	if wm == nil || camera == nil || tileSize <= 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(wm.OpenWorldRegions))
+	for i := range wm.OpenWorldRegions {
+		region := &wm.OpenWorldRegions[i]
+		if mapRenderRegionIntersectsView(region, tileSize, camera.X, camera.Y, camera.Angle,
+			camera.FOV+fovMargin, camera.ViewDist+distanceMargin) {
+			keys = append(keys, region.MapKey)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func nearbyOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, distanceMargin float64) []string {
+	if wm == nil || camera == nil || tileSize <= 0 {
+		return nil
+	}
+	distance := camera.ViewDist + distanceMargin
+	distanceSq := distance * distance
+	keys := make([]string, 0, len(wm.OpenWorldRegions))
+	for i := range wm.OpenWorldRegions {
+		region := &wm.OpenWorldRegions[i]
+		minX := float64(region.OffsetX) * tileSize
+		minY := float64(region.OffsetY) * tileSize
+		maxX := float64(region.OffsetX+region.Width) * tileSize
+		maxY := float64(region.OffsetY+region.Height) * tileSize
+		closestX := math.Max(minX, math.Min(camera.X, maxX))
+		closestY := math.Max(minY, math.Min(camera.Y, maxY))
+		dx, dy := closestX-camera.X, closestY-camera.Y
+		if dx*dx+dy*dy <= distanceSq {
+			keys = append(keys, region.MapKey)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (r *Renderer) evictMapRenderResidencyOutside(keep map[string]struct{}) {
+	if r == nil || len(r.mapRenderResidentMapKeys) == 0 {
+		return
+	}
+	evictedResources := make([]*mapRenderRegionResources, 0)
+	retainedKeys := r.mapRenderResidentMapKeys[:0]
+	for _, mapKey := range r.mapRenderResidentMapKeys {
+		if _, retained := keep[mapKey]; retained {
+			retainedKeys = append(retainedKeys, mapKey)
+			continue
+		}
+		evictedResources = append(evictedResources, r.mapRenderResourcesByMap[mapKey])
+		delete(r.mapRenderResourcesByMap, mapKey)
+	}
+	r.mapRenderResidentMapKeys = retainedKeys
+	retainedResources := r.retainedMapRenderResources()
+	for _, resources := range evictedResources {
+		r.deallocateMapRenderRegion(resources, retainedResources)
+	}
+}
+
+// syncVisibleMapRenderResidency warms only regions in the current FOV. Once a
+// neighbour is warm, distance-only retention prevents camera turns from
+// destroying and rebuilding it; eviction happens after the party moves beyond
+// view distance plus the spatial hysteresis margin.
+func (r *Renderer) syncVisibleMapRenderResidency() {
+	if r == nil || r.game == nil || !r.game.openWorldActive() {
+		return
+	}
+	wm := world.GlobalWorldManager
+	tileSize := float64(r.game.config.GetTileSize())
+	loadKeys := visibleOpenWorldMapKeys(wm, r.game.camera, tileSize, 0, 0)
+	retainKeys := nearbyOpenWorldMapKeys(wm, r.game.camera, tileSize,
+		mapRenderUnloadDistanceInTiles*tileSize)
+	keep := make(map[string]struct{}, len(retainKeys)+1)
+	for _, mapKey := range retainKeys {
+		keep[mapKey] = struct{}{}
+	}
+	keep[currentMapKey()] = struct{}{}
+	r.evictMapRenderResidencyOutside(keep)
+	for _, mapKey := range loadKeys {
+		r.scheduleMapRenderResourcePrewarm(mapKey)
+	}
+	r.scheduleMapRenderResourcePrewarm(currentMapKey())
+	r.deallocateUnusedSkyPanoramas(r.retainedMapRenderResources().skies)
+}
+
+func (r *Renderer) commitMapRenderResidency(mapKey string, resources *mapRenderRegionResources) {
+	if r.mapRenderResourcesByMap == nil {
+		r.mapRenderResourcesByMap = make(map[string]*mapRenderRegionResources)
+	}
+	r.mapRenderResourcesByMap[mapKey] = resources
+	r.mapRenderResidentMapKeys = append(r.mapRenderResidentMapKeys, mapKey)
+	r.deallocateUnusedSkyPanoramas(r.retainedMapRenderResources().skies)
+}
+
+func (r *Renderer) deallocateUnusedSkyPanoramas(keep map[string]struct{}) {
+	if r == nil || r.game == nil {
+		return
+	}
+	for name, img := range r.game.skyPanoramaCache {
+		if _, retained := keep[name]; retained || img == nil ||
+			img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
+			continue
+		}
+		img.Deallocate()
+		delete(r.game.skyPanoramaCache, name)
+	}
+}
+
+func (r *Renderer) retainedMapRenderResources() *mapRenderRegionResources {
+	keep := &mapRenderRegionResources{
+		standees:  make(map[standeeCoreKey]struct{}),
+		sources:   make(map[mapRenderSourceKey]struct{}),
+		processed: make(map[processedSpriteKey]struct{}),
+		walls:     make(map[*ebiten.Image]struct{}),
+		skies:     make(map[string]struct{}),
+	}
+	for _, mapKey := range r.mapRenderResidentMapKeys {
+		resources := r.mapRenderResourcesByMap[mapKey]
+		if resources == nil {
+			continue
+		}
+		for key := range resources.standees {
+			keep.standees[key] = struct{}{}
+		}
+		for key := range resources.sources {
+			keep.sources[key] = struct{}{}
+		}
+		for key := range resources.processed {
+			keep.processed[key] = struct{}{}
+		}
+		for img := range resources.walls {
+			keep.walls[img] = struct{}{}
+		}
+		for name := range resources.skies {
+			keep.skies[name] = struct{}{}
+		}
+	}
+	return keep
+}
+
+func (r *Renderer) deallocateMapRenderRegion(resources, keep *mapRenderRegionResources) {
+	if resources == nil {
+		return
+	}
+	if keep == nil {
+		keep = &mapRenderRegionResources{}
+	}
+	r.deallocateStandeeKeys(resources.standees, keep.standees)
+	for key := range resources.processed {
+		if _, retained := keep.processed[key]; retained {
+			continue
+		}
+		if img := r.processedSpriteCache[key]; img != nil {
+			img.Deallocate()
+		}
+		delete(r.processedSpriteCache, key)
+	}
+	for img := range resources.walls {
+		if _, retained := keep.walls[img]; !retained {
+			r.deallocateWallRipmap(img)
+		}
+	}
+	for name := range resources.skies {
+		if _, retained := keep.skies[name]; retained {
+			continue
+		}
+		img := r.game.skyPanoramaCache[name]
+		if img == nil || img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
+			continue
+		}
+		img.Deallocate()
+		delete(r.game.skyPanoramaCache, name)
+	}
+	for key := range resources.sources {
+		if _, retained := keep.sources[key]; retained {
+			continue
+		}
+		for _, img := range r.game.sprites.EvictResource(key.name, key.animationType) {
+			delete(r.wallSliceColumns, img)
+			delete(r.animFrameCache, img)
+		}
 	}
 }
 
 // trackResidentStandeeKey accounts for an uncommon resource that escaped the
-// authored prewarm inventory and was built lazily while rendering. Registering
-// cache hits as well as new cores matters at open-world seams: the same token
-// can be visible from both logical regions and must belong to both LRU sets.
+// authored prewarm inventory and was built lazily while rendering. It belongs
+// to the logical region active when the renderer first needed it.
 func (r *Renderer) trackResidentStandeeKey(key standeeCoreKey) {
-	if r == nil || !r.mapRenderSharedResourcesReady {
+	if r == nil {
 		return
 	}
-	if _, shared := r.mapRenderSharedStandeeKeys[key]; shared {
-		return
-	}
-	keys := r.mapRenderStandeeKeysByMap[currentMapKey()]
-	if keys != nil {
-		keys[key] = struct{}{}
+	resources := r.mapRenderResourcesByMap[currentMapKey()]
+	if resources != nil {
+		resources.standees[key] = struct{}{}
 	}
 }
 
 // prewarmMapRenderResources moves all cold render work into the map-load frame:
 // PNG decode/color key, animation slicing, brightness-alpha processing, wall
 // helper textures, standee cores/mips, shader compilation, and first GPU upload.
-func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmStats, map[standeeCoreKey]struct{}) {
+func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmStats, *mapRenderRegionResources) {
 	if r == nil || r.game == nil || r.game.sprites == nil {
 		return mapRenderPrewarmStats{}, nil
 	}
@@ -758,90 +1081,82 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 		}
 	}
 
-	buildShared := !r.mapRenderSharedResourcesReady
-	if buildShared {
-		for _, name := range plan.tileSprites {
-			p.sprite(name)
+	for _, name := range plan.tileSprites {
+		p.sprite(name)
+	}
+	for _, name := range plan.wallSprites {
+		sprite := p.sprite(name)
+		if sprite == nil {
+			continue
 		}
-		for _, name := range plan.wallSprites {
-			sprite := p.sprite(name)
-			if sprite == nil {
-				continue
+		p.resources.walls[sprite] = struct{}{}
+		p.flushUploads(false)
+		// Every affordable ripmap level is uploaded here: a level built mid-frame
+		// would cost a GPU sync exactly when a distant wall first comes into view.
+		if rm := r.wallRipmapFor(sprite); rm != nil {
+			for _, level := range rm.owned {
+				p.addUpload(level)
 			}
-			// Every ripmap level is uploaded here: a level built mid-frame would
-			// cost a GPU sync exactly when a distant wall first comes into view.
-			if rm := r.wallRipmapFor(sprite); rm != nil {
-				for _, level := range rm.owned {
-					p.addUpload(level)
-				}
-			}
-			bounds := sprite.Bounds()
-			for x := 0; x < bounds.Dx(); x++ {
-				r.spriteColumn(sprite, x, bounds.Dx(), bounds.Dy())
-			}
-			p.stats.wallTextures++
 		}
+		bounds := sprite.Bounds()
+		for x := 0; x < bounds.Dx(); x++ {
+			r.spriteColumn(sprite, x, bounds.Dx(), bounds.Dy())
+		}
+		p.stats.wallTextures++
+	}
 
-		if r.game.config.Graphics.TreesAsBillboards {
-			for _, name := range plan.treeSprites {
-				p.standee("tree", name, p.sprite(name), true)
-			}
-		}
-		// Unconditional: no setting turns a prop cross into a billboard. Its
-		// class targets VISIBLE height, so the alpha bounds are part of its
-		// size - resolving that on first sighting is a file read mid-frame.
-		for _, name := range plan.crossedPropSprites {
-			warmVisibleBounds(name)
+	if r.game.config.Graphics.TreesAsBillboards {
+		for _, name := range plan.treeSprites {
 			p.standee("tree", name, p.sprite(name), true)
 		}
-		for _, resource := range plan.environmentSprites {
-			// Size classes target visible alpha height. Decode/cache the CPU bounds
-			// during map load so the first rendered frame never pays file IO.
-			warmVisibleBounds(resource.spriteName)
-			sprite := r.getProcessedSpriteByName(resource.tileType, resource.spriteName)
-			p.addUpload(sprite)
-			if sprite == nil || !r.game.config.Graphics.Standee.Enabled {
-				continue
+	}
+	// Unconditional: no setting turns a prop cross into a billboard. Its class
+	// targets visible height, so resolve its alpha bounds before first sight.
+	for _, name := range plan.crossedPropSprites {
+		warmVisibleBounds(name)
+		p.standee("tree", name, p.sprite(name), true)
+	}
+	for _, resource := range plan.environmentSprites {
+		warmVisibleBounds(resource.spriteName)
+		p.sprite(resource.spriteName)
+		sprite := r.getProcessedSpriteByName(resource.tileType, resource.spriteName)
+		if _, ok := r.processedSpriteCache[resource]; ok {
+			p.resources.processed[resource] = struct{}{}
+		}
+		p.addUpload(sprite)
+		if sprite == nil || !r.game.config.Graphics.Standee.Enabled {
+			continue
+		}
+		frames := r.animationFrames(sprite)
+		renderType := world.GlobalTileManager.GetRenderType(resource.tileType)
+		for _, frame := range frames {
+			switch {
+			case renderType == config.TileRenderLandmarkStandee:
+				p.standee("landmark", resource.spriteName, frame, true)
+			case world.GlobalTileManager.IsWallMounted(resource.tileType):
+				p.standee("wallprop", resource.spriteName, frame, false)
+				p.standee("tile", resource.spriteName, frame, false)
+			default:
+				p.standee("tile", resource.spriteName, frame, false)
 			}
-			frames := r.animationFrames(sprite)
-			renderType := world.GlobalTileManager.GetRenderType(resource.tileType)
-			for _, frame := range frames {
-				switch {
-				case renderType == config.TileRenderLandmarkStandee:
-					p.standee("landmark", resource.spriteName, frame, true)
-				case world.GlobalTileManager.IsWallMounted(resource.tileType):
-					// The wall-mounted path falls back to a centered tile standee if
-					// the authored tile has no adjacent wall; prepare both exact keys.
-					p.standee("wallprop", resource.spriteName, frame, false)
-					p.standee("tile", resource.spriteName, frame, false)
-				default:
-					p.standee("tile", resource.spriteName, frame, false)
-				}
-			}
 		}
-		for _, name := range plan.npcDecodeSprites {
-			p.sprite(name)
-		}
-		for _, resource := range plan.monsterDecode {
-			p.decodeMonster(resource)
-		}
-		for _, name := range plan.containerDecode {
-			p.sprite(name)
-		}
+	}
+	for _, name := range plan.npcDecodeSprites {
+		p.sprite(name)
+	}
+	for _, resource := range plan.monsterDecode {
+		p.decodeMonster(resource)
+	}
+	for _, name := range plan.containerDecode {
+		p.sprite(name)
+	}
 
-		// Aura colour extraction is another first-sighting ReadPixels sync. Gate
-		// on the aura flag alone, exactly as the draw does: an aura tile blocks
-		// without being solid (a chasm floor is authored solid:false).
-		if tm := world.GlobalTileManager; tm != nil {
-			for _, tileType := range plan.tileTypes {
-				if tileShowsImpassableAura(tm.GetTileData(tileType)) {
-					r.auraTileColor(tileType)
-				}
+	// Aura colour extraction is another first-sighting ReadPixels sync.
+	if tm := world.GlobalTileManager; tm != nil {
+		for _, tileType := range plan.tileTypes {
+			if tileShowsImpassableAura(tm.GetTileData(tileType)) {
+				r.auraTileColor(tileType)
 			}
-		}
-		r.mapRenderSharedStandeeKeys = make(map[standeeCoreKey]struct{}, len(p.standees))
-		for key := range p.standees {
-			r.mapRenderSharedStandeeKeys[key] = struct{}{}
 		}
 	}
 
@@ -867,27 +1182,17 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 		}
 	}
 
-	regionStandeeKeys := make(map[standeeCoreKey]struct{}, len(p.standees))
-	for key := range p.standees {
-		if _, shared := r.mapRenderSharedStandeeKeys[key]; !shared {
-			regionStandeeKeys[key] = struct{}{}
-		}
-	}
-
 	p.addUpload(r.whiteImg)
 	p.addUpload(r.floorColorMap)
 	p.addUpload(r.floorTextureIndexMap)
 	p.addUpload(r.floorTexAtlas)
-	p.addUpload(r.game.skyPanorama)
-	p.addUpload(r.game.skyPanoramaPrev)
-	// The OTHER phase's backdrop uploads with the map too, so a day/night flip
-	// swaps pointers without even a first-draw texture upload.
-	if world.GlobalWorldManager != nil {
-		if mc := world.GlobalWorldManager.GetCurrentMapConfig(); mc != nil && mc.SkyTexture != "" {
-			if v := skyVariantName(mc.SkyTexture, !r.game.dayNightIsNight); skyTextureExists(v) {
-				p.addUpload(r.game.skyPanoramaCache[v])
-			}
+	for _, name := range skyTextureNamesForMap(mapKey) {
+		img := r.game.ensureSkyPanoramaCached(name)
+		if img == nil {
+			continue
 		}
+		p.resources.skies[name] = struct{}{}
+		p.addUpload(img)
 	}
 	if len(r.tileLightCache) > 0 {
 		p.addUpload(r.ensureSoftGlow())
@@ -899,12 +1204,9 @@ func (r *Renderer) prewarmMapRenderResources(mapKey string) (mapRenderPrewarmSta
 	}
 	_, _ = r.ensureFloorShader()
 	_, _ = r.game.ensureSkyShader()
-	r.flushPrewarmedImageUploads(p.uploads, p.shaderStickerMips, p.shaderCoreMips)
+	p.flushUploads(true)
 	p.stats.uploadImages = len(p.uploads)
-	if buildShared {
-		r.mapRenderSharedResourcesReady = true
-	}
-	return p.stats, regionStandeeKeys
+	return p.stats, p.resources
 }
 
 func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
@@ -917,13 +1219,21 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 	if r.game.appScreen != AppScreenInGame {
 		return mapRenderPrewarmStats{}
 	}
-	mapKey := r.mapRenderResourcePrewarmMapKey
+	mapKeys := append([]string(nil), r.mapRenderResourcePrewarmMapKeys...)
 	r.mapRenderResourcePrewarmPending = false
-	r.mapRenderResourcePrewarmMapKey = ""
-	if !r.prepareMapRenderResidency(mapKey) {
-		return mapRenderPrewarmStats{}
+	r.mapRenderResourcePrewarmMapKeys = nil
+	var total mapRenderPrewarmStats
+	for _, mapKey := range mapKeys {
+		if !r.prepareMapRenderResidency(mapKey) {
+			continue
+		}
+		stats, resources := r.prewarmMapRenderResources(mapKey)
+		r.commitMapRenderResidency(mapKey, resources)
+		total.spriteFiles += stats.spriteFiles
+		total.animationSheets += stats.animationSheets
+		total.standeeFrames += stats.standeeFrames
+		total.wallTextures += stats.wallTextures
+		total.uploadImages += stats.uploadImages
 	}
-	stats, standeeKeys := r.prewarmMapRenderResources(mapKey)
-	r.commitMapRenderResidency(mapKey, standeeKeys)
-	return stats
+	return total
 }

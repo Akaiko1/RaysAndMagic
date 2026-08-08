@@ -9,7 +9,43 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
+
+func TestEvictResourceDropsStaticAndAnimationCaches(t *testing.T) {
+	static := ebiten.NewImage(4, 4)
+	frameA := ebiten.NewImage(4, 4)
+	frameB := ebiten.NewImage(4, 4)
+	sm := NewSpriteManager()
+	sm.sprites["tree"] = static
+	key := animationKey("wolf", "walking_r")
+	sm.animations[key] = &SpriteAnimation{Frames: []*ebiten.Image{frameA, frameB}}
+
+	tests := []struct {
+		name          string
+		resourceName  string
+		animationType string
+		wantImages    int
+	}{
+		{name: "static sprite", resourceName: "tree", wantImages: 1},
+		{name: "animation", resourceName: "wolf", animationType: "walking_r", wantImages: 2},
+		{name: "already absent", resourceName: "missing", wantImages: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := len(sm.EvictResource(tt.resourceName, tt.animationType)); got != tt.wantImages {
+				t.Fatalf("evicted images = %d, want %d", got, tt.wantImages)
+			}
+		})
+	}
+	if _, ok := sm.sprites["tree"]; ok {
+		t.Fatal("static sprite remained cached")
+	}
+	if _, ok := sm.animations[key]; ok {
+		t.Fatal("animation remained cached")
+	}
+}
 
 func TestGetSpriteVariants(t *testing.T) {
 	tests := []struct {

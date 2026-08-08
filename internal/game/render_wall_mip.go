@@ -37,12 +37,18 @@ const (
 	// 4px tall and the residual is invisible. Horizontal levels run down to a
 	// single texel column - grazing angles genuinely reach there.
 	wallMaxVerticalMipLevels = 6
+	// Custom ripmaps are close to 12x the source RGBA payload. Keep their
+	// resident share bounded so oversized campaign art falls back to the normal
+	// wall path instead of exhausting a small GPU.
+	wallRipmapBudgetBytes           int64 = 96 << 20
+	wallRipmapPerTextureBudgetBytes int64 = 16 << 20
 )
 
 // wallRipmap owns the anisotropic level grid of one wall texture.
 type wallRipmap struct {
 	levels [][]*ebiten.Image // [iy][ix]
 	owned  []*ebiten.Image
+	bytes  int64
 }
 
 // wallMipBatch is one pending DrawTriangles worth of slices sharing a source.
@@ -122,6 +128,16 @@ func wallRipmapSizes(width, height int) [][]image.Point {
 	return rows
 }
 
+func wallRipmapByteSize(width, height int) int64 {
+	var total int64
+	for _, row := range wallRipmapSizes(width, height) {
+		for _, size := range row {
+			total += int64(size.X) * int64(wallMipRepeats) * int64(size.Y) * 4
+		}
+	}
+	return total
+}
+
 // wallRipmapFor builds (once per wall sprite) the ripmap grid of the tile, each
 // level repeated wallMipRepeats times horizontally. Every level is uploaded from
 // CPU pixels so it enters Ebitengine as a managed source image and stays
@@ -137,6 +153,17 @@ func (r *Renderer) wallRipmapFor(sprite *ebiten.Image) *wallRipmap {
 	bounds := sprite.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 	if width <= 0 || height <= 0 {
+		return nil
+	}
+	estimatedBytes := wallRipmapByteSize(width, height)
+	if estimatedBytes <= 0 || estimatedBytes > wallRipmapPerTextureBudgetBytes ||
+		estimatedBytes > wallRipmapBudgetBytes-r.wallRipmapBytes {
+		if r.wallRipmaps == nil {
+			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
+		}
+		// Cache the fallback decision for this source. Rechecking in Draw after a
+		// different region is evicted would otherwise build the ripmap mid-frame.
+		r.wallRipmaps[sprite] = &wallRipmap{}
 		return nil
 	}
 	cpuRow := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -176,7 +203,29 @@ func (r *Renderer) wallRipmapFor(sprite *ebiten.Image) *wallRipmap {
 		r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
 	}
 	r.wallRipmaps[sprite] = rm
+	rm.bytes = estimatedBytes
+	r.wallRipmapBytes += rm.bytes
 	return rm
+}
+
+func (r *Renderer) deallocateWallRipmap(sprite *ebiten.Image) {
+	if r == nil || sprite == nil {
+		return
+	}
+	rm := r.wallRipmaps[sprite]
+	if rm == nil {
+		return
+	}
+	for _, img := range rm.owned {
+		if img != nil {
+			img.Deallocate()
+		}
+	}
+	r.wallRipmapBytes -= rm.bytes
+	if r.wallRipmapBytes < 0 {
+		r.wallRipmapBytes = 0
+	}
+	delete(r.wallRipmaps, sprite)
 }
 
 // clearWallRipmaps releases every generated level at the same residency
@@ -197,6 +246,7 @@ func (r *Renderer) clearWallRipmaps() {
 		}
 	}
 	r.wallRipmaps = nil
+	r.wallRipmapBytes = 0
 }
 
 // tileHorizontally repeats an image side by side, so a slice whose U interval
@@ -244,10 +294,10 @@ func wallMipSelect(rm *wallRipmap, leftU, rightU, tileWidth float64, width int, 
 // drawMipmappedSpriteWallSlice is the direct fallback for a transparent wall:
 // those hits must remain in the ray's back-to-front order, so they cannot join
 // the opaque batches. Level selection and layering are identical.
-func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) {
+func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) bool {
 	rm, tileWidth, textureHeight, ok := r.wallMipSource(sprite)
 	if !ok {
-		return
+		return false
 	}
 	sel := wallMipSelect(rm, leftU, rightU, tileWidth, width, textureHeight, wallHeight)
 	brightness := r.wallSliceBrightness(screenX, distance, wallSide)
@@ -261,6 +311,7 @@ func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *eb
 		r.drawWallMipQuad(screen, rm.levels[sel.ly+1][sel.lx], sel.lx, sel.ly+1, tileWidth, textureHeight,
 			screenX, width, wallTop, wallHeight, leftU, rightU, brightness, float64(sel.ay))
 	}
+	return true
 }
 
 func (r *Renderer) drawWallMipQuad(screen *ebiten.Image, source *ebiten.Image, lx, ly int,

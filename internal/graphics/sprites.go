@@ -576,6 +576,39 @@ func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
 	return nil
 }
 
+// EvictResource releases one cached render source so a later lookup decodes it
+// again. An empty animationType addresses a static sprite; otherwise it
+// addresses one animation strip. Region residency uses this single eviction
+// path for every SpriteManager-owned GPU image.
+func (sm *SpriteManager) EvictResource(name, animationType string) []*ebiten.Image {
+	if sm == nil || name == "" {
+		return nil
+	}
+	if animationType == "" {
+		img, ok := sm.sprites[name]
+		if !ok {
+			return nil
+		}
+		delete(sm.sprites, name)
+		img.Deallocate()
+		return []*ebiten.Image{img}
+	}
+
+	key := animationKey(name, animationType)
+	anim, ok := sm.animations[key]
+	if !ok {
+		return nil
+	}
+	delete(sm.animations, key)
+	delete(sm.animationMissing, key)
+	for _, frame := range anim.Frames {
+		if frame != nil {
+			frame.Deallocate()
+		}
+	}
+	return anim.Frames
+}
+
 // loadSpriteIfExists attempts to load a sprite by basename from the index.
 func (sm *SpriteManager) loadSpriteIfExists(name string) {
 	sm.ensureIndex()

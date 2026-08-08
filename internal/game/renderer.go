@@ -98,6 +98,10 @@ type Renderer struct {
 	ambientLight float64
 	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
 	standeeCoreCache map[standeeCoreKey]*ebiten.Image
+	// Oversized authored standees are reduced once before core/mip generation.
+	// The original source remains SpriteManager-owned; this bounded render copy
+	// follows the same region ownership and eviction key as its derived caches.
+	standeeRenderSourceCache map[standeeCoreKey]*ebiten.Image
 	// Stable prefixed names used by standeeCoreKey. Constructing "mob:"+key,
 	// "npc:"+key, etc. for every visible object every frame showed up as
 	// allocator churn; the identity set is tiny and immutable after load.
@@ -158,11 +162,9 @@ type Renderer struct {
 	// it instead of rescanning the world or maintaining a parallel asset list.
 	mapRenderTileTypes              []world.TileType3D
 	mapRenderResourcePrewarmPending bool
-	mapRenderResourcePrewarmMapKey  string
+	mapRenderResourcePrewarmMapKeys []string
 	mapRenderResidentMapKeys        []string
-	mapRenderStandeeKeysByMap       map[string]map[standeeCoreKey]struct{}
-	mapRenderSharedResourcesReady   bool
-	mapRenderSharedStandeeKeys      map[standeeCoreKey]struct{}
+	mapRenderResourcesByMap         map[string]*mapRenderRegionResources
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -200,6 +202,7 @@ type Renderer struct {
 	// Ripmap grids of the tileable wall textures, keyed by sprite - see
 	// render_wall_mip.go for why walls need their own anisotropic levels.
 	wallRipmaps      map[*ebiten.Image]*wallRipmap
+	wallRipmapBytes  int64
 	wallSliceVerts   [4]ebiten.Vertex
 	wallSliceTriOpts ebiten.DrawTrianglesOptions
 	// Minified opaque wall slices are independent screen columns, so slices
@@ -315,7 +318,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 		r.treeTilesCache = nil
 		r.mapRenderTileTypes = nil
 		r.mapRenderResourcePrewarmPending = false
-		r.mapRenderResourcePrewarmMapKey = ""
+		r.mapRenderResourcePrewarmMapKeys = nil
 		r.tileLightCache = nil
 		r.resetNightMotes()
 		r.clearCanopyShadeCache()
@@ -2355,9 +2358,10 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 					return
 				}
 				r.flushMipmappedWallBatch(screen)
-				r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU)
-				return
+				if r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
+					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					return
+				}
 			}
 		}
 	}
