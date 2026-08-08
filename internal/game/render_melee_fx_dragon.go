@@ -599,107 +599,65 @@ func (r *Renderer) drawMeleeFxDragonRoar(screen *ebiten.Image, s SlashEffect, cx
 	}
 }
 
-// Verdant Eye - the scepter that watches and approves. A short green arc, and
-// at the impact AN EYE OPENS: iris ring around a slit pupil, blinks once -
-// then the ENTIRE flourish replays fainter a beat later. The 15% spell echo,
-// played on the weapon itself.
-func (r *Renderer) drawMeleeFxDragonEye(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, _, _ := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h, w := arenaFxScale(s, screenH)
-	moss, leaf, iris := [3]int{74, 130, 66}, [3]int{112, 226, 118}, [3]int{198, 255, 176}
-
-	// The whole flourish as a function of its own local clock, so the echo is
-	// literally the same drawing played again, fainter and slightly later.
-	pass := func(p, gain float64, saltOff int) {
-		if p <= 0 || p > 1 {
-			return
-		}
-		st := math.Min(1, p/meleeSweepFrac)
-		l := 1 - (1-st)*(1-st)
-		f := gain
-		if p > 0.72 {
-			f *= 1 - (p-0.72)/0.28
-		}
-		if f <= 0 {
-			return
-		}
-		reach := h * 0.3
-		pivotX, pivotY := cx, cy+reach*0.45
-		R := reach * 1.25
-		th0, th1 := -math.Pi/2+0.95, -math.Pi/2-0.85 // right-to-left: the eye reads back at you
-		cur := th0 + (th1-th0)*l
-		arcAt := func(t float64) (float64, float64) {
-			theta := th0 + (cur-th0)*t
-			return pivotX + math.Cos(theta)*R, pivotY + math.Sin(theta)*R*0.9
-		}
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   arcAt,
-			width:  func(t float64) float64 { return (22 + 12*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(moss, leaf, 0.4+0.4*t) },
-			alpha:  func(t float64) float64 { return 0.72 * f },
-			length: R * 1.9, seed: seed, salt: 610 + saltOff, blend: additiveGlowBlend,
-		}, 1, p)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   arcAt,
-			width:  func(t float64) float64 { return (8 + 5*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(leaf, iris, t) },
-			alpha:  func(t float64) float64 { return (0.55 + 0.45*t) * f },
-			length: R * 1.9, seed: seed, salt: 612 + saltOff, blend: additiveGlowBlend,
-		}, 1, p)
-
-		if st >= 1 {
-			// The eye: iris ring + slit pupil; it blinks once (squash) and the
-			// pupil tracks a touch sideways - it is watching the caster.
-			u := (p - meleeSweepFrac) / (1 - meleeSweepFrac)
-			ex, ey := arcAt(0.94)
-			open := math.Min(1, u*3.5)
-			blink := 1.0
-			if u > 0.45 && u < 0.62 {
-				blink = math.Abs(math.Cos((u - 0.45) / 0.17 * math.Pi))
-			}
-			// The eye is this weapon's whole signature, so it is drawn big
-			// enough to read: a lit sclera to sit the dark pupil against, an
-			// iris ring of bright segments, then the slit.
-			irisR := h * 0.09 * open
-			r.drawGlowSprite(screen, ex, ey, irisR*1.15, mixColor(moss, leaf, 0.5), f*fade*0.5, additiveGlowBlend)
-			const segs = 16
-			for i := 0; i < segs; i++ {
-				ang := 2 * math.Pi * float64(i) / segs
-				r.drawGlowRect(screen, ex+math.Cos(ang)*irisR, ey+math.Sin(ang)*irisR*0.62*blink,
-					math.Max(3, h*0.017*w), mixColor(leaf, iris, 0.6), f*fade*(1-u*0.3), additiveGlowBlend)
-			}
-			track := math.Sin(u*2.4) * irisR * 0.3
-			pupilH := irisR * 0.85 * blink
-			for i := 0; i < 6; i++ {
-				py := ey - pupilH/2 + pupilH*float64(i)/5
-				r.drawGlowRect(screen, ex+track, py, math.Max(4, h*0.017*w), dragonScale, f*fade, ebiten.BlendSourceOver)
-			}
-			r.drawGlowSprite(screen, ex+track, ey, h*0.024*open*blink, iris, f*fade, additiveGlowBlend)
-			// Moss motes drift off the open eye.
-			const motes = 5
-			for k := 0; k < motes; k++ {
-				mu := math.Max(0, u-auraHash(seed, k, 616+saltOff, 0)*0.5)
-				if mu <= 0 {
-					continue
-				}
-				r.drawGlowRect(screen, ex+(auraHash(seed, k, 617+saltOff, 0)-0.5)*irisR*3, ey-mu*h*0.16,
-					math.Max(2, h*0.007), leaf, f*fade*(1-mu), additiveGlowBlend)
-			}
-		}
-	}
-
-	pass(progress, 1, 0)
-	// The echo: same flourish, delayed to land after the first finishes its
-	// beat, at less than half strength - approved, repeated.
-	pass((progress-0.42)/0.58, 0.42, 40)
-}
-
 // ============================ DRAKEFORGED RANGED ============================
 // Overlays on top of the normal arrow silhouette (weaponProjectileFxStyleDraw).
+
+// Verdant Eye - a living green lens carried by the scepter's earth bolt. The
+// eye stays readable in both side-on and camera-axis projections.
+func (r *Renderer) drawWeaponProjectileFxDragonEye(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+	fc := float64(r.game.frameCount)
+	moss, iris, sclera := [3]int{54, 112, 58}, [3]int{112, 226, 118}, [3]int{210, 255, 188}
+	nx, ny := -dirY, dirX
+	pulse := 0.92 + 0.08*math.Sin(fc*0.16+float64(id))
+	length := size * 1.45
+	height := size * 0.62 * pulse
+	frontX, frontY := cx+dirX*length, cy+dirY*length
+	backX, backY := cx-dirX*length, cy-dirY*length
+	topX, topY := cx+nx*height, cy+ny*height
+	bottomX, bottomY := cx-nx*height, cy-ny*height
+	width := math.Max(2, size*0.12)
+
+	for _, edge := range [][4]float64{
+		{frontX, frontY, topX, topY},
+		{topX, topY, backX, backY},
+		{backX, backY, bottomX, bottomY},
+		{bottomX, bottomY, frontX, frontY},
+	} {
+		r.fxSegment(screen, edge[0], edge[1], edge[2], edge[3], width, iris, 0.7*critBoost, additiveGlowBlend)
+	}
+	r.drawGlowSprite(screen, cx, cy, size*0.58*pulse, moss, 0.65*critBoost, additiveGlowBlend)
+	r.drawGlowSprite(screen, cx, cy, size*0.3*pulse, sclera, 0.9*critBoost, additiveGlowBlend)
+	r.fxSegment(screen, cx-nx*size*0.28, cy-ny*size*0.28, cx+nx*size*0.28, cy+ny*size*0.28,
+		math.Max(2, size*0.13), dragonScale, critBoost, ebiten.BlendSourceOver)
+
+	seed := id + 621
+	for k := 0; k < 5; k++ {
+		t := 0.7 + 0.55*float64(k)
+		wobble := (auraHash(seed, k, 622, int(fc)/4) - 0.5) * size
+		x := cx - dirX*size*t + nx*wobble
+		y := cy - dirY*size*t + ny*wobble
+		r.drawGlowRect(screen, x, y, math.Max(2, size*(0.13-0.012*float64(k))),
+			mixColor(iris, moss, float64(k)/5), (0.5-0.07*float64(k))*critBoost, additiveGlowBlend)
+	}
+}
+
+func (r *Renderer) drawWeaponProjectileFxDragonEyeHeadOn(screen *ebiten.Image, cx, cy, size, critBoost float64, id int) {
+	fc := float64(r.game.frameCount)
+	moss, iris, sclera := [3]int{54, 112, 58}, [3]int{112, 226, 118}, [3]int{210, 255, 188}
+	pulse := 0.92 + 0.08*math.Sin(fc*0.16+float64(id))
+	radius := size * 0.88 * pulse
+
+	r.drawGlowSprite(screen, cx, cy, radius*0.9, moss, 0.55*critBoost, additiveGlowBlend)
+	const segments = 16
+	for i := 0; i < segments; i++ {
+		angle := 2 * math.Pi * float64(i) / segments
+		r.drawGlowRect(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius*0.62,
+			math.Max(2, size*0.13), iris, 0.8*critBoost, additiveGlowBlend)
+	}
+	r.drawGlowSprite(screen, cx, cy, size*0.42*pulse, sclera, 0.9*critBoost, additiveGlowBlend)
+	r.fxSegment(screen, cx, cy-size*0.42, cx, cy+size*0.42,
+		math.Max(2, size*0.16), dragonScale, critBoost, ebiten.BlendSourceOver)
+}
 
 // Wyrmspine Wing - the bow strung on wing-tendon. The bolt FLIES: membrane
 // vanes fan off the shaft and beat slowly, shedding scale-flecks in the

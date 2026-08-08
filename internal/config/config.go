@@ -1355,20 +1355,29 @@ type WeaponDefinitionConfig struct {
 	Graphics *WeaponGraphicsConfig `yaml:"graphics"`
 }
 
-const defaultTPS = 120
+// DefaultTPS is the simulation tick rate the game SHIPS at: config.yaml sets
+// engine.tps to it, and main.go pins the same value when vsync is off (an
+// unsynced loop free-runs otherwise). It is the fallback here so a config-less
+// path ticks at the shipped rate rather than at a slower legacy one.
+//
+// EVERY frame count in this codebase is a duration only at this rate: 60 frames
+// is half a second here, not one. Author durations in seconds and convert with
+// GetTPS (MMGame.framesForSeconds does exactly that); where a raw frame constant
+// remains, its comment states what it lasts at this rate.
+const DefaultTPS = 120
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
 		return c.Engine.TPS
 	}
-	return defaultTPS
+	return DefaultTPS
 }
 
 func GetTargetTPS() int {
 	if GlobalConfig != nil {
 		return GlobalConfig.GetTPS()
 	}
-	return defaultTPS
+	return DefaultTPS
 }
 
 var GlobalConfig *Config

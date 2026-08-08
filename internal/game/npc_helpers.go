@@ -35,7 +35,220 @@ func npcHasMerchant(npc *character.NPC) bool {
 }
 
 func npcHasSkillTraining(npc *character.NPC) bool {
-	return npc != nil && npc.Type == "skill_trainer"
+	return npc != nil && npc.Type == character.NPCTypeSkillTrainer
+}
+
+// probeUngatedNPC builds an authored NPC for a BOOT CHECK, with its gate cleared:
+// the question these checks ask is what the NPC would be with its service open.
+// The real dispatch is production code and may read party or world state, so the
+// probe hands it a real NPC rather than a zero value.
+func probeUngatedNPC(npcKey string) (*character.NPC, error) {
+	npc, err := character.CreateNPCFromConfig(npcKey, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	if npc == nil {
+		return nil, fmt.Errorf("NPC %q could not be built", npcKey)
+	}
+	npc.RequiresQuest = ""
+	return npc, nil
+}
+
+// npcDataHasGatedService reports whether an authored NPC owns a service
+// requires_quest can withhold. It asks the two things the gate itself acts on -
+// isGatedService (the kind dispatch's own downgrade rule) and
+// gatedServiceActions - so anything the runtime withholds is accepted here. The
+// probe clears the gate (the question is what the NPC would be with the shop
+// open) and returns a build failure rather than reporting it as "owns no
+// service".
+func (g *MMGame) npcDataHasGatedService(npcKey string) (bool, error) {
+	npc, err := probeUngatedNPC(npcKey)
+	if err != nil {
+		return false, err
+	}
+	if g.npcDialogKindFor(npc).isGatedService() {
+		return true, nil
+	}
+	// A service is not always a tabbed dialog: a duel master offers its bout as a
+	// plain choice and resolves to dialogKindChoices. The gate withholds those by
+	// ACTION, so the probe asks the same set - two definitions of "service" would
+	// mean authoring that the runtime withholds and the validator calls unguarded.
+	// At any depth - that is where the choice filter strips them.
+	gated := false
+	_ = npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
+		if gatedServiceActions[c.Action] {
+			gated = true
+		}
+		return nil
+	})
+	return gated, nil
+}
+
+// npcDialogHasTalkTab reports whether a tabbed dialog carries its conversation
+// tab RIGHT NOW - "Quests" on a spell trader, "Talk" on a buff service. ONE
+// predicate for both: the question is the same (does the root row list still
+// draw anything), and it asks the list the tab would draw rather than the raw
+// authoring. A giver whose chain is concluded has no rows left, and the tab
+// strip, the Tab key and the click router must agree - a strip that opens a
+// blank panel for the rest of the run is worse than no strip.
+func (g *MMGame) npcDialogHasTalkTab(npc *character.NPC) bool {
+	// From the ROOT rows, not from whatever info branch the player stands in: a
+	// node whose rows all filter out would make the strip - and the Tab key gated
+	// on it - vanish mid-conversation. Asked from the draw pass, so it reads state
+	// and never writes it.
+	if npc == nil || npc.DialogueData == nil {
+		return false
+	}
+	return len(g.npcChoiceRows(npc, npc.DialogueData.Choices, true)) > 0
+}
+
+// validateSpellShopsAreReachable fails the boot when an NPC carries spell rows
+// that no dialog will ever show. The authored type only gets the rows COPIED;
+// what draws the shop is the kind dispatch, and tavern / buff service / card
+// collector / arena gladiator all win before dialogKindSpellTrader - so a trader
+// that also rents rooms sells nothing and says nothing about it.
+func (g *MMGame) validateSpellShopsAreReachable() error {
+	if character.NPCConfigInstance == nil {
+		return nil
+	}
+	for _, npcKey := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[npcKey]
+		if data == nil || len(data.Spells) == 0 {
+			continue
+		}
+		npc, err := probeUngatedNPC(npcKey)
+		if err != nil {
+			return fmt.Errorf("NPC %q sells spells but cannot be built: %w", npcKey, err)
+		}
+		if kind := g.npcDialogKindFor(npc); kind != dialogKindSpellTrader {
+			return fmt.Errorf("NPC %q authors %d spell rows but resolves to the %s dialog - its shop would never be drawn",
+				npcKey, len(data.Spells), kind)
+		}
+	}
+	return nil
+}
+
+// sortedMapKeys orders any keyed catalog for VALIDATION: a boot check that
+// returns on the first bad entry must name the same one every run, or a fixed
+// error looks unfixed when the next one takes its place.
+func sortedMapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// validateDialogueActionsAreDispatched fails the boot on an action name nothing
+// runs. Every gate that classifies rows - the service gate, the conclusion rule,
+// the prop route - keys off this string, and a typo currently draws a row that
+// does nothing at all. Every service action must also be dispatched: a paid row
+// the switch does not know about takes the money nowhere.
+func (g *MMGame) validateDialogueActionsAreDispatched() error {
+	if character.NPCConfigInstance == nil {
+		return nil
+	}
+	for _, npcKey := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[npcKey]
+		if data == nil || data.Dialogue == nil {
+			continue
+		}
+		var offender error
+		_ = data.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if offender != nil || c == nil {
+				return nil
+			}
+			if len(c.Choices) > 0 && c.Action != "info" {
+				offender = fmt.Errorf("NPC %q dialogue row %q carries nested choices under action %q; only info opens child rows",
+					npcKey, c.Text, c.Action)
+				return nil
+			}
+			if dialogActions[c.Action] == nil {
+				offender = fmt.Errorf("NPC %q dialogue row %q declares action %q, which nothing dispatches - the row would draw and do nothing",
+					npcKey, c.Text, c.Action)
+			}
+			return nil
+		})
+		if offender != nil {
+			return offender
+		}
+	}
+	for action := range gatedServiceActions {
+		if dialogActions[action] == nil {
+			return fmt.Errorf("service action %q is withheld by the requires_quest gate but nothing dispatches it", action)
+		}
+	}
+	return nil
+}
+
+// validateDialogueRowsAreDrawable fails the boot when an NPC authors dialogue
+// rows that no surface will ever draw. The kind dispatch decides the surface, and
+// a fixed-layout kind (mastery grid, card grid, shop grid) has none - a row on one
+// of those is silently dead.
+//
+// Two shapes are legitimate and must keep passing:
+//   - a SERVICE row the kind draws itself: the tavern reads its rest/food/roster/
+//     stash rows by action (gatedServiceActions is that same set);
+//   - a row that lives only BEHIND the gate: while requires_quest is unpaid the
+//     dispatch downgrades to dialogKindChoices, which draws everything. Nadira's
+//     errand is authored exactly this way, and her rows stop being reachable at
+//     the same moment they stop being kept (conclusion).
+//
+// So for a fixed-layout kind, every quest row must name the GATE's own quest. A
+// second chained errand - the pattern used freely on other givers - would open
+// behind the paid gate and be unreachable forever, with nothing at boot to say so.
+func (g *MMGame) validateDialogueRowsAreDrawable() error {
+	if character.NPCConfigInstance == nil {
+		return nil
+	}
+	for _, npcKey := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[npcKey]
+		if data == nil || data.Dialogue == nil || len(data.Dialogue.Choices) == 0 {
+			continue
+		}
+		npc, err := probeUngatedNPC(npcKey)
+		if err != nil {
+			return fmt.Errorf("NPC %q authors dialogue rows but cannot be built: %w", npcKey, err)
+		}
+		kind := g.npcDialogKindFor(npc)
+		if kind.drawsDialogueRows() {
+			continue
+		}
+		var offender error
+		var walk func([]*character.NPCDialogueChoice, bool)
+		walk = func(choices []*character.NPCDialogueChoice, atRoot bool) {
+			for _, c := range choices {
+				if offender != nil || c == nil {
+					continue
+				}
+				if gatedServiceActions[c.Action] {
+					// Fixed taverns consume these four ROOT rows directly. No other
+					// fixed-layout kind, and no nested row, has such a surface.
+					if !(kind == dialogKindTavern && atRoot && tavernDrawsAction(c.Action)) {
+						offender = fmt.Errorf("NPC %q resolves to the %s dialog, which never draws its %q service row %q at this dialogue depth",
+							npcKey, kind, c.Action, c.Text)
+					}
+				} else if c.Action != "leave" {
+					// Everything else needs a gate to be reachable at all: while
+					// requires_quest is unpaid the dispatch downgrades to choices.
+					if data.RequiresQuest == "" {
+						offender = fmt.Errorf("NPC %q resolves to the %s dialog, which draws no authored rows, so its %q row %q is never drawn anywhere",
+							npcKey, kind, c.Action, c.Text)
+					} else if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != data.RequiresQuest {
+						offender = fmt.Errorf("NPC %q resolves to the %s dialog, which draws no authored rows, so its %q row for quest %q could only ever be reached while requires_quest %q is unpaid - it would be unreachable for the rest of the run",
+							npcKey, kind, c.Action, c.QuestID, data.RequiresQuest)
+					}
+				}
+				walk(c.Choices, false)
+			}
+		}
+		walk(data.Dialogue.Choices, true)
+		if offender != nil {
+			return offender
+		}
+	}
+	return nil
 }
 
 // npcHasChoiceDialog reports whether the NPC presents a choice prompt - either
@@ -100,35 +313,14 @@ func trainerOptions(char *character.MMCharacter) []trainerOption {
 	return options
 }
 
-func characterKnowsSpellByName(char *character.MMCharacter, spellName string) bool {
-	if char == nil || spellName == "" {
+// canCharacterLearnNPCSpell gates a shop row by its CATALOG KEY (the spell id,
+// validated at load) and asks the CHARACTER - never the display name, and never
+// one school string: a dual-school page sells to a holder of either school.
+func canCharacterLearnNPCSpell(char *character.MMCharacter, spellKey string) bool {
+	if char == nil || spellKey == "" {
 		return false
 	}
-	for _, magicSkill := range char.MagicSchools {
-		for _, spellID := range magicSkill.KnownSpells {
-			if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.Name == spellName {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character.NPCSpell) bool {
-	if char == nil || spellData == nil {
-		return false
-	}
-	school, ok := schoolIDFromString(spellData.School)
-	if !ok {
-		return false
-	}
-	return char.MagicSchools[school] != nil
-}
-
-// schoolIDFromString returns the typed school ID for a YAML/dialog string. The
-// bool reports whether the value matches a known school.
-func schoolIDFromString(raw string) (character.MagicSchoolID, bool) {
-	return character.ParseMagicSchoolID(raw)
+	return char.HasSchoolOpenFor(spells.SpellID(spellKey))
 }
 
 func formatNPCDialogue(template string, vars npcDialogVars) string {

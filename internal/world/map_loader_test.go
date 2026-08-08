@@ -326,19 +326,47 @@ func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.file, func(t *testing.T) {
-			md, err := NewMapLoaderWithBiome(nil, tc.biome).LoadMap(filepath.Join("..", "..", "assets", tc.file))
-			if err != nil {
-				t.Fatalf("load map: %v", err)
-			}
-			present := make(map[string]bool)
-			for _, spawn := range md.NPCSpawns {
-				present[spawn.NPCKey] = true
-			}
-			for _, key := range tc.wantNPCs {
-				if !present[key] {
-					t.Errorf("%s: town NPC %q missing (have %v)", tc.file, key, present)
-				}
-			}
+			assertMapCarriesNPCs(t, tc.file, tc.biome, tc.wantNPCs)
+		})
+	}
+}
+
+// assertMapCarriesNPCs checks PRESENCE only, never cells: maps are hand-edited
+// and an NPC may be moved anywhere in its map without breaking anything.
+func assertMapCarriesNPCs(t *testing.T, file, biome string, want []string) {
+	t.Helper()
+	md, err := NewMapLoaderWithBiome(nil, biome).LoadMap(filepath.Join("..", "..", "assets", file))
+	if err != nil {
+		t.Fatalf("load map: %v", err)
+	}
+	present := make(map[string]bool)
+	for _, spawn := range md.NPCSpawns {
+		present[spawn.NPCKey] = true
+	}
+	for _, key := range want {
+		if !present[key] {
+			t.Errorf("%s: NPC %q missing (have %v)", file, key, present)
+		}
+	}
+}
+
+// Yusra's service gate (shrine_lamps) asks for three lamps, ONE PER PYRAMID
+// FLOOR. Lose a floor's lamp and the errand can never be finished, so her Light
+// and Dark pages stay shut forever.
+func TestPyramidFloorsCarryTheShrineLamps(t *testing.T) {
+	installTestTileManager(t)
+
+	previousConfig := monster.MonsterConfig
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	defer func() { monster.MonsterConfig = previousConfig }()
+
+	for floor, lamp := range map[string]string{
+		"pyramid_1.map": "shrine_lamp_1",
+		"pyramid_2.map": "shrine_lamp_2",
+		"pyramid_3.map": "shrine_lamp_3",
+	} {
+		t.Run(floor, func(t *testing.T) {
+			assertMapCarriesNPCs(t, floor, "pyramid", []string{lamp})
 		})
 	}
 }

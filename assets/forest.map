@@ -13,6 +13,12 @@
 # Monster spawns: b=bear f=forest orc g=goblin l=troll n=bandit p=pixie
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
+# Reached with a capability, never on foot (declared so the validator reads them
+# as design, not as stranded content):
+# gate: water (48,1) chest_iron - the lake chest, sunk in deep water
+# gate: water (21,24) spell_trader_mage - Liora's lake shrine; the wolf-cull bridge is the other way in
+# gate: water (17,24) chest_iron - the tree-locked beach on the west shore
+# gate: jump (32,38) chest_golden - stand on the barrel (30,38), vault the copse at (31,38)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %@@..T...T....T.PPPPP...T.....fffT....T.@@WQQQQQ@%  >[npc:campfire], [npc:mtrader0], [npc:barrel_green], [npc:barrel_blue], [npc:chest_iron@deep_water]
 %..........T......................T.....PP@WQQQQQ%  >[npc:lake_bather_ilsa]
@@ -25,33 +31,33 @@
 %tT.....T.......T.....T.......T.....T............%
 %....T.PPPPP...T.....T.PPPPPP..T.....T...........%
 %SSSSSSSTSSSSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSS...%
-%....T.......T.....T.......T.....T...............=
-%.T.....T.......T.....T.......T.....T...........P=
-%t...T...ww....T.....T.....M...T.....T..........P-
+%....AP......T.....T.......T.....T...............=
+%.T..P..T.......T.....T.......T.....T...........P=
+%t...T...www...T.....T.....M...T.....T..........P-
 %..........T.......T.....T.......T..............P-
-%.T.....T.M.....T.....T.......T...T.............@D  >[stile:rteleporter]
-%t...T....M....T...............T.....T..........P-
-%..........T.......TwwT..T..ww...T..............P-
+%.AP....T.M.....T.....T.......T...T.............@D  >[stile:rteleporter]
+%tP..T....M....T....w..........T.....T..........P-
+%..........T.......TwwT..T.......T..............P-
 %.T.....T.......T..T@@T.......T.....T.....PP....P=  >[npc:campfire], [npc:barrel_red]
-%....T.........T..TTTTTTT......T.....T....PP...P.=
-%t.........T......TAWWWAT...T.......T............%
+%....AP........T..TTTTTTT......T.....T....PP...P.=
+%t...P.....T......TAWWWAT...T.......T............%
 %.T.....T.......T.TWWWWWT..MM...T..ww.T....P.....%
 %....T.........TTTTWWWWWTf....ww..T.w...T........%
-%t....ww...T....T@.WW@WW.f..T.w.....T........P...%  >[npc:chest_iron], [npc:spell_trader_mage]
-%.T.....T.......TTTWWWWWTf......T.....T..........%
+%t.P..www..T....T@.WW@WW.f..T.w.....T........P...%  >[npc:chest_iron], [npc:spell_trader_mage]
+%.AP....T.......TTTWWWWWTf......T.....T..........%
 %....T.........T..TWWWWWT...MM....T.....T........%
 %t...M.....T......TAWWWAT...T.......T.......P....%
-%.T.....T...ww..T.TTTTTTT.....T.....T.....P......%
-%....T.........T....T..........T.....T...........%
+%.T.....T...www.T.TTTTTTT.....T.....T.....P......%
+%....AP........T....T..........T.....T...........%
 %......M.M.T.............T.......T...............%
-%.T.....T.......T.....T...w...T.....T...PP....P..%
-%....T.........T.....T.....ww..T.....T...........%
-%...ww.....T.......T.....T.......T............P..%
+%.AP....T.......T.....T.......T.....T...PP....P..%
+%.P..T.........T.....T....www..T.....T...........%
+%..........T.......T.....T.......T............P..%
 %@T@@@..T....TTTTT....T.......T.....T.......@....%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue], [npc:abandoned_church]
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
-%..P.T....P..g@T.....T...PP.gg@T@FFFFT...........%  >[npc:barrel_green], [npc:barrel_blue], [npc:chest_golden]
+%..P.T....P..g@T.....T...PP...@T@FFFFT...........%  >[npc:barrel_green], [npc:pile_of_old_boxes], [npc:chest_golden]
 T..P.......T.g.....T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
 T.P..T.Mggg....T..@..T........CCCCCC...........RR%  >[npc:tavern]
@@ -59,8 +65,8 @@ T.P...gggM.T...TT..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [t
 T.T.....T......FT..CCCCCC.....CCCCCC.........Pn@R%  >[npc:campfire]
 T.M..T.......P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]
 T......T...T.......CCCCCC.....CCCCCC.........Pn@R%  >[npc:barrel_red]
-T.T.....TT......T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
-TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
+T.T.....TT.gg...T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
+TpFFpT..FFT@...TT..CCCCCC.....CCCCCC...........RR%  >[npc:barrel_blue]
 TpFFp...FF.TM......................@............R%  >[npc:forest_peasant_wenna]
 T@TTTTTTTT..Tg.TTP......PP.....................RR%  >[npc:spell_lectern]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

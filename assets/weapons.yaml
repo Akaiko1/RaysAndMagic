@@ -1538,10 +1538,11 @@ weapons:
     description: "A scepter around a green dragon's lens; it watches your casting and approves"
     category: "staff"
     damage: 15
-    range: 1
+    range: 7
     bonus_stat: "Intellect"
     crit_chance: 10
     damage_type: "earth"
+    projectile_school: "earth"
     spell_cooldown_multiplier: 0.85
     aoe_radius_tiles: 2.0
     spell_echo_pct: 15
@@ -1549,14 +1550,16 @@ weapons:
     value: 5500
     no_loot: true
     flavor: "Say it again. The eye liked it."
-    melee:
-      arc_type: 1
-      animation_frames: 10
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 7.0
+      collision_size_tiles: 2.0
     graphics:
-      slash_color: [110, 230, 120]
-      slash_width: 28
-      slash_length: 50
-      slash_fx: dragon_eye
+      max_size: 34
+      min_size: 4
+      base_size: 18
+      color: [110, 230, 120]
+      projectile_fx: dragon_eye
 
   # ================= PURSUER ARSENAL (Alien Enforcer drops) =================
   # Field kit of the ocean strangers. Blasters need no weapon skill.

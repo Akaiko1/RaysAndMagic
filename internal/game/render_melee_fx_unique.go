@@ -17,7 +17,7 @@ import (
 
 // meleeFxStyledLingerFrames extends the lifetime of styled swings so their
 // dissolve tails (blood droplets, debris, wisps) have room to play out.
-const meleeFxStyledLingerFrames = 44
+const meleeFxStyledLingerFrames = 44 // ~0.37s at 120 TPS
 
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
@@ -52,7 +52,6 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"dragon_tarn":       (*Renderer).drawMeleeFxDragonTarn,
 	"dragon_hatchling":  (*Renderer).drawMeleeFxDragonHatchling,
 	"dragon_roar":       (*Renderer).drawMeleeFxDragonRoar,
-	"dragon_eye":        (*Renderer).drawMeleeFxDragonEye,
 	"tech_vibro":        (*Renderer).drawMeleeFxTechVibro,
 }
 

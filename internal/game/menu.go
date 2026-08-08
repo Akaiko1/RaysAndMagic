@@ -1488,6 +1488,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 
 // applySave restores game state from a save struct
 func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
+	// Loading replaces the timeline, so a carried split fragment or its picker
+	// cannot remain the exclusive input owner in the restored run.
+	g.cancelStackSplitInteraction()
 	g.clearFocusMode()
 	// Switch map if needed
 	if save.MapKey != "" && save.MapKey != wm.CurrentMapKey && wm.IsValidMap(save.MapKey) {
@@ -2246,6 +2249,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		// already all dead completes (and spawns its boss) right now.
 		g.reconcileExterminationQuests()
 	}
+	// A restored journal is not news, and the loaded run must not inherit the old
+	// one's heading or focus identity (loading does NOT reload maps, so NPC
+	// pointers survive). One reset, after the journal has settled.
+	g.resetScreenBanners()
 
 	// Restore played time by adjusting session start
 	if save.PlayedTimeNs > 0 {

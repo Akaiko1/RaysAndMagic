@@ -10,6 +10,10 @@ display:
   disable_vsync_on_mac: true
 
 # Engine settings
+# tps is the simulation tick rate and the yardstick for every frame-counted
+# duration in the code (config.DefaultTPS mirrors it; main.go pins the same
+# value when vsync is off). Changing it rescales any duration still written in
+# raw frames - durations authored in seconds convert themselves.
 engine:
   tps: 120
 

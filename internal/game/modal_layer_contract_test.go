@@ -18,38 +18,43 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 		name string
 		want modalLayerID
 		set  func(*MMGame, *UISystem)
+		// pauses is the world-clock answer for this layer. Same table as the
+		// identity on purpose: the completeness check below then forces every new
+		// layer to declare BOTH, which is what the victory screen was missing -
+		// it was drawn, routed input, and left monsters walking behind it.
+		pauses bool
 	}{
-		{name: "none", want: modalLayerNone, set: func(*MMGame, *UISystem) {}},
-		{name: "game over", want: modalLayerGameOver, set: func(g *MMGame, _ *UISystem) { g.gameOver = true }},
-		{name: "main menu", want: modalLayerMainMenu, set: func(g *MMGame, _ *UISystem) { g.mainMenuOpen = true }},
+		{name: "none", want: modalLayerNone, set: func(*MMGame, *UISystem) {}, pauses: false},
+		{name: "game over", want: modalLayerGameOver, set: func(g *MMGame, _ *UISystem) { g.gameOver = true }, pauses: true},
+		{name: "main menu", want: modalLayerMainMenu, set: func(g *MMGame, _ *UISystem) { g.mainMenuOpen = true }, pauses: true},
 		{name: "save rename", want: modalLayerSaveRename, set: func(g *MMGame, _ *UISystem) {
 			g.mainMenuOpen = true
 			g.saveRenameOpen = true
-		}},
-		{name: "dialog", want: modalLayerDialog, set: func(g *MMGame, _ *UISystem) { g.dialogActive = true }},
+		}, pauses: true},
+		{name: "dialog", want: modalLayerDialog, set: func(g *MMGame, _ *UISystem) { g.dialogActive = true }, pauses: false},
 		{name: "skill trainer", want: modalLayerSkillTrainer, set: func(g *MMGame, _ *UISystem) {
 			g.dialogActive = true
 			g.skillTrainerPopup = true
-		}},
-		{name: "map", want: modalLayerMap, set: func(g *MMGame, _ *UISystem) { g.mapOverlayOpen = true }},
-		{name: "combat log", want: modalLayerCombatLog, set: func(g *MMGame, _ *UISystem) { g.combatLogOpen = true }},
-		{name: "victory", want: modalLayerVictory, set: func(g *MMGame, _ *UISystem) { g.gameVictory = true }},
-		{name: "high scores", want: modalLayerHighScores, set: func(g *MMGame, _ *UISystem) { g.showHighScores = true }},
-		{name: "stat", want: modalLayerStat, set: func(g *MMGame, _ *UISystem) { g.statPopupOpen = true }},
-		{name: "revival", want: modalLayerRevival, set: func(g *MMGame, _ *UISystem) { g.revivalPickerOpen = true }},
-		{name: "heal", want: modalLayerHeal, set: func(g *MMGame, _ *UISystem) { g.healPickerOpen = true }},
-		{name: "town portal", want: modalLayerTownPortal, set: func(g *MMGame, _ *UISystem) { g.townPortalPickerOpen = true }},
-		{name: "promotion", want: modalLayerPromotion, set: func(g *MMGame, _ *UISystem) { g.promotionPickerOpen = true }},
-		{name: "roster", want: modalLayerRoster, set: func(g *MMGame, _ *UISystem) { g.rosterScreenOpen = true }},
-		{name: "stash", want: modalLayerStash, set: func(g *MMGame, _ *UISystem) { g.stashScreenOpen = true }},
+		}, pauses: false},
+		{name: "map", want: modalLayerMap, set: func(g *MMGame, _ *UISystem) { g.mapOverlayOpen = true }, pauses: true},
+		{name: "combat log", want: modalLayerCombatLog, set: func(g *MMGame, _ *UISystem) { g.combatLogOpen = true }, pauses: true},
+		{name: "victory", want: modalLayerVictory, set: func(g *MMGame, _ *UISystem) { g.gameVictory = true }, pauses: true},
+		{name: "high scores", want: modalLayerHighScores, set: func(g *MMGame, _ *UISystem) { g.showHighScores = true }, pauses: true},
+		{name: "stat", want: modalLayerStat, set: func(g *MMGame, _ *UISystem) { g.statPopupOpen = true }, pauses: true},
+		{name: "revival", want: modalLayerRevival, set: func(g *MMGame, _ *UISystem) { g.revivalPickerOpen = true }, pauses: true},
+		{name: "heal", want: modalLayerHeal, set: func(g *MMGame, _ *UISystem) { g.healPickerOpen = true }, pauses: true},
+		{name: "town portal", want: modalLayerTownPortal, set: func(g *MMGame, _ *UISystem) { g.townPortalPickerOpen = true }, pauses: true},
+		{name: "promotion", want: modalLayerPromotion, set: func(g *MMGame, _ *UISystem) { g.promotionPickerOpen = true }, pauses: true},
+		{name: "roster", want: modalLayerRoster, set: func(g *MMGame, _ *UISystem) { g.rosterScreenOpen = true }, pauses: true},
+		{name: "stash", want: modalLayerStash, set: func(g *MMGame, _ *UISystem) { g.stashScreenOpen = true }, pauses: true},
 		{name: "stack split", want: modalLayerStackSplit, set: func(g *MMGame, ui *UISystem) {
 			g.stashScreenOpen = true
 			ui.stackSplitPicker.open = true
-		}},
+		}, pauses: true},
 		{name: "level choice", want: modalLayerLevelChoice, set: func(g *MMGame, _ *UISystem) {
 			g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 			g.levelUpChoiceOpen = true
-		}},
+		}, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))
@@ -60,6 +65,15 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			tt.set(g, ui)
 			if got := ui.topModalLayer(); got != tt.want {
 				t.Fatalf("top modal = %d, want %d", got, tt.want)
+			}
+			if got := tt.want.pausesWorld(); got != tt.pauses {
+				t.Fatalf("layer %d pausesWorld = %v, want %v", tt.want, got, tt.pauses)
+			}
+			// And the pause CONTRACT the loop reads must agree - the layer table is
+			// only the rule if the one predicate derives from it.
+			g.gameLoop = &GameLoop{game: g, ui: ui}
+			if got := g.gameplayPausedByOverlay(); got != tt.pauses {
+				t.Fatalf("%s: gameplayPausedByOverlay = %v, want %v", tt.name, got, tt.pauses)
 			}
 		})
 		if seen[tt.want] {
@@ -515,5 +529,183 @@ func TestEveryModalLayerReleasesRedrawBarrier(t *testing.T) {
 			t.Fatalf("barrier never released: rendered layer %d vs top layer %d - Update is frozen forever",
 				ui.renderedModalSnapshot.layer, ui.topModalLayer())
 		})
+	}
+}
+
+// The wiring, on the real frame: the victory summary is read for as long as the
+// player likes, and the world behind it must not walk, tick day/night, or age
+// cooldowns while they read it. Driven through updateExploration (the same entry
+// the playthrough sim runs) rather than the predicate alone, because a predicate
+// that nothing consults is not a pause.
+//
+// The frame is presented between ticks (presentModalFrame) exactly as Draw would.
+// Without it the modal REDRAW BARRIER returns from updateExploration first, the
+// world stops for a reason that has nothing to do with pausing, and the test
+// passes with the pause contract removed - which is how the first version of this
+// test survived its own mutation.
+func TestVictoryScreenStopsTheWorldClock(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, _ := bootOpenWorldGame(t, true)
+	gl := g.gameLoop
+	x, y, ok := wm.OpenWorldRegionStart("forest")
+	if !ok {
+		t.Fatal("fixture: the forest region has no start")
+	}
+	g.camera.X, g.camera.Y = x, y
+	g.syncOpenWorldRegion()
+
+	presentModalFrame := func() { gl.ui.renderedModalSnapshot = gl.ui.topModalSnapshot() }
+	runFrames := func(n int) {
+		for i := 0; i < n; i++ {
+			presentModalFrame()
+			gl.updateExploration()
+		}
+	}
+
+	const frames = 30
+	g.gameVictory = true
+	g.spellInputCooldown = frames + 5 // a second clock, decremented once per live frame
+	beforeClock, beforeCooldown := g.dayNightFrames, g.spellInputCooldown
+	runFrames(frames)
+	if g.dayNightFrames != beforeClock {
+		t.Errorf("the day/night clock advanced %d frames behind the victory screen",
+			g.dayNightFrames-beforeClock)
+	}
+	if g.spellInputCooldown != beforeCooldown {
+		t.Errorf("the action cooldown aged %d frames behind the victory screen",
+			beforeCooldown-g.spellInputCooldown)
+	}
+
+	// Positive control: the same frames with the screen closed DO advance both, or
+	// the assertions above would pass on clocks that never move.
+	g.gameVictory = false
+	runFrames(frames)
+	if g.dayNightFrames == beforeClock {
+		t.Fatal("the day/night clock did not move with no overlay either - the test proves nothing")
+	}
+	if g.spellInputCooldown == beforeCooldown {
+		t.Fatal("the cooldown did not move with no overlay either - the test proves nothing")
+	}
+}
+
+// A paused overlay presents a STILL frame. The world clock is what every part of
+// the world's picture is drawn from - sprite cadence, standee yaw, torch and
+// firefly flicker, and the screen-shake phase, which alternates the camera
+// sideways on every other frame. While that clock kept running under the victory
+// screen the scene shivered in place instead of freezing.
+func TestPausedOverlayFreezesTheWorldPicture(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, _ := bootOpenWorldGame(t, true)
+	gl := g.gameLoop
+	x, y, ok := wm.OpenWorldRegionStart("forest")
+	if !ok {
+		t.Fatal("fixture: the forest region has no start")
+	}
+	g.camera.X, g.camera.Y = x, y
+	g.syncOpenWorldRegion()
+
+	runFrames := func(n int) {
+		for i := 0; i < n; i++ {
+			gl.ui.renderedModalSnapshot = gl.ui.topModalSnapshot() // what Draw presents
+			gl.updateExploration()
+		}
+	}
+
+	// A boss dies, the victory summary comes up with the shake still running.
+	g.screenShake = 3
+	g.gameVictory = true
+	worldBefore, uiBefore := g.frameCount, g.uiFrameCount
+	shakeBefore := g.screenShake
+	runFrames(20)
+
+	if g.frameCount != worldBefore {
+		t.Errorf("the world clock advanced %d frames behind the victory screen", g.frameCount-worldBefore)
+	}
+	if g.screenShake != shakeBefore {
+		t.Errorf("the shake decayed from %.2f to %.2f while the world was stopped", shakeBefore, g.screenShake)
+	}
+	// The shake phase is what shivered: the sign flips with the world clock, so a
+	// frozen clock means a frozen displacement.
+	if g.frameCount%2 != worldBefore%2 {
+		t.Error("the shake phase moved behind the paused overlay")
+	}
+	// The interface clock is deliberately the exception - a hit flash or a badge
+	// aura on a visible party card must not freeze under an open panel.
+	if g.uiFrameCount == uiBefore {
+		t.Error("the interface clock stopped too; party-card feedback would freeze")
+	}
+
+	// Positive control: with the screen closed both clocks move and the shake decays.
+	g.gameVictory = false
+	runFrames(20)
+	if g.frameCount == worldBefore {
+		t.Fatal("the world clock did not move with no overlay either - the test proves nothing")
+	}
+	if g.screenShake >= shakeBefore {
+		t.Fatalf("the shake did not decay with the world running (%.2f)", g.screenShake)
+	}
+}
+
+// The other half of the split, as an observable: party-card animation reads the
+// INTERFACE clock. Asserting the two counters alone left this free - a card layer
+// switched back to the world clock passed every clock test and froze on screen.
+func TestPartyCardAnimationReadsTheInterfaceClock(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+
+	g.frameCount, g.uiFrameCount = 500, 900
+	if got := ui.cardAnimClock(); got != g.uiFrameCount {
+		t.Fatalf("card animation clock = %d, want the interface clock %d (world clock is %d)",
+			got, g.uiFrameCount, g.frameCount)
+	}
+	// And it keeps moving on a frame the world does not: that is the whole point.
+	before := ui.cardAnimClock()
+	g.uiFrameCount++
+	if ui.cardAnimClock() == before {
+		t.Fatal("the card clock did not follow the interface clock")
+	}
+	if g.frameCount != 500 {
+		t.Fatal("fixture moved the world clock")
+	}
+}
+
+// A wipe ends the conversation with it. The ladder ranks a dialog ABOVE Game
+// Over (a shop is painted later than the death screen), so a party that dies
+// mid-trade would leave a non-pausing layer on top: monsters walking, the clock
+// ticking and autosaves firing behind a Game Over the player cannot dismiss,
+// with the shop still eating keys.
+func TestAWipeClosesTheConversationAndPauses(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+	g.gameLoop = &GameLoop{game: g, ui: ui}
+
+	g.dialogActive = true
+	g.dialogNPC = &character.NPC{Name: "Merchant", RenderCategory: "npc"}
+	g.skillTrainerPopup = true
+	g.dragActive, g.dragPickedUp = true, true
+	g.stashDragActive, g.stashDragPickedUp = true, true
+	for _, m := range g.party.Members {
+		m.HitPoints = 0
+	}
+	g.checkGameOver()
+
+	if !g.gameOver {
+		t.Fatal("a party with no one standing is not game over")
+	}
+	if g.dialogActive || g.dialogNPC != nil || g.skillTrainerPopup {
+		t.Fatalf("the conversation survived the wipe (dialog=%v npc=%v trainer=%v)",
+			g.dialogActive, g.dialogNPC != nil, g.skillTrainerPopup)
+	}
+	if g.dragPickedUp || g.stashDragPickedUp || g.stackSplitInteractionActive() {
+		t.Fatalf("a carried split fragment survived the forced close: inventory=%v stash=%v",
+			g.dragPickedUp, g.stashDragPickedUp)
+	}
+	if got := ui.topModalLayer(); got != modalLayerGameOver {
+		t.Fatalf("top layer = %d, want Game Over (%d)", got, modalLayerGameOver)
+	}
+	if !g.gameplayPausedByOverlay() {
+		t.Fatal("the world still runs behind Game Over")
 	}
 }

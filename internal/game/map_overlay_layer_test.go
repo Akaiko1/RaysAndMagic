@@ -439,6 +439,8 @@ func TestClosedRenderedModalBlocksUpdatesUntilReplacementDraw(t *testing.T) {
 	g.gameLoop = loop
 	ui.renderedModalSnapshot = modalLayerSnapshot{layer: modalLayerStat} // the model closed it, but Draw has not replaced it
 	g.mouseLeftClicks = []queuedClick{firstPartyStatBadgeClick(g, 1000)}
+	uiBefore := g.uiFrameCount
+	g.cardFxTimers[fxBlink][0] = 2
 
 	if err := loop.Update(); err != nil {
 		t.Fatalf("barrier update: %v", err)
@@ -451,6 +453,10 @@ func TestClosedRenderedModalBlocksUpdatesUntilReplacementDraw(t *testing.T) {
 	}
 	if !ui.modalRedrawBarrierActive() {
 		t.Fatal("Update cleared the redraw barrier before a replacement Draw")
+	}
+	if g.uiFrameCount != uiBefore+1 || g.cardFxTimers[fxBlink][0] != 1 {
+		t.Fatalf("redraw-barrier presentation did not advance once: clock %d -> %d, timer=%d",
+			uiBefore, g.uiFrameCount, g.cardFxTimers[fxBlink][0])
 	}
 
 	ui.Draw(ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()))
@@ -471,6 +477,7 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	ui.renderedModalSnapshot = ui.topModalSnapshot()
 	g.cardFxTimers[fxBlink][0] = 2
 	g.cardSummonCDFrames = 2
+	uiBefore := g.uiFrameCount
 	x, y, w, _ := combatLogPanelLayout(g)
 	g.mouseLeftClicks = []queuedClick{{x: x + w - 20, y: y + 18, at: 1000}}
 
@@ -485,6 +492,9 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	}
 	if got := g.cardSummonCDFrames; got != 2 {
 		t.Fatalf("world cooldown = %d, want 2 until Draw replaces the modal", got)
+	}
+	if g.uiFrameCount != uiBefore+1 {
+		t.Fatalf("interface clock advanced %d frames, want exactly 1", g.uiFrameCount-uiBefore)
 	}
 }
 

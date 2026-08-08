@@ -25,8 +25,8 @@ const (
 	// Shell spacing is authored in 1920-wide screen pixels; above that width it
 	// scales with the resolution (constant ANGULAR density), so 4K pays the same
 	// layer count as 1080p instead of double.
-	standeeShellRefWidth   = 1920
-	standeeShellSpacingPx  = 1.5
+	standeeShellRefWidth  = 1920
+	standeeShellSpacingPx = 1.5
 	// At high shell counts the exact same stack is composited in one fragment
 	// pass. This is a render optimization, not a visual LOD.
 	standeeVolumeMinShells = 6

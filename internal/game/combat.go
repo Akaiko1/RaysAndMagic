@@ -4846,17 +4846,21 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 		return 0
 	}
 	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType))
-	if err != nil || def.School == "" {
+	if err != nil {
 		return 0
 	}
-	school := character.MagicSchoolID(def.School)
+	// One school decides BOTH the branch and the mastery: the school this caster
+	// casts it with. A spell with no school at all resolves to no skill here and
+	// answers 0 through the same path. Branching on the spell's primary while reading the caster's
+	// filed skill let a Fire-filed page take the self-magic GM bonus.
+	school := caster.SpellSchoolFor(def)
 	if school.IsElemental() {
 		if !caster.HasSkill(character.SkillElementalMastery) {
 			return 0
 		}
 		return character.ElementalMasteryPiercePct(caster.SkillTier(character.SkillElementalMastery))
 	}
-	if ms, ok := caster.MagicSchools[school]; ok && ms != nil && ms.Mastery >= character.MasteryGrandMaster {
+	if ms := caster.SpellMasterySkill(def); ms != nil && ms.Mastery >= character.MasteryGrandMaster {
 		return SelfMagicGMResistPiercePct
 	}
 	return 0
@@ -4880,7 +4884,7 @@ func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition,
 	// An authored ladder is the WHOLE payload (Firewall 15/30/45/60): no
 	// Intellect and no per-tier bonus on top, exactly like Inferno.
 	if len(def.DamageByMastery) == 4 {
-		return def.DamageForMastery(spellMasteryTierForSchool(char, def.School))
+		return def.DamageForMastery(casterSpellMasteryTier(char, def))
 	}
 	tick := def.ZoneTickDamage
 	if char != nil {
@@ -4895,7 +4899,7 @@ func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition,
 func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
 	tier := 0
 	if char != nil && (def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4) {
-		if school := char.MagicSchools[character.MagicSchoolID(def.School)]; school != nil {
+		if school := char.SpellMasterySkill(def); school != nil {
 			tier = int(school.Mastery)
 		}
 	}
@@ -4905,14 +4909,10 @@ func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char 
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
 func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID spells.SpellID) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || def.School == "" {
+	if err != nil {
 		return 0
 	}
-	school := character.MagicSchoolID(def.School)
-	if skill, exists := char.MagicSchools[school]; exists {
-		return int(skill.Mastery) * MasterySpellEffectPerLevel
-	}
-	return 0
+	return casterSpellMasteryTier(char, def) * MasterySpellEffectPerLevel
 }
 
 // CriticalChanceBreakdown returns the universal crit components shared by
@@ -5636,12 +5636,16 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 	return true
 }
 
-func spellMasteryTierForSchool(caster *character.MMCharacter, schoolID string) int {
-	if caster == nil || schoolID == "" {
+// casterSpellMasteryTier is THE spell-mastery tier: the mastery of the school
+// this caster actually casts the spell with (SpellMasterySkill). Every ladder,
+// bonus and tooltip line resolves through here - keyed off the spell's primary
+// school instead, a dual-school page filed under the caster's other school
+// scores 0 in the fight while the card shows the real tier.
+func casterSpellMasteryTier(caster *character.MMCharacter, def spells.SpellDefinition) int {
+	if caster == nil {
 		return 0
 	}
-	school := character.MagicSchoolID(schoolID)
-	if skill, ok := caster.MagicSchools[school]; ok && skill != nil {
+	if skill := caster.SpellMasterySkill(def); skill != nil {
 		return int(skill.Mastery)
 	}
 	return 0
@@ -5651,7 +5655,7 @@ func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCha
 	if base <= 0 || max <= base {
 		return base
 	}
-	tier := spellMasteryTierForSchool(caster, def.School)
+	tier := casterSpellMasteryTier(caster, def)
 	gmTier := int(character.MasteryGrandMaster)
 	if tier <= 0 || gmTier <= 0 {
 		return base

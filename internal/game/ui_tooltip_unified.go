@@ -53,7 +53,7 @@ func cooldownSeconds(cs *CombatSystem, frames int) string {
 	}
 	tps := cs.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	return fmt.Sprintf("%.1fs", float64(frames)/float64(tps))
 }
@@ -66,7 +66,7 @@ func cooldownLine(cs *CombatSystem, frames int) string {
 	}
 	tps := cs.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	return character.CooldownLine(float64(frames) / float64(tps))
 }
@@ -99,12 +99,14 @@ func masteryTier(char *character.MMCharacter, skill character.SkillType) (int, s
 	return int(sk.Mastery), sk.Mastery.String()
 }
 
-// schoolMasteryTier is the magic-school analogue of masteryTier.
-func schoolMasteryTier(char *character.MMCharacter, school string) (int, string) {
-	if char == nil || school == "" {
+// spellMasteryTier is the magic-school analogue of masteryTier, for the school
+// this character actually casts the spell with (SpellMasterySkill - the same
+// lookup the damage, duration and pierce paths use).
+func spellMasteryTier(char *character.MMCharacter, def spells.SpellDefinition) (int, string) {
+	if char == nil {
 		return 0, ""
 	}
-	ms := char.MagicSchools[character.MagicSchoolID(school)]
+	ms := char.SpellMasterySkill(def)
 	if ms == nil {
 		return 0, ""
 	}
@@ -362,7 +364,7 @@ func armorMasterySkill(item items.Item) (character.SkillType, bool) {
 // ----------------------------------------------------------------- spells ---
 
 func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	subtitle := fmt.Sprintf("%s Magic", formatSchoolName(def.School))
+	subtitle := fmt.Sprintf("%s Magic", spellSchoolsLabel(def))
 
 	casting := ttSection{Title: "CASTING"}
 	cost := def.SpellPointsCost
@@ -405,7 +407,10 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		casting.Add("Target: Self")
 	}
 
-	tier, tierName := schoolMasteryTier(char, def.School)
+	// Mastery belongs to the school the CHARACTER casts this spell with (the very
+	// skill the fight scores by); the DAMAGE TYPE below stays the spell's own.
+	masterySchool := spellSchoolForChar(char, def)
+	tier, tierName := spellMasteryTier(char, def)
 	mastery := 0
 	if cs != nil {
 		mastery = cs.spellMasteryBonus(char, def.ID)
@@ -440,10 +445,13 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		}
 		if mastery > 0 {
 			if spellParts.True > 0 {
+				// Mastery is the CASTER's school; the true damage it converts to is
+				// typed by the SPELL's own element (spellDamageParts), so the two
+				// words differ for a dual-school page.
 				dmg.AddDetail("%s Mastery - %s: +%d %s True Damage",
-					formatSchoolName(def.School), tierName, mastery, formatSchoolName(def.School))
+					formatSchoolName(masterySchool), tierName, mastery, formatSchoolName(def.School))
 			} else {
-				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(def.School), tierName, mastery)
+				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(masterySchool), tierName, mastery)
 			}
 		}
 		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
@@ -467,7 +475,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		dmg.Title = "EFFECT"
 		if def.MasteryDamagePerTier > 0 {
 			dmg.AddDetail("Base: %d", def.MasteryScaledDamage(0))
-			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, tier*def.MasteryDamagePerTier)
+			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, tier*def.MasteryDamagePerTier)
 		}
 		if cs != nil {
 			if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
@@ -499,7 +507,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			statContribDetail(&heal, "Personality", char.GetEffectivePersonality(), spells.HealingPersonalityDivisor)
 		}
 		if mastery > 0 {
-			heal.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
+			heal.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, mastery)
 		}
 		if char != nil && char.HasSkill(character.SkillNaturalHealer) {
 			heal.AddDetail("Natural Healer: +%d%%", character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer)))
@@ -559,10 +567,13 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		tickParts := cs.spellDamageParts(def.ID, char, tickTotal)
 		if mastery > 0 && !ladder {
 			if tickParts.True > 0 {
+				// Mastery is the CASTER's school; the true damage it converts to is
+				// typed by the SPELL's own element (spellDamageParts), so the two
+				// words differ for a dual-school page.
 				dmg.AddDetail("%s Mastery - %s: +%d %s True Damage",
-					formatSchoolName(def.School), tierName, mastery, formatSchoolName(def.School))
+					formatSchoolName(masterySchool), tierName, mastery, formatSchoolName(def.School))
 			} else {
-				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(def.School), tierName, mastery)
+				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(masterySchool), tierName, mastery)
 			}
 		}
 		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
@@ -623,7 +634,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		current := cs.CalculateSpellDurationSeconds(def.ID, char)
 		effects.AddDetail("Base Duration: %ds", def.Duration)
 		if tier > 0 {
-			effects.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(def.School), tierName, tier*SpellMasteryDurationBonusPct)
+			effects.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, tier*SpellMasteryDurationBonusPct)
 		}
 		effects.Add("Current Duration: %ds", current)
 	}

@@ -60,11 +60,17 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
 	parts := damagecalc.Parts{Normal: total}
 	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || !character.MagicSchoolID(def.School).IsElemental() ||
-		def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
+	if err != nil || def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
 		return parts
 	}
-	school := caster.MagicSchools[character.MagicSchoolID(def.School)]
+	// The school this caster holds the spell under decides BOTH the branch and
+	// the mastery, exactly as in spellResistPierce: a dual-school page learned
+	// through Air is scored against Air, and a page authored with only `schools:`
+	// has no primary school to test at all.
+	if !caster.SpellSchoolFor(def).IsElemental() {
+		return parts
+	}
+	school := caster.SpellMasterySkill(def)
 	if school == nil || school.Mastery < character.MasteryGrandMaster {
 		return parts
 	}
@@ -120,9 +126,9 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 		return 0
 	}
 	seconds := def.Duration
-	if char != nil && def.School != "" {
-		school := character.MagicSchoolID(def.School)
-		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
+	// No school test: a spell with none resolves to no skill on its own.
+	if char != nil {
+		if skill := char.SpellMasterySkill(def); skill != nil {
 			bonusPct := int(skill.Mastery) * SpellMasteryDurationBonusPct
 			seconds = seconds * (100 + bonusPct) / 100
 		}

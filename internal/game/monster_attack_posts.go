@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"sort"
+	"ugataima/internal/config"
 
 	"ugataima/internal/monster"
 )
@@ -201,7 +202,7 @@ func (gl *GameLoop) easeTransitStackOffset(m *monster.Monster3D, targetX, target
 	if m == nil {
 		return
 	}
-	tps := 60
+	tps := config.DefaultTPS
 	if gl != nil && gl.game != nil && gl.game.config != nil && gl.game.config.GetTPS() > 0 {
 		tps = gl.game.config.GetTPS()
 	}

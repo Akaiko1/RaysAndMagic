@@ -34,7 +34,7 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 
 const (
 	SpellParticleCount = 8  // Base number of particles per spell hit
-	SpellParticleLife  = 20 // ~0.33 seconds at 60fps
+	SpellParticleLife  = 20 // ~0.17s at 120 TPS
 	SpellParticleSpeed = 2.0
 	SpellParticleSize  = 4
 )
@@ -145,7 +145,7 @@ type ImpactLight struct {
 }
 
 // impactLightFrames is how long an impact flash lasts (intensity decays with life).
-const impactLightFrames = 20
+const impactLightFrames = 20 // ~0.17s at 120 TPS
 
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
 func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int) {

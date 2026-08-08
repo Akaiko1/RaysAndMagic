@@ -16,6 +16,8 @@ package status
 
 // Refresh extends a single status clock to at least `add`, never shortening a
 // running status. Reports whether the status is active afterwards.
+import "ugataima/internal/config"
+
 func Refresh(remaining *int, add int) bool {
 	if add > *remaining {
 		*remaining = add
@@ -121,7 +123,7 @@ func TickDoT(remaining, tickTimer *int, elapsedFrames, tps int) (ticks int, expi
 		return 0, false
 	}
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	elapsed := elapsedFrames
 	if elapsed > *remaining {
@@ -149,7 +151,7 @@ func RestoreDoTTickTimer(remaining, savedTimer, tps int) int {
 		return 0
 	}
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	if savedTimer >= tps {
 		return tps - 1

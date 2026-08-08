@@ -2959,7 +2959,7 @@ func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *mon
 func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	const animFPS = 8
 	ticksPerFrame := tps / animFPS
@@ -3637,7 +3637,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// 5. Collect ground containers (loot bags + treasure chests)
 	for i := range r.game.groundContainers {
 		c := &r.game.groundContainers[i]
-		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
+		if !c.onCurrentWorld() {
 			continue
 		}
 		// Loot containers are interactable, so they do NOT use the one-tile
@@ -4190,6 +4190,9 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	if s.monster.PoisonedFramesRemaining > 0 {
 		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}
+	if s.monster.BurnFramesRemaining > 0 {
+		r.drawMonsterBurnFlames(screen, s.monster)
+	}
 }
 
 // drawMonsterPoisonBubbles rises a column of small green bubbles past a
@@ -4212,6 +4215,43 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
 		vector.FillCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
 	}
+}
+
+// drawMonsterBurnFlames sets a burning monster alight with the SAME flame
+// machinery as a Firewall cell (emitFlameColumn -> emitBubbleColumn), scaled
+// down to a mob: a few short tongues instead of a wall's curtain. Reusing the
+// zone emitter keeps one fire look in the game, and it projects and depth-tests
+// the columns itself, so the flames sit at the monster's feet without any
+// screen-space guesswork. No area glow - the tongues are the whole effect.
+func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, m *monster.Monster3D) {
+	tile := float64(r.game.config.GetTileSize())
+	maxDepth := monsterFlameMaxDepth(tile)
+	tx, ty := TileIndex(m.X, tile), TileIndex(m.Y, tile)
+	// Salted by the monster ID so two burning mobs do not flicker in lockstep.
+	salt := monsterBurnSalt(m.ID)
+	// Spread ACROSS the view, like the wall spreads along its axis: offsetting by
+	// world axes puts the whole fire to one side of the sprite at most angles.
+	rx, ry := -math.Sin(r.game.camera.Angle), math.Cos(r.game.camera.Angle)
+	// A hair TOWARD the camera: the columns are depth-tested, and the mob's own
+	// standee would otherwise hide every tongue that is not past its edge.
+	fx := -math.Cos(r.game.camera.Angle) * tile * monsterFlameFrontOffset
+	fy := -math.Sin(r.game.camera.Angle) * tile * monsterFlameFrontOffset
+	for i := 0; i < monsterFlameColumns; i++ {
+		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * 0.5
+		r.emitMonsterFlameColumn(screen, m.X+rx*off+fx, m.Y+ry*off+fy, tx, ty, salt+i, maxDepth)
+	}
+}
+
+// monsterBurnSalt derives a stable per-monster hash salt from its ID.
+func monsterBurnSalt(id string) int {
+	salt := 31
+	for i := 0; i < len(id); i++ {
+		salt = salt*17 + int(id[i])
+	}
+	if salt < 0 {
+		salt = -salt
+	}
+	return salt % 4096
 }
 
 // stunStarRingGeometry places the stun ring above the monster's head. A
@@ -4529,7 +4569,7 @@ func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount in
 }
 
 func (r *Renderer) selectNPCIdleSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
-	tps := 120
+	tps := config.DefaultTPS
 	if r != nil && r.game != nil && r.game.config != nil {
 		tps = r.game.config.GetTPS()
 	}
@@ -5037,8 +5077,7 @@ func bowHandConvergence(distance, tileSize float64) float64 {
 	if tileSize <= 0 || distance >= 3*tileSize {
 		return 0
 	}
-	t := math.Max(0, distance/(3*tileSize))
-	return 1 - t*t*(3-2*t)
+	return 1 - smoothStep(distance/(3*tileSize))
 }
 
 func arrowFallbackScreenAngle(dirX float64) float64 {

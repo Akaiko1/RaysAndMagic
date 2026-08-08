@@ -20,8 +20,11 @@ func TestCulvertsValveQuest_InteractProgresses(t *testing.T) {
 		t.Fatalf("activate: %v", err)
 	}
 	for i := 1; i <= 7; i++ {
-		completed := qm.OnInteract("valve")
+		advanced, completed := qm.OnInteract("valve")
 		q := qm.GetQuest(qid)
+		if len(advanced) != 1 || advanced[0].ID != qid {
+			t.Fatalf("close %d advanced %d quests, want just %s", i, len(advanced), qid)
+		}
 		if q.CurrentCount != i {
 			t.Fatalf("after %d closes, count = %d", i, q.CurrentCount)
 		}
@@ -38,7 +41,7 @@ func TestCulvertsValveQuest_InteractProgresses(t *testing.T) {
 }
 
 // Closing a valve advances the quest once and the valve concludes (Visited) so it
-// can't be re-closed (no close_valve choice remains).
+// can't be re-closed (no prop choice remains).
 func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -53,14 +56,20 @@ func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 			Greeting:       "A rusty valve.",
 			VisitedMessage: "The valve is shut.",
 			Choices: []*character.NPCDialogueChoice{
-				{Text: "Close", Action: "close_valve", QuestID: qid},
+				{Text: "Close", Action: questPropAction, QuestID: qid},
 				{Text: "Leave", Action: "leave"},
 			},
 		},
 	}
 	ih := NewInputHandler(g)
 	g.dialogNPC = valve
-	ih.handleCloseValve(qid)
+	// The wording comes from the AUTHORED prop, and the test fails if the valve
+	// stops being one - a nil block would otherwise leave every line empty.
+	valveProp := shippedQuestProps(t)["valve"]
+	if valveProp == nil {
+		t.Fatal("the valve is no longer an authored quest prop")
+	}
+	ih.handleQuestPropInteract(qid, valveProp.Prop)
 
 	if c := g.questManager.GetQuest(qid).CurrentCount; c != 1 {
 		t.Errorf("one valve closed should be 1/7, got %d", c)
@@ -72,8 +81,8 @@ func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 		t.Errorf("closed valve should be concluded")
 	}
 	for _, c := range g.visibleNPCChoices(valve) {
-		if c.Action == "close_valve" {
-			t.Errorf("a shut valve must not offer close_valve again")
+		if c.Action == questPropAction {
+			t.Errorf("a shut valve must not offer its prop row again")
 		}
 	}
 }

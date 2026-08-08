@@ -3,6 +3,7 @@ package game
 import (
 	"strings"
 	"testing"
+	"ugataima/internal/config"
 
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
@@ -20,6 +21,13 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 	t.Cleanup(func() {
 		world.GlobalTileManager, world.GlobalWorldManager, quests.GlobalQuestManager = prevTM, prevWM, prevQM
 	})
+
+	// The prop validator checks every prop's loot table against the shipped pools,
+	// so this fixture owns that catalog too - relying on whichever earlier test
+	// happened to load it makes the assertion order-dependent (-shuffle=on).
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("loots: %v", err)
+	}
 
 	tm := world.NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
@@ -44,7 +52,7 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 	// The same stand-in doubles for every map the shipped quest data targets -
 	// validation only needs the key to resolve.
 	wm.LoadedMaps = map[string]*world.World3D{
-		"forest": w, "dragon_cliffs": w, "pyramid_3": w, "water": w,
+		"forest": w, "dragon_cliffs": w, "pyramid_3": w, "water": w, "clock_tower_2": w,
 	}
 	wm.CurrentMapKey = "forest"
 	world.GlobalWorldManager = wm
@@ -56,14 +64,19 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 
 // The shipped quests.yaml tile changes must reference real tile keys.
 func TestQuestTileChanges_ShippedDataValid(t *testing.T) {
-	g, _ := loadRealQuestTileData(t)
-	if err := validateQuestWorldReferences(g.questManager); err != nil {
+	// This is shipped-content validation, so use the shipped placement census as
+	// well. A synthetic map with zero NPCs is now correctly a trustworthy empty
+	// world, not an implicit request to skip reachability checks.
+	t.Chdir("../..")
+	g, _, _ := bootOpenWorldGame(t, true)
+	if err := g.validateQuestWorldReferences(g.questManager); err != nil {
 		t.Fatalf("shipped quest tile data invalid: %v", err)
 	}
 }
 
 func TestQuestWorldReferencesRejectUnknownSummonQuest(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
 	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
 		"test_statue": {
@@ -77,14 +90,15 @@ func TestQuestWorldReferencesRejectUnknownSummonQuest(t *testing.T) {
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 
 	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{}})
-	err := validateQuestWorldReferences(qm)
+	err := g.validateQuestWorldReferences(qm)
 	if err == nil || !strings.Contains(err.Error(), `unknown quest "missing_quest"`) {
 		t.Fatalf("validator error = %v, want unknown summon quest", err)
 	}
 }
 
 func TestQuestWorldReferencesRejectInvalidDialogueQuestLinks(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 
@@ -124,7 +138,7 @@ func TestQuestWorldReferencesRejectInvalidDialogueQuestLinks(t *testing.T) {
 			qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
 				"known_quest": {Name: "Known"},
 			}})
-			err := validateQuestWorldReferences(qm)
+			err := g.validateQuestWorldReferences(qm)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("validator error = %v, want %q", err, tt.want)
 			}
@@ -133,7 +147,8 @@ func TestQuestWorldReferencesRejectInvalidDialogueQuestLinks(t *testing.T) {
 }
 
 func TestQuestWorldReferencesRejectUnknownDialogueQuestMessages(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
 	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
 		"test_giver": {
@@ -147,14 +162,15 @@ func TestQuestWorldReferencesRejectUnknownDialogueQuestMessages(t *testing.T) {
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 
 	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{}})
-	err := validateQuestWorldReferences(qm)
+	err := g.validateQuestWorldReferences(qm)
 	if err == nil || !strings.Contains(err.Error(), `quest_messages references unknown quest "missing_quest"`) {
 		t.Fatalf("validator error = %v, want unknown quest_messages link", err)
 	}
 }
 
 func TestQuestWorldReferencesRejectInvalidRewardPoolItem(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
 	character.NPCConfigInstance = nil
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
@@ -167,7 +183,7 @@ func TestQuestWorldReferencesRejectInvalidRewardPoolItem(t *testing.T) {
 			},
 		},
 	}})
-	err := validateQuestWorldReferences(qm)
+	err := g.validateQuestWorldReferences(qm)
 	if err == nil || !strings.Contains(err.Error(), `rewards.item_pool[0]`) ||
 		!strings.Contains(err.Error(), `missing_item`) {
 		t.Fatalf("validator error = %v, want invalid reward pool item", err)
@@ -355,7 +371,8 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 // giver hands out or takes in. A foreign id would load fine and then never
 // appear in game, so the validator must reject it at boot.
 func TestQuestWorldReferencesRejectOffChainStepLinks(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 
@@ -396,7 +413,7 @@ func TestQuestWorldReferencesRejectOffChainStepLinks(t *testing.T) {
 				"test_giver": {Dialogue: tc.dialogue},
 			}}
 			qm := quests.NewQuestManager(&quests.QuestConfig{Quests: definitions})
-			err := validateQuestWorldReferences(qm)
+			err := g.validateQuestWorldReferences(qm)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("validator error = %v, want %q", err, tc.wantErr)
 			}
@@ -415,7 +432,7 @@ func TestQuestWorldReferencesRejectOffChainStepLinks(t *testing.T) {
 	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: definitions})
 	// Assert on the chain rule alone: the validator also walks the GLOBAL monster
 	// catalog, whose own quest links are unrelated to this scene.
-	if err := validateQuestWorldReferences(qm); err != nil &&
+	if err := g.validateQuestWorldReferences(qm); err != nil &&
 		strings.Contains(err.Error(), "never gives or takes in") {
 		t.Fatalf("own-chain links rejected: %v", err)
 	}

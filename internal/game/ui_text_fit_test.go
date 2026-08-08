@@ -434,15 +434,15 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 		t.Fatal("mtrader0 missing from the catalog")
 	}
 	npc := &character.NPC{Name: data.Name, DialogueData: data.Dialogue}
+	g := newTestGame(cfg, newTestWorld(cfg))
 
-	if got := npcDialogKindFor(npc); got != dialogKindBuffService {
+	if got := g.npcDialogKindFor(npc); got != dialogKindBuffService {
 		t.Fatalf("Mira resolves to dialog kind %d, want dialogKindBuffService (%d)", got, dialogKindBuffService)
 	}
 	services := buffServiceChoices(npc)
 	if len(services) != 2 {
 		t.Fatalf("service rows = %d, want 2 (walk on water, water breathing)", len(services))
 	}
-	g := newTestGame(cfg, newTestWorld(cfg))
 	for _, service := range services {
 		if strings.Contains(strings.ToLower(service.Text), "gold") {
 			t.Errorf("service label %q duplicates its authored cost", service.Text)
@@ -451,7 +451,7 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 			t.Errorf("generic dialogue label %q does not derive cost %d", label, service.Cost)
 		}
 	}
-	if !buffServiceHasQuestTab(npc) {
+	if !g.npcDialogHasTalkTab(npc) {
 		t.Fatal("Mira still has quest dialogue, so the Talk tab must exist")
 	}
 

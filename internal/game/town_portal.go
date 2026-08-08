@@ -10,39 +10,46 @@ import (
 	"ugataima/internal/world"
 )
 
-// npcOffersTavernRest reports whether an NPC's dialogue tree contains a
-// tavern_rest choice - the capability that makes it "a tavern" for Town
-// Portal, with no name/key matching.
-func npcOffersTavernRest(npc *character.NPC) bool {
-	return npcDialogueHasAction(npc, "tavern_rest")
+// townPortalAnchor returns the NPC on this map region that is authored as a
+// recall anchor (town_portal), or nil. THE one question behind both halves of
+// the mechanic: whether the map is a destination, and where the party lands on
+// it. Authored, never inferred from renting rooms - the old rule read dialogue
+// shape, so a rest tucked inside an info branch quietly made a map recallable.
+func (g *MMGame) townPortalAnchor(mapKey string) *character.NPC {
+	// The map's OWN world, not the one the party stands in: the picker labels
+	// every destination from wherever it is cast, so asking g.world would drop
+	// the anchor's name from every row while the party is in a dungeon.
+	w := g.worldByKey(mapKey)
+	if w == nil {
+		return nil
+	}
+	for _, npc := range w.NPCs {
+		// The unified world holds every merged map's NPCs - only an anchor
+		// standing in THIS region speaks for it.
+		if npc != nil && npc.TownPortal && g.npcOnMapRegion(npc, mapKey) {
+			return npc
+		}
+	}
+	return nil
 }
 
-// registerVisitedTownPortalDestination records the current map as a Town
-// Portal destination if it hosts a tavern or is explicitly marked in
-// map_configs.yaml. Called on every map entry (including game start).
+// registerVisitedTownPortalDestination records the current map as a Town Portal
+// destination: either the map itself is authored as one (a town with no inn) or
+// an anchor NPC stands on it. Called on every map entry (including game start).
 func (g *MMGame) registerVisitedTownPortalDestination() {
 	if g.world == nil || world.GlobalWorldManager == nil {
 		return
 	}
 	mapKey := world.GlobalWorldManager.CurrentMapKey
-	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination {
-		if g.visitedTavernMaps == nil {
-			g.visitedTavernMaps = map[string]bool{}
-		}
-		g.visitedTavernMaps[mapKey] = true
+	mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]
+	flagged := mapConfig != nil && mapConfig.TownPortalDestination
+	if !flagged && g.townPortalAnchor(mapKey) == nil {
 		return
 	}
-	for _, npc := range g.world.NPCs {
-		// The unified world holds every merged map's NPCs - only a tavern
-		// standing in THIS region makes the region a destination.
-		if npcOffersTavernRest(npc) && g.npcOnMapRegion(npc, mapKey) {
-			if g.visitedTavernMaps == nil {
-				g.visitedTavernMaps = map[string]bool{}
-			}
-			g.visitedTavernMaps[mapKey] = true
-			return
-		}
+	if g.visitedTavernMaps == nil {
+		g.visitedTavernMaps = map[string]bool{}
 	}
+	g.visitedTavernMaps[mapKey] = true
 }
 
 // sortedTownPortalDestinations returns the Town Portal destination list in
@@ -58,9 +65,35 @@ func (g *MMGame) sortedTownPortalDestinations() []string {
 	return keys
 }
 
-// townPortalTeleport moves the party to the chosen map. Explicit map
-// destinations arrive at the '+' start tile; tavern maps arrive one tile in
-// front of their tavern.
+// townPortalArrivalPoint decides WHERE the party lands on a destination: at the
+// anchor NPC's door if that region has one, otherwise on the region's own '+'
+// start tile. A map flag only says the map is recallable - it never decides the
+// landing spot.
+func (g *MMGame) townPortalArrivalPoint(mapKey string) (float64, float64, bool) {
+	// The DESTINATION's world throughout - the answer must not depend on where
+	// the party happens to be standing when it is asked.
+	w := g.worldByKey(mapKey)
+	if npc := g.townPortalAnchor(mapKey); npc != nil {
+		if x, y, ok := nearestWalkableNeighbor(w, float64(g.config.GetTileSize()), npc.X, npc.Y); ok {
+			return x, y, true
+		}
+		return npc.X, npc.Y, true // anchor boxed in (content bug): its own tile
+	}
+	if world.GlobalWorldManager != nil {
+		// A merged region arrives at ITS '+', not the unified world's anchor.
+		if x, y, ok := world.GlobalWorldManager.OpenWorldRegionStart(mapKey); ok {
+			return x, y, true
+		}
+	}
+	if w != nil && w.StartX >= 0 && w.StartY >= 0 {
+		x, y := w.GetStartingPosition()
+		return x, y, true
+	}
+	return 0, 0, false
+}
+
+// townPortalTeleport moves the party to the chosen map and lands them at its
+// arrival point.
 func (g *MMGame) townPortalTeleport(mapKey string) {
 	g.townPortalPickerOpen = false
 	if g.gameLoop == nil || g.gameLoop.inputHandler == nil {
@@ -73,43 +106,25 @@ func (g *MMGame) townPortalTeleport(mapKey string) {
 	// Every arrival must complete through finishMapArrival - it re-registers the
 	// player's collision entity and autosaves; a raw camera write would leave
 	// collisions/projectiles resolving against the previous map's position.
-	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination {
-		// A merged region arrives at ITS '+', not the unified world's anchor.
-		if x, y, ok := world.GlobalWorldManager.OpenWorldRegionStart(mapKey); ok {
-			g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
-			g.AddCombatMessage("The portal closes behind the party.")
-			return
-		}
-		if g.world.StartX >= 0 && g.world.StartY >= 0 {
-			x, y := g.world.GetStartingPosition()
-			g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
-			g.AddCombatMessage("The portal closes behind the party.")
-			return
-		}
-	}
-	for _, npc := range g.world.NPCs {
-		// Arrive at the TARGET map's tavern, not the first tavern of the
-		// unified world's combined NPC list.
-		if !npcOffersTavernRest(npc) || !g.npcOnMapRegion(npc, mapKey) {
-			continue
-		}
-		x, y, ok := g.nearestWalkableNeighbor(npc.X, npc.Y)
-		if !ok {
-			x, y = npc.X, npc.Y // tavern boxed in (content bug): arrive on its tile
-		}
-		g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
-		g.AddCombatMessage("The portal closes behind the party.")
+	x, y, ok := g.townPortalArrivalPoint(mapKey)
+	if !ok {
+		// Nothing authored to arrive at: still finish, so collision + autosave
+		// stay coherent.
+		g.gameLoop.inputHandler.finishMapArrival(g.camera.X, g.camera.Y, g.camera.Angle)
 		return
 	}
-	// Destination list only holds tavern maps; if the tavern vanished (content
-	// edit), still finish the arrival so collision + autosave stay coherent.
-	g.gameLoop.inputHandler.finishMapArrival(g.camera.X, g.camera.Y, g.camera.Angle)
+	g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
+	g.AddCombatMessage("The portal closes behind the party.")
 }
 
 // nearestWalkableNeighbor finds the closest walkable tile center adjacent to
-// the given world position (4-neighborhood first, then diagonals).
-func (g *MMGame) nearestWalkableNeighbor(px, py float64) (float64, float64, bool) {
-	tileSize := float64(g.config.GetTileSize())
+// the given position ON THE GIVEN WORLD (4-neighborhood first, then diagonals).
+// The world is a parameter, not g.world: the caller asks about a destination
+// map, which is usually not the one the party is standing on.
+func nearestWalkableNeighbor(w *world.World3D, tileSize, px, py float64) (float64, float64, bool) {
+	if w == nil {
+		return 0, 0, false
+	}
 	tx, ty := TileIndex(px, tileSize), TileIndex(py, tileSize)
 	offsets := [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 	for _, o := range offsets {
@@ -118,7 +133,7 @@ func (g *MMGame) nearestWalkableNeighbor(px, py float64) (float64, float64, bool
 		// transient Fly flag (a just-switched-to map may still carry a stale
 		// flyActive from a previous visit, making walls read as passable and
 		// seating the party inside one).
-		if g.world != nil && !g.world.IsTileBlockingTerrainAt(nx, ny) {
+		if !w.IsTileBlockingTerrainAt(nx, ny) {
 			return (float64(nx) + 0.5) * tileSize, (float64(ny) + 0.5) * tileSize, true
 		}
 	}
@@ -141,7 +156,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	}
 	ui.drawMemberPickerPopup(screen, "Town Portal", "Choose a destination.", 360, rows,
 		func(idx int) string {
-			return fmt.Sprintf("%d) %s", idx+1, townPortalDestinationLabel(dests[idx]))
+			return fmt.Sprintf("%d) %s", idx+1, g.townPortalDestinationLabel(dests[idx]))
 		},
 		func(idx int) {
 			g.townPortalTeleport(dests[idx])
@@ -149,15 +164,19 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 		g.cancelTownPortalPicker, ui.topModalLayer() == modalLayerTownPortal)
 }
 
-// townPortalDestinationLabel renders a map key as a picker row label.
-func townPortalDestinationLabel(mapKey string) string {
+// townPortalDestinationLabel renders a map key as a picker row label: the map's
+// own name, and the ANCHOR's name when one speaks for it ("Elvish Forest - The
+// Wandering Wyvern"). The flag is generic, so the label must not assume the
+// anchor is an inn.
+func (g *MMGame) townPortalDestinationLabel(mapKey string) string {
+	name := humanizeKey(mapKey)
 	if world.GlobalWorldManager != nil {
 		if mc := world.GlobalWorldManager.MapConfigs[mapKey]; mc != nil && mc.Name != "" {
-			if mc.TownPortalDestination {
-				return mc.Name
-			}
-			return fmt.Sprintf("%s Tavern", mc.Name)
+			name = mc.Name
 		}
 	}
-	return fmt.Sprintf("%s Tavern", humanizeKey(mapKey))
+	if anchor := g.townPortalAnchor(mapKey); anchor != nil && anchor.Name != "" {
+		return fmt.Sprintf("%s - %s", name, anchor.Name)
+	}
+	return name
 }

@@ -68,8 +68,6 @@ func (gl *GameLoop) Update() error {
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
 
-	gl.game.frameCount++
-
 	// Handle exit request from main menu
 	if gl.game.exitRequested {
 		return ErrExit
@@ -83,6 +81,7 @@ func (gl *GameLoop) Update() error {
 	if gl.ui.modalRedrawBarrierActive() {
 		// The stale modal frame blocks input/world state, not the exposed party-card
 		// presentation. Keep hit flashes and status effects animating under it.
+		gl.game.advanceInterfaceClock()
 		gl.game.UpdateDamageBlinkTimers()
 		gl.inputHandler.keys.BeginFrame()
 		return nil
@@ -108,6 +107,12 @@ func (gl *GameLoop) Update() error {
 
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
+	// The interface clock runs on every in-game frame, paused or not: party-card
+	// feedback (hit flash, poison, ignite, stun stars, the badge aura) is
+	// presentation and must keep breathing under an open panel. The WORLD clock
+	// ticks further down, past the barriers, only on frames the world advances.
+	gl.game.advanceInterfaceClock()
+
 	// In turn-based, snap selectedChar to a living member if the current one
 	// died from delayed sources (in-flight projectiles, poison ticks). Has
 	// to run before HandleInput so Space/F on a corpse advances selection
@@ -146,8 +151,20 @@ func (gl *GameLoop) updateExploration() {
 
 	// Pause gameplay updates while menus/panels are open.
 	if gl.game.gameplayPausedByOverlay() {
+		// A full-screen overlay ends the current approach. The nudge is the only
+		// thing that says Space does anything here, and it fires once per approach:
+		// without this, opening the inventory in front of a merchant and closing it
+		// again left the player with no affordance until they walked away for two
+		// seconds. A DIALOG is deliberately not in this set - the party acted on the
+		// object, which settles its nudge (noteInteractPromptEngaged).
+		gl.game.forgetInteractPromptTarget()
 		return
 	}
+
+	// Past both barriers: this frame really advances the world, so the world clock
+	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
+	// is what makes a paused overlay a still picture.
+	gl.game.frameCount++
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
@@ -275,13 +292,27 @@ func (gl *GameLoop) updateExploration() {
 	gl.updatePerformanceMetrics()
 }
 
-// gameplayPausedByOverlay is the single pause contract for in-game overlays.
-// The fullscreen character hub pauses exactly like the ESC menu: input still
-// runs so it can close or dispatch a world action, but no world clock advances.
+// gameplayPausedByOverlay is the single pause contract for in-game overlays:
+// input still runs so a layer can close or dispatch a world action, but no world
+// clock advances. The answer comes from the modal ladder (modalLayerID.pausesWorld),
+// so a layer cannot be drawn without deciding whether it stops the world - the
+// hand-kept flag list this replaced was missing victory, high scores, game over,
+// the map and the three full-screen panels.
+//
+// The character hub is named separately: it draws under its own screen and is
+// deliberately not part of the modal ladder.
 func (g *MMGame) gameplayPausedByOverlay() bool {
-	return g.menuOpen || g.mainMenuOpen || g.combatLogOpen || g.statPopupOpen ||
-		g.revivalPickerOpen || g.healPickerOpen || g.townPortalPickerOpen ||
-		g.currentLevelUpChoice() != nil
+	if g == nil {
+		return false
+	}
+	if g.menuOpen {
+		return true
+	}
+	stackSplitOpen := false
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		stackSplitOpen = g.gameLoop.ui.stackSplitPicker.open
+	}
+	return topModalLayerFor(g, stackSplitOpen).pausesWorld()
 }
 
 // faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
@@ -653,6 +684,10 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Buff-cast overlay animations age out.
 	gl.game.tickBuffFx()
+
+	// Quest banners: pick up whatever the journal did this frame and age the one
+	// on screen.
+	gl.game.tickScreenBanners()
 
 	// Impact light flashes burn down and expire.
 	if len(gl.game.impactLights) > 0 {

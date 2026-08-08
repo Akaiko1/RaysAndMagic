@@ -544,7 +544,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_class: tall_prop
+    # A screen fills its doorway: exactly one tile, flush with the wall it sits
+    # in. tall_prop (1.25) stood a quarter-tile proud of the wall line.
+    size_class: full_tile
     sprite: "shoji_screen"
     render_type: "crossed_prop"
     letter: "H"

@@ -81,6 +81,7 @@ quests:
     type: "interact"
     target_monster: "valve"   # interaction tag matched by OnInteract
     target_count: 7
+    progress_text: "valves closed"
     is_starting_quest: false
     rewards:
       gold: 1500
@@ -92,6 +93,7 @@ quests:
     type: "interact"
     target_monster: "sword_rack"   # interaction tag matched by OnInteract
     target_count: 5
+    progress_text: "sword racks stripped"
     is_starting_quest: false
     rewards:
       gold: 2500
@@ -147,6 +149,48 @@ quests:
     # he materializes on the sanctum dais among his Isis handmaidens.
     on_complete_spawns:
       - { id: reaper_dais, map: pyramid_3, x: 15, y: 5, monster: ancient_god_of_death }
+
+  # ============ SERVICE GATES ============
+  # Three outland services stay shut until their errand is paid off
+  # (requires_quest on the NPC in npcs.yaml): the Starlight Archive's deep
+  # pages, Dunehold's Light and Dark pages, and Dunehold's mastery training.
+  # Each giver is the shopkeeper, so the task is the price of admission.
+
+  archive_missing_volumes:
+    name: "The Archive's Missing Volumes"
+    description: "Kill 3 Possessed Tomes in the Gearworks of the Clock Tower for Keeper Ilthaea and report back to her. The Archive lent the tower three books. They walk the floor down there on their own legs."
+    type: "kill"
+    target_monster: "possessed_tome"
+    target_count: 3
+    target_map: "clock_tower_2"   # the Gearworks; the Belfry libraries hold far more of them
+    is_starting_quest: false
+    rewards:
+      gold: 2000
+      experience: 2000
+
+  shrine_lamps:
+    name: "The Shrine's Lamps"
+    description: "Recover the 3 shrine lamps from the Pyramid for Yusra of the Oasis and return them to her. There is no oil in them and they are still warm."
+    type: "interact"
+    target_monster: "shrine_lamp"   # interaction tag matched by OnInteract
+    target_count: 3
+    progress_text: "shrine lamps lifted"
+    is_starting_quest: false
+    rewards:
+      gold: 2000
+      experience: 2200
+
+  pit_standing:
+    name: "Standing in the Pit"
+    description: "Win 3 duels in the Grand Arena for Blademaster Nadira and report back to her. She sharpens no mastery for a student who has not stood on the sand."
+    type: "interact"
+    target_monster: "arena_duel"   # bumped when a challenged champion falls (arenaDuelQuestTag)
+    target_count: 3
+    progress_text: "arena duels won"
+    is_starting_quest: false
+    rewards:
+      gold: 2500
+      experience: 2500
 
   # ============ ENDGAME TRIAD GATES ============
   # Starting quests so they are active on every run AND on loaded old saves

@@ -245,6 +245,14 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	}
 	claimModalChange()
 
+	// The screen banner sits ABOVE the dialog. Quest news and legendary drops are
+	// allowed through while a conversation is open (visibleScreenBanner), and the
+	// dialog fills the screen with a 50% dim - painting the banner with the rest of
+	// the HUD would leave the turn-in heading half-lit under it. It stays BELOW
+	// everything drawn after this point: those either pause the world (the banner
+	// is hidden then) or are full screens of their own.
+	ui.drawScreenBanner(screen)
+
 	if ui.game.combatLogOpen {
 		markModalRendered(modalLayerCombatLog)
 		ui.drawCombatLogOverlay(screen)

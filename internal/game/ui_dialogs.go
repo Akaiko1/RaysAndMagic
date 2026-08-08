@@ -30,8 +30,8 @@ type statMeta struct {
 // statHoldRepeatRate - frames between hold-fired increments after the delay.
 // At 120 TPS ~ 67 ms / ~15 stats per second when held.
 const (
-	statHoldInitialDelay = 40
-	statHoldRepeatRate   = 8
+	statHoldInitialDelay = 40 // ~0.33s at 120 TPS
+	statHoldRepeatRate   = 8  // ~0.07s at 120 TPS
 )
 
 // drawStatPointRow draws a single stat row with name, value, and + button
@@ -509,7 +509,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	drawRectBorder(screen, dialogX, dialogY, dialogWidth, dialogHeight, borderThickness, borderColor)
 
 	// Handle different NPC capabilities (data-driven)
-	switch npcDialogKindFor(ui.game.dialogNPC) {
+	switch ui.game.npcDialogKindFor(ui.game.dialogNPC) {
 	case dialogKindSpellTrader:
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindChoices:
@@ -703,19 +703,11 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 // tooltip the spellbook shows (cost, damage, duration, description, scaled for
 // the selected character), with the trader's asking price appended - a shop is
 // where the party decides whether a spell is worth buying, so it needs the whole
-// card, not a name and a number. Traders that stock a key with no spell
-// definition fall back to the NPC row they were authored with.
+// card, not a name and a number.
 func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMCharacter) []string {
+	// Every authored row resolves: backfillTraderSpells rejects a key spells.yaml
+	// does not define, so there is no "unknown spell" case to fall back to.
 	npcSpell := ui.game.dialogNPC.SpellData[spellKey]
-	if _, err := spells.GetSpellDefinitionByID(spells.SpellID(spellKey)); err != nil {
-		if npcSpell == nil {
-			return nil
-		}
-		return []string{
-			npcSpell.Name,
-			fmt.Sprintf("%s school   %d gold", config.TitleWords(npcSpell.School), npcSpell.Cost),
-		}
-	}
 	if char == nil && len(ui.game.party.Members) > 0 {
 		char = ui.game.party.Members[0]
 	}
@@ -736,7 +728,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	// Quest-giving traders carry a second tab: clickable folder tabs along the
 	// dialog's top edge (same sprites as the party menu); Tab key also switches
 	// (see handleSpellTraderInput).
-	if npcHasChoiceDialog(ui.game.dialogNPC) {
+	if ui.game.npcDialogHasTalkTab(ui.game.dialogNPC) {
 		ui.drawDialogFolderTabs(screen, dialogX, dialogY, []string{"Spells", "Quests"})
 		if ui.game.dialogTab == 1 {
 			ui.drawDialogueChoicesBody(screen, ui.game.dialogNPC, dialogX, dialogY+50, dialogWidth)
@@ -744,10 +736,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	greetingText := "Welcome! I can teach you powerful spells for gold."
-	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
-		greetingText = ui.game.dialogNPC.DialogueData.Greeting
-	}
+	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Welcome! I can teach you powerful spells for gold.")
 	ui.drawWrappedTextWithOverflow(screen, greetingText, layout.greeting, 2, dialogueLineHeight)
 
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
@@ -792,8 +781,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 
 		// Determine status for the selected character.
-		canLearn := selectedChar != nil && ui.characterCanLearnSpell(selectedChar, npcSpell)
-		alreadyKnows := selectedChar != nil && characterKnowsSpellByName(selectedChar, npcSpell.Name)
+		canLearn := selectedChar != nil && canCharacterLearnNPCSpell(selectedChar, spellKey)
+		alreadyKnows := selectedChar != nil && selectedChar.KnowsSpell(spells.SpellID(spellKey))
 
 		// Frame: selected = bright gold; can-learn = green; cannot = red; known = gray.
 		switch {
@@ -904,10 +893,7 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 	titleText := fmt.Sprintf("Mastery Trainer - %s", ui.game.dialogNPC.Name)
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
-	greeting := "Choose a character to view trainable masteries."
-	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
-		greeting = ui.game.dialogNPC.DialogueData.Greeting
-	}
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Choose a character to view trainable masteries.")
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 	drawDebugText(screen, clipDebugText(fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), layout.balance.w), layout.balance.x, layout.balance.y)
 
@@ -1026,11 +1012,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
-	if npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
-		greeting := "Bring your wares. I pay fair coin."
-		if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
-			greeting = ui.game.dialogNPC.DialogueData.Greeting
-		}
+	if ui.game.npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
+		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Bring your wares. I pay fair coin.")
 		greetingArea := layout.greeting
 		greetingArea.y += 2
 		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
@@ -1291,10 +1274,7 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, dialogHeight}, false)
 	drawDebugText(screen, clipDebugText(fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
-	greeting := "Cards, is it? Hand them here and I'll pin them to your collection."
-	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
-		greeting = ui.game.dialogNPC.DialogueData.Greeting
-	}
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Cards, is it? Hand them here and I'll pin them to your collection.")
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -1927,12 +1907,6 @@ func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages
 		ui.questPage++
 	}
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
-}
-
-// characterKnowsSpell checks if a character already knows a spell
-// characterCanLearnSpell checks if a character can learn a specific spell based on class and magic schools
-func (ui *UISystem) characterCanLearnSpell(char *character.MMCharacter, spellData *character.NPCSpell) bool {
-	return canCharacterLearnNPCSpell(char, spellData)
 }
 
 // claimQuestReward claims the reward for a completed quest (UI journal entry).

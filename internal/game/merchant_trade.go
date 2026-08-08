@@ -186,10 +186,12 @@ func (g *MMGame) sellInventoryUnits(idx, n int) bool {
 // second working surface of the stash drag state machine. Buying by drag works
 // at every shop; only the SELL half additionally needs a coin till.
 func (g *MMGame) merchantDragOpen() bool {
-	if !g.dialogActive || g.dialogNPC == nil || !npcHasMerchant(g.dialogNPC) {
+	// No second "is this a shop" test: both kinds below are only produced for an
+	// NPC that has stock, and the kind dispatch is where that is decided.
+	if !g.dialogActive || g.dialogNPC == nil {
 		return false
 	}
-	switch npcDialogKindFor(g.dialogNPC) {
+	switch g.npcDialogKindFor(g.dialogNPC) {
 	case dialogKindMerchant, dialogKindArenaGladiator:
 		return true
 	default:

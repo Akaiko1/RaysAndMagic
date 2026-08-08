@@ -2,11 +2,8 @@ package game
 
 import (
 	"fmt"
-	"image"
 	"image/color"
-	"math"
 	"sort"
-	"sync"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -456,58 +453,19 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 
 }
 
-const heroCardSelectionGlowSpread = 10
-
-var (
-	heroCardSelectionGlowMu    sync.Mutex
-	heroCardSelectionGlowCache = map[[2]int]*ebiten.Image{}
+const (
+	heroCardSelectionGlowSpread = 10
+	heroCardSelectionGlowPeak   = 92
 )
 
-func heroCardSelectionGlow(w, h int) *ebiten.Image {
-	key := [2]int{w, h}
-	heroCardSelectionGlowMu.Lock()
-	defer heroCardSelectionGlowMu.Unlock()
-	if cached := heroCardSelectionGlowCache[key]; cached != nil {
-		return cached
-	}
+// heroCardSelectionGlowTint is the cool highlight of a picked hero card.
+var heroCardSelectionGlowTint = color.RGBA{145, 190, 255, 255}
 
-	spread := heroCardSelectionGlowSpread
-	img := image.NewNRGBA(image.Rect(0, 0, w+2*spread, h+2*spread))
-	for y := 0; y < img.Bounds().Dy(); y++ {
-		dy := 0
-		if y < spread {
-			dy = spread - y
-		} else if y >= spread+h {
-			dy = y - (spread + h - 1)
-		}
-		for x := 0; x < img.Bounds().Dx(); x++ {
-			dx := 0
-			if x < spread {
-				dx = spread - x
-			} else if x >= spread+w {
-				dx = x - (spread + w - 1)
-			}
-			distance := math.Hypot(float64(dx), float64(dy))
-			if distance > float64(spread) {
-				continue
-			}
-			strength := 1 - distance/float64(spread+1)
-			alpha := uint8(92 * strength * strength)
-			img.SetNRGBA(x, y, color.NRGBA{R: 145, G: 190, B: 255, A: alpha})
-		}
-	}
-	glow := ebiten.NewImageFromImage(img)
-	heroCardSelectionGlowCache[key] = glow
-	return glow
-}
-
+// drawHeroCardSelectionGlow rings a picked card with the shared soft halo
+// (ui_helpers.go) - the same generator the party HUD's progression badges use.
 func drawHeroCardSelectionGlow(screen *ebiten.Image, r rect) {
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(
-		float64(r.x-heroCardSelectionGlowSpread),
-		float64(r.y-heroCardSelectionGlowSpread),
-	)
-	screen.DrawImage(heroCardSelectionGlow(r.w, r.h), op)
+	drawSoftGlowAround(screen, r.x, r.y, r.w, r.h,
+		heroCardSelectionGlowSpread, heroCardSelectionGlowTint, heroCardSelectionGlowPeak, 1)
 }
 
 // drawHeroDetailPanel renders the full stat/skill/equipment sheet for one hero.

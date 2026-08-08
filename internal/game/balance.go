@@ -199,8 +199,8 @@ const (
 	// produce a silly value. It is NOT the design range: weapons land ~0.15-1.8s
 	// and spells are authored 0.8-5s (x1.35 for slow casters => up to ~6.75s), so
 	// the cap is deliberately generous. 12 ~ 0.1s, 900 = 7.5s at 120 TPS.
-	RTCooldownMinFrames = 12
-	RTCooldownMaxFrames = 900
+	RTCooldownMinFrames = 12  // ~0.10s at 120 TPS
+	RTCooldownMaxFrames = 900 // ~7.50s at 120 TPS
 
 	// Non-buff spell cooldowns are required in spells.yaml as
 	// `cooldown_seconds`. The authored seconds are the cooldown at the reference
@@ -237,12 +237,12 @@ const BoundAllySeekTiles = 10.0
 // MonsterHitFlashFrames is how long a monster flashes red when hit. The shared
 // config `damage_blink_frames` (3) is far too brief to see; this dedicated value
 // (~0.1s at 120 TPS) makes the reaction read clearly.
-const MonsterHitFlashFrames = 12
+const MonsterHitFlashFrames = 12 // ~0.10s at 120 TPS
 
 // MonsterAttackAnimFrames is the legacy strike window for monsters without a
 // dedicated attack sheet. Keep it stable: their walk-sheet lunge already has
 // the intended timing.
-const MonsterAttackAnimFrames = 18
+const MonsterAttackAnimFrames = 18 // ~0.15s at 120 TPS
 
 // AuthoredMonsterAttackFPS is the playback rate for a dedicated attack sheet.
 // Four frames at 10 FPS make a readable 0.4-second one-shot instead of squeezing

@@ -619,7 +619,7 @@ func TestOrdinaryDialogStillReceivesClicks(t *testing.T) {
 	}
 	g.dialogActive = true
 	g.dialogNPC = npc
-	if got := npcDialogKindFor(npc); got != dialogKindChoices {
+	if got := g.npcDialogKindFor(npc); got != dialogKindChoices {
 		t.Fatalf("fixture is a %v, want an ordinary choice dialog", got)
 	}
 

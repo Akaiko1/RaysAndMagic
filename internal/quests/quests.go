@@ -81,10 +81,15 @@ type QuestDefinition struct {
 	TargetMonster string    `yaml:"target_monster"`
 	// TargetMonsters extends TargetMonster to several normalized names when one
 	// quest hunts a mixed roster (the cliff nests hold green AND gold dragons).
-	TargetMonsters  []string `yaml:"target_monsters,omitempty"`
-	TargetCount     int      `yaml:"target_count"`
-	Exterminate     bool     `yaml:"exterminate,omitempty"`
-	IsStartingQuest bool     `yaml:"is_starting_quest"`
+	TargetMonsters []string `yaml:"target_monsters,omitempty"`
+	TargetCount    int      `yaml:"target_count"`
+	// ProgressText is the tail of the progress line after "N/M" ("valves
+	// closed", "arena duels won"). REQUIRED for interact quests: the derived
+	// wording is kill-quest phrasing, and "interact" spans shutting valves,
+	// lifting lamps and winning bouts - there is no verb that fits them all.
+	ProgressText    string `yaml:"progress_text,omitempty"`
+	Exterminate     bool   `yaml:"exterminate,omitempty"`
+	IsStartingQuest bool   `yaml:"is_starting_quest"`
 	// Repeatable errands are cleared again at every nightfall once claimed, so
 	// their giver offers the same task the next night (see
 	// refreshRepeatableQuests). Progress restarts from zero.
@@ -204,9 +209,13 @@ func LoadQuestConfig(filepath string) (*QuestConfig, error) {
 	if err := validateQuestConfig(&config); err != nil {
 		return nil, err
 	}
-
 	return &config, nil
 }
+
+// ArenaDuelTag is the interact tag a won champion duel credits - the one tag
+// produced by CODE rather than by authored content (a prop declares its own).
+// It lives here so the quest catalog can be validated against it at load.
+const ArenaDuelTag = "arena_duel"
 
 func validateQuestConfig(config *QuestConfig) error {
 	if config == nil || config.Quests == nil {
@@ -252,6 +261,26 @@ func validateQuestConfig(config *QuestConfig) error {
 		}
 		if def.EncounterOnly && def.Type != QuestTypeKill {
 			return fmt.Errorf("quest %q: encounter_only requires type kill", id)
+		}
+		def.ProgressText = strings.TrimSpace(def.ProgressText)
+		if def.Type == QuestTypeInteract {
+			// No default: an interact quest that inherits a verb reads as
+			// nonsense ("3/3 arena duels closed" shipped for a week).
+			if def.ProgressText == "" {
+				return fmt.Errorf("quest %q: an interact quest must author progress_text (e.g. \"valves closed\")", id)
+			}
+			// The props credit through the SINGLE tag (handleQuestPropInteract
+			// passes TargetMonster); a target_monsters list would consume the
+			// prop and advance nothing.
+			if def.TargetMonster == "" {
+				return fmt.Errorf("quest %q: an interact quest must set target_monster (target_monsters alone credits nothing)", id)
+			}
+			// The interact hooks credit without a map (a prop is a physical object
+			// on one map, a duel is fought where the pit is), so target_map would
+			// be read by nothing.
+			if def.TargetMap != "" {
+				return fmt.Errorf("quest %q: target_map does not apply to an interact quest", id)
+			}
 		}
 		for i, change := range def.OnCompleteTiles {
 			change.Map = strings.TrimSpace(change.Map)
@@ -416,26 +445,47 @@ func (qm *QuestManager) OnMonsterKilled(monsterType, mapKey string) []*Quest {
 // OnMonsterKilledFromSource updates kill quests and supplies the authored
 // encounter quest ID, if any. EncounterOnly quests ignore all other kills.
 func (qm *QuestManager) OnMonsterKilledFromSource(monsterType, mapKey, sourceQuestID string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey, sourceQuestID)
+	_, completed := qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey, sourceQuestID, "")
+	return completed
 }
 
 // OnInteract advances active interact-quests whose tag (TargetMonster) matches -
 // e.g. closing a valve calls OnInteract("valve"). Mirrors OnMonsterKilled: bumps
-// CurrentCount and completes at TargetCount. Returns the quests that completed.
-func (qm *QuestManager) OnInteract(tag string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeInteract, tag, "", "")
+// CurrentCount and completes at TargetCount.
+//
+// It reports BOTH lists - what moved and what finished - because the matching
+// rules (type and tag; interact quests carry neither encounter_only nor
+// target_map) live here. A caller that speaks about progress must be told what
+// advanced, never re-derive it: the two answers drift the moment a rule is added.
+func (qm *QuestManager) OnInteract(tag string) (advanced, completed []*Quest) {
+	return qm.advanceCountedQuests(QuestTypeInteract, tag, "", "", "")
+}
+
+// AdvanceInteractQuest credits ONE named interact quest with ONE tag, for a prop
+// that knows both which errand it belongs to and what it is. Separate from
+// OnInteract because a tag bump is a broadcast: a prop that turned out not to
+// credit its own quest would still have moved every other quest sharing the tag,
+// and since the prop is not consumed in that case the player could pump those
+// counters by re-opening it. Same rules, same body - only the audience narrows.
+func (qm *QuestManager) AdvanceInteractQuest(questID, tag string) (advanced bool, completed []*Quest) {
+	moved, completed := qm.advanceCountedQuests(QuestTypeInteract, tag, "", "", questID)
+	return len(moved) > 0, completed
 }
 
 // advanceCountedQuests bumps CurrentCount on every active quest of the given type
 // whose TargetMonster tag matches, completing it at TargetCount. Shared by the
 // kill and interact progress hooks (OnMonsterKilled / OnInteract).
-func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourceQuestID string) []*Quest {
+// onlyQuestID, when set, narrows the bump to that one quest: every rule below
+// still applies, the audience is just a single errand (a prop crediting its own).
+func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourceQuestID, onlyQuestID string) (advanced, completedQuests []*Quest) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
-	var completedQuests []*Quest
 	for _, quest := range qm.activeQuests {
 		if quest.Status != QuestStatusActive || quest.Definition.Type != qType {
+			continue
+		}
+		if onlyQuestID != "" && quest.ID != onlyQuestID {
 			continue
 		}
 		if !quest.Definition.MatchesTarget(tag) {
@@ -448,6 +498,7 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourc
 			continue
 		}
 		quest.CurrentCount++
+		advanced = append(advanced, quest)
 		// Exterminate quests never complete on the kill quota - completion is
 		// owned by the living-count check (completeKillQuestIfCleared at 0 alive),
 		// so killing N of M never finishes early when M != the static target.
@@ -456,7 +507,7 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourc
 			completedQuests = append(completedQuests, quest)
 		}
 	}
-	return completedQuests
+	return advanced, completedQuests
 }
 
 // VictoryCompleted reports whether the data-authored victory quest is complete.
@@ -533,6 +584,23 @@ func (qm *QuestManager) GetAllQuests() []*Quest {
 	return quests
 }
 
+// EachQuest visits every quest the party holds, without building a slice - for
+// the per-frame readers (the banner watcher runs 60x a second and would
+// otherwise allocate and copy the whole journal on every frame that changed
+// nothing). Visit order is map order: a caller that needs determinism must sort
+// what it COLLECTS, not rely on this. The callback runs under the read lock, so
+// it must not call back into the manager.
+func (qm *QuestManager) EachQuest(visit func(*Quest)) {
+	if visit == nil {
+		return
+	}
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+	for _, quest := range qm.activeQuests {
+		visit(quest)
+	}
+}
+
 // Definitions returns every quest definition in the loaded config, keyed by
 // quest ID - including quests not yet activated (for load-time validation).
 func (qm *QuestManager) Definitions() map[string]*QuestDefinition {
@@ -546,10 +614,14 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 	return qm.activeQuests[questID]
 }
 
-// GetProgressString returns a formatted progress string for a kill quest.
-// TargetMonster is a content KEY ("elder_dragon"); player-facing text must
-// never show underscores.
+// GetProgressString returns the formatted progress line. Authored wording wins
+// (progress_text); otherwise it is derived from the target, whose TargetMonster
+// is a content KEY ("elder_dragon") - player-facing text must never show
+// underscores.
 func (q *Quest) GetProgressString() string {
+	if text := q.Definition.ProgressText; text != "" {
+		return fmt.Sprintf("%d/%d %s", q.CurrentCount, q.Target(), text)
+	}
 	if len(q.Definition.TargetMonsters) > 0 {
 		return fmt.Sprintf("%d/%d targets killed", q.CurrentCount, q.Target())
 	}
@@ -557,10 +629,14 @@ func (q *Quest) GetProgressString() string {
 	switch q.Definition.Type {
 	case QuestTypeKill:
 		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Target(), target)
-	case QuestTypeInteract:
-		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Target(), target)
 	}
-	return ""
+	// No authored line: LoadQuestConfig requires progress_text, so this is a
+	// definition built in code (a fixture, a runtime errand). A bare count still
+	// reads - an empty string would print "You heave the valve shut. ()".
+	if target != "" {
+		return fmt.Sprintf("%d/%d %s", q.CurrentCount, q.Target(), target)
+	}
+	return fmt.Sprintf("%d/%d", q.CurrentCount, q.Target())
 }
 
 // GetStatusString returns a human-readable status

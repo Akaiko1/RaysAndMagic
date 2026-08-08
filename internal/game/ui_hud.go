@@ -38,7 +38,7 @@ const (
 	panelPortraitH          = 56
 	partyFocusMarkerOffsetY = -11
 	partyProgressBadgeSize  = 24
-	partyProgressBadgeGap   = 2
+	partyProgressBadgeGap   = 4 // the two haloes blend softly; no hard frames to keep apart
 	partyProgressBadgeLift  = 12
 	partyAutoButtonMaxW     = 62
 	partyAutoButtonH        = 16
@@ -603,7 +603,8 @@ func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawWizardEyeRadar(screen)
 	ui.drawCombatMessages(screen)
 	ui.drawTurnBasedStatus(screen)
-	ui.drawInteractionNotification(screen)
+	// The screen banner is NOT drawn here - it belongs above the dialog dim; see
+	// its call in UISystem.Draw.
 }
 
 // drawDebugInfo draws debug and information elements
@@ -789,7 +790,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 		if hasStatBadge {
 			statHover := isMouseHoveringBox(mouseX, mouseY, badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom())
-			ui.drawStatPointPlusButton(screen, badges.stat.x, badges.stat.y, badges.stat.w, badges.stat.h, statHover)
+			ui.drawPartyProgressionBadge(screen, badges.stat, statBadgeStyle, statHover)
 			if statHover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
 			}
@@ -805,7 +806,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 		if hasSkillBadge {
 			skillHover := isMouseHoveringBox(mouseX, mouseY, badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom())
-			ui.drawSkillPointIndicator(screen, badges.skill.x, badges.skill.y, badges.skill.w, badges.skill.h, skillHover)
+			ui.drawPartyProgressionBadge(screen, badges.skill, skillBadgeStyle, skillHover)
 			if skillHover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
 			}
@@ -883,7 +884,7 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 		return
 	}
 	intensity := float64(t) / float64(PartyFlameFrames) // 1 -> 0 overall fade
-	f := int(ui.game.frameCount)
+	f := int(ui.cardAnimClock())
 	const n = 14
 	for k := 0; k < n; k++ {
 		phase := float64((f*2+k*53)%60) / 60.0 // 0..1 rising cycle, staggered per tongue
@@ -968,7 +969,7 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 // drawCardPoisonBubbles draws green bubbles drifting up a poisoned member's card
 // (replaces the old flat green tint). Runs continuously while poisoned.
 func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h int) {
-	f := int(ui.game.frameCount)
+	f := int(ui.cardAnimClock())
 	const n = 6
 	const period = 72
 	for k := 0; k < n; k++ {
@@ -998,7 +999,7 @@ func hashNoise(seed float64) float64 {
 // embers that float up and wink out. Built to read as real fire, not a recolour
 // of the poison bubbles. Runs continuously while ConditionBurning.
 func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
-	f := float64(ui.game.frameCount)
+	f := float64(ui.cardAnimClock())
 	fx, fb, fw, fh := float64(x), float64(startY+h), float64(w), float64(h)
 	salt := float64(idx) * 13.7
 
@@ -1051,7 +1052,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 // member's portrait head - the classic "seeing stars" daze. Each star orbits,
 // pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
-	f := float64(ui.game.frameCount)
+	f := float64(ui.cardAnimClock())
 	cx := float64(x) + float64(w)*0.5
 	cy := float64(startY) + float64(h)*0.30 // ring around the upper portrait (head)
 	rx, ry := float64(w)*0.42, float64(h)*0.20
@@ -1094,14 +1095,72 @@ func drawPartyProgressionBadgeHover(screen *ebiten.Image, x, y, w, h int, base c
 	vector.StrokeRect(screen, float32(x)-1, float32(y)-1, float32(w+1), float32(h+1), 1, metalShade(base, 0), false)
 }
 
-// drawStatPointPlusButton draws a portrait-attached progression badge. The
-// available-point count lives in its tooltip so the icon remains one clean
-// silhouette instead of looking like two adjacent badges.
-func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	drawPartyProgressionBadgeShadow(screen, x, y, w, h)
-	ui.drawInterfaceIcon(screen, "icon_stat_up", x, y, w, h)
+// progressionBadgeStyle is the whole look of a portrait badge: the authored icon
+// plus the ONE tint its pulsing aura and its hover ring share, so the glow and
+// the hover cue can never disagree about what "stat" or "skill" looks like.
+type progressionBadgeStyle struct {
+	icon string
+	tint color.RGBA
+}
+
+var (
+	statBadgeStyle  = progressionBadgeStyle{icon: "icon_stat_up", tint: rarityEmerald}
+	skillBadgeStyle = progressionBadgeStyle{icon: "icon_level_choice", tint: rarityGold}
+)
+
+// The aura breathes on a slow ~3.3s cycle and never dims to nothing: an unspent point
+// is a standing invitation, so the badge stays legible at the trough.
+const (
+	badgeAuraPeriodSeconds = 3.3 // a slow breath, not a blink (framesForSeconds: tps-independent)
+	// Reach and strength of the halo. Same soft-falloff generator as a selected
+	// hero card, tuned brighter (that one peaks at 92) because a badge is small
+	// and sits over busy portrait art.
+	badgeAuraSpreadPx = 9
+	badgeAuraPeak     = 145
+	badgeAuraFloor    = 0.55 // pulse trough - never dims out of sight
+)
+
+// cardAnimClock is the clock EVERY party-card animation reads: the interface
+// clock, which keeps running while an overlay pauses the world. A hit flash,
+// poison bubbles, ignite, stun stars and the progression aura are presentation
+// on a panel the player is looking at - they must not freeze under an open hub,
+// and equally must not be driven by the world clock, which stops there.
+func (ui *UISystem) cardAnimClock() int64 {
+	if ui == nil || ui.game == nil {
+		return 0
+	}
+	return ui.game.uiFrameCount
+}
+
+// badgeAuraPulse is the shared 0..1 breath. Both badges read the SAME clock
+// (g.uiFrameCount, which keeps advancing while a menu pauses the world), so two
+// badges on one portrait pulse together instead of beating against each other.
+func (g *MMGame) badgeAuraPulse(frame int64) float64 {
+	period := int64(g.framesForSeconds(badgeAuraPeriodSeconds))
+	if period <= 0 {
+		return 1
+	}
+	phase := float64(frame%period) / float64(period)
+	return badgeAuraFloor + (1-badgeAuraFloor)*(0.5-0.5*math.Cos(2*math.Pi*phase))
+}
+
+// drawPartyProgressionBadgeAura wraps the badge in the SAME soft halo a selected
+// hero card gets (drawSoftGlowAround), in the badge's own tint and brighter,
+// breathing with the pulse. Deliberately not a border: a hard frame around a
+// 24px icon reads as a flashing box, not as a glow.
+func drawPartyProgressionBadgeAura(screen *ebiten.Image, x, y, w, h int, base color.RGBA, pulse float64) {
+	drawSoftGlowAround(screen, x, y, w, h, badgeAuraSpreadPx, base, badgeAuraPeak, pulse)
+}
+
+// drawPartyProgressionBadge draws a portrait-attached progression badge: aura,
+// art, then the hover ring. The available-point count lives in its tooltip so
+// the icon remains one clean silhouette instead of looking like two badges.
+func (ui *UISystem) drawPartyProgressionBadge(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, isHover bool) {
+	drawPartyProgressionBadgeShadow(screen, r.x, r.y, r.w, r.h)
+	drawPartyProgressionBadgeAura(screen, r.x, r.y, r.w, r.h, style.tint, ui.game.badgeAuraPulse(ui.cardAnimClock()))
+	ui.drawInterfaceIcon(screen, style.icon, r.x, r.y, r.w, r.h)
 	if isHover {
-		drawPartyProgressionBadgeHover(screen, x, y, w, h, rarityEmerald)
+		drawPartyProgressionBadgeHover(screen, r.x, r.y, r.w, r.h, style.tint)
 	}
 }
 
@@ -1123,15 +1182,6 @@ func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isH
 	vector.StrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
 	vector.FillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
 	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
-}
-
-// drawSkillPointIndicator draws the ^ button for pending skill/spell choices.
-func (ui *UISystem) drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	drawPartyProgressionBadgeShadow(screen, x, y, w, h)
-	ui.drawInterfaceIcon(screen, "icon_level_choice", x, y, w, h)
-	if isHover {
-		drawPartyProgressionBadgeHover(screen, x, y, w, h, rarityGold)
-	}
 }
 
 // drawSpellStatusBar draws active party effects on a compact rail directly
@@ -1838,85 +1888,42 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	}
 }
 
-// drawInteractionNotification draws a semi-transparent notification when near an interactable NPC
-func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
-	// Skip if dialog is already active or menu is open
-	if ui.game.dialogActive || ui.game.menuOpen {
-		return
+// interactionPromptText is the "Press SPACE to ..." wording for an object in
+// interact focus - the ONE builder, shared by the approach banner and any other
+// consumer. It reads the dialog KIND, so a service-gated trader is announced as
+// someone to talk to, not as a shop.
+func (g *MMGame) interactionPromptText(npc *character.NPC) string {
+	if npc == nil {
+		return ""
 	}
-
-	// The Space target: the NPC in interact focus (centred + adjacent tile).
-	nearestNPC := ui.game.focusedNPC
-	if nearestNPC == nil {
-		return
-	}
-
-	// Calculate screen dimensions for positioning
-	screenWidth := ui.game.config.GetScreenWidth()
-
-	// Create interaction message based on NPC capabilities
-	var message string
-	if verb := nearestNPC.PromptVerb; verb != "" {
+	if verb := npc.PromptVerb; verb != "" {
 		// Authored override (npcs.yaml prompt_verb): "enter" for the tavern etc.
-		message = fmt.Sprintf("Press SPACE to %s %s", verb, nearestNPC.Name)
-	} else if ui.game.npcIsWalkUpProp(nearestNPC) {
+		return fmt.Sprintf("Press SPACE to %s %s", verb, npc.Name)
+	}
+	if g.npcIsWalkUpProp(npc) {
 		// Chests and lecterns are immediate-use props, not conversations - never
 		// fall into the "talk to" ladder (a standee-sprited lectern would).
-		message = fmt.Sprintf("Press SPACE to interact with %s", nearestNPC.Name)
-	} else {
-		switch npcDialogKindFor(nearestNPC) {
-		case dialogKindSpellTrader:
-			message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
-		case dialogKindChoices:
-			// A person with a choice dialog is still a conversation; only
-			// props/landmarks (wrecks, bones, valves) are "investigated".
-			if npcIsPerson(nearestNPC) {
-				message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
-			} else {
-				message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
-			}
-		case dialogKindSkillTrainer:
-			message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
-		case dialogKindMerchant:
-			message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
-		case dialogKindCardCollector:
-			message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
-		default:
-			message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
-		}
+		return fmt.Sprintf("Press SPACE to interact with %s", npc.Name)
 	}
-
-	// Calculate text dimensions for background sizing
-	textWidth := debugTextWidth(message)
-	textHeight := debugTextCharHeight
-	padding := 15
-
-	// Position at top center of screen
-	notificationWidth := textWidth + (padding * 2)
-	notificationHeight := textHeight + (padding * 2)
-	notificationX := (screenWidth - notificationWidth) / 2
-	notificationY := 10
-
-	// Draw semi-transparent background
-	vector.FillRect(screen, float32(notificationX), float32(notificationY), float32(notificationWidth), float32(notificationHeight), color.RGBA{0, 0, 0, 180}, false)
-
-	// Draw border for better visibility
-	borderColor := color.RGBA{255, 255, 255, 200} // Semi-transparent white
-	vector.StrokeRect(
-		screen,
-		float32(notificationX-1),
-		float32(notificationY-1),
-		float32(notificationWidth+2),
-		float32(notificationHeight+2),
-		2,
-		borderColor,
-		false,
-	)
-
-	// Draw the interaction message
-	textX := notificationX + padding
-	textY := notificationY + padding
-	drawDebugText(screen, message, textX, textY)
+	switch g.npcDialogKindFor(npc) {
+	case dialogKindSpellTrader:
+		return fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", npc.Name)
+	case dialogKindChoices:
+		// A person with a choice dialog is still a conversation; only
+		// props/landmarks (wrecks, bones, valves) are "investigated".
+		if npcIsPerson(npc) {
+			return fmt.Sprintf("Press SPACE to talk to %s", npc.Name)
+		}
+		return fmt.Sprintf("Press SPACE to investigate %s", npc.Name)
+	case dialogKindSkillTrainer:
+		return fmt.Sprintf("Press SPACE to train with %s", npc.Name)
+	case dialogKindMerchant:
+		return fmt.Sprintf("Press SPACE to trade with %s", npc.Name)
+	case dialogKindCardCollector:
+		return fmt.Sprintf("Press SPACE to manage cards with %s", npc.Name)
+	default:
+		return fmt.Sprintf("Press SPACE to talk to %s", npc.Name)
+	}
 }
 
 // drawInstructions draws the control instructions

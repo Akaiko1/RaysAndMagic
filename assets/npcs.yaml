@@ -310,6 +310,7 @@ npcs:
     prompt_verb: enter
     transparent: true
     size_class: medium_prop
+    town_portal: true   # recall anchor: makes its map a Town Portal destination
     dialogue:
       greeting: "The keeper nods. 'Beds upstairs, stew on the fire, and your benched companions at the corner table. What'll it be?'"
       choice_prompt: "The keeper waits."
@@ -811,7 +812,12 @@ npcs:
       choice_prompt: "Close the valve?"
       choices:
         - text: "Heave the wheel shut"
-          action: "close_valve"
+          action: "prop"
+          prop:
+            tag: "valve"
+            not_yet: "The valve won't budge - no reason to shut it yet."
+            took: "You heave the valve shut."
+            completed: "The flood drains from the lair."
           quest_id: "culverts_valves"
         - text: "Leave it"
           action: "leave"
@@ -955,8 +961,15 @@ npcs:
       choice_prompt: "Take the castle's arms?"
       choices:
         - text: "Take from the rack"
-          action: "take_swords"
+          action: "prop"
           quest_id: "castle_armory"
+          prop:
+            tag: "sword_rack"
+            not_yet: "No reason to disturb the armoury yet."
+            took: "Sword rack cleared."
+            completed: "A cold wind stirs the keep - the Warlord wakes."
+            loot_table: "castle_armory"
+            loot_line: "You take from the rack: %s."
         - text: "Leave it"
           action: "leave"
   sword_rack_2:
@@ -991,6 +1004,54 @@ npcs:
     transparent: true
     size_class: tiny_prop
     dialogue: *rack_dialogue
+
+  # The oasis shrine's lamps, one per pyramid floor: taking all three settles
+  # Yusra's requires_quest and opens her Light/Dark shelf. Same one-shot prop
+  # pattern as the valves and the katana racks (action: prop -> the prop's own
+  # tag -> the quest's interact tag), so a lamp taken before the errand is
+  # accepted is refused instead of being wasted.
+  shrine_lamp_1:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    # A lamp the party lifted is IN THE PACK: it stops rendering and stops being
+    # interactable, and the Visited flag carries that through a save.
+    hide_when_visited: true
+    dialogue: &shrine_lamp_dialogue
+      greeting: "A brass oasis lamp stands in a wall bracket. It is dry, and warm to the hand."
+      choice_prompt: "Take the lamp?"
+      choices:
+        - text: "Lift it out of the bracket"
+          action: "prop"
+          quest_id: "shrine_lamps"
+          prop:
+            tag: "shrine_lamp"
+            not_yet: "No reason to take the lamp yet."
+            took: "You lift the shrine lamp out of its bracket."
+            completed: "The shrine's lamps are out of the stone."
+        - text: "Leave it"
+          action: "leave"
+  shrine_lamp_2:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    hide_when_visited: true
+    dialogue: *shrine_lamp_dialogue
+  shrine_lamp_3:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    hide_when_visited: true
+    dialogue: *shrine_lamp_dialogue
 
   # Invisible gate NPCs for the forest<->highlands portal. sprite "" renders
   # nothing at all; ground_tile paints the portal-stream tile under the gate so
@@ -1231,11 +1292,37 @@ npcs:
     sprite: "elf_starlight_librarian"
     render_category: npc
     size_class: person
+    # The shelf is shut until the Archive's loan is settled: no spell rows at all
+    # until archive_missing_volumes is turned in (service gate, npcServiceGateOpen).
+    requires_quest: "archive_missing_volumes"
     dialogue:
       greeting: "Keeper Ilthaea. Every page Seabright's scriptorium can copy, it copies cheaper. What is on this shelf is what Oletta cannot write at all, and the Archive prices it accordingly. Choose a character and a page."
       insufficient_gold: "That page costs %d gold. The Archive does not lend."
       already_known: "%s has that page already. I will not sell it twice."
       success: "Copied out for %s. Read it before you need it, not after."
+      quest_greeting: "Keeper Ilthaea. Nothing on this shelf is for sale to you yet. The Archive lent three books to the clockmaker's tower and got none of them back, and I will not copy a fourth until the loan is settled."
+      active_message: "Three books, in the Gearworks of the Clock Tower. They walk on their own legs and they will come at you. Put them down and come back."
+      completed_message: "Three books down. The Archive is square with the tower, and the shelf is yours to buy from."
+      visited_message: "The tower keeps no books of mine now. Ask for any page on the shelf."
+      choice_prompt: "Ilthaea keeps one hand flat on the shelf."
+      choices:
+        - text: "Why will you not sell to us?"
+          action: "info"
+          response: "Three volumes went up to the Gearworks with a clockmaker's apprentice and none came down. They are still there, and they move. I copy nothing while the Archive is short three books."
+          choices:
+            - text: "We will put the three books down."
+              action: "give_quest"
+              quest_id: "archive_missing_volumes"
+            - text: "Back."
+              action: "back"
+        - text: "We will put the three books down."
+          action: "give_quest"
+          quest_id: "archive_missing_volumes"
+        - text: "Report the three books destroyed"
+          action: "turn_in_quest"
+          quest_id: "archive_missing_volumes"
+        - text: "Leave"
+          action: "leave"
     # The mage schools' deep pages: every Fire/Water/Air/Earth spell that
     # Seabright does NOT stock - Fly excluded on purpose, so the wandering
     # spell_lectern keeps one spell nobody can buy. Priced 10000+ because these
@@ -1310,8 +1397,34 @@ npcs:
     sprite: "nomad_combat_trainer"
     render_category: npc
     size_class: person
+    # No training until the party has a record in the pit (pit_standing). The
+    # trainer dialog has no quest tab, so the errand is the whole conversation
+    # while the gate is shut and the mastery grid replaces it once it is paid.
+    requires_quest: "pit_standing"
     dialogue:
       greeting: "Nadira. I drill the gate guard at dawn and I take paying students after. I sharpen a mastery you already hold. Name the character and the skill."
+      quest_greeting: "Nadira. I sharpen nothing for a student who has not stood on the sand. The Grand Arena is out the gate and south down the sand road. Win three bouts there, at any stakes, and I will take your money."
+      active_message: "Three bouts, and the duel master takes one wager per day at each stake. Come back when the pit has your name three times."
+      completed_message: "Three bouts on the sand. That will do - name the character and the skill."
+      choice_prompt: "Nadira rests a practice blade across her shoulder."
+      choices:
+        - text: "Why the arena?"
+          action: "info"
+          response: "Because mastery is not taught to people who have never been hit by someone better. The pit hits back and it keeps count. Three bouts."
+          choices:
+            - text: "We will win three bouts."
+              action: "give_quest"
+              quest_id: "pit_standing"
+            - text: "Back."
+              action: "back"
+        - text: "We will win three bouts."
+          action: "give_quest"
+          quest_id: "pit_standing"
+        - text: "Report three bouts won"
+          action: "turn_in_quest"
+          quest_id: "pit_standing"
+        - text: "Leave"
+          action: "leave"
 
   nomad_city_spells:
     name: "Yusra of the Oasis"
@@ -1320,17 +1433,46 @@ npcs:
     sprite: "nomad_oasis_spell_seller"
     render_category: npc
     size_class: person
+    # Her shrine is dark until its lamps come back out of the pyramid: no spell
+    # rows until shrine_lamps is turned in (service gate). The Light/Dark school
+    # requirement below is a SECOND, separate gate on each purchase.
+    requires_quest: "shrine_lamps"
     dialogue:
       greeting: "Yusra, of the shrine. I keep the two high schools - the Light, and the other one. No caravan can read either, and neither can you until one of you carries the school already. Look anyway. Then pick a character and pick a page."
       insufficient_gold: "That page costs %d gold. Come back with it."
       already_known: "%s carries that one already."
       success: "Written out for %s. Do not waste it on lizards."
-    # Light and Dark, priced 10000+. NOTE the hard gate: canCharacterLearnNPCSpell
-    # requires char.MagicSchools[school] != nil, and NO starting class opens Light
-    # or Dark (config.yaml class kits) - so this shop only becomes usable once a
-    # party member holds the school, i.e. after the Archmage trial or a lich
-    # turn. That is deliberate: it is the endgame gold sink, and her greeting
-    # says the requirement out loud instead of leaving a wall of red rows.
+      quest_greeting: "Yusra, of the shrine. I write nothing at a dark shrine. Three of my lamps went down into the pyramid with the last party that wanted these pages, and the party stayed down there. Bring the three lamps up to me and I will open the book."
+      active_message: "Three lamps, one on each floor of the pyramid, still in their brackets. There is no oil in them and they are still warm."
+      completed_message: "Three lamps back on the steps. The shrine burns again. Now pick a character and pick a page."
+      visited_message: "The lamps burn on the steps. Both high schools are open to you - as far as your own souls can carry them."
+      choice_prompt: "Yusra trims a wick that has nothing to burn."
+      choices:
+        - text: "Why is the shrine dark?"
+          action: "info"
+          response: "Because its lamps are in the pyramid. Pilgrims came for the Light pages, went down to prove they were worthy of them, and left my lamps in the stone. I keep no shop at a dark shrine."
+          choices:
+            - text: "We will bring the three lamps up."
+              action: "give_quest"
+              quest_id: "shrine_lamps"
+            - text: "Back."
+              action: "back"
+        - text: "We will bring the three lamps up."
+          action: "give_quest"
+          quest_id: "shrine_lamps"
+        - text: "Return the three shrine lamps"
+          action: "turn_in_quest"
+          quest_id: "shrine_lamps"
+        - text: "Leave"
+          action: "leave"
+    # Light and Dark, priced 10000+. NOTE the hard gate: a row sells only to a
+    # character who already holds ONE OF the page's schools (HasSchoolOpenFor over
+    # the spell's whole school list - a dual-school page sells to a holder of
+    # either), and NO starting class opens Light or Dark (config.yaml class kits)
+    # - so this shop only becomes usable once a party member holds the school,
+    # i.e. after the Archmage trial or a lich turn. That is deliberate: it is the
+    # endgame gold sink, and her greeting says the requirement out loud instead of
+    # leaving a wall of red rows.
     # alien_dark_bolt is monster_only and is excluded - it is never learnable.
     spells:
       # Light

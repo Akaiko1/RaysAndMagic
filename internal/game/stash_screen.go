@@ -258,7 +258,7 @@ func (g *MMGame) stashInteractionOpen() bool {
 	if g.stashScreenOpen {
 		return true
 	}
-	if !g.dialogActive || npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
+	if !g.dialogActive || g.npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
 		return false
 	}
 	tab, ok := g.activeTavernTab(g.dialogNPC)

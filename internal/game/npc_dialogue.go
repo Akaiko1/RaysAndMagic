@@ -1,6 +1,10 @@
 package game
 
-import "ugataima/internal/character"
+import (
+	"fmt"
+
+	"ugataima/internal/character"
+)
 
 // npcDialogState is the conversational state of an NPC, derived from its linked
 // quest's status (for quest-givers) plus the Visited flag. It drives both the
@@ -130,8 +134,9 @@ func (g *MMGame) questStepMessage(npc *character.NPC, state npcDialogState) stri
 		return ""
 	}
 	// A trader's quest copy belongs on its Quests tab, never over its shop
-	// greeting on the primary tab.
-	if npcHasSpellTrading(npc) && g.dialogTab != 1 {
+	// greeting on the primary tab. Only an OPEN shop has tabs - a service-gated
+	// trader is a plain talker, and its quest copy is the whole conversation.
+	if g.npcDialogKindFor(npc) == dialogKindSpellTrader && g.dialogTab != 1 {
 		return ""
 	}
 	messages, ok := npc.DialogueData.QuestMessages[g.activeChainQuestID(npc)]
@@ -193,7 +198,9 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 	default:
 		// Offer state. On a spell-trader's Quests tab, lead with the quest hook
 		// rather than the shop-welcome Greeting (Spells tab keeps the Greeting).
-		if g.dialogTab == 1 && d.QuestGreeting != "" {
+		// A service-gated trader has no Spells tab yet, so the hook leads there
+		// too - the shop welcome would promise a shop that will not open.
+		if (g.dialogTab == 1 || !g.npcServiceGateOpen(npc)) && d.QuestGreeting != "" {
 			return d.QuestGreeting
 		}
 	}
@@ -304,7 +311,7 @@ type npcDialogRect struct{ x, y, w, h int }
 
 func npcDialogLayout(g *MMGame) npcDialogRect {
 	width, height := npcDialogWidth, npcDialogHeight
-	if g.dialogNPC != nil && npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
+	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
 		width, height = tavernDialogWidth, tavernDialogHeight
 	}
 	return npcDialogRect{
@@ -346,15 +353,226 @@ const (
 	dialogKindTavern
 )
 
-// npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
-func npcIsCardCollector(npc *character.NPC) bool {
-	return npc != nil && npc.Type == "card_collector"
+// String names the kind for diagnostics - a boot error that says which
+// capability won is the whole point of the checks that print one.
+func (k npcDialogKind) String() string {
+	switch k {
+	case dialogKindGeneric:
+		return "generic"
+	case dialogKindSpellTrader:
+		return "spell trader"
+	case dialogKindSkillTrainer:
+		return "skill trainer"
+	case dialogKindChoices:
+		return "choices"
+	case dialogKindMerchant:
+		return "merchant"
+	case dialogKindCardCollector:
+		return "card collector"
+	case dialogKindArenaGladiator:
+		return "arena gladiator"
+	case dialogKindBuffService:
+		return "buff service"
+	case dialogKindTavern:
+		return "tavern"
+	default:
+		return fmt.Sprintf("kind(%d)", int(k))
+	}
 }
 
-func npcDialogKindFor(npc *character.NPC) npcDialogKind {
+// isGatedService reports whether requires_quest withholds this dialog kind.
+// DERIVED from the downgrade itself - the gate drops an NPC to its conversation
+// (choices) or to nothing (generic), so every other kind is a service by
+// construction and a new tabbed kind is covered the day it is added. A second
+// hand-kept list would let authoring drift from what the runtime withholds.
+func (k npcDialogKind) isGatedService() bool {
+	return k != dialogKindGeneric && k != dialogKindChoices
+}
+
+// drawsDialogueRows reports whether this dialog kind has a surface for GENERIC
+// authored rows - the encounter choice body, or a conversation tab that hosts it.
+// The other kinds draw a fixed layout (a mastery grid, a card grid, a shop grid)
+// and read only the specific actions they know about, so a row authored onto one
+// of them is drawn nowhere. Kept beside the kinds so the answer moves with them.
+func (k npcDialogKind) drawsDialogueRows() bool {
+	switch k {
+	case dialogKindChoices, dialogKindSpellTrader, dialogKindBuffService, dialogKindArenaGladiator:
+		return true
+	}
+	return false
+}
+
+// npcShopHeaderLine is the line a TABBED shop prints above its rows: the NPC's
+// visited_message once its errand is spent and it authored one, else its
+// greeting, else the dialog's own stock phrase. A concluded giver keeps no
+// dialogue rows, so its conversation tab is gone (npcDialogHasTalkTab) and this
+// header is the ONLY surface left that can deliver the authored payoff line -
+// without it "The tower keeps no books of mine now" is content nobody sees.
+func (g *MMGame) npcShopHeaderLine(npc *character.NPC, stock string) string {
+	if npc == nil || npc.DialogueData == nil {
+		return stock
+	}
+	if g.npcDialogueState(npc) == npcStateConcluded && npc.DialogueData.VisitedMessage != "" {
+		return npc.DialogueData.VisitedMessage
+	}
+	if npc.DialogueData.Greeting != "" {
+		return npc.DialogueData.Greeting
+	}
+	return stock
+}
+
+// npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
+func npcIsCardCollector(npc *character.NPC) bool {
+	return npc != nil && npc.Type == character.NPCTypeCardCollector
+}
+
+// questPropAction is the action a quest-prop row declares. executeEncounterChoice
+// routes on the `prop:` block BEFORE the action switch, so a prop that borrowed a
+// dispatched name (tavern_rest, cast_buff, ...) would read as that action to every
+// rule that classifies rows - gatedServiceActions, choiceSurvivesConclusion - and
+// still run the prop handler. One reserved name, checked both ways at load, closes
+// the whole class instead of listing the names it must not collide with.
+const questPropAction = "prop"
+
+// dialogActions is THE dialogue dispatch: action name -> what pressing that row
+// does. One object, so the name set the boot check validates authoring against
+// and the code that runs cannot drift in either direction - a case added to a
+// switch without a map entry used to make the validator reject valid content,
+// and a name in the map with no case made a row that draws and does nothing.
+//
+// The reserved prop action is an entry like any other: with the pairing checked
+// at load (prop block <-> action "prop"), a prop row no longer needs to be
+// intercepted ahead of the dispatch.
+var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NPCDialogueChoice){
+	questPropAction: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleQuestPropInteract(c.QuestID, c.Prop)
+	},
+	"info": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		// Branch deeper: show this choice's reply + its follow-up choices. The
+		// conversation stays open (no quest taken) until the player picks a
+		// terminal action inside the branch.
+		ih.game.dialogNodePath = append(ih.game.dialogNodePath, c)
+		ih.game.selectedChoice = 0
+	},
+	"back": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		// Pop one conversation level (back toward the greeting).
+		if n := len(ih.game.dialogNodePath); n > 0 {
+			ih.game.dialogNodePath = ih.game.dialogNodePath[:n-1]
+		}
+		ih.game.selectedChoice = 0
+	},
+	"leave": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+	},
+	"combat": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.startEncounter()
+	},
+	"enter_map": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.enterEncounterMap(c.Map)
+	},
+	"open_door": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.game.openLockedDoor(ih.game.dialogNPC, c.RuntimeOptionIndex)
+	},
+	"start_arena_duel": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.startArenaDuel(c)
+	},
+	"give_quest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleGiveQuest(c.QuestID)
+	},
+	"turn_in_quest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleTurnInQuest(c.QuestID)
+	},
+	"tavern_rest": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleTavernRest(c)
+	},
+	"wait_until_night": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleArenaWait(c, true)
+	},
+	"wait_until_dawn": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleArenaWait(c, false)
+	},
+	"buy_food": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleBuyFood(c)
+	},
+	"cast_buff": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.handleCastBuff(c)
+	},
+	"summon_dragon": func(ih *InputHandler, npc *character.NPC, c *character.NPCDialogueChoice) {
+		ih.summonDragonFromStatue(npc, c.RuntimeOptionIndex)
+	},
+	"open_roster": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.handleOpenRoster()
+	},
+	"manage_stash": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.handleManageStash()
+	},
+}
+
+// gatedServiceActions are the dialogue actions that ARE a service, and so are
+// withheld by requires_quest. The tabbed services (shop, trainer, cards, board)
+// vanish on their own because the gate downgrades the dialog KIND - these are
+// plain authored choices that would otherwise keep working: a gated tavern would
+// still rest and heal the party, a gated pit would still run a bout.
+var gatedServiceActions = map[string]bool{
+	"tavern_rest":      true,
+	"buy_food":         true,
+	"open_roster":      true,
+	"manage_stash":     true,
+	"cast_buff":        true,
+	"start_arena_duel": true,
+	"wait_until_night": true, // the arena's paid rest (750g in npcs.yaml)
+	"wait_until_dawn":  true,
+}
+
+// choiceSurvivesConclusion reports whether a row outlives the NPC's errand. A
+// SERVICE does - a house that handed out its last quest still rents rooms - and
+// anything that ADVANCES something is spent with it. The two sets coincide
+// deliberately (a gate withholds exactly the services), but they are separate
+// policies: adding an action to one is a decision about the other.
+func choiceSurvivesConclusion(c *character.NPCDialogueChoice) bool {
+	return c != nil && gatedServiceActions[c.Action]
+}
+
+// npcChoiceWithheldByGate reports whether this choice is a service the NPC's
+// unpaid errand withholds. Applied in visibleNPCChoices, which is both what the
+// player sees AND what every input path indexes into (keyboard selection, click
+// targeting, executeEncounterChoice) - so filtering there withholds the service
+// itself, not just its row.
+func (g *MMGame) npcChoiceWithheldByGate(npc *character.NPC, c *character.NPCDialogueChoice) bool {
+	return c != nil && gatedServiceActions[c.Action] && !g.npcServiceGateOpen(npc)
+}
+
+// npcServiceGateOpen reports whether a gated NPC's SERVICE is available yet.
+// The gate is authored (requires_quest) and reuses the chain-step rule: the
+// quest must be finished AND paid out, so the turn-in itself opens the shop.
+func (g *MMGame) npcServiceGateOpen(npc *character.NPC) bool {
+	return npc == nil || npc.RequiresQuest == "" || g.questChainStepDone(npc.RequiresQuest)
+}
+
+func (g *MMGame) npcDialogKindFor(npc *character.NPC) npcDialogKind {
 	if npc == nil {
 		return dialogKindGeneric
 	}
+	kind := npcDialogKindUngated(npc)
+	// A gated NPC is a person with a task until the task is settled: no shop, no
+	// training, no board - only the authored conversation that hands the quest
+	// out and takes it in. Gating HERE (the one dispatch) is what keeps the
+	// renderer, the input handler and the HUD prompt from disagreeing.
+	if kind.isGatedService() && !g.npcServiceGateOpen(npc) {
+		if npcHasChoiceDialog(npc) {
+			return dialogKindChoices
+		}
+		return dialogKindGeneric
+	}
+	return kind
+}
+
+// npcDialogKindUngated is the authored dispatch with no gate applied: which
+// dialog this NPC would get with its errand settled. npcDialogKindFor is the
+// one caller that matters - everything else asks THAT, so the gate is never
+// skipped by accident.
+func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 	switch {
 	case npcIsCardCollector(npc):
 		return dialogKindCardCollector
@@ -393,6 +611,51 @@ func (g *MMGame) dialogueChoiceRect(npc *character.NPC, i, dialogX, dialogY, dia
 	return dialogX + 20, dialogY + layout.choiceY + row*dialogueChoiceRowH, dialogWidth - 40, dialogueChoiceHitH
 }
 
+// filterNPCChoices applies the state rules to ONE list of choices - the root's
+// or an info node's. Split out so npcChoiceRows can run the same rules over
+// either list without touching the live dialog position.
+func (g *MMGame) filterNPCChoices(npc *character.NPC, source []*character.NPCDialogueChoice) []*character.NPCDialogueChoice {
+	var out []*character.NPCDialogueChoice
+	state, questStep := g.npcDialogueState(npc), g.activeChainQuestID(npc)
+	for _, c := range source {
+		if g.choiceKeepsIn(npc, c, state, questStep) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// choiceKeepsIn is THE row rule: whether this choice is offered in the NPC's
+// given state. Split from the list builder so the yes/no form can share it
+// exactly - two copies of "is this row live" is how a hidden choice becomes a
+// clickable one.
+//
+// A CONCLUDED NPC is done with its errand - and with anything that advances one:
+// quest rows and used-up props go, so a shut valve stops offering to be shut. Its
+// SERVICE does not: a house that handed out its last errand still rents rooms,
+// and a gate exists to open a service, not to spend it once.
+func (g *MMGame) choiceKeepsIn(npc *character.NPC, c *character.NPCDialogueChoice, state npcDialogState, questStep string) bool {
+	if c == nil || !g.choiceAvailable(c) || (c.QuestStep != "" && c.QuestStep != questStep) {
+		return false
+	}
+	if g.npcChoiceWithheldByGate(npc, c) {
+		return false
+	}
+	if state == npcStateConcluded && !choiceSurvivesConclusion(c) {
+		return false
+	}
+	switch c.Action {
+	case "give_quest":
+		// Per CHOICE, not just per NPC state: a giver with several errands must
+		// not keep offering one the party already took or finished.
+		return state == npcStateOffer && !g.partyHoldsQuest(c.QuestID)
+	case "turn_in_quest":
+		return state == npcStateCompleted && g.questAwaitingTurnIn(c.QuestID)
+	default:
+		return true
+	}
+}
+
 // visibleNPCChoices filters the NPC's choices to those valid in its current
 // state: give_quest only when offering, turn_in_quest only when the quest is
 // completed, every other action whenever the NPC is still actionable. The
@@ -402,48 +665,34 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 	if npc == nil || npc.DialogueData == nil {
 		return nil
 	}
+	source, atRoot := npc.DialogueData.Choices, true
+	if node := g.currentDialogNode(); node != nil {
+		source, atRoot = node.Choices, false // inside an info branch, its own follow-ups
+	}
+	return g.npcChoiceRows(npc, source, atRoot)
+}
+
+// npcChoiceRows is THE row list of a dialogue: the lock override, the state
+// filter and the root-only strips in one place. visibleNPCChoices asks it about
+// the live conversation position; a predicate about the ROOT rows (the trader's
+// Quests tab) asks the same function with atRoot - so a strip can never apply to
+// what the player sees and not to what decides the tab exists.
+func (g *MMGame) npcChoiceRows(npc *character.NPC, source []*character.NPCDialogueChoice, atRoot bool) []*character.NPCDialogueChoice {
+	if npc == nil || npc.DialogueData == nil {
+		return nil
+	}
 	// Lock choices are a pure view of the current party and the authored door
 	// spec. Do not write them into DialogueData: several map instances may share
 	// the same YAML dialogue pointer, and UI state must not mutate that source.
 	if lockedDoorClosed(npc) {
 		return g.lockedDoorChoices(npc)
 	}
-	state := g.npcDialogueState(npc)
-	if state == npcStateConcluded {
-		return nil
-	}
-	// Inside an "info" branch, the follow-up choices are the node's own (still
-	// state-filtered, so a give_quest deep in a branch obeys the same rules).
-	source := npc.DialogueData.Choices
-	if node := g.currentDialogNode(); node != nil {
-		source = node.Choices
-	}
-	var out []*character.NPCDialogueChoice
-	questStep := g.activeChainQuestID(npc)
-	for _, c := range source {
-		if c == nil || !g.choiceAvailable(c) || (c.QuestStep != "" && c.QuestStep != questStep) {
-			continue
-		}
-		switch c.Action {
-		case "give_quest":
-			// Per CHOICE, not just per NPC state: a giver with several errands
-			// must not keep offering one the party already took or finished.
-			if state == npcStateOffer && !g.partyHoldsQuest(c.QuestID) {
-				out = append(out, c)
-			}
-		case "turn_in_quest":
-			if state == npcStateCompleted && g.questAwaitingTurnIn(c.QuestID) {
-				out = append(out, c)
-			}
-		default:
-			out = append(out, c)
-		}
-	}
+	out := g.filterNPCChoices(npc, source)
 	// A buff-service NPC shows its paid casts as ICON ROWS on its own tab, so
 	// they must not also appear as text choices in the Talk tab list. Filtered
 	// at the top level only - a cast authored deeper in a conversation stays a
 	// normal choice and reachable.
-	if g.currentDialogNode() == nil && npcHasBuffService(npc) {
+	if atRoot && npcHasBuffService(npc) {
 		kept := out[:0]
 		for _, c := range out {
 			if c.Action != "cast_buff" {
@@ -451,12 +700,6 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 			}
 		}
 		out = kept
-	}
-	// Every tavern carries the rumor branch (top level only - not inside an
-	// info node). Synthetic view, rebuilt per call: the text rides the day/night
-	// clock and this tavern's own draw order.
-	if g.currentDialogNode() == nil && npcOffersTavernRest(npc) {
-		out = append(out, g.rumorDialogueChoice(npc))
 	}
 	return out
 }

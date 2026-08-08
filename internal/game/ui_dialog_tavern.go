@@ -21,16 +21,23 @@ type tavernTab struct {
 	action string
 }
 
+// tavernDrawsAction is the authored-action contract of the fixed tavern
+// surface. Both the tabs and boot validation ask this predicate, so adding a new
+// tavern service cannot make the validator accept a row the UI ignores.
+func tavernDrawsAction(action string) bool {
+	switch action {
+	case "tavern_rest", "buy_food", "open_roster", "manage_stash":
+		return true
+	default:
+		return false
+	}
+}
+
 func tavernChoice(npc *character.NPC, action string) *character.NPCDialogueChoice {
-	if npc == nil || npc.DialogueData == nil {
+	if npc == nil || !tavernDrawsAction(action) {
 		return nil
 	}
-	for _, choice := range npc.DialogueData.Choices {
-		if choice != nil && choice.Action == action {
-			return choice
-		}
-	}
-	return nil
+	return npc.DialogueData.TopLevelChoice(action)
 }
 
 func tavernServiceChoices(npc *character.NPC) []*character.NPCDialogueChoice {

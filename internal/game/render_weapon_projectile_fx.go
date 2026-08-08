@@ -48,6 +48,10 @@ var weaponProjectileFxStyles = map[string]weaponProjectileFxStyle{
 		side:   (*Renderer).drawWeaponProjectileFxDragonNest,
 		headOn: (*Renderer).drawWeaponProjectileFxDragonNestHeadOn,
 	},
+	"dragon_eye": {
+		side:   (*Renderer).drawWeaponProjectileFxDragonEye,
+		headOn: (*Renderer).drawWeaponProjectileFxDragonEyeHeadOn,
+	},
 	"tech_suppressor": {
 		side:   (*Renderer).drawWeaponProjectileFxTechSuppressor,
 		headOn: (*Renderer).drawWeaponProjectileFxTechSuppressorHeadOn,

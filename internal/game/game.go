@@ -193,7 +193,18 @@ type MMGame struct {
 	// focusedPartyMask is a transient RT-only actor filter. Bit i belongs to
 	// party slot i; zero means normal full-party cycling.
 	focusedPartyMask uint8
-	frameCount       int64
+	// frameCount is the WORLD clock: it advances only on frames the world itself
+	// advanced, so everything the world's picture is drawn from (sprite cadence,
+	// standee yaw, torch and firefly flicker, the screen-shake phase) freezes with
+	// it. A paused overlay must present a STILL frame; while this counter kept
+	// running under one, the shake alternated the camera every frame and the scene
+	// shivered in place. Also keeps frame-stamped windows (attack posts, loot-guard
+	// patrols, TB move animations) from expiring while a menu is open.
+	frameCount int64
+	// uiFrameCount is the INTERFACE clock: it advances every frame, paused or not.
+	// Party-card feedback (flame, poison, ignite, stun stars, the badge aura) is
+	// presentation, not world state, and must keep breathing under an open hub.
+	uiFrameCount int64
 	// entombedMsgFrame throttles the "can't fight inside stone" explanation
 	// (see partyEntombed) so held attack keys don't spam the log.
 	entombedMsgFrame int64
@@ -472,6 +483,19 @@ type MMGame struct {
 	selectedSpell           int
 	spellInputCooldown      int // gameplay input stagger; pauses with the world
 	tabbedMenuInputCooldown int // hub-only navigation debounce; advances while the hub is open
+
+	// Screen banners: the queue of headings waiting their turn at the top of the
+	// screen (screen_banner.go is the only place that draws one), plus the
+	// producers' state - the per-quest snapshot the quest watcher diffs against
+	// and the focus identity the approach prompt fires on the edge of.
+	screenBannerQueue      []screenBanner
+	questBannerSeen        map[string]questBannerSnapshot
+	questBannerGen         uint64
+	bannerPromptNPC        *character.NPC
+	bannerPromptLostFrames int
+	// Legendary names collected since the last tick. One event can drop several
+	// containers, and they announce together as one heading.
+	pendingLegendaryDrops []string
 
 	// Combat log: one ordered list of (text, color) entries. The HUD shows the
 	// last maxMessages of them; the scrollable overlay shows up to
@@ -889,13 +913,36 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Connect global quest manager
 	game.questManager = quests.GlobalQuestManager
-	if err := validateQuestWorldReferences(game.questManager); err != nil {
+	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
+	// Adopt the journal as it stands (the endgame gates start active) so boot
+	// itself raises no quest banners.
+	game.resyncQuestBannerBaseline()
 
 	// A paid cast_buff service must name a real party buff; the registry only
 	// exists once the game does, so this check lives here.
 	if err := game.validateNPCCastBuffs(); err != nil {
+		panic(err)
+	}
+	// Spell rows only sell if the kind dispatch resolves to the trader dialog.
+	if err := game.validateSpellShopsAreReachable(); err != nil {
+		panic(err)
+	}
+	// The same hazard for ordinary rows: a fixed-layout dialog draws none.
+	if err := game.validateDialogueRowsAreDrawable(); err != nil {
+		panic(err)
+	}
+	// And an action name nothing dispatches draws a row that does nothing.
+	if err := game.validateDialogueActionsAreDispatched(); err != nil {
+		panic(err)
+	}
+	// Every interact quest must be finishable: its tag credited by something, and
+	// enough of those props actually standing. Runs HERE, with its siblings, so
+	// every boot path is covered - the headless sim, the map viewer and the test
+	// fixtures all build a game, and only the shipped binary called it before.
+	// It stands down on a world with no props (a blank fixture) and warns instead.
+	if err := ValidateInteractTagProducers(quests.GlobalQuestManager); err != nil {
 		panic(err)
 	}
 
@@ -1753,8 +1800,41 @@ func (g *MMGame) checkGameOver() {
 			break
 		}
 	}
-	if allDown {
-		g.gameOver = true
+	if !allDown {
+		return
+	}
+	g.gameOver = true
+	// A wipe ends the conversation with it. The modal ladder ranks a dialog ABOVE
+	// Game Over (a shop is drawn later than the death screen), so leaving one open
+	// would keep the top layer non-pausing: monsters walking, the clock ticking and
+	// autosaves firing behind a Game Over the player cannot dismiss, with the shop
+	// still taking keys. Nobody trades while the party lies dead.
+	g.closeConversation()
+}
+
+// closeConversation drops the NPC dialog and everything hanging off it. Used
+// where the WORLD ends the conversation rather than the player - a wipe today.
+func (g *MMGame) closeConversation() {
+	// A carried split fragment is conversation-owned while a shop/stash surface
+	// is open. Forced closure (currently a wipe) must end that gesture too: the
+	// fragment is not a modal layer, but HandleInput gives it exclusive ownership
+	// and it would otherwise leak through Game Over into the next run.
+	g.cancelStackSplitInteraction()
+	g.dialogActive = false
+	g.dialogNPC = nil
+	g.dialogNodePath = nil
+	g.skillTrainerPopup = false
+	g.pendingBuffService = nil
+	g.pendingTavernAction = nil
+	g.selectedChoice = 0
+}
+
+// advanceInterfaceClock is the one tick of presentation time. Every in-game
+// Update advances it, including both redraw-barrier paths; the world clock has a
+// deliberately narrower contract further down the loop.
+func (g *MMGame) advanceInterfaceClock() {
+	if g != nil {
+		g.uiFrameCount++
 	}
 }
 
@@ -1939,15 +2019,31 @@ const (
 	cardFxCount
 )
 
+// framesForSeconds converts an AUTHORED duration to simulation frames at the
+// live tick rate. THE conversion for anything timed: a raw frame count is a
+// duration only at one rate, and the shipped rate is config.DefaultTPS (120), so
+// a constant written "at 60fps" elapses in half its documented time.
+func (g *MMGame) framesForSeconds(seconds float64) int {
+	tps := config.DefaultTPS
+	if g != nil && g.config != nil {
+		tps = g.config.GetTPS()
+	}
+	frames := int(seconds*float64(tps) + 0.5)
+	if frames < 1 && seconds > 0 {
+		return 1 // never round a real duration down to "no frames at all"
+	}
+	return frames
+}
+
 // HitSparkFrames is how long the hit feedback (whole-card red flash + spark
 // burst) plays on a party card after the member takes a hit.
-const HitSparkFrames = 18
+const HitSparkFrames = 18 // ~0.15s at 120 TPS
 
 // PartyFlameFrames is how long the Inferno flame overlay burns on a card.
-const PartyFlameFrames = 45
+const PartyFlameFrames = 45 // ~0.38s at 120 TPS
 
 // HealEffectFrames is how long the rising green "+" overlay plays on a card.
-const HealEffectFrames = 48
+const HealEffectFrames = 48 // ~0.40s at 120 TPS
 
 // triggerCardFx lights one card overlay on one member for `frames` frames.
 func (g *MMGame) triggerCardFx(fx cardFx, characterIndex, frames int) {

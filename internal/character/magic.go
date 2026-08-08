@@ -61,16 +61,6 @@ func (ms MagicSchoolID) IsElemental() bool {
 	}
 }
 
-// ParseMagicSchoolID validates a YAML/UI school through the shared damage
-// catalog, excluding physical because it is not a learnable magic school.
-func ParseMagicSchoolID(raw string) (MagicSchoolID, bool) {
-	school, err := damagecalc.ParseType(raw)
-	if err != nil || school == damagecalc.Physical {
-		return "", false
-	}
-	return MagicSchoolID(school), true
-}
-
 // DisplayName returns the capitalized name shown in the UI, e.g. "Fire".
 func (ms MagicSchoolID) DisplayName() string {
 	if ms == "" {

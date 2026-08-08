@@ -1457,7 +1457,7 @@ func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
 }
 
 func (m *Monster3D) speedPerTick() float64 {
-	tps := 60
+	tps := config.DefaultTPS
 	if m.config != nil {
 		tps = m.config.GetTPS()
 	} else {

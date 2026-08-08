@@ -47,22 +47,22 @@ func TestEndgameWeaponSetsAuthorBespokeFx(t *testing.T) {
 	validateWeaponFxStyles()
 
 	melee := map[string]string{
-		"drakefang_blade":     "dragon_fang",
-		"wyrmcleaver":         "dragon_jaws",
-		"ember_egg_mace":      "dragon_ember_egg",
-		"broodspike":          "dragon_broodspike",
-		"tarn_trident":        "dragon_tarn",
-		"hatchling_fang":      "dragon_hatchling",
-		"scalebreaker_maul":   "dragon_roar",
-		"verdant_eye_scepter": "dragon_eye",
-		"vibro_blade":         "tech_vibro",
+		"drakefang_blade":   "dragon_fang",
+		"wyrmcleaver":       "dragon_jaws",
+		"ember_egg_mace":    "dragon_ember_egg",
+		"broodspike":        "dragon_broodspike",
+		"tarn_trident":      "dragon_tarn",
+		"hatchling_fang":    "dragon_hatchling",
+		"scalebreaker_maul": "dragon_roar",
+		"vibro_blade":       "tech_vibro",
 	}
 	ranged := map[string]string{
-		"wyrmspine_bow":   "dragon_wing",
-		"nest_arbalest":   "dragon_nest",
-		"suppressor_gun":  "tech_suppressor",
-		"longlance_rifle": "tech_longlance",
-		"compound_bow":    "tech_compound_bow",
+		"wyrmspine_bow":       "dragon_wing",
+		"nest_arbalest":       "dragon_nest",
+		"verdant_eye_scepter": "dragon_eye",
+		"suppressor_gun":      "tech_suppressor",
+		"longlance_rifle":     "tech_longlance",
+		"compound_bow":        "tech_compound_bow",
 	}
 
 	for key, want := range melee {
@@ -297,4 +297,33 @@ func TestValidateWeaponFxStylesRejectsUnknownProjectile(t *testing.T) {
 		}
 	}()
 	validateWeaponFxStyles()
+}
+
+// The registries and the authoring must not drift APART either. validateWeaponFxStyles
+// only fails on a style with no renderer; the other direction - a renderer no weapon
+// names - is silent, and staticcheck cannot see it because the map entry counts as a
+// use. That is how the melee "dragon_eye" survived its weapon being re-pointed at the
+// projectile registry: 94 lines of unreachable FX and one name meaning two effects.
+func TestEveryRegisteredWeaponFxStyleIsAuthored(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	slash, projectile := map[string]bool{}, map[string]bool{}
+	for _, def := range config.GlobalWeapons.Weapons {
+		if def == nil || def.Graphics == nil {
+			continue
+		}
+		slash[def.Graphics.SlashFx] = true
+		projectile[def.Graphics.ProjectileFx] = true
+	}
+	for style := range meleeFxStyleDraw {
+		if !slash[style] {
+			t.Errorf("melee fx style %q has a renderer but no weapon authors slash_fx: %s", style, style)
+		}
+	}
+	for style := range weaponProjectileFxStyles {
+		if !projectile[style] {
+			t.Errorf("weapon projectile fx style %q has a renderer but no weapon authors projectile_fx: %s", style, style)
+		}
+	}
 }

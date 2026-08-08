@@ -28,22 +28,32 @@ type NPCData struct {
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
-	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"`
-	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
-	RenderCategory   string               `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
-	PromptVerb       string               `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
-	Transparent      bool                 `yaml:"transparent,omitempty"`
-	GroundTile       string               `yaml:"ground_tile,omitempty"`
-	SizeClass        string               `yaml:"size_class,omitempty"` // shared quantized visual-size tier
-	RemovedSizeTiles *float64             `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
-	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
-	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
-	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
-	NightOnly        bool                 `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
-	RejectsLich      bool                 `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
-	Dialogue         *NPCDialogue         `yaml:"dialogue"`
-	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
-	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
+	GridSpanTiles    int      `yaml:"grid_span_tiles,omitempty"`
+	GridSpanDir      string   `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
+	RenderCategory   string   `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string   `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
+	Transparent      bool     `yaml:"transparent,omitempty"`
+	GroundTile       string   `yaml:"ground_tile,omitempty"`
+	SizeClass        string   `yaml:"size_class,omitempty"` // shared quantized visual-size tier
+	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
+	SellAvailable    bool     `yaml:"sell_available,omitempty"`
+	SteamWhenVisited bool     `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
+	HideWhenVisited  bool     `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	NightOnly        bool     `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
+	RejectsLich      bool     `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	// TownPortal makes this NPC's map a Town Portal destination and the party's
+	// arrival point on it. Authored, not inferred from renting rooms: an inn is
+	// the usual anchor, but the flag is what counts.
+	TownPortal bool `yaml:"town_portal,omitempty"`
+	// RequiresQuest withholds this NPC's SERVICE (shop, spell pages, mastery
+	// training) until that quest is turned in and paid: until then the NPC is a
+	// plain talker handing out the task. Same "finished and claimed" semantics as
+	// the per-choice requires_quest. Validated: the quest must exist and the NPC
+	// must actually own a service to withhold.
+	RequiresQuest string               `yaml:"requires_quest,omitempty"`
+	Dialogue      *NPCDialogue         `yaml:"dialogue"`
+	Spells        map[string]*NPCSpell `yaml:"spells,omitempty"`
+	Inventory     []*NPCItem           `yaml:"inventory,omitempty"`
 	// StockRefreshWeeks refills this merchant's authored finite inventory every
 	// N calendar weeks. Zero keeps the stock permanent until sold out.
 	StockRefreshWeeks int `yaml:"stock_refresh_weeks,omitempty"`
@@ -132,6 +142,10 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	// Prop marks this choice as a one-shot quest prop (a valve, a rack, a lamp)
+	// and carries its wording. Its presence IS what routes the choice to the
+	// shared prop handler - the action name is only a label.
+	Prop *NPCPropCopy `yaml:"prop,omitempty"`
 	// RequiresQuest gates this choice behind another quest being finished and
 	// paid out. It is what makes a quest CHAIN on one giver: the second offer
 	// stays hidden until the first is turned in.
@@ -201,6 +215,23 @@ func (d *NPCDialogue) HasAction(action string) bool {
 	})
 }
 
+// TopLevelChoice returns the ROOT choice with this action, or nil. Distinct from
+// HasAction on purpose: the service dialogs (tavern, paid casts) are recognised
+// only by root actions - a rest offered inside an "ask about lodging" branch is
+// ordinary conversation, not a tavern. Anything deciding "is this NPC a service"
+// must use this, or it will disagree with the dialog it dispatches.
+func (d *NPCDialogue) TopLevelChoice(action string) *NPCDialogueChoice {
+	if d == nil || action == "" {
+		return nil
+	}
+	for _, choice := range d.Choices {
+		if choice != nil && choice.Action == action {
+			return choice
+		}
+	}
+	return nil
+}
+
 // NPCEncounter represents an encounter definition
 type NPCEncounter struct {
 	Type           string                    `yaml:"type"`
@@ -221,10 +252,24 @@ type EncounterMonster struct {
 	CountMax int    `yaml:"count_max"`
 }
 
-// NPCSpell represents a spell that an NPC can teach
+// NPCPropCopy is a quest prop's authored behaviour and wording: which interact
+// tag it credits and what the player reads. Content, so it lives in npcs.yaml
+// beside the prop's own greeting and choice text.
+type NPCPropCopy struct {
+	Tag       string `yaml:"tag"`                  // interact tag credited; must be the quest's target_monster
+	NotYet    string `yaml:"not_yet"`              // nothing asks for it yet
+	Took      string `yaml:"took"`                 // printed with the quest's counter
+	Completed string `yaml:"completed"`            // what changes in the world when the errand finishes
+	LootTable string `yaml:"loot_table,omitempty"` // optional loots.yaml table rolled into the party
+	LootLine  string `yaml:"loot_line,omitempty"`  // names what the loot came out of; required with LootTable
+}
+
+// NPCSpell is one row of a spell shop: what the SHOP knows about it. Identity
+// (school, mechanics) is NOT copied here - the row key is the spell id and
+// spells.yaml is read directly, so a row can never disagree with the spell it
+// sells. Name and Description are display overrides, Cost is the shop's own.
 type NPCSpell struct {
 	Name        string `yaml:"name"`
-	School      string `yaml:"school"`
 	Cost        int    `yaml:"cost"`
 	Description string `yaml:"description"`
 }
@@ -386,8 +431,8 @@ func validatePricedChoices() error {
 	return nil
 }
 
-// backfillTraderSpells fills each spell_trader entry's intrinsic data (name,
-// school, description) from spells.yaml keyed by the entry ID, so a catalog only
+// backfillTraderSpells fills every spell ROW's intrinsic data (name, school,
+// description) from spells.yaml keyed by the entry ID, so a catalog only
 // authors the price. Cost stays per-entry (a shop property) and is required
 // (fail-fast), so it must never be guessed. The purchase path separately
 // requires the selected character to have the matching school open.
@@ -397,8 +442,16 @@ func backfillTraderSpells() error {
 		return nil
 	}
 	for npcKey, npc := range NPCConfigInstance.NPCs {
-		if npc == nil || npc.Type != "spell_trader" {
+		// Keyed off the SPELLS, not off the type, so no authored row escapes
+		// validation - and rows on anything but a spell_trader are rejected
+		// outright, because CreateNPCFromConfig copies SpellData for that type
+		// alone. Authored anywhere else the rows are simply dropped: the NPC has
+		// no shop, says nothing about it, and the catalog looks fine.
+		if npc == nil || len(npc.Spells) == 0 {
 			continue
+		}
+		if npc.Type != NPCTypeSpellTrader {
+			return fmt.Errorf("NPC %q is type %q but authors spells: spell rows only become a shop on a spell_trader", npcKey, npc.Type)
 		}
 		for id, sp := range npc.Spells {
 			if sp == nil {
@@ -406,17 +459,14 @@ func backfillTraderSpells() error {
 				npc.Spells[id] = sp
 			}
 			if sp.Cost <= 0 {
-				return fmt.Errorf("spell_trader %q: spell %q must declare a positive cost", npcKey, id)
+				return fmt.Errorf("NPC %q sells spell %q: it must declare a positive cost", npcKey, id)
 			}
 			def, ok := config.GetSpellDefinition(id)
 			if !ok || def == nil {
-				return fmt.Errorf("spell_trader %q: spell %q is not defined in spells.yaml", npcKey, id)
+				return fmt.Errorf("NPC %q sells spell %q: not defined in spells.yaml", npcKey, id)
 			}
 			if sp.Name == "" {
 				sp.Name = def.Name
-			}
-			if sp.School == "" {
-				sp.School = def.School
 			}
 			if sp.Description == "" {
 				sp.Description = def.Description
@@ -472,6 +522,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		GridSpanTiles:    data.GridSpanTiles,
 		GridSpanDir:      data.GridSpanDir,
 		RejectsLich:      data.RejectsLich,
+		TownPortal:       data.TownPortal,
+		RequiresQuest:    data.RequiresQuest,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 		Lectern:          data.Lectern,
@@ -495,11 +547,13 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		groupMerchantWeapons(npc.MerchantStock)
 	}
 
-	// Set up type-specific data
+	// Set up type-specific data. Spell rows are copied for the trader type only,
+	// and backfillTraderSpells refuses them anywhere else - so the runtime
+	// capability check (npcHasSpellTrading) and the authored type cannot disagree.
 	switch data.Type {
-	case "spell_trader":
+	case NPCTypeSpellTrader:
 		npc.SpellData = data.Spells
-	case "encounter":
+	case NPCTypeEncounter:
 		npc.EncounterData = data.Encounter
 	}
 

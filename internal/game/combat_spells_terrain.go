@@ -168,7 +168,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		cs.game.AddCombatMessage("There is no room to summon here.")
 		return true
 	}
-	tier := spellMasteryTierForSchool(caster, def.School)
+	tier := casterSpellMasteryTier(caster, def)
 	if hp := masteryLadderValue(def.SummonHPByMastery, tier); hp > 0 {
 		add.MaxHitPoints, add.HitPoints = hp, hp
 	}

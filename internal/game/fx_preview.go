@@ -56,7 +56,7 @@ type FxItem struct {
 const fxStageMapKey = "fx_stage"
 
 // fxRespawnTicks is how often the selected effect re-fires so it loops.
-const fxRespawnTicks = 75
+const fxRespawnTicks = 75 // ~0.62s at 120 TPS
 
 // NewFxPreview builds the sandbox: a small flat arena world registered under
 // the global world manager (created if the host app never set one), a real

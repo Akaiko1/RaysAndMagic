@@ -132,6 +132,12 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 	if len(c.Items) == 0 && c.Gold <= 0 {
 		return
 	}
+	// Monster loot is announced at the drop event. Camera, region, and line of
+	// sight do not change whether the party learns what the monster dropped.
+	// Chests remain sealed information and announce only when opened.
+	if c.Kind == ContainerKindLootBag {
+		g.announceLegendaryDrops(c.Items)
+	}
 	// Sprite is left empty for kind defaults so effectiveSprite() resolves it live
 	// (rarity-aware for loot bags); only an explicit override is stored.
 	if c.SizeTiles <= 0 {
@@ -145,12 +151,18 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 // from a monster's drops and gold. Size comes from the kind's config default
 // (addGroundContainer fills it) - bags are not scaled by the dropping monster.
 func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
-	if len(drops) == 0 && gold <= 0 {
+	if g == nil || (len(drops) == 0 && gold <= 0) {
 		return
 	}
+	ts := g.config.GetTileSize()
 	g.addGroundContainer(GroundContainer{
-		Kind:   ContainerKindLootBag,
-		MapKey: currentMapKey(), // bags belong to the map they dropped on
+		Kind: ContainerKindLootBag,
+		// The region the bag FELL in, resolved from the drop tile - the same rule
+		// kills credit to a region (questKillMapKey). currentMapKey() is the
+		// PARTY's region: a mob finished by a DoT or an ally across a seam would
+		// stamp its bag here, announce loot nobody can see, and save its
+		// map-local coordinates against the wrong region.
+		MapKey: g.mapKeyAtTile(TileIndex(x, ts), TileIndex(y, ts)),
 		X:      x,
 		Y:      y,
 		Gold:   gold,
@@ -345,6 +357,20 @@ func (g *MMGame) findGroundContainerIndexAtScreen(clickX, clickY int, maxDist fl
 	})
 }
 
+// onCurrentWorld reports whether this container is in the world being simulated
+// and drawn. Merged regions are one world, so a chest two regions away answers
+// true - right for reach and rendering, which cull by distance.
+func (c *GroundContainer) onCurrentWorld() bool {
+	return c != nil && (c.MapKey == "" || mapKeyOnCurrentWorld(c.MapKey))
+}
+
+// inPartyRegion is the stricter question: did this land where the party IS.
+// Anything that SPEAKS about a container asks this one - "same world" spans the
+// whole outdoors.
+func (c *GroundContainer) inPartyRegion() bool {
+	return c != nil && (c.MapKey == "" || c.MapKey == currentMapKey())
+}
+
 // findGroundContainerIndex scans containers on the current map within maxDist.
 // Returns the index of the closest match; if accept is non-nil, only
 // containers for which accept(c, distance) returns true are considered.
@@ -358,7 +384,7 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 	bestDistSq := 0.0
 	for i := range g.groundContainers {
 		c := &g.groundContainers[i]
-		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
+		if !c.onCurrentWorld() {
 			continue
 		}
 		dx := c.X - playerX
@@ -398,6 +424,11 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	}
 	if c.Kind == ContainerKindTreasureChest {
 		g.playSound(soundChestOpen)
+	}
+	// A chest names its legendaries as the lid comes up; a bag that fell out of
+	// sight names them now that the party has walked to it.
+	if c.Kind == ContainerKindTreasureChest {
+		g.announceLegendaryDrops(c.Items)
 	}
 
 	for _, it := range c.Items {

@@ -296,7 +296,7 @@ func TestSpellTrader_HoverShowsFullSpellCard(t *testing.T) {
 		Name:           "Trader",
 		RenderCategory: "npc",
 		SpellData: map[string]*character.NPCSpell{
-			"fireball": {Name: "Fireball", School: "fire", Cost: 16000},
+			"fireball": {Name: "Fireball", Cost: 16000},
 		},
 	}
 	ui := &UISystem{game: g}
@@ -310,11 +310,5 @@ func TestSpellTrader_HoverShowsFullSpellCard(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("tooltip missing %q:\n%s", want, joined)
 		}
-	}
-
-	// A trader stocking a key with no spell definition still gets a card.
-	g.dialogNPC.SpellData["not_a_spell"] = &character.NPCSpell{Name: "Rumour", School: "fire", Cost: 5}
-	if got := ui.spellTraderTooltipLines("not_a_spell", g.party.Members[0]); len(got) != 2 {
-		t.Errorf("unknown spell fallback = %v, want the authored two lines", got)
 	}
 }

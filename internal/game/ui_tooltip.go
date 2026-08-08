@@ -485,6 +485,31 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	return out
 }
 
+// spellSchoolForChar is the school a card SCORES this spell under: the one the
+// character actually holds (SpellSchoolFor), falling back to the spell's primary
+// school when there is no character to ask. A dual-school page must not be
+// scored - or labelled - against a school its caster never opened.
+func spellSchoolForChar(char *character.MMCharacter, def spells.SpellDefinition) string {
+	if char == nil {
+		return def.School
+	}
+	return string(char.SpellSchoolFor(def))
+}
+
+// spellSchoolsLabel names EVERY school a spell belongs to ("Earth / Air"), so a
+// dual-school page does not read as the one school its definition happens to
+// list first - the shop sells it to either caster.
+func spellSchoolsLabel(def spells.SpellDefinition) string {
+	schools := def.SchoolList()
+	names := make([]string, 0, len(schools))
+	for _, s := range schools {
+		if n := formatSchoolName(s); n != "" {
+			names = append(names, n)
+		}
+	}
+	return strings.Join(names, " / ")
+}
+
 func formatSchoolName(school string) string {
 	if school == "" {
 		return ""

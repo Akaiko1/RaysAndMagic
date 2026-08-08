@@ -1,10 +1,13 @@
 package game
 
-import "ugataima/internal/monster"
+import (
+	"ugataima/internal/config"
+	"ugataima/internal/monster"
+)
 
 func animationTicksPerFrame(tps, fps int) int {
 	if tps <= 0 {
-		tps = 120
+		tps = config.DefaultTPS
 	}
 	if fps <= 0 {
 		return 1
@@ -42,7 +45,7 @@ func (g *MMGame) monsterAttackAnimationDuration(mon *monster.Monster3D) int {
 	if frameCount == 0 {
 		return MonsterAttackAnimFrames
 	}
-	tps := 120
+	tps := config.DefaultTPS
 	if g != nil && g.config != nil {
 		tps = g.config.GetTPS()
 	}

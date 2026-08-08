@@ -654,7 +654,7 @@ func (c *MMCharacter) dotDamage(amount int) {
 func (c *MMCharacter) updateRegenAndPoison() bool {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	c.updatePoison(tps)
 	c.updateBurn(tps)
@@ -916,7 +916,65 @@ func (c *MMCharacter) GetAvailableSchools() []MagicSchoolID {
 	return available
 }
 
-// GetSpellsForSchool returns the spell IDs for a specific magic school
+// spellSchoolForLearner resolves WHICH school a spell files into for this
+// character: the first of its schools they already hold, else its primary.
+//
+// Dual-school spells (Town Portal is earth AND air) go into whichever of their
+// schools the learner already holds, so learning one through Air never silently
+// opens Earth. THE one place that choice is made: LearnSpell files by it and
+// HasSchoolOpenFor gates on the school it names being open, so a shop can never
+// refuse a spell the spellbook would happily accept.
+func (c *MMCharacter) spellSchoolForLearner(def spells.SpellDefinition) MagicSchoolID {
+	for _, s := range def.SchoolList() {
+		if c.MagicSchools[MagicSchoolID(s)] != nil {
+			return MagicSchoolID(s)
+		}
+	}
+	return MagicSchoolID(def.School)
+}
+
+// SpellSchoolFor is the school this character casts the spell under. For a
+// dual-school page that means WHERE IT IS FILED, not merely which of its schools
+// happens to be open: a sorcerer who bought Town Portal through Air keeps
+// casting it as Air even after a promotion opens Earth. An unlearned spell (a
+// shop preview) answers with the school it WOULD be filed in.
+func (c *MMCharacter) SpellSchoolFor(def spells.SpellDefinition) MagicSchoolID {
+	schools := def.SchoolList()
+	if len(schools) == 1 {
+		return MagicSchoolID(schools[0]) // every spell but the dual-school ones
+	}
+	if school, filed := c.spellFiledUnder(def); filed {
+		return school
+	}
+	return c.spellSchoolForLearner(def)
+}
+
+// spellFiledUnder is the school this character's spellbook actually holds the
+// spell in, if any. THE one "is it learned, and where" walk: KnowsSpell asks it
+// and SpellSchoolFor files a dual-school page by it.
+func (c *MMCharacter) spellFiledUnder(def spells.SpellDefinition) (MagicSchoolID, bool) {
+	for _, s := range def.SchoolList() {
+		ms := c.MagicSchools[MagicSchoolID(s)]
+		if ms == nil {
+			continue
+		}
+		for _, known := range ms.KnownSpells {
+			if known == def.ID {
+				return MagicSchoolID(s), true
+			}
+		}
+	}
+	return MagicSchoolID(def.School), false
+}
+
+// SpellMasterySkill is the mastery that applies when this character casts the
+// spell - the skill in SpellSchoolFor's school, or nil if they hold none of it.
+// THE one lookup: damage, duration, resist pierce and the tooltip that explains
+// all three read it, so the card can never name a mastery the fight ignores.
+func (c *MMCharacter) SpellMasterySkill(def spells.SpellDefinition) *MagicSkill {
+	return c.MagicSchools[c.SpellSchoolFor(def)]
+}
+
 // LearnSpell adds a spell to the school its DEFINITION declares (spells.yaml
 // is the source of truth, not the caller), opening that school at Novice if
 // needed. Reports whether the spellbook changed (false: unknown spell or
@@ -926,31 +984,14 @@ func (c *MMCharacter) LearnSpell(spellID spells.SpellID) bool {
 	if err != nil {
 		return false
 	}
-	// Dual-school spells (Town Portal: earth AND air) file into whichever of
-	// their schools the learner already has open, so learning through Air
-	// never silently opens Earth. Single-school spells keep the old behavior
-	// (open the school at Novice if absent).
-	school := MagicSchoolID(def.School)
-	for _, s := range def.SchoolList() {
-		if c.MagicSchools[MagicSchoolID(s)] != nil {
-			school = MagicSchoolID(s)
-			break
-		}
+	if _, known := c.spellFiledUnder(def); known {
+		return false // already filed under one of its schools
 	}
+	school := c.spellSchoolForLearner(def)
 	if c.MagicSchools[school] == nil {
 		c.MagicSchools[school] = &MagicSkill{
 			Mastery:     MasteryNovice,
 			KnownSpells: make([]spells.SpellID, 0),
-		}
-	}
-	// Already known under ANY of its schools counts as known.
-	for _, s := range def.SchoolList() {
-		if ms := c.MagicSchools[MagicSchoolID(s)]; ms != nil {
-			for _, existing := range ms.KnownSpells {
-				if existing == spellID {
-					return false
-				}
-			}
 		}
 	}
 	c.MagicSchools[school].KnownSpells = append(c.MagicSchools[school].KnownSpells, spellID)
@@ -963,33 +1004,24 @@ func (c *MMCharacter) KnowsSpell(spellID spells.SpellID) bool {
 	if err != nil {
 		return false
 	}
-	for _, s := range def.SchoolList() {
-		if ms := c.MagicSchools[MagicSchoolID(s)]; ms != nil {
-			for _, existing := range ms.KnownSpells {
-				if existing == spellID {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	_, known := c.spellFiledUnder(def)
+	return known
 }
 
-// HasSchoolOpenFor reports whether the character has ANY of the spell's
-// schools open (the lectern/dual-school learn gate).
+// HasSchoolOpenFor reports whether ANY of the spell's schools is already open
+// on this character - THE learn gate, shared by the lectern and by the shop
+// counter (a shop never opens a school; level-ups and promotions do).
 func (c *MMCharacter) HasSchoolOpenFor(spellID spells.SpellID) bool {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return false
 	}
-	for _, s := range def.SchoolList() {
-		if c.MagicSchools[MagicSchoolID(s)] != nil {
-			return true
-		}
-	}
-	return false
+	// The learner's own choice, asked as a question: the school it would file
+	// into has to be one this character already holds.
+	return c.MagicSchools[c.spellSchoolForLearner(def)] != nil
 }
 
+// GetSpellsForSchool returns the spell IDs this character knows in one school.
 func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID {
 	if magicSkill, exists := c.MagicSchools[school]; exists {
 		return magicSkill.KnownSpells
