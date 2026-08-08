@@ -188,12 +188,12 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("first hot_steam cast failed")
 	}
-	radius := game.steamZones[0].Radius
+	radius := game.persistentDamageZones[0].Radius
 
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("same-tile hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 1 {
+	if got := len(game.persistentDamageZones); got != 1 {
 		t.Fatalf("same-tile re-cast = %d zones, want 1", got)
 	}
 
@@ -201,7 +201,7 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("overlapping hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 2 {
+	if got := len(game.persistentDamageZones); got != 2 {
 		t.Fatalf("overlapping cast from another tile = %d zones, want 2", got)
 	}
 
@@ -209,7 +209,7 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("separate hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 3 {
+	if got := len(game.persistentDamageZones); got != 3 {
 		t.Fatalf("separate cast = %d zones, want 3", got)
 	}
 }

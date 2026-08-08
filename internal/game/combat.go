@@ -20,7 +20,8 @@ import (
 
 // CombatSystem handles all combat-related functionality
 type CombatSystem struct {
-	game *MMGame
+	game           *MMGame
+	racialProcRoll func(int) bool
 }
 
 // Owner namespaces of the pure party allies. They persist through
@@ -35,6 +36,13 @@ const (
 // NewCombatSystem creates a new combat system
 func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
+}
+
+func (cs *CombatSystem) rollRacialProc(chancePct int) bool {
+	if cs != nil && cs.racialProcRoll != nil {
+		return cs.racialProcRoll(chancePct)
+	}
+	return chancePct > 0 && rand.Intn(100) < chancePct
 }
 
 // CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
@@ -1524,14 +1532,14 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 // applyTrueDamageThroughDodge deals the typed true components that landed
 // despite Perfect Dodge, with the usual hit bookkeeping. Caller owns projectile
 // cleanup. Keeping the packet preserves the correct school resistance.
-func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, packet monsterDamagePacket, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
+func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, packet monsterDamagePacket, attacker *character.MMCharacter, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
 	actual := cs.applyMonsterDamagePacket(monster, packet.trueOnly(), monsterDamageOptions{}).Total()
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, monster)
 	}
 	cs.markMonsterHit(monster)
 	if !monster.IsAlive() {
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's true damage pierces %s's dodge for %d and kills it!", attackerName, monster.Name, actual))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	} else {
@@ -1572,6 +1580,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		false,
 		true,
 	)
+	attack.Attacker = attacker
 	attack.IgnoreDodge = ignoreDodge
 	attack.ArmorIgnoreChancePct = cs.game.cardArmorPiercePct()
 
@@ -1583,10 +1592,13 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		// pacified forever while absorbing melee swings.
 		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attackerName, weaponDef)
+			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, attackerName))
 		}
+		return
+	}
+	if cs.tryDarkElfBindInstead(attacker, monster) {
 		return
 	}
 
@@ -1595,7 +1607,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	if pct := cs.game.cardDisintegratePct(); pct > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < float64(pct)/100 {
 		monster.HitPoints = 0
 		cs.markMonsterHit(monster)
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 		return
@@ -1609,7 +1621,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	cs.spawnWeaponHitImpactFX(monster, finalDamage)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
-		if cs.tryWeaponExecute(monster, weaponDef, attackerName) {
+		if cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName) {
 			if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
 				cs.applyAoeSplash(monster, attack, weaponDef.AoeRadiusTiles)
 			}
@@ -1618,7 +1630,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 	xpAwarded := 0
 	if !monster.IsAlive() {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded = cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
 
 	// Add combat message
@@ -2832,9 +2844,15 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 	}
 	var pool []dispelTarget
 	for i := range cs.game.statBuffs {
+		if cs.game.statBuffs[i].SourceID != "" {
+			continue
+		}
 		pool = append(pool, dispelTarget{cs.game.statBuffs[i].SpellID, false})
 	}
 	for i := range cs.game.combatBuffs {
+		if cs.game.combatBuffs[i].SourceID != "" {
+			continue
+		}
 		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
 	}
 	if len(pool) == 0 {
@@ -3807,16 +3825,10 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 }
 
 // applyMonsterProjectileDamage applies a single-target monster projectile/arrow.
-// Real-time -> the tank (front slot). Turn-based -> mostly the tank, sometimes a
-// back-liner (see rangedTBTarget / RangedOffTankChance).
+// Both clocks use the same weighted final draw: the front slot keeps its authored
+// tank bias, then race modifies each candidate's relative target weight.
 func (cs *CombatSystem) applyMonsterProjectileDamage(src *monsterPkg.Monster3D, sourceName string, hit monsterCharacterHit) {
-	var target *character.MMCharacter
-	if cs.game.turnBasedMode {
-		target = cs.rangedTBTarget()
-	} else {
-		target = cs.tankTarget()
-	}
-	cs.applyMonsterProjectileDamageToChar(src, target, sourceName, hit)
+	cs.applyMonsterProjectileDamageToChar(src, cs.rangedTarget(), sourceName, hit)
 }
 
 // applyMonsterProjectileDamageAoE splashes a monster projectile across EVERY
@@ -4076,6 +4088,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		isSpell,
 		false,
 	)
+	attack.Attacker = attacker
 	attack.IgnoreDodge = ignoreDodge
 
 	// Check monster perfect dodge (applies to all attack types). A Grandmaster
@@ -4084,10 +4097,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if monsterPerfectDodges(monster, attack.IgnoreDodge) {
 		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attackerName, weaponDef)
+			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
 		}
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+	if cs.tryDarkElfBindInstead(attacker, monster) {
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
@@ -4115,7 +4132,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		monster.HitPoints = 0
 		cs.markMonsterHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
@@ -4155,11 +4172,11 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cs.applyStun(monster, stunSeconds, stunTurns) // announces stun/resist itself
 		}
 		// The Maw already credits its kill and announces itself.
-		executed = cs.tryWeaponExecute(monster, weaponDef, attackerName)
+		executed = cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName)
 	}
 	xpAwarded := 0
 	if !monster.IsAlive() && !executed {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded = cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
@@ -4224,6 +4241,9 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 		if dx*dx+dy*dy > radiusSq {
 			continue
 		}
+		if cs.tryDarkElfBindInstead(attack.Attacker, m) {
+			continue
+		}
 		actual := cs.applyPartyMonsterAttack(m, attack).Total()
 		cs.markMonsterHit(m)
 		primarySchool := monsterPkg.DamagePhysical.String()
@@ -4233,7 +4253,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 		cs.spawnMonsterHitBurst(m, primarySchool)
 
 		if !m.IsAlive() {
-			xpAwarded := cs.finishWeaponKill(m, attack.WeaponDef)
+			xpAwarded := cs.finishWeaponKill(m, attack.WeaponDef, attack.Attacker)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", attack.WeaponName, m.Name, xpAwarded))
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d damage.", attack.WeaponName, m.Name, actual))
@@ -4648,7 +4668,7 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 }
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
-func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
+func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return 0, 0, 0
@@ -4658,7 +4678,10 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	// dodgeable) damage - it now grants flat TRUE damage applied at the hit site
 	// (weaponMasteryStrike), which bypasses armor and lands through dodges.
 	// ArmsMaster: general weapon expertise - flat bonus with ANY weapon.
-	baseDamage += character.ArmsMasterTier() * ArmsMasterDamagePerTier
+	baseDamage += char.ArmsMasterTier() * ArmsMasterDamagePerTier
+	if char.HasSkill(character.SkillOrcishFury) {
+		baseDamage += character.OrcishFuryDamageBonus(char.SkillTier(character.SkillOrcishFury))
+	}
 
 	// Stat scaling resolves through the SAME stat-by-name lookup the tooltip
 	// uses (getEffectiveStatValue, all seven stats) - a hand-rolled switch here
@@ -4668,11 +4691,11 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	if primaryStat == "" {
 		primaryStat = "Might" // default for weapons without bonus stat specified
 	}
-	primaryStatBonus := getEffectiveStatValue(primaryStat, character) / WeaponPrimaryStatDivisor
+	primaryStatBonus := getEffectiveStatValue(primaryStat, char) / WeaponPrimaryStatDivisor
 
 	var secondaryStatBonus int
 	if weaponDef.BonusStatSecondary != "" {
-		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, character) / WeaponSecondaryStatDivisor
+		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, char) / WeaponSecondaryStatDivisor
 	}
 
 	totalStatBonus := primaryStatBonus + secondaryStatBonus
@@ -4787,7 +4810,7 @@ func (cs *CombatSystem) nearestRicochetTarget(victim *monsterPkg.Monster3D, weap
 // tryWeaponExecute closes the Wyrmcleaver's jaws: a SURVIVING target left at
 // or under execute_below_pct of its max HP dies outright. Returns the XP-
 // awarded kill flag so callers skip their own alive-branch messaging.
-func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attackerName string) bool {
+func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter, attackerName string) bool {
 	if monster == nil || weaponDef == nil || weaponDef.ExecuteBelowPct <= 0 {
 		return false
 	}
@@ -4799,7 +4822,7 @@ func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDe
 	}
 	monster.HitPoints = 0
 	cs.markMonsterHit(monster)
-	xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+	xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 	cs.game.AddCombatMessage(fmt.Sprintf("The Maw closes - %s devours %s outright!", attackerName, monster.Name))
 	cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	return true
@@ -4808,15 +4831,15 @@ func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDe
 // finishWeaponKill is the single finalization path for a monster killed by a
 // party weapon. Kill riders run before generic reward/removal bookkeeping;
 // callers pass nil for non-weapon splash packets, preventing recursive bursts.
-func (cs *CombatSystem) finishWeaponKill(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) int {
-	cs.tryWeaponDeathBurst(monster, weaponDef)
+func (cs *CombatSystem) finishWeaponKill(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter) int {
+	cs.tryWeaponDeathBurst(monster, weaponDef, attacker)
 	return cs.finishMonsterKill(monster)
 }
 
 // tryWeaponDeathBurst pops the Ember Egg: a target KILLED by this weapon
 // bursts, dealing flat fire damage to every other monster in the radius
 // (its own attack packet - armor/resists resolve per victim; kills credit).
-func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
+func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter) {
 	if corpse == nil || weaponDef == nil || weaponDef.DeathBurstDamage <= 0 || weaponDef.DeathBurstRadiusTiles <= 0 {
 		return
 	}
@@ -4834,6 +4857,7 @@ func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weapon
 		false,
 		false,
 	)
+	burst.Attacker = attacker
 	cs.spawnMonsterHitBurst(corpse, monsterPkg.DamageFire.String())
 	cs.applyAoeSplash(corpse, burst, weaponDef.DeathBurstRadiusTiles)
 }
@@ -4875,12 +4899,12 @@ func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCo
 	return baseCost
 }
 
-// CalculateSteamZoneTickDamage is the per-tick damage of a persistent damage zone
-// (Hot Steam), scaled by the caster like the elemental spells: the YAML
+// CalculatePersistentDamageZoneTickDamage is the per-tick damage of any
+// persistent damage zone, including Hot Steam and Firewall. The YAML
 // zone_tick_damage is the flat base, plus Intellect/divisor and the caster's
-// school mastery. Single source of truth for the cast (tryCastSteamZone) and the
+// school mastery. Single source of truth for the cast (tryCastPersistentDamageZone) and the
 // tooltip, so the displayed number always matches the damage dealt.
-func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
+func (cs *CombatSystem) CalculatePersistentDamageZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
 	// An authored ladder is the WHOLE payload (Firewall 15/30/45/60): no
 	// Intellect and no per-tier bonus on top, exactly like Inferno.
 	if len(def.DamageByMastery) == 4 {
@@ -5006,11 +5030,11 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 // the cast. Returns true if one did - callers must then skip the
 // projectile/utility paths. Single place to register a new effect-spell type.
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	return cs.tryCastAoeStun(spellID, def) ||
+	return cs.tryCastAoeStunBy(spellID, def, caster) ||
 		cs.tryCastJump(def, caster) ||
 		cs.tryCastSummon(def, caster) ||
 		cs.tryCastInferno(def, caster) ||
-		cs.tryCastSteamZone(spellID, def, caster) ||
+		cs.tryCastPersistentDamageZone(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
 		cs.tryCastRaiseDead(def, caster) ||
 		cs.tryCastResurrect(def, caster) ||
@@ -5047,6 +5071,9 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 			continue
 		}
 		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
+			continue
+		}
+		if cs.tryDarkElfBindInstead(caster, m) {
 			continue
 		}
 		dealt := cs.applyMonsterDamagePacket(
@@ -5295,6 +5322,34 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	m.PacifiedFramesRemaining = 0
 	m.WasAttacked = false
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+}
+
+const darkElfBindingChancePct = 10
+
+func darkElfBindingEligible(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
+	if attacker == nil || attacker.Race != "dark_elf" || target == nil || !target.IsAlive() ||
+		target.Bound || target.IsBoss() || target.IsDamageInvulnerable() || isPurePartySummon(target) {
+		return false
+	}
+	monsterType := strings.ToLower(strings.TrimSpace(target.MonsterType))
+	return monsterType != "undead" && monsterType != "formless"
+}
+
+// tryDarkElfBindInstead is the one racial proc boundary for every party-sourced
+// hit, including persistent fields. A successful proc replaces the entire hit and all of its on-hit riders;
+// the newly bound former enemy remains a normal reward-bearing map creature.
+func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
+	if !darkElfBindingEligible(attacker, target) || !cs.rollRacialProc(darkElfBindingChancePct) {
+		return false
+	}
+	target.Bound = true
+	target.BoundFramesRemaining = 0
+	target.Pacified = false
+	target.PacifiedFramesRemaining = 0
+	target.WasAttacked = false
+	target.AIFoe = nil
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's dark binding claims %s instead of the hit!", attacker.Name, target.Name))
+	return true
 }
 
 // applyPacify (Charm) pacifies a LIVING target - it stops attacking and breaks
@@ -5606,6 +5661,10 @@ func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
 // is stunned (RT frames + TB turns), no damage dealt. Shared by both cast
 // paths. Returns true if it handled the spell (caller should stop).
 func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition) bool {
+	return cs.tryCastAoeStunBy(spellID, def, nil)
+}
+
+func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.StunRadiusTiles <= 0 {
 		return false
 	}
@@ -5619,6 +5678,9 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 			continue
 		}
 		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {
+			continue
+		}
+		if cs.tryDarkElfBindInstead(caster, m) {
 			continue
 		}
 		if cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
@@ -5712,7 +5774,11 @@ func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *cha
 // applyStatBuffSpell registers a stat-buff spell in the timed registry:
 // different spells stack, recasting the same one refreshes it.
 func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int, bonuses character.StatBonuses) {
-	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), Frames: duration, Bonuses: bonuses})
+	cs.applyStatBuffSpellFromSource(spellID, "", duration, bonuses)
+}
+
+func (cs *CombatSystem) applyStatBuffSpellFromSource(spellID spells.SpellID, sourceID string, duration int, bonuses character.StatBonuses) {
+	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), SourceID: sourceID, Frames: duration, Bonuses: bonuses})
 }
 
 // armorGMDodgeBonus grants ArmorGMDodgeBonus dodge for each Grandmaster-mastered
@@ -6052,22 +6118,64 @@ func (cs *CombatSystem) randomLivingMember() *character.MMCharacter {
 	if len(alive) == 0 {
 		return nil
 	}
-	return cs.game.party.Members[alive[rand.Intn(len(alive))]]
+	return cs.game.party.Members[cs.weightedPartyTargetIndex(alive)]
 }
 
 // randomLivingMembers returns up to n DISTINCT living members in random order -
 // the target set of a champion's melee arc (each catches the same swing once).
 func (cs *CombatSystem) randomLivingMembers(n int) []*character.MMCharacter {
 	alive := alivePartyIndices(cs.game.party.Members)
-	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
 	if n > len(alive) {
 		n = len(alive)
 	}
 	out := make([]*character.MMCharacter, 0, n)
-	for _, idx := range alive[:n] {
+	for len(out) < n {
+		idx := cs.weightedPartyTargetIndex(alive)
 		out = append(out, cs.game.party.Members[idx])
+		for i, candidate := range alive {
+			if candidate == idx {
+				alive = append(alive[:i], alive[i+1:]...)
+				break
+			}
+		}
 	}
 	return out
+}
+
+// weightedPartyTargetIndex gives a halfling one ticket and every other race
+// two. Thus a halfling has exactly half another hero's relative probability
+// in every random party-target draw, including draws without replacement.
+func (cs *CombatSystem) weightedPartyTargetIndex(indices []int) int {
+	return cs.weightedPartyTargetIndexWithBase(indices, func(int) int { return 1 })
+}
+
+func (cs *CombatSystem) partyTargetWeight(idx, baseWeight int) int {
+	weight := baseWeight * 2
+	if member := cs.game.party.Members[idx]; member != nil && member.Race == "halfling" {
+		weight /= 2
+	}
+	return weight
+}
+
+// weightedPartyTargetIndexWithBase applies the racial multiplier at the final
+// draw, after the caller has expressed positional or attack-specific bias.
+func (cs *CombatSystem) weightedPartyTargetIndexWithBase(indices []int, baseWeight func(int) int) int {
+	if len(indices) == 0 {
+		return -1
+	}
+	total := 0
+	for _, idx := range indices {
+		total += cs.partyTargetWeight(idx, baseWeight(idx))
+	}
+	roll := rand.Intn(total)
+	for _, idx := range indices {
+		weight := cs.partyTargetWeight(idx, baseWeight(idx))
+		if roll < weight {
+			return idx
+		}
+		roll -= weight
+	}
+	return indices[len(indices)-1]
 }
 
 // tankIndex returns the party slot that counts as the "tank": the FRONT slot
@@ -6094,25 +6202,32 @@ func (cs *CombatSystem) tankTarget() *character.MMCharacter {
 	return nil
 }
 
-// rangedTBTarget is the turn-based ranged single-target rule: mostly the tank,
-// but RangedOffTankChance of the time a random NON-tank living member instead.
-func (cs *CombatSystem) rangedTBTarget() *character.MMCharacter {
+// rangedTarget preserves the authored all-human tank/off-tank split, then gives
+// every halfling half the raw ticket weight of the same slot occupied by any
+// other race. The same rule is used in RT and TB.
+func (cs *CombatSystem) rangedTarget() *character.MMCharacter {
 	ti := cs.tankIndex()
 	if ti < 0 {
 		return nil
 	}
-	if rand.Float64() < RangedOffTankChance {
-		others := make([]int, 0, len(cs.game.party.Members))
-		for i, x := range cs.game.party.Members {
-			if i != ti && x != nil && x.HitPoints > 0 {
-				others = append(others, i)
-			}
-		}
-		if len(others) > 0 {
-			return cs.game.party.Members[others[rand.Intn(len(others))]]
+	indices := make([]int, 0, len(cs.game.party.Members))
+	for i, member := range cs.game.party.Members {
+		if member != nil && member.HitPoints > 0 {
+			indices = append(indices, i)
 		}
 	}
-	return cs.game.party.Members[ti]
+	if len(indices) == 1 {
+		return cs.game.party.Members[indices[0]]
+	}
+	offTankTickets := max(1, int(math.Round(RangedOffTankChance*100)))
+	tankTickets := max(1, 100-offTankTickets) * (len(indices) - 1)
+	idx := cs.weightedPartyTargetIndexWithBase(indices, func(idx int) int {
+		if idx == ti {
+			return tankTickets
+		}
+		return offTankTickets
+	})
+	return cs.game.party.Members[idx]
 }
 
 // findCharacterIndex finds the index of a character in the party

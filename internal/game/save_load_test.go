@@ -90,9 +90,15 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.wizardEyeDuration = 45
 	game.walkOnWaterActive = true
 	game.walkOnWaterDuration = 33
-	game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 60, Bonuses: character.UniformStatBonuses(2)})
-	game.steamZones = []SteamZone{{
-		SpellID: "hot_steam", FieldID: 77, MapKey: "forest", FramesLeft: 42,
+	game.addStatBuff(TimedStatBuff{
+		SpellID: "bless", Frames: 60,
+		Bonuses: character.UniformStatBonuses(2),
+	})
+	// Providence originally granted Bless, then the player recast it. The marker
+	// stays until the phase boundary, while ownership is now ordinary.
+	game.celestialBuffSpellID = "bless"
+	game.persistentDamageZones = []PersistentDamageZone{{
+		SpellID: "hot_steam", CasterName: game.party.Members[0].Name, FieldID: 77, MapKey: "forest", FramesLeft: 42,
 		IntervalFrames: 360, TickDamage: 3,
 	}}
 	game.waterBreathingActive = true
@@ -175,6 +181,9 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if !ok || loadedBless != wantBless {
 		t.Fatalf("bless buff: got %+v (ok=%v) want %+v", loadedBless, ok, wantBless)
 	}
+	if loadedBless.SourceID != "" || loaded.celestialBuffSpellID != "bless" {
+		t.Fatalf("player recast ownership changed on load: buff=%+v marker=%q", loadedBless, loaded.celestialBuffSpellID)
+	}
 	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingDuration != game.waterBreathingDuration {
 		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingDuration, game.waterBreathingActive, game.waterBreathingDuration)
 	}
@@ -197,8 +206,9 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
 		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
 	}
-	if len(loaded.steamZones) != 1 || loaded.steamZones[0].FieldID != 77 || loaded.nextSteamZoneFieldID != 77 {
-		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.steamZones, loaded.nextSteamZoneFieldID)
+	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 ||
+		loaded.persistentDamageZones[0].CasterName != game.party.Members[0].Name || loaded.nextPersistentDamageZoneFieldID != 77 {
+		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.persistentDamageZones, loaded.nextPersistentDamageZoneFieldID)
 	}
 
 }

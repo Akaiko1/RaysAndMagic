@@ -139,6 +139,9 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		if Distance(m.X, m.Y, target.X, target.Y) > radius {
 			continue
 		}
+		if cs.tryDarkElfBindInstead(m.Caster, target) {
+			continue
+		}
 		actual := cs.applyMonsterDamagePacket(
 			target,
 			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg, True: m.TrueDamage}, damageTypeStr, resistPierce),

@@ -274,8 +274,12 @@ func TestMonsterProjectileHitsPlayer(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	game := cs.game
 
-	// Ensure no perfect dodge
-	game.party.Members[0].Luck = 0
+	// Ensure whichever weighted party target is selected cannot perfect-dodge.
+	beforeHP := 0
+	for _, member := range game.party.Members {
+		member.Luck = 0
+		beforeHP += member.HitPoints
+	}
 
 	mp := MagicProjectile{
 		ID:         "monster_test_proj",
@@ -291,11 +295,14 @@ func TestMonsterProjectileHitsPlayer(t *testing.T) {
 	game.magicProjectiles = append(game.magicProjectiles, mp)
 	game.collisionSystem.RegisterEntity(collision.NewEntity(mp.ID, mp.X, mp.Y, 8, 8, collision.CollisionTypeProjectile, false))
 
-	beforeHP := game.party.Members[0].HitPoints
 	cs.CheckProjectilePlayerCollisions()
 
-	if game.party.Members[0].HitPoints >= beforeHP {
-		t.Fatalf("expected player HP to decrease, HP %d -> %d", beforeHP, game.party.Members[0].HitPoints)
+	afterHP := 0
+	for _, member := range game.party.Members {
+		afterHP += member.HitPoints
+	}
+	if afterHP >= beforeHP {
+		t.Fatalf("expected party HP to decrease, total HP %d -> %d", beforeHP, afterHP)
 	}
 	if game.magicProjectiles[0].Active {
 		t.Fatalf("expected projectile to deactivate after hit")

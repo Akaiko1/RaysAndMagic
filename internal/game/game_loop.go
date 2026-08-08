@@ -732,7 +732,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	gl.game.tickCombatBuffs()
 	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
-	gl.updateSteamZonesRT()
+	gl.updatePersistentDamageZonesRT()
 	// Stone Blossom mortars in flight (detonate on landing; flies in RT and TB).
 	gl.game.tickPendingMortars()
 	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.

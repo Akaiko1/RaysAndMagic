@@ -26,16 +26,16 @@ const (
 // steamBubbleColor is the light blue-white of hot steam.
 var steamBubbleColor = [3]int{205, 228, 245}
 
-// drawSteamZoneBubbles renders rising steam bubbles across every tile covered by
-// an active Hot Steam zone, in both real-time and turn-based modes.
-func (r *Renderer) drawSteamZoneBubbles(screen *ebiten.Image) {
-	if len(r.game.steamZones) == 0 || r.game.world == nil {
+// drawPersistentDamageZoneEffects renders the authored steam or flame effect
+// across every active persistent damage-zone cell in both combat clocks.
+func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
+	if len(r.game.persistentDamageZones) == 0 || r.game.world == nil {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
 
-	for zi := range r.game.steamZones {
-		z := &r.game.steamZones[zi]
+	for zi := range r.game.persistentDamageZones {
+		z := &r.game.persistentDamageZones[zi]
 		if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 			continue
 		}

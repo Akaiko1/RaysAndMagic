@@ -248,31 +248,33 @@ type GameSave struct {
 	TurnBasedMonsterStunned    []string `json:"turn_based_monster_stunned,omitempty"`
 
 	// Utility/buff state
-	CardSummonCDFrames     int              `json:"card_summon_cd_frames,omitempty"`
-	TorchLightActive       bool             `json:"torch_light_active,omitempty"`
-	TorchLightDuration     int              `json:"torch_light_duration,omitempty"`
-	TorchLightRadius       float64          `json:"torch_light_radius,omitempty"`
-	WizardEyeActive        bool             `json:"wizard_eye_active,omitempty"`
-	WizardEyeDuration      int              `json:"wizard_eye_duration,omitempty"`
-	WalkOnWaterActive      bool             `json:"walk_on_water_active,omitempty"`
-	WalkOnWaterDuration    int              `json:"walk_on_water_duration,omitempty"`
-	FlyActive              bool             `json:"fly_active,omitempty"`
-	FlyDuration            int              `json:"fly_duration,omitempty"`
-	VisitedTavernMaps      []string         `json:"visited_tavern_maps,omitempty"`
-	BlessActive            bool             `json:"bless_active,omitempty"`
-	BlessDuration          int              `json:"bless_duration,omitempty"`
-	BlessStatBonus         int              `json:"bless_stat_bonus,omitempty"`
-	StatBuffs              []StatBuffSave   `json:"stat_buffs,omitempty"`
-	BlessBonusesPerStat    map[string]int   `json:"bless_bonuses_per_stat,omitempty"`
-	CombatBuffs            []CombatBuffSave `json:"combat_buffs,omitempty"`
-	SteamZones             []SteamZoneSave  `json:"steam_zones,omitempty"`
-	Traps                  []TrapSave       `json:"traps,omitempty"`
-	WaterBreathingActive   bool             `json:"water_breathing_active,omitempty"`
-	WaterBreathingDuration int              `json:"water_breathing_duration,omitempty"`
-	UnderwaterReturnX      float64          `json:"underwater_return_x,omitempty"`
-	UnderwaterReturnY      float64          `json:"underwater_return_y,omitempty"`
-	UnderwaterReturnMap    string           `json:"underwater_return_map,omitempty"`
-	StatBonus              int              `json:"stat_bonus,omitempty"`
+	CardSummonCDFrames     int                        `json:"card_summon_cd_frames,omitempty"`
+	TorchLightActive       bool                       `json:"torch_light_active,omitempty"`
+	TorchLightDuration     int                        `json:"torch_light_duration,omitempty"`
+	TorchLightRadius       float64                    `json:"torch_light_radius,omitempty"`
+	WizardEyeActive        bool                       `json:"wizard_eye_active,omitempty"`
+	WizardEyeDuration      int                        `json:"wizard_eye_duration,omitempty"`
+	WalkOnWaterActive      bool                       `json:"walk_on_water_active,omitempty"`
+	WalkOnWaterDuration    int                        `json:"walk_on_water_duration,omitempty"`
+	FlyActive              bool                       `json:"fly_active,omitempty"`
+	FlyDuration            int                        `json:"fly_duration,omitempty"`
+	VisitedTavernMaps      []string                   `json:"visited_tavern_maps,omitempty"`
+	BlessActive            bool                       `json:"bless_active,omitempty"`
+	BlessDuration          int                        `json:"bless_duration,omitempty"`
+	BlessStatBonus         int                        `json:"bless_stat_bonus,omitempty"`
+	StatBuffs              []StatBuffSave             `json:"stat_buffs,omitempty"`
+	BlessBonusesPerStat    map[string]int             `json:"bless_bonuses_per_stat,omitempty"`
+	CombatBuffs            []CombatBuffSave           `json:"combat_buffs,omitempty"`
+	CelestialBuffSpellID   string                     `json:"celestial_buff_spell_id,omitempty"`
+	TimedBuffSourceVersion int                        `json:"timed_buff_source_version,omitempty"`
+	PersistentDamageZones  []PersistentDamageZoneSave `json:"steam_zones,omitempty"`
+	Traps                  []TrapSave                 `json:"traps,omitempty"`
+	WaterBreathingActive   bool                       `json:"water_breathing_active,omitempty"`
+	WaterBreathingDuration int                        `json:"water_breathing_duration,omitempty"`
+	UnderwaterReturnX      float64                    `json:"underwater_return_x,omitempty"`
+	UnderwaterReturnY      float64                    `json:"underwater_return_y,omitempty"`
+	UnderwaterReturnMap    string                     `json:"underwater_return_map,omitempty"`
+	StatBonus              int                        `json:"stat_bonus,omitempty"`
 
 	// MapReturnPoses remembers where the party entered each map via a gate, so a
 	// return trip drops them at the doorway rather than the map's spawn tile.
@@ -303,6 +305,7 @@ type PartySave struct {
 type CharacterSave struct {
 	Name           string `json:"name"`
 	Class          int    `json:"class"`
+	Race           string `json:"race,omitempty"`
 	Promotion      int    `json:"promotion,omitempty"`
 	Level          int    `json:"level"`
 	Experience     int    `json:"experience"`
@@ -897,6 +900,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m := &character.MMCharacter{
 		Name:             cs.Name,
 		Class:            character.CharacterClass(cs.Class),
+		Race:             cs.Race,
 		Promotion:        character.Promotion(cs.Promotion),
 		Level:            cs.Level,
 		Experience:       cs.Experience,
@@ -983,6 +987,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
 		Name:             m.Name,
 		Class:            int(m.Class),
+		Race:             m.Race,
 		Promotion:        int(m.Promotion),
 		Level:            m.Level,
 		Experience:       m.Experience,
@@ -1367,16 +1372,16 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			saveAngle = wm.LocalizeAngle(key, saveAngle)
 		}
 	}
-	g.ensureSteamZoneFieldIDs()
-	steamZoneSaves := buildSteamZoneSaves(g.steamZones)
+	g.ensurePersistentDamageZoneFieldIDs()
+	persistentDamageZoneSaves := buildPersistentDamageZoneSaves(g.persistentDamageZones)
 	trapSaves := buildTrapSaves(g.traps)
 	bossFireTrapSaves := buildBossFireTrapSaves(g.bossFireTraps, saveMapKey, wm)
 	returnPoses := g.mapReturnPoses
 	uwX, uwY := g.underwaterReturnX, g.underwaterReturnY
 	if wm != nil && wm.OpenWorld != nil {
 		tileSize := g.config.GetTileSize()
-		for i := range steamZoneSaves {
-			z := &steamZoneSaves[i]
+		for i := range persistentDamageZoneSaves {
+			z := &persistentDamageZoneSaves[i]
 			if wm.IsOpenWorldRegion(z.MapKey) {
 				if key, lx, ly, ok := wm.LocalizeWorldPos(z.X, z.Y); ok {
 					z.MapKey, z.X, z.Y = key, lx, ly
@@ -1474,7 +1479,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		// aggregate from stat_buffs and never reads this back.
 		StatBonus:              g.statBonuses.Might,
 		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
-		SteamZones:             steamZoneSaves,
+		CelestialBuffSpellID:   g.celestialBuffSpellID,
+		TimedBuffSourceVersion: timedBuffSourceSaveVersion,
+		PersistentDamageZones:  persistentDamageZoneSaves,
 		Traps:                  trapSaves,
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
@@ -1587,6 +1594,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		for _, cs := range saves {
 			member := restoreCharacterSave(cs)
 			if member.EnsureClassKitSkills(g.config) {
+				g.loadNeedsResave = true
+			}
+			if member.EnsureRacialTraits(g.config) {
 				g.loadNeedsResave = true
 			}
 			*dst = append(*dst, member)
@@ -2074,8 +2084,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		}}
 	}
 	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
-	g.steamZones = restoreSteamZones(save.SteamZones, save.MapKey)
-	g.reseedSteamZoneFieldIDs()
+	g.celestialBuffSpellID = save.CelestialBuffSpellID
+	g.restoreCelestialProvidenceOwnership(save.TimedBuffSourceVersion)
+	g.persistentDamageZones = restorePersistentDamageZones(save.PersistentDamageZones, save.MapKey)
+	g.reseedPersistentDamageZoneFieldIDs()
 	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
@@ -2168,8 +2180,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				c.X, c.Y = wm.ProjectWorldPos(c.MapKey, c.X, c.Y)
 			}
 		}
-		for i := range g.steamZones {
-			z := &g.steamZones[i]
+		for i := range g.persistentDamageZones {
+			z := &g.persistentDamageZones[i]
 			if wm.IsOpenWorldRegion(z.MapKey) {
 				z.X, z.Y = wm.ProjectWorldPos(z.MapKey, z.X, z.Y)
 			}
@@ -2213,7 +2225,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, b := range g.combatBuffs {
 		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
 	}
-	g.syncSteamZoneStatuses()
+	g.syncPersistentDamageZoneStatuses()
 
 	// The Brood Mother's armed field is combat state, independent of quests.
 	// Positions live here; her cadence cooldowns live in MonsterSave.

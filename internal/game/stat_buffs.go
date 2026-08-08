@@ -11,12 +11,14 @@ import (
 // entry instead of stacking a duplicate. This replaces the old single-slot
 // blessActive/blessBonuses fields.
 type TimedStatBuff struct {
-	SpellID string // spell id (HUD status icon + replace-on-recast key)
-	Frames  int    // frames remaining
-	Bonuses character.StatBonuses
+	SpellID  string // spell id (HUD status icon + replace-on-recast key)
+	SourceID string // optional owner for system-granted cleanup
+	Frames   int    // frames remaining
+	Bonuses  character.StatBonuses
 }
 
-func (b TimedStatBuff) buffSpellID() string { return b.SpellID }
+func (b TimedStatBuff) buffSpellID() string  { return b.SpellID }
+func (b TimedStatBuff) buffSourceID() string { return b.SourceID }
 
 // addStatBuff activates a stat buff (same-spell recast refreshes) and pushes
 // the new aggregate onto the party.
@@ -50,13 +52,14 @@ func (g *MMGame) tickStatBuffs() {
 	}
 }
 
-// removeStatBuff drops a stat buff by spell id (dispel) and re-derives the
-// aggregate. No-op if absent.
-func (g *MMGame) removeStatBuff(spellID string) {
+// removeStatBuff drops a stat buff by ownership id and re-derives the aggregate.
+// Ordinary casts use the spell id; system-owned casts use their source id.
+func (g *MMGame) removeStatBuff(buffID string) bool {
 	var removed bool
-	if g.statBuffs, removed = removeBuffByID(g, g.statBuffs, spellID); removed {
+	if g.statBuffs, removed = removeBuffByID(g, g.statBuffs, buffID); removed {
 		g.recomputeStatBonuses()
 	}
+	return removed
 }
 
 // statBuffByID returns the active stat buff for a spell, if any (tests/UI).
@@ -66,9 +69,10 @@ func (g *MMGame) statBuffByID(spellID string) (TimedStatBuff, bool) {
 
 // StatBuffSave is the JSON form of a TimedStatBuff for save files.
 type StatBuffSave struct {
-	SpellID string         `json:"spell_id"`
-	Frames  int            `json:"frames"`
-	Bonuses map[string]int `json:"bonuses"`
+	SpellID  string         `json:"spell_id"`
+	SourceID string         `json:"source_id,omitempty"`
+	Frames   int            `json:"frames"`
+	Bonuses  map[string]int `json:"bonuses"`
 }
 
 // buildStatBuffSaves serializes the active stat-buff list for saving.
@@ -78,7 +82,10 @@ func buildStatBuffSaves(buffs []TimedStatBuff) []StatBuffSave {
 	}
 	out := make([]StatBuffSave, len(buffs))
 	for i, b := range buffs {
-		out[i] = StatBuffSave{b.SpellID, b.Frames, statBonusesToMap(b.Bonuses)}
+		out[i] = StatBuffSave{
+			SpellID: b.SpellID, SourceID: b.SourceID, Frames: b.Frames,
+			Bonuses: statBonusesToMap(b.Bonuses),
+		}
 	}
 	return out
 }
@@ -92,7 +99,10 @@ func restoreStatBuffs(saves []StatBuffSave) []TimedStatBuff {
 	}
 	out := make([]TimedStatBuff, len(saves))
 	for i, s := range saves {
-		out[i] = TimedStatBuff{s.SpellID, s.Frames, character.StatBonusesFromMap(s.Bonuses)}
+		out[i] = TimedStatBuff{
+			SpellID: s.SpellID, SourceID: s.SourceID, Frames: s.Frames,
+			Bonuses: character.StatBonusesFromMap(s.Bonuses),
+		}
 	}
 	return out
 }

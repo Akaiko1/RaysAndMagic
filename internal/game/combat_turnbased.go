@@ -128,7 +128,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 	if gl.game.turnBasedMonsterPassesLeft <= 0 {
 		// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
-		gl.tickSteamZonesTB()
+		gl.tickPersistentDamageZonesTB()
 
 		gl.game.turnBasedMonsterPassesLeft = 1
 		if gl.game.turnBasedExtraMonsterAction {

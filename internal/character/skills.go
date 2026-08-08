@@ -66,6 +66,10 @@ const (
 	SkillImpenetrableDefense
 	SkillLockpicking
 	SkillNaturalHealer
+	SkillCelestialProvidence
+	SkillOrcishFury
+	SkillHalflingGuile
+	SkillDarkElfBinding
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -135,6 +139,14 @@ func (s SkillType) String() string {
 		return "Lockpicking"
 	case SkillNaturalHealer:
 		return "Natural Healer"
+	case SkillCelestialProvidence:
+		return "Celestial Providence"
+	case SkillOrcishFury:
+		return "Orcish Fury"
+	case SkillHalflingGuile:
+		return "Halfling Guile"
+	case SkillDarkElfBinding:
+		return "Dark Elf Binding"
 	default:
 		return "Unknown"
 	}
@@ -259,6 +271,22 @@ var skillTypeByKey = map[string]SkillType{
 	"impenetrable_defense": SkillImpenetrableDefense,
 	"lockpicking":          SkillLockpicking,
 	"natural_healer":       SkillNaturalHealer,
+	"celestial_providence": SkillCelestialProvidence,
+	"orcish_fury":          SkillOrcishFury,
+	"halfling_guile":       SkillHalflingGuile,
+	"dark_elf_binding":     SkillDarkElfBinding,
+}
+
+// UsesMastery reports whether the skill can be trained through the four
+// mastery tiers. Fixed racial traits are displayed as passives and must never
+// enter level-up or trainer upgrade pools.
+func (s SkillType) UsesMastery() bool {
+	switch s {
+	case SkillCelestialProvidence, SkillHalflingGuile, SkillDarkElfBinding:
+		return false
+	default:
+		return true
+	}
 }
 
 // SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)

@@ -55,6 +55,10 @@ func TestSkillTypeValuesAreStableForSaveCompatibility(t *testing.T) {
 		SkillImpenetrableDefense: 29,
 		SkillLockpicking:         30,
 		SkillNaturalHealer:       31,
+		SkillCelestialProvidence: 32,
+		SkillOrcishFury:          33,
+		SkillHalflingGuile:       34,
+		SkillDarkElfBinding:      35,
 	}
 	if len(want) != len(AllSkills) {
 		t.Fatalf("AllSkills has %d entries but only %d are pinned here - a skill was added without "+

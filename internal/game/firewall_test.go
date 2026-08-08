@@ -32,16 +32,16 @@ func TestFirewall_LaysThreeCellsAcrossTheFacing(t *testing.T) {
 		t.Fatalf("authored damage ladder changed: %v", got)
 	}
 
-	g.steamZones = g.steamZones[:0]
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	g.persistentDamageZones = g.persistentDamageZones[:0]
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
 		t.Fatal("firewall must be handled by the zone path")
 	}
-	if len(g.steamZones) != 3 {
-		t.Fatalf("expected 3 wall cells, got %d", len(g.steamZones))
+	if len(g.persistentDamageZones) != 3 {
+		t.Fatalf("expected 3 wall cells, got %d", len(g.persistentDamageZones))
 	}
 	tps := g.config.GetTPS()
-	for i := range g.steamZones {
-		z := &g.steamZones[i]
+	for i := range g.persistentDamageZones {
+		z := &g.persistentDamageZones[i]
 		// Every cell sits 2 tiles downrange (x), spread along y (across the facing).
 		if dx := z.X - g.camera.X; math.Abs(dx-2*ts) > 1 {
 			t.Errorf("cell %d is %.0fpx downrange, want %.0f", i, dx, 2*ts)
@@ -58,7 +58,7 @@ func TestFirewall_LaysThreeCellsAcrossTheFacing(t *testing.T) {
 		}
 	}
 	// Cells must be distinct positions across the facing, not stacked.
-	if g.steamZones[0].Y == g.steamZones[1].Y || g.steamZones[1].Y == g.steamZones[2].Y {
+	if g.persistentDamageZones[0].Y == g.persistentDamageZones[1].Y || g.persistentDamageZones[1].Y == g.persistentDamageZones[2].Y {
 		t.Error("wall cells are stacked instead of spread across the facing")
 	}
 }
@@ -114,8 +114,8 @@ func TestJump_MovesPartyForwardOrRefuses(t *testing.T) {
 func zoneTiles(g *MMGame, spellID string) map[[2]int]bool {
 	ts := float64(g.config.GetTileSize())
 	out := map[[2]int]bool{}
-	for i := range g.steamZones {
-		if z := &g.steamZones[i]; z.SpellID == spellID {
+	for i := range g.persistentDamageZones {
+		if z := &g.persistentDamageZones[i]; z.SpellID == spellID {
 			out[[2]int{int(z.X / ts), int(z.Y / ts)}] = true
 		}
 	}
@@ -138,27 +138,27 @@ func TestZoneCast_MergesByTile(t *testing.T) {
 
 	cast := func(tileX, tileY int) {
 		placePlayerAtTile(g, tileX, tileY, ts)
-		if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, caster) {
+		if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
 			t.Fatal("firewall was not handled by the zone path")
 		}
 	}
 
-	g.steamZones = g.steamZones[:0]
+	g.persistentDamageZones = g.persistentDamageZones[:0]
 	cast(5, 5)
-	first := len(g.steamZones)
+	first := len(g.persistentDamageZones)
 	if first != def.ZoneWidthTiles {
 		t.Fatalf("first wall = %d cells, want %d", first, def.ZoneWidthTiles)
 	}
 
 	// Same spot again: one wall, not two.
 	cast(5, 5)
-	if got := len(g.steamZones); got != first {
+	if got := len(g.persistentDamageZones); got != first {
 		t.Errorf("re-cast on the same ground = %d cells, want %d", got, first)
 	}
 
 	// One tile sideways: two cells land on covered ground, one is new.
 	cast(5, 6)
-	if got := len(g.steamZones); got != first+1 {
+	if got := len(g.persistentDamageZones); got != first+1 {
 		t.Errorf("wall shifted by one tile = %d cells, want %d", got, first+1)
 	}
 	if got := len(zoneTiles(g, "firewall")); got != first+1 {
@@ -167,23 +167,23 @@ func TestZoneCast_MergesByTile(t *testing.T) {
 
 	// Far behind: no shared tile, so a second wall stands on its own.
 	cast(1, 5)
-	if got := len(g.steamZones); got != first+1+def.ZoneWidthTiles {
+	if got := len(g.persistentDamageZones); got != first+1+def.ZoneWidthTiles {
 		t.Errorf("second wall on fresh ground = %d cells, want %d", got, first+1+def.ZoneWidthTiles)
 	}
 
 	// Lifetime is REFRESHED, never extended - no stacking a two-hour firewall.
-	full := g.steamZones[0].FramesLeft
-	for i := range g.steamZones {
-		g.steamZones[i].FramesLeft /= 2
+	full := g.persistentDamageZones[0].FramesLeft
+	for i := range g.persistentDamageZones {
+		g.persistentDamageZones[i].FramesLeft /= 2
 	}
 	cast(5, 5)
-	for i := range g.steamZones {
-		if z := &g.steamZones[i]; z.FramesLeft > full {
+	for i := range g.persistentDamageZones {
+		if z := &g.persistentDamageZones[i]; z.FramesLeft > full {
 			t.Fatalf("cell %d lifetime %d exceeds one cast's %d", i, z.FramesLeft, full)
 		}
 	}
-	if g.steamZones[0].FramesLeft != full {
-		t.Errorf("re-cast cell lifetime = %d, want the full %d", g.steamZones[0].FramesLeft, full)
+	if g.persistentDamageZones[0].FramesLeft != full {
+		t.Errorf("re-cast cell lifetime = %d, want the full %d", g.persistentDamageZones[0].FramesLeft, full)
 	}
 }
 
@@ -199,24 +199,24 @@ func TestZoneCast_ShiftedWallLeavesOldEdgeTileTimer(t *testing.T) {
 	caster := g.party.Members[0]
 	g.camera.Angle = 0 // facing +X, wall spreads along Y
 
-	g.steamZones = g.steamZones[:0]
+	g.persistentDamageZones = g.persistentDamageZones[:0]
 	placePlayerAtTile(g, 5, 5, ts)
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
 		t.Fatal("first firewall cast failed")
 	}
-	full := g.steamZones[0].FramesLeft
+	full := g.persistentDamageZones[0].FramesLeft
 	half := full / 2
-	for i := range g.steamZones {
-		g.steamZones[i].FramesLeft = half
+	for i := range g.persistentDamageZones {
+		g.persistentDamageZones[i].FramesLeft = half
 	}
 
 	placePlayerAtTile(g, 5, 6, ts)
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
 		t.Fatal("shifted firewall cast failed")
 	}
 	edges, relaid := 0, 0
-	for i := range g.steamZones {
-		switch z := &g.steamZones[i]; z.FramesLeft {
+	for i := range g.persistentDamageZones {
+		switch z := &g.persistentDamageZones[i]; z.FramesLeft {
 		case half:
 			edges++
 		case full:
@@ -241,20 +241,20 @@ func TestZoneCast_RadialRefreshesOnSameTile(t *testing.T) {
 	}
 	caster := g.party.Members[0]
 
-	g.steamZones = g.steamZones[:0]
+	g.persistentDamageZones = g.persistentDamageZones[:0]
 	placePlayerAtTile(g, 8, 8, ts)
-	if !cs.tryCastSteamZone(spells.SpellID("hot_steam"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster) {
 		t.Fatal("hot_steam was not handled by the zone path")
 	}
-	g.steamZones[0].FramesLeft /= 2
-	if !cs.tryCastSteamZone(spells.SpellID("hot_steam"), def, caster) {
+	g.persistentDamageZones[0].FramesLeft /= 2
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster) {
 		t.Fatal("second hot_steam cast was not handled")
 	}
-	if got := len(g.steamZones); got != 1 {
+	if got := len(g.persistentDamageZones); got != 1 {
 		t.Fatalf("same-tile re-cast = %d zones, want 1", got)
 	}
-	if want := cs.CalculateSpellDurationFrames(spells.SpellID("hot_steam"), caster); g.steamZones[0].FramesLeft != want {
-		t.Errorf("refreshed lifetime = %d, want %d", g.steamZones[0].FramesLeft, want)
+	if want := cs.CalculateSpellDurationFrames(spells.SpellID("hot_steam"), caster); g.persistentDamageZones[0].FramesLeft != want {
+		t.Errorf("refreshed lifetime = %d, want %d", g.persistentDamageZones[0].FramesLeft, want)
 	}
 }
 
@@ -272,19 +272,19 @@ func TestFirewall_GridAlignedAtEveryAngle(t *testing.T) {
 
 	for _, deg := range []float64{0, 15, 30, 45, 60, 90, 135, 180, 225, 270, 315} {
 		t.Run(fmt.Sprintf("%.0fdeg", deg), func(t *testing.T) {
-			g.steamZones = g.steamZones[:0]
+			g.persistentDamageZones = g.persistentDamageZones[:0]
 			placePlayerAtTile(g, 10, 10, ts)
 			g.camera.Angle = deg * math.Pi / 180
-			if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, caster) {
+			if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
 				t.Fatal("firewall was not handled by the zone path")
 			}
-			if got := len(g.steamZones); got != def.ZoneWidthTiles {
+			if got := len(g.persistentDamageZones); got != def.ZoneWidthTiles {
 				t.Fatalf("wall = %d cells, want %d", got, def.ZoneWidthTiles)
 			}
 
 			seen := map[[2]int]bool{}
-			for i := range g.steamZones {
-				z := &g.steamZones[i]
+			for i := range g.persistentDamageZones {
+				z := &g.persistentDamageZones[i]
 				tileXY := [2]int{int(z.X / ts), int(z.Y / ts)}
 				if seen[tileXY] {
 					t.Fatalf("two cells share tile %v", tileXY)
@@ -296,7 +296,7 @@ func TestFirewall_GridAlignedAtEveryAngle(t *testing.T) {
 				if i == 0 {
 					continue
 				}
-				p := &g.steamZones[i-1]
+				p := &g.persistentDamageZones[i-1]
 				dx, dy := math.Abs(z.X-p.X), math.Abs(z.Y-p.Y)
 				if (dx > 1 && dy > 1) || math.Max(dx, dy) > ts+1 {
 					t.Errorf("cells %d and %d are not adjacent on one axis (dx=%.0f dy=%.0f)", i-1, i, dx, dy)
@@ -307,7 +307,7 @@ func TestFirewall_GridAlignedAtEveryAngle(t *testing.T) {
 			}
 
 			// The wall crosses the facing: its centre cell sits zone_ahead_tiles out.
-			mid := g.steamZones[len(g.steamZones)/2]
+			mid := g.persistentDamageZones[len(g.persistentDamageZones)/2]
 			if d := Distance(g.camera.X, g.camera.Y, mid.X, mid.Y); math.Abs(d-def.ZoneAheadTiles*ts) > ts {
 				t.Errorf("centre cell is %.0fpx from the party, want about %.0f", d, def.ZoneAheadTiles*ts)
 			}

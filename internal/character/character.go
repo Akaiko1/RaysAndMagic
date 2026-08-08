@@ -72,6 +72,7 @@ type MMCharacter struct {
 	Name      string
 	Class     CharacterClass
 	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
+	Race      string    // config.yaml race key; persisted because racial traits are gameplay state
 
 	// Core stats
 	Level          int
@@ -475,6 +476,75 @@ func (c *MMCharacter) ApplyRace(race string, cfg *config.Config) {
 	c.Accuracy += mods.Accuracy
 	c.Speed += mods.Speed
 	c.Luck += mods.Luck
+	c.Race = race
+	c.EnsureRacialTraits(cfg)
+}
+
+// EnsureRacialTraits applies the race-owned skill kit without touching racial
+// stat modifiers. It is safe on restored characters: absent passives are added,
+// fixed passives are normalized, and a half-orc Knight's replaced class skill
+// migrates its earned mastery to Orcish Fury.
+func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
+	if c == nil {
+		return false
+	}
+	changed := false
+	if c.Race == "" && cfg != nil {
+		for _, roster := range [][]config.RosterEntry{
+			cfg.Characters.StartingParty,
+			cfg.Characters.Captives,
+			cfg.Characters.TavernRecruits,
+		} {
+			for _, entry := range roster {
+				if entry.Name == c.Name && entry.Race != "" {
+					c.Race = entry.Race
+					changed = true
+					break
+				}
+			}
+			if c.Race != "" {
+				break
+			}
+		}
+	}
+	if c.Skills == nil {
+		c.Skills = make(map[SkillType]*Skill)
+	}
+	ensureFixed := func(skillType SkillType) {
+		if skill := c.Skills[skillType]; skill == nil {
+			c.Skills[skillType] = &Skill{Mastery: MasteryNovice}
+			changed = true
+		} else if skill.Mastery != MasteryNovice {
+			skill.Mastery = MasteryNovice
+			changed = true
+		}
+	}
+	switch c.Race {
+	case "celestial":
+		ensureFixed(SkillCelestialProvidence)
+	case "halfling":
+		ensureFixed(SkillHalflingGuile)
+	case "dark_elf":
+		ensureFixed(SkillDarkElfBinding)
+	case "half_orc":
+		if c.Class != ClassKnight {
+			break
+		}
+		mastery := MasteryNovice
+		if old := c.Skills[SkillImpenetrableDefense]; old != nil {
+			mastery = old.Mastery
+			delete(c.Skills, SkillImpenetrableDefense)
+			changed = true
+		}
+		if fury := c.Skills[SkillOrcishFury]; fury == nil {
+			c.Skills[SkillOrcishFury] = &Skill{Mastery: mastery}
+			changed = true
+		} else if mastery > fury.Mastery {
+			fury.Mastery = mastery
+			changed = true
+		}
+	}
+	return changed
 }
 
 // derivedStatMultipliers returns the HP/SP formula multipliers, falling back to

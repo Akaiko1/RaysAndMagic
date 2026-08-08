@@ -381,12 +381,15 @@ type MMGame struct {
 	// Skin, Heroism, ...) - see combat_buffs.go. Their ResistPct/OutBonus/InReduce
 	// sum across all active entries.
 	combatBuffs []TimedCombatBuff
+	// celestialBuffSpellID identifies the race-granted buff so the next real
+	// dawn/dusk boundary removes exactly the previous Providence result.
+	celestialBuffSpellID string
 
 	// Persistent damage zones (Hot Steam) - see combat_zones.go.
-	steamZones           []SteamZone
-	nextSteamZoneFieldID uint64
-	traps                []PlacedTrap // armed thief traps (map-scoped, persisted)
-	selectedTrap         int          // trap-book browse index (selection != equipped quick trap)
+	persistentDamageZones           []PersistentDamageZone
+	nextPersistentDamageZoneFieldID uint64
+	traps                           []PlacedTrap // armed thief traps (map-scoped, persisted)
+	selectedTrap                    int          // trap-book browse index (selection != equipped quick trap)
 
 	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an

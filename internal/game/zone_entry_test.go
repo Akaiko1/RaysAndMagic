@@ -25,11 +25,11 @@ func TestZone_DamagesOnEntryNotOnlyOnTick(t *testing.T) {
 	if err != nil {
 		t.Fatalf("firewall: %v", err)
 	}
-	g.steamZones = g.steamZones[:0]
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	g.persistentDamageZones = g.persistentDamageZones[:0]
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
 		t.Fatal("cast not handled")
 	}
-	z := &g.steamZones[1] // the middle cell, dead ahead
+	z := &g.persistentDamageZones[1] // the middle cell, dead ahead
 	gl := &GameLoop{game: g}
 
 	// A monster far away takes nothing from the entry pass.
@@ -59,7 +59,7 @@ func TestZone_DamagesOnEntryNotOnlyOnTick(t *testing.T) {
 	}
 
 	// Once the interval elapses, the periodic tick burns it again.
-	gl.advanceSteamZones(z.IntervalFrames)
+	gl.advancePersistentDamageZones(z.IntervalFrames)
 	if mob.HitPoints >= afterEntry {
 		t.Fatalf("the periodic tick dealt no damage (HP stayed %d)", mob.HitPoints)
 	}

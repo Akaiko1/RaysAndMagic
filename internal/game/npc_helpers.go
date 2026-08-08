@@ -278,7 +278,7 @@ func trainerOptions(char *character.MMCharacter) []trainerOption {
 	}
 	options := make([]trainerOption, 0, len(char.Skills)+len(char.MagicSchools))
 	for skillType, skill := range char.Skills {
-		if skill == nil || skill.Mastery >= character.MasteryGrandMaster {
+		if skill == nil || !skillType.UsesMastery() || skill.Mastery >= character.MasteryGrandMaster {
 			continue
 		}
 		next := skill.Mastery + 1

@@ -164,7 +164,7 @@ func TestAllyMatrix_PartyDamageTransparency(t *testing.T) {
 			}
 
 			hp = m.HitPoints
-			g.steamZones = append(g.steamZones[:0], SteamZone{SpellID: "firewall", X: m.X, Y: m.Y,
+			g.persistentDamageZones = append(g.persistentDamageZones[:0], PersistentDamageZone{SpellID: "firewall", X: m.X, Y: m.Y,
 				Radius:     float64(g.config.GetTileSize()),
 				TickDamage: 25, FramesLeft: 60, IntervalFrames: 60})
 			g.combat.applyZoneEntrySpell("firewall")

@@ -1381,7 +1381,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
-		r.drawSteamZoneBubbles(screen)
+		r.drawPersistentDamageZoneEffects(screen)
 		// Steam rising from every shut culvert valve's tile.
 		r.drawClosedValveSteam(screen)
 

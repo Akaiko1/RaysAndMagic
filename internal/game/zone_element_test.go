@@ -26,7 +26,7 @@ func zoneVictim(t *testing.T, g *MMGame) *monsterPkg.Monster3D {
 }
 
 // placeInZone stands each monster on a zone cell's centre.
-func placeInZone(t *testing.T, g *MMGame, z *SteamZone, victims ...*monsterPkg.Monster3D) {
+func placeInZone(t *testing.T, g *MMGame, z *PersistentDamageZone, victims ...*monsterPkg.Monster3D) {
 	t.Helper()
 	for _, m := range victims {
 		m.X, m.Y = z.X, z.Y
@@ -60,11 +60,11 @@ func TestZoneDamageUsesTheSpellSchool(t *testing.T) {
 			right := zoneVictim(t, g)
 			right.Resistances[tc.resists] = 100
 
-			g.steamZones = g.steamZones[:0]
-			if !cs.tryCastSteamZone(spells.SpellID(tc.spell), def, g.party.Members[0]) {
+			g.persistentDamageZones = g.persistentDamageZones[:0]
+			if !cs.tryCastPersistentDamageZone(spells.SpellID(tc.spell), def, g.party.Members[0]) {
 				t.Fatalf("%s was not handled by the zone path", tc.spell)
 			}
-			placeInZone(t, g, &g.steamZones[0], wrong, right)
+			placeInZone(t, g, &g.persistentDamageZones[0], wrong, right)
 			tickZoneSpellOnce(cs, tc.spell)
 
 			if wrong.HitPoints >= wrong.MaxHitPoints {
@@ -90,11 +90,11 @@ func TestZoneTickReportsLikeANormalHit(t *testing.T) {
 	}
 	victim := zoneVictim(t, g)
 
-	g.steamZones = g.steamZones[:0]
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	g.persistentDamageZones = g.persistentDamageZones[:0]
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
 		t.Fatal("firewall was not handled by the zone path")
 	}
-	placeInZone(t, g, &g.steamZones[0], victim)
+	placeInZone(t, g, &g.persistentDamageZones[0], victim)
 	before := len(g.combatLogHistory)
 	tickZoneSpellOnce(cs, "firewall")
 
@@ -134,11 +134,11 @@ func TestZone_TurnBasedTickCountAndEntryOrder(t *testing.T) {
 
 	standing := zoneVictim(t, g)
 	walksIn := zoneVictim(t, g)
-	g.steamZones = g.steamZones[:0]
-	if !cs.tryCastSteamZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	g.persistentDamageZones = g.persistentDamageZones[:0]
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
 		t.Fatal("firewall was not handled by the zone path")
 	}
-	zone := &g.steamZones[0]
+	zone := &g.persistentDamageZones[0]
 	placeInZone(t, g, zone, standing)
 	// The second mob waits outside, far from every cell.
 	walksIn.X, walksIn.Y = g.camera.X-8*float64(g.config.GetTileSize()), g.camera.Y
@@ -175,24 +175,24 @@ func TestZone_IndependentFieldsBillSeparately(t *testing.T) {
 
 	tps := g.config.GetTPS()
 	perTick := 20
-	mkZone := func(tileX int, counter, framesLeft int) SteamZone {
+	mkZone := func(tileX int, counter, framesLeft int) PersistentDamageZone {
 		x, y := TileCenterFromTile(tileX, 10, ts)
-		return SteamZone{
+		return PersistentDamageZone{
 			SpellID: "hot_steam", X: x, Y: y, Radius: 0.55 * ts,
 			TickDamage: perTick, FramesLeft: framesLeft,
 			IntervalFrames: tps, tickCounter: counter,
 		}
 	}
 	// Field A ticks on this frame; field B is half an interval behind.
-	g.steamZones = append(g.steamZones[:0], mkZone(4, tps-1, 10*tps), mkZone(20, tps/2, 10*tps))
+	g.persistentDamageZones = append(g.persistentDamageZones[:0], mkZone(4, tps-1, 10*tps), mkZone(20, tps/2, 10*tps))
 	victimA, victimB := zoneVictim(t, g), zoneVictim(t, g)
-	victimA.X, victimA.Y = g.steamZones[0].X, g.steamZones[0].Y
-	victimB.X, victimB.Y = g.steamZones[1].X, g.steamZones[1].Y
+	victimA.X, victimA.Y = g.persistentDamageZones[0].X, g.persistentDamageZones[0].Y
+	victimB.X, victimB.Y = g.persistentDamageZones[1].X, g.persistentDamageZones[1].Y
 	g.refreshMonsterCollisionState(victimA)
 	g.refreshMonsterCollisionState(victimB)
 
 	hpA, hpB := victimA.HitPoints, victimB.HitPoints
-	gl.advanceSteamZones(1)
+	gl.advancePersistentDamageZones(1)
 	if got := hpA - victimA.HitPoints; got != perTick {
 		t.Errorf("field A victim took %d, want one tick of %d", got, perTick)
 	}
@@ -201,17 +201,17 @@ func TestZone_IndependentFieldsBillSeparately(t *testing.T) {
 	}
 
 	// An expiring cell pays its final tick to the mob standing in IT.
-	g.steamZones = append(g.steamZones[:0], mkZone(4, tps-1, 1), mkZone(20, 0, 10*tps))
+	g.persistentDamageZones = append(g.persistentDamageZones[:0], mkZone(4, tps-1, 1), mkZone(20, 0, 10*tps))
 	hpA, hpB = victimA.HitPoints, victimB.HitPoints
-	gl.advanceSteamZones(1)
+	gl.advancePersistentDamageZones(1)
 	if got := hpA - victimA.HitPoints; got != perTick {
 		t.Errorf("expiring cell paid %d to its own victim, want %d", got, perTick)
 	}
 	if got := hpB - victimB.HitPoints; got != 0 {
 		t.Errorf("expiring cell's tick leaked %d onto the surviving field", got)
 	}
-	for i := range g.steamZones {
-		if g.steamZones[i].X == mkZone(4, 0, 0).X {
+	for i := range g.persistentDamageZones {
+		if g.persistentDamageZones[i].X == mkZone(4, 0, 0).X {
 			t.Error("expired cell survived the pass")
 		}
 	}
@@ -231,18 +231,18 @@ func TestZone_BurnStampsDieWithTheField(t *testing.T) {
 	victim.X, victim.Y = x, y
 	g.refreshMonsterCollisionState(victim)
 
-	g.steamZones = append(g.steamZones[:0], SteamZone{
+	g.persistentDamageZones = append(g.persistentDamageZones[:0], PersistentDamageZone{
 		SpellID: "hot_steam", X: x, Y: y, Radius: 0.55 * ts,
 		TickDamage: 30, FramesLeft: 1, IntervalFrames: tps, tickCounter: tps - 1,
 	})
-	gl.advanceSteamZones(1) // fires the final tick, then the cell expires
-	if len(g.steamZones) != 0 {
-		t.Fatalf("field should be gone, %d cells left", len(g.steamZones))
+	gl.advancePersistentDamageZones(1) // fires the final tick, then the cell expires
+	if len(g.persistentDamageZones) != 0 {
+		t.Fatalf("field should be gone, %d cells left", len(g.persistentDamageZones))
 	}
 	// The stamps lived in that cell, so they died with it - nothing to leak.
 
 	// New cast on the same spot: the entry pass must bill this monster again.
-	g.steamZones = append(g.steamZones[:0], SteamZone{
+	g.persistentDamageZones = append(g.persistentDamageZones[:0], PersistentDamageZone{
 		SpellID: "hot_steam", X: x, Y: y, Radius: 0.55 * ts,
 		TickDamage: 30, FramesLeft: 10 * tps, IntervalFrames: tps,
 	})
@@ -262,30 +262,30 @@ func TestZone_TickOfOneFieldDoesNotReArmTheOther(t *testing.T) {
 
 	tps := g.config.GetTPS()
 	perTick := 20
-	mkZone := func(tileX int, counter int) SteamZone {
+	mkZone := func(tileX int, counter int) PersistentDamageZone {
 		x, y := TileCenterFromTile(tileX, 10, ts)
-		return SteamZone{
+		return PersistentDamageZone{
 			SpellID: "hot_steam", X: x, Y: y, Radius: 0.55 * ts,
 			TickDamage: perTick, FramesLeft: 10 * tps,
 			IntervalFrames: tps, tickCounter: counter,
 		}
 	}
 	// A fires on the first frame; B is half an interval behind.
-	g.steamZones = append(g.steamZones[:0], mkZone(4, tps-1), mkZone(20, tps/2))
+	g.persistentDamageZones = append(g.persistentDamageZones[:0], mkZone(4, tps-1), mkZone(20, tps/2))
 	victimA, victimB := zoneVictim(t, g), zoneVictim(t, g)
-	victimA.X, victimA.Y = g.steamZones[0].X, g.steamZones[0].Y
-	victimB.X, victimB.Y = g.steamZones[1].X, g.steamZones[1].Y
+	victimA.X, victimA.Y = g.persistentDamageZones[0].X, g.persistentDamageZones[0].Y
+	victimB.X, victimB.Y = g.persistentDamageZones[1].X, g.persistentDamageZones[1].Y
 	g.refreshMonsterCollisionState(victimA)
 	g.refreshMonsterCollisionState(victimB)
 
-	gl.updateSteamZonesRT() // entry pass bills both; field A also ticks
+	gl.updatePersistentDamageZonesRT() // entry pass bills both; field A also ticks
 	hpA, hpB := victimA.HitPoints, victimB.HitPoints
 
 	// Neither field reaches its interval in this window, and both victims are
 	// standing still - so nothing may be billed. Field A's tick on the previous
 	// frame must not have re-armed field B's victim.
 	for i := 0; i < 2; i++ {
-		gl.updateSteamZonesRT()
+		gl.updatePersistentDamageZonesRT()
 	}
 	if got := hpA - victimA.HitPoints; got != 0 {
 		t.Errorf("field A victim took %d while standing still between ticks, want 0", got)
@@ -297,7 +297,7 @@ func TestZone_TickOfOneFieldDoesNotReArmTheOther(t *testing.T) {
 	// Cadence still runs: over a full interval each field bills its own victim once.
 	hpA, hpB = victimA.HitPoints, victimB.HitPoints
 	for i := 0; i < tps; i++ {
-		gl.updateSteamZonesRT()
+		gl.updatePersistentDamageZonesRT()
 	}
 	if got := hpA - victimA.HitPoints; got != perTick {
 		t.Errorf("field A billed %d over one interval, want %d", got, perTick)
@@ -311,9 +311,9 @@ func TestZone_EntryStampIsPerLogicalField(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	cs := g.combat
 	perTick := 20
-	mkZone := func(tileX int, fieldID uint64) SteamZone {
+	mkZone := func(tileX int, fieldID uint64) PersistentDamageZone {
 		x, y := TileCenterFromTile(tileX, 10, ts)
-		return SteamZone{
+		return PersistentDamageZone{
 			SpellID: "hot_steam", FieldID: fieldID, X: x, Y: y,
 			Radius: 0.55 * ts, TickDamage: perTick,
 			FramesLeft: 10 * g.config.GetTPS(), IntervalFrames: g.config.GetTPS(),
@@ -321,17 +321,17 @@ func TestZone_EntryStampIsPerLogicalField(t *testing.T) {
 	}
 	// Field B has two cells like a wall. Its cells share one entry stamp, while
 	// the distant field A must not suppress B's first entry hit.
-	g.steamZones = []SteamZone{mkZone(4, 11), mkZone(20, 22), mkZone(21, 22)}
+	g.persistentDamageZones = []PersistentDamageZone{mkZone(4, 11), mkZone(20, 22), mkZone(21, 22)}
 	victim := zoneVictim(t, g)
 
-	placeInZone(t, g, &g.steamZones[0], victim)
+	placeInZone(t, g, &g.persistentDamageZones[0], victim)
 	hp := victim.HitPoints
 	cs.applyZoneEntrySpell("hot_steam")
 	if got := hp - victim.HitPoints; got != perTick {
 		t.Fatalf("entry into field A billed %d, want %d", got, perTick)
 	}
 
-	placeInZone(t, g, &g.steamZones[1], victim)
+	placeInZone(t, g, &g.persistentDamageZones[1], victim)
 	hp = victim.HitPoints
 	cs.applyZoneEntrySpell("hot_steam")
 	if got := hp - victim.HitPoints; got != perTick {
@@ -342,7 +342,7 @@ func TestZone_EntryStampIsPerLogicalField(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		cs.applyZoneEntrySpell("hot_steam")
 	}
-	placeInZone(t, g, &g.steamZones[2], victim)
+	placeInZone(t, g, &g.persistentDamageZones[2], victim)
 	hp = victim.HitPoints
 	cs.applyZoneEntrySpell("hot_steam")
 	if got := hp - victim.HitPoints; got != 0 {
@@ -375,18 +375,18 @@ func TestZone_WallCellBillsItsOwnTileExactlyOnce(t *testing.T) {
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					g, ts := summonTileWorld(t)
-					wall := func(tileX int, fieldID uint64, dmg int) SteamZone {
+					wall := func(tileX int, fieldID uint64, dmg int) PersistentDamageZone {
 						x, y := TileCenterFromTile(tileX, 10, ts)
-						return SteamZone{
+						return PersistentDamageZone{
 							SpellID: "firewall", FieldID: fieldID, X: x, Y: y,
 							Radius: 0.55 * ts, TickDamage: dmg,
 							FramesLeft: 600, IntervalFrames: 60, AxisY: 1,
 						}
 					}
-					g.steamZones = []SteamZone{wall(10, 101, 10), wall(11, 202, 30)}
+					g.persistentDamageZones = []PersistentDamageZone{wall(10, 101, 10), wall(11, 202, 30)}
 					victim := zoneVictim(t, g)
-					victim.X = g.steamZones[0].X + tc.offsetX*ts
-					victim.Y = g.steamZones[0].Y + tc.offsetY*ts
+					victim.X = g.persistentDamageZones[0].X + tc.offsetX*ts
+					victim.Y = g.persistentDamageZones[0].Y + tc.offsetY*ts
 					g.refreshMonsterCollisionState(victim)
 
 					before := victim.HitPoints
@@ -406,25 +406,25 @@ func TestZone_WallCellBillsItsOwnTileExactlyOnce(t *testing.T) {
 func TestZone_IntersectionOfTwoCastsBillsOnce(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	cs := g.combat
-	mk := func(tileX int, fieldID uint64, dmg int) SteamZone {
+	mk := func(tileX int, fieldID uint64, dmg int) PersistentDamageZone {
 		x, y := TileCenterFromTile(tileX, 10, ts)
-		return SteamZone{
+		return PersistentDamageZone{
 			SpellID: "hot_steam", FieldID: fieldID, X: x, Y: y,
 			Radius: 1.0 * ts, TickDamage: dmg,
 			FramesLeft: 600, IntervalFrames: 60,
 		}
 	}
-	g.steamZones = []SteamZone{mk(10, 101, 10), mk(11, 202, 30)}
+	g.persistentDamageZones = []PersistentDamageZone{mk(10, 101, 10), mk(11, 202, 30)}
 	victim := zoneVictim(t, g)
-	victim.X = g.steamZones[0].X + 0.5*ts // covered by both circles
-	victim.Y = g.steamZones[0].Y
+	victim.X = g.persistentDamageZones[0].X + 0.5*ts // covered by both circles
+	victim.Y = g.persistentDamageZones[0].Y
 	g.refreshMonsterCollisionState(victim)
 
 	fire := func(zoneIdx ...int) int {
 		before := victim.HitPoints
 		var firing []firingZoneCell
 		for _, i := range zoneIdx {
-			firing = append(firing, firingZoneCell{cell: g.steamZones[i], ticks: 1})
+			firing = append(firing, firingZoneCell{cell: g.persistentDamageZones[i], ticks: 1})
 		}
 		cs.billZoneTicks(firing)
 		return before - victim.HitPoints
@@ -460,13 +460,13 @@ func TestZone_ReEnteringAfterLeavingBillsAgain(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	cs := g.combat
 	x, y := TileCenterFromTile(10, 10, ts)
-	g.steamZones = []SteamZone{{
+	g.persistentDamageZones = []PersistentDamageZone{{
 		SpellID: "hot_steam", FieldID: 101, X: x, Y: y,
 		Radius: 1.0 * ts, TickDamage: 10,
 		FramesLeft: 600, IntervalFrames: 60,
 	}}
 	victim := zoneVictim(t, g)
-	placeInZone(t, g, &g.steamZones[0], victim)
+	placeInZone(t, g, &g.persistentDamageZones[0], victim)
 
 	entry := func() int {
 		before := victim.HitPoints
@@ -489,19 +489,19 @@ func TestZone_ReEnteringAfterLeavingBillsAgain(t *testing.T) {
 func TestZone_SyncStampsUsesFieldIdentity(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	x, y := TileCenterFromTile(8, 8, ts)
-	g.steamZones = []SteamZone{
+	g.persistentDamageZones = []PersistentDamageZone{
 		{SpellID: "hot_steam", FieldID: 101, MapKey: "map_a", X: x, Y: y, entered: map[string]bool{"a": true}},
 		{SpellID: "hot_steam", FieldID: 202, MapKey: "map_b", X: x, Y: y, entered: map[string]bool{"old": true}},
 	}
-	firing := []firingZoneCell{{cell: g.steamZones[1], ticks: 1}}
+	firing := []firingZoneCell{{cell: g.persistentDamageZones[1], ticks: 1}}
 	firing[0].cell.entered = map[string]bool{"b": true}
 
 	g.combat.syncZoneStamps(firing)
 
-	if !g.steamZones[0].entered["a"] || g.steamZones[0].entered["b"] {
-		t.Errorf("map A stamps were overwritten: %v", g.steamZones[0].entered)
+	if !g.persistentDamageZones[0].entered["a"] || g.persistentDamageZones[0].entered["b"] {
+		t.Errorf("map A stamps were overwritten: %v", g.persistentDamageZones[0].entered)
 	}
-	if !g.steamZones[1].entered["b"] || g.steamZones[1].entered["old"] {
-		t.Errorf("map B did not receive its firing copy: %v", g.steamZones[1].entered)
+	if !g.persistentDamageZones[1].entered["b"] || g.persistentDamageZones[1].entered["old"] {
+		t.Errorf("map B did not receive its firing copy: %v", g.persistentDamageZones[1].entered)
 	}
 }

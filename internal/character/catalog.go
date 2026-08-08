@@ -170,6 +170,12 @@ func ImpenetrableDefenseReduction(tier int) int {
 	return masteryTableValue(impenetrableDefenseFlat, tier)
 }
 
+var orcishFuryDamage = [...]int{3, 5, 7, 10}
+
+func OrcishFuryDamageBonus(tier int) int {
+	return masteryTableValue(orcishFuryDamage, tier)
+}
+
 func LockpickingChancePct(tier int) int {
 	return masteryTableValue(lockpickingChancePct, tier)
 }
@@ -358,6 +364,7 @@ var AllSkills = []SkillType{
 	SkillDualWielding, SkillIronBody, SkillSpiritualTraining,
 	SkillBlaster, SkillElementalMastery, SkillAnimalBonding, SkillSacrifice,
 	SkillImpenetrableDefense, SkillLockpicking, SkillNaturalHealer,
+	SkillCelestialProvidence, SkillOrcishFury, SkillHalflingGuile, SkillDarkElfBinding,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
@@ -482,6 +489,16 @@ func (s SkillType) Description() string {
 		return fmt.Sprintf("Natural Healer: healing spells restore %d/%d/%d/%d%% more HP at Novice/Expert/Master/Grandmaster.",
 			NaturalHealerBonusPct(0), NaturalHealerBonusPct(1),
 			NaturalHealerBonusPct(2), NaturalHealerBonusPct(3))
+	case SkillCelestialProvidence:
+		return "Celestial Providence: at every dawn and dusk, grants the party one random Master-tier buff until the next phase change. This racial skill has no mastery."
+	case SkillOrcishFury:
+		return fmt.Sprintf("Orcish Fury: weapon attacks deal +%d/%d/%d/%d normal damage at Novice/Expert/Master/Grandmaster.",
+			OrcishFuryDamageBonus(0), OrcishFuryDamageBonus(1),
+			OrcishFuryDamageBonus(2), OrcishFuryDamageBonus(3))
+	case SkillHalflingGuile:
+		return "Halfling Guile: this hero has half the target-selection weight of other races whenever an enemy randomly chooses a party target. This racial skill has no mastery."
+	case SkillDarkElfBinding:
+		return "Dark Elf Binding: 10% of direct attacks and spell hits bind the target instead of hitting it. Undead, formless creatures, bosses, and invulnerable encounter targets are immune. This racial skill has no mastery."
 	default:
 		return ""
 	}

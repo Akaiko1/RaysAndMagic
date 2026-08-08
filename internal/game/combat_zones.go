@@ -12,13 +12,12 @@ import (
 	"ugataima/internal/world"
 )
 
-// SteamZone is a fixed-position persistent damage field (Hot Steam). It is
-// spawned at the party's location on cast and, each tick, sears every monster
-// within Radius. RT advances it every frame; one TB monster round advances it by
-// TurnBasedPeriodicEffectSeconds, so deliberating over the party turn can never
-// deal free damage or consume duration.
-type SteamZone struct {
+// PersistentDamageZone is one fixed-position field cast, shared by radial zones
+// such as Hot Steam and wall-cell zones such as Firewall. CasterName is the
+// stable roster identity used to restore source-dependent effects after load.
+type PersistentDamageZone struct {
 	SpellID        string
+	CasterName     string
 	FieldID        uint64  // logical cast; all cells of one wall share it
 	MapKey         string  // map the zone was cast on - it never follows the party
 	X, Y           float64 // world center (fixed at cast)
@@ -39,38 +38,38 @@ type SteamZone struct {
 	entered map[string]bool
 }
 
-func (g *MMGame) allocateSteamZoneFieldID() uint64 {
-	g.nextSteamZoneFieldID++
-	if g.nextSteamZoneFieldID == 0 {
-		g.nextSteamZoneFieldID = 1
+func (g *MMGame) allocatePersistentDamageZoneFieldID() uint64 {
+	g.nextPersistentDamageZoneFieldID++
+	if g.nextPersistentDamageZoneFieldID == 0 {
+		g.nextPersistentDamageZoneFieldID = 1
 	}
-	return g.nextSteamZoneFieldID
+	return g.nextPersistentDamageZoneFieldID
 }
 
-// ensureSteamZoneFieldIDs migrates legacy/test cells that predate field IDs.
+// ensurePersistentDamageZoneFieldIDs migrates legacy/test cells that predate field IDs.
 // A zero-ID cell becomes its own field; released saves never contained a
 // multi-cell wall, so this preserves the old single-zone contract.
-func (g *MMGame) ensureSteamZoneFieldIDs() {
-	for i := range g.steamZones {
-		if id := g.steamZones[i].FieldID; id > g.nextSteamZoneFieldID {
-			g.nextSteamZoneFieldID = id
+func (g *MMGame) ensurePersistentDamageZoneFieldIDs() {
+	for i := range g.persistentDamageZones {
+		if id := g.persistentDamageZones[i].FieldID; id > g.nextPersistentDamageZoneFieldID {
+			g.nextPersistentDamageZoneFieldID = id
 		}
 	}
-	for i := range g.steamZones {
-		if g.steamZones[i].FieldID == 0 {
-			g.steamZones[i].FieldID = g.allocateSteamZoneFieldID()
+	for i := range g.persistentDamageZones {
+		if g.persistentDamageZones[i].FieldID == 0 {
+			g.persistentDamageZones[i].FieldID = g.allocatePersistentDamageZoneFieldID()
 		}
 	}
 }
 
-func (g *MMGame) reseedSteamZoneFieldIDs() {
-	g.nextSteamZoneFieldID = 0
-	g.ensureSteamZoneFieldIDs()
+func (g *MMGame) reseedPersistentDamageZoneFieldIDs() {
+	g.nextPersistentDamageZoneFieldID = 0
+	g.ensurePersistentDamageZoneFieldIDs()
 }
 
-// tryCastSteamZone handles persistent-zone spells (Hot Steam): spawns a fixed
-// damage zone centered on the party. Gated on ZoneRadiusTiles > 0.
-func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+// tryCastPersistentDamageZone handles every persistent-zone spell. It creates
+// one radial cell or a fixed wall of cells and snapshots the caster identity.
+func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.ZoneRadiusTiles <= 0 {
 		return false
 	}
@@ -83,10 +82,11 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
 	// in-game tooltip - same source of truth as every other timed spell.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
-	tickParts := cs.spellDamageParts(spellID, caster, cs.CalculateSteamZoneTickDamage(def, caster))
-	newZone := SteamZone{
+	tickParts := cs.spellDamageParts(spellID, caster, cs.CalculatePersistentDamageZoneTickDamage(def, caster))
+	newZone := PersistentDamageZone{
 		SpellID:        string(spellID),
-		FieldID:        cs.game.allocateSteamZoneFieldID(),
+		CasterName:     caster.Name,
+		FieldID:        cs.game.allocatePersistentDamageZoneFieldID(),
 		MapKey:         currentMapKey(),
 		X:              cs.game.camera.X,
 		Y:              cs.game.camera.Y,
@@ -115,13 +115,13 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 // zone_ahead_tiles ahead; any other zone is a single cell on the party. Cells
 // snap to tile centres - a zone covers TILES, and tiles decide what a re-cast
 // refreshes.
-func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinition, tile float64) []SteamZone {
+func (cs *CombatSystem) zoneCastCells(proto PersistentDamageZone, def spells.SpellDefinition, tile float64) []PersistentDamageZone {
 	g := cs.game
-	snap := func(cell SteamZone) SteamZone {
+	snap := func(cell PersistentDamageZone) PersistentDamageZone {
 		cell.X, cell.Y = TileCenterFromTile(TileIndex(cell.X, tile), TileIndex(cell.Y, tile), tile)
 		return cell
 	}
-	blocked := func(cell SteamZone) bool {
+	blocked := func(cell PersistentDamageZone) bool {
 		return g.world != nil && g.world.IsTileBlockingTerrainAt(TileIndex(cell.X, tile), TileIndex(cell.Y, tile))
 	}
 	if def.ZoneWidthTiles <= 1 {
@@ -129,7 +129,7 @@ func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinitio
 		if blocked(cell) {
 			return nil
 		}
-		return []SteamZone{cell}
+		return []PersistentDamageZone{cell}
 	}
 
 	ahead := def.ZoneAheadTiles
@@ -151,7 +151,7 @@ func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinitio
 	centerTX := TileIndex((g.camera.X + fx*ahead*tile), tile)
 	centerTY := TileIndex((g.camera.Y + fy*ahead*tile), tile)
 	half := (def.ZoneWidthTiles - 1) / 2
-	cells := make([]SteamZone, 0, def.ZoneWidthTiles)
+	cells := make([]PersistentDamageZone, 0, def.ZoneWidthTiles)
 	for i := 0; i < def.ZoneWidthTiles; i++ {
 		off := i - half
 		cell := proto
@@ -170,7 +170,7 @@ func (cs *CombatSystem) zoneCastCells(proto SteamZone, def spells.SpellDefinitio
 // ground is appended. Tiles the cast does NOT lay are untouched - a shifted wall
 // must not refresh the old edge tile. Cells compare by WORLD, since two region
 // keys share one map on the unified world.
-func (cs *CombatSystem) mergeZoneCast(cells []SteamZone) {
+func (cs *CombatSystem) mergeZoneCast(cells []PersistentDamageZone) {
 	if len(cells) == 0 {
 		return
 	}
@@ -181,11 +181,11 @@ func (cs *CombatSystem) mergeZoneCast(cells []SteamZone) {
 		}
 		return a == b
 	}
-	sameTile := func(a, b SteamZone) bool {
+	sameTile := func(a, b PersistentDamageZone) bool {
 		return TileIndex(a.X, tile) == TileIndex(b.X, tile) && TileIndex(a.Y, tile) == TileIndex(b.Y, tile)
 	}
 
-	live := cs.game.steamZones
+	live := cs.game.persistentDamageZones
 	for _, cell := range cells {
 		matched := false
 		for i := range live {
@@ -203,7 +203,7 @@ func (cs *CombatSystem) mergeZoneCast(cells []SteamZone) {
 			live = append(live, cell)
 		}
 	}
-	cs.game.steamZones = live
+	cs.game.persistentDamageZones = live
 }
 
 // zoneSourceName is the zone's display name for combat messages - the spell's
@@ -215,16 +215,32 @@ func zoneSourceName(spellID string) string {
 	return spellID
 }
 
+// persistentDamageZoneCaster resolves the saved source identity across every
+// roster. A benched caster still owns a field they laid while active.
+func (g *MMGame) persistentDamageZoneCaster(zone *PersistentDamageZone) *character.MMCharacter {
+	if g == nil || g.party == nil || zone == nil || zone.CasterName == "" {
+		return nil
+	}
+	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+		for _, member := range roster {
+			if member != nil && member.Name == zone.CasterName {
+				return member
+			}
+		}
+	}
+	return nil
+}
+
 // firingZoneCell is one cell that reached its tick interval, plus how many ticks
 // it owes this pass.
 type firingZoneCell struct {
-	cell  SteamZone
+	cell  PersistentDamageZone
 	ticks int
 }
 
 // zoneStampedAny: the monster is stamped somewhere in the spell's live cells,
 // i.e. already paid this spell and is still inside the stamping field.
-func zoneStampedAny(view []*SteamZone, monsterID string) bool {
+func zoneStampedAny(view []*PersistentDamageZone, monsterID string) bool {
 	for _, z := range view {
 		if z.entered[monsterID] {
 			return true
@@ -236,7 +252,7 @@ func zoneStampedAny(view []*SteamZone, monsterID string) bool {
 // dropStaleZoneStamps forgets monsters a FIELD no longer covers: a stamp means
 // "paid AND still inside that field". Per field, not per cell - standing on one
 // tile of a wall keeps the whole wall paid.
-func (cs *CombatSystem) dropStaleZoneStamps(cells []*SteamZone) {
+func (cs *CombatSystem) dropStaleZoneStamps(cells []*PersistentDamageZone) {
 	tile := float64(cs.game.config.GetTileSize())
 	pos := map[string][2]float64{}
 	for _, m := range cs.game.world.Monsters {
@@ -244,7 +260,7 @@ func (cs *CombatSystem) dropStaleZoneStamps(cells []*SteamZone) {
 			pos[m.ID] = [2]float64{m.X, m.Y}
 		}
 	}
-	byField := map[uint64][]*SteamZone{}
+	byField := map[uint64][]*PersistentDamageZone{}
 	for _, z := range cells {
 		byField[z.FieldID] = append(byField[z.FieldID], z)
 	}
@@ -275,12 +291,12 @@ func (cs *CombatSystem) dropStaleZoneStamps(cells []*SteamZone) {
 }
 
 // isWallCell: only a wall zone (Firewall) carries a run axis.
-func (z *SteamZone) isWallCell() bool { return z.AxisX != 0 || z.AxisY != 0 }
+func (z *PersistentDamageZone) isWallCell() bool { return z.AxisX != 0 || z.AxisY != 0 }
 
 // coversMonster is the zone hit test. A wall cell covers exactly its TILE (it is
 // laid and merged in tile terms; its 0.55 radius is render spread only); a radial
 // field covers its circle.
-func (z *SteamZone) coversMonster(mx, my, tile float64) bool {
+func (z *PersistentDamageZone) coversMonster(mx, my, tile float64) bool {
 	if z.isWallCell() {
 		return TileIndex(mx, tile) == TileIndex(z.X, tile) && TileIndex(my, tile) == TileIndex(z.Y, tile)
 	}
@@ -290,8 +306,8 @@ func (z *SteamZone) coversMonster(mx, my, tile float64) bool {
 
 // zoneCoveredMonsters maps each monster to every supplied cell covering it. The
 // caller bills the monster once, then stamps every logical field it occupies.
-func (cs *CombatSystem) zoneCoveredMonsters(cells []*SteamZone) map[*monsterPkg.Monster3D][]*SteamZone {
-	covered := map[*monsterPkg.Monster3D][]*SteamZone{}
+func (cs *CombatSystem) zoneCoveredMonsters(cells []*PersistentDamageZone) map[*monsterPkg.Monster3D][]*PersistentDamageZone {
+	covered := map[*monsterPkg.Monster3D][]*PersistentDamageZone{}
 	tile := float64(cs.game.config.GetTileSize())
 	for _, z := range cells {
 		if z.TickDamage <= 0 && z.TrueTickDamage <= 0 {
@@ -328,7 +344,7 @@ func (cs *CombatSystem) billZoneTicks(firing []firingZoneCell) {
 		}
 	}
 	for t := 0; t < maxTicks; t++ {
-		bySpell := map[string][]*SteamZone{}
+		bySpell := map[string][]*PersistentDamageZone{}
 		var order []string
 		for i := range firing {
 			if firing[i].ticks <= t {
@@ -352,19 +368,19 @@ func (cs *CombatSystem) billZoneTicks(firing []firingZoneCell) {
 // zoneTickView is the stamp authority during a tick pass: the firing copies plus
 // the spell's live cells that are not firing (a firing cell's live counterpart
 // holds stale stamps until syncZoneStamps).
-func (cs *CombatSystem) zoneTickView(spellID string, firingCells []*SteamZone) []*SteamZone {
+func (cs *CombatSystem) zoneTickView(spellID string, firingCells []*PersistentDamageZone) []*PersistentDamageZone {
 	tile := float64(cs.game.config.GetTileSize())
 	type cellKey struct {
 		field  uint64
 		tx, ty int
 	}
 	fired := map[cellKey]bool{}
-	view := append([]*SteamZone(nil), firingCells...)
+	view := append([]*PersistentDamageZone(nil), firingCells...)
 	for _, z := range firingCells {
 		fired[cellKey{z.FieldID, TileIndex(z.X, tile), TileIndex(z.Y, tile)}] = true
 	}
-	for i := range cs.game.steamZones {
-		z := &cs.game.steamZones[i]
+	for i := range cs.game.persistentDamageZones {
+		z := &cs.game.persistentDamageZones[i]
 		if z.SpellID != spellID || fired[cellKey{z.FieldID, TileIndex(z.X, tile), TileIndex(z.Y, tile)}] {
 			continue
 		}
@@ -379,8 +395,8 @@ func (cs *CombatSystem) syncZoneStamps(firing []firingZoneCell) {
 	tile := float64(cs.game.config.GetTileSize())
 	for i := range firing {
 		src := &firing[i].cell
-		for j := range cs.game.steamZones {
-			live := &cs.game.steamZones[j]
+		for j := range cs.game.persistentDamageZones {
+			live := &cs.game.persistentDamageZones[j]
 			if live.SpellID != src.SpellID || live.FieldID != src.FieldID {
 				continue
 			}
@@ -397,10 +413,10 @@ func (cs *CombatSystem) syncZoneStamps(firing []firingZoneCell) {
 // zone always costs at least one tick's damage. Stale stamps are dropped first,
 // so walking out of one cast and into another pays a fresh entry hit.
 func (cs *CombatSystem) applyZoneEntrySpell(spellID string) {
-	cs.game.ensureSteamZoneFieldIDs()
-	var cells []*SteamZone
-	for i := range cs.game.steamZones {
-		if z := &cs.game.steamZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
+	cs.game.ensurePersistentDamageZoneFieldIDs()
+	var cells []*PersistentDamageZone
+	for i := range cs.game.persistentDamageZones {
+		if z := &cs.game.persistentDamageZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
 			cells = append(cells, z)
 		}
 	}
@@ -411,7 +427,7 @@ func (cs *CombatSystem) applyZoneEntrySpell(spellID string) {
 // stampCoveredZoneFields marks every cell belonging to a field the monster
 // currently occupies. This is what lets a mob cross a multi-cell wall without
 // paying a second entry hit.
-func stampCoveredZoneFields(cells, covering []*SteamZone, monsterID string) {
+func stampCoveredZoneFields(cells, covering []*PersistentDamageZone, monsterID string) {
 	fields := map[uint64]bool{}
 	for _, z := range covering {
 		fields[z.FieldID] = true
@@ -431,7 +447,7 @@ func stampCoveredZoneFields(cells, covering []*SteamZone, monsterID string) {
 // stamped anywhere in view - ONE hit per spell per pass, however many cells or
 // casts overlap it. The snapshot comes from the first covering cell (stable
 // slice order); the hit stamps every covering field in view.
-func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*SteamZone) {
+func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*PersistentDamageZone) {
 	if len(coverage) == 0 {
 		return
 	}
@@ -449,6 +465,9 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Ste
 		}
 		stampCoveredZoneFields(view, covering, m.ID)
 		z := covering[0]
+		if cs.tryDarkElfBindInstead(cs.game.persistentDamageZoneCaster(z), m) {
+			continue
+		}
 		actual := cs.applyMonsterDamagePacket(
 			m,
 			singleMonsterDamagePacket(damagecalc.Parts{Normal: z.TickDamage + bonus, True: z.TrueTickDamage}, damageTypeStr, z.ResistPierce),
@@ -462,14 +481,14 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Ste
 	}
 }
 
-// updateSteamZonesRT advances zones only in real time. TB owns the same clock at
-// the monster-round boundary in tickSteamZonesTB.
-func (gl *GameLoop) updateSteamZonesRT() {
+// updatePersistentDamageZonesRT advances zones only in real time. TB owns the same clock at
+// the monster-round boundary in tickPersistentDamageZonesTB.
+func (gl *GameLoop) updatePersistentDamageZonesRT() {
 	if gl.game.turnBasedMode {
 		return
 	}
 	gl.applyZoneEntryDamageAll()
-	gl.advanceSteamZones(1)
+	gl.advancePersistentDamageZones(1)
 }
 
 // applyZoneEntryDamageAll gives every live spell field its entry pass.
@@ -484,8 +503,8 @@ func (gl *GameLoop) applyZoneEntryDamageAll() {
 func (g *MMGame) liveZoneSpellIDs() []string {
 	var ids []string
 	seen := map[string]bool{}
-	for i := range g.steamZones {
-		if z := &g.steamZones[i]; z.FramesLeft > 0 && !seen[z.SpellID] {
+	for i := range g.persistentDamageZones {
+		if z := &g.persistentDamageZones[i]; z.FramesLeft > 0 && !seen[z.SpellID] {
 			seen[z.SpellID] = true
 			ids = append(ids, z.SpellID)
 		}
@@ -493,13 +512,13 @@ func (g *MMGame) liveZoneSpellIDs() []string {
 	return ids
 }
 
-// advanceSteamZones advances lifetime and cadence by elapsedFrames. It is the
+// advancePersistentDamageZones advances lifetime and cadence by elapsedFrames. It is the
 // single RT/TB implementation: one RT frame passes 1; one TB monster round
 // passes the configured three-second equivalent. Damage is resolved before
 // final-turn expiry, matching poison/burn's final active tick.
-func (gl *GameLoop) advanceSteamZones(elapsedFrames int) {
-	gl.game.ensureSteamZoneFieldIDs()
-	zones := gl.game.steamZones
+func (gl *GameLoop) advancePersistentDamageZones(elapsedFrames int) {
+	gl.game.ensurePersistentDamageZoneFieldIDs()
+	zones := gl.game.persistentDamageZones
 	if len(zones) == 0 || elapsedFrames <= 0 {
 		return
 	}
@@ -544,11 +563,11 @@ func (gl *GameLoop) advanceSteamZones(elapsedFrames int) {
 			maxLeft[z.SpellID] = z.FramesLeft
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
-		// frame (Renderer.drawSteamZoneBubbles) - no sparse particle spawns here.
+		// frame (Renderer.drawPersistentDamageZoneEffects) - no sparse particle spawns here.
 		zones[w] = *z
 		w++
 	}
-	gl.game.steamZones = zones[:w]
+	gl.game.persistentDamageZones = zones[:w]
 	gl.game.combat.billZoneTicks(firing)
 	for id, left := range maxLeft {
 		gl.game.updateUtilityStatus(spells.SpellID(id), left, true)
@@ -560,23 +579,23 @@ func (gl *GameLoop) advanceSteamZones(elapsedFrames int) {
 	}
 }
 
-// tickSteamZonesTB fires a round's periodic ticks. The entry pass belongs at the
+// tickPersistentDamageZonesTB fires a round's periodic ticks. The entry pass belongs at the
 // END of the monster turn (updateMonstersTurnBased), once the mobs have moved.
 //
-// tickSteamZonesTB advances Hot Steam by the same three seconds one TB round
+// tickPersistentDamageZonesTB advances Hot Steam by the same three seconds one TB round
 // represents for poison/burn. With its authored three-second interval this is
 // exactly one damage tick, and no time passes while the player deliberates.
-func (gl *GameLoop) tickSteamZonesTB() {
-	gl.advanceSteamZones(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))
+func (gl *GameLoop) tickPersistentDamageZonesTB() {
+	gl.advancePersistentDamageZones(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))
 }
 
-// syncSteamZoneStatuses rebuilds the one-HUD-icon-per-spell view without
+// syncPersistentDamageZoneStatuses rebuilds the one-HUD-icon-per-spell view without
 // advancing zone time. Load uses it because a restored TB game may deliberate
 // indefinitely before the next monster round updates the zone.
-func (g *MMGame) syncSteamZoneStatuses() {
+func (g *MMGame) syncPersistentDamageZoneStatuses() {
 	maxLeft := map[string]int{}
-	for i := range g.steamZones {
-		z := &g.steamZones[i]
+	for i := range g.persistentDamageZones {
+		z := &g.persistentDamageZones[i]
 		if z.FramesLeft > maxLeft[z.SpellID] {
 			maxLeft[z.SpellID] = z.FramesLeft
 		}
@@ -618,9 +637,10 @@ func (g *MMGame) appendSteamPuffLocked(x, y float64, count int) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Particles: particles, Active: true})
 }
 
-// SteamZoneSave is the JSON form of a SteamZone for save files.
-type SteamZoneSave struct {
+// PersistentDamageZoneSave is the JSON form of a PersistentDamageZone for save files.
+type PersistentDamageZoneSave struct {
 	SpellID        string  `json:"spell_id"`
+	CasterName     string  `json:"caster_name,omitempty"`
 	FieldID        uint64  `json:"field_id,omitempty"`
 	MapKey         string  `json:"map_key,omitempty"`
 	X              float64 `json:"x"`
@@ -636,14 +656,14 @@ type SteamZoneSave struct {
 	AxisY          float64 `json:"axis_y,omitempty"`
 }
 
-func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
+func buildPersistentDamageZoneSaves(zones []PersistentDamageZone) []PersistentDamageZoneSave {
 	if len(zones) == 0 {
 		return nil
 	}
-	out := make([]SteamZoneSave, len(zones))
+	out := make([]PersistentDamageZoneSave, len(zones))
 	for i, z := range zones {
-		out[i] = SteamZoneSave{
-			SpellID: z.SpellID, FieldID: z.FieldID, MapKey: z.MapKey, X: z.X, Y: z.Y, Radius: z.Radius,
+		out[i] = PersistentDamageZoneSave{
+			SpellID: z.SpellID, CasterName: z.CasterName, FieldID: z.FieldID, MapKey: z.MapKey, X: z.X, Y: z.Y, Radius: z.Radius,
 			FramesLeft: z.FramesLeft, TickDamage: z.TickDamage, TrueTickDamage: z.TrueTickDamage, ResistPierce: z.ResistPierce,
 			IntervalFrames: z.IntervalFrames, TickCounter: z.tickCounter,
 			AxisX: z.AxisX, AxisY: z.AxisY,
@@ -652,20 +672,20 @@ func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
 	return out
 }
 
-// restoreSteamZones rebuilds zones from a save; legacy entries without a map
+// restorePersistentDamageZones rebuilds zones from a save; legacy entries without a map
 // are pinned to the map the save was made on (same migration as loot bags).
-func restoreSteamZones(saves []SteamZoneSave, saveMapKey string) []SteamZone {
+func restorePersistentDamageZones(saves []PersistentDamageZoneSave, saveMapKey string) []PersistentDamageZone {
 	if len(saves) == 0 {
 		return nil
 	}
-	out := make([]SteamZone, len(saves))
+	out := make([]PersistentDamageZone, len(saves))
 	for i, s := range saves {
 		mapKey := s.MapKey
 		if mapKey == "" {
 			mapKey = saveMapKey
 		}
-		out[i] = SteamZone{
-			SpellID: s.SpellID, FieldID: s.FieldID, MapKey: mapKey, X: s.X, Y: s.Y, Radius: s.Radius,
+		out[i] = PersistentDamageZone{
+			SpellID: s.SpellID, CasterName: s.CasterName, FieldID: s.FieldID, MapKey: mapKey, X: s.X, Y: s.Y, Radius: s.Radius,
 			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, TrueTickDamage: s.TrueTickDamage, ResistPierce: s.ResistPierce,
 			IntervalFrames: s.IntervalFrames, tickCounter: s.TickCounter,
 			AxisX: s.AxisX, AxisY: s.AxisY,

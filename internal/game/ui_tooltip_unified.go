@@ -549,7 +549,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	}
 	if def.ZoneRadiusTiles > 0 && cs != nil {
 		// Tick damage uses the cast snapshot plus the same live outgoing buff
-		// damageSteamZoneOnce reads on every tick.
+		// damagePersistentDamageZoneOnce reads on every tick.
 		ladder := len(def.DamageByMastery) == 4
 		if ladder {
 			// An authored ladder IS the payload: no Intellect, no per-tier bonus and
@@ -563,7 +563,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 				statContribDetail(&dmg, "Intellect", char.GetEffectiveIntellect(), spells.SpellIntellectDivisor)
 			}
 		}
-		tickTotal := cs.CalculateSteamZoneTickDamage(def, char)
+		tickTotal := cs.CalculatePersistentDamageZoneTickDamage(def, char)
 		tickParts := cs.spellDamageParts(def.ID, char, tickTotal)
 		if mastery > 0 && !ladder {
 			if tickParts.True > 0 {

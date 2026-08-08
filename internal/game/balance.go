@@ -219,13 +219,12 @@ const (
 
 // Monster target-selection rules (who in the party gets hit). The party is a
 // single blob, so this is damage distribution, not positioning. MELEE = random
-// living member (both modes). RANGED single-target = the TANK (party slot 0) in
-// real time; in turn-based it's the tank most of the time but sometimes a
-// back-liner. AoE always hits everyone. The "tank" is the fixed FRONT SLOT
-// (index 0), not the highest-Endurance member.
+// living member. RANGED single-target = tank-biased final draw in both clocks.
+// AoE always hits everyone. The "tank" is the fixed FRONT SLOT (index 0), not
+// the highest-Endurance member. Race weights modify the final single-target draw.
 const (
-	// RangedOffTankChance: in turn-based, a single-target ranged/projectile hit
-	// lands on a random NON-tank living member this often; otherwise on the tank.
+	// RangedOffTankChance is the combined all-human off-tank share for a
+	// single-target ranged/projectile hit in either combat clock.
 	RangedOffTankChance = 0.30
 )
 

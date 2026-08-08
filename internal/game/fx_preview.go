@@ -245,7 +245,7 @@ func (p *FxPreview) clearTransient() {
 	g.slashEffects = g.slashEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
-	g.steamZones = g.steamZones[:0]
+	g.persistentDamageZones = g.persistentDamageZones[:0]
 	g.traps = g.traps[:0]
 	g.screenShake = 0
 }
@@ -371,7 +371,7 @@ func (p *FxPreview) Step() {
 	if len(g.spellHitEffects) > 0 {
 		g.UpdateHitEffects()
 	}
-	gl.updateSteamZonesRT()
+	gl.updatePersistentDamageZonesRT()
 	gl.updateSpecialEffects()
 	g.UpdateDamageBlinkTimers()
 

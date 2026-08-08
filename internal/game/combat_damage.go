@@ -105,6 +105,7 @@ func monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool 
 // separately for each monster.
 type partyMonsterAttack struct {
 	Packet               monsterDamagePacket
+	Attacker             *character.MMCharacter
 	WeaponDef            *config.WeaponDefinitionConfig
 	WeaponName           string
 	IsRanged             bool

@@ -145,8 +145,8 @@ func TestDebugSim_ZoneGallery(t *testing.T) {
 		if id := os.Getenv("RAM_ZONE_CAST"); id != "" {
 			spellID := spells.SpellID(id)
 			if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
-				g.steamZones = g.steamZones[:0]
-				g.combat.tryCastSteamZone(spellID, def, g.party.Members[0])
+				g.persistentDamageZones = g.persistentDamageZones[:0]
+				g.combat.tryCastPersistentDamageZone(spellID, def, g.party.Members[0])
 			}
 		}
 		runOnDrawFrame(func(_ *ebiten.Image) {

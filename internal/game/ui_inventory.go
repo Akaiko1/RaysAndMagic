@@ -567,7 +567,11 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	var skillsList []skillLine
 	for _, skillID := range character.AllSkills {
 		if skill := member.Skills[skillID]; skill != nil {
-			skillsList = append(skillsList, skillLine{skillID, fmt.Sprintf("%s %d (%s)", skillID.String(), skill.Level(), skill.Mastery.String())})
+			text := skillID.String()
+			if skillID.UsesMastery() {
+				text = fmt.Sprintf("%s %d (%s)", skillID.String(), skill.Level(), skill.Mastery.String())
+			}
+			skillsList = append(skillsList, skillLine{skillID, text})
 		}
 	}
 	if len(skillsList) == 0 {
