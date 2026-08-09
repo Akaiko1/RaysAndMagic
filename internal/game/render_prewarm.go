@@ -77,6 +77,7 @@ type mapRenderPrewarmStats struct {
 type mapRenderPrewarmTask struct {
 	mapKey             string
 	plan               mapRenderPrewarmPlan
+	priorities         mapRenderPrewarmPriorities
 	prewarmer          *mapRenderPrewarmer
 	preparedSprites    <-chan graphics.PreparedSpriteResource
 	spriteCommit       *graphics.PreparedSpriteCommit
@@ -389,16 +390,157 @@ func (r *Renderer) collectMapRenderPrewarmPlan(mapKey string) mapRenderPrewarmPl
 	return r.collectMapRenderPrewarmPlanForScope(r.mapRenderPrewarmScope(mapKey))
 }
 
+// mapRenderPrewarmPriorities is the camera-dependent companion of a plan: the
+// minimal stream score seen per normalized sprite name. Smaller warms earlier.
+// The plan itself stays camera-independent; this is recomputed from the live
+// camera when the task starts, so restarting a region re-aims the stream.
+type mapRenderPrewarmPriorities map[string]float64
+
+// mapRenderOffscreenStreamPenalty pushes every out-of-view use site behind all
+// in-view ones while preserving distance order within each group - the player
+// can turn faster than a region streams, so off-screen proximity still counts.
+const mapRenderOffscreenStreamPenalty = 1e12
+
+func wrapAngleDelta(delta float64) float64 {
+	delta = math.Mod(delta+math.Pi, 2*math.Pi)
+	if delta < 0 {
+		delta += 2 * math.Pi
+	}
+	return delta - math.Pi
+}
+
+// mapRenderStreamScore ranks one authored use site for the streaming order:
+// squared camera distance, penalized when the site sits outside the current
+// view wedge (with the same margin the region loader uses).
+func mapRenderStreamScore(camX, camY, camAngle, fov, x, y float64) float64 {
+	dx, dy := x-camX, y-camY
+	score := dx*dx + dy*dy
+	if math.Abs(wrapAngleDelta(math.Atan2(dy, dx)-camAngle)) > fov/2+mapRenderLoadFOVMargin {
+		score += mapRenderOffscreenStreamPenalty
+	}
+	return score
+}
+
+// observe keeps the best score per name. It is the single owner of the
+// "no position, no score" rule: an unscored (or +Inf-scored) name is absent
+// from the map, which score() reports as +Inf, so those resources keep the
+// plan's deterministic alphabetical tail order.
+func observeMinScore[K comparable](scores map[K]float64, key K, score float64) {
+	if existing, known := scores[key]; !known || score < existing {
+		scores[key] = score
+	}
+}
+
+func (p mapRenderPrewarmPriorities) observe(name string, score float64) {
+	if name == "" || math.IsInf(score, 1) {
+		return
+	}
+	observeMinScore(p, name, score)
+}
+
+func (p mapRenderPrewarmPriorities) score(name string) float64 {
+	if score, known := p[name]; known {
+		return score
+	}
+	return math.Inf(1)
+}
+
+// orderedByStreamPriority returns items reordered so the best-scored names
+// leave the stream first. Stable: unscored or tied entries keep the plan's
+// deterministic alphabetical order, and the input slice is never mutated.
+func orderedByStreamPriority[T any](items []T, priorities mapRenderPrewarmPriorities, name func(T) string) []T {
+	if len(priorities) == 0 || len(items) < 2 {
+		return items
+	}
+	ordered := append([]T(nil), items...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return priorities.score(name(ordered[i])) < priorities.score(name(ordered[j]))
+	})
+	return ordered
+}
+
+func orderedNamesByStreamPriority(names []string, priorities mapRenderPrewarmPriorities) []string {
+	return orderedByStreamPriority(names, priorities, func(name string) string { return name })
+}
+
+// orderedMapRenderSourceRequests is the decode-stream order: the plan's
+// deterministic request set, reordered so the camera's nearest visible
+// resources leave the decode worker first.
+func orderedMapRenderSourceRequests(plan mapRenderPrewarmPlan, priorities mapRenderPrewarmPriorities) []graphics.SpriteResourceRequest {
+	return orderedByStreamPriority(mapRenderSourceRequests(plan), priorities,
+		func(request graphics.SpriteResourceRequest) string { return request.Name })
+}
+
+// resolveMonsterPrewarmResources propagates each seed's stream score through
+// the summon graph. A key may be revisited only when a strictly better score
+// reaches it; this makes diamonds deterministic and still terminates cycles.
+func resolveMonsterPrewarmResources(seeds map[string]float64, priorities mapRenderPrewarmPriorities) map[mapMonsterPrewarmResource]struct{} {
+	type pendingMonster struct {
+		key   string
+		score float64
+	}
+	pending := make([]pendingMonster, 0, len(seeds))
+	for key, score := range seeds {
+		pending = append(pending, pendingMonster{key: key, score: score})
+	}
+	resources := make(map[mapMonsterPrewarmResource]struct{})
+	bestResolved := make(map[string]float64)
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if current.key == "" {
+			continue
+		}
+		if best, resolved := bestResolved[current.key]; resolved && !(current.score < best) {
+			continue
+		}
+		bestResolved[current.key] = current.score
+		if monster.MonsterConfig == nil {
+			continue
+		}
+		def, err := monster.MonsterConfig.GetMonsterByKey(current.key)
+		if err != nil || def == nil {
+			continue
+		}
+		if name := normalizedAuthoredSpriteName(def.GetSpriteFromConfig()); name != "" {
+			resources[mapMonsterPrewarmResource{key: current.key, spriteName: name}] = struct{}{}
+			priorities.observe(name, current.score)
+		}
+		for _, summonKey := range def.SummonMonsters {
+			if summonKey != "" {
+				pending = append(pending, pendingMonster{key: summonKey, score: current.score})
+			}
+		}
+	}
+	return resources
+}
+
 func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmScope) mapRenderPrewarmPlan {
+	plan, _ := r.collectMapRenderPrewarmPlanAndPriorities(scope)
+	return plan
+}
+
+// collectMapRenderPrewarmPlanAndPriorities makes ONE walk over the authored
+// use sites and returns both outputs of it: the camera-independent plan and
+// its camera-dependent stream priorities (each name's best mapRenderStreamScore
+// across the sites that were visited with a position in hand).
+func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewarmScope) (mapRenderPrewarmPlan, mapRenderPrewarmPriorities) {
 	var plan mapRenderPrewarmPlan
+	priorities := make(mapRenderPrewarmPriorities)
 	if r == nil || r.game == nil || r.game.sprites == nil {
-		return plan
+		return plan, priorities
 	}
 	currentWorld := r.game.GetCurrentWorld()
 	if currentWorld == nil {
-		return plan
+		return plan, priorities
 	}
 	mapKey := scope.mapKey
+	streamScoreAt := func(x, y float64) float64 {
+		if cam := r.game.camera; cam != nil {
+			return mapRenderStreamScore(cam.X, cam.Y, cam.Angle, cam.FOV, x, y)
+		}
+		return math.Inf(1)
+	}
 
 	tileTypes := make(map[world.TileType3D]struct{})
 	tileSprites := make(map[string]struct{})
@@ -410,32 +552,39 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 	npcSprites := make(map[mapNPCPrewarmResource]struct{})
 	monsterDecode := make(map[mapMonsterPrewarmResource]struct{})
 	monsterSprites := make(map[mapMonsterPrewarmResource]struct{})
-	decodeMonsterKeys := make(map[string]struct{})
-	monsterKeys := make(map[string]struct{})
+	// Monster keys carry the best stream score of the sites that referenced
+	// them, so the summon-chain resolver can score the sprites it discovers.
+	decodeMonsterKeys := make(map[string]float64)
+	monsterKeys := make(map[string]float64)
 	containerDecode := make(map[string]struct{})
 	containerSprites := make(map[string]struct{})
 
-	addContainerSprite := func(name string) {
+	addContainerSprite := func(name string, score float64) {
 		name = normalizedAuthoredSpriteName(name)
 		if name == "" {
 			return
 		}
 		containerDecode[name] = struct{}{}
 		containerSprites[name] = struct{}{}
+		priorities.observe(name, score)
 	}
-	addRewardSprites := func(rewards *monster.EncounterRewards, inScope bool) {
+	addRewardSprites := func(rewards *monster.EncounterRewards, inScope bool, score float64) {
 		if rewards == nil || !inScope {
 			return
 		}
 		if rewards.TreasureChest != nil {
-			addContainerSprite(rewards.TreasureChest.Sprite)
+			addContainerSprite(rewards.TreasureChest.Sprite, score)
 		}
 		for i := range rewards.TreasureChests {
-			addContainerSprite(rewards.TreasureChests[i].Sprite)
+			addContainerSprite(rewards.TreasureChests[i].Sprite, score)
 		}
 	}
 
 	if tm := world.GlobalTileManager; tm != nil {
+		// Classic split maps have no region rect: their tile inventory comes
+		// from the cached type list without positions, so tile art there stays
+		// unscored (observe drops +Inf) and keeps the alphabetical tail order.
+		tileScores := make(map[world.TileType3D]float64)
 		if scope.region == nil {
 			for _, tileType := range r.mapRenderTileTypes {
 				tileTypes[tileType] = struct{}{}
@@ -447,7 +596,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			for ty := scope.region.OffsetY; ty < scope.region.OffsetY+scope.region.Height; ty++ {
 				for tx := scope.region.OffsetX; tx < scope.region.OffsetX+scope.region.Width; tx++ {
 					x, y := TileCenterFromTile(tx, ty, scope.tileSize)
-					tileTypes[currentWorld.GetTileAt(x, y)] = struct{}{}
+					tileType := currentWorld.GetTileAt(x, y)
+					tileTypes[tileType] = struct{}{}
+					observeMinScore(tileScores, tileType, streamScoreAt(x, y))
 				}
 			}
 		}
@@ -467,6 +618,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 				continue
 			}
 			tileSprites[name] = struct{}{}
+			if score, known := tileScores[tileType]; known {
+				priorities.observe(name, score)
+			}
 			if renderType == config.TileRenderWall {
 				wallSprites[name] = struct{}{}
 			}
@@ -482,6 +636,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			if name = normalizedAuthoredSpriteName(name); name == "" {
 				continue
 			}
+			priorities.observe(name, streamScoreAt(r.treeTilesCache[i].worldX, r.treeTilesCache[i].worldY))
 			// Prop crosses are tracked apart from trees: they draw as crosses
 			// whatever trees_as_billboards says, so their prewarm cannot hide
 			// behind that flag.
@@ -505,6 +660,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 					tileType:   resource.tileType,
 					spriteName: resource.spriteName,
 				}] = struct{}{}
+				priorities.observe(resource.spriteName, streamScoreAt(resource.worldX, resource.worldY))
 			}
 		}
 	}
@@ -514,6 +670,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			continue
 		}
 		inScope := scope.containsWorld(npc.X, npc.Y)
+		npcScore := streamScoreAt(npc.X, npc.Y)
 		baseName := normalizedAuthoredSpriteName(npc.Sprite)
 		visitedName := normalizedAuthoredSpriteName(npc.VisitedSprite)
 		if baseName != "" || visitedName != "" {
@@ -533,12 +690,13 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 					name: name, prefix: prefix, stableImage: stableImage,
 					warmVisibleBounds: warmBounds,
 				}] = struct{}{}
+				priorities.observe(name, npcScore)
 			}
 		}
 		for _, summon := range npc.Summons {
 			if inScope && summon != nil && summon.Monster != "" {
-				decodeMonsterKeys[summon.Monster] = struct{}{}
-				monsterKeys[summon.Monster] = struct{}{}
+				observeMinScore(decodeMonsterKeys, summon.Monster, npcScore)
+				observeMinScore(monsterKeys, summon.Monster, npcScore)
 			}
 		}
 		if encounter := npc.EncounterData; encounter != nil {
@@ -547,11 +705,11 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 					continue
 				}
 				if inScope {
-					decodeMonsterKeys[encounterMonster.Type] = struct{}{}
-					monsterKeys[encounterMonster.Type] = struct{}{}
+					observeMinScore(decodeMonsterKeys, encounterMonster.Type, npcScore)
+					observeMinScore(monsterKeys, encounterMonster.Type, npcScore)
 				}
 			}
-			addRewardSprites(encounter.Rewards, inScope)
+			addRewardSprites(encounter.Rewards, inScope, npcScore)
 		}
 	}
 
@@ -562,30 +720,34 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 			continue
 		}
 		inScope := scope.containsWorld(mon.X, mon.Y)
+		monsterScore := streamScoreAt(mon.X, mon.Y)
 		if name := normalizedAuthoredSpriteName(mon.GetSpriteType()); inScope && name != "" {
 			resource := mapMonsterPrewarmResource{key: mon.Key, spriteName: name}
 			monsterDecode[resource] = struct{}{}
 			monsterSprites[resource] = struct{}{}
+			priorities.observe(name, monsterScore)
 		}
 		if inScope && mon.Key != "" {
-			decodeMonsterKeys[mon.Key] = struct{}{}
-			monsterKeys[mon.Key] = struct{}{}
+			observeMinScore(decodeMonsterKeys, mon.Key, monsterScore)
+			observeMinScore(monsterKeys, mon.Key, monsterScore)
 		}
 		for _, key := range mon.SummonMonsters {
 			if inScope && key != "" {
-				decodeMonsterKeys[key] = struct{}{}
-				monsterKeys[key] = struct{}{}
+				observeMinScore(decodeMonsterKeys, key, monsterScore)
+				observeMinScore(monsterKeys, key, monsterScore)
 			}
 		}
-		addRewardSprites(mon.EncounterRewards, inScope)
+		addRewardSprites(mon.EncounterRewards, inScope, monsterScore)
 	}
 	for _, spawn := range currentWorld.MonsterSpawns {
 		if spawn.MonsterKey == "" {
 			continue
 		}
 		if scope.containsTile(spawn.X, spawn.Y) {
-			decodeMonsterKeys[spawn.MonsterKey] = struct{}{}
-			monsterKeys[spawn.MonsterKey] = struct{}{}
+			x, y := TileCenterFromTile(spawn.X, spawn.Y, scope.tileSize)
+			spawnScore := streamScoreAt(x, y)
+			observeMinScore(decodeMonsterKeys, spawn.MonsterKey, spawnScore)
+			observeMinScore(monsterKeys, spawn.MonsterKey, spawnScore)
 		}
 	}
 
@@ -596,67 +758,34 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		for _, night := range []bool{false, true} {
 			for _, member := range pack.PhaseMembers(night) {
 				if member.Monster != "" {
-					decodeMonsterKeys[member.Monster] = struct{}{}
-					monsterKeys[member.Monster] = struct{}{}
+					observeMinScore(decodeMonsterKeys, member.Monster, math.Inf(1))
+					observeMinScore(monsterKeys, member.Monster, math.Inf(1))
 				}
 			}
 		}
 	}
 
-	// Resolve summon chains iteratively. A malformed cycle is harmless because
-	// resolved is the recursion guard; content validation owns errors.
-	resolveMonsterResources := func(keys map[string]struct{}) map[mapMonsterPrewarmResource]struct{} {
-		resources := make(map[mapMonsterPrewarmResource]struct{})
-		resolved := make(map[string]struct{})
-		for len(keys) > 0 {
-			var key string
-			for key = range keys {
-				break
-			}
-			delete(keys, key)
-			if _, done := resolved[key]; done || key == "" {
-				continue
-			}
-			resolved[key] = struct{}{}
-			if monster.MonsterConfig == nil {
-				continue
-			}
-			def, err := monster.MonsterConfig.GetMonsterByKey(key)
-			if err != nil || def == nil {
-				continue
-			}
-			if name := normalizedAuthoredSpriteName(def.GetSpriteFromConfig()); name != "" {
-				resources[mapMonsterPrewarmResource{key: key, spriteName: name}] = struct{}{}
-			}
-			for _, summonKey := range def.SummonMonsters {
-				if summonKey != "" {
-					keys[summonKey] = struct{}{}
-				}
-			}
-		}
-		return resources
-	}
-	for resource := range resolveMonsterResources(decodeMonsterKeys) {
+	for resource := range resolveMonsterPrewarmResources(decodeMonsterKeys, priorities) {
 		monsterDecode[resource] = struct{}{}
 	}
-	for resource := range resolveMonsterResources(monsterKeys) {
+	for resource := range resolveMonsterPrewarmResources(monsterKeys, priorities) {
 		monsterSprites[resource] = struct{}{}
 	}
 
 	for _, defaults := range groundContainerDefaults {
-		addContainerSprite(defaults.sprite)
+		addContainerSprite(defaults.sprite, math.Inf(1))
 	}
 	for i := range r.game.groundContainers {
 		container := &r.game.groundContainers[i]
 		if scope.containsWorld(container.X, container.Y) {
-			addContainerSprite(container.effectiveSprite())
+			addContainerSprite(container.effectiveSprite(), streamScoreAt(container.X, container.Y))
 		}
 	}
 	// Every rarity bag can be created by a kill on any map. Chest art is
 	// discovered from authored NPC/reward/current-container data above; loading
 	// unrelated chest families here only bloats the open-world residency set.
 	for _, name := range r.game.sprites.SpriteNamesWithPrefix("bag_") {
-		addContainerSprite(name)
+		addContainerSprite(name, math.Inf(1))
 	}
 
 	for tileType := range tileTypes {
@@ -710,7 +839,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmSco
 		}
 		return plan.monsterDecode[i].spriteName < plan.monsterDecode[j].spriteName
 	})
-	return plan
+	return plan, priorities
 }
 
 type mapRenderPrewarmer struct {
@@ -1117,6 +1246,7 @@ func (r *Renderer) cancelMapRenderPrewarmTask(task *mapRenderPrewarmTask) {
 		builder.cancel()
 	}
 	task.wallRipmapBuilders = nil
+	task.cpuImages = nil
 }
 
 func (r *Renderer) scheduleMapRenderResourcePrewarm(mapKey string) {
@@ -1786,9 +1916,10 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 		ctx, cancel := context.WithCancel(context.Background())
 		task := &mapRenderPrewarmTask{mapKey: mapKey, ctx: ctx, cancel: cancel}
 		task.cpuImages = make(map[*ebiten.Image]*image.RGBA)
-		task.plan = r.collectMapRenderPrewarmPlan(mapKey)
+		task.plan, task.priorities = r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(mapKey))
 		task.prewarmer = newMapRenderPrewarmer(r, task)
-		task.preparedSprites = r.game.sprites.PrepareResources(ctx, mapRenderSourceRequests(task.plan))
+		task.preparedSprites = r.game.sprites.PrepareResources(ctx,
+			orderedMapRenderSourceRequests(task.plan, task.priorities))
 		task.preparedSkies = prepareMapRenderSkies(ctx, skyTextureNamesForMap(mapKey))
 		r.mapRenderResourcePrewarmActive = task
 		break
@@ -1963,11 +2094,14 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		}
 	}
 
-	for _, name := range plan.tileSprites {
+	// Every slice below iterates in stream-priority order: the camera's nearest
+	// visible use sites build their derived resources first, so the lazy Draw
+	// fallback has the least chance to fire during the vulnerable cold window.
+	for _, name := range orderedNamesByStreamPriority(plan.tileSprites, task.priorities) {
 		name := name
 		appendStep(func() { p.sprite(name) })
 	}
-	for _, name := range plan.wallSprites {
+	for _, name := range orderedNamesByStreamPriority(plan.wallSprites, task.priorities) {
 		name := name
 		var sprite *ebiten.Image
 		var builder *mapRenderWallRipmapBuilder
@@ -2005,19 +2139,20 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		})
 	}
 	if r.game.config.Graphics.TreesAsBillboards {
-		for _, name := range plan.treeSprites {
+		for _, name := range orderedNamesByStreamPriority(plan.treeSprites, task.priorities) {
 			name := name
 			appendStep(func() { p.standee("tree", name, p.sprite(name), true) })
 		}
 	}
-	for _, name := range plan.crossedPropSprites {
+	for _, name := range orderedNamesByStreamPriority(plan.crossedPropSprites, task.priorities) {
 		name := name
 		appendStep(func() {
 			warmVisibleBounds(name)
 			p.standee("tree", name, p.sprite(name), true)
 		})
 	}
-	for _, resource := range plan.environmentSprites {
+	for _, resource := range orderedByStreamPriority(plan.environmentSprites, task.priorities,
+		func(resource processedSpriteKey) string { return resource.spriteName }) {
 		resource := resource
 		appendStep(func() {
 			warmVisibleBounds(resource.spriteName)
@@ -2053,7 +2188,8 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 			}
 		}
 	}
-	for _, resource := range plan.npcSprites {
+	for _, resource := range orderedByStreamPriority(plan.npcSprites, task.priorities,
+		func(resource mapNPCPrewarmResource) string { return resource.name }) {
 		resource := resource
 		sprite := p.sprite(resource.name)
 		if resource.warmVisibleBounds {
@@ -2069,7 +2205,8 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 			appendStep(func() { p.standee(resource.prefix, resource.name, frame, resource.stableImage) })
 		}
 	}
-	for _, resource := range plan.monsterSprites {
+	for _, resource := range orderedByStreamPriority(plan.monsterSprites, task.priorities,
+		func(resource mapMonsterPrewarmResource) string { return resource.spriteName }) {
 		resource := resource
 		seen := make(map[*ebiten.Image]struct{})
 		for _, frame := range p.monsterVisualFrames(resource) {
@@ -2088,7 +2225,7 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 			})
 		}
 	}
-	for _, name := range plan.containerSprites {
+	for _, name := range orderedNamesByStreamPriority(plan.containerSprites, task.priorities) {
 		name := name
 		appendStep(func() {
 			sprite := p.sprite(name)
@@ -2101,7 +2238,6 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		tint := r.game.config.Graphics.Standee.CoreTint
 		jobs := task.standeeJobs
 		task.standeeJobs = nil
-		task.cpuImages = nil
 		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint)
 	})
 	return steps
@@ -2169,6 +2305,7 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 	if task.standeeCommit != nil || task.preparedStandees != nil && !task.standeesDone {
 		return mapRenderPrewarmStats{}
 	}
+	task.cpuImages = nil
 	r.finalizeMapRenderPrewarm(task)
 	task.committed = true
 	if task.cancel != nil {

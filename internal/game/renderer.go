@@ -172,6 +172,11 @@ type Renderer struct {
 	mapRenderLastCameraX            float64
 	mapRenderLastCameraY            float64
 	mapRenderLastCameraValid        bool
+	// lazySpriteCPUPixels holds the decoded pixels of resources lazily loaded
+	// during the current world pass, keyed by their root images (plus bounded
+	// standee copies), so same-frame derived builders skip ReadPixels. Cleared
+	// when the pass ends - lifetime is one Draw, RAM cost one cold viewport.
+	lazySpriteCPUPixels map[*ebiten.Image]*image.RGBA
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -1318,9 +1323,29 @@ func (r *Renderer) withMapRenderSourceTracking(draw func()) {
 		draw()
 		return
 	}
-	r.game.sprites.SetLazyResourceObserver(r.trackResidentSourceRequest)
-	defer r.game.sprites.SetLazyResourceObserver(nil)
+	r.game.sprites.SetLazyResourceObserver(r.observeLazySpriteLoad)
+	defer func() {
+		r.game.sprites.SetLazyResourceObserver(nil)
+		clear(r.lazySpriteCPUPixels)
+	}()
 	draw()
+}
+
+// observeLazySpriteLoad attributes a synchronous fallback load to the current
+// region and keeps its decoded pixels for the rest of the world pass, so the
+// standee builders that fire in the same Draw build from CPU instead of a
+// GPU readback.
+func (r *Renderer) observeLazySpriteLoad(request graphics.SpriteResourceRequest, images map[*ebiten.Image]*image.RGBA) {
+	r.trackResidentSourceRequest(request)
+	for img, cpu := range images {
+		if img == nil || cpu == nil {
+			continue
+		}
+		if r.lazySpriteCPUPixels == nil {
+			r.lazySpriteCPUPixels = make(map[*ebiten.Image]*image.RGBA)
+		}
+		r.lazySpriteCPUPixels[img] = cpu
+	}
 }
 
 // renderFirstPerson3D performs the main 3D rendering using raycasting

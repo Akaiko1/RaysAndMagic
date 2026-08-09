@@ -80,6 +80,45 @@ func standeeRenderSourceSize(width, height int) (int, int) {
 	return width, height
 }
 
+// retainedSpriteCPU returns pixels still owned by either the current world-pass
+// lazy-load stash or the active streaming task. It resolves a static sheet's
+// SubImage frame to the matching CPU crop. Callers that get nil pay the
+// ReadPixels readback they always did.
+func (r *Renderer) retainedSpriteCPU(src *ebiten.Image) *image.RGBA {
+	if r == nil || src == nil {
+		return nil
+	}
+	cpuFor := func(img *ebiten.Image) *image.RGBA {
+		if cpu := r.lazySpriteCPUPixels[img]; cpu != nil {
+			return cpu
+		}
+		if task := r.mapRenderResourcePrewarmActive; task != nil && !task.cancelled {
+			return task.cpuImages[img]
+		}
+		return nil
+	}
+	if cpu := cpuFor(src); cpu != nil {
+		return cpu
+	}
+	for sheet, frames := range r.animFrameCache {
+		for _, frame := range frames {
+			if frame != src {
+				continue
+			}
+			cpu := cpuFor(sheet)
+			if cpu == nil {
+				return nil
+			}
+			sub, ok := cpu.SubImage(src.Bounds()).(*image.RGBA)
+			if !ok || sub.Bounds().Empty() {
+				return nil
+			}
+			return sub
+		}
+	}
+	return nil
+}
+
 // boundedStandeeRenderSource prevents one high-resolution campaign sprite from
 // multiplying into an equally large core plus two mip chains. Geometry still
 // uses the authored size class; only the texture sampling source is reduced.
@@ -95,6 +134,20 @@ func (r *Renderer) boundedStandeeRenderSource(key standeeCoreKey, src *ebiten.Im
 	}
 	if cached := r.standeeRenderSourceCache[key]; cached != nil {
 		return cached
+	}
+	if cpu := r.retainedSpriteCPU(src); cpu != nil {
+		bounded, cpuLevel := r.boundedStandeeRenderSourceFromCPU(key, src, cpu)
+		if bounded != nil {
+			// The silhouette build that follows receives the BOUNDED image, so
+			// hand the reduced pixels forward under the same lifetime.
+			if bounded != src && cpuLevel != nil {
+				if r.lazySpriteCPUPixels == nil {
+					r.lazySpriteCPUPixels = make(map[*ebiten.Image]*image.RGBA)
+				}
+				r.lazySpriteCPUPixels[bounded] = cpuLevel
+			}
+			return bounded
+		}
 	}
 	pixels := make([]byte, 4*w*h)
 	src.ReadPixels(pixels)
@@ -173,6 +226,9 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 	if img, ok := r.standeeCoreCache[key]; ok {
 		r.trackResidentStandeeKey(key, src)
 		return img
+	}
+	if cpu := r.retainedSpriteCPU(src); cpu != nil {
+		return r.standeeCoreSilhouetteFromCPU(key, src, cpu)
 	}
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()

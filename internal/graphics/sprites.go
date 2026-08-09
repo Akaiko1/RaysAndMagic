@@ -52,9 +52,11 @@ type SpriteManager struct {
 	keyEdgeOnly   map[string]bool
 	keyEdgeRadius int
 	// lazyResourceObserver assigns synchronous fallback loads to the renderer's
-	// current region. Background prepared commits deliberately do not notify it;
-	// their owner is the prewarm task manifest.
-	lazyResourceObserver func(SpriteResourceRequest)
+	// current region. It also receives the created root images with their
+	// decoded CPU pixels so same-frame derived builders (standee cores, mips)
+	// can skip the ReadPixels round trip. Background prepared commits
+	// deliberately do not notify it; their owner is the prewarm task manifest.
+	lazyResourceObserver func(SpriteResourceRequest, map[*ebiten.Image]*image.RGBA)
 }
 
 type spriteAlphaMask struct {
@@ -82,7 +84,7 @@ type SpriteResourceRequest struct {
 	AnimationType string
 }
 
-func (sm *SpriteManager) SetLazyResourceObserver(observer func(SpriteResourceRequest)) {
+func (sm *SpriteManager) SetLazyResourceObserver(observer func(SpriteResourceRequest, map[*ebiten.Image]*image.RGBA)) {
 	if sm == nil {
 		return
 	}
@@ -1074,17 +1076,17 @@ func (sm *SpriteManager) EvictResource(name, animationType string) []*ebiten.Ima
 func (sm *SpriteManager) loadSpriteIfExists(name string) {
 	sm.ensureIndex()
 	prepared := sm.decodePreparedResource(SpriteResourceRequest{Name: name})
-	sm.CommitPreparedResource(prepared)
+	images := sm.CommitPreparedResource(prepared)
 	if prepared.Found && sm.lazyResourceObserver != nil {
-		sm.lazyResourceObserver(prepared.Request)
+		sm.lazyResourceObserver(prepared.Request, images)
 	}
 }
 
 func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 	sm.ensureIndex()
 	prepared := sm.decodePreparedResource(SpriteResourceRequest{Name: name, AnimationType: animType})
-	sm.CommitPreparedResource(prepared)
+	images := sm.CommitPreparedResource(prepared)
 	if prepared.Found && sm.lazyResourceObserver != nil {
-		sm.lazyResourceObserver(prepared.Request)
+		sm.lazyResourceObserver(prepared.Request, images)
 	}
 }

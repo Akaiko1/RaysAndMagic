@@ -1963,3 +1963,296 @@ func TestMapRenderResidencyOwnsSkyPanoramas(t *testing.T) {
 		})
 	}
 }
+
+func TestStreamPriorityScoreAndOrdering(t *testing.T) {
+	camX, camY, camAngle, fov := 100.0, 100.0, 0.0, math.Pi/2
+	score := func(x, y float64) float64 {
+		return mapRenderStreamScore(camX, camY, camAngle, fov, x, y)
+	}
+	aheadNear := score(200, 100)
+	aheadFar := score(900, 100)
+	behindNear := score(50, 100)
+	behindFar := score(-900, 100)
+	if aheadNear >= aheadFar {
+		t.Fatalf("in-frustum distance order broken: near=%v far=%v", aheadNear, aheadFar)
+	}
+	if behindNear <= aheadFar {
+		t.Fatalf("off-frustum site outranked an in-frustum one: behind=%v ahead=%v", behindNear, aheadFar)
+	}
+	if behindNear >= behindFar {
+		t.Fatalf("off-frustum group lost its distance order: near=%v far=%v", behindNear, behindFar)
+	}
+
+	priorities := make(mapRenderPrewarmPriorities)
+	priorities.observe("far_ahead", aheadFar)
+	priorities.observe("near_ahead", aheadNear)
+	priorities.observe("near_ahead", aheadFar) // min-keeps: a worse later site must not demote
+	priorities.observe("near_behind", behindNear)
+	priorities.observe("unpositioned", math.Inf(1))
+	if _, known := priorities["unpositioned"]; known {
+		t.Fatal("observe stored an unpositioned (+Inf) site")
+	}
+	if priorities.score("near_ahead") != aheadNear {
+		t.Fatalf("observe did not keep the best score: %v", priorities.score("near_ahead"))
+	}
+
+	names := []string{"alpha_unscored", "far_ahead", "near_behind", "near_ahead", "zeta_unscored"}
+	got := orderedNamesByStreamPriority(names, priorities)
+	want := []string{"near_ahead", "far_ahead", "near_behind", "alpha_unscored", "zeta_unscored"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ordered names = %v, want %v", got, want)
+		}
+	}
+	if names[0] != "alpha_unscored" {
+		t.Fatal("ordering mutated the input slice")
+	}
+
+	requests := []graphics.SpriteResourceRequest{
+		{Name: "far_ahead"},
+		{Name: "far_ahead", AnimationType: "walking_l"},
+		{Name: "near_ahead"},
+		{Name: "zeta_unscored"},
+	}
+	ordered := orderedByStreamPriority(requests, priorities,
+		func(request graphics.SpriteResourceRequest) string { return request.Name })
+	if ordered[0].Name != "near_ahead" {
+		t.Fatalf("request stream does not start at the nearest visible resource: %v", ordered)
+	}
+	if ordered[1].Name != "far_ahead" || ordered[2] != (graphics.SpriteResourceRequest{Name: "far_ahead", AnimationType: "walking_l"}) {
+		t.Fatalf("stable ordering broke same-name request grouping: %v", ordered)
+	}
+	if ordered[3].Name != "zeta_unscored" {
+		t.Fatalf("unscored request did not sink to the tail: %v", ordered)
+	}
+}
+
+func TestMonsterPrewarmScoresCoverEntireSummonGraph(t *testing.T) {
+	previousMonsterConfig := monster.MonsterConfig
+	t.Cleanup(func() { monster.MonsterConfig = previousMonsterConfig })
+
+	tests := []struct {
+		name         string
+		definitions  map[string]monster.MonsterDefinition
+		seeds        map[string]float64
+		wantScores   map[string]float64
+		wantUnscored []string
+		wantKeys     []string
+	}{
+		{
+			name: "finite leaf",
+			definitions: map[string]monster.MonsterDefinition{
+				"leaf": {Sprite: "leaf_sprite"},
+			},
+			seeds:      map[string]float64{"leaf": 9},
+			wantScores: map[string]float64{"leaf_sprite": 9},
+			wantKeys:   []string{"leaf"},
+		},
+		{
+			name: "unscored chain stays in deterministic tail",
+			definitions: map[string]monster.MonsterDefinition{
+				"root":   {Sprite: "root_sprite", SummonMonsters: []string{"middle"}},
+				"middle": {Sprite: "middle_sprite", SummonMonsters: []string{"leaf"}},
+				"leaf":   {Sprite: "leaf_sprite"},
+			},
+			seeds:        map[string]float64{"root": math.Inf(1)},
+			wantUnscored: []string{"root_sprite", "middle_sprite", "leaf_sprite"},
+			wantKeys:     []string{"root", "middle", "leaf"},
+		},
+		{
+			name: "diamond propagates later better path",
+			definitions: map[string]monster.MonsterDefinition{
+				"far_root":  {Sprite: "far_sprite", SummonMonsters: []string{"shared"}},
+				"near_root": {Sprite: "near_sprite", SummonMonsters: []string{"bridge"}},
+				"bridge":    {Sprite: "bridge_sprite", SummonMonsters: []string{"shared"}},
+				"shared":    {Sprite: "shared_sprite", SummonMonsters: []string{"leaf"}},
+				"leaf":      {Sprite: "leaf_sprite"},
+			},
+			seeds: map[string]float64{"far_root": 100, "near_root": 2},
+			wantScores: map[string]float64{
+				"far_sprite": 100, "near_sprite": 2, "bridge_sprite": 2,
+				"shared_sprite": 2, "leaf_sprite": 2,
+			},
+			wantKeys: []string{"far_root", "near_root", "bridge", "shared", "leaf"},
+		},
+		{
+			name: "cycle terminates and accepts an improved seed",
+			definitions: map[string]monster.MonsterDefinition{
+				"a": {Sprite: "a_sprite", SummonMonsters: []string{"b"}},
+				"b": {Sprite: "b_sprite", SummonMonsters: []string{"a"}},
+			},
+			seeds:      map[string]float64{"a": 20, "b": 3},
+			wantScores: map[string]float64{"a_sprite": 3, "b_sprite": 3},
+			wantKeys:   []string{"a", "b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			monster.MonsterConfig = &monster.MonsterYAMLConfig{Monsters: tt.definitions}
+			priorities := make(mapRenderPrewarmPriorities)
+			resources := resolveMonsterPrewarmResources(tt.seeds, priorities)
+			for _, key := range tt.wantKeys {
+				found := false
+				for resource := range resources {
+					if resource.key == key {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("summon resource %q was not resolved", key)
+				}
+			}
+			if len(resources) != len(tt.wantKeys) {
+				t.Fatalf("resolved %d resources, want %d: %v", len(resources), len(tt.wantKeys), resources)
+			}
+			for sprite, want := range tt.wantScores {
+				if got := priorities.score(sprite); got != want {
+					t.Fatalf("score(%s) = %v, want %v", sprite, got, want)
+				}
+			}
+			for _, sprite := range tt.wantUnscored {
+				if _, stored := priorities[sprite]; stored {
+					t.Fatalf("unscored sprite %q acquired priority %v", sprite, priorities[sprite])
+				}
+			}
+		})
+	}
+}
+
+func TestPlanWalkWiresSummonGraphScoresIntoStreaming(t *testing.T) {
+	cfg := loadTestConfig(t)
+	previousMonsterConfig := monster.MonsterConfig
+	previousWorldManager := world.GlobalWorldManager
+	t.Cleanup(func() {
+		monster.MonsterConfig = previousMonsterConfig
+		world.GlobalWorldManager = previousWorldManager
+	})
+	monster.MonsterConfig = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{
+		"root":  {Sprite: "root_sprite", SummonMonsters: []string{"child"}},
+		"child": {Sprite: "child_sprite"},
+	}}
+	world.GlobalWorldManager = nil
+	w := newTestWorldSized(cfg, 3, 2)
+	w.Monsters = []*monster.Monster3D{{Key: "root", X: 160, Y: 64}}
+	g := newTestGame(cfg, w)
+	g.sprites = graphics.NewSpriteManager()
+	g.camera = &FirstPersonCamera{X: 96, Y: 64, Angle: 0, FOV: math.Pi / 2}
+	r := &Renderer{game: g}
+
+	plan, priorities := r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(""))
+	wantScore := mapRenderStreamScore(g.camera.X, g.camera.Y, g.camera.Angle, g.camera.FOV, 160, 64)
+	if got := priorities.score("child_sprite"); got != wantScore {
+		t.Fatalf("child summon score = %v, want root score %v", got, wantScore)
+	}
+	found := false
+	for _, resource := range plan.monsterSprites {
+		if resource.key == "child" && resource.spriteName == "child_sprite" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("production plan omitted the root monster's summon from monsterSprites")
+	}
+}
+
+func TestPlanWalkScoresStreamPriorities(t *testing.T) {
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+
+	tests := []struct {
+		name      string
+		camAngle  float64
+		wantFirst string
+		wantLast  string
+	}{
+		// Camera at (96,64). Near NPC west at (48,64), far NPC east at (176,64).
+		{name: "facing the nearer npc", camAngle: math.Pi, wantFirst: "chest_wooden", wantLast: "innkeeper_female"},
+		{name: "facing away flips the winner", camAngle: 0, wantFirst: "innkeeper_female", wantLast: "chest_wooden"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWorldSized(cfg, 3, 2)
+			w.NPCs = append(w.NPCs,
+				&character.NPC{Sprite: "chest_wooden", RenderCategory: "npc", SizeClass: "person", X: 48, Y: 64},
+				&character.NPC{Sprite: "innkeeper_female", RenderCategory: "npc", SizeClass: "person", X: 176, Y: 64},
+			)
+			g := newTestGame(cfg, w)
+			g.sprites = graphics.NewSpriteManager()
+			g.camera = &FirstPersonCamera{X: 96, Y: 64, Angle: tt.camAngle, FOV: math.Pi / 2}
+			r := &Renderer{game: g}
+
+			plan, priorities := r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(""))
+			first, last := priorities.score(tt.wantFirst), priorities.score(tt.wantLast)
+			if !(first < last) {
+				t.Fatalf("score(%s)=%v not better than score(%s)=%v", tt.wantFirst, first, tt.wantLast, last)
+			}
+			if last < mapRenderOffscreenStreamPenalty {
+				t.Fatalf("the off-frustum npc was not penalized: %v", last)
+			}
+
+			ordered := orderedMapRenderSourceRequests(plan, priorities)
+			index := func(name string) int {
+				for i, request := range ordered {
+					if request.Name == name {
+						return i
+					}
+				}
+				t.Fatalf("request %q missing from the ordered stream: %v", name, ordered)
+				return -1
+			}
+			if index(tt.wantFirst) > index(tt.wantLast) {
+				t.Fatalf("decode stream order does not follow the camera: %v", ordered)
+			}
+		})
+	}
+}
+
+func TestWithMapRenderSourceTrackingStashesAndClearsLazyCPU(t *testing.T) {
+	t.Chdir("../..")
+	sprites := graphics.NewSpriteManager()
+	r := &Renderer{game: &MMGame{sprites: sprites}}
+	r.withMapRenderSourceTracking(func() {
+		if sprites.GetSprite("forest_oak") == nil {
+			t.Fatal("missing test sprite forest_oak")
+		}
+		if len(r.lazySpriteCPUPixels) == 0 {
+			t.Error("lazy load inside the world pass did not stash decoded CPU pixels")
+		}
+	})
+	if len(r.lazySpriteCPUPixels) != 0 {
+		t.Error("lazy CPU stash survived past the world pass")
+	}
+	if sprites.GetSprite("chest_wooden") == nil {
+		t.Fatal("missing test sprite chest_wooden")
+	}
+	if len(r.lazySpriteCPUPixels) != 0 {
+		t.Error("lazy observer leaked past the world pass")
+	}
+	sprites.EvictResource("forest_oak", "")
+	sprites.EvictResource("chest_wooden", "")
+}
+
+func TestPrewarmRetainsCPUImagesUntilDerivedWorkFinishes(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 2, 2))
+	r := &Renderer{game: g}
+	source := ebiten.NewImage(4, 4)
+	task := &mapRenderPrewarmTask{
+		ctx:       context.Background(),
+		cpuImages: map[*ebiten.Image]*image.RGBA{source: image.NewRGBA(image.Rect(0, 0, 4, 4))},
+	}
+	task.prewarmer = newMapRenderPrewarmer(r, task)
+	steps := r.buildMapRenderPrewarmSteps(task)
+	if len(steps) == 0 || !steps[len(steps)-1](time.Now().Add(time.Second)) {
+		t.Fatal("final derived-resource scheduling step did not complete")
+	}
+	if task.cpuImages[source] == nil {
+		t.Fatal("derived-resource scheduling released CPU pixels while the prewarm task was still active")
+	}
+	r.cancelMapRenderPrewarmTask(task)
+	if task.cpuImages != nil {
+		t.Fatal("prewarm cancellation retained CPU pixels")
+	}
+}

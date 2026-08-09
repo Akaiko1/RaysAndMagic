@@ -2,10 +2,13 @@ package game
 
 import (
 	"image"
+	"image/draw"
 	"math"
 	"reflect"
 	"slices"
 	"testing"
+
+	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -442,5 +445,133 @@ func TestCrossedArmsSurvivePointBlankCamera(t *testing.T) {
 		if visible == 0 {
 			t.Fatalf("angle %d: no visible arm spans while standing beside the cross", deg)
 		}
+	}
+}
+
+// The test environment forbids GPU readbacks (ebiten panics with "ReadPixels
+// cannot be called before the game starts"), which doubles as the assertion
+// here: every build below only completes when it consumes the stashed CPU
+// pixels, and a regression to the ReadPixels path fails the test by panicking.
+// Crop correctness is asserted on the CPU pixels retainedSpriteCPU returns.
+func TestRetainedSpriteCPUAvoidsReadbackForStandeeBuilds(t *testing.T) {
+	opaqueRGBA := func(rect image.Rectangle) *image.RGBA {
+		cpu := image.NewRGBA(rect)
+		for i := 0; i < len(cpu.Pix); i += 4 {
+			cpu.Pix[i], cpu.Pix[i+1], cpu.Pix[i+2], cpu.Pix[i+3] = 90, 140, 70, 255
+		}
+		return cpu
+	}
+	type cpuOrigin struct {
+		name    string
+		install func(*Renderer, map[*ebiten.Image]*image.RGBA)
+	}
+	origins := []cpuOrigin{
+		{
+			name: "current world-pass lazy load",
+			install: func(r *Renderer, pixels map[*ebiten.Image]*image.RGBA) {
+				r.lazySpriteCPUPixels = pixels
+			},
+		},
+		{
+			name: "active streaming prewarm",
+			install: func(r *Renderer, pixels map[*ebiten.Image]*image.RGBA) {
+				r.mapRenderResourcePrewarmActive = &mapRenderPrewarmTask{cpuImages: pixels}
+			},
+		},
+	}
+
+	for _, origin := range origins {
+		t.Run("direct image/"+origin.name, func(t *testing.T) {
+			r := &Renderer{game: &MMGame{config: &config.Config{}}}
+			src := ebiten.NewImage(6, 6)
+			origin.install(r, map[*ebiten.Image]*image.RGBA{src: opaqueRGBA(image.Rect(0, 0, 6, 6))})
+			key := makeStandeeCoreKey("tile:retained_cpu:"+origin.name, src, false)
+			core := r.standeeCoreSilhouette(key, src)
+			if core == nil {
+				t.Fatal("silhouette was not built from retained CPU pixels")
+			}
+			if r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipSticker}] == nil {
+				t.Fatal("CPU-built silhouette did not commit the sticker mip chain")
+			}
+		})
+
+		t.Run("static sheet frame/"+origin.name, func(t *testing.T) {
+			r := &Renderer{game: &MMGame{config: &config.Config{}}}
+			sheet := ebiten.NewImage(16, 4)
+			frames := r.animationFrames(sheet)
+			if len(frames) != SpriteSheetFrameCount {
+				t.Fatalf("sheet split into %d frames", len(frames))
+			}
+			cpuSheet := image.NewRGBA(image.Rect(0, 0, 16, 4))
+			draw.Draw(cpuSheet, image.Rect(8, 0, 12, 4), opaqueRGBA(image.Rect(0, 0, 4, 4)), image.Point{}, draw.Src)
+			origin.install(r, map[*ebiten.Image]*image.RGBA{sheet: cpuSheet})
+
+			painted := r.retainedSpriteCPU(frames[2])
+			if painted == nil || painted.Bounds() != frames[2].Bounds() {
+				t.Fatalf("frame 2 crop = %v, want bounds %v", painted, frames[2].Bounds())
+			}
+			if _, _, _, a := painted.At(9, 1).RGBA(); a == 0 {
+				t.Fatal("painted frame's crop lost its pixels")
+			}
+			empty := r.retainedSpriteCPU(frames[0])
+			if empty == nil {
+				t.Fatal("frame 0 crop was not resolved")
+			}
+			if _, _, _, a := empty.At(1, 1).RGBA(); a != 0 {
+				t.Fatal("empty frame's crop leaked another frame's art")
+			}
+			if core := r.standeeCoreSilhouette(makeStandeeCoreKey("tile:sheet_painted:"+origin.name, frames[2], false), frames[2]); core == nil {
+				t.Fatal("sheet frame silhouette was not built from retained CPU pixels")
+			}
+		})
+
+		t.Run("bounded copy/"+origin.name, func(t *testing.T) {
+			r := &Renderer{game: &MMGame{config: &config.Config{}}}
+			src := ebiten.NewImage(2048, 1024)
+			origin.install(r, map[*ebiten.Image]*image.RGBA{src: opaqueRGBA(image.Rect(0, 0, 2048, 1024))})
+			key := makeStandeeCoreKey("tile:retained_big:"+origin.name, src, false)
+			bounded := r.boundedStandeeRenderSource(key, src)
+			if bounded == nil || bounded == src {
+				t.Fatalf("oversized source was not reduced: %v", bounded)
+			}
+			if got := bounded.Bounds(); got.Dx() != 1024 || got.Dy() != 512 {
+				t.Fatalf("bounded size = %v, want 1024x512", got)
+			}
+			handoff := r.lazySpriteCPUPixels[bounded]
+			if handoff == nil {
+				t.Fatal("reduced pixels were not handed forward for the silhouette build")
+			}
+			if _, _, _, a := handoff.At(0, 0).RGBA(); a == 0 {
+				t.Fatal("handed-forward pixels are empty")
+			}
+			if core := r.standeeCoreSilhouette(key, bounded); core == nil {
+				t.Fatal("bounded silhouette was not built from handed-forward CPU pixels")
+			}
+		})
+	}
+
+	unavailable := []struct {
+		name  string
+		setup func(*Renderer)
+	}{
+		{name: "no retained pixels"},
+		{name: "cancelled prewarm", setup: func(r *Renderer) {
+			r.mapRenderResourcePrewarmActive = &mapRenderPrewarmTask{
+				cancelled: true,
+				cpuImages: make(map[*ebiten.Image]*image.RGBA),
+			}
+		}},
+	}
+	for _, tt := range unavailable {
+		t.Run("readback fallback/"+tt.name, func(t *testing.T) {
+			r := &Renderer{game: &MMGame{config: &config.Config{}}}
+			src := ebiten.NewImage(6, 6)
+			if tt.setup != nil {
+				tt.setup(r)
+			}
+			if r.retainedSpriteCPU(src) != nil {
+				t.Fatal("retainedSpriteCPU fabricated unavailable pixels")
+			}
+		})
 	}
 }
