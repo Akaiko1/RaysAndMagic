@@ -153,16 +153,29 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if arc := character.MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
 	}
-	if char != nil {
-		if cd := cooldownLine(cs, cs.WeaponCooldownFramesFor(char, item.Name)); cd != "" {
-			attack.Add("%s", cd)
-		}
-	}
-	// Explain WHY the cooldown differs from the bare Speed curve (category
-	// multiplier or a legendary override) - the editor shows the same line.
+	// This is an intrinsic weapon property, so the shop/base card shows it even
+	// without a bearer. The editor renders the same shared line.
 	for _, ln := range character.WeaponCombatLines(def) {
 		if strings.HasPrefix(ln, "Attack cooldown") {
 			attack.AddDetail("%s", ln)
+		}
+	}
+	if char != nil && cs.game != nil {
+		cooldown := cs.weaponCooldownBreakdown(char, item.Name)
+		tps := cs.game.config.GetTPS()
+		if tps <= 0 {
+			tps = config.DefaultTPS
+		}
+		attack.AddDetail("Speed (%d): %.1fs base cooldown", cooldown.Speed, cooldown.BaseFrames/float64(tps))
+		if cooldown.DualWieldingReductionPct > 0 {
+			_, tierName := masteryTier(char, character.SkillDualWielding)
+			attack.AddDetail("Dual Wielding - %s: -%d%% cooldown", tierName, cooldown.DualWieldingReductionPct)
+		}
+		if cooldown.RawFrames != cooldown.TotalFrames {
+			attack.AddDetail("Safety clamp: %.1fs", float64(cooldown.TotalFrames)/float64(tps))
+		}
+		if cd := cooldownLine(cs, cooldown.TotalFrames); cd != "" {
+			attack.Add("%s", cd)
 		}
 	}
 	if def.Physics != nil && def.Physics.SpeedTiles > 0 {
@@ -180,8 +193,12 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 
 	dmg := ttSection{Title: "DAMAGE"}
 	armsBonus := 0
+	furyBonus := 0
 	if char != nil {
 		armsBonus = char.ArmsMasterTier() * ArmsMasterDamagePerTier
+		if char.HasSkill(character.SkillOrcishFury) {
+			furyBonus = character.OrcishFuryDamageBonus(char.SkillTier(character.SkillOrcishFury))
+		}
 	}
 	// A nil char is the SHOP view: the item's own base numbers, no bearer scaling.
 	preview := cs.calculateWeaponDamagePreview(item, char)
@@ -205,12 +222,23 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 		_, tierName := masteryTier(char, character.SkillArmsMaster)
 		dmg.AddDetail("Arms Master - %s: +%d", tierName, armsBonus)
 	}
+	if furyBonus > 0 {
+		_, tierName := masteryTier(char, character.SkillOrcishFury)
+		dmg.AddDetail("Orcish Fury - %s: +%d", tierName, furyBonus)
+	}
+	isRanged := def.Range > 3
+	if !isRanged && preview.OutgoingBuff > 0 {
+		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
+	}
 	if preview.CardDamagePct != 0 {
 		mode := "melee"
-		if def.Range > 3 {
+		if isRanged {
 			mode = "ranged"
 		}
 		dmg.AddDetail("Cards: +%d%% %s damage", preview.CardDamagePct, mode)
+	}
+	if isRanged && preview.OutgoingBuff > 0 {
+		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
 	}
 	masteryTrue := preview.True - preview.AuthoredTrue - preview.CardTrue
 	if masteryTrue > 0 {
@@ -221,12 +249,6 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	}
 	if preview.CardTrue > 0 {
 		dmg.AddDetail("Cards: +%d True", preview.CardTrue)
-	}
-	// Active party buffs add a flat bonus after crit doubling; filter by the
-	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
-	// e.g. Heroism (physical) does not boost a light/fire weapon.
-	if preview.OutgoingBuff > 0 {
-		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
 	}
 	dmg.AddDetail("Normal Damage: %d", preview.Normal)
 	dmg.Add("Total Damage: %d", preview.Total)
@@ -243,6 +265,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 		crit.Add("Chance: %d%%", totalCrit)
 		if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
+			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
 			if cardCrit > 0 {
 				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
@@ -257,6 +280,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 				parts = append(parts, fmt.Sprintf("GM Arms Master: +%d%%", gmArms))
 			}
 			crit.AddDetail("%s", strings.Join(parts, " - "))
+			if rawCrit != totalCrit {
+				crit.AddDetail("Capped at %d%%", totalCrit)
+			}
 		}
 	}
 

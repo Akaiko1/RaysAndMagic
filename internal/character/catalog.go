@@ -300,6 +300,24 @@ func StatDescription(stat string) string {
 	}
 }
 
+// WeaponCooldownMultiplier resolves a weapon's authored override or its
+// category multiplier. Combat and both weapon-card builders share this lookup.
+func WeaponCooldownMultiplier(def *config.WeaponDefinitionConfig) float64 {
+	if def == nil {
+		return 1
+	}
+	mult := def.CooldownMultiplier
+	if mult <= 0 {
+		if skill, ok := WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
+			mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
+		}
+	}
+	if mult <= 0 {
+		return 1
+	}
+	return mult
+}
+
 // WeaponCombatLines lists the game-side combat traits of a weapon that the
 // config-level EffectLines can't compute (the category->skill mapping lives
 // here): the effective attack-speed multiplier (per-weapon override OR the
@@ -310,12 +328,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 		return nil
 	}
 	var out []string
-	mult := def.CooldownMultiplier
-	if mult <= 0 {
-		if skill, ok := WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
-			mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
-		}
-	}
+	mult := WeaponCooldownMultiplier(def)
 	if mult > 0 && mult != 1.0 {
 		// Show the raw multiplier + how it compares to the baseline weapon
 		// (a sword, x1.00) - "+10%" alone read as "vs my current weapon" or

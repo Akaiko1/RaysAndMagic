@@ -842,6 +842,28 @@ func (r *Renderer) deallocateStandeeKeys(keys, keep map[standeeCoreKey]struct{})
 	}
 }
 
+// deallocateStandeeMipSourceAliases drops a complete cached standee frame when
+// its sticker mip level 0 aliases a render source that was just evicted - a
+// SpriteManager image or a processed (alpha_from_brightness) copy.
+// Reduced mip levels and the generated core are still valid on their own, but
+// retaining them would let the stable environment key reuse a chain whose base
+// image has been deallocated and cleared.
+func (r *Renderer) deallocateStandeeMipSourceAliases(sources map[*ebiten.Image]struct{}) {
+	if len(sources) == 0 || len(r.standeeMipCache) == 0 {
+		return
+	}
+	keys := make(map[standeeCoreKey]struct{})
+	for mipKey, chain := range r.standeeMipCache {
+		if chain == nil || len(chain.levels) == 0 || chain.levels[0] == nil {
+			continue
+		}
+		if _, evicted := sources[chain.levels[0]]; evicted {
+			keys[mipKey.frame] = struct{}{}
+		}
+	}
+	r.deallocateStandeeKeys(keys, nil)
+}
+
 func (r *Renderer) resetMapRenderResourceResidency() {
 	if r == nil {
 		return
@@ -1219,11 +1241,15 @@ func (r *Renderer) deallocateMapRenderRegion(resources, keep *mapRenderRegionRes
 		keep = &mapRenderRegionResources{}
 	}
 	r.deallocateStandeeKeys(resources.standees, keep.standees)
+	evictedSources := make(map[*ebiten.Image]struct{})
 	for key := range resources.processed {
 		if _, retained := keep.processed[key]; retained {
 			continue
 		}
 		if img := r.processedSpriteCache[key]; img != nil {
+			evictedSources[img] = struct{}{}
+			delete(r.wallSliceColumns, img)
+			delete(r.animFrameCache, img)
 			img.Deallocate()
 		}
 		delete(r.processedSpriteCache, key)
@@ -1249,10 +1275,12 @@ func (r *Renderer) deallocateMapRenderRegion(resources, keep *mapRenderRegionRes
 			continue
 		}
 		for _, img := range r.game.sprites.EvictResource(key.name, key.animationType) {
+			evictedSources[img] = struct{}{}
 			delete(r.wallSliceColumns, img)
 			delete(r.animFrameCache, img)
 		}
 	}
+	r.deallocateStandeeMipSourceAliases(evictedSources)
 }
 
 // trackResidentStandeeKey accounts for an uncommon resource that escaped the

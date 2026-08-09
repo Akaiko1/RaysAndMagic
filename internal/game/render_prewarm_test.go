@@ -1130,6 +1130,172 @@ func TestMapRenderResidencyEvictsOrRetainsWholeManifest(t *testing.T) {
 	}
 }
 
+func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
+	t.Chdir("../..")
+	tests := []struct {
+		name           string
+		resourceName   string
+		animationType  string
+		processed      bool
+		keyRetained    bool
+		sourceRetained bool
+		ownedLevelZero bool
+		wantCached     bool
+	}{
+		{
+			name:         "retained environment key loses evicted static alias",
+			resourceName: "forest_oak", keyRetained: true,
+		},
+		{
+			name:         "retained monster key loses evicted animation alias",
+			resourceName: "dire_wolf", animationType: "walking_r", keyRetained: true,
+		},
+		{
+			name:         "retained key loses evicted processed alias",
+			resourceName: "forest_oak", processed: true, keyRetained: true,
+		},
+		{
+			name:         "alias survives retained processed key",
+			resourceName: "forest_oak", processed: true, keyRetained: true, sourceRetained: true, wantCached: true,
+		},
+		{
+			name:         "owned level zero survives source eviction",
+			resourceName: "forest_oak", keyRetained: true, ownedLevelZero: true, wantCached: true,
+		},
+		{
+			name:         "alias survives retained source",
+			resourceName: "forest_oak", keyRetained: true, sourceRetained: true, wantCached: true,
+		},
+		{
+			name:         "unretained key is removed by its region manifest",
+			resourceName: "forest_oak",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sprites := graphics.NewSpriteManager()
+			r := &Renderer{
+				game:                 &MMGame{sprites: sprites},
+				processedSpriteCache: make(map[processedSpriteKey]*ebiten.Image),
+			}
+			processedKey := processedSpriteKey{spriteName: tt.resourceName}
+			loadSource := func() *ebiten.Image {
+				if tt.processed {
+					// Mirror getProcessedSpriteByName: hand out the cached derived
+					// copy, or mint a fresh one after eviction cleared the entry.
+					if img := r.processedSpriteCache[processedKey]; img != nil {
+						return img
+					}
+					img := ebiten.NewImage(8, 8)
+					r.processedSpriteCache[processedKey] = img
+					return img
+				}
+				if tt.animationType == "" {
+					return sprites.GetSprite(tt.resourceName)
+				}
+				animation := sprites.GetAnimation(tt.resourceName, tt.animationType)
+				if animation == nil || len(animation.Frames) == 0 {
+					t.Fatalf("missing test animation %s_%s", tt.resourceName, tt.animationType)
+				}
+				return animation.Frames[0]
+			}
+			source := loadSource()
+			if source == nil {
+				t.Fatalf("missing test source %s", tt.resourceName)
+			}
+			stableImage := tt.animationType != ""
+			key := makeStandeeCoreKey("test:"+tt.resourceName, source, stableImage)
+			prepared := prepareStandeePixels(image.NewRGBA(image.Rectangle{Max: source.Bounds().Size()}), 0, false)
+			if _, core := r.commitPreparedStandeePixels(key, source, prepared); core == nil {
+				t.Fatal("failed to seed victim standee cache")
+			}
+			stickerKey := standeeMipKey{frame: key, layer: standeeMipSticker}
+			coreKey := standeeMipKey{frame: key, layer: standeeMipCore}
+			if tt.ownedLevelZero {
+				chain := r.standeeMipCache[stickerKey]
+				ownedBase := ebiten.NewImage(source.Bounds().Dx(), source.Bounds().Dy())
+				chain.levels[0] = ownedBase
+				chain.owned = append(chain.owned, ownedBase)
+			}
+
+			unrelatedSource := ebiten.NewImage(8, 8)
+			unrelatedKey := makeStandeeCoreKey("test:unrelated", unrelatedSource, false)
+			unrelatedPrepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 8, 8)), 0, false)
+			if _, core := r.commitPreparedStandeePixels(unrelatedKey, unrelatedSource, unrelatedPrepared); core == nil {
+				t.Fatal("failed to seed unrelated standee cache")
+			}
+			defer func() {
+				allKeys := make(map[standeeCoreKey]struct{})
+				for cachedKey := range r.standeeCoreCache {
+					allKeys[cachedKey] = struct{}{}
+				}
+				for cachedKey := range r.standeeMipCache {
+					allKeys[cachedKey.frame] = struct{}{}
+				}
+				r.deallocateStandeeKeys(allKeys, nil)
+				unrelatedSource.Deallocate()
+				sprites.EvictResource(tt.resourceName, tt.animationType)
+				for cachedKey, img := range r.processedSpriteCache {
+					if img != nil {
+						img.Deallocate()
+					}
+					delete(r.processedSpriteCache, cachedKey)
+				}
+			}()
+
+			resources := testMapRenderResources(key, unrelatedKey)
+			keep := testMapRenderResources(unrelatedKey)
+			if tt.processed {
+				resources.processed[processedKey] = struct{}{}
+			} else {
+				resources.sources[mapRenderSourceKey{name: tt.resourceName, animationType: tt.animationType}] = struct{}{}
+			}
+			if tt.keyRetained {
+				keep.standees[key] = struct{}{}
+			}
+			if tt.sourceRetained {
+				if tt.processed {
+					keep.processed[processedKey] = struct{}{}
+				} else {
+					keep.sources[mapRenderSourceKey{name: tt.resourceName, animationType: tt.animationType}] = struct{}{}
+				}
+			}
+
+			r.deallocateMapRenderRegion(resources, keep)
+
+			for cacheName, present := range map[string]bool{
+				"core":        r.standeeCoreCache[key] != nil,
+				"sticker mip": r.standeeMipCache[stickerKey] != nil,
+				"core mip":    r.standeeMipCache[coreKey] != nil,
+			} {
+				if present != tt.wantCached {
+					t.Errorf("%s cached = %v, want %v", cacheName, present, tt.wantCached)
+				}
+			}
+			if r.standeeCoreCache[unrelatedKey] == nil ||
+				r.standeeMipCache[standeeMipKey{frame: unrelatedKey, layer: standeeMipSticker}] == nil ||
+				r.standeeMipCache[standeeMipKey{frame: unrelatedKey, layer: standeeMipCore}] == nil {
+				t.Fatal("eviction removed an unrelated standee frame")
+			}
+
+			reloaded := loadSource()
+			if gotSame := reloaded == source; gotSame != tt.sourceRetained {
+				t.Errorf("source pointer retained = %v, want %v", gotSame, tt.sourceRetained)
+			}
+			if !tt.wantCached {
+				reloadedKey := makeStandeeCoreKey("test:"+tt.resourceName, reloaded, stableImage)
+				if _, core := r.commitPreparedStandeePixels(reloadedKey, reloaded, prepared); core == nil {
+					t.Fatal("failed to rebuild standee after source reload")
+				}
+				chain := r.standeeMipCache[standeeMipKey{frame: reloadedKey, layer: standeeMipSticker}]
+				if chain == nil || len(chain.levels) == 0 || chain.levels[0] != reloaded {
+					t.Fatal("rebuilt standee did not bind the reloaded source as level zero")
+				}
+			}
+		})
+	}
+}
+
 func TestActiveMapRenderOwnershipParticipatesInRetention(t *testing.T) {
 	t.Chdir("../..")
 	type resourceCase struct {

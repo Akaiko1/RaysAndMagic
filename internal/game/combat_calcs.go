@@ -395,33 +395,39 @@ func (cs *CombatSystem) OffHandWeaponCooldownFrames(char *character.MMCharacter)
 // weapon (tooltips hover unequipped weapons too) - the ONE formula combat and
 // every tooltip share. Empty name = unarmed (sword baseline).
 func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weaponName string) int {
+	return cs.weaponCooldownBreakdown(char, weaponName).TotalFrames
+}
+
+type weaponCooldownBreakdown struct {
+	Speed                    int
+	BaseFrames               float64
+	WeaponMultiplier         float64
+	DualWieldingReductionPct int
+	RawFrames                int
+	TotalFrames              int
+}
+
+func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, weaponName string) weaponCooldownBreakdown {
+	result := weaponCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
 	if cs == nil || cs.game == nil || char == nil {
-		return RTCooldownMinFrames
+		return result
 	}
-	speed := char.GetEffectiveSpeed()
-	base := float64(calculateSpeedActionCooldownFrames(speed)) * RTBaseCooldownMult
-	mult := 1.0
+	result.Speed = char.GetEffectiveSpeed()
+	result.BaseFrames = float64(calculateSpeedActionCooldownFrames(result.Speed)) * RTBaseCooldownMult
 	if weaponName != "" {
 		if def, _, found := config.GetWeaponDefinitionByName(weaponName); found && def != nil {
-			switch {
-			case def.CooldownMultiplier > 0:
-				mult = def.CooldownMultiplier // legendary / per-weapon override
-			default:
-				// Resolve the weapon's category to its canonical weapon SKILL
-				// (so "throwing" -> dagger) and read that type's multiplier from
-				// weapons.yaml. Unlisted skill types stay at 1.0.
-				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
-					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
-				}
-			}
+			result.WeaponMultiplier = character.WeaponCooldownMultiplier(def)
 		}
 	}
 	// Dual Wielding: -10%/tier ABOVE Novice on cooldown, either hand (Novice
 	// itself only unlocks the off-hand weapon slot, no reduction yet).
 	if tier := char.SkillTier(character.SkillDualWielding); char.HasSkill(character.SkillDualWielding) && tier > 0 {
-		mult *= 1.0 - float64(tier*character.DualWieldingCDReductionPerTier)/100.0
+		result.DualWieldingReductionPct = tier * character.DualWieldingCDReductionPerTier
 	}
-	return clampRTCooldown(int(math.Round(base * mult)))
+	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
+	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
+	result.TotalFrames = clampRTCooldown(result.RawFrames)
+	return result
 }
 
 // spellCooldownSpeedFactor scales a spell's authored cooldown_seconds by Speed,
