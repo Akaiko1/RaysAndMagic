@@ -1299,3 +1299,116 @@ func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
 		t.Fatalf("restore must return the logical angle, got %v", g.camera.Angle)
 	}
 }
+
+// The monster-ID uniqueness invariant: an ID enters the world either fresh
+// from the random generator or adopted from a save; after applySave every
+// monster on every loaded map carries a world-unique, non-empty ID. Duplicate
+// saved IDs exist in the wild (fossils of the old per-process counter, which
+// let a fresh session re-issue restored IDs and made the dead-ID sweep delete
+// ID-twins - the vanished-warlord bug), so the loader must self-heal them.
+func TestApplySaveEnforcesMonsterIDUniqueness(t *testing.T) {
+	cfg := loadTestConfig(t)
+	type savedMob struct {
+		mapKey string
+		id     string
+	}
+	tests := []struct {
+		name        string
+		mobs        []savedMob
+		wantAdopted []string
+		wantResave  bool
+	}{
+		{
+			name:        "unique saved ids are adopted verbatim",
+			mobs:        []savedMob{{"japanese_castle", "monster_710"}, {"japanese_castle", "monster_717"}},
+			wantAdopted: []string{"monster_710", "monster_717"},
+		},
+		{
+			// Legacy id-less saves mint fresh IDs every load by design: nothing
+			// can reference an empty ID, so there is no owner to stabilize and
+			// no migration write to force.
+			name: "empty saved ids keep fresh distinct ids",
+			mobs: []savedMob{{"japanese_castle", ""}, {"japanese_castle", ""}},
+		},
+		{
+			name:        "duplicate saved ids on one map collapse to one adoption",
+			mobs:        []savedMob{{"japanese_castle", "monster_717"}, {"japanese_castle", "monster_717"}},
+			wantAdopted: []string{"monster_717"},
+			wantResave:  true,
+		},
+		{
+			name:        "duplicate saved ids across maps stay unique world-wide",
+			mobs:        []savedMob{{"japanese_castle", "monster_717"}, {"forest", "monster_717"}, {"forest", "monster_717"}},
+			wantAdopted: []string{"monster_717"},
+			wantResave:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gSave := newTestGame(cfg, newTestWorld(cfg))
+			wmSave := world.NewWorldManager(cfg)
+			wmSave.LoadedMaps = map[string]*world.World3D{
+				"japanese_castle": gSave.world,
+				"forest":          newTestWorld(cfg),
+			}
+			wmSave.CurrentMapKey = "japanese_castle"
+			save := gSave.buildSave(wmSave)
+			save.MapKey = "japanese_castle"
+			// loadNeedsResave is a shared latch over every load-time migration;
+			// an empty roster keeps the party migrations (class kits, racial
+			// traits, item instance ids) out of the picture so the clean rows
+			// prove the duplicate-ID heal ALONE never requests the write.
+			save.Party.Members = nil
+			save.Party.Reserve = nil
+			save.Party.Captive = nil
+			save.Party.Inventory = nil
+			save.MapMonsters = map[string][]MonsterSave{}
+			for _, mob := range tt.mobs {
+				save.MapMonsters[mob.mapKey] = append(save.MapMonsters[mob.mapKey], MonsterSave{
+					Key: "wolf", ID: mob.id, X: 96, Y: 96, HitPoints: 10,
+				})
+			}
+
+			wLoad := newTestWorld(cfg)
+			wmLoad := world.NewWorldManager(cfg)
+			wmLoad.LoadedMaps = map[string]*world.World3D{
+				"japanese_castle": wLoad,
+				"forest":          newTestWorld(cfg),
+			}
+			wmLoad.CurrentMapKey = "japanese_castle"
+			gLoad := newTestGame(cfg, wLoad)
+			if err := gLoad.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+
+			seen := map[string]string{}
+			total := 0
+			for mapKey, w := range wmLoad.LoadedMaps {
+				for _, m := range w.Monsters {
+					total++
+					if m.ID == "" {
+						t.Fatalf("restored monster on %s has an empty ID", mapKey)
+					}
+					if prev, dup := seen[m.ID]; dup {
+						t.Fatalf("duplicate monster ID %q on %s and %s", m.ID, prev, mapKey)
+					}
+					seen[m.ID] = mapKey
+				}
+			}
+			if total != len(tt.mobs) {
+				t.Fatalf("restored %d monsters, want %d", total, len(tt.mobs))
+			}
+			for _, id := range tt.wantAdopted {
+				if _, ok := seen[id]; !ok {
+					t.Fatalf("saved ID %q was not adopted (SummonedBy links would break)", id)
+				}
+			}
+			// A healed duplicate must trigger the one-time migration resave:
+			// LoadedMaps iterates in random map order, so an unpersisted heal
+			// could crown a different duplicate-ID owner on every load.
+			if gLoad.loadNeedsResave != tt.wantResave {
+				t.Fatalf("loadNeedsResave = %v, want %v", gLoad.loadNeedsResave, tt.wantResave)
+			}
+		})
+	}
+}

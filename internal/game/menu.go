@@ -1658,6 +1658,30 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				completedQuests[q.ID] = true
 			}
 		}
+		// One taken-set for the WHOLE load: adopted IDs must be unique across
+		// every map this save restores, or the dead-ID sweep (kills and
+		// day/night pack despawns remove monsters BY ID) would delete ID-twins
+		// on unrelated maps. Saves written before monster IDs were random can
+		// carry such duplicates; the first occurrence keeps the saved identity
+		// (boss adds reference their summoner via SummonedBy == that string),
+		// later ones keep their fresh random ID - losing at most a summon
+		// link, never a monster.
+		takenMonsterIDs := make(map[string]struct{})
+		adoptSavedMonsterID := func(m *monster.Monster3D, savedID string) {
+			if savedID != "" {
+				if _, taken := takenMonsterIDs[savedID]; !taken {
+					m.ID = savedID
+				} else {
+					// Fossil duplicate: this monster keeps its fresh ID. Persist
+					// the healing right away - LoadedMaps iterates in random map
+					// order, so without a resave every future load of the same
+					// slot could crown a DIFFERENT owner of the duplicated ID,
+					// re-breaking SummonedBy links each time.
+					g.loadNeedsResave = true
+				}
+			}
+			takenMonsterIDs[m.ID] = struct{}{}
+		}
 		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
 			sealedSpawn := make(map[string][2]float64)
 			for _, fresh := range w.Monsters {
@@ -1680,9 +1704,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
-				if ms.ID != "" {
-					m.ID = ms.ID
-				}
+				adoptSavedMonsterID(m, ms.ID)
 				// Seal a dormant boss immediately. refreshMonsterAIState recomputes
 				// BossDormant every frame, but that runs AFTER input - so without this a
 				// player action on the first frame after load could damage a still-sealed
