@@ -51,6 +51,10 @@ type SpriteManager struct {
 	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
 	keyEdgeOnly   map[string]bool
 	keyEdgeRadius int
+	// lazyResourceObserver assigns synchronous fallback loads to the renderer's
+	// current region. Background prepared commits deliberately do not notify it;
+	// their owner is the prewarm task manifest.
+	lazyResourceObserver func(SpriteResourceRequest)
 }
 
 type spriteAlphaMask struct {
@@ -76,6 +80,39 @@ type animationCacheKey struct {
 type SpriteResourceRequest struct {
 	Name          string
 	AnimationType string
+}
+
+func (sm *SpriteManager) SetLazyResourceObserver(observer func(SpriteResourceRequest)) {
+	if sm == nil {
+		return
+	}
+	sm.lazyResourceObserver = observer
+}
+
+// ResourceForImage resolves a cached root image or animation frame back to its
+// authored source. It is used only when a lazily built derived resource first
+// joins a region manifest, so a compact scan is preferable to a reverse map
+// that could itself retain evicted GPU images.
+func (sm *SpriteManager) ResourceForImage(img *ebiten.Image) (SpriteResourceRequest, bool) {
+	if sm == nil || img == nil {
+		return SpriteResourceRequest{}, false
+	}
+	for name, candidate := range sm.sprites {
+		if candidate == img {
+			return SpriteResourceRequest{Name: name}, true
+		}
+	}
+	for key, animation := range sm.animations {
+		if animation == nil {
+			continue
+		}
+		for _, frame := range animation.Frames {
+			if frame == img {
+				return SpriteResourceRequest{Name: key.name, AnimationType: key.animType}, true
+			}
+		}
+	}
+	return SpriteResourceRequest{}, false
 }
 
 // PreparedSpriteResource is a decoded and color-keyed CPU image. Found is
@@ -105,6 +142,32 @@ type PreparedSpriteCommit struct {
 	completed []preparedSpriteTarget
 	result    map[*ebiten.Image]*image.RGBA
 	done      bool
+}
+
+// Cancel releases every image allocated by an unfinished commit. Streaming
+// callers use this when a region leaves residency before all pixel rows have
+// been written; waiting for the Go GC would make the temporary GPU allocation
+// lifetime nondeterministic on memory-constrained devices.
+func (c *PreparedSpriteCommit) Cancel() {
+	if c == nil || c.done {
+		return
+	}
+	for i := range c.targets {
+		if c.targets[i].image != nil {
+			c.targets[i].image.Deallocate()
+		}
+		c.targets[i] = preparedSpriteTarget{}
+	}
+	for i := range c.completed {
+		if c.completed[i].image != nil {
+			c.completed[i].image.Deallocate()
+		}
+		c.completed[i] = preparedSpriteTarget{}
+	}
+	c.targets = nil
+	c.completed = nil
+	c.result = nil
+	c.done = true
 }
 
 // despillHueFloor is the magenta-excess (min(R,B)-G) below which a kept pixel is
@@ -1012,10 +1075,16 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 	sm.ensureIndex()
 	prepared := sm.decodePreparedResource(SpriteResourceRequest{Name: name})
 	sm.CommitPreparedResource(prepared)
+	if prepared.Found && sm.lazyResourceObserver != nil {
+		sm.lazyResourceObserver(prepared.Request)
+	}
 }
 
 func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 	sm.ensureIndex()
 	prepared := sm.decodePreparedResource(SpriteResourceRequest{Name: name, AnimationType: animType})
 	sm.CommitPreparedResource(prepared)
+	if prepared.Found && sm.lazyResourceObserver != nil {
+		sm.lazyResourceObserver(prepared.Request)
+	}
 }

@@ -171,7 +171,7 @@ type standeeMipKey struct {
 // blend plus faint horizontal grain, so the token core follows the die-cut art.
 func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) *ebiten.Image {
 	if img, ok := r.standeeCoreCache[key]; ok {
-		r.trackResidentStandeeKey(key)
+		r.trackResidentStandeeKey(key, src)
 		return img
 	}
 	b := src.Bounds()
@@ -187,7 +187,7 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 
 func (r *Renderer) standeeCoreSilhouetteFromCPU(key standeeCoreKey, src *ebiten.Image, cpu *image.RGBA) *ebiten.Image {
 	if img, ok := r.standeeCoreCache[key]; ok {
-		r.trackResidentStandeeKey(key)
+		r.trackResidentStandeeKey(key, src)
 		return img
 	}
 	if src == nil || cpu == nil {
@@ -309,6 +309,20 @@ func prepareStandeeMipPixels(base *image.RGBA) []*image.RGBA {
 	return levels
 }
 
+// standeeMipBaseNeedsCopy is the shared level-0 ownership rule for both the
+// synchronous and streaming standee builders. Shader coordinates are expressed
+// in a normalized (0,0,w,h) space, so a sheet SubImage with a non-zero origin
+// cannot be bound directly. A prepared base with a different size likewise
+// needs its own image. Standalone sources already matching that space may alias
+// level 0 to avoid the mip cache's largest duplicate allocation.
+func standeeMipBaseNeedsCopy(src *ebiten.Image, preparedBase *image.RGBA) bool {
+	if src == nil || preparedBase == nil {
+		return false
+	}
+	return src.Bounds().Min != (image.Point{}) ||
+		src.Bounds().Size() != preparedBase.Bounds().Size()
+}
+
 func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.Image, prepared standeePreparedPixels) (*ebiten.Image, *ebiten.Image) {
 	if src == nil || prepared.sticker == nil || prepared.core == nil {
 		return src, nil
@@ -318,7 +332,7 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 		if bounded := r.standeeRenderSourceCache[key]; bounded != nil {
 			sticker = bounded
 		}
-		r.trackResidentStandeeKey(key)
+		r.trackResidentStandeeKey(key, src)
 		return sticker, existing
 	}
 	sticker := src
@@ -336,7 +350,7 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 	r.standeeCoreCache[key] = img
 	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, sticker, prepared.stickerMips)
 	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, prepared.coreMips)
-	r.trackResidentStandeeKey(key)
+	r.trackResidentStandeeKey(key, src)
 	return sticker, img
 }
 
@@ -422,7 +436,7 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 
 	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels))}
 	base := src
-	if src.Bounds().Min != (image.Point{}) {
+	if standeeMipBaseNeedsCopy(src, cpuLevels[0]) {
 		// The shader's full-size coordinate reference is normalized. Most sprite
 		// images already start at (0,0) and can be reused directly; only sheet
 		// SubImages need this managed-source copy. Avoiding a duplicate level 0

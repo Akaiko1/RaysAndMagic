@@ -169,6 +169,9 @@ type Renderer struct {
 	mapRenderUploadQueue            []mapRenderUpload
 	mapRenderUploadQueued           map[*ebiten.Image]struct{}
 	mapRenderShaderWarmTasks        []*mapRenderPrewarmTask
+	mapRenderLastCameraX            float64
+	mapRenderLastCameraY            float64
+	mapRenderLastCameraValid        bool
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -1299,7 +1302,25 @@ func loadFloorTexture(name string) (floorTexture, error) {
 
 // RenderFirstPersonView renders the complete first-person 3D view
 func (r *Renderer) RenderFirstPersonView(screen *ebiten.Image) {
-	r.renderFirstPerson3D(screen)
+	r.withMapRenderSourceTracking(func() {
+		r.renderFirstPerson3D(screen)
+	})
+}
+
+// withMapRenderSourceTracking scopes synchronous SpriteManager fallback loads
+// to the 3D world pass. UI, menus, and other global consumers draw after this
+// returns and therefore never become owned by an arbitrary map region.
+func (r *Renderer) withMapRenderSourceTracking(draw func()) {
+	if draw == nil {
+		return
+	}
+	if r == nil || r.game == nil || r.game.sprites == nil {
+		draw()
+		return
+	}
+	r.game.sprites.SetLazyResourceObserver(r.trackResidentSourceRequest)
+	defer r.game.sprites.SetLazyResourceObserver(nil)
+	draw()
 }
 
 // renderFirstPerson3D performs the main 3D rendering using raycasting
@@ -2116,10 +2137,12 @@ func (r *Renderer) getProcessedSpriteByName(tileType world.TileType3D, spriteNam
 
 	cacheKey := processedSpriteKey{tileType: tileType, spriteName: spriteName}
 	if cached, ok := r.processedSpriteCache[cacheKey]; ok {
+		r.trackResidentProcessedKey(cacheKey)
 		return cached
 	}
 	processed := applyBrightnessToAlpha(sprite, tileData.AlphaFromBrightness)
 	r.processedSpriteCache[cacheKey] = processed
+	r.trackResidentProcessedKey(cacheKey)
 	return processed
 }
 

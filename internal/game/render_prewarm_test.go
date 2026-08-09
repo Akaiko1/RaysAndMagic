@@ -3,9 +3,11 @@ package game
 import (
 	"context"
 	"image"
+	"image/draw"
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/graphics"
@@ -370,7 +372,10 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 			setup: func(_ *Renderer, task *mapRenderPrewarmTask, steps *int) {
 				task.spritesDone = true
 				task.skiesDone = true
-				task.steps = []func(){func() { *steps++ }, func() { *steps++ }}
+				task.steps = []mapRenderPrewarmStep{
+					func(time.Time) bool { *steps++; return true },
+					func(time.Time) bool { *steps++; return true },
+				}
 			},
 			wantSteps: 1, wantActive: true, wantSpritesDone: true,
 		},
@@ -379,7 +384,7 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 			setup: func(_ *Renderer, task *mapRenderPrewarmTask, steps *int) {
 				task.spritesDone = true
 				task.skiesDone = true
-				task.steps = []func(){func() { *steps++ }}
+				task.steps = []mapRenderPrewarmStep{func(time.Time) bool { *steps++; return true }}
 			},
 			wantSteps: 1, wantResident: true, wantSpritesDone: true,
 		},
@@ -421,7 +426,10 @@ func TestGameLoopUpdateAdvancesMapRenderStreaming(t *testing.T) {
 	steps := 0
 	task := &mapRenderPrewarmTask{
 		mapKey: "forest", spritesDone: true, skiesDone: true,
-		steps: []func(){func() { steps++ }, func() { steps++ }},
+		steps: []mapRenderPrewarmStep{
+			func(time.Time) bool { steps++; return true },
+			func(time.Time) bool { steps++; return true },
+		},
 	}
 	task.prewarmer = newMapRenderPrewarmer(r, task)
 	r.mapRenderResourcePrewarmActive = task
@@ -467,7 +475,10 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 				r.mapRenderResourcePrewarmMapKeys = nil
 				task := &mapRenderPrewarmTask{
 					mapKey: "forest", spritesDone: true, skiesDone: true,
-					steps: []func(){func() { steps++ }, func() { steps++ }},
+					steps: []mapRenderPrewarmStep{
+						func(time.Time) bool { steps++; return true },
+						func(time.Time) bool { steps++; return true },
+					},
 				}
 				task.prewarmer = newMapRenderPrewarmer(r, task)
 				r.mapRenderResourcePrewarmActive = task
@@ -1071,6 +1082,506 @@ func TestSyncVisibleMapRenderResidencyQueuesMultipleNeighboursOnce(t *testing.T)
 	}
 	if len(r.mapRenderResourcePrewarmMapKeys) != 0 {
 		t.Fatalf("camera turn requeued resident regions: %v", r.mapRenderResourcePrewarmMapKeys)
+	}
+}
+
+func TestMapRenderPrefetchAndMovementPriorityCases(t *testing.T) {
+	wm := &world.WorldManager{
+		CurrentMapKey: "current",
+		OpenWorldRegions: []world.OpenWorldRegion{
+			{MapKey: "west", OffsetX: -10, OffsetY: 0, Width: 10, Height: 10},
+			{MapKey: "current", OffsetX: 0, OffsetY: 0, Width: 10, Height: 10},
+			{MapKey: "east", OffsetX: 10, OffsetY: 0, Width: 10, Height: 10},
+		},
+	}
+	camera := &FirstPersonCamera{X: 5, Y: 5, Angle: 0, FOV: math.Pi / 3, ViewDist: 2}
+	tests := []struct {
+		name        string
+		moveX       float64
+		keys        []string
+		want        []string
+		prefetchKey string
+	}{
+		{name: "facing breaks stationary tie", keys: []string{"west", "east", "current"}, want: []string{"current", "east", "west"}},
+		{name: "movement overrides facing", moveX: -1, keys: []string{"east", "current", "west"}, want: []string{"current", "west", "east"}},
+		{name: "distance margin reaches region before visibility", prefetchKey: "east"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prefetchKey != "" {
+				exact := visibleOpenWorldMapKeys(wm, camera, 1, 0, 0)
+				prefetched := visibleOpenWorldMapKeys(wm, camera, 1, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles)
+				if containsString(exact, tt.prefetchKey) {
+					t.Fatalf("%s was already visible without the prefetch margin", tt.prefetchKey)
+				}
+				if !containsString(prefetched, tt.prefetchKey) {
+					t.Fatalf("%s was not discovered by the prefetch margin: %v", tt.prefetchKey, prefetched)
+				}
+				return
+			}
+			keys := append([]string(nil), tt.keys...)
+			prioritizeMapRenderKeys(wm, keys, "current", camera, 1, tt.moveX, 0)
+			if !reflect.DeepEqual(keys, tt.want) {
+				t.Fatalf("priority = %v, want %v", keys, tt.want)
+			}
+		})
+	}
+}
+
+func TestLazyRenderResourceOwnershipCaseTable(t *testing.T) {
+	t.Chdir("../..")
+	previousWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest"}
+	t.Cleanup(func() { world.GlobalWorldManager = previousWorldManager })
+
+	ownerCases := []struct {
+		name            string
+		resident        bool
+		activeMapKey    string
+		activeCancelled bool
+		wantResident    bool
+		wantActive      bool
+	}{
+		{name: "resident", resident: true, wantResident: true},
+		{name: "active", activeMapKey: "forest", wantActive: true},
+		{name: "resident and active transition", resident: true, activeMapKey: "forest", wantResident: true, wantActive: true},
+		{name: "cancelled active", activeMapKey: "forest", activeCancelled: true},
+		{name: "different active region", activeMapKey: "desert"},
+	}
+	resourceCases := []struct {
+		name          string
+		makeSource    func(*Renderer, *graphics.SpriteManager) *ebiten.Image
+		wantSource    mapRenderSourceKey
+		wantProcessed *processedSpriteKey
+	}{
+		{
+			name: "static source",
+			makeSource: func(_ *Renderer, sprites *graphics.SpriteManager) *ebiten.Image {
+				return sprites.GetSprite("forest_oak")
+			},
+			wantSource: mapRenderSourceKey{name: "forest_oak"},
+		},
+		{
+			name: "animation frame",
+			makeSource: func(_ *Renderer, sprites *graphics.SpriteManager) *ebiten.Image {
+				return sprites.GetAnimation("goblin", "walking_r").Frames[0]
+			},
+			wantSource: mapRenderSourceKey{name: "goblin", animationType: "walking_r"},
+		},
+		{
+			name: "processed source",
+			makeSource: func(r *Renderer, _ *graphics.SpriteManager) *ebiten.Image {
+				key := processedSpriteKey{tileType: world.TileType3D(777), spriteName: "forest_oak"}
+				img := ebiten.NewImage(4, 4)
+				r.processedSpriteCache[key] = img
+				return img
+			},
+			wantSource:    mapRenderSourceKey{name: "forest_oak"},
+			wantProcessed: &processedSpriteKey{tileType: world.TileType3D(777), spriteName: "forest_oak"},
+		},
+	}
+
+	for _, resourceCase := range resourceCases {
+		for _, ownerCase := range ownerCases {
+			t.Run(resourceCase.name+"/"+ownerCase.name, func(t *testing.T) {
+				sprites := graphics.NewSpriteManager()
+				r := &Renderer{game: &MMGame{sprites: sprites}, processedSpriteCache: make(map[processedSpriteKey]*ebiten.Image)}
+				var resident *mapRenderRegionResources
+				if ownerCase.resident {
+					resident = testMapRenderResources()
+					r.mapRenderResourcesByMap = map[string]*mapRenderRegionResources{"forest": resident}
+				}
+				var active *mapRenderRegionResources
+				if ownerCase.activeMapKey != "" {
+					task := &mapRenderPrewarmTask{mapKey: ownerCase.activeMapKey, cancelled: ownerCase.activeCancelled}
+					task.prewarmer = newMapRenderPrewarmer(r, task)
+					active = task.prewarmer.resources
+					r.mapRenderResourcePrewarmActive = task
+				}
+				source := resourceCase.makeSource(r, sprites)
+				key := standeeCoreKey{name: "lazy:" + resourceCase.name}
+				r.trackResidentStandeeKey(key, source)
+
+				assertOwner := func(label string, resources *mapRenderRegionResources, want bool) {
+					t.Helper()
+					if resources == nil {
+						if want {
+							t.Fatalf("%s owner is nil", label)
+						}
+						return
+					}
+					_, hasStandee := resources.standees[key]
+					_, hasSource := resources.sources[resourceCase.wantSource]
+					if hasStandee != want || hasSource != want {
+						t.Fatalf("%s ownership standee=%v source=%v, want %v", label, hasStandee, hasSource, want)
+					}
+					if resourceCase.wantProcessed != nil {
+						_, hasProcessed := resources.processed[*resourceCase.wantProcessed]
+						if hasProcessed != want {
+							t.Fatalf("%s processed ownership=%v, want %v", label, hasProcessed, want)
+						}
+					}
+				}
+				assertOwner("resident", resident, ownerCase.wantResident)
+				assertOwner("active", active, ownerCase.wantActive)
+			})
+		}
+	}
+}
+
+func TestLazySourceOwnershipIsScopedToWorldRender(t *testing.T) {
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+	previousWorldManager := world.GlobalWorldManager
+	t.Cleanup(func() { world.GlobalWorldManager = previousWorldManager })
+	world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest"}
+
+	tests := []struct {
+		name         string
+		resident     bool
+		active       bool
+		worldPass    bool
+		preload      bool
+		wantResident bool
+		wantActive   bool
+	}{
+		{name: "world load joins resident manifest", resident: true, worldPass: true, wantResident: true},
+		{name: "world load joins active manifest", active: true, worldPass: true, wantActive: true},
+		{name: "world load joins transition manifests", resident: true, active: true, worldPass: true, wantResident: true, wantActive: true},
+		{name: "UI load stays global beside resident region", resident: true},
+		{name: "UI load stays global beside active region", active: true},
+		{name: "cache hit does not acquire regional ownership", resident: true, worldPass: true, preload: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			world.GlobalWorldManager = nil
+			g := newTestGame(cfg, newTestWorldSized(cfg, 2, 2))
+			g.sprites = graphics.NewSpriteManager()
+			r := NewRenderer(g)
+			world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest"}
+			var resident *mapRenderRegionResources
+			if tt.resident {
+				resident = testMapRenderResources()
+				r.mapRenderResourcesByMap = map[string]*mapRenderRegionResources{"forest": resident}
+			}
+			var active *mapRenderRegionResources
+			if tt.active {
+				task := &mapRenderPrewarmTask{mapKey: "forest"}
+				task.prewarmer = newMapRenderPrewarmer(r, task)
+				active = task.prewarmer.resources
+				r.mapRenderResourcePrewarmActive = task
+			}
+			if tt.preload {
+				g.sprites.GetSprite("forest_oak")
+			}
+			load := func() { g.sprites.GetSprite("forest_oak") }
+			if tt.worldPass {
+				r.withMapRenderSourceTracking(load)
+			} else {
+				load()
+			}
+			assertSource := func(label string, resources *mapRenderRegionResources, want bool) {
+				t.Helper()
+				if resources == nil {
+					if want {
+						t.Fatalf("%s manifest is nil", label)
+					}
+					return
+				}
+				_, got := resources.sources[mapRenderSourceKey{name: "forest_oak"}]
+				if got != want {
+					t.Fatalf("%s ownership=%v, want %v", label, got, want)
+				}
+			}
+			assertSource("resident", resident, tt.wantResident)
+			assertSource("active", active, tt.wantActive)
+			if tt.worldPass {
+				g.sprites.GetSprite("chest_iron")
+				for label, resources := range map[string]*mapRenderRegionResources{
+					"resident": resident,
+					"active":   active,
+				} {
+					if resources == nil {
+						continue
+					}
+					if _, owned := resources.sources[mapRenderSourceKey{name: "chest_iron"}]; owned {
+						t.Fatalf("%s manifest captured a load after the world-render scope closed", label)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCancelMapRenderPrewarmOutsideReleasesInFlightGPUImages(t *testing.T) {
+	r := &Renderer{wallRipmaps: make(map[*ebiten.Image]*wallRipmap)}
+	task := &mapRenderPrewarmTask{mapKey: "forest"}
+	task.prewarmer = newMapRenderPrewarmer(r, task)
+
+	sky := ebiten.NewImage(4, 4)
+	skyCommit := &mapRenderSkyCommit{name: "sky", image: sky, cpu: image.NewRGBA(image.Rect(0, 0, 4, 4))}
+	task.skyCommit = skyCommit
+
+	source := ebiten.NewImage(4, 4)
+	prepared := standeePreparedPixels{
+		sticker: image.NewRGBA(image.Rect(0, 0, 4, 4)),
+		core:    image.NewRGBA(image.Rect(0, 0, 4, 4)),
+		stickerMips: []*image.RGBA{
+			image.NewRGBA(image.Rect(0, 0, 4, 4)), image.NewRGBA(image.Rect(0, 0, 2, 2)),
+		},
+		coreMips: []*image.RGBA{
+			image.NewRGBA(image.Rect(0, 0, 4, 4)), image.NewRGBA(image.Rect(0, 0, 2, 2)),
+		},
+	}
+	task.standeeCommit = newMapRenderStandeeCommit(mapRenderPreparedStandee{
+		key: standeeCoreKey{name: "tree:test"}, source: source, prepared: prepared,
+	})
+	standeeCommit := task.standeeCommit
+
+	wallSource := ebiten.NewImage(8, 8)
+	wallBuilder := newMapRenderWallRipmapBuilder(r, wallSource, image.NewRGBA(image.Rect(0, 0, 8, 8)))
+	if _, done := wallBuilder.advance(mapRenderSpriteCommitFrameBytes); done {
+		t.Fatal("wall builder unexpectedly finished after one level")
+	}
+	task.wallRipmapBuilders = []*mapRenderWallRipmapBuilder{wallBuilder}
+	r.mapRenderResourcePrewarmActive = task
+
+	r.cancelMapRenderPrewarmOutside(map[string]struct{}{})
+
+	if r.mapRenderResourcePrewarmActive != nil || !task.cancelled || task.skyCommit != nil ||
+		task.standeeCommit != nil || len(task.wallRipmapBuilders) != 0 {
+		t.Fatalf("cancel path retained in-flight state: active=%v cancelled=%v sky=%v standee=%v walls=%d",
+			r.mapRenderResourcePrewarmActive != nil, task.cancelled, task.skyCommit != nil,
+			task.standeeCommit != nil, len(task.wallRipmapBuilders))
+	}
+	if skyCommit.image != nil || skyCommit.cpu != nil {
+		t.Fatal("sky cancellation retained its GPU image or CPU pixels")
+	}
+	if len(standeeCommit.owned) != 0 || len(standeeCommit.writes) != 0 || !standeeCommit.done {
+		t.Fatal("standee cancellation retained unpublished GPU targets")
+	}
+	if wallBuilder.ripmap != nil || wallBuilder.cpuRow != nil || !wallBuilder.done {
+		t.Fatal("wall cancellation retained unpublished ripmap targets")
+	}
+}
+
+func TestDerivedGPUCommitsPublishOnlyAfterBudgetedCompletion(t *testing.T) {
+	makeRGBA := func(width, height int) *image.RGBA {
+		return image.NewRGBA(image.Rect(0, 0, width, height))
+	}
+	t.Run("standee mip chain", func(t *testing.T) {
+		r := &Renderer{}
+		key := standeeCoreKey{name: "tree:budgeted"}
+		commit := newMapRenderStandeeCommit(mapRenderPreparedStandee{
+			key: key, source: ebiten.NewImage(8, 8),
+			prepared: standeePreparedPixels{
+				sticker: makeRGBA(8, 8), core: makeRGBA(8, 8),
+				stickerMips: []*image.RGBA{makeRGBA(8, 8), makeRGBA(4, 4), makeRGBA(2, 2)},
+				coreMips:    []*image.RGBA{makeRGBA(8, 8), makeRGBA(4, 4), makeRGBA(2, 2)},
+			},
+		})
+		if _, _, done := commit.advance(r, 32); done {
+			t.Fatal("standee commit ignored the pixel budget")
+		}
+		if r.standeeCoreCache[key] != nil || r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipSticker}] != nil {
+			t.Fatal("partially written standee became visible in renderer caches")
+		}
+		for advances := 1; ; advances++ {
+			_, _, done := commit.advance(r, 32)
+			if !done {
+				if advances > 100 {
+					t.Fatal("standee commit did not converge")
+				}
+				continue
+			}
+			break
+		}
+		if r.standeeCoreCache[key] == nil || r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipSticker}] == nil ||
+			r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipCore}] == nil {
+			t.Fatal("completed standee did not publish its coherent cache set")
+		}
+	})
+
+	t.Run("wall ripmap levels", func(t *testing.T) {
+		r := &Renderer{wallRipmaps: make(map[*ebiten.Image]*wallRipmap)}
+		source := ebiten.NewImage(8, 8)
+		builder := newMapRenderWallRipmapBuilder(r, source, makeRGBA(8, 8))
+		if _, done := builder.advance(32); done {
+			t.Fatal("wall builder ignored the pixel budget")
+		}
+		if cached := r.wallRipmaps[source]; cached != builder.ripmap || cached == nil || !cached.building {
+			t.Fatal("partially written wall ripmap did not retain its reserved in-flight cache identity")
+		}
+		if _, _, _, ok := r.wallMipSource(source); ok {
+			t.Fatal("partially written wall ripmap became available to the render path")
+		}
+		for advances := 1; ; advances++ {
+			_, done := builder.advance(32)
+			if !done {
+				if advances > 1000 {
+					t.Fatal("wall ripmap builder did not converge")
+				}
+				continue
+			}
+			break
+		}
+		if r.wallRipmaps[source] == nil || r.wallRipmaps[source].building || len(r.wallRipmaps[source].owned) == 0 {
+			t.Fatal("completed wall ripmap did not publish")
+		}
+	})
+}
+
+func TestStandeeMipBuildersNormalizeLevelZeroSources(t *testing.T) {
+	makeRGBA := func(width, height int) *image.RGBA {
+		return image.NewRGBA(image.Rect(0, 0, width, height))
+	}
+	tests := []struct {
+		name       string
+		source     func() *ebiten.Image
+		prepared   *image.RGBA
+		wantCopied bool
+	}{
+		{
+			name: "standalone source aliases level zero",
+			source: func() *ebiten.Image {
+				return ebiten.NewImage(4, 4)
+			},
+			prepared: makeRGBA(4, 4),
+		},
+		{
+			name: "first sheet frame at zero origin aliases level zero",
+			source: func() *ebiten.Image {
+				sheet := ebiten.NewImage(16, 4)
+				return sheet.SubImage(image.Rect(0, 0, 4, 4)).(*ebiten.Image)
+			},
+			prepared: makeRGBA(4, 4),
+		},
+		{
+			name: "later sheet frame gets normalized owned level zero",
+			source: func() *ebiten.Image {
+				sheet := ebiten.NewImage(16, 4)
+				return sheet.SubImage(image.Rect(8, 0, 12, 4)).(*ebiten.Image)
+			},
+			prepared:   makeRGBA(4, 4),
+			wantCopied: true,
+		},
+		{
+			name: "bounded source gets normalized owned level zero",
+			source: func() *ebiten.Image {
+				return ebiten.NewImage(8, 8)
+			},
+			prepared:   makeRGBA(4, 4),
+			wantCopied: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, builder := range []string{"synchronous", "streaming"} {
+				t.Run(builder, func(t *testing.T) {
+					source := tt.source()
+					key := standeeCoreKey{name: tt.name + ":" + builder}
+					prepared := standeePreparedPixels{
+						sticker: tt.prepared,
+						core:    makeRGBA(tt.prepared.Bounds().Dx(), tt.prepared.Bounds().Dy()),
+						stickerMips: []*image.RGBA{
+							tt.prepared,
+						},
+						coreMips: []*image.RGBA{
+							makeRGBA(tt.prepared.Bounds().Dx(), tt.prepared.Bounds().Dy()),
+						},
+					}
+					r := &Renderer{}
+					if builder == "synchronous" {
+						r.commitPreparedStandeePixels(key, source, prepared)
+					} else {
+						commit := newMapRenderStandeeCommit(mapRenderPreparedStandee{
+							key: key, source: source, prepared: prepared,
+						})
+						if _, _, done := commit.advance(r, 0); !done {
+							t.Fatal("streaming standee commit did not finish")
+						}
+					}
+
+					chain := r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipSticker}]
+					if chain == nil || len(chain.levels) == 0 {
+						t.Fatal("sticker mip chain was not published")
+					}
+					levelZero := chain.levels[0]
+					if gotCopied := levelZero != source; gotCopied != tt.wantCopied {
+						t.Fatalf("level zero copied = %v, want %v", gotCopied, tt.wantCopied)
+					}
+					if tt.wantCopied && levelZero.Bounds().Min != (image.Point{}) {
+						t.Fatalf("owned level zero origin = %v, want (0,0)", levelZero.Bounds().Min)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestNPCIdleFramesStayVisibleThroughStreamingPrewarm(t *testing.T) {
+	cpuSheet := image.NewRGBA(image.Rect(0, 0, 16, 4))
+	for i := 0; i < len(cpuSheet.Pix); i += 4 {
+		cpuSheet.Pix[i] = 180
+		cpuSheet.Pix[i+1] = 120
+		cpuSheet.Pix[i+2] = 60
+		cpuSheet.Pix[i+3] = 255
+	}
+	sheet := ebiten.NewImageFromImage(cpuSheet)
+	r := &Renderer{}
+	frames := r.animationFrames(sheet)
+	if len(frames) != SpriteSheetFrameCount {
+		t.Fatalf("idle sheet split into %d frames, want %d", len(frames), SpriteSheetFrameCount)
+	}
+
+	for frameIndex, frame := range frames {
+		frameCPU := image.NewRGBA(image.Rect(0, 0, 4, 4))
+		draw.Draw(frameCPU, frameCPU.Bounds(), cpuSheet, image.Pt(frameIndex*4, 0), draw.Src)
+		key := makeStandeeCoreKey("npc:test_idle", frame, false)
+		commit := newMapRenderStandeeCommit(mapRenderPreparedStandee{
+			key: key, source: frame,
+			prepared: prepareStandeePixels(frameCPU, 0.35, false),
+		})
+		if _, _, done := commit.advance(r, 0); !done {
+			t.Fatalf("frame %d streaming commit did not finish", frameIndex)
+		}
+		chain := r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipSticker}]
+		if chain == nil || len(chain.levels) == 0 {
+			t.Fatalf("frame %d sticker mip chain was not published", frameIndex)
+		}
+		levelZero := chain.levels[0]
+		if levelZero.Bounds() != image.Rect(0, 0, 4, 4) {
+			t.Fatalf("frame %d level-zero bounds = %v, want normalized 4x4", frameIndex, levelZero.Bounds())
+		}
+		if frameIndex > 0 && levelZero == frame {
+			t.Fatalf("frame %d retained a non-normalized sheet SubImage as level zero", frameIndex)
+		}
+	}
+}
+
+func TestMapRenderTimedStepResumesBeforeAdvancing(t *testing.T) {
+	g := &MMGame{appScreen: AppScreenInGame}
+	r := &Renderer{game: g}
+	calls := 0
+	task := &mapRenderPrewarmTask{
+		mapKey: "forest", spritesDone: true, skiesDone: true,
+		steps: []mapRenderPrewarmStep{func(time.Time) bool {
+			calls++
+			return calls == 2
+		}},
+	}
+	task.prewarmer = newMapRenderPrewarmer(r, task)
+	r.mapRenderResourcePrewarmActive = task
+
+	r.prewarmPendingMapRenderResources()
+	if task.nextStep != 0 || calls != 1 {
+		t.Fatalf("unfinished timed step advanced: index=%d calls=%d", task.nextStep, calls)
+	}
+	r.prewarmPendingMapRenderResources()
+	if task.nextStep != 1 || calls != 2 || r.mapRenderResourcePrewarmActive != nil {
+		t.Fatalf("resumed timed step did not complete: index=%d calls=%d active=%v",
+			task.nextStep, calls, r.mapRenderResourcePrewarmActive != nil)
 	}
 }
 

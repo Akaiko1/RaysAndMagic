@@ -120,30 +120,189 @@ func TestWallRipmapSizesHalveAxesIndependently(t *testing.T) {
 	}
 }
 
-func TestTileHorizontallyRepeatsEveryRow(t *testing.T) {
+func TestWallMipLevelRepeatsHorizontallyAndPadsVerticalEdges(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	copy(src.Pix, []byte{
 		1, 2, 3, 255, 4, 5, 6, 255,
 		7, 8, 9, 255, 10, 11, 12, 255,
 	})
-	got := tileHorizontally(src, 3)
-	if got.Bounds() != image.Rect(0, 0, 6, 2) {
-		t.Fatalf("bounds = %v, want 6x2", got.Bounds())
+	got := tileWallMipLevel(src, 3)
+	if got.Bounds() != image.Rect(0, 0, 6, 4) {
+		t.Fatalf("bounds = %v, want 6x4 with one gutter row on each edge", got.Bounds())
 	}
-	for row := 0; row < 2; row++ {
+	sourceRows := []int{0, 0, 1, 1}
+	for row, sourceRow := range sourceRows {
 		for copyIndex := 0; copyIndex < 3; copyIndex++ {
 			for x := 0; x < 2; x++ {
-				srcOff := row*src.Stride + x*4
+				srcOff := sourceRow*src.Stride + x*4
 				dstOff := row*got.Stride + (copyIndex*2+x)*4
 				for c := 0; c < 4; c++ {
 					if got.Pix[dstOff+c] != src.Pix[srcOff+c] {
-						t.Fatalf("copy %d row %d texel %d channel %d = %d, want %d",
-							copyIndex, row, x, c, got.Pix[dstOff+c], src.Pix[srcOff+c])
+						t.Fatalf("copy %d row %d (source row %d) texel %d channel %d = %d, want %d",
+							copyIndex, row, sourceRow, x, c, got.Pix[dstOff+c], src.Pix[srcOff+c])
 					}
 				}
 			}
 		}
 	}
+}
+
+func TestStreamingWallRipmapBuilderUsesGutteredLevelPixels(t *testing.T) {
+	source := ebiten.NewImage(4, 4)
+	prepared := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			off := prepared.PixOffset(x, y)
+			prepared.Pix[off], prepared.Pix[off+3] = byte(20+y), 255
+		}
+	}
+	r := &Renderer{wallRipmaps: make(map[*ebiten.Image]*wallRipmap)}
+	builder := newMapRenderWallRipmapBuilder(r, source, prepared)
+	if _, done := builder.advance(16); done {
+		t.Fatal("streaming builder unexpectedly finished its first level")
+	}
+	if builder.pendingCPU == nil {
+		t.Fatal("streaming builder did not retain its partially uploaded CPU level")
+	}
+	if bounds := builder.pendingCPU.Bounds(); bounds != image.Rect(0, 0, 12, 6) {
+		t.Fatalf("pending level bounds = %v, want 12x6 including vertical gutters", bounds)
+	}
+	for _, x := range []int{0, 5, 11} {
+		top := builder.pendingCPU.PixOffset(x, 0)
+		topContent := builder.pendingCPU.PixOffset(x, 1)
+		bottomContent := builder.pendingCPU.PixOffset(x, 4)
+		bottom := builder.pendingCPU.PixOffset(x, 5)
+		if builder.pendingCPU.Pix[top] != builder.pendingCPU.Pix[topContent] {
+			t.Fatalf("top gutter at x=%d differs from first content row", x)
+		}
+		if builder.pendingCPU.Pix[bottom] != builder.pendingCPU.Pix[bottomContent] {
+			t.Fatalf("bottom gutter at x=%d differs from last content row", x)
+		}
+	}
+	builder.cancel()
+}
+
+func TestWallRipmapHasOneAuthoritativeBuilder(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*testing.T, *Renderer, *ebiten.Image, *image.RGBA)
+	}{
+		{
+			name: "lazy lookup observes in-flight streaming cache",
+			run: func(t *testing.T, r *Renderer, source *ebiten.Image, prepared *image.RGBA) {
+				builder := newMapRenderWallRipmapBuilder(r, source, prepared)
+				inFlight := builder.ripmap
+				reserved := r.wallRipmapBytes
+				if inFlight == nil || !inFlight.building || reserved <= 0 {
+					t.Fatalf("streaming builder did not reserve an in-flight cache: ripmap=%v building=%v bytes=%d",
+						inFlight != nil, inFlight != nil && inFlight.building, reserved)
+				}
+				if got := r.wallRipmapForCPU(source, prepared); got != inFlight {
+					t.Fatal("lazy lookup created a second ripmap while streaming was active")
+				}
+				if r.wallRipmapBytes != reserved {
+					t.Fatalf("lazy lookup changed reserved bytes: got %d want %d", r.wallRipmapBytes, reserved)
+				}
+				if _, _, _, ok := r.wallMipSource(source); ok {
+					t.Fatal("render path exposed a newly registered in-flight ripmap")
+				}
+				for len(inFlight.levels[0]) == 0 {
+					if _, done := builder.advance(32); done {
+						t.Fatal("streaming builder completed before exposing a partial level")
+					}
+				}
+				if _, _, _, ok := r.wallMipSource(source); ok {
+					t.Fatal("render path exposed a partially populated in-flight ripmap")
+				}
+				for advances := 0; ; advances++ {
+					_, done := builder.advance(1 << 20)
+					if done {
+						break
+					}
+					if advances > 1000 {
+						t.Fatal("streaming builder did not converge")
+					}
+				}
+				if got := r.wallRipmaps[source]; got != inFlight || got.building {
+					t.Fatalf("completed builder replaced its cache identity: same=%v building=%v",
+						got == inFlight, got != nil && got.building)
+				}
+				if r.wallRipmapBytes != reserved {
+					t.Fatalf("completed builder counted bytes %d, want one reservation %d", r.wallRipmapBytes, reserved)
+				}
+				if _, _, _, ok := r.wallMipSource(source); !ok {
+					t.Fatal("render path did not expose the completed ripmap")
+				}
+			},
+		},
+		{
+			name: "cancel releases reservation and permits synchronous fallback",
+			run: func(t *testing.T, r *Renderer, source *ebiten.Image, prepared *image.RGBA) {
+				builder := newMapRenderWallRipmapBuilder(r, source, prepared)
+				builder.cancel()
+				if r.wallRipmaps[source] != nil || r.wallRipmapBytes != 0 {
+					t.Fatalf("cancel retained cache=%v bytes=%d", r.wallRipmaps[source] != nil, r.wallRipmapBytes)
+				}
+				if got := r.wallRipmapForCPU(source, prepared); got == nil || len(got.levels) == 0 || got.building {
+					t.Fatal("synchronous fallback did not rebuild after cancellation")
+				}
+			},
+		},
+		{
+			name: "completed cache wins repeated prewarm",
+			run: func(t *testing.T, r *Renderer, source *ebiten.Image, prepared *image.RGBA) {
+				ready := r.wallRipmapForCPU(source, prepared)
+				bytes := r.wallRipmapBytes
+				builder := newMapRenderWallRipmapBuilder(r, source, prepared)
+				if !builder.done || builder.ripmap != ready {
+					t.Fatal("repeated prewarm did not adopt the completed cache")
+				}
+				if r.wallRipmapBytes != bytes {
+					t.Fatalf("repeated prewarm changed bytes: got %d want %d", r.wallRipmapBytes, bytes)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := ebiten.NewImage(8, 8)
+			prepared := image.NewRGBA(image.Rect(0, 0, 8, 8))
+			r := &Renderer{wallRipmaps: make(map[*ebiten.Image]*wallRipmap)}
+			t.Cleanup(func() {
+				r.clearWallRipmaps()
+				source.Deallocate()
+			})
+			tt.run(t, r, source, prepared)
+		})
+	}
+}
+
+func TestSynchronousWallRipmapBuilderUsesGutteredLevelBounds(t *testing.T) {
+	source := ebiten.NewImage(4, 4)
+	r := &Renderer{}
+	rm := r.wallRipmapForCPU(source, image.NewRGBA(image.Rect(0, 0, 4, 4)))
+	if rm == nil {
+		t.Fatal("synchronous builder did not create a ripmap")
+	}
+	tests := []struct {
+		name string
+		iy   int
+		ix   int
+		want image.Rectangle
+	}{
+		{name: "full resolution", iy: 0, ix: 0, want: image.Rect(0, 0, 12, 6)},
+		{name: "both axes reduced", iy: 1, ix: 1, want: image.Rect(0, 0, 6, 4)},
+		{name: "one texel terminal", iy: 2, ix: 2, want: image.Rect(0, 0, 3, 3)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rm.levels[tt.iy][tt.ix].Bounds(); got != tt.want {
+				t.Fatalf("level[%d][%d] bounds = %v, want %v", tt.iy, tt.ix, got, tt.want)
+			}
+		})
+	}
+	r.clearWallRipmaps()
 }
 
 func TestResetMapRenderResourceResidencyClearsWallRipmaps(t *testing.T) {
@@ -249,8 +408,9 @@ func TestWallMipTriangleOptions(t *testing.T) {
 
 // The brick pattern must not move when a level changes ON EITHER AXIS: the
 // sampled position in TILE units has to be identical at every level, and level
-// (0,0) has to equal the legacy full-res formula exactly (close walls keep
-// their look). Shipped once as masonry jumping sideways on every level switch:
+// (0,0) has to equal the legacy full-res formula after removing the gutter
+// offset (close walls keep their look). Shipped once as masonry jumping
+// sideways on every level switch:
 // the half-texel alignment offset was applied in level texels, which is 64x
 // bigger at level 6 than at level 0.
 func TestWallMipPatternPositionIsLevelInvariant(t *testing.T) {
@@ -259,8 +419,11 @@ func TestWallMipPatternPositionIsLevelInvariant(t *testing.T) {
 	if math.Abs(float64(legacy[0].SrcX)-(fullW+leftU*fullW+0.5)) > 1e-4 {
 		t.Errorf("level 0 SrcX = %.4f, want the legacy %.4f", legacy[0].SrcX, fullW+leftU*fullW+0.5)
 	}
-	if math.Abs(float64(legacy[0].SrcY)-0.5) > 1e-4 || math.Abs(float64(legacy[2].SrcY)-(fullH-0.5)) > 1e-4 {
-		t.Errorf("level 0 SrcY = %.4f..%.4f, want the legacy 0.5..%.1f", legacy[0].SrcY, legacy[2].SrcY, fullH-0.5)
+	gutter := float64(wallMipVerticalGutterRows)
+	if math.Abs(float64(legacy[0].SrcY)-(gutter+0.5)) > 1e-4 ||
+		math.Abs(float64(legacy[2].SrcY)-(gutter+fullH-0.5)) > 1e-4 {
+		t.Errorf("level 0 SrcY = %.4f..%.4f, want guttered %.1f..%.1f",
+			legacy[0].SrcY, legacy[2].SrcY, gutter+0.5, gutter+fullH-0.5)
 	}
 
 	patternU := func(srcX float32, levelW float64) float64 {
@@ -278,11 +441,18 @@ func TestWallMipPatternPositionIsLevelInvariant(t *testing.T) {
 	}
 	for _, levelH := range []float64{128, 32, 4} {
 		verts := appendWallMipSliceVertices(nil, fullW, fullW, levelH, fullH, 0, 1, 0, 100, leftU, rightU, 1, 1)
-		top := float64(verts[0].SrcY) / levelH
-		bottom := float64(verts[2].SrcY) / levelH
+		topSource := float64(verts[0].SrcY)
+		bottomSource := float64(verts[2].SrcY)
+		top := (topSource - gutter) / levelH
+		bottom := (bottomSource - gutter) / levelH
 		if math.Abs(top-0.5/fullH) > 1e-6 || math.Abs(bottom-(1-0.5/fullH)) > 1e-6 {
 			t.Errorf("level height %.0f samples tile V %.6f..%.6f, want %.6f..%.6f",
 				levelH, top, bottom, 0.5/fullH, 1-0.5/fullH)
+		}
+		if topSource < 0.5 || topSource > gutter+0.5 ||
+			bottomSource < gutter+levelH-0.5 || bottomSource > 2*gutter+levelH-0.5 {
+			t.Errorf("level height %.0f edge samples %.4f..%.4f escape duplicated gutter texels",
+				levelH, topSource, bottomSource)
 		}
 	}
 

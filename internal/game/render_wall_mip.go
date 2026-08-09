@@ -34,6 +34,10 @@ const (
 	// builds no address-repeat for a sampled source rect, so the neighbouring
 	// copies are what keep a slice's U interval seam-free when it wraps.
 	wallMipRepeats = 3
+	// Bilinear samples at the logical top/bottom retain sub-texel phase across
+	// levels. Duplicate edge rows keep those footprints inside owned pixels
+	// instead of letting AddressUnsafe read neighbouring atlas content.
+	wallMipVerticalGutterRows = 1
 	// Vertical levels stop at height/2^6: past that a 256px tile is drawn under
 	// 4px tall and the residual is invisible. Horizontal levels run down to a
 	// single texel column - grazing angles genuinely reach there.
@@ -47,9 +51,181 @@ const (
 
 // wallRipmap owns the anisotropic level grid of one wall texture.
 type wallRipmap struct {
-	levels [][]*ebiten.Image // [iy][ix]
-	owned  []*ebiten.Image
-	bytes  int64
+	levels   [][]*ebiten.Image // [iy][ix]
+	owned    []*ebiten.Image
+	bytes    int64
+	building bool
+}
+
+// mapRenderWallRipmapBuilder creates one managed ripmap level per Update. The
+// normal lazy fallback remains synchronous, but planned regional streaming no
+// longer creates an entire anisotropic grid in one frame.
+type mapRenderWallRipmapBuilder struct {
+	renderer     *Renderer
+	sprite       *ebiten.Image
+	sizes        [][]image.Point
+	cpuRow       *image.RGBA
+	cpuLevel     *image.RGBA
+	pendingCPU   *image.RGBA
+	pendingImage *ebiten.Image
+	pendingRow   int
+	ripmap       *wallRipmap
+	iy           int
+	ix           int
+	estimated    int64
+	done         bool
+	published    bool
+}
+
+func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *image.RGBA) *mapRenderWallRipmapBuilder {
+	b := &mapRenderWallRipmapBuilder{renderer: r, sprite: sprite}
+	if r == nil || sprite == nil {
+		b.done = true
+		return b
+	}
+	if existing := r.wallRipmaps[sprite]; existing != nil {
+		b.ripmap = existing
+		b.done = true
+		b.published = true
+		return b
+	}
+	bounds := sprite.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	b.estimated = wallRipmapByteSize(width, height)
+	if width <= 0 || height <= 0 || b.estimated <= 0 ||
+		b.estimated > wallRipmapPerTextureBudgetBytes ||
+		b.estimated > wallRipmapBudgetBytes-r.wallRipmapBytes {
+		if r.wallRipmaps == nil {
+			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
+		}
+		r.wallRipmaps[sprite] = &wallRipmap{}
+		b.done = true
+		b.published = true
+		return b
+	}
+	b.cpuRow = image.NewRGBA(image.Rect(0, 0, width, height))
+	if prepared != nil && prepared.Bounds().Dx() == width && prepared.Bounds().Dy() == height {
+		draw.Draw(b.cpuRow, b.cpuRow.Bounds(), prepared, prepared.Bounds().Min, draw.Src)
+	} else {
+		sprite.ReadPixels(b.cpuRow.Pix)
+	}
+	b.sizes = wallRipmapSizes(width, height)
+	b.ripmap = &wallRipmap{
+		levels: make([][]*ebiten.Image, len(b.sizes)),
+		bytes:  b.estimated, building: true,
+	}
+	if r.wallRipmaps == nil {
+		r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
+	}
+	// Publish the in-flight identity before any pixel work. Lazy Draw lookups
+	// see this same cache object and stay on the nearest fallback until its
+	// levels are complete instead of starting a competing synchronous build.
+	r.wallRipmaps[sprite] = b.ripmap
+	r.wallRipmapBytes += b.estimated
+	return b
+}
+
+func (b *mapRenderWallRipmapBuilder) advance(maxBytes int) (*wallRipmap, bool) {
+	if b == nil || b.done {
+		if b == nil {
+			return nil, true
+		}
+		return b.ripmap, true
+	}
+	if b.iy >= len(b.sizes) {
+		b.publish()
+		return b.ripmap, true
+	}
+	rowSizes := b.sizes[b.iy]
+	if b.pendingImage == nil {
+		if b.ix == 0 {
+			if b.iy > 0 {
+				b.cpuRow = downsampleMip(b.cpuRow, rowSizes[0])
+			}
+			b.cpuLevel = b.cpuRow
+		} else {
+			b.cpuLevel = downsampleMip(b.cpuLevel, rowSizes[b.ix])
+		}
+		if b.cpuLevel == nil {
+			b.cancel()
+			return nil, true
+		}
+		b.pendingCPU = tileWallMipLevel(b.cpuLevel, wallMipRepeats)
+		b.pendingImage = ebiten.NewImage(b.pendingCPU.Bounds().Dx(), b.pendingCPU.Bounds().Dy())
+		b.ripmap.owned = append(b.ripmap.owned, b.pendingImage)
+	}
+	bounds := b.pendingCPU.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	rowBytes := 4 * width
+	rows := height - b.pendingRow
+	if maxBytes > 0 {
+		rows = min(rows, max(1, maxBytes/rowBytes))
+	}
+	start := b.pendingCPU.PixOffset(bounds.Min.X, bounds.Min.Y+b.pendingRow)
+	end := start + rows*b.pendingCPU.Stride
+	region := image.Rect(0, b.pendingRow, width, b.pendingRow+rows)
+	b.pendingImage.SubImage(region).(*ebiten.Image).WritePixels(b.pendingCPU.Pix[start:end])
+	b.pendingRow += rows
+	if b.pendingRow < height {
+		return b.ripmap, false
+	}
+	b.ripmap.levels[b.iy] = append(b.ripmap.levels[b.iy], b.pendingImage)
+	b.pendingCPU = nil
+	b.pendingImage = nil
+	b.pendingRow = 0
+	b.ix++
+	if b.ix >= len(rowSizes) {
+		b.ix = 0
+		b.iy++
+	}
+	if b.iy >= len(b.sizes) {
+		b.publish()
+	}
+	return b.ripmap, b.done
+}
+
+func (b *mapRenderWallRipmapBuilder) publish() {
+	if b == nil || b.done {
+		return
+	}
+	if len(b.ripmap.owned) == 0 {
+		b.cancel()
+		return
+	}
+	if b.renderer == nil || b.renderer.wallRipmaps[b.sprite] != b.ripmap {
+		b.cancel()
+		return
+	}
+	b.ripmap.building = false
+	b.done = true
+	b.published = true
+	b.cpuRow = nil
+	b.cpuLevel = nil
+	b.pendingCPU = nil
+	b.pendingImage = nil
+	b.pendingRow = 0
+}
+
+func (b *mapRenderWallRipmapBuilder) cancel() {
+	if b == nil || b.done && b.published {
+		return
+	}
+	if b.renderer != nil && b.ripmap != nil && b.renderer.wallRipmaps[b.sprite] == b.ripmap {
+		b.renderer.deallocateWallRipmap(b.sprite)
+	} else if b.ripmap != nil {
+		for _, img := range b.ripmap.owned {
+			if img != nil {
+				img.Deallocate()
+			}
+		}
+	}
+	b.ripmap = nil
+	b.cpuRow = nil
+	b.cpuLevel = nil
+	b.pendingCPU = nil
+	b.pendingImage = nil
+	b.pendingRow = 0
+	b.done = true
 }
 
 // wallMipBatch is one pending DrawTriangles worth of slices sharing a source.
@@ -133,7 +309,7 @@ func wallRipmapByteSize(width, height int) int64 {
 	var total int64
 	for _, row := range wallRipmapSizes(width, height) {
 		for _, size := range row {
-			total += int64(size.X) * int64(wallMipRepeats) * int64(size.Y) * 4
+			total += int64(size.X) * int64(wallMipRepeats) * int64(size.Y+2*wallMipVerticalGutterRows) * 4
 		}
 	}
 	return total
@@ -199,7 +375,7 @@ func (r *Renderer) wallRipmapForCPU(sprite *ebiten.Image, prepared *image.RGBA) 
 					break
 				}
 			}
-			img := ebiten.NewImageFromImage(tileHorizontally(cpuLevel, wallMipRepeats))
+			img := ebiten.NewImageFromImage(tileWallMipLevel(cpuLevel, wallMipRepeats))
 			row = append(row, img)
 			rm.owned = append(rm.owned, img)
 		}
@@ -261,19 +437,32 @@ func (r *Renderer) clearWallRipmaps() {
 	r.wallRipmapBytes = 0
 }
 
-// tileHorizontally repeats an image side by side, so a slice whose U interval
-// crosses the tile edge samples real neighbouring pixels instead of clamping.
-func tileHorizontally(src *image.RGBA, copies int) *image.RGBA {
+// tileWallMipLevel repeats a level horizontally and duplicates its top/bottom
+// rows into a one-pixel gutter. X intervals can cross tile seams, while Y edge
+// footprints remain safe under FilterLinear + AddressUnsafe at every mip level.
+func tileWallMipLevel(src *image.RGBA, copies int) *image.RGBA {
 	bounds := src.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
-	dst := image.NewRGBA(image.Rect(0, 0, width*copies, height))
+	if width <= 0 || height <= 0 || copies <= 0 {
+		return nil
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, width*copies, height+2*wallMipVerticalGutterRows))
 	rowBytes := width * 4
 	for y := 0; y < height; y++ {
 		srcRow := src.Pix[y*src.Stride+bounds.Min.X*4 : y*src.Stride+bounds.Min.X*4+rowBytes]
 		for copyIndex := 0; copyIndex < copies; copyIndex++ {
-			off := y*dst.Stride + copyIndex*rowBytes
+			off := (y+wallMipVerticalGutterRows)*dst.Stride + copyIndex*rowBytes
 			copy(dst.Pix[off:off+rowBytes], srcRow)
 		}
+	}
+	topContent := wallMipVerticalGutterRows * dst.Stride
+	for y := 0; y < wallMipVerticalGutterRows; y++ {
+		copy(dst.Pix[y*dst.Stride:(y+1)*dst.Stride], dst.Pix[topContent:topContent+dst.Stride])
+	}
+	bottomContent := (wallMipVerticalGutterRows + height - 1) * dst.Stride
+	for y := 0; y < wallMipVerticalGutterRows; y++ {
+		dstY := wallMipVerticalGutterRows + height + y
+		copy(dst.Pix[dstY*dst.Stride:(dstY+1)*dst.Stride], dst.Pix[bottomContent:bottomContent+dst.Stride])
 	}
 	return dst
 }
@@ -400,7 +589,7 @@ func (r *Renderer) flushMipmappedWallBatch(screen *ebiten.Image) {
 // projection contract regardless of the levels it ends up sampling.
 func (r *Renderer) wallMipSource(sprite *ebiten.Image) (rm *wallRipmap, tileWidth, textureHeight float64, ok bool) {
 	rm = r.wallRipmapFor(sprite)
-	if rm == nil || len(rm.levels) == 0 || len(rm.levels[0]) == 0 {
+	if rm == nil || rm.building || len(rm.levels) == 0 || len(rm.levels[0]) == 0 {
 		return nil, 0, 0, false
 	}
 	bounds := sprite.Bounds()
@@ -431,8 +620,9 @@ func (r *Renderer) wallSliceBrightness(screenX int, distance float64, wallSide i
 // half a texel of the current level - the obvious "+0.5" - shifts the brick
 // pattern by up to an eighth of a tile between levels, so neighbouring level
 // bands misalign and the masonry jumps on every level switch during an
-// approach. That bug shipped once; TestWallMipPatternPositionIsLevelInvariant
-// pins the invariant on both axes.
+// approach. The Y coordinate adds the duplicated gutter-row offset: this keeps
+// the same logical phase while bilinear footprints stay inside owned pixels.
+// TestWallMipPatternPositionIsLevelInvariant pins both requirements.
 //
 // Colors are premultiplied (matching wallMipTriangleOptions' ColorScaleMode),
 // so the crossover alpha scales all four components.
@@ -442,8 +632,9 @@ func appendWallMipSliceVertices(vertices []ebiten.Vertex, levelTileWidth, fullTi
 	halfFullTexelV := 0.5 / fullTexHeight
 	leftSourceX := float32(levelTileWidth + (leftU+halfFullTexelU)*levelTileWidth)
 	rightSourceX := float32(levelTileWidth + (rightU+halfFullTexelU)*levelTileWidth)
-	topSourceY := float32(halfFullTexelV * levelTexHeight)
-	bottomSourceY := float32((1 - halfFullTexelV) * levelTexHeight)
+	verticalGutter := float64(wallMipVerticalGutterRows)
+	topSourceY := float32(verticalGutter + halfFullTexelV*levelTexHeight)
+	bottomSourceY := float32(verticalGutter + (1-halfFullTexelV)*levelTexHeight)
 	color := float32(brightness * alpha)
 	a := float32(alpha)
 	return append(vertices,

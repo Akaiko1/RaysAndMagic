@@ -151,6 +151,48 @@ func TestPreparedSpriteCommitHonorsPixelBudget(t *testing.T) {
 	}
 }
 
+func TestPreparedSpriteCommitCancelReleasesEveryUnpublishedTarget(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepared PreparedSpriteResource
+	}{
+		{
+			name: "partial static source",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "tree"}, CPU: image.NewRGBA(image.Rect(0, 0, 8, 8)), Found: true,
+			},
+		},
+		{
+			name: "completed and pending animation frames",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"}, Found: true,
+				Frames: []*image.RGBA{
+					image.NewRGBA(image.Rect(0, 0, 4, 4)),
+					image.NewRGBA(image.Rect(0, 0, 4, 4)),
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := NewSpriteManager()
+			commit := sm.BeginPreparedResourceCommit(tt.prepared)
+			_, _ = commit.Advance(32)
+			commit.Cancel()
+			commit.Cancel()
+
+			if len(commit.targets) != 0 || len(commit.completed) != 0 || !commit.done {
+				t.Fatalf("cancelled commit retained work: targets=%d completed=%d done=%v",
+					len(commit.targets), len(commit.completed), commit.done)
+			}
+			if sm.sprites[tt.prepared.Request.Name] != nil ||
+				sm.animations[animationKey(tt.prepared.Request.Name, tt.prepared.Request.AnimationType)] != nil {
+				t.Fatal("cancelled commit published a cache entry")
+			}
+		})
+	}
+}
+
 func TestPreparedSpriteCommitKeepsLazyLoadedWinner(t *testing.T) {
 	tests := []struct {
 		name      string
