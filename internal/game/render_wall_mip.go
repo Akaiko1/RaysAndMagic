@@ -2,6 +2,7 @@ package game
 
 import (
 	"image"
+	"image/draw"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -144,6 +145,13 @@ func wallRipmapByteSize(width, height int) int64 {
 // batchable, unlike an image drawn into another image (which becomes a render
 // target).
 func (r *Renderer) wallRipmapFor(sprite *ebiten.Image) *wallRipmap {
+	return r.wallRipmapForCPU(sprite, nil)
+}
+
+// wallRipmapForCPU builds the same resident ripmap while reusing pixels held by
+// the streaming loader. Runtime callers may pass nil and retain the legacy
+// readback fallback for assets that were not prepared by the loader.
+func (r *Renderer) wallRipmapForCPU(sprite *ebiten.Image, prepared *image.RGBA) *wallRipmap {
 	if sprite == nil {
 		return nil
 	}
@@ -167,7 +175,11 @@ func (r *Renderer) wallRipmapFor(sprite *ebiten.Image) *wallRipmap {
 		return nil
 	}
 	cpuRow := image.NewRGBA(image.Rect(0, 0, width, height))
-	sprite.ReadPixels(cpuRow.Pix)
+	if prepared != nil && prepared.Bounds().Dx() == width && prepared.Bounds().Dy() == height {
+		draw.Draw(cpuRow, cpuRow.Bounds(), prepared, prepared.Bounds().Min, draw.Src)
+	} else {
+		sprite.ReadPixels(cpuRow.Pix)
+	}
 
 	sizes := wallRipmapSizes(width, height)
 	rm := &wallRipmap{levels: make([][]*ebiten.Image, 0, len(sizes))}

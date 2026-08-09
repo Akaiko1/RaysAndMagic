@@ -1,6 +1,7 @@
 package game
 
 import (
+	"image"
 	"math"
 
 	"ugataima/internal/config"
@@ -260,15 +261,28 @@ func (r *Renderer) computeAuraTileColor(tileType world.TileType3D) ([3]int, bool
 	}
 	buf := make([]byte, 4*w*h)
 	img.ReadPixels(buf)
+	return computeAuraTileColorFromPixels(&image.RGBA{
+		Pix: buf, Stride: 4 * w, Rect: image.Rect(0, 0, w, h),
+	})
+}
+
+func computeAuraTileColorFromPixels(img *image.RGBA) ([3]int, bool) {
+	if img == nil {
+		return [3]int{}, false
+	}
 	var rs, gs, bs, n uint64
-	for i := 0; i+3 < len(buf); i += 4 {
-		if buf[i+3] < 32 { // skip (near-)transparent texels - they aren't the rock
-			continue
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			i := img.PixOffset(x, y)
+			if img.Pix[i+3] < 32 { // skip transparent texels - they are not the rock
+				continue
+			}
+			rs += uint64(img.Pix[i])
+			gs += uint64(img.Pix[i+1])
+			bs += uint64(img.Pix[i+2])
+			n++
 		}
-		rs += uint64(buf[i])
-		gs += uint64(buf[i+1])
-		bs += uint64(buf[i+2])
-		n++
 	}
 	if n == 0 {
 		return [3]int{}, false

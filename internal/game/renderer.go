@@ -163,8 +163,12 @@ type Renderer struct {
 	mapRenderTileTypes              []world.TileType3D
 	mapRenderResourcePrewarmPending bool
 	mapRenderResourcePrewarmMapKeys []string
+	mapRenderResourcePrewarmActive  *mapRenderPrewarmTask
 	mapRenderResidentMapKeys        []string
 	mapRenderResourcesByMap         map[string]*mapRenderRegionResources
+	mapRenderUploadQueue            []mapRenderUpload
+	mapRenderUploadQueued           map[*ebiten.Image]struct{}
+	mapRenderShaderWarmTasks        []*mapRenderPrewarmTask
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -2123,25 +2127,41 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 	if sprite == nil || strength <= 0 {
 		return sprite
 	}
-	if strength > 1 {
-		strength = 1
-	}
-	w := sprite.Bounds().Dx()
-	h := sprite.Bounds().Dy()
+	w, h := sprite.Bounds().Dx(), sprite.Bounds().Dy()
 	if w <= 0 || h <= 0 {
 		return sprite
 	}
+	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
+	sprite.ReadPixels(pixels.Pix)
+	processed, _ := applyBrightnessToAlphaCPU(pixels, strength)
+	return processed
+}
 
-	pixels := make([]byte, 4*w*h)
-	sprite.ReadPixels(pixels)
-	for i := 0; i < len(pixels); i += 4 {
-		a := pixels[i+3]
+func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Image, *image.RGBA) {
+	if source == nil {
+		return nil, nil
+	}
+	bounds := source.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w <= 0 || h <= 0 {
+		return nil, nil
+	}
+	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(pixels, pixels.Bounds(), source, bounds.Min, draw.Src)
+	if strength <= 0 {
+		return ebiten.NewImageFromImage(pixels), pixels
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	for i := 0; i < len(pixels.Pix); i += 4 {
+		a := pixels.Pix[i+3]
 		if a == 0 {
 			continue
 		}
-		rv := float64(pixels[i])
-		gv := float64(pixels[i+1])
-		bv := float64(pixels[i+2])
+		rv := float64(pixels.Pix[i])
+		gv := float64(pixels.Pix[i+1])
+		bv := float64(pixels.Pix[i+2])
 		maxv := math.Max(rv, math.Max(gv, bv))
 		minv := math.Min(rv, math.Min(gv, bv))
 		brightness := (rv + gv + bv) / (3.0 * 255.0)
@@ -2160,15 +2180,12 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 		if alphaScale < 0 {
 			alphaScale = 0
 		}
-		pixels[i] = uint8(rv*alphaScale + 0.5)
-		pixels[i+1] = uint8(gv*alphaScale + 0.5)
-		pixels[i+2] = uint8(bv*alphaScale + 0.5)
-		pixels[i+3] = uint8(float64(a)*alphaScale + 0.5)
+		pixels.Pix[i] = uint8(rv*alphaScale + 0.5)
+		pixels.Pix[i+1] = uint8(gv*alphaScale + 0.5)
+		pixels.Pix[i+2] = uint8(bv*alphaScale + 0.5)
+		pixels.Pix[i+3] = uint8(float64(a)*alphaScale + 0.5)
 	}
-
-	img := ebiten.NewImage(w, h)
-	img.WritePixels(pixels)
-	return img
+	return ebiten.NewImageFromImage(pixels), pixels
 }
 
 // drawEnvironmentSprite draws environment sprites in the 3D world

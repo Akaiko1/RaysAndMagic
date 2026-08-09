@@ -50,6 +50,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
@@ -351,9 +352,36 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	if os.Getenv("RAM_SKIP_MAP_PREWARM") == "" && os.Getenv("RAM_SKIP_TREE_PREWARM") == "" {
 		var prewarmStats mapRenderPrewarmStats
-		runOnDrawFrame(func(_ *ebiten.Image) {
-			prewarmStats = g.gameLoop.renderer.prewarmPendingMapRenderResources()
-		})
+		var maxPrewarmStep time.Duration
+		maxPrewarmStepIndex := -1
+		maxPrewarmResource := ""
+		for frame := 0; g.gameLoop.renderer.mapRenderResourcePrewarmPending && frame < 10000; frame++ {
+			runOnDrawFrame(func(frame *ebiten.Image) {
+				stepIndex := -1
+				if task := g.gameLoop.renderer.mapRenderResourcePrewarmActive; task != nil && task.steps != nil {
+					stepIndex = task.nextStep
+				}
+				started := time.Now()
+				if stats := g.gameLoop.renderer.prewarmPendingMapRenderResources(); stats.uploadImages > 0 {
+					prewarmStats = stats
+				}
+				if elapsed := time.Since(started); elapsed > maxPrewarmStep {
+					maxPrewarmStep = elapsed
+					maxPrewarmStepIndex = stepIndex
+					if task := g.gameLoop.renderer.mapRenderResourcePrewarmActive; task != nil {
+						maxPrewarmResource = task.prewarmer.lastResource
+					}
+				}
+				g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
+				g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+			})
+		}
+		for frame := 0; len(g.gameLoop.renderer.mapRenderUploadQueue) > 0 && frame < 10000; frame++ {
+			runOnDrawFrame(func(frame *ebiten.Image) {
+				g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
+				g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+			})
+		}
 		if g.gameLoop.renderer.mapRenderResourcePrewarmPending {
 			t.Fatal("map render resource prewarm remained pending")
 		}
@@ -363,6 +391,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 		t.Logf("map prewarm: sprites=%d animations=%d standees=%d walls=%d uploads=%d",
 			prewarmStats.spriteFiles, prewarmStats.animationSheets, prewarmStats.standeeFrames,
 			prewarmStats.wallTextures, prewarmStats.uploadImages)
+		t.Logf("map prewarm max update step: %s (step %d resource %q)", maxPrewarmStep, maxPrewarmStepIndex, maxPrewarmResource)
 		prewarmScope := g.gameLoop.renderer.mapRenderPrewarmScope(currentMapKey())
 		seenTreeSprites := make(map[string]struct{})
 		for i := range g.gameLoop.renderer.treeTilesCache {
@@ -414,12 +443,28 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 			}
 			g.gameLoop.renderer.scheduleMapRenderResourcePrewarm(mapKey)
 			var stats mapRenderPrewarmStats
-			runOnDrawFrame(func(_ *ebiten.Image) {
-				stats = g.gameLoop.renderer.prewarmPendingMapRenderResources()
-			})
+			var maxPrewarmStep time.Duration
+			for frame := 0; !containsString(g.gameLoop.renderer.mapRenderResidentMapKeys, mapKey) && frame < 10000; frame++ {
+				runOnDrawFrame(func(frame *ebiten.Image) {
+					started := time.Now()
+					if completed := g.gameLoop.renderer.prewarmPendingMapRenderResources(); completed.uploadImages > 0 {
+						stats = completed
+					}
+					maxPrewarmStep = max(maxPrewarmStep, time.Since(started))
+					g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
+					g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+				})
+			}
+			for frame := 0; len(g.gameLoop.renderer.mapRenderUploadQueue) > 0 && frame < 10000; frame++ {
+				runOnDrawFrame(func(frame *ebiten.Image) {
+					g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
+					g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+				})
+			}
 			t.Logf("region prewarm %s: sprites=%d animations=%d standees=%d walls=%d uploads=%d residents=%v",
 				mapKey, stats.spriteFiles, stats.animationSheets, stats.standeeFrames,
 				stats.wallTextures, stats.uploadImages, g.gameLoop.renderer.mapRenderResidentMapKeys)
+			t.Logf("region prewarm %s max update step: %s", mapKey, maxPrewarmStep)
 			if os.Getenv("RAM_WALK_GC_AFTER_PREWARM") != "" {
 				logRenderWalkMemory(t, "after "+mapKey, g.gameLoop.renderer)
 			}

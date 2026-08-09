@@ -6,7 +6,25 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
+
+func TestCommitPreparedStandeeKeepsLazyLoadedWinner(t *testing.T) {
+	key := standeeCoreKey{name: "mob:test"}
+	source := ebiten.NewImage(4, 4)
+	lazyCore := ebiten.NewImage(4, 4)
+	r := &Renderer{standeeCoreCache: map[standeeCoreKey]*ebiten.Image{key: lazyCore}}
+	prepared := standeePreparedPixels{
+		sticker: image.NewRGBA(image.Rect(0, 0, 4, 4)),
+		core:    image.NewRGBA(image.Rect(0, 0, 4, 4)),
+	}
+
+	_, core := r.commitPreparedStandeePixels(key, source, prepared)
+	if core != lazyCore || r.standeeCoreCache[key] != lazyCore {
+		t.Fatal("background commit replaced the lazy-loaded standee core")
+	}
+}
 
 func TestStandeeRenderSourceSizeBoundsDerivedTexturePayload(t *testing.T) {
 	tests := []struct {
@@ -31,7 +49,7 @@ func TestStandeeRenderSourceSizeBoundsDerivedTexturePayload(t *testing.T) {
 	}
 }
 
-func TestPrewarmUploadBatchBoundaries(t *testing.T) {
+func TestMapRenderUploadFrameBoundaries(t *testing.T) {
 	tests := []struct {
 		name      string
 		images    int
@@ -39,14 +57,14 @@ func TestPrewarmUploadBatchBoundaries(t *testing.T) {
 		nextBytes int64
 		wantFlush bool
 	}{
-		{name: "empty batch accepts oversized first image", nextBytes: prewarmUploadBatchBytes + 1, wantFlush: false},
+		{name: "empty frame accepts oversized first image", nextBytes: mapRenderUploadFrameBytes + 1, wantFlush: false},
 		{name: "under both limits", images: 1, bytes: 1024, nextBytes: 1024, wantFlush: false},
-		{name: "byte limit", images: 1, bytes: prewarmUploadBatchBytes, nextBytes: 1, wantFlush: true},
-		{name: "image count limit", images: prewarmUploadBatchImages, wantFlush: true},
+		{name: "byte limit", images: 1, bytes: mapRenderUploadFrameBytes, nextBytes: 1, wantFlush: true},
+		{name: "image count limit", images: mapRenderUploadFrameImages, wantFlush: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := prewarmUploadBatchFull(tt.images, tt.bytes, tt.nextBytes); got != tt.wantFlush {
+			if got := mapRenderUploadFrameFull(tt.images, tt.bytes, tt.nextBytes); got != tt.wantFlush {
 				t.Fatalf("flush = %v, want %v", got, tt.wantFlush)
 			}
 		})
