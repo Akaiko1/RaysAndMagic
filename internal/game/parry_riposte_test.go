@@ -23,14 +23,14 @@ func TestParryingDaggerRiposteMeleeOnly(t *testing.T) {
 
 	// Ranged hit: no riposte.
 	ranged := mkTestMonster("Archer", 1000)
-	cs.monsterHitCharacter(ranged, member, "Archer", hitFromMonster(ranged, 100, "physical", false, 0, false))
+	cs.monsterHitCharacter(ranged, member, "Archer", hitFromMonster(ranged, 100, "physical", false, 0, false, false))
 	if ranged.HitPoints != 1000 {
 		t.Errorf("ranged attacker took %d riposte damage, want 0 (dagger answers melee only)", 1000-ranged.HitPoints)
 	}
 
 	// Melee hit: riposte lands.
 	melee := mkTestMonster("Brawler", 1000)
-	cs.monsterHitCharacter(melee, member, "Brawler", hitFromMonster(melee, 100, "physical", false, 0, true))
+	cs.monsterHitCharacter(melee, member, "Brawler", hitFromMonster(melee, 100, "physical", false, 0, true, false))
 	if melee.HitPoints >= 1000 {
 		t.Errorf("melee attacker HP = %d, should have taken the dagger riposte", melee.HitPoints)
 	}

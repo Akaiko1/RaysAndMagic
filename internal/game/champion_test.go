@@ -420,7 +420,7 @@ func TestChampionVictoryRewardsFromCardSummonKill(t *testing.T) {
 		t.Fatal("easy champion tier missing")
 	}
 	before := cs.game.party.ArenaPoints
-	hit := hitFromMonster(summon, 9999, monsterPkg.DamagePhysical.String(), false, 0, true)
+	hit := hitFromMonster(summon, 9999, monsterPkg.DamagePhysical.String(), false, 0, true, false)
 	cs.strikeMonsterFor(summon, champion, hit, nil, false)
 
 	if got, want := cs.game.party.ArenaPoints-before, tier.ArenaPoints; got != want {

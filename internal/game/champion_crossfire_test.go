@@ -422,7 +422,7 @@ func TestChampionRangedAoEHitsCleanParty(t *testing.T) {
 		mem.Luck = 0
 	}
 
-	cs.applyMonsterProjectileDamageAoE(sorc, sorc.Name, hitFromMonster(sorc, 80, "fire", false, 0, false))
+	cs.applyMonsterProjectileDamageAoE(sorc, sorc.Name, hitFromMonster(sorc, 80, "fire", false, 0, false, false))
 
 	for i, mem := range cs.game.party.Members {
 		if mem.HitPoints >= mem.MaxHitPoints {

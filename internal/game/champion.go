@@ -265,7 +265,7 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 	if wd != nil {
 		armorPiercePct = wd.ArmorPiercePct
 	}
-	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
+	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true, false)
 	hit.ArmorPiercePct = armorPiercePct
 	return hit
 }

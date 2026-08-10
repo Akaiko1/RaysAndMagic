@@ -144,7 +144,7 @@ characters:
       magic:
         - { school: body, spells: [heal] }
       main_hand: bronze_labrys
-      armor: chain_helmet
+      equipment: [chain_helmet]
       quick_spell: heal
 
     druid:
@@ -175,7 +175,7 @@ characters:
       luck: 12
       skills: [dagger, blaster, leather, trapper, sleight_of_hand, meditation, disarm_trap, lockpicking]
       main_hand: magic_dagger
-      armor: leather_armor
+      equipment: [leather_armor]
       quick_trap: cleave_trap
 
     arms_master:
@@ -207,6 +207,27 @@ characters:
       main_hand: monk_fists
       quick_spell: mind_blast
 
+    # Spellblade in plate. Two class passives: Spell Absorption (a hostile
+    # spell hit can be eaten for HP+SP) and Strong Magic (offensive casts burn
+    # extra HP for proportionally harder hits) - numbers in character/catalog.go.
+    battle_mage:
+      might: 13
+      intellect: 13
+      personality: 8
+      endurance: 13
+      accuracy: 11
+      speed: 10
+      luck: 11
+      skills: [sword, mace, axe, plate, bodybuilding, spell_absorption, strong_magic]
+      magic:
+        - { school: light, spells: [resurrect] }
+        - { school: earth, spells: [rock_blast] }
+        - { school: fire,  spells: [firewall] }
+        - { school: air,   spells: [sparks] }
+      main_hand: silver_sword
+      equipment: [iron_armor, magic_ring]
+      quick_spell: rock_blast
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -237,6 +258,7 @@ characters:
     - { name: Brinna,  class: archer,   race: halfling }
     - { name: Gwen,    class: arms_master }
     - { name: Sora,    class: monk }
+    - { name: Isolde,  class: battle_mage }
 
 
 # Monster stats and AI

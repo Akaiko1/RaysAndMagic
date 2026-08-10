@@ -443,6 +443,17 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	}
 	spellParts := damagecalc.Parts{}
 
+	// addStrongMagicDetail is the one ACTIVE Strong Magic line for every damage
+	// section (projectile, zone tick, nova). It quotes the same predicate the
+	// packet builder uses (strongMagicPct), so the label and the actual boost
+	// can never disagree.
+	addStrongMagicDetail := func(dmg *ttSection) {
+		if pct := strongMagicPct(char, def); pct > 0 {
+			_, tierName := masteryTier(char, character.SkillStrongMagic)
+			dmg.AddDetail("Strong Magic - %s: +%d%% damage", tierName, pct)
+		}
+	}
+
 	dmg := ttSection{Title: "DAMAGE"}
 	totalCrit := 0
 	if def.IsProjectile && !def.DealsNoDamage && cs != nil {
@@ -483,32 +494,44 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
 			dmg.AddDetail("Current Resistance Pierce: %d%%", pierce)
 		}
+		addStrongMagicDetail(&dmg)
 		// Active party buffs add a flat bonus after crit doubling; Heroism is
 		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
-		outBonus := cs.game.combatBuffOutBonusForDamageType(def.School)
+		totalParts, outBonus := cs.spellPartsWithOutgoingBuff(spellParts, def.School)
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d", outBonus)
 		}
-		dmg.Add("Total Damage: %d", total+outBonus)
+		// Totals come from the same source and outgoing-buff stages as combat.
+		dmg.Add("Total Damage: %d", totalParts.Total())
 		totalCrit = cs.totalCriticalChance(0, char)
 		if totalCrit > 0 {
-			dmg.Add("Critical Damage: %d", total*CritDamageMultiplier+outBonus)
+			critParts := damagecalc.Parts{
+				Normal: spellParts.Normal * CritDamageMultiplier,
+				True:   spellParts.True * CritDamageMultiplier,
+			}
+			critParts, _ = cs.spellPartsWithOutgoingBuff(critParts, def.School)
+			dmg.Add("Critical Damage: %d", critParts.Total())
 		}
 	}
 	// Party/map nova (Inferno): explicit mastery scaling, all normal damage.
-	if def.PartyAoeRadiusTiles > 0 || def.MapWide {
-		novaDamage := cs.CalculateInfernoDamage(def, char)
+	if (def.PartyAoeRadiusTiles > 0 || def.MapWide) && cs != nil {
+		// The card quotes the packet the nova actually fires (tryCastInferno
+		// routes it through spellDamageParts too).
+		novaParts := cs.spellDamageParts(def.ID, char, cs.CalculateInfernoDamage(def, char))
+		novaParts, outBonus := cs.spellPartsWithOutgoingBuff(novaParts, def.School)
 		dmg.Title = "EFFECT"
 		if def.MasteryDamagePerTier > 0 {
 			dmg.AddDetail("Base: %d", def.MasteryScaledDamage(0))
 			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, tier*def.MasteryDamagePerTier)
 		}
-		if cs != nil {
-			if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
-				dmg.AddDetail("Current Resistance Pierce: %d%% (enemies only)", pierce)
-			}
+		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
+			dmg.AddDetail("Current Resistance Pierce: %d%% (enemies only)", pierce)
 		}
-		dmg.Add("Damage: %d", novaDamage)
+		addStrongMagicDetail(&dmg)
+		if outBonus > 0 {
+			dmg.AddDetail("Active party buff: +%d (enemies only)", outBonus)
+		}
+		dmg.Add("Damage: %d", novaParts.Total())
 		if def.MapWide {
 			dmg.Add("Radius: Current map")
 		} else {
@@ -605,14 +628,14 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if pierce := cs.spellResistPierce(char, string(def.ID)); pierce > 0 {
 			dmg.AddDetail("Current Resistance Pierce: %d%%", pierce)
 		}
-		outBonus := 0
-		if char != nil {
-			outBonus = cs.game.combatBuffOutBonusForDamageType(def.School)
-		}
+		addStrongMagicDetail(&dmg)
+		tickParts, outBonus := cs.spellPartsWithOutgoingBuff(tickParts, def.School)
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d", outBonus)
 		}
-		dmg.Add("Total per tick: %d", tickTotal+outBonus)
+		// Same packet the zone ticks with (combat_zones builds TickDamage from
+		// spellDamageParts) - the card can never understate a boosted tick.
+		dmg.Add("Total per tick: %d", tickParts.Total())
 		dmg.Title = "DAMAGE PER TICK"
 	}
 

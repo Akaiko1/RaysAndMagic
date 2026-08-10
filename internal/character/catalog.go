@@ -61,6 +61,13 @@ const (
 	TrapperSecondsPerTier = 2
 	// TrapStatScalingDivisor: trap damage gains (Intellect+Accuracy)/this.
 	TrapStatScalingDivisor = 3
+	// SpellAbsorbChancePctPerTier: Battle Mage Spell Absorption chance per tier
+	// (Novice included) - 15/30/45/60% to eat a hostile spell hit.
+	SpellAbsorbChancePctPerTier = 15
+	// StrongMagicPctPerTier: Battle Mage Strong Magic exchange per tier
+	// (Novice included) - 25/50/75/100% of SP cost burned as HP, and the same
+	// percent added to the offensive spell's damage.
+	StrongMagicPctPerTier = 25
 	// SleightChancePctPerTier: pickpocket chance per Sleight of Hand tier on
 	// each melee hit. A successful pick rolls the victim's loot table; a missed
 	// loot roll pays consolation gold instead.
@@ -215,7 +222,7 @@ func TrapperTurnBonus(tier int) int {
 // PlayableClasses is every playable class in canonical (enum) order.
 var PlayableClasses = []CharacterClass{
 	ClassKnight, ClassPaladin, ClassArcher, ClassCleric, ClassSorcerer, ClassDruid, ClassThief,
-	ClassArmsMaster, ClassMonk,
+	ClassArmsMaster, ClassMonk, ClassBattleMage,
 }
 
 // Key returns the lowercase class key (knight/paladin/...).
@@ -239,6 +246,8 @@ func (c CharacterClass) Key() string {
 		return "arms_master"
 	case ClassMonk:
 		return "monk"
+	case ClassBattleMage:
+		return "battle_mage"
 	default:
 		return "unknown"
 	}
@@ -265,6 +274,8 @@ func (c CharacterClass) Blurb() string {
 		return "Master of every weapon - dual-wields for two independent attacks, expert from level 1."
 	case ClassMonk:
 		return "Unarmed fighter and self-magic adept - no weapons or armor, fists scale with Might and Speed."
+	case ClassBattleMage:
+		return "Spellblade in plate - drinks hostile magic, and pays in blood to make its own hit harder."
 	default:
 		return ""
 	}
@@ -378,6 +389,7 @@ var AllSkills = []SkillType{
 	SkillBlaster, SkillElementalMastery, SkillAnimalBonding, SkillSacrifice,
 	SkillImpenetrableDefense, SkillLockpicking, SkillNaturalHealer,
 	SkillCelestialProvidence, SkillOrcishFury, SkillHalflingGuile, SkillDarkElfBinding,
+	SkillSpellAbsorption, SkillStrongMagic,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
@@ -512,9 +524,29 @@ func (s SkillType) Description() string {
 		return "Halfling Guile: this hero has half the target-selection weight of other races whenever an enemy randomly chooses a party target. This racial skill has no mastery."
 	case SkillDarkElfBinding:
 		return "Dark Elf Binding: 10% of direct attacks and spell hits bind the target instead of hitting it. Undead, formless creatures, bosses, and invulnerable encounter targets are immune. This racial skill has no mastery."
+	case SkillSpellAbsorption:
+		return fmt.Sprintf("Spell Absorption: a hostile spell that strikes this hero has a %d/%d/%d/%d%% chance at Novice/Expert/Master/Grandmaster to be absorbed - it deals no damage and restores HP and SP equal to it.",
+			SpellAbsorbChancePct(0), SpellAbsorbChancePct(1),
+			SpellAbsorbChancePct(2), SpellAbsorbChancePct(3))
+	case SkillStrongMagic:
+		return fmt.Sprintf("Strong Magic: every offensive cast burns extra HP equal to %d/%d/%d/%d%% of its SP cost at Novice/Expert/Master/Grandmaster, and the spell deals that much more damage. Never burns the last hit point.",
+			StrongMagicPct(0), StrongMagicPct(1), StrongMagicPct(2), StrongMagicPct(3))
 	default:
 		return ""
 	}
+}
+
+// SpellAbsorbChancePct is the Spell Absorption trigger chance at the given
+// tier (0-based, Novice included like Sleight of Hand): 15/30/45/60%.
+func SpellAbsorbChancePct(tier int) int {
+	return (tier + 1) * SpellAbsorbChancePctPerTier
+}
+
+// StrongMagicPct is the Strong Magic exchange rate at the given tier: the
+// percent of the spell's SP cost burned as HP, and the percent added to the
+// spell's damage - 25/50/75/100%.
+func StrongMagicPct(tier int) int {
+	return (tier + 1) * StrongMagicPctPerTier
 }
 
 // WeaponNoun is the exported canonical lowercase noun for a weapon skill

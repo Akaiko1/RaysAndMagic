@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -54,10 +55,69 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	return baseDamage, intellectBonus, totalDamage
 }
 
-// spellDamageParts converts only an elemental school's regular +5/tier mastery
+// strongMagicPct is the caster's Strong Magic exchange percent for the given
+// spell: the share of the SP cost burned as HP at cast, and the share added to
+// the spell's damage. Zero when the passive does not apply (no skill, no
+// caster, or a non-offensive spell).
+func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) int {
+	if caster == nil || !def.IsOffensive() || !caster.HasSkill(character.SkillStrongMagic) {
+		return 0
+	}
+	return character.StrongMagicPct(caster.SkillTier(character.SkillStrongMagic))
+}
+
+// applyStrongMagicBurn is Strong Magic's HP price, paid at the SAME site the
+// SP cost is paid (castResolvedSpell - the one payment point for offensive
+// casts): pct% of the paid cost, clamped so the passive never takes the last
+// hit point. The matching damage boost lives in spellDamageParts, so tooltips
+// and combat read one number.
+func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def spells.SpellDefinition, paidCost int) {
+	pct := strongMagicPct(caster, def)
+	if pct <= 0 || paidCost <= 0 {
+		return
+	}
+	burn := paidCost * pct / 100
+	if burn >= caster.HitPoints {
+		burn = caster.HitPoints - 1
+	}
+	if burn <= 0 {
+		return
+	}
+	caster.HitPoints -= burn
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's Strong Magic burns %d HP for power!", caster.Name, burn))
+}
+
+// spellDamageParts is the ONE damage builder for every party/champion cast
+// (projectiles, zones, mortars, and both tooltips read it): the mastery
+// true-damage split below, then the Strong Magic boost on the final packet.
+func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+	parts := cs.spellMasteryDamageParts(spellID, caster, total)
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		if pct := strongMagicPct(caster, def); pct > 0 {
+			parts.Normal += parts.Normal * pct / 100
+			parts.True += parts.True * pct / 100
+		}
+	}
+	return parts
+}
+
+// spellPartsWithOutgoingBuff applies the party's flat outgoing-damage bonus
+// after every spell-owned packet modifier (mastery, Strong Magic, and crit).
+// The bonus always joins the Normal component and is never multiplied by those
+// modifiers. Runtime spell forms and their tooltips share this final step.
+func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int) {
+	if cs == nil || cs.game == nil || parts.Normal <= 0 {
+		return parts, 0
+	}
+	bonus := cs.game.combatBuffOutBonusForDamageType(damageType)
+	parts.Normal += bonus
+	return parts, bonus
+}
+
+// spellMasteryDamageParts converts only an elemental school's regular +5/tier mastery
 // bonus to typed true damage at Grandmaster. A spell with its own explicit
 // mastery step (currently Inferno's 45-90 scaling) remains entirely Normal.
-func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+func (cs *CombatSystem) spellMasteryDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
 	parts := damagecalc.Parts{Normal: total}
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil || def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {

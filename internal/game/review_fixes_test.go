@@ -202,7 +202,7 @@ func TestWeakenDragsWholeOutgoingPacketOnce(t *testing.T) {
 	if got := cs.monsterAttackDamage(m); got != 100 {
 		t.Fatalf("monsterAttackDamage applied weaken (%d), hitFromMonster owns it", got)
 	}
-	hit := hitFromMonster(m, cs.monsterAttackDamage(m), monsterPkg.DamagePhysical.String(), false, 0, true)
+	hit := hitFromMonster(m, cs.monsterAttackDamage(m), monsterPkg.DamagePhysical.String(), false, 0, true, false)
 	if hit.Parts.Normal != 75 || hit.Parts.True != 30 {
 		t.Fatalf("weakened packet = %+v, want Normal 75 / True 30", hit.Parts)
 	}

@@ -505,7 +505,7 @@ type ClassStats struct {
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
 	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
 	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
-	Armor      string            `yaml:"armor,omitempty"`       // items.yaml key worn at start
+	Equipment  []string          `yaml:"equipment,omitempty"`   // items.yaml keys worn at start, each routed by its own equip_slot
 	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
 	QuickTrap  string            `yaml:"quick_trap,omitempty"`  // traps.yaml key pre-selected in the trap book
 	// SkillStartMastery overrides a kit skill's starting mastery above the

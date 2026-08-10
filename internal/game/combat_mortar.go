@@ -126,7 +126,10 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		name = def.Name
 	}
 	damageTypeStr := normalizeDamageTypeStr(m.School)
-	dmg := m.Damage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+	parts, _ := cs.spellPartsWithOutgoingBuff(
+		damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage},
+		damageTypeStr,
+	)
 	radius := m.RadiusTiles * float64(cs.game.config.GetTileSize())
 	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
 
@@ -144,7 +147,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		}
 		actual := cs.applyMonsterDamagePacket(
 			target,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: dmg, True: m.TrueDamage}, damageTypeStr, resistPierce),
+			singleMonsterDamagePacket(parts, damageTypeStr, resistPierce),
 			monsterDamageOptions{},
 		).Total()
 		cs.markMonsterHit(target)

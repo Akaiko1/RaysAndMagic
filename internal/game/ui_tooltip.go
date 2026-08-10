@@ -382,8 +382,16 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 				lines = append(lines, fmt.Sprintf("Range: %.1f vs %.1f (%+.1f) tiles", rng, eqRng, rng-eqRng))
 			}
 		}
-		_, _, itemDmg := combatSystem.CalculateSpellDamage(itemDef.ID, char)
-		_, _, eqDmg := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
+		// Both sides quote the packet combat fires (spellDamageParts), so Strong
+		// Magic and mastery splits weigh into the comparison exactly as in play.
+		_, _, itemTotal := combatSystem.CalculateSpellDamage(itemDef.ID, char)
+		_, _, eqTotal := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
+		itemParts := combatSystem.spellDamageParts(itemDef.ID, char, itemTotal)
+		itemParts, _ = combatSystem.spellPartsWithOutgoingBuff(itemParts, itemDef.School)
+		eqParts := combatSystem.spellDamageParts(equippedDef.ID, char, eqTotal)
+		eqParts, _ = combatSystem.spellPartsWithOutgoingBuff(eqParts, equippedDef.School)
+		itemDmg := itemParts.Total()
+		eqDmg := eqParts.Total()
 		if itemDmg > 0 || eqDmg > 0 {
 			lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", itemDmg, eqDmg, itemDmg-eqDmg))
 		}

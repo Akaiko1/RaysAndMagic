@@ -1732,7 +1732,15 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 // Training's free proc on a melee/ranged hit that already summon-rolled at
 // swing time; rolling again here would double the odds for one action).
 func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool, countsAsAction bool) bool {
+	spBefore := caster.SpellPoints
 	ok := cs.castResolvedSpellCore(spellID, spellDef, caster, spellCost, announce, countsAsAction)
+	// Strong Magic burns ONLY a CONFIRMED cast: the core returned true AND the
+	// SP stayed spent. A blocked Firewall or an empty Resurrect refunds the SP
+	// inside the core and must not cost blood either; a refused cast never
+	// paid at all. (The free Verdant Eye echo below passes cost 0 - no burn.)
+	if ok && spellCost > 0 && caster.SpellPoints <= spBefore-spellCost {
+		cs.applyStrongMagicBurn(caster, spellDef, spellCost)
+	}
 	if ok {
 		cs.game.playSpellSound(spellDef)
 	}
@@ -2416,7 +2424,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 		monster,
 		currentChar,
 		monster.Name,
-		hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterMeleeSchool(monster), monster.IgnoresArmor, 0, true),
+		hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterMeleeSchool(monster), monster.IgnoresArmor, 0, true, false),
 	)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
@@ -2439,15 +2447,21 @@ type monsterCharacterHit struct {
 	IgnoresDodge       bool
 	DisintegrateChance float64
 	Melee              bool
+	// Spell labels the CHANNEL this hit arrived through: spell projectiles,
+	// dragon breath, fireburst, inferno and champion spell splashes are spells;
+	// melee, weapon projectiles and traps are not. Spell Absorption reads only
+	// this flag - never a name or damage-type heuristic.
+	Spell bool
 }
 
-func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee bool) monsterCharacterHit {
+func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee, spell bool) monsterCharacterHit {
 	hit := monsterCharacterHit{
 		Parts:              damagecalc.Parts{Normal: normalDamage},
 		DamageType:         damageType,
 		IgnoresArmor:       ignoresArmor,
 		DisintegrateChance: disintegrateChance,
 		Melee:              melee,
+		Spell:              spell,
 	}
 	if monster != nil {
 		hit.Parts.True = monster.TrueDamage
@@ -2467,6 +2481,11 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 	if sourceName == "" {
 		sourceName = "Monster"
+	}
+	// Spell Absorption preempts everything - an absorbed spell has nothing left
+	// to dodge, disintegrate with, or ride a status on.
+	if cs.tryAbsorbSpellHit(target, hit.Parts, hit.Spell, sourceName) {
+		return
 	}
 	targetIndex := cs.findCharacterIndex(target)
 
@@ -2871,11 +2890,41 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s rips %s from the party!", monster.Name, name), combatMessagePurple)
 }
 
+// tryAbsorbSpellHit is Spell Absorption's SINGLE gate: a hostile SPELL hit on
+// a member holding the skill has a per-tier chance to be eaten whole - it
+// deals no damage and its own (pre-mitigation) damage returns as both HP and
+// SP. Both monster->character sinks consult it before dealing anything; the
+// hostile-spell flag comes from the hit's origin, never from a name heuristic.
+func (cs *CombatSystem) tryAbsorbSpellHit(member *character.MMCharacter, parts damagecalc.Parts, hostileSpell bool, sourceName string) bool {
+	if !hostileSpell || member == nil || !member.HasSkill(character.SkillSpellAbsorption) {
+		return false
+	}
+	chance := character.SpellAbsorbChancePct(member.SkillTier(character.SkillSpellAbsorption))
+	if rand.Intn(100) >= chance {
+		return false
+	}
+	restored := parts.Total()
+	hpBefore, spBefore := member.HitPoints, member.SpellPoints
+	member.HitPoints = min(member.HitPoints+restored, member.MaxHitPoints)
+	member.SpellPoints = min(member.SpellPoints+restored, member.MaxSpellPoints)
+	hpRestored := member.HitPoints - hpBefore
+	spRestored := member.SpellPoints - spBefore
+	if sourceName == "" {
+		sourceName = "the hostile"
+	} else {
+		sourceName += "'s"
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s absorbs %s spell! (+%d HP, +%d SP)",
+		member.Name, sourceName, hpRestored, spRestored))
+	return true
+}
+
 // damagePartyMemberElement applies one normal elemental hit to a single party
 // member. Special monster attacks that also carry authored true damage use
-// damagePartyMemberParts directly.
-func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string) int {
-	return cs.damagePartyMemberParts(idx, member, damagecalc.Parts{Normal: rawDamage}, school)
+// damagePartyMemberParts directly. hostileSpell labels whether the channel is
+// an enemy spell eligible for Spell Absorption; friendly self-splash is false.
+func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string, hostileSpell bool) int {
+	return cs.damagePartyMemberParts(idx, member, damagecalc.Parts{Normal: rawDamage}, school, hostileSpell)
 }
 
 // damagePartyMemberParts applies an undodgeable damage packet through the shared
@@ -2883,8 +2932,12 @@ func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCh
 // (armor%/resist/buffs), subtract, clamp at 0, knock out at 0 (the Lich Card
 // cheat-death chokepoint), and flash the damage-blink. The ONE body behind
 // every whole-party elemental attack (Fireburst, Inferno, the Inferno nova);
-// callers supply their own flavor line and any extra VFX (e.g. party flame).
-func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string) int {
+// callers supply their own flavor line, hostility, and any extra VFX (e.g.
+// party flame).
+func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool) int {
+	if cs.tryAbsorbSpellHit(member, parts, hostileSpell, "") {
+		return 0
+	}
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
 	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
 	member.HitPoints -= dealt
@@ -2998,6 +3051,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
+			true, // Fireburst is a cast - absorbable
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
@@ -3061,7 +3115,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
-	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false)
+	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s breathes %s over the whole party!", monster.Name, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), hit)
@@ -3111,7 +3165,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 			monster,
 			target,
 			"Piercing Shot",
-			hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false),
+			hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false, false),
 		)
 	}
 	return true
@@ -3411,6 +3465,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 				IgnoresArmor:   srcMonster.IgnoresArmor,
 				ArmorPiercePct: weaponArmorPiercePct(weaponDef),
 				IgnoresDodge:   ignoresDodge,
+				Spell:          weaponDef == nil, // a champion splash without a weapon behind it is a spell's
 			}
 			cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 				cs.monsterHitCharacter(srcMonster, member, srcMonster.Name, hit)
@@ -3759,6 +3814,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 				IgnoresArmor:       mp.SourceMonster != nil && mp.SourceMonster.IgnoresArmor,
 				IgnoresDodge:       mp.IgnoresDodge,
 				DisintegrateChance: mp.DisintegrateChance,
+				Spell:              true, // a MagicProjectile always flies a spells.yaml page
 			}
 			if mp.AoE {
 				cs.applyMonsterProjectileDamageAoE(mp.SourceMonster, mp.SourceName, hit)
@@ -3802,6 +3858,8 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 				ArmorPiercePct:     weaponArmorPiercePct(weaponDef),
 				IgnoresDodge:       ar.IgnoresDodge,
 				DisintegrateChance: ar.DisintegrateChance,
+				// Spell stays false: a dart flies a weapons.yaml entry, whatever
+				// element it carries.
 			}
 			// An AoE-rider weapon (bow_of_hellfire) engulfs the WHOLE party once
 			// per volley - the champion rule: arc/AoE never multiply.
@@ -4035,10 +4093,16 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	// Party buffs: flat bonus to party outgoing damage, filtered by damage type
-	// (Heroism applies only to physical; Hour of Power applies to all).
+	// Party buffs: flat bonus to party outgoing damage, filtered by damage type.
+	// Spell packets use the same post-modifier step as zones, mortars, novas,
+	// and tooltips; weapon arrows keep their existing direct path.
 	if damage > 0 {
-		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+		if isSpell {
+			parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: damage}, damageTypeStr)
+			damage = parts.Normal
+		} else {
+			damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+		}
 	}
 
 	// Resolve the attacker the projectile was fired by (stamped at spawn) -
@@ -5056,7 +5120,12 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	}
 	cx, cy := cs.game.camera.X, cs.game.camera.Y
 	damageTypeStr := normalizeDamageTypeStr(def.School)
-	monsterDmg := dmg + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+	// The nova's packet goes through the SAME builder as projectiles, zones and
+	// mortars (spellDamageParts), so Strong Magic and any future packet-level
+	// modifier reach it - a direct CalculateInfernoDamage total would silently
+	// bypass them while the cast still pays their price.
+	monsterParts := cs.spellDamageParts(def.ID, caster, dmg)
+	monsterParts, _ = cs.spellPartsWithOutgoingBuff(monsterParts, damageTypeStr)
 	resistPierce := cs.spellResistPierce(caster, string(def.ID))
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
@@ -5078,7 +5147,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		}
 		dealt := cs.applyMonsterDamagePacket(
 			m,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: monsterDmg}, damageTypeStr, resistPierce),
+			singleMonsterDamagePacket(monsterParts, damageTypeStr, resistPierce),
 			monsterDamageOptions{},
 		)
 		cs.markMonsterHit(m)
@@ -5112,8 +5181,13 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	if def.SparesParty {
 		return true
 	}
+	// The self-splash rides the same boosted packet rule as the monster side
+	// (minus the party's own outgoing buff, which never targets the party).
+	partySplash := cs.spellDamageParts(def.ID, caster, dmg).Total()
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr)
+		// This is the party's own self-splash, not a hostile spell hit, so Spell
+		// Absorption cannot turn Inferno's drawback into healing.
+		dealt := cs.damagePartyMemberElement(idx, member, partySplash, damageTypeStr, false)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
@@ -5550,7 +5624,7 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 	cs.strikeMonsterFor(
 		attacker,
 		target,
-		hitFromMonster(attacker, damage, monsterMeleeSchool(attacker), attacker.IgnoresArmor, 0, true),
+		hitFromMonster(attacker, damage, monsterMeleeSchool(attacker), attacker.IgnoresArmor, 0, true, false),
 		nil,
 		false,
 	)

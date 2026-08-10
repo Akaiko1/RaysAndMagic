@@ -453,7 +453,6 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 	}
 	// Element = the spell's authored school, so resistance matches the flames.
 	damageTypeStr := spellDamageTypeStr(spellID)
-	bonus := cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	covered := cs.zoneCoveredMonsters(coverage)
 	for _, m := range cs.game.world.Monsters {
 		covering := covered[m]
@@ -468,9 +467,13 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 		if cs.tryDarkElfBindInstead(cs.game.persistentDamageZoneCaster(z), m) {
 			continue
 		}
+		parts, _ := cs.spellPartsWithOutgoingBuff(
+			damagecalc.Parts{Normal: z.TickDamage, True: z.TrueTickDamage},
+			damageTypeStr,
+		)
 		actual := cs.applyMonsterDamagePacket(
 			m,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: z.TickDamage + bonus, True: z.TrueTickDamage}, damageTypeStr, z.ResistPierce),
+			singleMonsterDamagePacket(parts, damageTypeStr, z.ResistPierce),
 			monsterDamageOptions{IgnoreArmor: true},
 		).Total()
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))

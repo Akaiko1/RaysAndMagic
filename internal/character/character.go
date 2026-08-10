@@ -300,6 +300,7 @@ const (
 	ClassThief
 	ClassArmsMaster
 	ClassMonk
+	ClassBattleMage
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -385,11 +386,18 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	if stats.MainHand != "" {
 		c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(stats.MainHand)
 	}
-	if stats.Armor != "" {
-		// Route by the item's own equip_slot so a helmet/boots/etc. lands in its
-		// real slot (the field name is historical); body armor stays in SlotArmor.
-		it := items.CreateItemFromYAML(stats.Armor)
-		c.Equipment[it.PreferredSlot(items.SlotArmor)] = it
+	// Each starting item routes by its own equip_slot (helmet/ring/boots land in
+	// their real slots; body armor stays in SlotArmor). Rings resolve through
+	// the shared two-slot ring rule like any player equip.
+	for _, itemKey := range stats.Equipment {
+		it := items.CreateItemFromYAML(itemKey)
+		slot := it.PreferredSlot(items.SlotArmor)
+		if slot == items.SlotRing1 {
+			if _, taken := c.Equipment[items.SlotRing1]; taken {
+				slot = items.SlotRing2
+			}
+		}
+		c.Equipment[slot] = it
 	}
 	if stats.QuickTrap != "" {
 		// The starting trap occupies the SAME quick slot as quick spells.
@@ -904,6 +912,8 @@ func (c CharacterClass) String() string {
 		return "Arms Master"
 	case ClassMonk:
 		return "Monk"
+	case ClassBattleMage:
+		return "Battle Mage"
 	default:
 		return "Unknown"
 	}
@@ -936,6 +946,8 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassArmsMaster, true
 	case "monk":
 		return ClassMonk, true
+	case "battle_mage":
+		return ClassBattleMage, true
 	default:
 		return 0, false
 	}

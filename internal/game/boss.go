@@ -399,6 +399,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
+			true, // boss Inferno is a cast - absorbable
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
