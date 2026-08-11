@@ -1,6 +1,8 @@
 package game
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -340,62 +342,520 @@ func TestCardMoveBurst_TrueDamageUsesPhysicalResist(t *testing.T) {
 	}
 }
 
-// Batch-C summon: aggregation/text, and the deterministic spawn core produces
-// permanent allied (Bound) monsters tagged for the per-collection limit.
-func TestCardSummon_AlliesAndLimit(t *testing.T) {
+// Every physical summon card owns an independent roll, creature pool, live cap
+// and cooldown. Drive the real action proc with 100% authored chances so every
+// case is deterministic.
+func TestCardSummonSourcesContractTable(t *testing.T) {
+	type slottedCard struct {
+		key string
+		id  uint64
+	}
+	tests := []struct {
+		name              string
+		cards             []slottedCard
+		blockedByCooldown int
+		blockedByCap      int
+		wantByMonster     map[string]int
+	}{
+		{name: "orc alone", cards: []slottedCard{{"orc_warlord_card", 101}}, wantByMonster: map[string]int{"masked_huntress": 2}},
+		{name: "lich alone", cards: []slottedCard{{"lich_king_card", 201}}, wantByMonster: map[string]int{"revenant": 2}},
+		{name: "orc then lich", cards: []slottedCard{{"orc_warlord_card", 101}, {"lich_king_card", 201}}, wantByMonster: map[string]int{"masked_huntress": 2, "revenant": 2}},
+		{name: "lich then orc", cards: []slottedCard{{"lich_king_card", 201}, {"orc_warlord_card", 101}}, wantByMonster: map[string]int{"masked_huntress": 2, "revenant": 2}},
+		{name: "one cooldown does not block the other", cards: []slottedCard{{"orc_warlord_card", 101}, {"lich_king_card", 201}}, blockedByCooldown: 0, wantByMonster: map[string]int{"revenant": 2}},
+		{name: "one full cap does not block the other", cards: []slottedCard{{"orc_warlord_card", 101}, {"lich_king_card", 201}}, blockedByCap: 0, wantByMonster: map[string]int{"masked_huntress": 2, "revenant": 2}},
+		{name: "duplicate physical cards stay independent", cards: []slottedCard{{"orc_warlord_card", 101}, {"orc_warlord_card", 102}}, wantByMonster: map[string]int{"masked_huntress": 4}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
+			for _, key := range []string{"orc_warlord_card", "lich_king_card"} {
+				def := cardDef(key)
+				if def == nil {
+					t.Fatalf("%s definition missing", key)
+				}
+				old := def.CardSummonChance
+				def.CardSummonChance = 100
+				t.Cleanup(func() { def.CardSummonChance = old })
+			}
+			setupSummonableWorld(t, cs)
+			tile := float64(g.config.GetTileSize())
+			if _, _, ok := cs.findNearestSummonTile(g.camera.X+2*tile, g.camera.Y, 10); !ok {
+				t.Fatal("summonable-world fixture has no free spawn tile")
+			}
+			g.cardSlots = [MaxCardSlots]cardSlot{}
+			for slot, spec := range tt.cards {
+				card := items.CreateItemFromYAML(spec.key)
+				card.InstanceID = spec.id
+				if !g.setCardCollectionSlot(slot, card) {
+					t.Fatalf("slot %d rejected %s", slot, spec.key)
+				}
+			}
+			sources := g.cardSummonSources()
+			if len(sources) != len(tt.cards) {
+				t.Fatalf("sources = %d, want %d", len(sources), len(tt.cards))
+			}
+			if tt.blockedByCooldown >= 0 && tt.name == "one cooldown does not block the other" {
+				g.armCardSummonCooldown(sources[tt.blockedByCooldown].Owner, 10)
+			}
+			if tt.name == "one full cap does not block the other" {
+				source := sources[tt.blockedByCap]
+				for i := 0; i < source.Limit; i++ {
+					m := &monster.Monster3D{Key: source.MonsterKey, ID: source.Owner + fmt.Sprint(i), HitPoints: 1, MaxHitPoints: 1}
+					markPurePartySummon(m, source.Owner)
+					g.world.Monsters = append(g.world.Monsters, m)
+				}
+			}
+
+			cs.tryCardSummonOnAction()
+
+			gotByMonster := map[string]int{}
+			gotByOwner := map[string]int{}
+			for _, m := range g.world.Monsters {
+				if m != nil && m.IsAlive() && isCardAlly(m) {
+					gotByMonster[m.Key]++
+					gotByOwner[m.SummonedBy]++
+				}
+			}
+			for key, want := range tt.wantByMonster {
+				if got := gotByMonster[key]; got != want {
+					t.Errorf("%s summons = %d, want %d (all=%v)", key, got, want, gotByMonster)
+				}
+			}
+			var logText strings.Builder
+			for _, entry := range g.combatLogHistory {
+				logText.WriteString(entry.Text)
+				logText.WriteByte('\n')
+			}
+			for i, source := range sources {
+				blocked := tt.name == "one cooldown does not block the other" && i == tt.blockedByCooldown
+				capped := tt.name == "one full cap does not block the other" && i == tt.blockedByCap
+				if blocked || capped {
+					if gotByOwner[source.Owner] != 0 {
+						if blocked {
+							t.Errorf("cooling card %s spawned %d allies", source.CardKey, gotByOwner[source.Owner])
+						}
+					}
+					if capped && g.cardSummonCooldown(source.Owner) != 0 {
+						t.Errorf("capped card %s spent a cooldown", source.CardKey)
+					}
+					continue
+				}
+				if got := gotByOwner[source.Owner]; got != source.Limit {
+					t.Errorf("owner %s controls %d allies, want its own limit %d", source.Owner, got, source.Limit)
+				}
+				if g.cardSummonCooldown(source.Owner) <= 0 {
+					t.Errorf("successful %s proc did not arm its cooldown", source.CardKey)
+				}
+				if !strings.Contains(logText.String(), "The "+source.CardName+" rallies") {
+					t.Errorf("successful %s proc did not name its own card in the log: %q", source.CardKey, logText.String())
+				}
+			}
+		})
+	}
+}
+
+func TestCardSummonNoSpawnSpaceDoesNotSpendCooldown(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardSlots = [MaxCardSlots]cardSlot{}
-	g.cardSlots[0].key = "orc_warlord_card"
+	setupSummonableWorld(t, cs)
+	def := cardDef("orc_warlord_card")
+	if def == nil {
+		t.Fatal("orc_warlord_card definition missing")
+	}
+	oldChance := def.CardSummonChance
+	def.CardSummonChance = 100
+	t.Cleanup(func() { def.CardSummonChance = oldChance })
+	card := items.CreateItemFromYAML("orc_warlord_card")
+	card.InstanceID = 301
+	if !g.setCardCollectionSlot(0, card) {
+		t.Fatal("could not slot Orc Warlord Card")
+	}
+	for y := range g.world.Tiles {
+		for x := range g.world.Tiles[y] {
+			g.world.Tiles[y][x] = world.TileWall
+		}
+	}
+	source := g.cardSummonSources()[0]
 
-	if g.cardSummonChance() != 5 || g.cardSummonLimit() != 2 || g.cardSummonMonsterKey() != "masked_huntress" {
-		t.Fatalf("aggregates: chance=%d limit=%d key=%q", g.cardSummonChance(), g.cardSummonLimit(), g.cardSummonMonsterKey())
+	cs.tryCardSummonOnAction()
+
+	if got := cs.countLiveSummonsByOwner(source.Owner); got != 0 {
+		t.Fatalf("blocked spawn created %d allies, want 0", got)
 	}
-	if g.cardSummonCDSeconds() != 5 {
-		t.Fatalf("cardSummonCDSeconds() = %d, want 5", g.cardSummonCDSeconds())
+	if got := g.cardSummonCooldown(source.Owner); got != 0 {
+		t.Fatalf("blocked spawn spent cooldown %d, want 0", got)
 	}
-	if got := cardEffectText(cardDef("orc_warlord_card")); got != "5% on action: summon allies (max 2), 5s cooldown" {
-		t.Errorf("effect text = %q", got)
+}
+
+func TestCardSummonCooldownsTickAndExpireIndependently(t *testing.T) {
+	g := &MMGame{cardSummonCooldowns: map[string]int{"orc": 2, "lich": 1}}
+	g.tickCardSummonCooldowns()
+	if got := g.cardSummonCooldown("orc"); got != 1 {
+		t.Errorf("orc cooldown = %d, want 1", got)
+	}
+	if got := g.cardSummonCooldown("lich"); got != 0 {
+		t.Errorf("lich cooldown = %d, want expired", got)
+	}
+	if _, exists := g.cardSummonCooldowns["lich"]; exists {
+		t.Error("expired cooldown entry was not removed")
 	}
 
-	// An armed proc cooldown silences the roll entirely: 500 actions, zero
-	// procs (an unguarded 5% roll fires with certainty > 1-1e-11 here), and the
-	// timer is untouched (the game loop owns the tick, the proc never resets it).
-	g.cardSummonCDFrames = 10
-	for i := 0; i < 500; i++ {
-		cs.tryCardSummonOnAction()
+	g = &MMGame{cardSummonCooldowns: map[string]int{cardSummonOwner: 2}}
+	g.tickCardSummonCooldowns()
+	if got := g.cardSummonCooldown("late-card"); got != 1 {
+		t.Errorf("legacy shared cooldown after one tick = %d, want 1", got)
 	}
-	if cs.countCardSummons() != 0 || g.cardSummonCDFrames != 10 {
-		t.Fatalf("proc must stay silent on cooldown (summons=%d cd=%d)", cs.countCardSummons(), g.cardSummonCDFrames)
+	g.tickCardSummonCooldowns()
+	if got := g.cardSummonCooldown("late-card"); got != 0 {
+		t.Errorf("expired legacy shared cooldown = %d, want 0", got)
 	}
-	g.cardSummonCDFrames = 0
+}
 
-	// markCardAlly turns a spawned monster into a permanent ally (tile-spawning
-	// itself needs world infra the harness lacks, so place allies directly).
-	a1 := &monster.Monster3D{ID: "a1", HitPoints: 50, MaxHitPoints: 50}
-	a2 := &monster.Monster3D{ID: "a2", HitPoints: 50, MaxHitPoints: 50}
-	markCardAlly(a1)
-	markCardAlly(a2)
-	if !a1.Bound || a1.BoundFramesRemaining != 0 || a1.SummonedBy != cardSummonOwner || !a1.QuestProgressIgnored {
-		t.Fatalf("markCardAlly: Bound=%v frames=%d by=%q questIgnored=%v",
-			a1.Bound, a1.BoundFramesRemaining, a1.SummonedBy, a1.QuestProgressIgnored)
+func TestCardSummonCollectionSummaryKeepsSourcesSeparate(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	for slot, key := range []string{"orc_warlord_card", "lich_king_card"} {
+		card := items.CreateItemFromYAML(key)
+		card.InstanceID = uint64(400 + slot)
+		if !g.setCardCollectionSlot(slot, card) {
+			t.Fatalf("could not slot %s", key)
+		}
 	}
-	g.world.Monsters = append(g.world.Monsters, a1, a2)
+	lines := g.cardCollectionEffectLines()
+	want := map[string]bool{
+		"Orc Warlord Card: 5% on action: summon allies (max 2), 5s cooldown": false,
+		"Lich King Card: 5% on action: summon allies (max 2), 5s cooldown":   false,
+	}
+	for _, line := range lines {
+		if _, ok := want[line]; ok {
+			want[line] = true
+		}
+		if line == "10% on action: summon allies (max 4), 10s cooldown" {
+			t.Fatalf("summary merged independent summon cards: %q", line)
+		}
+	}
+	for line, seen := range want {
+		if !seen {
+			t.Errorf("summary missing %q; got %v", line, lines)
+		}
+	}
+}
 
-	if cs.countCardSummons() != 2 {
-		t.Errorf("countCardSummons() = %d, want 2", cs.countCardSummons())
+func TestCardSummonSaveContractTable(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		legacy         bool
+		orcCooldown    int
+		lichCooldown   int
+		legacyCooldown int
+	}{
+		{name: "per-card state", orcCooldown: 11, lichCooldown: 17},
+		{name: "legacy shared state migrates conservatively", legacy: true, legacyCooldown: 23},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			wSave := newTestWorld(cfg)
+			wmSave := world.NewWorldManager(cfg)
+			wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+			wmSave.CurrentMapKey = "forest"
+			gSave := newTestGame(cfg, wSave)
+			for slot, spec := range []struct {
+				key string
+				id  uint64
+			}{{"orc_warlord_card", 501}, {"lich_king_card", 502}} {
+				card := items.CreateItemFromYAML(spec.key)
+				card.InstanceID = spec.id
+				if !gSave.setCardCollectionSlot(slot, card) {
+					t.Fatalf("could not slot %s", spec.key)
+				}
+			}
+			sources := gSave.cardSummonSources()
+			owners := map[string]string{}
+			for _, source := range sources {
+				owners[source.MonsterKey] = source.Owner
+			}
+			for i, key := range []string{"masked_huntress", "revenant"} {
+				m := monster.NewMonster3DFromConfig(float64(64+i*64), 64, key, cfg)
+				if m == nil {
+					t.Fatalf("%s config missing", key)
+				}
+				owner := owners[key]
+				if tt.legacy {
+					owner = cardSummonOwner
+				}
+				markPurePartySummon(m, owner)
+				wSave.Monsters = append(wSave.Monsters, m)
+			}
+			if !tt.legacy {
+				gSave.armCardSummonCooldown(owners["masked_huntress"], tt.orcCooldown)
+				gSave.armCardSummonCooldown(owners["revenant"], tt.lichCooldown)
+			}
+			save := gSave.buildSave(wmSave)
+			save.MapKey = "forest"
+			if tt.legacy {
+				save.CardSummonCooldowns = nil
+				save.CardSummonCDFrames = tt.legacyCooldown
+			}
+
+			wLoad := newTestWorld(cfg)
+			wmLoad := world.NewWorldManager(cfg)
+			wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+			wmLoad.CurrentMapKey = "forest"
+			gLoad := newTestGame(cfg, wLoad)
+			if err := gLoad.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			loadedSources := gLoad.cardSummonSources()
+			if len(loadedSources) != 2 {
+				t.Fatalf("loaded sources = %d, want 2", len(loadedSources))
+			}
+			loadedByMonster := map[string]cardSummonSource{}
+			for _, source := range loadedSources {
+				loadedByMonster[source.MonsterKey] = source
+			}
+			loadedAllies := map[string]int{}
+			for _, m := range wLoad.Monsters {
+				if !isCardAlly(m) {
+					continue
+				}
+				loadedAllies[m.Key]++
+				source, ok := loadedByMonster[m.Key]
+				if !ok {
+					t.Fatalf("loaded unexpected card ally %s", m.Key)
+				}
+				if m.SummonedBy != source.Owner {
+					t.Errorf("%s owner = %q, want %q", m.Key, m.SummonedBy, source.Owner)
+				}
+			}
+			for monsterKey, source := range loadedByMonster {
+				if got := loadedAllies[monsterKey]; got != 1 {
+					t.Errorf("loaded %d %s allies, want 1", got, monsterKey)
+				}
+				wantCooldown := tt.orcCooldown
+				if monsterKey == "revenant" {
+					wantCooldown = tt.lichCooldown
+				}
+				if tt.legacy {
+					wantCooldown = tt.legacyCooldown
+				}
+				if got := gLoad.cardSummonCooldown(source.Owner); got != wantCooldown {
+					t.Errorf("%s cooldown = %d, want %d", monsterKey, got, wantCooldown)
+				}
+			}
+			if tt.legacy && !gLoad.loadNeedsResave {
+				t.Error("legacy summon state migration did not request a resave")
+			}
+		})
 	}
-	// At the limit, tryCardSummonOnAction would request 0 more.
-	if want := g.cardSummonLimit() - cs.countCardSummons(); want != 0 {
-		t.Errorf("remaining summon capacity = %d, want 0 (at limit)", want)
+}
+
+func TestCardSummonCooldownFollowsRemovedCardThroughSave(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorld(cfg)
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+	gSave := newTestGame(cfg, wSave)
+	card := items.CreateItemFromYAML("orc_warlord_card")
+	card.InstanceID = 601
+	if !gSave.setCardCollectionSlot(0, card) {
+		t.Fatal("could not slot Orc Warlord Card")
 	}
-	// A slain ally frees a slot.
-	a2.HitPoints = 0
-	if cs.countCardSummons() != 1 {
-		t.Errorf("after one ally dies, countCardSummons() = %d, want 1", cs.countCardSummons())
+	owner := gSave.cardSummonSources()[0].Owner
+	gSave.armCardSummonCooldown(owner, 19)
+	if !gSave.removeCardToInventory(0) {
+		t.Fatal("could not remove cooling summon card")
 	}
-	if want := g.cardSummonLimit() - cs.countCardSummons(); want != 1 {
-		t.Errorf("freed capacity = %d, want 1", want)
+	save := gSave.buildSave(wmSave)
+	save.MapKey = "forest"
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	cardIndex := -1
+	for i := range gLoad.party.Inventory {
+		if gLoad.party.Inventory[i].InstanceID == card.InstanceID {
+			cardIndex = i
+			break
+		}
+	}
+	if cardIndex < 0 || !gLoad.placeCardFromInventory(cardIndex) {
+		t.Fatal("removed physical card did not survive for re-slotting")
+	}
+	loadedSource := gLoad.cardSummonSources()[0]
+	if loadedSource.Owner != owner {
+		t.Fatalf("re-slotted card owner = %q, want stable %q", loadedSource.Owner, owner)
+	}
+	if got := gLoad.cardSummonCooldown(owner); got != 19 {
+		t.Fatalf("re-slotted card cooldown = %d, want 19", got)
+	}
+}
+
+func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		inBag    bool
+		inStash  bool
+		fullLoad bool
+		instance uint64
+	}{
+		{name: "active collection card", fullLoad: true, instance: 701},
+		{name: "removed inventory card", inBag: true, fullLoad: true, instance: 702},
+		{name: "shared stash card", inStash: true, instance: 703},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			w := newTestWorld(cfg)
+			g := newTestGame(cfg, w)
+			card := items.CreateItemFromYAML("orc_warlord_card")
+			card.InstanceID = tt.instance
+			owner := fmt.Sprintf("%s%d", cardSummonOwnerPrefix, card.InstanceID)
+			if tt.inBag {
+				g.party.Inventory = append(g.party.Inventory, card)
+			} else if tt.inStash {
+				g.stash = &stash.Stash{}
+				g.stash.CardSlots[0] = card
+			} else if !g.setCardCollectionSlot(0, card) {
+				t.Fatal("could not slot summon card")
+			}
+			ally := monster.NewMonster3DFromConfig(64, 64, "masked_huntress", cfg)
+			if ally == nil {
+				t.Fatal("masked_huntress config missing")
+			}
+			markPurePartySummon(ally, cardSummonOwner)
+			w.Monsters = append(w.Monsters, ally)
+
+			if tt.fullLoad {
+				wmSave := world.NewWorldManager(cfg)
+				wmSave.LoadedMaps = map[string]*world.World3D{"forest": w}
+				wmSave.CurrentMapKey = "forest"
+				save := g.buildSave(wmSave)
+				save.MapKey = "forest"
+				save.CardSummonCooldowns = nil
+				save.CardSummonCDFrames = 23
+
+				wLoad := newTestWorld(cfg)
+				wmLoad := world.NewWorldManager(cfg)
+				wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+				wmLoad.CurrentMapKey = "forest"
+				g = newTestGame(cfg, wLoad)
+				if err := g.applySave(wmLoad, &save); err != nil {
+					t.Fatalf("apply legacy save: %v", err)
+				}
+				w = wLoad
+				if len(w.Monsters) != 1 {
+					t.Fatalf("loaded monsters = %d, want 1 legacy ally", len(w.Monsters))
+				}
+				ally = w.Monsters[0]
+			} else {
+				g.restoreCardSummonState(nil, 23)
+			}
+
+			if ally.SummonedBy != owner {
+				t.Fatalf("%s legacy ally owner = %q, want physical owner %q", tt.name, ally.SummonedBy, owner)
+			}
+			if got := g.cardSummonCooldown(owner); got != 23 {
+				t.Fatalf("%s migrated cooldown = %d, want 23", tt.name, got)
+			}
+
+			if tt.inBag {
+				cardIndex := -1
+				for i := range g.party.Inventory {
+					if g.party.Inventory[i].InstanceID == card.InstanceID {
+						cardIndex = i
+						break
+					}
+				}
+				if cardIndex < 0 || !g.placeCardFromInventory(cardIndex) {
+					t.Fatal("could not re-slot migrated inventory card")
+				}
+			} else if tt.inStash {
+				g.stash.CardSlots[0] = items.Item{}
+				g.party.Inventory = append(g.party.Inventory, card)
+				if !g.placeCardFromInventory(len(g.party.Inventory) - 1) {
+					t.Fatal("could not re-slot migrated stash card")
+				}
+			}
+
+			def := cardDef("orc_warlord_card")
+			oldChance := def.CardSummonChance
+			def.CardSummonChance = 100
+			t.Cleanup(func() { def.CardSummonChance = oldChance })
+			g.combat = NewCombatSystem(g)
+			setupSummonableWorld(t, g.combat)
+			g.world.Monsters = append(g.world.Monsters, ally)
+			g.combat.tryCardSummonOnAction()
+			if got := g.combat.countLiveSummonsByOwner(owner); got != 1 {
+				t.Fatalf("%s action during migrated cooldown left %d allies, want 1", tt.name, got)
+			}
+		})
+	}
+}
+
+func TestLegacyCardSummonCooldownSurvivesWithoutOwnedCard(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.restoreCardSummonState(nil, 31)
+	saved := g.snapshotCardSummonCooldowns()
+	if saved[cardSummonOwner] != 31 {
+		t.Fatalf("legacy fallback snapshot = %d, want 31", saved[cardSummonOwner])
+	}
+
+	loaded := newTestGame(cfg, newTestWorld(cfg))
+	loaded.restoreCardSummonState(saved, 0)
+	card := items.CreateItemFromYAML("orc_warlord_card")
+	card.InstanceID = 704
+	if !loaded.setCardCollectionSlot(0, card) {
+		t.Fatal("could not activate card after legacy load")
+	}
+	source := loaded.cardSummonSources()[0]
+	if got := loaded.cardSummonCooldown(source.Owner); got != 31 {
+		t.Fatalf("late-activated card cooldown = %d, want legacy fallback 31", got)
+	}
+	def := cardDef("orc_warlord_card")
+	oldChance := def.CardSummonChance
+	def.CardSummonChance = 100
+	t.Cleanup(func() { def.CardSummonChance = oldChance })
+	loaded.combat = NewCombatSystem(loaded)
+	setupSummonableWorld(t, loaded.combat)
+	loaded.combat.tryCardSummonOnAction()
+	if got := loaded.combat.countLiveSummonsByOwner(source.Owner); got != 0 {
+		t.Fatalf("late-activated card spawned %d allies during legacy fallback", got)
+	}
+}
+
+func TestLegacyCardSummonAlliesDistributeAcrossDuplicatePhysicalCards(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	for i, id := range []uint64{705, 706} {
+		card := items.CreateItemFromYAML("orc_warlord_card")
+		card.InstanceID = id
+		g.party.Inventory = append(g.party.Inventory, card)
+		for n := 0; n < 2; n++ {
+			ally := monster.NewMonster3DFromConfig(float64(64+i*32+n), 64, "masked_huntress", cfg)
+			markPurePartySummon(ally, cardSummonOwner)
+			w.Monsters = append(w.Monsters, ally)
+		}
+	}
+	g.restoreCardSummonState(nil, 0)
+
+	got := map[string]int{}
+	for _, ally := range w.Monsters {
+		got[ally.SummonedBy]++
+	}
+	for _, id := range []uint64{705, 706} {
+		owner := fmt.Sprintf("%s%d", cardSummonOwnerPrefix, id)
+		if got[owner] != 2 {
+			t.Errorf("duplicate physical owner %q received %d allies, want 2", owner, got[owner])
+		}
 	}
 }
 

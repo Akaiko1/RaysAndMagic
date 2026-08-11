@@ -248,7 +248,9 @@ type GameSave struct {
 	TurnBasedMonsterStunned    []string `json:"turn_based_monster_stunned,omitempty"`
 
 	// Utility/buff state
+	// CardSummonCDFrames is the legacy shared timer (load-only migration).
 	CardSummonCDFrames     int                        `json:"card_summon_cd_frames,omitempty"`
+	CardSummonCooldowns    map[string]int             `json:"card_summon_cooldowns,omitempty"`
 	TorchLightActive       bool                       `json:"torch_light_active,omitempty"`
 	TorchLightDuration     int                        `json:"torch_light_duration,omitempty"`
 	TorchLightRadius       float64                    `json:"torch_light_radius,omitempty"`
@@ -622,9 +624,9 @@ type NPCStockSave struct {
 func (g *MMGame) clearTransientCombatState() {
 	// Door state is per-map: entities unregister and closed-ness resets, so the
 	// "portcullises rise" transition can't fire on the destination map.
-	// NOTE: cardSummonCDFrames deliberately survives here - it is a real-time
-	// balance cooldown (persisted in the save), and clearing it would let a map
-	// switch or a quick reload bypass the 5s.
+	// NOTE: per-card summon cooldowns deliberately survive here - they are
+	// persisted balance timers, and clearing them would let a map switch or a
+	// quick reload bypass the authored delay.
 	g.clearDoorState()
 	g.clearBuildingEntities()
 	g.clearLockedDoorEntities()
@@ -1458,7 +1460,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		TurnBasedMonsterPassDelay:  g.turnBasedMonsterPassDelay,
 		TurnBasedMonsterStatusTick: g.turnBasedMonsterStatusTick,
 		TurnBasedMonsterStunned:    turnBasedMonsterStunned,
-		CardSummonCDFrames:         g.cardSummonCDFrames,
+		CardSummonCooldowns:        g.snapshotCardSummonCooldowns(),
 		TorchLightActive:           g.torchLightActive,
 		TorchLightDuration:         g.torchLightDuration,
 		TorchLightRadius:           g.torchLightRadius,
@@ -2064,7 +2066,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 
 	// Restore utility/buff state
-	g.cardSummonCDFrames = save.CardSummonCDFrames
+	g.restoreCardSummonState(save.CardSummonCooldowns, save.CardSummonCDFrames)
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
 	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) -

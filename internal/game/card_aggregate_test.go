@@ -6,9 +6,10 @@ import (
 	"ugataima/internal/config"
 )
 
-// foldCardDefs must combine each card field the way the mechanics apply it:
-// ints sum, stat/resist maps merge-sum, CardBonusVs multiplies per key, bools
-// OR, strings take the first - so the Cards tab summary reads true totals.
+// foldCardDefs combines raw fields for the synthetic aggregate: ints sum,
+// stat/resist maps merge-sum, CardBonusVs multiplies per key, bools OR, and
+// strings take the first. The Cards tab removes summon fields from this raw
+// fold and lists each summon source independently.
 func TestFoldCardDefsCombineRules(t *testing.T) {
 	agg := foldCardDefs([]*config.ItemDefinitionConfig{
 		{

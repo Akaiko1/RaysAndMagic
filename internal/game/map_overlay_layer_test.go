@@ -476,7 +476,7 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	g.combatLogOpen = true
 	ui.renderedModalSnapshot = ui.topModalSnapshot()
 	g.cardFxTimers[fxBlink][0] = 2
-	g.cardSummonCDFrames = 2
+	g.cardSummonCooldowns = map[string]int{"test-card": 2}
 	uiBefore := g.uiFrameCount
 	x, y, w, _ := combatLogPanelLayout(g)
 	g.mouseLeftClicks = []queuedClick{{x: x + w - 20, y: y + 18, at: 1000}}
@@ -490,7 +490,7 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	if got := g.cardFxTimers[fxBlink][0]; got != 1 {
 		t.Fatalf("party-card visual timer = %d, want 1 behind the redraw barrier", got)
 	}
-	if got := g.cardSummonCDFrames; got != 2 {
+	if got := g.cardSummonCooldowns["test-card"]; got != 2 {
 		t.Fatalf("world cooldown = %d, want 2 until Draw replaces the modal", got)
 	}
 	if g.uiFrameCount != uiBefore+1 {

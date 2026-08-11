@@ -31,7 +31,7 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	g.menuOpen = true
 	g.cardFxTimers[fxBlink][0] = 2
-	g.cardSummonCDFrames = 2
+	g.cardSummonCooldowns = map[string]int{"test-card": 2}
 	g.spellInputCooldown = 2
 	g.tabbedMenuInputCooldown = 2
 	gl := &GameLoop{game: g, inputHandler: NewInputHandler(g)}
@@ -41,7 +41,7 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	if got := g.cardFxTimers[fxBlink][0]; got != 1 {
 		t.Fatalf("party-card visual timer = %d, want 1 while character hub is open", got)
 	}
-	if got := g.cardSummonCDFrames; got != 2 {
+	if got := g.cardSummonCooldowns["test-card"]; got != 2 {
 		t.Fatalf("gameplay cooldown = %d, want 2 while character hub is open", got)
 	}
 	if got := g.spellInputCooldown; got != 2 {

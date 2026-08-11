@@ -557,6 +557,9 @@ func TestEquipmentMeleeAttack_SwingsOffHandWhenMainHandUnequipped(t *testing.T) 
 // unobservable.
 func setupSummonableWorld(t *testing.T, cs *CombatSystem) {
 	t.Helper()
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = nil
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
 	if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
@@ -592,6 +595,15 @@ func forceOrcWarlordSummonAlways(t *testing.T, g *MMGame) {
 	old := def.CardSummonChance
 	def.CardSummonChance = 100
 	t.Cleanup(func() { def.CardSummonChance = old })
+	sources := g.cardSummonSources()
+	if len(sources) != len(g.cardSlots) {
+		t.Fatalf("forced summon sources = %d, want %d", len(sources), len(g.cardSlots))
+	}
+	for _, source := range sources {
+		if source.Chance != 100 {
+			t.Fatalf("forced %s chance = %d, want 100", source.CardKey, source.Chance)
+		}
+	}
 }
 
 // TestTrySpiritualTraining_NeverRollsItsOwnOrcWarlordSummon is the regression
@@ -642,6 +654,10 @@ func TestEquipmentMeleeAttack_StillRollsOrcWarlordSummonWithoutSpiritualTraining
 	delete(member.Skills, character.SkillSpiritualTraining)
 	g.selectedChar = 0
 	g.world.Monsters = nil
+	tile := float64(g.config.GetTileSize())
+	if _, _, ok := cs.findNearestSummonTile(g.camera.X+2*tile, g.camera.Y, 10); !ok {
+		t.Fatal("summonable-world fixture has no free spawn tile")
+	}
 
 	if !cs.EquipmentMeleeAttack() {
 		t.Fatal("attack should succeed")

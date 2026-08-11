@@ -42,7 +42,8 @@ func allySourceCases() []allySourceCase {
 			name: "card_summon",
 			spawn: func(t *testing.T, g *MMGame) *monsterPkg.Monster3D {
 				t.Helper()
-				if n := g.combat.summonCardAllies("masked_huntress", 1); n != 1 {
+				source := cardSummonSource{CardName: "Test Card", MonsterKey: "masked_huntress", Owner: cardSummonOwner}
+				if n := g.combat.summonCardAllies(source, 1); n != 1 {
 					t.Fatalf("summonCardAllies = %d, want 1", n)
 				}
 				return g.world.Monsters[len(g.world.Monsters)-1]
@@ -463,7 +464,8 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 	t.Run("card", func(t *testing.T) {
 		game, _ := summonTileWorld(t)
 		cs := game.combat
-		if n := cs.summonCardAllies("masked_huntress", 1); n != 1 {
+		source := cardSummonSource{CardName: "Test Card", MonsterKey: "masked_huntress", Owner: cardSummonOwner}
+		if n := cs.summonCardAllies(source, 1); n != 1 {
 			t.Fatalf("summonCardAllies = %d, want 1", n)
 		}
 		assertAlly(t, cs.game, cs.game.world.Monsters[len(cs.game.world.Monsters)-1], cardSummonOwner)

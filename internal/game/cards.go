@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -177,10 +178,9 @@ func (g *MMGame) cardCollectionBonus(get func(*config.ItemDefinitionConfig) int)
 	return total
 }
 
-// cardCollectionAggregate folds the active cards into one synthetic definition
-// so CardEffectLines can render combined totals. Combine rules match the
-// mechanics: int fields sum, stat/resist maps merge-sum, CardBonusVs multiplies
-// per key, bools OR, strings take the first; poison duration/resist below.
+// cardCollectionAggregate folds active cards into one synthetic definition.
+// Additive combine rules match their mechanics; summon fields are deliberately
+// removed and listed per source by cardCollectionEffectLines.
 func (g *MMGame) cardCollectionAggregate() *config.ItemDefinitionConfig {
 	var defs []*config.ItemDefinitionConfig
 	for slot := 0; slot < MaxCardSlots; slot++ {
@@ -189,6 +189,30 @@ func (g *MMGame) cardCollectionAggregate() *config.ItemDefinitionConfig {
 		}
 	}
 	return foldCardDefs(defs)
+}
+
+// cardCollectionEffectLines keeps ordinary additive effects summarized while
+// listing summon cards independently. Combining their chance/limit into one
+// line would falsely imply one shared roll and one shared creature pool.
+func (g *MMGame) cardCollectionEffectLines() []string {
+	agg := g.cardCollectionAggregate()
+	agg.CardSummonChance = 0
+	agg.CardSummonLimit = 0
+	agg.CardSummonMonster = ""
+	agg.CardSummonCDSeconds = 0
+	lines := agg.CardEffectLines()
+	for _, source := range g.cardSummonSources() {
+		summonOnly := &config.ItemDefinitionConfig{
+			CardSummonChance:    source.Chance,
+			CardSummonLimit:     source.Limit,
+			CardSummonMonster:   source.MonsterKey,
+			CardSummonCDSeconds: source.CooldownSeconds,
+		}
+		for _, line := range summonOnly.CardEffectLines() {
+			lines = append(lines, fmt.Sprintf("%s: %s", source.CardName, line))
+		}
+	}
+	return lines
 }
 
 // foldCardDefs is the pure fold behind cardCollectionAggregate (see its doc).
@@ -298,38 +322,207 @@ func (g *MMGame) cardHealAmount() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardHealAmount })
 }
 
-func (g *MMGame) cardSummonChance() int {
-	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardSummonChance })
+// cardSummonOwner is the legacy shared owner written by saves before summon
+// cards became independent. New allies use cardSummonOwnerPrefix + the physical
+// card's stable InstanceID, so each card owns its own limit and cooldown even
+// when two copies of the same card are active.
+const (
+	cardSummonOwner       = "card_collection"
+	cardSummonOwnerPrefix = cardSummonOwner + ":"
+)
+
+type cardSummonSource struct {
+	Slot            int
+	CardKey         string
+	CardName        string
+	MonsterKey      string
+	Owner           string
+	Chance          int
+	Limit           int
+	CooldownSeconds int
 }
 
-func (g *MMGame) cardSummonLimit() int {
-	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardSummonLimit })
-}
-
-// cardSummonOwner tags monsters summoned by the card collection (so they count
-// against the summon limit and restore as allies after a save).
-const cardSummonOwner = "card_collection"
-
-// cardSummonMonsterKey is the ally summoned by the collection's summon cards
-// (the first one set), or "" if none.
-func (g *MMGame) cardSummonMonsterKey() string {
+// cardSummonSources is the single source of truth for active summon cards.
+// Collection order controls roll order only; it never merges their mechanics.
+func (g *MMGame) cardSummonSources() []cardSummonSource {
+	sources := make([]cardSummonSource, 0, MaxCardSlots)
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardSummonChance > 0 && def.CardSummonMonster != "" {
-			return def.CardSummonMonster
+		key := g.cardCollectionKey(slot)
+		def := cardDef(key)
+		if def == nil || def.CardSummonChance <= 0 || def.CardSummonLimit <= 0 || def.CardSummonMonster == "" {
+			continue
+		}
+		owner := ""
+		if id := g.cardSlots[slot].item.InstanceID; id != 0 {
+			owner = fmt.Sprintf("%s%d", cardSummonOwnerPrefix, id)
+		} else {
+			// Direct key-only test fixtures predate physical collection items. Keep
+			// them independent and deterministic without minting runtime IDs here.
+			owner = fmt.Sprintf("%sslot:%d:%s", cardSummonOwnerPrefix, slot, key)
+		}
+		sources = append(sources, cardSummonSource{
+			Slot:            slot,
+			CardKey:         key,
+			CardName:        def.Name,
+			MonsterKey:      def.CardSummonMonster,
+			Owner:           owner,
+			Chance:          def.CardSummonChance,
+			Limit:           def.CardSummonLimit,
+			CooldownSeconds: def.CardSummonCDSeconds,
+		})
+	}
+	return sources
+}
+
+// cardSummonOwnedSources returns every physical summon card currently owned by
+// this playthrough, whether active, carried in the bag, or parked in the shared
+// stash. Legacy saves used one shared summon owner, so load migration must see
+// inactive cards too or removing a card would erase its live-cap ownership.
+func (g *MMGame) cardSummonOwnedSources() []cardSummonSource {
+	sources := g.cardSummonSources()
+	seen := make(map[string]bool, len(sources))
+	for _, source := range sources {
+		seen[source.Owner] = true
+	}
+	appendItem := func(it items.Item) {
+		key := itemCardKey(it)
+		def := cardDef(key)
+		if def == nil || it.InstanceID == 0 || def.CardSummonChance <= 0 || def.CardSummonLimit <= 0 || def.CardSummonMonster == "" {
+			return
+		}
+		owner := fmt.Sprintf("%s%d", cardSummonOwnerPrefix, it.InstanceID)
+		if seen[owner] {
+			return
+		}
+		seen[owner] = true
+		sources = append(sources, cardSummonSource{
+			Slot:            -1,
+			CardKey:         key,
+			CardName:        def.Name,
+			MonsterKey:      def.CardSummonMonster,
+			Owner:           owner,
+			Chance:          def.CardSummonChance,
+			Limit:           def.CardSummonLimit,
+			CooldownSeconds: def.CardSummonCDSeconds,
+		})
+	}
+	if g.party != nil {
+		for _, it := range g.party.Inventory {
+			appendItem(it)
 		}
 	}
-	return ""
-}
-
-// cardSummonCDSeconds is the summon proc cooldown, taken from the same card
-// that provides the summon monster (first-set, like cardSummonMonsterKey).
-func (g *MMGame) cardSummonCDSeconds() int {
-	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardSummonChance > 0 && def.CardSummonMonster != "" {
-			return def.CardSummonCDSeconds
+	if g.stash != nil {
+		for _, it := range g.stash.Slots {
+			appendItem(it)
+		}
+		for _, it := range g.stash.CardSlots {
+			appendItem(it)
 		}
 	}
-	return 0
+	return sources
+}
+
+func (g *MMGame) cardSummonCooldown(owner string) int {
+	if owner == "" || g.cardSummonCooldowns == nil {
+		return 0
+	}
+	frames := g.cardSummonCooldowns[owner]
+	// A migrated shared cooldown must keep blocking cards that were inactive at
+	// load time. It expires normally and never appears in newly-created state.
+	if legacy := g.cardSummonCooldowns[cardSummonOwner]; legacy > frames {
+		frames = legacy
+	}
+	return frames
+}
+
+func (g *MMGame) armCardSummonCooldown(owner string, frames int) {
+	if owner == "" || frames <= 0 {
+		return
+	}
+	if g.cardSummonCooldowns == nil {
+		g.cardSummonCooldowns = make(map[string]int)
+	}
+	g.cardSummonCooldowns[owner] = frames
+}
+
+func (g *MMGame) tickCardSummonCooldowns() {
+	for owner, frames := range g.cardSummonCooldowns {
+		if frames <= 1 {
+			delete(g.cardSummonCooldowns, owner)
+			continue
+		}
+		g.cardSummonCooldowns[owner] = frames - 1
+	}
+}
+
+func (g *MMGame) snapshotCardSummonCooldowns() map[string]int {
+	if len(g.cardSummonCooldowns) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(g.cardSummonCooldowns))
+	for owner, frames := range g.cardSummonCooldowns {
+		if frames > 0 {
+			out[owner] = frames
+		}
+	}
+	return out
+}
+
+// restoreCardSummonState restores per-card cooldowns and migrates the old
+// shared owner/cooldown conservatively. A legacy ally is assigned to an owned
+// physical card that summons its monster type, including inactive bag/stash
+// cards. The legacy shared cooldown remains shared until it expires, so cards
+// removed during loading cannot receive a free immediate proc when re-slotted.
+func (g *MMGame) restoreCardSummonState(saved map[string]int, legacyCooldown int) {
+	g.cardSummonCooldowns = make(map[string]int)
+	sources := g.cardSummonOwnedSources()
+	for owner, frames := range saved {
+		// Cooldowns follow the physical card through inventory/removal, so keep
+		// valid inactive-card entries too. A migrated shared entry is also valid
+		// until it expires, even if no summon card was active during the load.
+		if (owner == cardSummonOwner || strings.HasPrefix(owner, cardSummonOwnerPrefix)) && frames > 0 {
+			g.cardSummonCooldowns[owner] = frames
+		}
+	}
+	if len(saved) == 0 && legacyCooldown > 0 {
+		g.cardSummonCooldowns[cardSummonOwner] = legacyCooldown
+		g.loadNeedsResave = true
+	}
+
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	counts := make(map[string]int, len(sources))
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && strings.HasPrefix(m.SummonedBy, cardSummonOwnerPrefix) {
+			counts[m.SummonedBy]++
+		}
+	}
+	for _, m := range w.Monsters {
+		if m == nil || !m.IsAlive() || m.SummonedBy != cardSummonOwner {
+			continue
+		}
+		chosen := -1
+		for i := range sources {
+			if sources[i].MonsterKey != m.Key {
+				continue
+			}
+			if chosen < 0 {
+				chosen = i
+			}
+			if counts[sources[i].Owner] < sources[i].Limit {
+				chosen = i
+				break
+			}
+		}
+		if chosen >= 0 {
+			owner := sources[chosen].Owner
+			m.SummonedBy = owner
+			counts[owner]++
+			g.loadNeedsResave = true
+		}
+	}
 }
 
 func (g *MMGame) cardLethalSavePct() int {
@@ -508,7 +701,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 func (g *MMGame) resetCardCollection() {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
-	g.cardSummonCDFrames = 0 // survives map switches/loads (see clearTransientCombatState), so a NEW game must clear it here
+	g.cardSummonCooldowns = nil // survives map switches/loads, so a NEW game must clear it here
 	g.recomputeStatBonuses()
 }
 

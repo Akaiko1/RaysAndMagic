@@ -184,11 +184,9 @@ func (gl *GameLoop) updateExploration() {
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
 
-	// Card-summon proc cooldown ticks in real time in both modes; it silences
-	// only the proc, so nothing else waits on it.
-	if gl.game.cardSummonCDFrames > 0 {
-		gl.game.cardSummonCDFrames--
-	}
+	// Each summon card's proc cooldown ticks independently in real time in both
+	// modes; these timers silence only their own proc.
+	gl.game.tickCardSummonCooldowns()
 
 	// Update all special effects and timers
 	gl.updateSpecialEffects()

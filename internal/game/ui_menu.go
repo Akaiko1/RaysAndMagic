@@ -352,9 +352,10 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 		}
 	}
 
-	// Combined totals: fold the active cards, format via the shared CardEffectLines.
+	// Combined totals: additive effects fold together, while summon cards stay
+	// separate because each owns an independent roll, creature pool and cooldown.
 	summary := "No active card effects."
-	if parts := ui.game.cardCollectionAggregate().CardEffectLines(); len(parts) > 0 {
+	if parts := ui.game.cardCollectionEffectLines(); len(parts) > 0 {
 		summary = "Active: " + strings.Join(parts, ", ")
 	}
 	// Wrap to the panel width so a full 8-card list doesn't run off the edge.

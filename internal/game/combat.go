@@ -254,32 +254,42 @@ func (cs *CombatSystem) countLiveSummonsByOwner(owner string) int {
 }
 
 func (cs *CombatSystem) countCardSummons() int {
-	return cs.countLiveSummonsByOwner(cardSummonOwner)
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return 0
+	}
+	n := 0
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && isCardAlly(m) {
+			n++
+		}
+	}
+	return n
 }
 
-// tryCardSummonOnAction rolls the Orc Warlord Card on a party action: a chance to
-// summon allied monsters (Bound - they hunt enemy monsters, ignore the party) up
-// to the collection's summon limit. Called from the attack and cast chokepoints.
-// A successful summon arms the CARD's own cooldown (card_summon_cd_seconds) -
-// it silences only this proc, never the character's actions.
+// tryCardSummonOnAction independently rolls every active summon card on a party
+// action. Each physical card owns its monster type, live limit and cooldown;
+// collection order controls only deterministic roll/spawn order. Called from
+// the attack and cast chokepoints.
 func (cs *CombatSystem) tryCardSummonOnAction() {
-	if cs.game.cardSummonCDFrames > 0 {
+	if cs.game.GetCurrentWorld() == nil {
 		return
 	}
-	chance := cs.game.cardSummonChance()
-	limit := cs.game.cardSummonLimit()
-	key := cs.game.cardSummonMonsterKey()
-	if chance <= 0 || limit <= 0 || key == "" || cs.game.GetCurrentWorld() == nil {
-		return
-	}
-	if rand.Intn(100) >= chance {
-		return
-	}
-	if want := limit - cs.countCardSummons(); want > 0 {
-		// Arm the cooldown only when allies actually appeared: a whiffed spawn
-		// (no free tile around the party) must not waste the proc for 5s.
-		if cs.summonCardAllies(key, want) > 0 {
-			cs.game.cardSummonCDFrames = cs.game.cardSummonCDSeconds() * cs.game.config.GetTPS()
+	for _, source := range cs.game.cardSummonSources() {
+		if cs.game.cardSummonCooldown(source.Owner) > 0 {
+			continue
+		}
+		// Preserve the old trigger order: a card rolls first, then checks whether
+		// its live cap has room. A capped card consumes no cooldown.
+		if rand.Intn(100) >= source.Chance {
+			continue
+		}
+		if want := source.Limit - cs.countLiveSummonsByOwner(source.Owner); want > 0 {
+			// Arm the cooldown only when allies actually appeared: a whiffed spawn
+			// (no free tile around the party) must not waste the proc for 5s.
+			if cs.summonCardAllies(source, want) > 0 {
+				cs.game.armCardSummonCooldown(source.Owner, source.CooldownSeconds*cs.game.config.GetTPS())
+			}
 		}
 	}
 }
@@ -402,12 +412,11 @@ func markPurePartySummon(m *monsterPkg.Monster3D, owner string) {
 	m.QuestProgressIgnored = true
 }
 
-// isCardAlly reports whether a monster is a card-collection summon (Orc Warlord
-// Card huntresses) - a pure ally, distinct from a spell-bound undead (a former
-// ENEMY that still yields its reward). The single source of truth for the
-// "yields the party nothing / crumbles on map exit" rules.
+// isCardAlly reports whether a monster is a card-collection summon - including
+// legacy shared-owner saves and new per-card owners. It is a pure ally, distinct
+// from a spell-bound undead (a former ENEMY that still yields its reward).
 func isCardAlly(m *monsterPkg.Monster3D) bool {
-	return m != nil && m.SummonedBy == cardSummonOwner
+	return m != nil && (m.SummonedBy == cardSummonOwner || strings.HasPrefix(m.SummonedBy, cardSummonOwnerPrefix))
 }
 
 // isPurePartySummon is the shared distinction between creatures created for
@@ -464,18 +473,18 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 	departing.Monsters = kept
 }
 
-// summonCardAllies spawns up to n permanent allied (Bound) monsters of `key` near
-// the party. BoundFramesRemaining 0 = never expires (the bind tick only counts
-// down values > 0), so they fight on until slain. Returns how many spawned.
-func (cs *CombatSystem) summonCardAllies(key string, n int) int {
+// summonCardAllies spawns up to n permanent Bound allies for one physical card.
+// BoundFramesRemaining 0 = never expires, so they fight on until slain. Returns
+// how many spawned.
+func (cs *CombatSystem) summonCardAllies(source cardSummonSource, n int) int {
 	spawned := 0
 	for attempts := 0; spawned < n && attempts < n*12+12; attempts++ {
-		if cs.spawnPartyAlly(key, cardSummonOwner) != nil {
+		if cs.spawnPartyAlly(source.MonsterKey, source.Owner) != nil {
 			spawned++
 		}
 	}
 	if spawned > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("The Orc Warlord Card rallies %d ally to your side!", spawned))
+		cs.game.AddCombatMessage(fmt.Sprintf("The %s rallies %d ally to your side!", source.CardName, spawned))
 	}
 	return spawned
 }
@@ -608,7 +617,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 			caster.Name, def.Name, n, healAmount))
 		// Targeted/book healing predates castResolvedSpell and must join the
 		// Druid's per-spell Animal Bonding rule without changing the older,
-		// attack/generic-cast-only Orc Warlord Card cadence.
+		// attack/generic-cast-only summon-card cadence.
 		cs.tryAnimalBondingOnAction(caster)
 		cs.game.playSpellSound(def)
 		return true
@@ -850,7 +859,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		acted = cs.createArrowAttack(totalDamage, slot, "")
 	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
 		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
-		// castResolvedSpell already rolled the Orc Warlord summon check for this
+		// castResolvedSpell already rolled the summon-card checks for this
 		// action (a real cast counts as one) - don't roll it a second time below.
 		acted = true
 		summonRolled = true
@@ -1727,7 +1736,7 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 // and the spellbook: SP gate, special effects, projectile spawn and utility
 // application all live here so the two entry points cannot drift. announce
 // controls the "Casting X!" launch message (quick-cast stays quiet).
-// countsAsAction gates the Orc Warlord summon roll - false for a cast that
+// countsAsAction gates the summon-card rolls - false for a cast that
 // rides along on an action which already rolled it elsewhere (Spiritual
 // Training's free proc on a melee/ranged hit that already summon-rolled at
 // swing time; rolling again here would double the odds for one action).
@@ -1825,7 +1834,7 @@ func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef s
 		return false
 	}
 	// Town Portal with no known destination is a no-op - refuse it BEFORE the SP spend
-	// and the action-proc roll (Orc Warlord summon), or a failed cast would still
+	// and the action-proc rolls (summon cards), or a failed cast would still
 	// pay SP and free-summon before the deep refund runs.
 	if spellDef.TownPortal && len(cs.game.sortedTownPortalDestinations()) == 0 {
 		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a tavern, town, or major landmark first.")
@@ -1837,7 +1846,7 @@ func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef s
 	// Data-driven effect spells (AoE stun, party buffs, resurrect) - no
 	// projectile, no direct damage.
 	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
-		// Orc Warlord Card: only a REAL cast is a party action. Empty
+		// Summon cards: only a REAL cast is a party action. Empty
 		// Resurrect/Awaken/Raise Dead refund the SP and still return handled, so
 		// gate the summon roll on the SP staying spent - no free summons on a
 		// no-op cast.
