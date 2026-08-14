@@ -68,9 +68,12 @@ music:
       file: audio/music/culverts.ogg
       biomes: [culverts]
       volume: 1.0
+    # The eastern island shares one theme for now: the garden sits behind the
+    # castle on the same island, so the castle track carries both until the
+    # garden gets its own.
     japanese_castle:
       file: audio/music/japanese_castle.ogg
-      biomes: [japanese_castle]
+      biomes: [japanese_castle, sakura_garden]
       volume: 1.0
     city:
       file: audio/music/city.ogg
