@@ -487,6 +487,14 @@ day_night:
       night_monsters:
         - { monster: ningyo, count: 4 }
         - { monster: vengeful_ningyo, count: 1 }
+    # Tengu rule the garden ridge by day; the umbrellas and the foxes come
+    # out after dark (SAKURA_GARDEN design: night-weighted spirits).
+    - map: sakura_garden
+      day_monster: karasu_tengu
+      count: 4
+      night_monsters:
+        - { monster: kasa_obake, count: 3 }
+        - { monster: kitsune_onmyoji, count: 2 }
 
     # Black dragons return only after the cliffs have been completely cleared.
     - map: dragon_cliffs

@@ -1349,6 +1349,170 @@ monsters:
       dark: 30
       mind: 40
 
+  # ---- Sakura Garden (eastern islands), party L18-24 ----
+  # Garden spirits stirred by the castle's broken wards. Kappa hold the pond,
+  # tengu the ridge by day; kasa obake and the onmyoji foxes come with the dark
+  # (day/night packs in config.yaml).
+  kappa:
+    name: "Kappa"
+    banding: true
+    level: 18
+    max_hit_points: 700
+    armor_class: 24
+    experience: 800
+    damage_min: 34
+    damage_max: 50
+    melee_damage_type: "water"
+    attack_radius: 1
+    alert_radius: 7
+    speed: 1.6
+    gold_min: 40
+    gold_max: 140
+    sprite: "kappa"
+    letter: "k"
+    box_w: 46
+    box_h: 46
+    size_class: person
+    biomes: ["sakura_garden"]
+    resistances:
+      water: 50
+      body: 20
+      fire: -20
+
+  kasa_obake:
+    name: "Kasa Obake"
+    level: 19
+    max_hit_points: 660
+    armor_class: 30
+    perfect_dodge: 30
+    experience: 1000
+    damage_min: 30
+    damage_max: 48
+    melee_damage_type: "mind"
+    attacks_per_round: 2          # a hopping flurry of tongue and rib strikes
+    attack_cooldown_multiplier: 0.7
+    attack_radius: 1
+    alert_radius: 6               # ambusher: springs from the bamboo at close range
+    speed: 2.0
+    gold_min: 60
+    gold_max: 160
+    sprite: "kasa_obake"
+    letter: "u"
+    box_w: 46
+    box_h: 46
+    size_class: person
+    biomes: ["sakura_garden"]
+    resistances:
+      mind: 60
+      air: 40
+      physical: 10
+
+  karasu_tengu:
+    name: "Karasu Tengu"
+    banding: true
+    level: 20
+    max_hit_points: 780
+    armor_class: 26
+    perfect_dodge: 20
+    experience: 1200
+    damage_min: 36
+    damage_max: 52
+    melee_damage_type: "air"
+    attacks_per_round: 2
+    attack_cooldown_multiplier: 0.7
+    attack_radius: 1
+    alert_radius: 7               # short leash keeps Kuroha's overlook out of camp aggro
+    speed: 2.1
+    pounce_range_tiles: 4         # wing-dive onto the party
+    pounce_cooldown_seconds: 5
+    gold_min: 70
+    gold_max: 170
+    sprite: "karasu_tengu"
+    letter: "t"
+    box_w: 46
+    box_h: 46
+    size_class: person
+    biomes: ["sakura_garden"]
+    resistances:
+      air: 50
+      physical: 10
+      earth: -20
+
+  kitsune_onmyoji:
+    name: "Kitsune Onmyoji"
+    level: 22
+    max_hit_points: 760
+    armor_class: 24
+    perfect_dodge: 10
+    experience: 1600
+    damage_min: 28
+    damage_max: 44
+    melee_damage_type: "fire"
+    projectile_spell: "firebolt"  # foxfire
+    ranged_attack_range: 6
+    attack_radius: 5
+    alert_radius: 8
+    speed: 1.5
+    ally_heal_chance: 0.20
+    ally_heal_amount: 100
+    ally_heal_radius_tiles: 4
+    dispel_chance: 0.10           # 10% to strip a random active party buff on hit
+    gold_min: 90
+    gold_max: 200
+    sprite: "kitsune_onmyoji"
+    letter: "f"
+    box_w: 46
+    box_h: 46
+    size_class: person
+    biomes: ["sakura_garden"]
+    resistances:
+      fire: 50
+      mind: 50
+      dark: 30
+
+  # Boss: the spider bride of the orchard. Ties the garden's three disturbed
+  # wards into one web; killing her is Hina's capstone quest. Aggressive from
+  # the start (no seal), rallies onmyoji foxes, venomous, enrages when hurt.
+  sakura_jorogumo:
+    type: "formless"
+    name: "Sakura Jorogumo"
+    boss: true
+    level: 24
+    max_hit_points: 2200
+    armor_class: 50
+    perfect_dodge: 10
+    experience: 4000
+    damage_min: 38
+    damage_max: 58
+    melee_damage_type: "body"
+    poison_chance: 0.35
+    poison_duration_seconds: 60
+    attack_radius: 1
+    alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
+    speed: 1.8
+    enrage_at_hp: 700
+    enrage_damage_mult: 1.4
+    enrage_cooldown_mult: 0.7
+    # Calls her fox retainers to the web (shared boss summon kit).
+    summon_chance: 0.18
+    summon_first_guaranteed: true
+    summon_monsters: ["kitsune_onmyoji"]
+    summon_count: 2
+    summon_max: 2
+    gold_min: 4500
+    gold_max: 7000
+    sprite: "sakura_jorogumo"
+    letter: "j"
+    box_w: 48
+    box_h: 48
+    size_class: huge
+    biomes: ["sakura_garden"]
+    resistances:
+      body: 50
+      mind: 30
+      physical: 20
+      light: -20
+
   # ---- Deep Jungle (Amazon) zone, party L18-24 ----
   ocelot:
     name: "Ocelot"

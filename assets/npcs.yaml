@@ -1005,6 +1005,197 @@ npcs:
     size_class: tiny_prop
     dialogue: *rack_dialogue
 
+  # --- Sakura Garden (eastern island, L18-24) ---
+  # Paired garden gates: the entrance stands on the castle's south wall by the
+  # arrival court, the exit just inside the garden. In open-world mode both are
+  # removed (open_world.yaml) - the carved passage replaces them.
+  sakura_garden_entrance:
+    name: "Garden Gatehouse"
+    type: "encounter"
+    description: "A broad gatehouse in the castle's south wall; sakura crowns show through the open doors"
+    sprite: "sakura_garden_entrance"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_class: structure
+    dialogue:
+      greeting: "The south gatehouse stands open. Beyond it, an old temple garden climbs the hill in white and pink - and nothing tends it anymore."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter Sakura Garden"
+          action: "enter_map"
+          map: "sakura_garden"
+        - text: "Stay in the castle"
+          action: "leave"
+
+  sakura_garden_exit:
+    name: "Castle Gate"
+    type: "encounter"
+    description: "The smaller garden gate leading back to the castle courtyard"
+    sprite: "sakura_garden_exit"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_class: structure
+    dialogue:
+      greeting: "The garden's north gate opens on the castle courtyard, and the road back to the ship."
+      choice_prompt: "Leave the garden?"
+      choices:
+        - text: "Return to Eastern Isle Castle"
+          action: "enter_map"
+          map: "japanese_castle"
+        - text: "Stay in the garden"
+          action: "leave"
+
+  miko_shiori:
+    name: "Shiori"
+    type: "quest_giver"
+    description: "A young shrine keeper in red and white, sweeping the entry court alone"
+    sprite: "miko_shiori"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Welcome, travellers. I am Shiori. I keep the shrine now that the priests are gone. Do not mind the bells - they have not rung true since the castle fell sick."
+      active_message: "The umbrellas hop the bamboo paths at dusk. Five of them carry chime-pieces. The bells will tell me when it is done."
+      completed_message: "The bells settled in the night, all at once. You have my thanks, and the shrine's."
+      visited_message: "The bells hold their peace. The garden is quieter for what you did."
+      choice_prompt: "Shiori rests her broom."
+      choices:
+        - text: "Why do the bells ring wrong?"
+          action: "info"
+          response: "The temple's wards were chimes, cut from one bronze. When the castle fell sick the wards broke, and the pieces scattered. The old umbrellas took them up - they hop the bamboo now with bronze in their ribs, and every piece rings the same slow count, all night, on its own."
+          choices:
+            - text: "Five umbrellas. It is done."
+              action: "give_quest"
+              quest_id: "silent_bells"
+            - text: "Back."
+              action: "back"
+        - text: "We will still the bells."
+          action: "give_quest"
+          quest_id: "silent_bells"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "silent_bells"
+        - text: "Leave"
+          action: "leave"
+
+  pond_keeper_ayame:
+    name: "Ayame"
+    type: "quest_giver"
+    description: "A sun-browned gardener with a ladle and gourd, working the pond terraces"
+    sprite: "pond_keeper_ayame"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Mind the mud. I am Ayame; the pond is mine to keep. Or it was, before the kappa robbed it."
+      active_message: "Four kappa hold the pond. The seals will be on them - they cannot leave the things alone."
+      completed_message: "The channels run true again. The koi came back to the bridge by morning. Take this, and my thanks."
+      visited_message: "The pond keeps its level now. Come sit by the bridge whenever you like."
+      choice_prompt: "Ayame leans on her ladle."
+      choices:
+        - text: "What did the kappa take?"
+          action: "info"
+          response: "The water seals. Carved stone, palm-sized, one per channel gate. Set one in its slot and it clicks and the gate obeys the water level on its own. The kappa pried out all four when the wards failed, and now the pond drowns one terrace and starves the next."
+          choices:
+            - text: "Four Kappa. We will drain them instead."
+              action: "give_quest"
+              quest_id: "stolen_water_seal"
+            - text: "Back."
+              action: "back"
+        - text: "We will get the seals back."
+          action: "give_quest"
+          quest_id: "stolen_water_seal"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "stolen_water_seal"
+        - text: "Leave"
+          action: "leave"
+
+  tengu_exile_kuroha:
+    name: "Kuroha"
+    type: "quest_giver"
+    description: "A black-winged tengu in a faded blue robe, watching the ridge from a safe overlook"
+    sprite: "tengu_exile_kuroha"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Hold. I am Kuroha, and I no longer count as one of the flock above - I refused the new oath. Speak, ground-walker, and keep your blade loose."
+      active_message: "Four of the oath-sworn hold the ridge. They dive without a cry now. Watch the maples."
+      completed_message: "Four fewer. The knocking on the ridge went quiet for a whole day - I heard the wind again. The feather is yours; it opens more doors among my kind than gold."
+      visited_message: "The ridge is thinner. When the rest shed that oath, I will go home."
+      choice_prompt: "Kuroha's wings settle."
+      choices:
+        - text: "What oath did you refuse?"
+          action: "info"
+          response: "The flock swears to the mountain. That is the old oath. The new one they swore to what stirs in the castle - the same thing that worked the dead warlord's arms. I have listened to what took their oath. It is not a voice. It is a slow even knocking, like a loom underground, and it does not stop for night."
+          choices:
+            - text: "Four Tengu. We will break the oath."
+              action: "give_quest"
+              quest_id: "feathers_false_oath"
+            - text: "Back."
+              action: "back"
+        - text: "We will thin the oath-sworn."
+          action: "give_quest"
+          quest_id: "feathers_false_oath"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "feathers_false_oath"
+        - text: "Leave"
+          action: "leave"
+
+  # Hina's capstone: the give_quest sits at the bottom of a nested chain, one
+  # requires_quest per level, so the boss hunt only opens once all three ward
+  # errands (bells, seals, oath) are turned in and paid.
+  onmyoji_hina:
+    name: "Hina"
+    type: "quest_giver"
+    description: "An onmyoji apprentice in pale blue, a bell in one hand and a folded paper seal in the other"
+    sprite: "onmyoji_hina"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "I am Hina. My master went into the orchard a month ago to read the wards, and did not come back. I have been reading them from here instead. Something is wrong with the whole garden, and I can show you where the threads meet."
+      active_message: "She nests where the weeping trees grow thickest. Cut her down and the wards' echo dies with her."
+      completed_message: "The web is cut. All three wards fell silent the moment she died - I heard them stop together. My master did not walk out of that orchard, but no one else will walk into it. Take this."
+      visited_message: "The orchard is only an orchard now. I will finish my master's reading, and then I will go home and sleep for a week."
+      choice_prompt: "Hina looks up from her papers."
+      choices:
+        - text: "What is wrong with the garden?"
+          action: "info"
+          response: "The temple kept three wards here - the bell bronze, the water seals, the ridge oath. The castle's sickness broke all three in one night. Broken is one thing. Used is another, and something in the orchard is using them."
+          choices:
+            - text: "Back."
+              action: "back"
+        - text: "The bells are settled."
+          action: "info"
+          requires_quest: "silent_bells"
+          response: "I heard. One thread cut - and the echo in the orchard grew LOUDER, not softer. It is drawing on the other two harder now."
+          choices:
+            - text: "The pond seals are back as well."
+              action: "info"
+              requires_quest: "stolen_water_seal"
+              response: "Two threads. Listen - the orchard hums at the same slow count as the broken chimes did. Whatever holds the last thread is keeping all three echoes alive in its web."
+              choices:
+                - text: "The ridge oath is broken. Name the thing."
+                  action: "info"
+                  requires_quest: "feathers_false_oath"
+                  response: "The Sakura Jorogumo. The spider bride of the orchard. She has tied the three dead wards into one web and she feeds on their echo. Kill her in the orchard and the garden's last thread goes quiet."
+                  choices:
+                    - text: "We will kill the Sakura Jorogumo."
+                      action: "give_quest"
+                      quest_id: "fivefold_web"
+                    - text: "Not yet."
+                      action: "back"
+                - text: "Back."
+                  action: "back"
+            - text: "Back."
+              action: "back"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "fivefold_web"
+        - text: "Leave"
+          action: "leave"
+
   # The oasis shrine's lamps, one per pyramid floor: taking all three settles
   # Yusra's requires_quest and opens her Light/Dark shelf. Same one-shot prop
   # pattern as the valves and the katana racks (action: prop -> the prop's own

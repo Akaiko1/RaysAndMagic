@@ -18,12 +18,14 @@
 # tight at its map's design anchor - the '+' start tile / tavern - and the
 # highlands->cliffs opening sits on the old violet teleporter wall.
 #
-# Current layout (unified grid 206x97, every corridor a straight 2 tiles):
-#   dragon_cliffs (17,0, rot270 - its village west gate turns down to meet
-#     the highlands teleporter wall)
-#   highlands (0,47, rot270 - its south wall, 8 tiles from the '+', turns to
-#     face the forest; its old-teleporter east wall turns up toward the cliffs)
-#   forest (52,36)   desert (104,32)   deep_jungle (156,31)
+# Current layout (unified grid 206x220, every corridor a straight 2 tiles):
+#   mainland (y 0..97): dragon_cliffs (17,0, rot270 - its village west gate
+#     turns down to meet the highlands teleporter wall), highlands (0,47,
+#     rot270 - its south wall, 8 tiles from the '+', turns to face the forest;
+#     its old-teleporter east wall turns up toward the cliffs),
+#     forest (52,36), desert (104,32), deep_jungle (156,31)
+#   eastern island (y 120..219, void-separated from the mainland, ship-only):
+#     japanese_castle (0,120), sakura_garden (0,172)
 
 void_tile: oob_cliff
 corridor:
@@ -36,6 +38,12 @@ placements:
   forest:        { x: 52,  y: 36 }
   desert:        { x: 104, y: 32 }
   deep_jungle:   { x: 156, y: 31 }
+  # The eastern-island component: castle + garden, deliberately DISCONNECTED
+  # from the mainland (void_tile all around, no carved connection to any
+  # mainland map). Ship travel (seabright_gate <-> japanese_castle_exit)
+  # remains the only way across, as a same-world fast travel.
+  japanese_castle: { x: 0, y: 120 }
+  sakura_garden:   { x: 0, y: 172 }   # castle_y + castle_height(50) + corridor(2)
 
 connections:
   # Forest east gate alcove (old door + red teleporter) -> desert west edge
@@ -63,6 +71,11 @@ connections:
   - from: { map: desert, edge: east, at: 43 }
     to:   { map: deep_jungle, edge: west, at: 44 }
     width: 2
+  # Castle south wall x29..31 (three tiles from the arrival '+') -> the
+  # garden's north opening into its Entry Court: a straight 2-tile pass.
+  - from: { map: japanese_castle, edge: south, at: 29 }
+    to:   { map: sakura_garden, edge: north, at: 29 }
+    width: 3
 
 removals:
   forest:
@@ -75,3 +88,10 @@ removals:
     npcs: [portal_gate_forest]
   dragon_cliffs:
     special_tiles: [vteleporter]
+  # The paired garden gates are replaced by the carved castle-garden passage.
+  # The moored ship (japanese_castle_exit) stays - it is the island's only
+  # link to the mainland.
+  japanese_castle:
+    npcs: [sakura_garden_entrance]
+  sakura_garden:
+    npcs: [sakura_garden_exit]

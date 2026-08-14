@@ -552,6 +552,515 @@ tiles:
     letter: "H"
     biomes: ["japanese_castle"]
 
+  # --- Sakura Garden (eastern islands, behind the castle) ---
+  # Four floors painted by deliberate letters, castle-style: . moss grass,
+  # , blossom earth, : granite paving, ; shallow koi water (walkable). Digits
+  # 1-4 are the transition accents. Walls reuse the castle letter roles
+  # (% # B =, biome-scoped). Deep pond centers use the universal W/Q.
+  sakura_garden_moss:
+    name: "Petal Moss"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [53, 61, 26]
+    floor_near_color: [80, 92, 40]
+    floor_texture_group: "moss"
+    letter: "."
+    biomes: ["sakura_garden"]
+
+  sakura_garden_earth:
+    name: "Blossom Earth"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [79, 57, 38]
+    floor_near_color: [114, 82, 55]
+    floor_texture_group: "earth"
+    letter: ","
+    biomes: ["sakura_garden"]
+
+  sakura_garden_paving:
+    name: "Granite Paving"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [82, 88, 72]
+    floor_near_color: [118, 127, 104]
+    floor_texture_group: "paving"
+    letter: ":"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_koi:
+    name: "Koi Shallows"
+    type: "water"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [23, 56, 51]
+    floor_near_color: [40, 88, 80]
+    floor_texture_group: "koi"
+    letter: ";"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_grass_edge:
+    name: "Grass Verge"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [100, 84, 56]
+    floor_near_color: [145, 122, 82]
+    floor_texture_group: "grass_edge"
+    letter: "1"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_path:
+    name: "Garden Path"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [110, 116, 63]
+    floor_near_color: [159, 168, 91]
+    floor_texture_group: "path"
+    letter: "2"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_pond_edge:
+    name: "Pond Edge"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [79, 100, 73]
+    floor_near_color: [114, 145, 105]
+    floor_texture_group: "pond_edge"
+    letter: "3"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_stream:
+    name: "Petal Stream"
+    type: "water"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor"
+    floor_color: [120, 90, 84]
+    floor_near_color: [172, 128, 120]
+    floor_texture_group: "stream"
+    letter: "4"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_wall:
+    name: "Moss Fieldstone Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "sakura_garden_wall_0"
+    render_type: "wall"
+    wall_color: [57, 59, 50]
+    letter: "%"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_wall_1:
+    name: "Plaster and Timber Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "sakura_garden_wall_1"
+    render_type: "wall"
+    wall_color: [145, 131, 115]
+    letter: "#"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_wall_2:
+    name: "Vermilion Shrine Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "sakura_garden_wall_2"
+    render_type: "wall"
+    wall_color: [99, 39, 32]
+    letter: "B"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_wall_3:
+    name: "Bamboo Lattice Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "sakura_garden_wall_3"
+    render_type: "wall"
+    wall_color: [90, 75, 34]
+    letter: "="
+    biomes: ["sakura_garden"]
+
+  # Garden trees and rocks: crossed standees (frame width = size_class, height
+  # follows the texture aspect), same as every other zone's treeline.
+  sakura_tree_large:
+    name: "Great Sakura"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_tree_large"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [214, 168, 186]
+    floor_near_color: [96, 84, 66]
+    letter: "T"
+    biomes: ["sakura_garden"]
+
+  sakura_tree_cluster:
+    name: "Sakura Cluster"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_tree_cluster"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [206, 158, 178]
+    floor_near_color: [96, 84, 66]
+    letter: "U"
+    biomes: ["sakura_garden"]
+
+  sakura_tree_weeping:
+    name: "Weeping Sakura"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_tree_weeping"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [222, 178, 196]
+    floor_near_color: [96, 84, 66]
+    letter: "V"
+    biomes: ["sakura_garden"]
+
+  sakura_bamboo_thicket:
+    name: "Bamboo Thicket"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_bamboo_thicket"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [82, 130, 52]
+    floor_near_color: [70, 92, 44]
+    letter: "K"
+    biomes: ["sakura_garden"]
+
+  sakura_red_maple:
+    name: "Red Maple"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_red_maple"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [150, 52, 44]
+    floor_near_color: [96, 84, 66]
+    letter: "M"
+    biomes: ["sakura_garden"]
+
+  sakura_sacred_rock:
+    name: "Shimenawa Rock"
+    type: "rock"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_sacred_rock"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [110, 116, 104]
+    letter: "R"
+    biomes: ["sakura_garden"]
+
+  sakura_moss_outcrop:
+    name: "Mossy Outcrop"
+    type: "rock"
+    solid: true
+    transparent: true
+    walkable: false
+    sprite: "sakura_moss_outcrop"
+    size_class: tree
+    render_type: "crossed_standee"
+    map_color: [104, 112, 96]
+    letter: "O"
+    biomes: ["sakura_garden"]
+
+  # Low garden growth: azalea blocks (soft cover), the rest is walkable decor.
+  sakura_azalea_shrub:
+    name: "Azalea Shrub"
+    type: "nature"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: medium_prop
+    sprite: "sakura_azalea_shrub"
+    render_type: "crossed_prop"
+    map_color: [178, 96, 108]
+    letter: "A"
+    biomes: ["sakura_garden"]
+
+  sakura_fallen_petals:
+    name: "Fallen Petals"
+    type: "nature"
+    solid: false
+    transparent: true
+    walkable: true
+    size_class: tiny_prop
+    sprite: "sakura_fallen_petals"
+    render_type: "standee"
+    letter: "P"
+    biomes: ["sakura_garden"]
+
+  sakura_iris_reeds:
+    name: "Iris and Reeds"
+    type: "nature"
+    solid: false
+    transparent: true
+    walkable: true
+    size_class: small_prop
+    sprite: "sakura_iris_reeds"
+    render_type: "standee"
+    letter: "I"
+    biomes: ["sakura_garden"]
+
+  sakura_clover_flowers:
+    name: "Clover Flowers"
+    type: "nature"
+    solid: false
+    transparent: true
+    walkable: true
+    size_class: tiny_prop
+    sprite: "sakura_clover_flowers"
+    render_type: "standee"
+    letter: "C"
+    biomes: ["sakura_garden"]
+
+  # Garden furniture and shrine props.
+  sakura_stone_lantern:
+    name: "Stone Lantern"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: tall_prop
+    sprite: "sakura_stone_lantern"
+    render_type: "crossed_prop"
+    letter: "L"
+    biomes: ["sakura_garden"]
+
+  sakura_torii_gate:
+    name: "Vermilion Torii"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: structure
+    sprite: "sakura_torii_gate"
+    render_type: "crossed_prop"
+    map_color: [190, 70, 50]
+    letter: "G"
+    biomes: ["sakura_garden"]
+
+  sakura_bamboo_fence:
+    name: "Bamboo Fence"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_bamboo_fence"
+    render_type: "crossed_prop"
+    letter: "F"
+    biomes: ["sakura_garden"]
+
+  sakura_ema_rack:
+    name: "Ema Prayer Rack"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_ema_rack"
+    render_type: "crossed_prop"
+    letter: "E"
+    biomes: ["sakura_garden"]
+
+  sakura_kitsune_statues:
+    name: "Kitsune Statues"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: tall_prop
+    sprite: "sakura_kitsune_statues"
+    render_type: "crossed_prop"
+    letter: "J"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_bench:
+    name: "Garden Bench"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: small_prop
+    sprite: "sakura_garden_bench"
+    render_type: "crossed_prop"
+    letter: "N"
+    biomes: ["sakura_garden"]
+
+  sakura_garden_signpost:
+    name: "Garden Signpost"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_garden_signpost"
+    render_type: "crossed_prop"
+    letter: "S"
+    biomes: ["sakura_garden"]
+
+  sakura_tsukubai_basin:
+    name: "Tsukubai Basin"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: small_prop
+    sprite: "sakura_tsukubai_basin"
+    render_type: "crossed_prop"
+    letter: "H"
+    biomes: ["sakura_garden"]
+
+  # Landmarks: pinned pose (no_spin) so the architecture reads as authored.
+  sakura_main_shrine:
+    name: "Blossom Shrine"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: structure
+    sprite: "sakura_main_shrine"
+    render_type: "landmark_standee"
+    no_spin: true
+    map_color: [170, 60, 50]
+    floor_texture_group: "paving"
+    letter: "X"
+    biomes: ["sakura_garden"]
+
+  sakura_tea_house:
+    name: "Tea House"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: structure
+    sprite: "sakura_tea_house"
+    render_type: "landmark_standee"
+    no_spin: true
+    map_color: [150, 130, 104]
+    floor_texture_group: "paving"
+    letter: "Z"
+    biomes: ["sakura_garden"]
+
+  sakura_moon_bridge:
+    name: "Moon Bridge"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: structure
+    sprite: "sakura_moon_bridge"
+    render_type: "landmark_standee"
+    no_spin: true
+    map_color: [170, 60, 50]
+    letter: "D"
+    biomes: ["sakura_garden"]
+
+  # One-off shrine-precinct decor, placed letterless via >[tile:short_label].
+  sakura_omikuji_box:
+    name: "Omikuji Box"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_omikuji_box"
+    render_type: "crossed_prop"
+    short_label: "omikuji"
+    biomes: ["sakura_garden"]
+
+  sakura_sake_barrels:
+    name: "Sake Barrel Stack"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_sake_barrels"
+    render_type: "crossed_prop"
+    short_label: "sake_barrels"
+    biomes: ["sakura_garden"]
+
+  sakura_incense_brazier:
+    name: "Incense Brazier"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: small_prop
+    sprite: "sakura_incense_brazier"
+    render_type: "crossed_prop"
+    short_label: "brazier"
+    biomes: ["sakura_garden"]
+
+  sakura_taiko_drum:
+    name: "Taiko Drum"
+    type: "structure"
+    solid: true
+    transparent: true
+    walkable: false
+    size_class: full_tile
+    sprite: "sakura_taiko_drum"
+    render_type: "crossed_prop"
+    short_label: "taiko"
+    biomes: ["sakura_garden"]
+
   # ---- Deep Jungle (Amazon) zone ----
   # Floors: terra-firme is the universal "." (jungle default group). These two
   # add the deliberate looks - mossy ruin flagstone for the lost-city plaza, and

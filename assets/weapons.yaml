@@ -761,6 +761,51 @@ weapons:
       slash_width: 42
       slash_length: 56
 
+  # --- Sakura Garden zone weapons (mob drops) ---
+  gale_war_fan:
+    name: "Gale War Fan"
+    description: "A tengu's iron-ribbed fan that strikes with a cutting wind"
+    category: "dagger"
+    cooldown_multiplier: 0.7
+    damage: 10
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 18
+    damage_type: "air"
+    rarity: "rare"
+    value: 700
+    flavor: "Folded iron feathers; one flick and the grass lies flat."
+    melee:
+      arc_type: 2
+      animation_frames: 6
+    graphics:
+      slash_color: [190, 220, 230]
+      slash_width: 30
+      slash_length: 44
+
+  widow_hairpin:
+    name: "Widow Hairpin"
+    description: "A long lacquered pin from the spider bride's own hair"
+    category: "dagger"
+    cooldown_multiplier: 0.6
+    damage: 9
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Luck"
+    crit_chance: 24
+    damage_type: "body"
+    rarity: "rare"
+    value: 850
+    flavor: "It held her hair up. It holds men still."
+    melee:
+      arc_type: 1
+      animation_frames: 5
+    graphics:
+      slash_color: [160, 60, 80]
+      slash_width: 20
+      slash_length: 34
+
   # --- Deep Jungle (Amazon) zone weapons ---
   jungle_machete:
     name: "Machete"

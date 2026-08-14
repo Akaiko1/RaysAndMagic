@@ -140,6 +140,12 @@ biomes:
   # blossom garden), not the random-from-group variety the other biomes use.
   japanese_castle:
     floor_texture_groups:
+      # "default" is what stitched open-world corridor cells (tile: empty)
+      # wear - without it the castle half of the garden passage rendered the
+      # flat grey default_floor_color. Cobble = the castle's '.' ground and
+      # the courtyard right behind the carved south opening.
+      default:
+        - "japanese_castle_floor_0"
       cobble:
         - "japanese_castle_floor_0"
       wood:
@@ -148,6 +154,39 @@ biomes:
         - "japanese_castle_floor_2"
       garden:
         - "japanese_castle_floor_3"
+
+  # Castle-style deliberate floors: each group is one texture so the map paints
+  # subregions by letter (moss garden / blossom earth / granite paving / koi
+  # shallows), plus the four transition accents (digits 1-4 in tiles.yaml).
+  sakura_garden:
+    floor_texture_groups:
+      # "default" is what stitched open-world corridor cells (tile: empty)
+      # wear. Deliberately the granite PAVING, not the moss: the carved
+      # passage lands on the paved entry court, so the corridor continues
+      # the courtyard stone instead of dropping a green moss strip between
+      # the castle cobble and the court.
+      default:
+        - "sakura_garden_floor_2"
+      moss:
+        - "sakura_garden_floor_0"
+      earth:
+        - "sakura_garden_floor_1"
+      paving:
+        - "sakura_garden_floor_2"
+      koi:
+        - "sakura_garden_floor_3"
+      grass_edge:
+        - "sakura_garden_floor_4"
+      path:
+        - "sakura_garden_floor_5"
+      pond_edge:
+        - "sakura_garden_floor_6"
+      stream:
+        - "sakura_garden_floor_7"
+      # The renderer auto-selects "beach" for empty tiles bordering the deep
+      # pond water (W/Q); the pond-edge texture is that shoreline here.
+      beach:
+        - "sakura_garden_floor_6"
 
   city:
     floor_texture_groups:
@@ -453,6 +492,20 @@ maps:
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
     wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
+
+  # The garden behind the eastern castle: higher-tier (L18-24) open region on
+  # the same island. Entered from the castle's south edge; see open_world.yaml
+  # for the seamless island wiring and npcs.yaml for the closed-world gates.
+  sakura_garden:
+    name: "Sakura Garden"
+    file: "sakura_garden.map"
+    biome: "sakura_garden"
+    sky_color: [186, 168, 196]           # blossom-pink haze over far mountains
+    sky_texture: "sakura_garden_panorama"
+    # Stone-toned: this color only tints EMPTY cells, i.e. the stitched
+    # corridor to the castle, which wears the granite paving (see the biome's
+    # "default" floor group above). Authored cells all carry their own color.
+    default_floor_color: [84, 88, 76]
 
   city:
     name: "Seabright"
