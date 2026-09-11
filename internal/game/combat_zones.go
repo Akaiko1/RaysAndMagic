@@ -9,6 +9,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -69,9 +70,9 @@ func (g *MMGame) reseedPersistentDamageZoneFieldIDs() {
 
 // tryCastPersistentDamageZone handles every persistent-zone spell. It creates
 // one radial cell or a fixed wall of cells and snapshots the caster identity.
-func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
 	if def.ZoneRadiusTiles <= 0 {
-		return false
+		return castNotHandled
 	}
 	tps := cs.game.config.GetTPS()
 	tile := float64(cs.game.config.GetTileSize())
@@ -100,14 +101,13 @@ func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def 
 
 	cells := cs.zoneCastCells(newZone, def, tile)
 	if len(cells) == 0 {
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		cs.game.AddCombatMessage(fmt.Sprintf("There is no open ground for %s.", def.Name))
-		return true
+		return castNoEffect
 	}
 	cs.mergeZoneCast(cells)
 	cs.game.AddCombatMessage(spellCastMessage(def))
 	cs.game.setUtilityStatus(spellID, frames)
-	return true
+	return castCommitted
 }
 
 // zoneCastCells builds the cells one cast occupies: a wall spell
@@ -546,17 +546,11 @@ func (gl *GameLoop) advancePersistentDamageZones(elapsedFrames int) {
 		if interval <= 0 {
 			interval = turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())
 		}
-		z.tickCounter += elapsedFrames
-		ticks := 0
-		for z.tickCounter >= interval {
-			z.tickCounter -= interval
-			ticks++
-		}
+		ticks, _ := status.TickDoT(&z.FramesLeft, &z.tickCounter, elapsedFrames, interval)
 		if ticks > 0 {
 			firing = append(firing, firingZoneCell{cell: *z, ticks: ticks})
 		}
 
-		z.FramesLeft -= elapsedFrames
 		if z.FramesLeft <= 0 {
 			z.FramesLeft = 0
 			expired[z.SpellID] = true

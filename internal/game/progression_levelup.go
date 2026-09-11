@@ -610,14 +610,7 @@ func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
 }
 
 func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
-	for _, magicSkill := range char.MagicSchools {
-		for _, known := range magicSkill.KnownSpells {
-			if known == spellID {
-				return true
-			}
-		}
-	}
-	return false
+	return char != nil && char.KnowsSpell(spellID)
 }
 
 func spellDisplayName(spellID spells.SpellID) string {

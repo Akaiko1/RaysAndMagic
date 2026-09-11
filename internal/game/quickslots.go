@@ -192,6 +192,9 @@ func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
 	ch := g.party.Members[charIdx]
 	switch it.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		if !characterKnowsSpellByID(ch, spells.SpellID(it.SpellEffect)) {
+			return
+		}
 		ch.Equipment[items.SlotSpell] = it
 		g.AddCombatMessage(fmt.Sprintf("%s set as %s's quick spell", it.Name, ch.Name))
 	case items.ItemTrap:
@@ -333,9 +336,16 @@ func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
 
 // resolveQuickSlotDrop moves the carried thing into (targetChar, targetSlot).
 func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
+	if g.party == nil || targetChar < 0 || targetChar >= len(g.party.Members) || targetSlot < 0 || targetSlot >= len(g.party.Members[targetChar].QuickSlots) {
+		return
+	}
+	defer g.clearDrag()
 	tch := g.party.Members[targetChar]
 	switch g.dragSrc {
 	case dragFromInventory:
+		if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.party.Inventory) || !canBindQuickItem(tch, &g.party.Inventory[g.dragInvIndex]) {
+			return
+		}
 		if item, ok := g.takeInventoryDragItem(); ok {
 			occ := tch.QuickSlots[targetSlot]
 			// Same-stack items pile up in the slot instead of displacing.
@@ -350,6 +360,9 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			}
 		}
 	case dragFromSpell:
+		if !characterKnowsSpellByID(tch, g.dragSpellID) {
+			return
+		}
 		if sp, err := spells.CreateSpellItem(g.dragSpellID); err == nil {
 			occ := tch.QuickSlots[targetSlot]
 			cp := sp
@@ -371,6 +384,9 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 		if !(g.dragQuickChar == targetChar && g.dragQuickSlot == targetSlot) {
 			sch := g.party.Members[g.dragQuickChar]
 			src, dst := sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot]
+			if !canBindQuickItem(tch, src) || !canBindQuickItem(sch, dst) {
+				return
+			}
 			if src != nil && dst != nil && items.SameStack(*src, *dst) {
 				dst.MergeStack(*src)
 				sch.QuickSlots[g.dragQuickSlot] = nil
@@ -379,7 +395,6 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			}
 		}
 	}
-	g.clearDrag()
 }
 
 // takeInventoryDragItem performs the model mutation only after a valid drop
@@ -684,7 +699,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		if err != nil {
 			return
 		}
-		if g.combat.castResolvedSpell(spellID, def, ch, g.combat.effectiveSpellCost(ch, def.SpellPointsCost), true, true) {
+		if g.combat.castPlayerSpell(spellID, def, ch, true) {
 			acted, cdFrames = true, g.combat.SpellCooldownFrames(ch, spellID)
 		}
 	case items.ItemTrap:
@@ -702,4 +717,16 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 			ch.RTCooldown = cdFrames
 		}
 	}
+}
+
+// Spell shortcuts are owned by the recipient's spellbook. Ordinary items can
+// still be stored for later use, regardless of equipment eligibility.
+func canBindQuickItem(ch *character.MMCharacter, item *items.Item) bool {
+	if item == nil {
+		return true
+	}
+	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
+		return characterKnowsSpellByID(ch, spells.SpellID(item.SpellEffect))
+	}
+	return true
 }

@@ -54,8 +54,6 @@ type World3D struct {
 	MonsterSpawns  []MonsterSpawn
 	LastRespawnDay int
 	NPCs           []*character.NPC
-	Items          []*character.WorldItem
-	Teachers       []*character.SkillTeacher
 	config         *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
@@ -79,17 +77,12 @@ func NewWorld3D(cfg *config.Config) *World3D {
 		Monsters:           make([]*monster.Monster3D, 0),
 		InitialMonsterKeys: make(map[string]struct{}),
 		NPCs:               make([]*character.NPC, 0),
-		Items:              make([]*character.WorldItem, 0),
-		Teachers:           make([]*character.SkillTeacher, 0),
 		config:             cfg,
 		OutOfBoundsKey:     "oob_cliff",
 	}
 
 	// Note: Map loading is now handled by WorldManager
 	// No longer auto-loading forest.map here to avoid conflicts
-
-	// Place skill teachers in appropriate locations
-	world.placeSkillTeachers()
 
 	return world
 }

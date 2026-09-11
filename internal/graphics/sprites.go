@@ -16,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
+
+	"ugataima/internal/assetmanifest"
 )
 
 type SpriteManager struct {
@@ -333,9 +335,11 @@ func isIgnoredSpriteDir(name string) bool {
 // buildSpriteIndex walks the sprite roots recursively (skipping ignored dirs)
 // and returns basename->path and basename->placeholder-type maps. Sprites may
 // therefore be grouped into arbitrary subfolders; basenames must be unique
-// across the whole tree (duplicates are logged and the first, by root order,
-// wins). Shared by SpriteManager.ensureIndex and the package-level resolver.
+// across the whole tree. On a seeded install a current shipped path wins over
+// untracked legacy/custom duplicates; equal ownership keeps root/lexical order.
+// Shared by SpriteManager.ensureIndex and the package-level resolver.
 func buildSpriteIndex() (paths, dirType map[string]string) {
+	shipped := assetmanifest.Load(".")
 	paths = make(map[string]string)
 	dirType = make(map[string]string)
 	for _, root := range spriteBaseDirs {
@@ -354,7 +358,12 @@ func buildSpriteIndex() (paths, dirType map[string]string) {
 			}
 			base := strings.TrimSuffix(d.Name(), ".png")
 			if existing, dup := paths[base]; dup {
-				log.Printf("sprite index: duplicate basename %q (%q vs %q); keeping %q", base, existing, path, existing)
+				keep := existing
+				if shipped.ContainsRuntimePath(path) && !shipped.ContainsRuntimePath(existing) {
+					keep = path
+					paths[base], dirType[base] = path, root.typ
+				}
+				log.Printf("sprite index: duplicate basename %q (%q vs %q); keeping %q", base, existing, path, keep)
 				return nil
 			}
 			paths[base] = path
@@ -728,35 +737,6 @@ func animationCPUFrames(img image.Image) []*image.RGBA {
 		frames = append(frames, frame)
 	}
 	return frames
-}
-
-func spriteAnimationFromImage(img image.Image) *SpriteAnimation {
-	if img == nil {
-		return nil
-	}
-	bounds := img.Bounds()
-	frameHeight := bounds.Dy()
-	frameWidth := bounds.Dx()
-	if frameHeight <= 0 || frameWidth <= 0 {
-		return nil
-	}
-	subImager, ok := img.(interface {
-		SubImage(r image.Rectangle) image.Image
-	})
-	if !ok {
-		return nil
-	}
-
-	frameRects := animationFrameRects(bounds)
-	if len(frameRects) == 0 {
-		return nil
-	}
-	frames := make([]*ebiten.Image, 0, len(frameRects))
-	for _, rect := range frameRects {
-		frames = append(frames, ebiten.NewImageFromImage(subImager.SubImage(rect)))
-	}
-	frameSize := frameRects[0].Dx()
-	return &SpriteAnimation{Frames: frames, FrameWidth: frameSize, FrameHeight: frameSize}
 }
 
 func (sm *SpriteManager) createPlaceholder(name string) *ebiten.Image {

@@ -1129,7 +1129,7 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summon spell definition: %v", err)
 	}
-	if !gSave.combat.tryCastSummon(def, caster) {
+	if !gSave.combat.tryCastSummon(def, caster).handled() {
 		t.Fatal("summon spell was not handled")
 	}
 	add := wSave.Monsters[len(wSave.Monsters)-1]

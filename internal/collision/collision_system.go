@@ -23,10 +23,10 @@ func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (
 	// World tiles
 	width, height := cs.tileChecker.GetWorldBounds()
 	minX, minY, maxX, maxY := tempBox.GetBounds()
-	startTileX := int(minX / cs.tileSize)
-	startTileY := int(minY / cs.tileSize)
-	endTileX := int(maxX / cs.tileSize)
-	endTileY := int(maxY / cs.tileSize)
+	startTileX := tileCoord(minX, 1/cs.tileSize)
+	startTileY := tileCoord(minY, 1/cs.tileSize)
+	endTileX := tileCoord(maxX, 1/cs.tileSize)
+	endTileY := tileCoord(maxY, 1/cs.tileSize)
 
 	for tileY := startTileY; tileY <= endTileY; tileY++ {
 		for tileX := startTileX; tileX <= endTileX; tileX++ {
@@ -260,10 +260,10 @@ func tilesAllowPosition(tileChecker TileChecker, tileSize float64, boundingBox *
 	minX, minY, maxX, maxY := boundingBox.GetBounds()
 
 	// Convert to tile coordinates
-	startTileX := int(minX / tileSize)
-	startTileY := int(minY / tileSize)
-	endTileX := int(maxX / tileSize)
-	endTileY := int(maxY / tileSize)
+	startTileX := tileCoord(minX, 1/tileSize)
+	startTileY := tileCoord(minY, 1/tileSize)
+	endTileX := tileCoord(maxX, 1/tileSize)
+	endTileY := tileCoord(maxY, 1/tileSize)
 
 	// Check all tiles that the bounding box overlaps
 	for tileY := startTileY; tileY <= endTileY; tileY++ {
@@ -297,10 +297,10 @@ func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, bo
 	minX, minY, maxX, maxY := boundingBox.GetBounds()
 
 	// Convert to tile coordinates
-	startTileX := int(minX / tileSize)
-	startTileY := int(minY / tileSize)
-	endTileX := int(maxX / tileSize)
-	endTileY := int(maxY / tileSize)
+	startTileX := tileCoord(minX, 1/tileSize)
+	startTileY := tileCoord(minY, 1/tileSize)
+	endTileX := tileCoord(maxX, 1/tileSize)
+	endTileY := tileCoord(maxY, 1/tileSize)
 
 	// Check all tiles that the bounding box overlaps
 	for tileY := startTileY; tileY <= endTileY; tileY++ {
@@ -499,6 +499,12 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 	// by the start tile.
 	if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
+	}
+
+	// No grid edge lies between two points in the same cell. Advancing DDA
+	// here would inspect terrain beyond the segment's endpoint.
+	if tx == gx && ty == gy {
+		return RaycastHit{Hit: false}, false
 	}
 
 	t := 0.0

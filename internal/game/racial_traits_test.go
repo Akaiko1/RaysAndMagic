@@ -289,7 +289,7 @@ func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
 			if err != nil {
 				t.Fatalf("zone definition: %v", err)
 			}
-			if !cs.tryCastPersistentDamageZone(tt.spellID, def, caster) || len(g.persistentDamageZones) == 0 {
+			if !cs.tryCastPersistentDamageZone(tt.spellID, def, caster).handled() || len(g.persistentDamageZones) == 0 {
 				t.Fatal("persistent zone was not created")
 			}
 			fieldID := g.persistentDamageZones[0].FieldID

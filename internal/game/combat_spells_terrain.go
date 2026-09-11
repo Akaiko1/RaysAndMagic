@@ -17,9 +17,9 @@ import (
 // tryCastJump vaults the party JumpTiles straight ahead onto a tile they could
 // legally stand on; a blocked landing refunds the SP and holds position. Like
 // any no-op cast the turn and RT cooldown are still spent.
-func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
 	if def.JumpTiles <= 0 {
-		return false
+		return castNotHandled
 	}
 	g := cs.game
 	ts := float64(g.config.GetTileSize())
@@ -28,9 +28,8 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	landY := g.camera.Y + dy*def.JumpTiles*ts
 
 	if g.collisionSystem == nil || !g.collisionSystem.CanMoveTo("player", landX, landY) {
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		g.AddCombatMessage("There is no room to land.")
-		return true
+		return castNoEffect
 	}
 	g.setPartyPosition(landX, landY)
 	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", def.Name))
@@ -43,7 +42,7 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	if g.turnBasedMode {
 		g.endPartyTurnAfterMovement()
 	}
-	return true
+	return castCommitted
 }
 
 // topplePropsInRadius rolls `chance` for every crossed-standee tile:
@@ -150,23 +149,21 @@ func masteryLadderValue(ladder []int, tier int) int {
 // the card allies (markPurePartySummon: no XP, no loot, crumbles on map exit);
 // only its HP and damage are overwritten from the caster's mastery ladders, so
 // the same monster serves every tier.
-func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
 	if def.SummonMonster == "" {
-		return false
+		return castNotHandled
 	}
 	owner := summonSpellOwner(def.ID)
 	live := cs.countLiveSummonsByOwner(owner)
 	if live >= def.SummonMax {
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s already serves you.", def.Name))
-		return true
+		return castNoEffect
 	}
 
 	add := cs.spawnPartyAlly(def.SummonMonster, owner)
 	if add == nil {
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		cs.game.AddCombatMessage("There is no room to summon here.")
-		return true
+		return castNoEffect
 	}
 	tier := casterSpellMasteryTier(caster, def)
 	if hp := masteryLadderValue(def.SummonHPByMastery, tier); hp > 0 {
@@ -177,7 +174,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 	}
 	// spawnPartyAlly already registered it in the world and collision system.
 	cs.game.AddCombatMessage(fmt.Sprintf("%s answers the call! (%d HP, %d damage)", add.Name, add.MaxHitPoints, add.DamageMax))
-	return true
+	return castCommitted
 }
 
 // summonSpellOwner is the SummonedBy tag for a spell's summons - one namespace

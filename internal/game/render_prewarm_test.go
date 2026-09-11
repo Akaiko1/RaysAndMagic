@@ -326,12 +326,6 @@ func testMapRenderResources(keys ...standeeCoreKey) *mapRenderRegionResources {
 	return resources
 }
 
-func closedPreparedSprites() <-chan graphics.PreparedSpriteResource {
-	ch := make(chan graphics.PreparedSpriteResource)
-	close(ch)
-	return ch
-}
-
 func closedPreparedSkies() <-chan mapRenderPreparedSky {
 	ch := make(chan mapRenderPreparedSky)
 	close(ch)

@@ -683,6 +683,7 @@ func TestSmartAttack_OffhandFallbackDoesNotCastPastMainCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: CreateSpellItem(firebolt): %v", err)
 	}
+	member.LearnSpell("firebolt")
 	member.Equipment[items.SlotSpell] = spellItem
 	member.SpellPoints, member.MaxSpellPoints = 99, 99
 	g.selectedChar = 0

@@ -1084,40 +1084,6 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 	return results
 }
 
-func (p *mapRenderPrewarmer) monster(resource mapMonsterPrewarmResource) {
-	if !p.renderer.game.config.Graphics.Standee.Enabled {
-		return
-	}
-	visualFrames := p.monsterVisualFrames(resource)
-	seenFrames := make(map[*ebiten.Image]struct{}, len(visualFrames))
-	for _, frame := range visualFrames {
-		if frame == nil {
-			continue
-		}
-		if _, seen := seenFrames[frame]; seen {
-			continue
-		}
-		seenFrames[frame] = struct{}{}
-		p.standee("mob", resource.key, frame, true)
-	}
-}
-
-func (p *mapRenderPrewarmer) decodeMonster(resource mapMonsterPrewarmResource) {
-	if resource.spriteName == "" {
-		return
-	}
-	hasWalk := false
-	for _, animationType := range []string{"walking_r", "walking_l", "attacking_r", "attacking_l"} {
-		frames := p.animationFrames(resource.spriteName, animationType)
-		if strings.HasPrefix(animationType, "walking_") && len(frames) > 0 {
-			hasWalk = true
-		}
-	}
-	if !hasWalk {
-		p.sprite(resource.spriteName)
-	}
-}
-
 func (r *Renderer) deallocateStandeeKeys(keys, keep map[standeeCoreKey]struct{}) {
 	if len(keys) == 0 {
 		return

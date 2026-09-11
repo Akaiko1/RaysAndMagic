@@ -384,7 +384,7 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 	}
 
 	// Parse entity definitions from the end of the line
-	entityDefs := strings.Split(entityDefinitions, ", ")
+	entityDefs := strings.Split(entityDefinitions, ",")
 
 	// Placeholders (left to right = ascending X). '@' = INTERACTIVE entities
 	// (NPCs, special tiles); '$' = non-interactive GENERAL decoration tiles.
@@ -407,8 +407,23 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 		def = strings.TrimSpace(def)
 		cleanDef := strings.TrimSpace(strings.TrimPrefix(def, ">"))
 		tag, body, ok := ParseMapDef(cleanDef)
-		if !ok {
+		if cleanDef == "" && entityDefinitions == "" {
 			continue
+		}
+		if !ok {
+			return "", nil, nil, nil, nil, fmt.Errorf("line %d: malformed entity definition %q", lineY+1, cleanDef)
+		}
+		switch tag {
+		case MapDefNPC, MapDefStile:
+			if atIndex >= len(atPositions) {
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: %s definition has no @ marker", lineY+1, tag)
+			}
+		case MapDefTile:
+			if dollarIndex >= len(dollarPositions) {
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile definition has no $ marker", lineY+1)
+			}
+		default:
+			return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown entity tag %q", lineY+1, tag)
 		}
 
 		switch tag {
@@ -423,11 +438,11 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 			}
 		case MapDefStile:
 			if GlobalTileManager == nil {
-				continue
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
 			}
 			tileType, ok := GlobalTileManager.GetTileTypeFromKey(body)
 			if !ok {
-				continue // unknown special tile key
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown special tile key %q", lineY+1, body)
 			}
 			if atIndex < len(atPositions) {
 				specialTileSpawns = append(specialTileSpawns, SpecialTileSpawn{X: atPositions[atIndex], Y: lineY, TileKey: body, TileType: tileType})
@@ -436,17 +451,21 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 		case MapDefTile:
 			// General (universal, letterless) decoration tile placed by short_label.
 			if GlobalTileManager == nil {
-				continue
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
 			}
 			tileType, ok := GlobalTileManager.GetTileTypeFromShortLabel(body)
 			if !ok {
-				continue // unknown general tile short_label
+				return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown general tile label %q", lineY+1, body)
 			}
 			if dollarIndex < len(dollarPositions) {
 				generalTileSpawns = append(generalTileSpawns, SpecialTileSpawn{X: dollarPositions[dollarIndex], Y: lineY, TileKey: body, TileType: tileType})
 				dollarIndex++
 			}
 		}
+	}
+
+	if atIndex != len(atPositions) || dollarIndex != len(dollarPositions) {
+		return "", nil, nil, nil, nil, fmt.Errorf("line %d: unbound entity markers (@: %d, $: %d)", lineY+1, len(atPositions)-atIndex, len(dollarPositions)-dollarIndex)
 	}
 
 	// Replace both placeholders with '.' (empty walkable) in the tile grid.

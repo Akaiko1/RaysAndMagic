@@ -275,6 +275,10 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 // share this sink so the selected hand's damage, riders, arc, and AoE cannot
 // diverge or re-roll between targets caught by the same swing.
 func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, hit monsterCharacterHit) bool {
+	camX, camY := cs.logicalCameraXY()
+	if m == nil || !cs.attackLineClear(m.X, m.Y, camX, camY) {
+		return false
+	}
 	if wd != nil && wd.AoeRadiusTiles > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
@@ -307,6 +311,9 @@ func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd 
 // selected hand's normal formation hit. AoE never re-rolls and never stacks
 // with the arc (the weapon is one or the other).
 func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D, offHand bool) {
+	if m == nil || foe == nil || !cs.attackLineClear(m.X, m.Y, foe.X, foe.Y) {
+		return
+	}
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
@@ -349,7 +356,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 			if o == nil || !o.Bound || !o.IsAlive() || monsterInAttackTransit(o) {
 				continue
 			}
-			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
+			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok && cs.attackLineClear(m.X, m.Y, o.X, o.Y) {
 				summon := o
 				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit, wd, false) }})
 			}

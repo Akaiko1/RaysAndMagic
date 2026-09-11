@@ -20,6 +20,9 @@ func installTestTileManager(t *testing.T) *TileManager {
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
+	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 	prev := GlobalTileManager
 	GlobalTileManager = tm
 	t.Cleanup(func() { GlobalTileManager = prev })
@@ -109,6 +112,9 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
+	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 	GlobalTileManager = tm
 	defer func() { GlobalTileManager = nil }()
 
@@ -140,13 +146,13 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	}
 
 	// '@' ringed by wood -> under-tile becomes wood (dominant), not the '.' cobble default.
-	md := load(t, ",,,\n,@,\n,,,\n")
+	md := load(t, ",,,\n,@,  >[npc:merchant]\n,,,\n")
 	if got := md.Tiles[1][1]; got != wood {
 		t.Fatalf("under-entity tile = %v, want dominant wood %v", got, wood)
 	}
 
 	// '@' ringed by the default '.' floor -> unchanged (cobble).
-	md = load(t, "...\n.@.\n...\n")
+	md = load(t, "...\n.@.  >[npc:merchant]\n...\n")
 	if got := md.Tiles[1][1]; got != cobble {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
@@ -158,7 +164,7 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	if !ok {
 		t.Fatalf("water tile not found")
 	}
-	md = load(t, "WWW\nW@W\nWWW\n")
+	md = load(t, "WWW\nW@W  >[npc:merchant]\nWWW\n")
 	if got := md.Tiles[1][1]; got == water {
 		t.Fatalf("under-entity tile became impassable water %v", water)
 	}
@@ -171,6 +177,9 @@ func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.
 	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
+	}
+	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
+		t.Fatalf("special tiles: %v", err)
 	}
 
 	tree, ok := tm.GetTileTypeFromKey("tree")
@@ -255,6 +264,9 @@ func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
+	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 	GlobalTileManager = tm
 	defer func() { GlobalTileManager = nil }()
 
@@ -300,6 +312,9 @@ func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
 	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
+	}
+	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
+		t.Fatalf("special tiles: %v", err)
 	}
 	GlobalTileManager = tm
 	defer func() { GlobalTileManager = nil }()

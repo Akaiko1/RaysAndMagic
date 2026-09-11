@@ -47,6 +47,9 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
+	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 	wm := world.NewWorldManager(cfg)
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("map configs: %v", err)

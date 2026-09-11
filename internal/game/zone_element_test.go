@@ -61,7 +61,7 @@ func TestZoneDamageUsesTheSpellSchool(t *testing.T) {
 			right.Resistances[tc.resists] = 100
 
 			g.persistentDamageZones = g.persistentDamageZones[:0]
-			if !cs.tryCastPersistentDamageZone(spells.SpellID(tc.spell), def, g.party.Members[0]) {
+			if !cs.tryCastPersistentDamageZone(spells.SpellID(tc.spell), def, g.party.Members[0]).handled() {
 				t.Fatalf("%s was not handled by the zone path", tc.spell)
 			}
 			placeInZone(t, g, &g.persistentDamageZones[0], wrong, right)
@@ -91,7 +91,7 @@ func TestZoneTickReportsLikeANormalHit(t *testing.T) {
 	victim := zoneVictim(t, g)
 
 	g.persistentDamageZones = g.persistentDamageZones[:0]
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]).handled() {
 		t.Fatal("firewall was not handled by the zone path")
 	}
 	placeInZone(t, g, &g.persistentDamageZones[0], victim)
@@ -135,7 +135,7 @@ func TestZone_TurnBasedTickCountAndEntryOrder(t *testing.T) {
 	standing := zoneVictim(t, g)
 	walksIn := zoneVictim(t, g)
 	g.persistentDamageZones = g.persistentDamageZones[:0]
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]).handled() {
 		t.Fatal("firewall was not handled by the zone path")
 	}
 	zone := &g.persistentDamageZones[0]

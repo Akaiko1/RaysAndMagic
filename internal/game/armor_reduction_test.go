@@ -181,6 +181,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 			t.Fatalf("create %s from spells.yaml: %v", spellID, err)
 		}
 		caster := cs.game.party.Members[0]
+		caster.LearnSpell(spells.SpellID(spellID))
 		if _, _, ok := caster.EquipItem(spellItem); !ok {
 			t.Fatalf("equip %s", spellID)
 		}

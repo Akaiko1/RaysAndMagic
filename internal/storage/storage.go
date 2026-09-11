@@ -11,7 +11,6 @@ package storage
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ugataima/internal/assetmanifest"
 )
 
 const savesDirName = "saves"
@@ -50,31 +51,21 @@ func buildStampUnix() int64 {
 }
 
 const (
-	seedManifestName = ".seed_manifest"
-	seedStateName    = ".seed_state" // "<build stamp> <shipped-content digest>"
+	seedManifestName      = assetmanifest.FileName
+	seedStateName         = ".seed_state" // "<build stamp> <shipped-content digest>"
+	seedManifestStateName = ".seed_manifest_state"
+	seedManifestVersion   = "all-assets-v1"
 )
 
-// seedManifest maps a seeded .map's asset-relative path to the SHIPPED content
+// seedManifest maps every seeded asset-relative path to its SHIPPED content
 // hash as of the last seed. Author updates take priority over local edits: on a
 // version bump a map is overwritten iff the shipped version changed (or was
 // never tracked); while the author ships no new version, the player's copy -
 // edited or not - is left alone.
-type seedManifest map[string]string
+type seedManifest = assetmanifest.Manifest
 
 func loadSeedManifest(userDir string) seedManifest {
-	m := seedManifest{}
-	if b, err := os.ReadFile(filepath.Join(userDir, seedManifestName)); err == nil {
-		_ = json.Unmarshal(b, &m)
-	}
-	return m
-}
-
-func (m seedManifest) save(userDir string) error {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(userDir, seedManifestName), b, 0644)
+	return assetmanifest.Load(userDir)
 }
 
 // fileSHA256 returns the hex content hash; ok=false when the file can't be read
@@ -198,14 +189,27 @@ func seedUserData(contentDir, userDir string) error {
 	}
 	statePath := filepath.Join(userDir, seedStateName)
 	if b, err := os.ReadFile(statePath); err == nil {
-		if fields := strings.Fields(string(b)); len(fields) == 2 {
-			if fields[1] == digest {
-				return nil // shipped content unchanged since the last seed
+		if fields := strings.Fields(string(b)); len(fields) >= 2 {
+			// Repair the interim format before any early return. Keep the
+			// installed stamp/digest so even a stale bundle can repair metadata
+			// without downgrading content or claiming ownership of a newer seed.
+			if len(fields) == 3 && fields[2] == seedManifestVersion {
+				if err := writeSeedState(userDir, fields[0], fields[1]); err != nil {
+					return err
+				}
 			}
 			// The game and editor bundles share this dir: a stale build (older
 			// stamp) must not stomp content seeded by a newer one.
 			if stamp, convErr := strconv.ParseInt(fields[0], 10, 64); convErr == nil && stamp > buildStampUnix() {
 				return nil
+			}
+			if fields[1] == digest {
+				expected, err := seedManifestStateValue(userDir, digest)
+				if err == nil {
+					if b, err := os.ReadFile(filepath.Join(userDir, seedManifestStateName)); err == nil && string(b) == expected {
+						return nil // shipped content and complete inventory are unchanged
+					}
+				}
 			}
 		}
 	}
@@ -216,11 +220,37 @@ func seedUserData(contentDir, userDir string) error {
 	if err := copyAssetsTree(filepath.Join(contentDir, "assets"), filepath.Join(userDir, "assets"), manifest); err != nil {
 		return err
 	}
-	if err := manifest.save(userDir); err != nil {
+	if err := manifest.Save(userDir); err != nil {
 		return err
 	}
 	_ = os.Remove(filepath.Join(userDir, ".seed_version")) // pre-digest scheme leftover
-	return os.WriteFile(statePath, []byte(fmt.Sprintf("%d %s", buildStampUnix(), digest)), 0644)
+	return writeSeedState(userDir, strconv.FormatInt(buildStampUnix(), 10), digest)
+}
+
+func seedManifestStateValue(userDir, digest string) (string, error) {
+	// Legacy seeders leave this sidecar alone but can still change the
+	// manifest. Bind it to the actual inventory as well as the bundle digest.
+	manifestPath := filepath.Join(userDir, seedManifestName)
+	hash, ok := fileSHA256(manifestPath)
+	if !ok {
+		return "", fmt.Errorf("hash seed manifest %q", manifestPath)
+	}
+	return fmt.Sprintf("%s %s %s", seedManifestVersion, digest, hash), nil
+}
+
+func writeSeedState(userDir, stamp, digest string) error {
+	// Older game/editor bundles require exactly two fields to enforce the
+	// downgrade guard. Publish it before the sidecar so a sidecar failure
+	// cannot disable their protection; the next current launch retries.
+	state := fmt.Sprintf("%s %s", stamp, digest)
+	if err := os.WriteFile(filepath.Join(userDir, seedStateName), []byte(state), 0644); err != nil {
+		return err
+	}
+	manifestState, err := seedManifestStateValue(userDir, digest)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(userDir, seedManifestStateName), []byte(manifestState), 0644)
 }
 
 // shippedContentDigest hashes everything seedUserData would copy (config.yaml +
@@ -292,7 +322,8 @@ func migrateLegacySaves(oldDir, newDir string) {
 // - that one keeps whatever the player has, edits included. A changed or
 // never-tracked shipped map always wins and is (re)recorded in manifest.
 func copyAssetsTree(src, dst string, manifest seedManifest) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	next := seedManifest{}
+	if err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -304,25 +335,47 @@ func copyAssetsTree(src, dst string, manifest seedManifest) error {
 		if d.IsDir() {
 			return os.MkdirAll(target, 0755)
 		}
-		if strings.HasSuffix(p, ".map") {
-			key := filepath.ToSlash(rel)
-			srcHash, ok := fileSHA256(p)
-			if !ok {
-				return fmt.Errorf("hash shipped map %q", p)
+		key := filepath.ToSlash(rel)
+		srcHash, ok := fileSHA256(p)
+		if !ok {
+			return fmt.Errorf("hash shipped asset %q", p)
+		}
+		next[key] = srcHash
+		if strings.HasSuffix(p, ".map") && manifest[key] == srcHash {
+			if _, err := os.Stat(target); err == nil {
+				return nil // unchanged authored map retains player edits
 			}
-			if _, statErr := os.Stat(target); statErr == nil {
-				if shipped, tracked := manifest[key]; tracked && shipped == srcHash {
-					return nil // author shipped no new version: keep the player's copy
-				}
-			}
-			if err := copyFileForce(p, target); err != nil {
-				return err
-			}
-			manifest[key] = srcHash
-			return nil
 		}
 		return copyFileForce(p, target)
-	})
+	}); err != nil {
+		return err
+	}
+	for key, shippedHash := range manifest {
+		if _, present := next[key]; present {
+			continue
+		}
+		// Manifest paths are data, never authority to leave the asset root.
+		rel := filepath.FromSlash(key)
+		if !filepath.IsLocal(rel) || filepath.Clean(rel) == "." {
+			return fmt.Errorf("invalid seeded asset path %q", key)
+		}
+		target := filepath.Join(dst, rel)
+		if strings.HasSuffix(key, ".map") {
+			if hash, ok := fileSHA256(target); ok && hash != shippedHash {
+				continue // retired edited map becomes a custom, untracked map
+			}
+		}
+		// Non-map shipped resources are updater-owned, as on overwrite.
+		// Remove files only; custom files/directories were never in the manifest.
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove retired asset %q: %w", key, err)
+		}
+	}
+	clear(manifest)
+	for key, hash := range next {
+		manifest[key] = hash
+	}
+	return nil
 }
 
 // copyFileForce copies src to dst, creating parent dirs and overwriting dst.

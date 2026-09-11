@@ -72,7 +72,7 @@ func allySourceCases() []allySourceCase {
 				if err != nil {
 					t.Fatalf("summon_ice_elemental definition: %v", err)
 				}
-				if !g.combat.tryCastSummon(def, g.party.Members[0]) {
+				if !g.combat.tryCastSummon(def, g.party.Members[0]).handled() {
 					t.Fatal("summon spell was not handled by the summon path")
 				}
 				return g.world.Monsters[len(g.world.Monsters)-1]
@@ -480,14 +480,14 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 			t.Fatalf("%s definition: %v", id, err)
 		}
 		caster := cs.game.party.Members[0]
-		if !cs.tryCastSummon(def, caster) {
+		if !cs.tryCastSummon(def, caster).handled() {
 			t.Fatal("summon spell must be handled by the summon path")
 		}
 		ally := cs.game.world.Monsters[len(cs.game.world.Monsters)-1]
 		assertAlly(t, cs.game, ally, summonSpellOwner(id))
 		// The summon cap counts only this spell's own allies.
 		before := len(cs.game.world.Monsters)
-		if !cs.tryCastSummon(def, caster) {
+		if !cs.tryCastSummon(def, caster).handled() {
 			t.Fatal("a capped summon still consumes the cast")
 		}
 		if len(cs.game.world.Monsters) != before {

@@ -364,13 +364,6 @@ func (c *GroundContainer) onCurrentWorld() bool {
 	return c != nil && (c.MapKey == "" || mapKeyOnCurrentWorld(c.MapKey))
 }
 
-// inPartyRegion is the stricter question: did this land where the party IS.
-// Anything that SPEAKS about a container asks this one - "same world" spans the
-// whole outdoors.
-func (c *GroundContainer) inPartyRegion() bool {
-	return c != nil && (c.MapKey == "" || c.MapKey == currentMapKey())
-}
-
 // findGroundContainerIndex scans containers on the current map within maxDist.
 // Returns the index of the closest match; if accept is non-nil, only
 // containers for which accept(c, distance) returns true are considered.

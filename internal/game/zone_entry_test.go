@@ -26,7 +26,7 @@ func TestZone_DamagesOnEntryNotOnlyOnTick(t *testing.T) {
 		t.Fatalf("firewall: %v", err)
 	}
 	g.persistentDamageZones = g.persistentDamageZones[:0]
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]).handled() {
 		t.Fatal("cast not handled")
 	}
 	z := &g.persistentDamageZones[1] // the middle cell, dead ahead

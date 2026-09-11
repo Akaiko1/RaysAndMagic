@@ -60,14 +60,12 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 
 	world := gl.game.world
 	worldW, worldH := 0, 0
-	monsters, npcs, items, teachers := 0, 0, 0, 0
+	monsters, npcs := 0, 0
 	if world != nil {
 		worldW = world.Width
 		worldH = world.Height
 		monsters = len(world.Monsters)
 		npcs = len(world.NPCs)
-		items = len(world.Items)
-		teachers = len(world.Teachers)
 	}
 
 	projectiles := len(gl.game.magicProjectiles) + len(gl.game.arrows)
@@ -89,9 +87,6 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 	}
 	if effects > 40 {
 		causes = append(causes, fmt.Sprintf("effects (%d)", effects))
-	}
-	if items > 200 {
-		causes = append(causes, fmt.Sprintf("world items (%d)", items))
 	}
 	if gl.game.showCollisionBoxes {
 		causes = append(causes, "collision boxes")
@@ -120,13 +115,11 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 		causeText,
 	)
 	fmt.Printf(
-		"[PERF] world=%dx%d monsters=%d npcs=%d items=%d teachers=%d projectiles=%d effects=%d utility=%d turnBased=%v mapOverlay=%v\n",
+		"[PERF] world=%dx%d monsters=%d npcs=%d projectiles=%d effects=%d utility=%d turnBased=%v mapOverlay=%v\n",
 		worldW,
 		worldH,
 		monsters,
 		npcs,
-		items,
-		teachers,
 		projectiles,
 		effects,
 		activeUtility,

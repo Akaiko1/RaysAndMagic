@@ -94,7 +94,7 @@ func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "inferno", 100, 30)
 	caster := game.party.Members[0]
-	caster.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	caster.MagicSchools[character.MagicSchoolFire].Mastery = character.MasteryGrandMaster
 	caster.Equipment[items.SlotRing1] = items.Item{
 		Type:       items.ItemAccessory,
 		Attributes: map[string]int{"resist_fire": 50},

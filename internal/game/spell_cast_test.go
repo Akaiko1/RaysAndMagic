@@ -37,6 +37,7 @@ func equipSpellAndPrepareCaster(t *testing.T, cs *CombatSystem, spellKey string,
 	if caster.Equipment == nil {
 		caster.Equipment = make(map[items.EquipSlot]items.Item)
 	}
+	caster.LearnSpell(spells.SpellID(spellKey))
 	caster.Equipment[items.SlotSpell] = spellItem
 	caster.SpellPoints = sp
 	caster.Intellect = intellect

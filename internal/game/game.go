@@ -2649,7 +2649,7 @@ func (g *MMGame) updatePartyClocks() {
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	bonusActions := 0
 	for _, m := range g.party.Members {
-		if m != nil && m.CanUseCombatAction() {
+		if m != nil && m.TBRoundActionFloor > 0 && m.CanUseCombatAction() {
 			if tier := m.SpeedBonusActionTier(); tier > bonusActions {
 				bonusActions = tier
 			}
@@ -2665,7 +2665,7 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 			// Eligible until they exceed their PERSONAL floor: a dual-wielder
 			// or Suppressor gunner keeps their floor AND can earn Speed
 			// bonuses on top (each member gets at most one per round).
-			if m == nil || !m.CanAct() || m.IsStunned() || m.ActionsRemaining > m.TBRoundActionFloor {
+			if m == nil || m.TBRoundActionFloor <= 0 || !m.CanUseCombatAction() || m.ActionsRemaining > m.TBRoundActionFloor {
 				continue
 			}
 			speed := m.GetEffectiveSpeed()

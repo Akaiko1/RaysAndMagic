@@ -33,7 +33,7 @@ func TestFirewall_LaysThreeCellsAcrossTheFacing(t *testing.T) {
 	}
 
 	g.persistentDamageZones = g.persistentDamageZones[:0]
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]).handled() {
 		t.Fatal("firewall must be handled by the zone path")
 	}
 	if len(g.persistentDamageZones) != 3 {
@@ -82,15 +82,15 @@ func TestJump_MovesPartyForwardOrRefuses(t *testing.T) {
 	}
 	caster := g.party.Members[0]
 	startX := g.camera.X
-	if !cs.tryCastJump(def, caster) {
+	if !cs.tryCastJump(def, caster).handled() {
 		t.Fatal("jump must be handled")
 	}
 	if math.Abs(g.camera.X-(startX+2*ts)) > 1 {
 		t.Errorf("party at %.0f, want %.0f (two tiles ahead)", g.camera.X, startX+2*ts)
 	}
 
-	// Blocked landing: the party holds position AND gets its SP back - the cast
-	// did nothing, so it must not cost mana.
+	// The effect-only handler holds position and leaves payment untouched;
+	// the common cast transaction owns refunds for a blocked landing.
 	for ty := 0; ty < 20; ty++ {
 		for tx := 0; tx < 20; tx++ {
 			g.world.Tiles[ty][tx] = world.TileWall
@@ -99,14 +99,14 @@ func TestJump_MovesPartyForwardOrRefuses(t *testing.T) {
 	g.collisionSystem.UpdateTileChecker(g.world)
 	heldX, heldY := g.camera.X, g.camera.Y
 	spBefore := caster.SpellPoints
-	if !cs.tryCastJump(def, caster) {
+	if !cs.tryCastJump(def, caster).handled() {
 		t.Fatal("a refused jump still consumes the cast")
 	}
 	if g.camera.X != heldX || g.camera.Y != heldY {
 		t.Errorf("party moved into rock: (%.0f,%.0f) -> (%.0f,%.0f)", heldX, heldY, g.camera.X, g.camera.Y)
 	}
-	if got := caster.SpellPoints - spBefore; got != cs.effectiveSpellCost(caster, def.SpellPointsCost) {
-		t.Errorf("blocked jump refunded %d SP, want %d", got, cs.effectiveSpellCost(caster, def.SpellPointsCost))
+	if got := caster.SpellPoints - spBefore; got != 0 {
+		t.Errorf("effect-only handler changed SP by %d", got)
 	}
 }
 
@@ -138,7 +138,7 @@ func TestZoneCast_MergesByTile(t *testing.T) {
 
 	cast := func(tileX, tileY int) {
 		placePlayerAtTile(g, tileX, tileY, ts)
-		if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
+		if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster).handled() {
 			t.Fatal("firewall was not handled by the zone path")
 		}
 	}
@@ -201,7 +201,7 @@ func TestZoneCast_ShiftedWallLeavesOldEdgeTileTimer(t *testing.T) {
 
 	g.persistentDamageZones = g.persistentDamageZones[:0]
 	placePlayerAtTile(g, 5, 5, ts)
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster).handled() {
 		t.Fatal("first firewall cast failed")
 	}
 	full := g.persistentDamageZones[0].FramesLeft
@@ -211,7 +211,7 @@ func TestZoneCast_ShiftedWallLeavesOldEdgeTileTimer(t *testing.T) {
 	}
 
 	placePlayerAtTile(g, 5, 6, ts)
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster).handled() {
 		t.Fatal("shifted firewall cast failed")
 	}
 	edges, relaid := 0, 0
@@ -243,11 +243,11 @@ func TestZoneCast_RadialRefreshesOnSameTile(t *testing.T) {
 
 	g.persistentDamageZones = g.persistentDamageZones[:0]
 	placePlayerAtTile(g, 8, 8, ts)
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster).handled() {
 		t.Fatal("hot_steam was not handled by the zone path")
 	}
 	g.persistentDamageZones[0].FramesLeft /= 2
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster) {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("hot_steam"), def, caster).handled() {
 		t.Fatal("second hot_steam cast was not handled")
 	}
 	if got := len(g.persistentDamageZones); got != 1 {
@@ -275,7 +275,7 @@ func TestFirewall_GridAlignedAtEveryAngle(t *testing.T) {
 			g.persistentDamageZones = g.persistentDamageZones[:0]
 			placePlayerAtTile(g, 10, 10, ts)
 			g.camera.Angle = deg * math.Pi / 180
-			if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster) {
+			if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster).handled() {
 				t.Fatal("firewall was not handled by the zone path")
 			}
 			if got := len(g.persistentDamageZones); got != def.ZoneWidthTiles {
@@ -385,7 +385,7 @@ func TestJump_EndsTheTurnLikeMovementInTB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jump definition: %v", err)
 	}
-	if !cs.tryCastJump(def, g.party.Members[0]) {
+	if !cs.tryCastJump(def, g.party.Members[0]).handled() {
 		t.Fatal("jump must be handled")
 	}
 
