@@ -415,7 +415,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		cs.championCrossfireStrike(m, foe, false)
 		struck = true
 	}
-	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && foe.IsAlive() {
+	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{foe: foe}, monsterAttackRealtime) {
 		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
 		cs.championCrossfireStrike(m, foe, true)
 		struck = true
@@ -465,7 +465,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 		}
 		struck = true
 	}
-	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 {
+	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{}, monsterAttackRealtime) {
 		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
 		cs.championMeleeStrike(m, true)
 		struck = true

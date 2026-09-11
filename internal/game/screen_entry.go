@@ -7,7 +7,6 @@ import (
 	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // ---------------------------------------------------------------------------
@@ -174,11 +173,19 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 		g.updateEntryAudioSettings(pressed)
 		return
 	}
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if g.entryMenuMode == EntryMenuLoad {
+		if pressed(ebiten.KeyLeft) {
+			g.savePage = (g.savePage + savePageCount - 1) % savePageCount
+		}
+		if pressed(ebiten.KeyRight) {
+			g.savePage = (g.savePage + 1) % savePageCount
+		}
+	}
+	if pointerLeftJustPressed() {
 		g.entryMenuRootPressArmed = g.entryMenuMode == EntryMenuRoot
 	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
+	if pointerLeftJustRelease() {
+		x, y := pointerPosition()
 		if g.consumeEntryMenuRootReleaseAt(x, y) {
 			return
 		}
@@ -267,13 +274,6 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
 	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
-		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
-		g.savePage = (g.savePage + 1) % savePageCount
-	}
-
 	mouseX, mouseY := ebiten.CursorPosition()
 	rowX := px + menuFrameInset
 	rowW := panelW - 2*menuFrameInset
@@ -311,15 +311,17 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		}
 		drawDebugText(screen, label, rowX+12, y+rowH/2-12)
 
-		if sum.Exists && g.consumeLeftClickIn(rowX, y, rowX+rowW, y+rowH-8) {
-			if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
-				g.AddCombatMessage("Load failed")
-			} else {
-				g.entryMenuMode = EntryMenuRoot
-				g.appScreen = AppScreenInGame
+		ui.onDisplayedInput(uiCommandClick, layoutRect{rowX, y, (rowX + rowW) - (rowX), (y + rowH - 8) - (y)}, func() {
+			if sum.Exists && g.consumeLeftClickIn(rowX, y, rowX+rowW, y+rowH-8) {
+				if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
+					g.AddCombatMessage("Load failed")
+				} else {
+					g.entryMenuMode = EntryMenuRoot
+					g.appScreen = AppScreenInGame
+				}
+				return
 			}
-			return
-		}
+		})
 	}
 
 	// Page controls: distinct Prev/Next buttons on their own row (dimmed at the
@@ -334,9 +336,11 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		drawFilledRect(screen, bx, pagerY, pbW, pbH, fill)
 		drawRectBorder(screen, bx, pagerY, pbW, pbH, 1, color.RGBA{120, 120, 180, 230})
 		drawCenteredDebugText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
-		if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
-			onClick()
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, pagerY, (bx + pbW) - (bx), (pagerY + pbH) - (pagerY)}, func() {
+			if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
+				onClick()
+			}
+		})
 	}
 	drawEntryPagerBtn(rowX, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
 	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
@@ -537,9 +541,11 @@ func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func(
 	mouseX, mouseY := ebiten.CursorPosition()
 	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuBackButtonW, y+menuBackButtonH)
 	ui.drawMenuButton(screen, "back", "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
-	if ui.game.consumeLeftClickIn(x, y, x+menuBackButtonW, y+menuBackButtonH) {
-		onClick()
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + menuBackButtonW) - (x), (y + menuBackButtonH) - (y)}, func() {
+		if ui.game.consumeLeftClickIn(x, y, x+menuBackButtonW, y+menuBackButtonH) {
+			onClick()
+		}
+	})
 }
 
 // drawBackHint prints a small return hint at the bottom for full-bleed sub

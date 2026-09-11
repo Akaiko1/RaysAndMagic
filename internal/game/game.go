@@ -651,21 +651,12 @@ type MMGame struct {
 	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
 	// the same party/monster turn instead of granting a fresh party round.
 	turnBasedTurnSuspended bool
-	currentTurn            int  // 0 = party turn, 1 = monster turn
-	partyActionsUsed       int  // Actions used this turn (0-2)
-	turnBasedMoveCooldown  int  // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown   int  // Rotation cooldown in frames (18 FPS = 0.3 second)
-	monsterTurnResolved    bool // Whether monster turn already processed this round
-	turnBasedSpRegenCount  int  // Counter for turn-based SP regeneration (every 5 turns)
-	// turnBasedExtraMonsterAction grants the next monster turn one extra action
-	// pass when the party attacks/casts first and then retreats in the same TB
-	// round. This closes infinite shoot-and-step-back kiting without forbidding
-	// tactical retreats outright.
-	turnBasedExtraMonsterAction bool
-	turnBasedMonsterPassesLeft  int
-	turnBasedMonsterPassDelay   int
-	turnBasedMonsterStatusTick  bool
-	turnBasedMonsterStunned     map[*monster.Monster3D]bool
+	currentTurn            int // 0 = party turn, 1 = monster turn
+	partyActionsUsed       int // Actions used this turn (0-2)
+	turnBasedMoveCooldown  int // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown   int // Rotation cooldown in frames (18 FPS = 0.3 second)
+	monsterTurnState
+	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every 5 turns)
 
 	// cardSummonCooldowns independently silence each physical summon card after
 	// it fires. Keys are the stable per-card owner strings derived from the
@@ -1875,10 +1866,7 @@ func (g *MMGame) enterPostVictoryFreeMode() {
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
 	g.turnBasedExtraMonsterAction = false
-	g.turnBasedMonsterPassesLeft = 0
-	g.turnBasedMonsterPassDelay = 0
-	g.turnBasedMonsterStatusTick = false
-	g.turnBasedMonsterStunned = nil
+	g.monsterTurnState.resetPasses()
 	g.clearTransientCombatState()
 }
 
@@ -2927,10 +2915,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.partyActionsUsed = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
-		g.turnBasedMonsterPassesLeft = 0
-		g.turnBasedMonsterPassDelay = 0
-		g.turnBasedMonsterStatusTick = false
-		g.turnBasedMonsterStunned = nil
+		g.monsterTurnState.resetPasses()
 		g.startPartyTurn()
 	}
 	g.turnBasedTurnSuspended = false
@@ -3026,158 +3011,17 @@ func (g *MMGame) snapMonstersToTileCenters() {
 	}
 }
 
-// Wrapper types for threading system integration
-
-// MonsterWrapper implements entities.MonsterUpdateInterface
-type MonsterWrapper struct {
-	Monster         *monster.Monster3D
-	collisionSystem *collision.CollisionSystem   // LIVE system - touched only by ApplyCollisionUpdate (Phase 2, serial)
-	snapshot        *collision.CollisionSnapshot // frozen view for THIS tick - the only thing Update (Phase 1, parallel) may query
-	game            *MMGame                      // Added to access camera position for tethering system
-
-	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
-}
-
-// Update is the canonical RT monster tick: AI movement + the desired collision
-// marker - COMPUTED ONLY here, against the frozen
-// snapshot; nothing shared is written. Code that steps monsters manually
-// (including tests) must call this AND ApplyCollisionUpdate, not the bare
-// Monster3D.Update - that alone leaves the collision type stale.
-//
-// debugMonsterFilter caches the DEBUG_MONSTER env filter once at startup: the
-// parallel monster update must not pay an env lookup + alloc per monster per tick.
-var debugMonsterFilter = strings.ToLower(strings.TrimSpace(os.Getenv("DEBUG_MONSTER")))
-
-// Runs in a worker goroutine (see entities.EntityUpdater.UpdateMonstersParallel):
-// every read here must come from mw.Monster's own fields or mw.snapshot (frozen
-// before the parallel phase started), never mw.collisionSystem - the live
-// system is being written by every OTHER monster's own worker at the same time.
-func (mw *MonsterWrapper) Update() {
-	oldX, oldY := mw.Monster.X, mw.Monster.Y
-
-	// Get player position from camera for tethering system
-	playerX := mw.game.camera.X
-	playerY := mw.game.camera.Y
-
-	// AI pursuit/engagement target: normally the party, but charmed monsters are
-	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
-	// so they never chase the party. Precomputed single-threaded each frame in
-	// refreshMonsterAIState to keep this parallel update race-free.
-	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
-	if mw.Monster.LootGuarding {
-		// The guard override moves to its precomputed prop tile internally, but
-		// player detection must still inspect the actual party position.
-		targetX, targetY = playerX, playerY
-	}
-
-	// Party sight and the movement target are deliberately separate: a redirect
-	// to a summon (or an evasive boss holding at self) must never make the AI
-	// interpret that target as the party's location. Reads the frozen snapshot
-	// only - never the live, concurrently-mutating system.
-	mw.Monster.UpdateWithTarget(mw.snapshot, playerX, playerY, targetX, targetY)
-
-	newX, newY := mw.Monster.X, mw.Monster.Y
-
-	// Sync this monster's own logical post state, then compute (don't apply) its
-	// collision marker. Both touch only frame-local data on this monster, so are
-	// safe in the parallel worker. ApplyCollisionUpdate writes them serially.
-	mw.game.syncMonsterAttackPost(mw.Monster)
-	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster)
-
-	// Temporary movement debug (opt-in via env var).
-	// Example: DEBUG_MONSTER=bandit
-	if debugMonsterFilter != "" {
-		name := strings.ToLower(mw.Monster.Name)
-		if strings.Contains(name, debugMonsterFilter) {
-			// Throttle logs to avoid spamming.
-			if mw.Monster.StateTimer%60 == 0 {
-				withinTether := mw.Monster.IsWithinTetherRadius()
-				fmt.Printf(
-					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
-					mw.Monster.Name,
-					mw.Monster.ID,
-					mw.Monster.State,
-					mw.Monster.StateTimer,
-					mw.Monster.IsEngagingPlayer,
-					withinTether,
-					newX,
-					newY,
-					oldX,
-					oldY,
-					mw.Monster.SpawnX,
-					mw.Monster.SpawnY,
-					mw.Monster.TetherRadius,
-					playerX,
-					playerY,
-				)
-
-				// If not moving while supposed to wander, probe cardinal target tile centers.
-				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
-					if oldX == newX && oldY == newY {
-						const tileSize = 64.0
-						centerX := TileCenter(newX, tileSize)
-						centerY := TileCenter(newY, tileSize)
-
-						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
-							centerX, centerY,
-							mw.Monster.LastX, mw.Monster.LastY,
-							mw.Monster.StuckCounter,
-							mw.Monster.LastChosenDir,
-						)
-
-						targets := []struct {
-							label string
-							dx    float64
-							dy    float64
-						}{
-							{label: "E", dx: tileSize, dy: 0},
-							{label: "S", dx: 0, dy: tileSize},
-							{label: "W", dx: -tileSize, dy: 0},
-							{label: "N", dx: 0, dy: -tileSize},
-						}
-
-						for _, t := range targets {
-							x := centerX + t.dx
-							y := centerY + t.dy
-							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.Monster.ID, x, y)
-							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
-								t.label,
-								x,
-								y,
-								ok,
-								reason,
-								mw.Monster.CanMoveWithinTether(x, y),
-							)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// The collision-system write for the new position happens in
-	// ApplyCollisionUpdate (Phase 2) - oldX/oldY above were only for the debug
-	// block.
-}
-
-// ApplyCollisionUpdate writes this monster's Update()-computed position and
-// collision type to the LIVE collision system. Phase 2 of the two-phase RT
-// tick (see entities.EntityUpdater.UpdateMonstersParallel): called serially,
-// once every monster's Update() has returned - never from a worker.
-func (mw *MonsterWrapper) ApplyCollisionUpdate() {
-	if mw.collisionSystem == nil || mw.Monster == nil {
-		return
-	}
-	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
-	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
-}
-
 const partyAttackTargetID = "player"
 
 // monsterAttackTarget returns the current combat target for logical-post
 // arbitration. A bound ally without an enemy only follows the party and has no
 // attack target; a normal hostile targets either its closer AIFoe or the party.
 func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
+	frame := g.monsterFrameContext()
+	return monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+}
+
+func monsterAttackTargetAt(m *monster.Monster3D, partyX, partyY float64, hasParty bool) (id string, x, y float64, ok bool) {
 	if m == nil {
 		return "", 0, 0, false
 	}
@@ -3194,10 +3038,10 @@ func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y floa
 	if foe := m.AIFoe; foe != nil {
 		return foe.ID, m.AITargetX, m.AITargetY, true
 	}
-	if behavior == monster.AIBehaviorBoundAlly || !m.TargetsParty() || g == nil || g.camera == nil {
+	if behavior == monster.AIBehaviorBoundAlly || !m.TargetsParty() || !hasParty {
 		return "", 0, 0, false
 	}
-	return partyAttackTargetID, g.camera.X, g.camera.Y, true
+	return partyAttackTargetID, partyX, partyY, true
 }
 
 func (g *MMGame) monsterHasAttackTarget(m *monster.Monster3D) bool {
@@ -3234,28 +3078,8 @@ func clearMonsterAttackPost(m *monster.Monster3D) {
 // This method never reads another monster, so MonsterWrapper may call it from a
 // parallel real-time worker.
 func (g *MMGame) syncMonsterAttackPost(m *monster.Monster3D) {
-	if m == nil {
-		return
-	}
 	targetID, _, _, hasTarget := g.monsterAttackTarget(m)
-	if !hasTarget {
-		clearMonsterAttackPost(m)
-		return
-	}
-	if m.State == monster.StateAttacking {
-		if !m.AttackPost || m.AttackPostTargetID != targetID {
-			m.AttackPost = true
-			m.AttackPostTargetID = targetID
-			if g != nil {
-				m.AttackPostSince = g.frameCount
-			}
-		}
-		m.AttackTransit = false
-		return
-	}
-	if m.State != monster.StateAlert || !m.AttackPost || m.AttackPostTargetID != targetID {
-		clearMonsterAttackPost(m)
-	}
+	monsterAttackPostFor(m, targetID, hasTarget, g.monsterFrameContext().tick).apply(m)
 }
 
 // tryClaimMonsterAttackPost grants m the post at its current tile. Movement
@@ -3320,17 +3144,23 @@ func desiredMonsterCollisionType(m *monster.Monster3D) collision.CollisionType {
 // a monster-update worker; see desiredMonsterCollisionType for the race-free
 // compute half.
 func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
-	if g == nil || g.collisionSystem == nil {
+	if g != nil {
+		applyMonsterCollisionTypeTo(g.collisionSystem, monsterID, desired)
+	}
+}
+
+func applyMonsterCollisionTypeTo(system *collision.CollisionSystem, monsterID string, desired collision.CollisionType) {
+	if system == nil {
 		return
 	}
-	entity := g.collisionSystem.GetEntityByID(monsterID)
+	entity := system.GetEntityByID(monsterID)
 	if entity == nil {
 		return
 	}
 	if entity.CollisionType != desired {
 		// Through the setter, never a direct field write: it maintains the
 		// engaged-post index that reservation queries scan.
-		g.collisionSystem.SetEntityCollisionType(monsterID, desired)
+		system.SetEntityCollisionType(monsterID, desired)
 	}
 	entity.Solid = false
 }
@@ -3345,23 +3175,6 @@ func (g *MMGame) refreshMonsterCollisionState(m *monster.Monster3D) {
 	}
 	g.syncMonsterAttackPost(m)
 	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
-}
-
-func (mw *MonsterWrapper) IsAlive() bool {
-	return mw.Monster.IsAlive()
-}
-
-func (mw *MonsterWrapper) GetPosition() (float64, float64) {
-	return mw.Monster.X, mw.Monster.Y
-}
-
-func (mw *MonsterWrapper) SetPosition(x, y float64) {
-	mw.Monster.X = x
-	mw.Monster.Y = y
-	// Update collision system position
-	if mw.collisionSystem != nil {
-		mw.collisionSystem.UpdateEntity(mw.Monster.ID, x, y)
-	}
 }
 
 // MagicProjectileWrapper implements entities.ProjectileUpdateInterface

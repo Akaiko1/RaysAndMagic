@@ -182,7 +182,8 @@ func TestChampionRTDualStreams(t *testing.T) {
 	primeTestChampions(t, cs.game)
 	fillTestParty(t, cs.game)
 
-	m := monsterPkg.NewMonster3DFromConfig(0, 0, "weapon_master", cs.game.config)
+	m := monsterPkg.NewMonster3DFromConfig(float64(cs.game.config.GetTileSize()), 0, "weapon_master", cs.game.config)
+	m.BeginPlayerEngagement()
 	cs.game.mirrorChampionStats(m)
 	ch := cs.game.championTemplate("weapon_master", "impossible")
 

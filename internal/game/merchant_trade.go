@@ -233,6 +233,10 @@ func merchantTotalPriceLabel(g *MMGame, entry *character.MerchantStockItem, n in
 // merchantStockDragSource captures a shelf cell as a buy-drag source, reusing
 // the stash drag machine's shared state (shop bank of stashDragFrom).
 func (ui *UISystem) merchantStockDragSource(idx int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.merchantStockDragSource(idx, r) })
+		return
+	}
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return

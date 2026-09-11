@@ -21,6 +21,7 @@ import (
 )
 
 type SpriteManager struct {
+	imageResources   map[*ebiten.Image]SpriteResourceRequest
 	sprites          map[string]*ebiten.Image
 	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
 	animations       map[animationCacheKey]*SpriteAnimation
@@ -93,41 +94,26 @@ func (sm *SpriteManager) SetLazyResourceObserver(observer func(SpriteResourceReq
 	sm.lazyResourceObserver = observer
 }
 
-// ResourceForImage resolves a cached root image or animation frame back to its
-// authored source. It is used only when a lazily built derived resource first
-// joins a region manifest, so a compact scan is preferable to a reverse map
-// that could itself retain evicted GPU images.
+// ResourceForImage resolves a published allocation in constant time. Entries
+// are installed at publication and removed with the source cache entry.
 func (sm *SpriteManager) ResourceForImage(img *ebiten.Image) (SpriteResourceRequest, bool) {
 	if sm == nil || img == nil {
 		return SpriteResourceRequest{}, false
 	}
-	for name, candidate := range sm.sprites {
-		if candidate == img {
-			return SpriteResourceRequest{Name: name}, true
-		}
-	}
-	for key, animation := range sm.animations {
-		if animation == nil {
-			continue
-		}
-		for _, frame := range animation.Frames {
-			if frame == img {
-				return SpriteResourceRequest{Name: key.name, AnimationType: key.animType}, true
-			}
-		}
-	}
-	return SpriteResourceRequest{}, false
+	request, ok := sm.imageResources[img]
+	return request, ok
 }
 
 // PreparedSpriteResource is a decoded and color-keyed CPU image. Found is
 // false for an absent or invalid source. CommitPreparedResource is the only
 // path that turns it into Ebitengine images.
 type PreparedSpriteResource struct {
-	Request SpriteResourceRequest
-	Image   image.Image
-	CPU     *image.RGBA
-	Frames  []*image.RGBA
-	Found   bool
+	QueueLease *PreparationLease
+	Request    SpriteResourceRequest
+	Image      image.Image
+	CPU        *image.RGBA
+	Frames     []*image.RGBA
+	Found      bool
 }
 
 type preparedSpriteTarget struct {
@@ -412,7 +398,7 @@ func animationKey(name, animType string) animationCacheKey {
 // PrepareResources decodes sources serially on one bounded worker. The
 // one-result buffer prevents a fast disk from retaining a whole region of
 // decoded RGBA images while the game loop is still committing earlier work.
-func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest) <-chan PreparedSpriteResource {
+func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
 	results := make(chan PreparedSpriteResource, 1)
 	if sm == nil {
 		close(results)
@@ -445,7 +431,13 @@ func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []Sprite
 				return
 			default:
 			}
+			lease, ok := ReservePNGPreparation(ctx, job.path, preparationBudget(budgets))
+			if !ok {
+				return
+			}
 			prepared := sm.decodePreparedResourceAtPath(job.request, job.path)
+			prepared.QueueLease = lease
+			lease.ReleaseOnCancel(ctx)
 			select {
 			case results <- prepared:
 			case <-ctx.Done():
@@ -503,6 +495,7 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 // BeginPreparedResourceCommit creates lightweight image handles and returns an
 // incremental pixel writer. Advance must run from the Ebitengine game loop.
 func (sm *SpriteManager) BeginPreparedResourceCommit(prepared PreparedSpriteResource) *PreparedSpriteCommit {
+	defer prepared.QueueLease.Release()
 	commit := &PreparedSpriteCommit{manager: sm, request: prepared.Request}
 	if sm == nil || prepared.Request.Name == "" {
 		commit.done = true
@@ -666,6 +659,7 @@ func (c *PreparedSpriteCommit) Advance(maxBytes int) (map[*ebiten.Image]*image.R
 		}
 		delete(c.manager.animationMissing, key)
 	}
+	c.manager.indexResource(request)
 	c.done = true
 	return c.result, true
 }
@@ -1024,32 +1018,13 @@ func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
 // addresses one animation strip. Region residency uses this single eviction
 // path for every SpriteManager-owned GPU image.
 func (sm *SpriteManager) EvictResource(name, animationType string) []*ebiten.Image {
-	if sm == nil || name == "" {
-		return nil
-	}
-	if animationType == "" {
-		img, ok := sm.sprites[name]
-		if !ok {
-			return nil
-		}
-		delete(sm.sprites, name)
-		img.Deallocate()
-		return []*ebiten.Image{img}
-	}
-
-	key := animationKey(name, animationType)
-	anim, ok := sm.animations[key]
-	if !ok {
-		return nil
-	}
-	delete(sm.animations, key)
-	delete(sm.animationMissing, key)
-	for _, frame := range anim.Frames {
-		if frame != nil {
-			frame.Deallocate()
+	images := sm.DetachResource(name, animationType)
+	for _, img := range images {
+		if img != nil {
+			img.Deallocate()
 		}
 	}
-	return anim.Frames
+	return images
 }
 
 // loadSpriteIfExists attempts to load a sprite by basename from the index.
@@ -1068,5 +1043,22 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 	images := sm.CommitPreparedResource(prepared)
 	if prepared.Found && sm.lazyResourceObserver != nil {
 		sm.lazyResourceObserver(prepared.Request, images)
+	}
+}
+
+// VisitCommitPixels reports retained CPU allocations on the game owner. It
+// never reads GPU pixels; callers can deduplicate aliases across caches.
+func (c *PreparedSpriteCommit) VisitCommitPixels(visit func(*image.RGBA)) {
+	if c == nil || visit == nil {
+		return
+	}
+	for _, target := range c.targets {
+		visit(target.cpu)
+	}
+	for _, target := range c.completed {
+		visit(target.cpu)
+	}
+	for _, cpu := range c.result {
+		visit(cpu)
 	}
 }

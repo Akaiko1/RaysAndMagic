@@ -423,22 +423,6 @@ func isOverlayModalLayer(layer modalLayerID) bool {
 	}
 }
 
-// claimQueueIfModalChanged is the checkpoint form of rule 3 in UISystem.Draw.
-// Clicks queued for one identity never carry into a newly opened child, sibling,
-// parent, or uncovered lower layer.
-func (ui *UISystem) claimQueueIfModalChanged(inputLayer *modalLayerSnapshot) bool {
-	if ui == nil || inputLayer == nil {
-		return false
-	}
-	current := ui.topModalSnapshot()
-	if current == *inputLayer {
-		return false
-	}
-	ui.dropQueuedClicks()
-	*inputLayer = current
-	return true
-}
-
 // dropQueuedClicks discards both buffered click queues. Used wherever a modal
 // layer owns the frame: a press it did not consume was aimed at its dim, and a
 // press queued before it opened was aimed at the interface it replaced.
@@ -450,18 +434,23 @@ func (ui *UISystem) dropQueuedClicks() {
 	ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
 }
 
-// modalRedrawBarrierActive covers every Update between a modal identity change
-// and the Draw that presents that identity. This includes close, open, sibling,
-// and parent/child transitions.
+// modalRedrawBarrierActive covers every Update between an input-screen/modal
+// change and its presentation. Top-level screens and their submenus must obey
+// the same barrier as in-game modals, including raw press/release handlers.
 func (ui *UISystem) modalRedrawBarrierActive() bool {
-	return ui != nil && ui.game != nil && ui.game.appScreen == AppScreenInGame &&
-		ui.renderedModalSnapshot != ui.topModalSnapshot()
+	if ui == nil || ui.displayedInput.building || ui.game == nil {
+		return false
+	}
+	if ui.displayedInput.ready && ui.displayedInput.identity.screen != ui.inputScreenIdentity() {
+		return true
+	}
+	return ui.game.appScreen == AppScreenInGame && ui.renderedModalSnapshot != ui.topModalSnapshot()
 }
 
 // modalLayerOwnsInput is the lower-layer gate shared by the HUD and character
 // hub. It includes both a currently open modal and the one-frame redraw barrier.
 func (ui *UISystem) modalLayerOwnsInput() bool {
-	return ui != nil && (ui.renderedModalSnapshot.layer != modalLayerNone || ui.topModalLayer() != modalLayerNone)
+	return ui != nil && ((!ui.displayedInput.building && ui.renderedModalSnapshot.layer != modalLayerNone) || ui.topModalLayer() != modalLayerNone)
 }
 
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
@@ -500,12 +489,15 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 	drawImageScaled(screen, icon, x, y, w, h)
 }
 
-// drawPopupCloseButton draws the standard red close-X button (hover-brightened)
-// and reports whether a queued left click landed on it. canClick=false still
-// draws but leaves any queued click unconsumed (e.g. mid-drag, popup just opened).
-func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool) bool {
+// drawPopupCloseButton renders the shared close-X and registers its Update
+// action. canClick=false leaves the visual present without consuming input.
+func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool, onClick func()) {
 	ui.drawCloseButtonVisual(screen, x, y, size, size)
-	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
+	ui.onDisplayedInput(uiCommandNavigation, layoutRect{x, y, size, size}, func() {
+		if canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size) {
+			onClick()
+		}
+	})
 }
 
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest

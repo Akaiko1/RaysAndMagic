@@ -572,8 +572,6 @@ func (ih *InputHandler) handleMainMenuInput() {
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
 		// Navigate options (debounced)
 		if ih.keys.Consume(ebiten.KeyUp) {
 			if ih.game.mainMenuSelection > 0 {
@@ -593,9 +591,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		if ih.keys.Consume(ebiten.KeyEnter) {
 			ih.activateMainMenuSelection()
 		}
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			ih.activateMainMenuSelection()
-		}
+		ih.handleMainMenuMouseInput()
 	case MenuSaveSelect:
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
@@ -621,12 +617,8 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 		ih.handleSaveRenameInput()
 		return
 	}
-	ih.navigateSavePage(px, py, panelW, panelH)
-	// Right-click rename follows the same Save-menu-only gate as the R key: the
-	// Load menu can't rename (and, crucially, never draws the rename dialog), so
-	// letting a right-click open it there strands an invisible modal that only
-	// surfaces when you next open the Save menu.
-	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
+	ih.navigateSavePage()
+	if ih.handleSaveLoadMouseInput(px, py, panelW, panelH, allowRename, activate) {
 		return
 	}
 	// Mouse hover selection (row within page).
@@ -636,10 +628,6 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	}
 	if allowRename && ih.keys.Consume(ebiten.KeyR) {
 		ih.openSaveRename(ih.game.selectedSaveRow())
-	}
-	// Mouse click activation
-	if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-		activate()
 	}
 }
 
@@ -692,10 +680,9 @@ func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
 }
 
 // navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor
-// within the current page, Left/Right (keys) or the on-screen Prev/Next buttons
-// (a strip below the panel) flip between pages. The button rects are shared with
-// the draw side via savePagerButtonRects.
-func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
+// within the current page and Left/Right keys flip between pages. Buffered
+// pager clicks use navigateSavePageMouse and the same wrapping rule.
+func (ih *InputHandler) navigateSavePage() {
 	g := ih.game
 	if ih.keys.Consume(ebiten.KeyUp) && g.slotSelection > 0 {
 		g.slotSelection--
@@ -703,12 +690,11 @@ func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
 	if ih.keys.Consume(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
 		g.slotSelection++
 	}
-	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
 	// Pages wrap in both directions: Prev on the first page jumps to the last.
-	if ih.keys.Consume(ebiten.KeyLeft) || g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2) {
+	if ih.keys.Consume(ebiten.KeyLeft) {
 		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
 	}
-	if ih.keys.Consume(ebiten.KeyRight) || g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2) {
+	if ih.keys.Consume(ebiten.KeyRight) {
 		g.savePage = (g.savePage + 1) % savePageCount
 	}
 }
@@ -839,7 +825,7 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	}
 
 	if req.isMultiSelect() {
-		ih.handleMultiSelectInput(req, popupX, popupW, startY, rowH)
+		ih.handleMultiSelectInput(req)
 		return
 	}
 
@@ -848,19 +834,12 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 		ih.game.consumeLevelUpChoice(req.selection)
 		return
 	}
-	for i := 0; i < optionCount; i++ {
-		y := startY + i*rowH
-		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			req.selection = i
-			ih.game.consumeLevelUpChoice(req.selection)
-			return
-		}
-	}
+	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMultiSelectInput drives the "pick K of N" picker: Space/Enter on an
 // option toggles it, Enter/click on the Confirm row applies all picks.
-func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX, popupW, startY, rowH int) {
+func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest) {
 	optionCount := len(req.options)
 	confirmIdx := req.confirmRowIndex()
 
@@ -875,20 +854,7 @@ func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX
 		}
 		return
 	}
-	// Clicks: option rows toggle, the Confirm row confirms.
-	for i := 0; i < optionCount; i++ {
-		y := startY + i*rowH
-		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			req.selection = i
-			ih.game.toggleLevelUpSelection(i)
-			return
-		}
-	}
-	cy := startY + optionCount*rowH
-	if ih.game.consumeLeftClickIn(popupX+16, cy-2, popupX+popupW-16, cy-2+rowH) {
-		req.selection = confirmIdx
-		ih.game.confirmLevelUpSelections()
-	}
+	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMovementInput processes movement and camera controls
@@ -2797,22 +2763,8 @@ func (ih *InputHandler) handleEncounterInput() {
 		ih.game.selectedChoice = len(choices) - 1
 	}
 
-	// Mouse: clicking a choice row selects it; a second click on the same row
-	// (double-click, like every other dialog list) executes it.
-	dlg := npcDialogLayout(ih.game)
-	for i := range choices {
-		x, y, w, h := ih.game.dialogueChoiceRect(npc, i, dlg.x, dlg.y, dlg.w)
-		if h == 0 {
-			continue
-		}
-		if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
-			ih.game.selectedChoice = i
-			if ih.dialogDoubleClick("encounter_choice", i) {
-				ih.executeEncounterChoice()
-				ih.resetDialogDoubleClick()
-			}
-			return
-		}
+	if ih.consumeEncounterMouseInput(npc, choices) {
+		return
 	}
 
 	// Navigate choices with Up/Down arrows

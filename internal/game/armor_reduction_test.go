@@ -238,7 +238,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 		target.MaxHitPoints = 1000
 		target.HitPoints = 1000
 
-		mob := monsterPkg.NewMonster3DFromConfig(game.camera.X+1, game.camera.Y, "minotaur", game.config)
+		mob := monsterPkg.NewMonster3DFromConfig(game.camera.X+float64(game.config.GetTileSize()), game.camera.Y, "minotaur", game.config)
 		// Under test is the PHYSICAL armor curve; the minotaur's authored body
 		// school (lower elemental cap) is covered by the melee-school tests.
 		mob.MeleeDamageType = ""

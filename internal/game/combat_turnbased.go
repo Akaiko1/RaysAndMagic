@@ -130,22 +130,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
 		gl.tickPersistentDamageZonesTB()
 
-		gl.game.turnBasedMonsterPassesLeft = 1
-		if gl.game.turnBasedExtraMonsterAction {
-			gl.game.turnBasedMonsterPassesLeft = 2
-			gl.game.turnBasedExtraMonsterAction = false
-		}
-		gl.game.turnBasedMonsterStatusTick = false
-		gl.game.turnBasedMonsterStunned = make(map[*monster.Monster3D]bool)
+		gl.game.monsterTurnState.startPasses()
 	}
-
-	if gl.game.turnBasedMonsterPassDelay > 0 {
-		gl.game.turnBasedMonsterPassDelay--
+	ready, tickTurnStatuses := gl.game.monsterTurnState.beginPass()
+	if !ready {
 		return
 	}
-
-	tickTurnStatuses := !gl.game.turnBasedMonsterStatusTick
-	gl.game.turnBasedMonsterStatusTick = true
 
 	// Process each monster's turn (only those in vision range).
 	for _, m := range gl.game.world.Monsters {
@@ -418,21 +408,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	gl.game.combat.sweepTrapTriggers()
 	gl.applyZoneEntryDamageAll()
 
-	gl.game.turnBasedMonsterPassesLeft--
-	if gl.game.turnBasedMonsterPassesLeft > 0 {
-		gl.game.turnBasedMonsterPassDelay = int(TurnBasedExtraMonsterActionDelaySeconds * float64(gl.game.config.GetTPS()))
-		if gl.game.turnBasedMonsterPassDelay < 1 {
-			gl.game.turnBasedMonsterPassDelay = 1
-		}
+	delay := int(TurnBasedExtraMonsterActionDelaySeconds * float64(gl.game.config.GetTPS()))
+	if !gl.game.monsterTurnState.finishPass(delay) {
 		return
 	}
-
-	gl.game.turnBasedMonsterPassDelay = 0
-	gl.game.turnBasedMonsterStatusTick = false
-	gl.game.turnBasedMonsterStunned = nil
-
-	// Mark monster turn as processed before ending turn
-	gl.game.monsterTurnResolved = true
 
 	// Always end monster turn and start party turn
 	// Even if no monsters acted, we need to return control to the party
@@ -440,30 +419,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 }
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
-func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
-	gl.forEachMonsterAttackTurnBased(monster, func() bool {
-		return len(alivePartyIndices(gl.game.party.Members)) > 0
-	}, func() {
-		// Same attack wrappers as RT so TB gets the identical roll chain:
-		// special ability -> Fireburst -> the shared monster->character hit hub.
-		gl.game.combat.performMonsterAttackAgainstParty(monster)
-	})
+func (gl *GameLoop) monsterAttackTurnBased(m *monster.Monster3D) {
+	gl.game.combat.commitMonsterAttack(m, monsterAttackDestination{}, monsterAttackTurn)
 }
 
-// monsterAttackFoeTurnBased resolves a full monster turn against a controlled
-// monster. Crossfire must use the same authored attacks-per-round/cooldown
-// parity as attacks against the party; otherwise fast monsters silently lose
-// swings whenever their target is a bound ally or card summon.
 func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) {
-	gl.forEachMonsterAttackTurnBased(attacker, func() bool {
-		return foe != nil && foe.IsAlive()
-	}, func() {
-		owner := ProjectileOwnerMonsterAtBound
-		if attacker.Bound {
-			owner = ProjectileOwnerBoundUndead
-		}
-		gl.game.combat.performMonsterAttackAgainstMonster(attacker, foe, owner)
-	})
+	if foe != nil {
+		gl.game.combat.commitMonsterAttack(attacker, monsterAttackDestination{foe: foe}, monsterAttackTurn)
+	}
 }
 
 // tryMonsterAttackFoeTurnBased applies the same logical-post gate used for
@@ -471,34 +434,14 @@ func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) 
 // The entities stay physically pass-through; a rejected contender simply keeps
 // pursuing another free tile around the target.
 func (gl *GameLoop) tryMonsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) bool {
-	if gl == nil || gl.game == nil || gl.game.combat == nil ||
-		!gl.game.combat.monsterCanAttackMonster(attacker, foe) ||
-		!gl.game.tryClaimMonsterAttackPost(attacker) {
+	if gl == nil || gl.game == nil || gl.game.combat == nil || foe == nil {
 		return false
 	}
-	attacker.State = monster.StateAttacking
+	if !gl.game.combat.commitMonsterAttack(attacker, monsterAttackDestination{foe: foe}, monsterAttackTurn) {
+		return false
+	}
 	attacker.StateTimer = 0
-	gl.monsterAttackFoeTurnBased(attacker, foe)
 	return true
-}
-
-// forEachMonsterAttackTurnBased is the sole action-count loop for attacks in a
-// monster turn. The party and crossfire branches deliberately differ only in
-// target selection and delivery; authored attacks-per-round must not drift.
-func (gl *GameLoop) forEachMonsterAttackTurnBased(attacker *monster.Monster3D, targetAlive func() bool, attack func()) {
-	if attacker == nil || targetAlive == nil || attack == nil {
-		return
-	}
-	gl.game.armMonsterAttackAnimation(attacker)
-	attacker.LastMoveTick = gl.game.frameCount
-	attacked := false
-	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && targetAlive(); hit++ {
-		attack()
-		attacked = true
-	}
-	if attacked {
-		gl.game.combat.armMonsterRTAttackCooldowns(attacker)
-	}
 }
 
 // alivePartyIndices returns indices of party members who can still take a hit
@@ -798,10 +741,7 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
-	gl.game.turnBasedMonsterPassesLeft = 0
-	gl.game.turnBasedMonsterPassDelay = 0
-	gl.game.turnBasedMonsterStatusTick = false
-	gl.game.turnBasedMonsterStunned = nil
+	gl.game.monsterTurnState.resetPasses()
 	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages

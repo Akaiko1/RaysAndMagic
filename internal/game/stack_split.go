@@ -436,32 +436,42 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	if ui.topModalLayer() != modalLayerStackSplit {
 		return
 	}
-	if g.consumeLeftClickIn(minus.Min.X, minus.Min.Y, minus.Max.X, minus.Max.Y) {
-		ui.stackSplitAdjust(-1)
-		return
-	}
-	if g.consumeLeftClickIn(plus.Min.X, plus.Min.Y, plus.Max.X, plus.Max.Y) {
-		ui.stackSplitAdjust(1)
-		return
-	}
-	if g.consumeLeftClickIn(half.Min.X, half.Min.Y, half.Max.X, half.Max.Y) {
-		// A trade halves the PICKER's maximum (a buy's item is a one-unit shelf
-		// template); a split halves the carried stack, as it always did.
-		halfQ := item.Count() / 2
-		if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
-			halfQ = ui.stackSplitMaxQuantity(item) / 2
+	ui.onDisplayedInput(uiCommandClick, layoutRect{minus.Min.X, minus.Min.Y, (minus.Max.X) - (minus.Min.X), (minus.Max.Y) - (minus.Min.Y)}, func() {
+		if g.consumeLeftClickIn(minus.Min.X, minus.Min.Y, minus.Max.X, minus.Max.Y) {
+			ui.stackSplitAdjust(-1)
+			return
 		}
-		ui.stackSplitSetQuantity(halfQ)
-		return
-	}
-	if g.consumeLeftClickIn(take.Min.X, take.Min.Y, take.Max.X, take.Max.Y) {
-		ui.stackSplitConfirm()
-		return
-	}
+	})
+	ui.onDisplayedInput(uiCommandClick, layoutRect{plus.Min.X, plus.Min.Y, (plus.Max.X) - (plus.Min.X), (plus.Max.Y) - (plus.Min.Y)}, func() {
+		if g.consumeLeftClickIn(plus.Min.X, plus.Min.Y, plus.Max.X, plus.Max.Y) {
+			ui.stackSplitAdjust(1)
+			return
+		}
+	})
+	ui.onDisplayedInput(uiCommandClick, layoutRect{half.Min.X, half.Min.Y, (half.Max.X) - (half.Min.X), (half.Max.Y) - (half.Min.Y)}, func() {
+		if g.consumeLeftClickIn(half.Min.X, half.Min.Y, half.Max.X, half.Max.Y) {
+			// A trade halves the PICKER's maximum (a buy's item is a one-unit shelf
+			// template); a split halves the carried stack, as it always did.
+			halfQ := item.Count() / 2
+			if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
+				halfQ = ui.stackSplitMaxQuantity(item) / 2
+			}
+			ui.stackSplitSetQuantity(halfQ)
+			return
+		}
+	})
+	ui.onDisplayedInput(uiCommandClick, layoutRect{take.Min.X, take.Min.Y, (take.Max.X) - (take.Min.X), (take.Max.Y) - (take.Min.Y)}, func() {
+		if g.consumeLeftClickIn(take.Min.X, take.Min.Y, take.Max.X, take.Max.Y) {
+			ui.stackSplitConfirm()
+			return
+		}
+	})
 	// Cancel is a BUTTON (and ESC), never a stray click on the dim: this dialog
 	// confirms a purchase or a sale, so an accidental press must not dismiss it
 	// and leave the player wondering whether the trade went through.
-	if g.consumeLeftClickIn(cancel.Min.X, cancel.Min.Y, cancel.Max.X, cancel.Max.Y) {
-		ui.closeStackSplitPicker()
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{cancel.Min.X, cancel.Min.Y, (cancel.Max.X) - (cancel.Min.X), (cancel.Max.Y) - (cancel.Min.Y)}, func() {
+		if g.consumeLeftClickIn(cancel.Min.X, cancel.Min.Y, cancel.Max.X, cancel.Max.Y) {
+			ui.closeStackSplitPicker()
+		}
+	})
 }

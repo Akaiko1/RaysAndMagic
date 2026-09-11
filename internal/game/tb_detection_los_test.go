@@ -112,7 +112,7 @@ func runSightAggroScenario(t *testing.T, scenario sightAggroScenario, turnBased 
 	} else {
 		wrapper := &MonsterWrapper{
 			Monster: mob, collisionSystem: game.collisionSystem,
-			snapshot: game.collisionSystem.Snapshot(), game: game,
+			snapshot: game.collisionSystem.Snapshot(), frame: game.monsterFrameContext(),
 		}
 		wrapper.Update()
 		wrapper.ApplyCollisionUpdate()

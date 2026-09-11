@@ -60,7 +60,8 @@ func CreateMonsterWrapper(m *monster.Monster3D, collisionSystem *collision.Colli
 	wrapper.Monster = m
 	wrapper.collisionSystem = collisionSystem
 	wrapper.snapshot = snapshot
-	wrapper.game = game
+	wrapper.frame = game.monsterFrameContext()
+	wrapper.result = monsterFrameResult{}
 	return wrapper
 }
 

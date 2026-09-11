@@ -1538,8 +1538,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
 		// per-monster attack cooldown, never the party.
 		if behavior == monsterPkg.AIBehaviorBoundAlly {
-			if monster.AttackCDFrames == 0 && cs.boundAttackNearest(monster) {
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
+			if monster.AttackCDFrames == 0 {
+				cs.boundAttackNearest(monster)
 			}
 			continue
 		}
@@ -1572,21 +1572,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// outlive that foe when an earlier monster kills it; in that case this actor
 		// waits for the next shared retarget instead of falling into party combat.
 		if behavior == monsterPkg.AIBehaviorFightFoe {
-			foe := monster.AIFoe
-			if monster.IsChampion() {
-				if cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
-					monster.State = monsterPkg.StateAttacking
-					cs.championRTCrossfireStrike(monster, foe)
-				} else if monsterInAttackTransit(monster) {
-					cs.game.releaseMonsterAttackPost(monster)
-				}
-				continue
-			}
-			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
-				monster.State = monsterPkg.StateAttacking
-				cs.game.armMonsterAttackAnimation(monster)
-				cs.performMonsterAttackAgainstMonster(monster, foe, ProjectileOwnerMonsterAtBound)
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
+			if !cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) && monsterInAttackTransit(monster) {
+				cs.game.releaseMonsterAttackPost(monster)
 			}
 			continue
 		}
@@ -1603,8 +1590,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 				cs.monsterCanPounceParty(monster) {
 				if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
-					cs.applyMonsterMeleeDamage(monster)
-					cs.armMonsterRTAttackCooldowns(monster)
+					cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
 					monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
 					continue
 				}
@@ -1617,22 +1603,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// also count diagonally-adjacent tiles as point-blank so they can surround
 		// the party instead of queueing only on N/S/E/W.
 		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
-			usesMelee := cs.monsterUsesMeleeAgainstParty(monster)
-			// Melee champions run two independent hand streams (party dual-wield
-			// parity); everyone else fires on the single attack tick below.
-			if monster.IsChampion() && usesMelee &&
-				cs.championRTDualStrike(monster, monster.StateTimer == 1) {
-				continue
-			}
-			// Fire on the first frame of the attacking state, but only if the
-			// persistent attack cooldown has elapsed - re-entering the attacking
-			// state (e.g. after chasing a kiting player back into range) no longer
-			// grants a free hit. On a hit, arm the cooldown for the next interval.
-			if monster.StateTimer == 1 && monster.AttackCDFrames == 0 {
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
-				cs.game.armMonsterAttackAnimation(monster)
-				cs.performMonsterAttackAgainstParty(monster)
-			}
+			cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackRealtime)
 		}
 	}
 }
@@ -3787,22 +3758,10 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 // toward it (it hunts instead of striking across the room). Returns true only
 // when it actually attacked.
 func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
-	target := m.AIFoe // precomputed this frame (= nearest enemy within seek radius)
-	if target == nil || !target.IsAlive() {
+	if m == nil || m.AIFoe == nil {
 		return false
 	}
-	if !cs.monsterCanAttackMonster(m, target) {
-		return false // in sight but out of reach - close the distance first
-	}
-	if !cs.game.tryClaimMonsterAttackPost(m) {
-		return false
-	}
-	m.State = monsterPkg.StateAttacking
-	// A projectile-capable bound undead still strikes directly at point blank;
-	// otherwise it looses a visible bolt resolved on impact.
-	cs.game.armMonsterAttackAnimation(m)
-	cs.performMonsterAttackAgainstMonster(m, target, ProjectileOwnerBoundUndead)
-	return true
+	return cs.commitMonsterAttack(m, monsterAttackDestination{foe: m.AIFoe}, monsterAttackRealtime)
 }
 
 // awardExperienceOnly grants the party a monster's XP with NO gold or loot - used

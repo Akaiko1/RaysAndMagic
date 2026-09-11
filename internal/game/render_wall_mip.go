@@ -416,27 +416,6 @@ func (r *Renderer) deallocateWallRipmap(sprite *ebiten.Image) {
 	delete(r.wallRipmaps, sprite)
 }
 
-// clearWallRipmaps releases every generated level at the same residency
-// boundary as standee cores and mips. Source sprites belong to SpriteManager
-// and remain valid; only the derived ripmap images are owned here.
-func (r *Renderer) clearWallRipmaps() {
-	if r == nil {
-		return
-	}
-	for _, rm := range r.wallRipmaps {
-		if rm == nil {
-			continue
-		}
-		for _, img := range rm.owned {
-			if img != nil {
-				img.Deallocate()
-			}
-		}
-	}
-	r.wallRipmaps = nil
-	r.wallRipmapBytes = 0
-}
-
 // tileWallMipLevel repeats a level horizontally and duplicates its top/bottom
 // rows into a one-pixel gutter. X intervals can cross tile seams, while Y edge
 // footprints remain safe under FilterLinear + AddressUnsafe at every mip level.

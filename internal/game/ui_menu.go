@@ -43,6 +43,7 @@ func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
 
 // drawMainMenu renders the ESC main menu overlay
 func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
+	ui.registerDisplayedModalMouse((*InputHandler).handleMainMenuMouseInput, modalLayerMainMenu)
 	w := ui.game.config.GetScreenWidth()
 	h := ui.game.config.GetScreenHeight()
 
@@ -370,6 +371,11 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
 func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, tabWidth, tabHeight}, func() { ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tab) })
+		return
+	}
+
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
@@ -382,6 +388,11 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 
 // handleCloseButtonClick checks if mouse clicked on the close button and closes the menu
 func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight int) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{buttonX, buttonY, buttonWidth, buttonHeight}, func() { ui.handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight) })
+		return
+	}
+
 	if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
 		ui.game.menuOpen = false
 	}
@@ -403,6 +414,11 @@ func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
 func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex int, school character.MagicSchoolID) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleSpellbookSchoolClick(bounds, schoolIndex, school) })
+		return
+	}
+
 	if ui.modalLayerOwnsInput() {
 		return
 	}
@@ -457,6 +473,11 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 
 // handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
 func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{spellX, spellY, spellWidth, spellHeight}, func() { ui.handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex) })
+		return
+	}
+
 	if ui.modalLayerOwnsInput() {
 		return
 	}
@@ -491,10 +512,12 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 
 // updateMouseState should be called once per frame before input handling.
 func (ui *UISystem) updateMouseState() {
+	ui.syncPointerScreen()
 	leftJustPressed := pointerLeftJustPressed()
 	rightJustPressed := pointerRightJustPress()
 	now := time.Now().UnixMilli()
 	if ui.modalRedrawBarrierActive() {
+		ui.cancelScreenPointerGestures()
 		ui.dropQueuedClicks()
 		return
 	}

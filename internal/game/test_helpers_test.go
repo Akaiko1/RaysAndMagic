@@ -21,7 +21,7 @@ func testTileSizeClasses() map[string]float64 {
 
 // Shared fixtures for internal/game tests. Keep scenario-specific setup next to
 // its test; only reusable game, world, party, and champion setup belongs here.
-func loadTestConfig(t *testing.T) *config.Config {
+func loadTestConfig(t testing.TB) *config.Config {
 	t.Helper()
 
 	cfg, err := config.LoadConfig("../../config.yaml")

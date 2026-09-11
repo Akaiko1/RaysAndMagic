@@ -557,7 +557,7 @@ func TestRetainedSpriteCPUAvoidsReadbackForStandeeBuilds(t *testing.T) {
 		{name: "no retained pixels"},
 		{name: "cancelled prewarm", setup: func(r *Renderer) {
 			r.mapRenderResourcePrewarmActive = &mapRenderPrewarmTask{
-				cancelled: true,
+				state:     mapRenderTaskCancelled,
 				cpuImages: make(map[*ebiten.Image]*image.RGBA),
 			}
 		}},

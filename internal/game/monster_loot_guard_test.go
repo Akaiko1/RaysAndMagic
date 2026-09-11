@@ -80,7 +80,7 @@ func runLootGuardRealTimeStep(game *MMGame, loop *GameLoop) {
 	wrappers := make([]*MonsterWrapper, 0, len(game.world.Monsters))
 	for _, m := range game.world.Monsters {
 		wrappers = append(wrappers, &MonsterWrapper{
-			Monster: m, collisionSystem: game.collisionSystem, snapshot: snapshot, game: game,
+			Monster: m, collisionSystem: game.collisionSystem, snapshot: snapshot, frame: game.monsterFrameContext(),
 		})
 	}
 	for _, wrapper := range wrappers {

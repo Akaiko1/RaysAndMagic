@@ -134,12 +134,14 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			ui.quickInvSlotDragSource(idx, x, y, w, h)
 			ui.inventoryCellDropZone(idx, x, y, w, h) // drop another bag item here to swap
 		}
-		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
-			ui.inventoryContextOpen = true
-			ui.inventoryContextX = ui.game.mouseRightClickX
-			ui.inventoryContextY = ui.game.mouseRightClickY
-			ui.inventoryContextIndex = idx
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x - 3, y - 3, (x + w + 3) - (x - 3), (y + h + 3) - (y - 3)}, func() {
+			if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
+				ui.inventoryContextOpen = true
+				ui.inventoryContextX = ui.game.mouseRightClickX
+				ui.inventoryContextY = ui.game.mouseRightClickY
+				ui.inventoryContextIndex = idx
+			}
+		})
 		if isHovering {
 			tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
 			compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
@@ -191,25 +193,24 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 // the same absolute index doesn't read as a double-click equip/use.
 func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, totalPages int) {
 	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
-	if ui.drawPager(screen, gridX, y, gridW, &ui.inventoryPage, totalPages, clickable) {
+	ui.drawPager(screen, gridX, y, gridW, &ui.inventoryPage, totalPages, clickable, func() {
 		ui.lastClickedItem = -1
 		ui.lastClickTime = time.Time{}
-	}
+	})
 }
 
 // drawPager renders a "< Page x/y >" strip with prev/next buttons spanning width
 // w at (x,y), flipping *page on click. Shared by the inventory and merchant
-// grids. No-op for a single page. Click handling lives here (Draw phase) like
-// the rest of the icon-grid widgets. Returns true if the page changed this frame
-// so callers can break any double-click chain that a page flip interrupted.
-func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, totalPages int, clickable bool) bool {
+// grids. No-op for a single page. It registers navigation commands against the
+// displayed page; onChange runs in Update after a successful flip.
+func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, totalPages int, clickable bool, onChange ...func()) {
 	if totalPages <= 1 {
-		return false
+		return
 	}
 	const btnW, btnH = 30, 18
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	drawBtn := func(bx int, label string, enabled bool) bool {
+	drawBtn := func(bx int, label string, enabled bool, step int) {
 		bg := color.RGBA{70, 50, 30, 210}
 		switch {
 		case !enabled:
@@ -220,20 +221,20 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 		drawFilledRect(screen, bx, y, btnW, btnH, bg)
 		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
-		return enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+		ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, btnW, btnH}, func() {
+			if enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH) {
+				*page = max(0, min(totalPages-1, *page+step))
+				for _, change := range onChange {
+					change()
+				}
+			}
+		})
 	}
 
-	changed := false
-	if drawBtn(x, "<", *page > 0) {
-		*page--
-		changed = true
-	}
-	if drawBtn(x+w-btnW, ">", *page < totalPages-1) {
-		*page++
-		changed = true
-	}
+	drawBtn(x, "<", *page > 0, -1)
+	drawBtn(x+w-btnW, ">", *page < totalPages-1, 1)
+
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
-	return changed
 }
 
 const (
@@ -411,22 +412,24 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 		return
 	}
 
-	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
-		if idx >= 0 && idx < len(ui.game.party.Inventory) {
-			item := ui.game.party.Inventory[idx]
-			if !itemDiscardable(item) {
-				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
-			} else {
-				ui.game.party.ConsumeOneAt(idx) // stacks discard one unit per click
-				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+	ui.onDisplayedInput(uiCommandNavigation, layoutRect{}, func() {
+		if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
+			if idx >= 0 && idx < len(ui.game.party.Inventory) {
+				item := ui.game.party.Inventory[idx]
+				if !itemDiscardable(item) {
+					ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+				} else {
+					ui.game.party.ConsumeOneAt(idx) // stacks discard one unit per click
+					ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+				}
 			}
+			ui.inventoryContextOpen = false
+		} else if canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48) {
+			ui.openStackSplitPicker(stackSplitPickerInventory, idx, ui.game.party.Inventory[idx])
+		} else if ui.game.consumeLeftClick() {
+			ui.inventoryContextOpen = false
 		}
-		ui.inventoryContextOpen = false
-	} else if canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48) {
-		ui.openStackSplitPicker(stackSplitPickerInventory, idx, ui.game.party.Inventory[idx])
-	} else if ui.game.consumeLeftClick() {
-		ui.inventoryContextOpen = false
-	}
+	})
 }
 
 // drawCharactersContent shows the complete selected-character record in one
@@ -658,10 +661,9 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 const pagerBtnW, pagerBtnH = 30, 18
 
-// drawPagerButton draws one prev/next pager button at (bx, y) and reports whether
-// it was clicked this frame (only when enabled). Shared by the quest and
-// character list pagers.
-func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool) bool {
+// drawPagerButton renders one prev/next button and registers its Update action.
+// Shared by the quest and character list pagers.
+func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool, onClick func()) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	bg := color.RGBA{70, 50, 30, 210}
 	switch {
@@ -673,7 +675,11 @@ func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label strin
 	drawFilledRect(screen, bx, y, pagerBtnW, pagerBtnH, bg)
 	drawRectBorder(screen, bx, y, pagerBtnW, pagerBtnH, 1, color.RGBA{150, 110, 52, 220})
 	drawCenteredDebugText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
-	return enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH)
+	ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, pagerBtnW, pagerBtnH}, func() {
+		if enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH) {
+			onClick()
+		}
+	})
 }
 
 // drawSpellbookContent draws the spellbook tab content. The parchment spread
@@ -778,9 +784,9 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		}
 	}
 
-	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
+	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedSpell = -1
-	}
+	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Cast  Click: Select  Double-click: Equip fast spell", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
@@ -868,6 +874,11 @@ func spellInitials(name string) string {
 
 // handleInventoryItemClick handles double-click to equip items from inventory
 func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleInventoryItemClick(itemIndex, x1, y1, x2, y2) })
+		return
+	}
+
 	if ui.inventoryInputBlocked() {
 		return
 	}
@@ -944,6 +955,11 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots
 func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleEquippedItemClick(slot, x1, y1, x2, y2) })
+		return
+	}
+
 	if ui.inventoryInputBlocked() {
 		return
 	}
@@ -1007,10 +1023,12 @@ func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
 	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost),
 		btnX, y, inventoryCampButtonW, inventoryCampButtonH)
 
-	if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
-		ui.game.consumeLeftClickIn(btnX, y, btnX+inventoryCampButtonW, y+inventoryCampButtonH) {
-		ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{btnX, y, (btnX + inventoryCampButtonW) - (btnX), (y + inventoryCampButtonH) - (y)}, func() {
+		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
+			ui.game.consumeLeftClickIn(btnX, y, btnX+inventoryCampButtonW, y+inventoryCampButtonH) {
+			ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
+		}
+	})
 
 	if ui.campNotice != "" {
 		clr := color.RGBA{210, 90, 80, 255}

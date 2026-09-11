@@ -33,7 +33,7 @@ func runRTFoeTicks(g *MMGame, ticks int) {
 				Monster:         m,
 				collisionSystem: g.collisionSystem,
 				snapshot:        snapshot,
-				game:            g,
+				frame:           g.monsterFrameContext(),
 			}
 			wrapper.Update()
 			wrappers = append(wrappers, wrapper)

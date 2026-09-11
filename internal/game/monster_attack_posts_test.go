@@ -97,7 +97,7 @@ func TestRTMonsterOnReservedPostKeepsSeeking(t *testing.T) {
 		Monster:         contender,
 		collisionSystem: game.collisionSystem,
 		snapshot:        game.collisionSystem.Snapshot(),
-		game:            game,
+		frame:           game.monsterFrameContext(),
 	}
 	wrapper.Update()
 	wrapper.ApplyCollisionUpdate()
@@ -471,8 +471,8 @@ func TestRealTimeRearMeleeReachesDistinctPostAcrossTargets(t *testing.T) {
 				setup.gl.reconcileMonsterAttackPosts()
 				snapshot := setup.game.collisionSystem.Snapshot()
 				wrappers := []*MonsterWrapper{
-					{Monster: setup.front, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
-					{Monster: setup.rear, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
+					{Monster: setup.front, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, frame: setup.game.monsterFrameContext()},
+					{Monster: setup.rear, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, frame: setup.game.monsterFrameContext()},
 				}
 				for _, wrapper := range wrappers {
 					wrapper.Update()

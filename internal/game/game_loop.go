@@ -75,10 +75,16 @@ func (gl *GameLoop) Update() error {
 
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
+	gl.ui.dispatchDisplayedInput()
 	// The model can close a modal in Update, but the old modal remains the image
 	// on screen until Draw replaces it. Under a stall Ebiten may run more Updates
 	// first; suppress them so input cannot act on a layer the player cannot see.
-	if gl.ui.modalRedrawBarrierActive() {
+	// At application startup there is no displayed top-level screen yet.
+	// Wait for its first Draw before a raw press can arm a release action.
+	initialScreen := gl.game.appScreen != AppScreenInGame && !gl.ui.displayedInput.ready
+	if initialScreen || gl.ui.modalRedrawBarrierActive() {
+		gl.ui.dropQueuedClicks()
+		gl.ui.cancelScreenPointerGestures()
 		// The stale modal frame blocks input/world state, not the exposed party-card
 		// presentation. Keep hit flashes and status effects animating under it.
 		gl.game.advanceInterfaceClock()
@@ -87,9 +93,8 @@ func (gl *GameLoop) Update() error {
 		return nil
 	}
 
-	// Top-level screens replace the gameplay loop entirely. Their click handling
-	// lives in the matching Draw call (roster-screen convention); update only
-	// processes keyboard/back navigation here.
+	// Top-level screens replace the gameplay loop. Displayed mouse commands
+	// have already run; process keyboard/back navigation next.
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
 		gl.inputHandler.keys.BeginFrame()
@@ -146,6 +151,7 @@ func (gl *GameLoop) updateExploration() {
 	// still open when it runs. Keep UI-only timers above moving, but do not advance
 	// the world under the stale modal image that remains visible until Draw.
 	if gl.ui != nil && gl.ui.modalRedrawBarrierActive() {
+		gl.ui.cancelScreenPointerGestures()
 		return
 	}
 
@@ -191,82 +197,7 @@ func (gl *GameLoop) updateExploration() {
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
-	// Refresh the party's active "traits" once per frame so passive monsters
-	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
-	monster.PartyTraits["lich"] = gl.game.party.HasLich()
-
-	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
-	// retaliation) stays cheap when none exist - the overwhelmingly common case.
-	gl.game.refreshMonsterAIState()
-	// Reconcile restored or redirected combat attack posts before the next RT
-	// snapshot/TB action can use them.
-	gl.reconcileMonsterAttackPosts()
-	// Calm solo mobs that can see an unclaimed crate or spell lectern reserve up
-	// to two guard slots before movement. RT carries the prepared patrol tile into
-	// its AI pass; TB keeps calm guards stationary and uses only their normal
-	// direct-sight engagement rule.
-	gl.prepareLootPropGuards()
-
-	// Reconcile door state (closed iff a living champion is on this map) and the
-	// solid collision entities behind it, before either monster update runs.
-	gl.game.refreshDoors()
-
-	// The facing pass must see only the movement pass's displacement.
-	monsterFrameStart := gl.captureMonsterFramePositions()
-
-	// Update monsters (turn-based or real-time)
-	if gl.game.turnBasedMode {
-		// A stun can remove the final party actor after slots were assigned. Do
-		// this in the scheduler, rather than input, so keyboard, spellbook, trap,
-		// and delayed-projectile paths all hand the empty turn to monsters alike.
-		gl.game.skipTurnBasedPartyTurnWithoutActor()
-		// Evasive bosses react in real time even in TB - see tickEvasiveBossesTB.
-		gl.game.combat.tickEvasiveBossesTB()
-		gl.updateMonstersTurnBased()
-	} else {
-		// Update monsters in parallel with performance monitoring
-		gl.game.threading.PerformanceMonitor.ProfiledFunction("entity_update", func() {
-			gl.updateMonstersParallel()
-		})
-	}
-
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
-	// Parallel RT updates can nominate the same logical post from one frozen
-	// snapshot. Serial arbitration runs before combat so only one can strike.
-	gl.reconcileMonsterAttackPosts()
-
-	// Banding: stack calm same-key flockers onto their leader (or scatter a band
-	// whose member just engaged/was hit). Runs after movement so it has the final
-	// positions to snap/fan.
-	gl.updateMonsterBands()
-	// Guard pairs use the same stack/fan presentation but admit mixed monster
-	// keys and cap at two. Reconcile after movement so sight aggro scatters the
-	// pair before the combat pass and calm followers rejoin their leader.
-	gl.reconcileLootPropGuardBands()
-
-	// Alarm bells: an engaged rally monster wakes its neighbours (serial pass -
-	// the parallel update must not mutate other monsters).
-	gl.game.rallyAggroedAlarms()
-	// Transit stacks are cosmetic only: they reuse the band fan without changing
-	// band membership or physical positions.
-	gl.updateCombatTransitVisualStacks()
-
-	// Update monster hit tint timers
-	gl.game.UpdateMonsterHitTintTimers()
-
-	// Handle combat interactions (only in real-time mode)
-	if !gl.game.turnBasedMode {
-		gl.game.combat.HandleMonsterInteractions()
-	}
-
-	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
-	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
-	// TickPoisonTurn can zero a monster's HP with no CombatSystem in scope to run
-	// finishMonsterKill itself. Anything left in world.Monsters with IsAlive()
-	// false and not already queued in deadMonsterIDs died this way - finish it
-	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
-	// (steam zones and traps already self-finish via finishIndirectKill).
-	gl.finalizeIndirectKills()
+	gl.runMonsterFrame()
 
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
@@ -385,11 +316,15 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
 		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
+		gl.ui.beginDisplayedInput()
 		gl.ui.drawEntryMenuScreen(screen)
+		gl.ui.endDisplayedInput()
 		return
 	case AppScreenPartyCreate:
 		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
+		gl.ui.beginDisplayedInput()
 		gl.ui.drawPartyCreateScreen(screen)
+		gl.ui.endDisplayedInput()
 		return
 	}
 

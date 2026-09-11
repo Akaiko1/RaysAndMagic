@@ -123,17 +123,19 @@ func TestModalIdentityChangeDropsQueuedClicks(t *testing.T) {
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
 	ui := NewUISystem(g)
 	g.dialogActive = true
-	inputLayer := ui.topModalSnapshot()
+	ui.beginDisplayedInput()
+	ui.endDisplayedInput()
 	g.mouseLeftClicks = []queuedClick{{x: 1, y: 2}}
 	g.mouseRightClicks = []queuedClick{{x: 3, y: 4}}
 
 	g.dialogActive = false
 	g.rosterScreenOpen = true
-	if !ui.claimQueueIfModalChanged(&inputLayer) {
+	if ui.displayedInputCurrent() {
 		t.Fatal("dialog-to-roster replacement was not detected")
 	}
-	if inputLayer.layer != modalLayerRoster {
-		t.Fatalf("input owner = %d, want roster %d", inputLayer.layer, modalLayerRoster)
+	ui.dispatchDisplayedInput()
+	if layer := ui.topModalLayer(); layer != modalLayerRoster {
+		t.Fatalf("input owner = %d, want roster %d", layer, modalLayerRoster)
 	}
 	if len(g.mouseLeftClicks) != 0 || len(g.mouseRightClicks) != 0 {
 		t.Fatal("clicks from the prior modal survived into its replacement")
@@ -374,23 +376,28 @@ func TestOverlayWidgetsCannotEatTopModalClicks(t *testing.T) {
 	nextClick := queuedClick{x: pagerX + gridW - 15, y: pagerY + 9, at: 1000}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen) // present the dialog as the top layer
 
 	// CONTROL: with the dialog on top its own pager click must work.
 	g.mouseLeftClicks = []queuedClick{nextClick}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.spellTraderPage != 1 {
 		t.Fatal("control failed: the pager click never flipped the trader page")
 	}
 	g.spellTraderPage = 0
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen) // resync the rendered snapshot after the reset
 
 	// A level-up choice opens on top (quest turn-in during the dialog).
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0, level: 2}}
 	g.levelUpChoiceOpen = true
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen) // present the new top layer
 
 	g.mouseLeftClicks = []queuedClick{nextClick}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.spellTraderPage != 0 {
 		t.Fatal("the dialog's pager consumed a click owned by the level-up choice above it")

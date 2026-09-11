@@ -1224,6 +1224,7 @@ func (m *Monster3D) HasPathToTile(collisionChecker CollisionChecker, targetTileX
 }
 
 func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int) []TileCoord {
+	m.PathSearchCount++
 	if maxX < minX || maxY < minY {
 		return nil
 	}

@@ -261,6 +261,7 @@ func TestWeaponMasterCrossfireTurnBasedUsesAllActionsAndHands(t *testing.T) {
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
 
 	gl := &GameLoop{game: cs.game}
+	cs.game.refreshMonsterAIState()
 	gl.monsterAttackFoeTurnBased(champ, bounds[0])
 
 	for i, bound := range bounds {

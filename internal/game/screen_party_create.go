@@ -217,11 +217,11 @@ func (g *MMGame) updatePartyCreate() {
 	}
 
 	lay := partyCreateLayout(pc, g.config.GetScreenWidth(), g.config.GetScreenHeight())
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := pointerPosition()
 
 	// Resolve an in-progress drag on release.
 	if pc.drag != nil {
-		if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		if pointerLeftJustRelease() {
 			dropSlot := -1
 			for i := 0; i < 4; i++ {
 				if lay.slots[i].contains(mouseX, mouseY) {
@@ -238,7 +238,7 @@ func (g *MMGame) updatePartyCreate() {
 	// A press is pending: promote to a drag once the cursor moves past the
 	// threshold; a release before then was just a click (already selected).
 	if pc.pending != nil {
-		if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		if !pointerLeftPressed() {
 			pc.clearPending()
 			return
 		}
@@ -252,7 +252,7 @@ func (g *MMGame) updatePartyCreate() {
 		return
 	}
 
-	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if !pointerLeftJustPressed() {
 		return
 	}
 

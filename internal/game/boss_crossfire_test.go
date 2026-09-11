@@ -123,7 +123,7 @@ func TestInactiveBossesIgnoreBoundAlliesRT(t *testing.T) {
 			snapshot := game.collisionSystem.Snapshot()
 			wrappers := make([]*MonsterWrapper, 0, len(game.world.Monsters))
 			for _, m := range game.world.Monsters {
-				wrapper := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, snapshot: snapshot, game: game}
+				wrapper := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, snapshot: snapshot, frame: game.monsterFrameContext()}
 				wrapper.Update()
 				wrappers = append(wrappers, wrapper)
 			}

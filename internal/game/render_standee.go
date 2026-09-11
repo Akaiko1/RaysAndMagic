@@ -92,7 +92,7 @@ func (r *Renderer) retainedSpriteCPU(src *ebiten.Image) *image.RGBA {
 		if cpu := r.lazySpriteCPUPixels[img]; cpu != nil {
 			return cpu
 		}
-		if task := r.mapRenderResourcePrewarmActive; task != nil && !task.cancelled {
+		if task := r.mapRenderResourcePrewarmActive; r.mapRenderTaskCurrent(task) {
 			return task.cpuImages[img]
 		}
 		return nil

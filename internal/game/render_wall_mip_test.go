@@ -270,7 +270,7 @@ func TestWallRipmapHasOneAuthoritativeBuilder(t *testing.T) {
 			prepared := image.NewRGBA(image.Rect(0, 0, 8, 8))
 			r := &Renderer{wallRipmaps: make(map[*ebiten.Image]*wallRipmap)}
 			t.Cleanup(func() {
-				r.clearWallRipmaps()
+				r.resetMapRenderResourceResidency()
 				source.Deallocate()
 			})
 			tt.run(t, r, source, prepared)
@@ -302,7 +302,7 @@ func TestSynchronousWallRipmapBuilderUsesGutteredLevelBounds(t *testing.T) {
 			}
 		})
 	}
-	r.clearWallRipmaps()
+	r.resetMapRenderResourceResidency()
 }
 
 func TestResetMapRenderResourceResidencyClearsWallRipmaps(t *testing.T) {
@@ -344,7 +344,7 @@ func TestWallRipmapBudgetFallsBackBeforeAllocation(t *testing.T) {
 			if _, _, _, ok := r.wallMipSource(source); ok {
 				t.Fatal("budget fallback exposed an unusable ripmap")
 			}
-			r.clearWallRipmaps()
+			r.resetMapRenderResourceResidency()
 		})
 	}
 }

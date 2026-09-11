@@ -161,6 +161,10 @@ type Renderer struct {
 	// same map scan that builds the sprite caches. The map-resource prewarmer uses
 	// it instead of rescanning the world or maintaining a parallel asset list.
 	mapRenderTileTypes              []world.TileType3D
+	processedSpriteOrigins          map[*ebiten.Image]processedSpriteKey
+	animFrameOrigins                map[*ebiten.Image]*ebiten.Image
+	mapRenderRegistry               *renderResourceRegistry
+	mapRenderGeneration             uint64
 	mapRenderResourcePrewarmPending bool
 	mapRenderResourcePrewarmMapKeys []string
 	mapRenderResourcePrewarmActive  *mapRenderPrewarmTask
@@ -2166,7 +2170,7 @@ func (r *Renderer) getProcessedSpriteByName(tileType world.TileType3D, spriteNam
 		return cached
 	}
 	processed := applyBrightnessToAlpha(sprite, tileData.AlphaFromBrightness)
-	r.processedSpriteCache[cacheKey] = processed
+	r.cacheProcessedSprite(cacheKey, processed)
 	r.trackResidentProcessedKey(cacheKey)
 	return processed
 }
@@ -4613,6 +4617,7 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 	if h <= 0 || w != h*SpriteSheetFrameCount {
 		frames := []*ebiten.Image{sprite}
 		r.animFrameCache[sprite] = frames
+		r.indexAnimationViews(sprite, frames)
 		return frames
 	}
 
@@ -4625,6 +4630,7 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 		frames[i] = sprite.SubImage(rect).(*ebiten.Image)
 	}
 	r.animFrameCache[sprite] = frames
+	r.indexAnimationViews(sprite, frames)
 	return frames
 }
 

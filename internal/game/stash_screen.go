@@ -229,7 +229,7 @@ func (ui *UISystem) updateStashDrag(now int64) bool {
 		wasArmed := g.stashDragArmed
 		g.stashDragCurX, g.stashDragCurY = x, y
 		if g.stashDragActive && g.stashDragFrom >= 0 {
-			g.stashDragDrop = true // Draw resolves against the cell under the cursor
+			g.stashDragDrop = true // Update resolves against the displayed cell
 		} else {
 			if wasArmed && !g.stashDragActive {
 				// A press that never became a drag IS the click - queue it now,
@@ -510,9 +510,9 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open) {
+	ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open, func() {
 		g.closeStashScreen()
-	}
+	})
 }
 
 // drawStashManager renders and operates the actual stash grids. The caller owns
@@ -566,9 +566,11 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 		if interactive {
 			ui.stashSplitPickerTrigger(from, it, r)
 		}
-		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
-			g.resolveStashDrop(stashAddr{kind, i})
-		}
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
+				g.resolveStashDrop(stashAddr{kind, i})
+			}
+		})
 	}
 
 	// Party bag grid (bottom), paginated.
@@ -606,22 +608,31 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 			ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
 		}
 		// Dropping onto any bag cell returns a carried chest/card item to the bag.
-		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
-			g.resolveStashDrop(stashAddr{stashKindBag, idx})
-		}
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
+				g.resolveStashDrop(stashAddr{stashKindBag, idx})
+			}
+		})
 	}
 	pagerY := L.pagerY
 	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, interactive && !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
 	ui.drawStashCarriedIcon(screen)
-	if interactive && g.stashDragDrop {
-		g.clearStashDrag()
-	}
+	ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+		if interactive && g.stashDragDrop {
+			g.clearStashDrag()
+		}
+	})
 }
 
 // stashCellSource captures a chest cell as a drag source.
 func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCellSource(i, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return
@@ -634,6 +645,11 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 
 // stashInvSource captures a bag cell as a drag source.
 func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashInvSource(idx, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return
@@ -658,6 +674,11 @@ func (ui *UISystem) beginStashDrag(from int, item items.Item) {
 // stashSplitPickerTrigger opens the exact quantity picker on right-click. The
 // regular Shift-drag one-unit shortcut remains available for rapid transfers.
 func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{}, func() { ui.stashSplitPickerTrigger(from, item, r) })
+		return
+	}
+
 	g := ui.game
 	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
 		return
@@ -712,10 +733,12 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
 	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
-		g.stashShowCards = !g.stashShowCards
-		g.clearStashDrag()
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{rt.Min.X, rt.Min.Y, (rt.Max.X) - (rt.Min.X), (rt.Max.Y) - (rt.Min.Y)}, func() {
+		if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
+			g.stashShowCards = !g.stashShowCards
+			g.clearStashDrag()
+		}
+	})
 }
 
 // stashCellTooltip queues the item tooltip for a hovered, filled cell (chest,
@@ -744,6 +767,11 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 
 // stashCardSource captures a card cell as a drag source.
 func (ui *UISystem) stashCardSource(i int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCardSource(i, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return

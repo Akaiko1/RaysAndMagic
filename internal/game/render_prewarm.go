@@ -75,6 +75,7 @@ type mapRenderPrewarmStats struct {
 }
 
 type mapRenderPrewarmTask struct {
+	queueBudget        *graphics.PreparationBudget
 	mapKey             string
 	plan               mapRenderPrewarmPlan
 	priorities         mapRenderPrewarmPriorities
@@ -91,8 +92,9 @@ type mapRenderPrewarmTask struct {
 	nextStep           int
 	ctx                context.Context
 	cancel             context.CancelFunc
-	cancelled          bool
-	committed          bool
+	state              mapRenderTaskState
+	generation         uint64
+	world              *world.World3D
 	cpuImages          map[*ebiten.Image]*image.RGBA
 	standeeJobs        []mapRenderStandeeJob
 	wallRipmapBuilders []*mapRenderWallRipmapBuilder
@@ -110,6 +112,7 @@ type mapRenderStandeeJob struct {
 }
 
 type mapRenderPreparedStandee struct {
+	lease    *graphics.PreparationLease
 	key      standeeCoreKey
 	source   *ebiten.Image
 	prepared standeePreparedPixels
@@ -138,6 +141,7 @@ type mapRenderStandeeCommit struct {
 }
 
 func newMapRenderStandeeCommit(prepared mapRenderPreparedStandee) *mapRenderStandeeCommit {
+	defer prepared.lease.Release()
 	c := &mapRenderStandeeCommit{key: prepared.key, source: prepared.source}
 	if prepared.source == nil || prepared.prepared.sticker == nil || prepared.prepared.core == nil {
 		c.done = true
@@ -282,6 +286,7 @@ const (
 )
 
 type mapRenderPreparedSky struct {
+	lease *graphics.PreparationLease
 	name  string
 	image *image.RGBA
 }
@@ -922,7 +927,7 @@ func (p *mapRenderPrewarmer) processedSprite(resource processedSpriteKey) *ebite
 		return p.renderer.getProcessedSpriteByName(resource.tileType, resource.spriteName)
 	}
 	processed, processedCPU := applyBrightnessToAlphaCPU(cpu, data.AlphaFromBrightness)
-	p.renderer.processedSpriteCache[resource] = processed
+	p.renderer.cacheProcessedSprite(resource, processed)
 	if processed != nil && processedCPU != nil {
 		p.task.cpuImages[processed] = processedCPU
 	}
@@ -1054,7 +1059,7 @@ func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
 	}
 }
 
-func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64) <-chan mapRenderPreparedStandee {
+func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1068,11 +1073,21 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 				return
 			default:
 			}
+			var budget *graphics.PreparationBudget
+			if len(budgets) > 0 {
+				budget = budgets[0]
+			}
+			lease, ok := budget.Acquire(ctx, int64(len(job.cpu.Pix))*3)
+			if !ok {
+				return
+			}
 			prepared := mapRenderPreparedStandee{
+				lease:    lease,
 				key:      job.key,
 				source:   job.source,
 				prepared: prepareStandeePixels(job.cpu, tint, true),
 			}
+			lease.ReleaseOnCancel(ctx)
 			jobs[i] = mapRenderStandeeJob{}
 			select {
 			case results <- prepared:
@@ -1084,103 +1099,39 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 	return results
 }
 
-func (r *Renderer) deallocateStandeeKeys(keys, keep map[standeeCoreKey]struct{}) {
-	if len(keys) == 0 {
-		return
-	}
-	deallocate := make(map[*ebiten.Image]struct{})
-	for key := range keys {
-		if _, retained := keep[key]; retained {
-			continue
-		}
-		if core := r.standeeCoreCache[key]; core != nil {
-			deallocate[core] = struct{}{}
-			delete(r.standeeCoreCache, key)
-		}
-		if source := r.standeeRenderSourceCache[key]; source != nil {
-			deallocate[source] = struct{}{}
-			delete(r.standeeRenderSourceCache, key)
-		}
-		for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
-			mipKey := standeeMipKey{frame: key, layer: layer}
-			if chain := r.standeeMipCache[mipKey]; chain != nil {
-				for _, img := range chain.owned {
-					if img != nil {
-						deallocate[img] = struct{}{}
-					}
-				}
-				delete(r.standeeMipCache, mipKey)
-			}
-		}
-	}
-	for img := range deallocate {
-		img.Deallocate()
-	}
-}
-
-// deallocateStandeeMipSourceAliases drops a complete cached standee frame when
-// its sticker mip level 0 aliases a render source that was just evicted - a
-// SpriteManager image or a processed (alpha_from_brightness) copy.
-// Reduced mip levels and the generated core are still valid on their own, but
-// retaining them would let the stable environment key reuse a chain whose base
-// image has been deallocated and cleared.
-func (r *Renderer) deallocateStandeeMipSourceAliases(sources map[*ebiten.Image]struct{}) {
-	if len(sources) == 0 || len(r.standeeMipCache) == 0 {
-		return
-	}
-	keys := make(map[standeeCoreKey]struct{})
-	for mipKey, chain := range r.standeeMipCache {
-		if chain == nil || len(chain.levels) == 0 || chain.levels[0] == nil {
-			continue
-		}
-		if _, evicted := sources[chain.levels[0]]; evicted {
-			keys[mipKey.frame] = struct{}{}
-		}
-	}
-	r.deallocateStandeeKeys(keys, nil)
-}
-
 func (r *Renderer) resetMapRenderResourceResidency() {
 	if r == nil {
 		return
 	}
+	// Inventory the old world before dropping its manifests. GPU commits remain
+	// private until publication and are cancelled separately on this owner.
+	r.refreshRenderResourceRegistry()
+	r.mapRenderGeneration++
 	if task := r.mapRenderResourcePrewarmActive; task != nil {
 		r.cancelMapRenderPrewarmTask(task)
-		r.mapRenderResourcePrewarmActive = nil
-		r.deallocateMapRenderRegion(task.prewarmer.resources, r.retainedMapRenderResources())
 	}
-	for len(r.mapRenderResidentMapKeys) > 0 {
-		evicted := r.mapRenderResidentMapKeys[0]
-		r.mapRenderResidentMapKeys[0] = ""
-		r.mapRenderResidentMapKeys = r.mapRenderResidentMapKeys[1:]
-		r.deallocateMapRenderRegion(r.mapRenderResourcesByMap[evicted], r.retainedMapRenderResources())
-		delete(r.mapRenderResourcesByMap, evicted)
-	}
-	allKeys := make(map[standeeCoreKey]struct{}, len(r.standeeCoreCache))
-	for key := range r.standeeCoreCache {
-		allKeys[key] = struct{}{}
-	}
-	for key := range r.standeeMipCache {
-		allKeys[key.frame] = struct{}{}
-	}
-	r.deallocateStandeeKeys(allKeys, nil)
-	r.clearWallRipmaps()
-	for key, img := range r.processedSpriteCache {
-		if img != nil {
-			img.Deallocate()
-		}
-		delete(r.processedSpriteCache, key)
-	}
-	r.standeeCoreCache = nil
-	r.standeeRenderSourceCache = nil
-	r.standeeMipCache = nil
+	r.mapRenderResourcePrewarmActive = nil
 	r.mapRenderResidentMapKeys = nil
 	r.mapRenderResourcesByMap = nil
-	r.mapRenderResourcePrewarmPending = false
-	r.mapRenderResourcePrewarmMapKeys = nil
 	r.mapRenderUploadQueue = nil
 	r.mapRenderUploadQueued = nil
 	r.mapRenderShaderWarmTasks = nil
+	r.refreshRenderResourceRegistry()
+	all := make(map[renderResourceID]struct{}, len(r.mapRenderRegistry.records))
+	for id := range r.mapRenderRegistry.records {
+		all[id] = struct{}{}
+	}
+	r.mapRenderRegistry.releaseResources(all)
+	r.standeeCoreCache = nil
+	r.standeeRenderSourceCache = nil
+	r.standeeMipCache = nil
+	r.processedSpriteCache = nil
+	r.processedSpriteOrigins = nil
+	r.animFrameOrigins = nil
+	r.wallRipmaps = nil
+	r.wallRipmapBytes = 0
+	r.mapRenderResourcePrewarmPending = false
+	r.mapRenderResourcePrewarmMapKeys = nil
 	r.mapRenderLastCameraX = 0
 	r.mapRenderLastCameraY = 0
 	r.mapRenderLastCameraValid = false
@@ -1190,8 +1141,9 @@ func (r *Renderer) cancelMapRenderPrewarmTask(task *mapRenderPrewarmTask) {
 	if task == nil {
 		return
 	}
-	if !task.cancelled {
-		task.cancelled = true
+	r.dropMapRenderTaskSubmissions(task)
+	if !task.isCancelled() {
+		task.state = mapRenderTaskCancelled
 		if task.cancel != nil {
 			task.cancel()
 		}
@@ -1213,6 +1165,10 @@ func (r *Renderer) cancelMapRenderPrewarmTask(task *mapRenderPrewarmTask) {
 	}
 	task.wallRipmapBuilders = nil
 	task.cpuImages = nil
+	task.preparedSprites = nil
+	task.preparedSkies = nil
+	task.preparedStandees = nil
+	task.standeeJobs = nil
 }
 
 func (r *Renderer) scheduleMapRenderResourcePrewarm(mapKey string) {
@@ -1224,7 +1180,7 @@ func (r *Renderer) scheduleMapRenderResourcePrewarm(mapKey string) {
 			return
 		}
 	}
-	if active := r.mapRenderResourcePrewarmActive; active != nil && active.mapKey == mapKey && !active.cancelled {
+	if active := r.mapRenderResourcePrewarmActive; active != nil && active.mapKey == mapKey && r.mapRenderTaskCurrent(active) {
 		return
 	}
 	for _, queued := range r.mapRenderResourcePrewarmMapKeys {
@@ -1259,7 +1215,9 @@ func (r *Renderer) cancelMapRenderPrewarmOutside(keep map[string]struct{}) {
 		if _, retained := keep[active.mapKey]; !retained {
 			r.cancelMapRenderPrewarmTask(active)
 			r.mapRenderResourcePrewarmActive = nil
-			r.deallocateMapRenderRegion(active.prewarmer.resources, r.retainedMapRenderResources())
+			if active.prewarmer != nil {
+				r.deallocateMapRenderRegion(active.prewarmer.resources, r.retainedMapRenderResources())
+			}
 		}
 	}
 	r.mapRenderResourcePrewarmPending = r.mapRenderResourcePrewarmActive != nil || len(r.mapRenderResourcePrewarmMapKeys) > 0
@@ -1566,6 +1524,7 @@ func (r *Renderer) commitMapRenderResidency(mapKey string, resources *mapRenderR
 	}
 	r.mapRenderResourcesByMap[mapKey] = resources
 	r.mapRenderResidentMapKeys = append(r.mapRenderResidentMapKeys, mapKey)
+	r.refreshRenderResourceRegistry()
 	r.deallocateUnusedSkyPanoramas(r.retainedMapRenderResources().skies)
 }
 
@@ -1573,14 +1532,23 @@ func (r *Renderer) deallocateUnusedSkyPanoramas(keep map[string]struct{}) {
 	if r == nil || r.game == nil {
 		return
 	}
+	candidates := make(map[renderResourceID]struct{})
 	for name, img := range r.game.skyPanoramaCache {
-		if _, retained := keep[name]; retained || img == nil ||
-			img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
+		if _, retained := keep[name]; retained || img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
 			continue
 		}
-		img.Deallocate()
-		delete(r.game.skyPanoramaCache, name)
+		candidates[renderResourceID{kind: renderResourceSky, name: name}] = struct{}{}
 	}
+	// This check runs every open-world tick. Unchanged skies do not change any
+	// ownership; inventory the full dependency graph only when releasing one.
+	if len(candidates) == 0 {
+		return
+	}
+	r.refreshRenderResourceRegistry()
+	for name := range keep {
+		r.mapRenderRegistry.retain(renderResourceID{kind: renderResourceSky, name: name}, renderResourceOwner{role: "retained-sky"})
+	}
+	r.mapRenderRegistry.releaseResources(candidates)
 }
 
 func (r *Renderer) retainedMapRenderResources() *mapRenderRegionResources {
@@ -1595,7 +1563,7 @@ func (r *Renderer) retainedMapRenderResources() *mapRenderRegionResources {
 		retainMapRenderRegionResources(keep, r.mapRenderResourcesByMap[mapKey])
 	}
 	if active := r.mapRenderResourcePrewarmActive; active != nil &&
-		!active.cancelled && active.prewarmer != nil {
+		r.mapRenderTaskCurrent(active) && active.prewarmer != nil {
 		retainMapRenderRegionResources(keep, active.prewarmer.resources)
 	}
 	return keep
@@ -1623,53 +1591,14 @@ func retainMapRenderRegionResources(keep, resources *mapRenderRegionResources) {
 }
 
 func (r *Renderer) deallocateMapRenderRegion(resources, keep *mapRenderRegionResources) {
-	if resources == nil {
+	if r == nil || resources == nil {
 		return
 	}
-	if keep == nil {
-		keep = &mapRenderRegionResources{}
-	}
-	r.deallocateStandeeKeys(resources.standees, keep.standees)
-	evictedSources := make(map[*ebiten.Image]struct{})
-	for key := range resources.processed {
-		if _, retained := keep.processed[key]; retained {
-			continue
-		}
-		if img := r.processedSpriteCache[key]; img != nil {
-			evictedSources[img] = struct{}{}
-			delete(r.wallSliceColumns, img)
-			delete(r.animFrameCache, img)
-			img.Deallocate()
-		}
-		delete(r.processedSpriteCache, key)
-	}
-	for img := range resources.walls {
-		if _, retained := keep.walls[img]; !retained {
-			r.deallocateWallRipmap(img)
-		}
-	}
-	for name := range resources.skies {
-		if _, retained := keep.skies[name]; retained {
-			continue
-		}
-		img := r.game.skyPanoramaCache[name]
-		if img == nil || img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
-			continue
-		}
-		img.Deallocate()
-		delete(r.game.skyPanoramaCache, name)
-	}
-	for key := range resources.sources {
-		if _, retained := keep.sources[key]; retained {
-			continue
-		}
-		for _, img := range r.game.sprites.EvictResource(key.name, key.animationType) {
-			evictedSources[img] = struct{}{}
-			delete(r.wallSliceColumns, img)
-			delete(r.animFrameCache, img)
-		}
-	}
-	r.deallocateStandeeMipSourceAliases(evictedSources)
+	r.refreshRenderResourceRegistry()
+	candidates := r.registerResourceManifest(resources, nil)
+	owner := renderResourceOwner{role: "retained-manifest"}
+	r.registerResourceManifest(keep, &owner)
+	r.mapRenderRegistry.releaseResources(candidates)
 }
 
 func (r *Renderer) trackResidentSourceRequest(request graphics.SpriteResourceRequest) {
@@ -1682,6 +1611,12 @@ func (r *Renderer) trackResidentSourceRequest(request graphics.SpriteResourceReq
 }
 
 func (r *Renderer) trackResidentProcessedKey(key processedSpriteKey) {
+	if r.processedSpriteOrigins == nil {
+		r.processedSpriteOrigins = make(map[*ebiten.Image]processedSpriteKey)
+	}
+	if img := r.processedSpriteCache[key]; img != nil {
+		r.processedSpriteOrigins[img] = key
+	}
 	r.trackCurrentMapRenderResource(nil, &mapRenderSourceKey{name: key.spriteName}, &key)
 }
 
@@ -1699,7 +1634,7 @@ func (r *Renderer) trackResidentStandeeKey(key standeeCoreKey, source ...*ebiten
 		_, owned := resources.standees[key]
 		needsOwnership = !owned
 	}
-	if active := r.mapRenderResourcePrewarmActive; active != nil && !active.cancelled &&
+	if active := r.mapRenderResourcePrewarmActive; active != nil && r.mapRenderTaskCurrent(active) &&
 		active.mapKey == mapKey && active.prewarmer != nil {
 		_, owned := active.prewarmer.resources.standees[key]
 		needsOwnership = needsOwnership || !owned
@@ -1711,31 +1646,17 @@ func (r *Renderer) trackResidentStandeeKey(key standeeCoreKey, source ...*ebiten
 	var processedKey *processedSpriteKey
 	if len(source) > 0 && source[0] != nil {
 		img := source[0]
-		for key, candidate := range r.processedSpriteCache {
-			if candidate == img {
-				owned := key
-				processedKey = &owned
-				base := mapRenderSourceKey{name: key.spriteName}
-				sourceKey = &base
-				break
-			}
+		if key, ok := r.processedSpriteOrigins[img]; ok {
+			owned := key
+			processedKey = &owned
+			base := mapRenderSourceKey{name: key.spriteName}
+			sourceKey = &base
 		}
 		if sourceKey == nil && r.game != nil && r.game.sprites != nil {
-			request, ok := r.game.sprites.ResourceForImage(img)
-			if !ok {
-				for base, frames := range r.animFrameCache {
-					for _, frame := range frames {
-						if frame != img {
-							continue
-						}
-						request, ok = r.game.sprites.ResourceForImage(base)
-						break
-					}
-					if ok {
-						break
-					}
-				}
+			if root := r.animFrameOrigins[img]; root != nil {
+				img = root
 			}
+			request, ok := r.game.sprites.ResourceForImage(img)
 			if ok {
 				owned := mapRenderSourceKey{name: request.Name, animationType: request.AnimationType}
 				sourceKey = &owned
@@ -1775,7 +1696,7 @@ func (r *Renderer) trackCurrentMapRenderResource(standee *standeeCoreKey, source
 	}
 	track(r.mapRenderResourcesByMap[mapKey])
 	if active := r.mapRenderResourcePrewarmActive; active != nil &&
-		!active.cancelled && active.mapKey == mapKey && active.prewarmer != nil {
+		r.mapRenderTaskCurrent(active) && active.mapKey == mapKey && active.prewarmer != nil {
 		track(active.prewarmer.resources)
 	}
 }
@@ -1826,7 +1747,7 @@ func mapRenderSourceRequests(plan mapRenderPrewarmPlan) []graphics.SpriteResourc
 	return out
 }
 
-func prepareMapRenderSkies(ctx context.Context, names []string) <-chan mapRenderPreparedSky {
+func prepareMapRenderSkies(ctx context.Context, names []string, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedSky {
 	results := make(chan mapRenderPreparedSky, 1)
 	type skyDecodeJob struct {
 		name string
@@ -1848,6 +1769,14 @@ func prepareMapRenderSkies(ctx context.Context, names []string) <-chan mapRender
 				return
 			default:
 			}
+			var budget *graphics.PreparationBudget
+			if len(budgets) > 0 {
+				budget = budgets[0]
+			}
+			lease, ok := graphics.ReservePNGPreparation(ctx, job.path, budget)
+			if !ok {
+				return
+			}
 			img, err := decodePNG(job.path)
 			if err != nil {
 				img = nil
@@ -1858,8 +1787,9 @@ func prepareMapRenderSkies(ctx context.Context, names []string) <-chan mapRender
 				rgba = image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
 				draw.Draw(rgba, rgba.Bounds(), img, bounds.Min, draw.Src)
 			}
+			lease.ReleaseOnCancel(ctx)
 			select {
-			case results <- mapRenderPreparedSky{name: job.name, image: rgba}:
+			case results <- mapRenderPreparedSky{name: job.name, image: rgba, lease: lease}:
 			case <-ctx.Done():
 				return
 			}
@@ -1880,13 +1810,14 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 			continue
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		task := &mapRenderPrewarmTask{mapKey: mapKey, ctx: ctx, cancel: cancel}
+		task := &mapRenderPrewarmTask{mapKey: mapKey, ctx: ctx, cancel: cancel, generation: r.mapRenderGeneration, world: r.game.world}
+		task.queueBudget = graphics.NewPreparationBudget(32 << 20)
 		task.cpuImages = make(map[*ebiten.Image]*image.RGBA)
 		task.plan, task.priorities = r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(mapKey))
 		task.prewarmer = newMapRenderPrewarmer(r, task)
 		task.preparedSprites = r.game.sprites.PrepareResources(ctx,
-			orderedMapRenderSourceRequests(task.plan, task.priorities))
-		task.preparedSkies = prepareMapRenderSkies(ctx, skyTextureNamesForMap(mapKey))
+			orderedMapRenderSourceRequests(task.plan, task.priorities), task.queueBudget)
+		task.preparedSkies = prepareMapRenderSkies(ctx, skyTextureNamesForMap(mapKey), task.queueBudget)
 		r.mapRenderResourcePrewarmActive = task
 		break
 	}
@@ -1894,7 +1825,8 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 }
 
 func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bool {
-	if task == nil || task.cancelled {
+	if !r.mapRenderTaskCurrent(task) {
+		r.cancelMapRenderPrewarmTask(task)
 		return false
 	}
 	if task.standeeCommit != nil {
@@ -1967,6 +1899,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	if !task.skiesDone {
 		select {
 		case prepared, ok := <-task.preparedSkies:
+			prepared.lease.Release()
 			if !ok {
 				task.skiesDone = true
 			} else {
@@ -2204,7 +2137,7 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		tint := r.game.config.Graphics.Standee.CoreTint
 		jobs := task.standeeJobs
 		task.standeeJobs = nil
-		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint)
+		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint, task.queueBudget)
 	})
 	return steps
 }
@@ -2249,6 +2182,14 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 	if task == nil {
 		return mapRenderPrewarmStats{}
 	}
+	if !r.mapRenderTaskCurrent(task) {
+		r.cancelMapRenderPrewarmTask(task)
+		r.mapRenderResourcePrewarmActive = nil
+		if task.prewarmer != nil {
+			r.deallocateMapRenderRegion(task.prewarmer.resources, r.retainedMapRenderResources())
+		}
+		return mapRenderPrewarmStats{}
+	}
 	if r.drainPreparedMapRenderResource(task) {
 		return mapRenderPrewarmStats{}
 	}
@@ -2256,6 +2197,7 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		return mapRenderPrewarmStats{}
 	}
 	if task.steps == nil {
+		task.state = mapRenderTaskDerived
 		task.steps = r.buildMapRenderPrewarmSteps(task)
 		return mapRenderPrewarmStats{}
 	}
@@ -2273,7 +2215,7 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 	}
 	task.cpuImages = nil
 	r.finalizeMapRenderPrewarm(task)
-	task.committed = true
+	task.state = mapRenderTaskPublished
 	if task.cancel != nil {
 		task.cancel()
 	}
@@ -2295,7 +2237,7 @@ func mapRenderUploadFrameFull(imageCount int, frameBytes, nextImageBytes int64) 
 }
 
 func (r *Renderer) queueMapRenderUpload(img *ebiten.Image, task *mapRenderPrewarmTask) {
-	if r == nil || img == nil || task == nil || task.cancelled {
+	if r == nil || img == nil || !r.mapRenderTaskCurrent(task) {
 		return
 	}
 	if r.mapRenderUploadQueued == nil {
@@ -2359,7 +2301,7 @@ func (r *Renderer) submitMapRenderPrewarmUploads(dst mapRenderUploadDestination)
 	var consumedBytes int64
 	for consumed < len(r.mapRenderUploadQueue) && consumed < mapRenderUploadFrameImages {
 		upload := r.mapRenderUploadQueue[consumed]
-		if upload.image == nil || upload.task == nil || upload.task.cancelled {
+		if upload.image == nil || !r.mapRenderTaskCurrent(upload.task) {
 			delete(r.mapRenderUploadQueued, upload.image)
 			consumed++
 			continue
@@ -2395,7 +2337,7 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		task := r.mapRenderShaderWarmTasks[0]
 		r.mapRenderShaderWarmTasks[0] = nil
 		r.mapRenderShaderWarmTasks = r.mapRenderShaderWarmTasks[1:]
-		if task == nil || task.cancelled {
+		if !r.mapRenderTaskCurrent(task) {
 			continue
 		}
 		r.drawMapRenderStandeeShaderWarm(screen, task)

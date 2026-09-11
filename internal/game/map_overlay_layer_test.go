@@ -100,7 +100,9 @@ func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 	// POSITIVE CONTROL: with no modal up, that very click must reach the badge.
 	// Without this the test could pass simply by never hitting anything.
 	g.mapOverlayOpen = false
+	ui.Draw(screen) // publish the initial layout before input
 	g.mouseLeftClicks = []queuedClick{badgeClick}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.statPopupOpen {
 		t.Fatal("control failed: the badge click never reached the HUD, so the ordering assertion below proves nothing")
@@ -111,6 +113,7 @@ func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 	// Now the same click under an open map must be claimed by the modal layer.
 	g.mapOverlayOpen = true
 	g.mouseLeftClicks = []queuedClick{badgeClick}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 
 	if g.statPopupOpen {
@@ -152,10 +155,13 @@ func TestMapOverlayCloseDrainsBufferedClicks(t *testing.T) {
 	badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY,
 		panelPortraitW, panelPortraitH, true, false)
 	strayClick := queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: 1001}
+	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{closeClick, strayClick}
 	g.mouseRightClicks = []queuedClick{strayClick}
 
-	ui.Draw(ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()))
+	ui.dispatchDisplayedInput()
+	ui.Draw(screen)
 
 	if g.mapOverlayOpen {
 		t.Fatal("close button did not shut the overlay")
@@ -238,9 +244,11 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 	badgeClick := queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: 1000}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.Draw(screen) // publish the initial layout before input
 
 	// CONTROL: the badge click reaches the HUD when nothing modal is up.
 	g.mouseLeftClicks = []queuedClick{badgeClick}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.statPopupOpen {
 		t.Fatal("control failed: the badge click never reached the HUD")
@@ -255,6 +263,7 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 	closeClick := queuedClick{x: popupX + popupW - 40 + 14, y: popupY + 12 + 14, at: 1001}
 	g.mouseLeftClicks = []queuedClick{badgeClick, closeClick}
 
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if len(g.mouseLeftClicks) != 0 {
 		t.Fatalf("%d click(s) survived a modal frame - they will fire on the HUD next frame", len(g.mouseLeftClicks))
@@ -262,6 +271,7 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 
 	// Next frame with no modal: the stale press must not act.
 	statPopupWasOpen := g.statPopupOpen
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if member.FreeStatPoints != before {
 		t.Fatalf("a buffered click spent stat points after the modal closed: %d -> %d", before, member.FreeStatPoints)
@@ -299,8 +309,10 @@ func TestModalOpenedMidFrameIgnoresOlderQueuedClicks(t *testing.T) {
 	stale := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1060}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.Draw(screen) // publish the initial layout before input
 	// One cell consumes one click per frame, so the double click spans two frames.
 	g.mouseLeftClicks = []queuedClick{slotClick(1000)}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.mapOverlayOpen {
 		t.Fatal("a single click on the quick slot already opened the map")
@@ -308,6 +320,7 @@ func TestModalOpenedMidFrameIgnoresOlderQueuedClicks(t *testing.T) {
 	// Second press completes the double click; the third was already buffered
 	// behind it, aimed at where the map's close button is about to appear.
 	g.mouseLeftClicks = []queuedClick{slotClick(1050), stale}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.mapOverlayOpen {
 		t.Fatal("control failed: the double click did not open the map from the quick slot")
@@ -317,6 +330,7 @@ func TestModalOpenedMidFrameIgnoresOlderQueuedClicks(t *testing.T) {
 	}
 
 	// Next frame: the map must still be open - the stale press was never its input.
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.mapOverlayOpen {
 		t.Fatal("a click queued before the map opened closed it on the next frame")
@@ -351,7 +365,9 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 	stale := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1060}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.Draw(screen) // publish the initial layout before input
 	g.mouseLeftClicks = []queuedClick{itemClick(1000)}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.mapOverlayOpen {
 		t.Fatal("a single click on the inventory item already opened the map")
@@ -360,6 +376,7 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 	// Second press completes the double click that uses the item; the third was
 	// already buffered behind it.
 	g.mouseLeftClicks = []queuedClick{itemClick(1050), stale}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.mapOverlayOpen {
 		t.Fatal("control failed: double-clicking the map item did not open the overlay")
@@ -368,6 +385,7 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 		t.Fatalf("%d stale click(s) survived into the modal opened from the inventory", len(g.mouseLeftClicks))
 	}
 
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.mapOverlayOpen {
 		t.Fatal("a click queued before the map opened closed it on the next frame")
@@ -399,9 +417,12 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	ui.Draw(screen) // publish the initial layout before input
 	g.mouseLeftClicks = []queuedClick{itemClick(1000)}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{itemClick(1050)}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if !g.mapOverlayOpen {
 		t.Fatal("staging broke: the double click did not open the map from the inventory")
@@ -414,6 +435,7 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 	// End-to-end: the very next click on the close button must work.
 	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight()).close
 	g.mouseLeftClicks = []queuedClick{{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1100}}
+	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.mapOverlayOpen {
 		t.Fatal("the first quick click on the just-opened map did not close it")

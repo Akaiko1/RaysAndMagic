@@ -35,15 +35,15 @@ const (
 )
 
 // drawStatPointRow draws a single stat row with name, value, and + button
-func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
-	drawDebugText(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
+func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, value int, y, plusX, plusY, btnW, btnH int, canAdd, isHover bool) {
+	drawDebugText(screen, fmt.Sprintf("%s: %d", name, value), plusX-148, y)
 
 	// Check if stat is already at max (99)
-	atMax := *valuePtr >= MaxStatValue
-	canActuallyAdd := *canAdd && !atMax
+	atMax := value >= MaxStatValue
+	canActuallyAdd := canAdd && !atMax
 
 	var plusColor color.RGBA
-	if canActuallyAdd && *isHover {
+	if canActuallyAdd && isHover {
 		plusColor = color.RGBA{80, 200, 80, 220}
 	} else if atMax {
 		plusColor = color.RGBA{100, 100, 100, 180} // Gray out if at max
@@ -52,13 +52,6 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr
 	}
 	vector.FillRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
-	// Handle click
-	if canActuallyAdd && *isHover && clickIn {
-		(*valuePtr)++
-		*canAdd = false // Only allow one per click
-		return true
-	}
-	return false
 }
 
 // drawStatDistributionPopup draws the stat allocation popup for the selected character
@@ -107,50 +100,55 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	yStart := popupY + 80
 	btnW, btnH := 28, 28
 	mouseX, mouseY := ebiten.CursorPosition()
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	for i, stat := range statList {
 		y := yStart + i*36
 		plusX := popupX + 180
 		plusY := y - 4
 		canAdd := member.FreeStatPoints > 0
 		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
-		clickIn := interactive && ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
+		ui.drawStatPointRow(screen, stat.Name, *stat.Ptr, y, plusX, plusY, btnW, btnH, canAdd, isHover)
+		ui.onDisplayedInput(uiCommandHold, layoutRect{plusX, plusY, btnW, btnH}, func() {
+			mouseX, mouseY := pointerPosition()
+			isHover := isMouseHoveringBox(mouseX, mouseY, plusX, plusY, plusX+btnW, plusY+btnH)
+			mousePressed := pointerLeftPressed()
+			clickIn := interactive && ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
 
-		// Hold-to-repeat: once the user keeps the button held over the same
-		// +button past statHoldInitialDelay, fire an extra increment every
-		// statHoldRepeatRate frames. Single clicks still come through clickIn
-		// above unchanged.
-		if interactive && isHover && mousePressed {
-			if ui.statHoldStat == stat.Name {
-				ui.statHoldFrames++
-				if ui.statHoldFrames > statHoldInitialDelay &&
-					(ui.statHoldFrames-statHoldInitialDelay)%statHoldRepeatRate == 0 {
-					clickIn = true
+			// Hold-to-repeat: once the user keeps the button held over the same
+			// +button past statHoldInitialDelay, fire an extra increment every
+			// statHoldRepeatRate frames. Single clicks still come through clickIn
+			// above unchanged.
+			if !ui.displayedInput.processingClick && interactive && isHover && mousePressed {
+				if ui.statHoldStat == stat.Name {
+					ui.statHoldFrames++
+					if ui.statHoldFrames > statHoldInitialDelay &&
+						(ui.statHoldFrames-statHoldInitialDelay)%statHoldRepeatRate == 0 {
+						clickIn = true
+					}
+				} else {
+					ui.statHoldStat = stat.Name
+					ui.statHoldFrames = 0
 				}
-			} else {
-				ui.statHoldStat = stat.Name
+			} else if !ui.displayedInput.processingClick && ui.statHoldStat == stat.Name {
+				ui.statHoldStat = ""
 				ui.statHoldFrames = 0
 			}
-		} else if ui.statHoldStat == stat.Name {
-			ui.statHoldStat = ""
-			ui.statHoldFrames = 0
-		}
 
-		if ui.drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, clickIn) {
-			member.FreeStatPoints--
-			// Recompute HP/SP caps for the raised stat WITHOUT full-healing:
-			// spending a point grants only that stat's bonus, not a free heal.
-			member.RecalculateMaxStatsGrantingGain(ui.game.config)
-		}
+			if clickIn && member.FreeStatPoints > 0 && *stat.Ptr < MaxStatValue {
+				(*stat.Ptr)++
+				member.FreeStatPoints--
+				member.RecalculateMaxStatsGrantingGain(ui.game.config)
+			}
+		})
 	}
 
 	// Close button; only acts once the mouse was released after opening the popup.
 	closeX := popupX + popupW - 40
 	closeY := popupY + 12
-	isCloseHover := mouseX >= closeX && mouseX < closeX+28 && mouseY >= closeY && mouseY < closeY+28
-	if ui.drawPopupCloseButton(screen, closeX, closeY, 28, interactive && isCloseHover) && !ui.justOpenedStatPopup {
-		ui.game.statPopupOpen = false
-	}
+	ui.drawPopupCloseButton(screen, closeX, closeY, 28, interactive, func() {
+		if !ui.justOpenedStatPopup {
+			ui.game.statPopupOpen = false
+		}
+	})
 
 	// Reset justOpenedStatPopup after the first frame
 	if ui.justOpenedStatPopup {
@@ -190,10 +188,12 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawDebugText(screen, rowLabel(idx), popupX+24, y+6)
-		if interactive && isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			onPick(idx)
-			return
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{popupX + 16, y - 2, (popupX + popupW - 16) - (popupX + 16), (y - 2 + rowH) - (y - 2)}, func() {
+			if interactive && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+				onPick(idx)
+				return
+			}
+		})
 	}
 
 	if onCancel == nil {
@@ -201,9 +201,9 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 	}
 	// ESC is handled in HandleInput (edge-tracked, cannot miss a press between
 	// Draws); here only the close button.
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+12, 24, interactive) {
+	ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+12, 24, interactive, func() {
 		onCancel()
-	}
+	})
 }
 
 // drawRevivalPickerPopup draws the "Choose who to revive" overlay opened
@@ -285,9 +285,9 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 
 	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
 	// opening on the next frame; here only the close button.
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive) {
+	ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive, func() {
 		g.closeRosterScreen()
-	}
+	})
 }
 
 // drawRosterManager renders the complete roster workflow inside the supplied
@@ -326,9 +326,11 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawDebugText(screen, label(m), leftX+6, y+6)
-		if interactive && hover && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
-			g.rosterSelectedActive = i
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{leftX, y - 2, (leftX + colW) - (leftX), (y - 2 + rowH) - (y - 2)}, func() {
+			if interactive && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
+				g.rosterSelectedActive = i
+			}
+		})
 	}
 
 	// Reserve column
@@ -342,12 +344,14 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawDebugText(screen, label(m), rightX+6, y+6)
-		if interactive && hover && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
-			if g.rosterSelectedActive >= 0 {
-				g.swapRosterMember(g.rosterSelectedActive, j)
-				g.rosterSelectedActive = -1
+		ui.onDisplayedInput(uiCommandClick, layoutRect{rightX, y - 2, (rightX + colW) - (rightX), (y - 2 + rowH) - (y - 2)}, func() {
+			if interactive && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
+				if g.rosterSelectedActive >= 0 {
+					g.swapRosterMember(g.rosterSelectedActive, j)
+					g.rosterSelectedActive = -1
+				}
 			}
-		}
+		})
 	}
 	if len(g.party.Reserve) == 0 {
 		drawDebugText(screen, "(no benched heroes yet)", rightX+6, listY+6)
@@ -393,6 +397,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	if req == nil || req.charIndex < 0 || req.charIndex >= len(ui.game.party.Members) {
 		return
 	}
+	ui.registerDisplayedModalMouse((*InputHandler).handleLevelUpChoiceMouseInput, modalLayerLevelChoice)
 
 	member := ui.game.party.Members[req.charIndex]
 	screenW := ui.game.config.GetScreenWidth()
@@ -489,6 +494,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	if ui.game.dialogNPC == nil {
 		return
 	}
+	ui.registerDisplayedModalMouse((*InputHandler).handleDialogMouseInput, modalLayerDialog, modalLayerSkillTrainer)
 
 	screenWidth := ui.game.config.GetScreenWidth()
 	screenHeight := ui.game.config.GetScreenHeight()
@@ -549,6 +555,7 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	if npc.DialogueData == nil {
 		return
 	}
+	ui.registerDisplayedModalMouse((*InputHandler).handleEncounterMouseInput, modalLayerDialog)
 	dialogY := textY - dialogueBodyTextY
 	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogHeight)
 	for i, line := range layout.bodyLines {
@@ -693,9 +700,11 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 		drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
 		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
 		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
-		if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
-			ui.game.switchDialogTab(i)
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
+			if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
+				ui.game.switchDialogTab(i)
+			}
+		})
 	}
 }
 
@@ -834,14 +843,14 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 	// Page nav (only renders when there's more than one page).
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
-	if ui.drawPager(screen, dialogX+(600-gridW)/2, spellTraderPagerY(dialogY), gridW, &ui.game.spellTraderPage, pages, true) {
+	ui.drawPager(screen, dialogX+(600-gridW)/2, spellTraderPagerY(dialogY), gridW, &ui.game.spellTraderPage, pages, true, func() {
 		// Page changed: move the selection onto the new page so a keyboard
 		// purchase (Enter) can't buy a now-hidden spell from the previous page.
 		if first := ui.game.spellTraderPage * spellTraderPerPage; first < len(spellKeys) {
 			ui.game.dialogSelectedSpell = first
 			ui.game.selectedSpellKey = spellKeys[first]
 		}
-	}
+	})
 
 	// Instructions (two condensed lines).
 	drawDebugText(screen, clipDebugText("Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
@@ -922,6 +931,13 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 }
 
 func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	// The parent dialog remains decorative under this modal, but its popup's
+	// own pager still belongs to the displayed top layer.
+	suspended := ui.displayedInput.suspended
+	if ui.topModalLayer() == modalLayerSkillTrainer {
+		ui.displayedInput.suspended = false
+	}
+	defer func() { ui.displayedInput.suspended = suspended }()
 	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
 	drawFilledRect(screen, px, py, pw, ph, color.RGBA{30, 30, 50, 245})
 	drawRectBorder(screen, px, py, pw, ph, 3, color.RGBA{180, 150, 80, 240})
@@ -959,13 +975,13 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 			}
 			drawDebugText(screen, label, x+6, y)
 		}
-		// Pager sits between the last row slot and the instructions line; it
-		// consumes its own clicks in the draw pass (drawPager convention).
-		if ui.drawPager(screen, px+12, py+ph-46, 396, &ui.game.skillTrainerPage, pages, true) {
+		// Pager sits between the last row slot and the instructions line and
+		// registers its navigation action for Update.
+		ui.drawPager(screen, px+12, py+ph-46, 396, &ui.game.skillTrainerPage, pages, true, func() {
 			// Keep the highlight on the visible page so Enter / double-click
 			// always act on what's shown.
 			ui.game.dialogSelectedSpell = ui.game.skillTrainerPage * pageSize
-		}
+		})
 	}
 
 	drawDebugText(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
@@ -1090,7 +1106,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
 		}
 	}
-	pagerChanged := ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true)
+	ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true, ui.game.resetDialogClickTracker)
 
 	// Bag grid (right): the party's own goods. It is ALWAYS drawn - even at a
 	// shop that pays no coin - because it is the drop target of a drag-to-buy.
@@ -1130,31 +1146,30 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
 			}
 		}
-		if ui.drawPager(screen, rightX, pagerY, merchantGridW, &ui.game.merchantSellPage, sellPages, true) {
-			pagerChanged = true
-		}
+		ui.drawPager(screen, rightX, pagerY, merchantGridW, &ui.game.merchantSellPage, sellPages, true, func() {
+			ui.game.resetDialogClickTracker()
+		})
 	}
 	// A page flip is a navigation action between item clicks - break any in-flight
 	// double-click so the same absolute index across pages can't buy/sell by surprise.
-	if pagerChanged {
-		ui.game.resetDialogClickTracker()
-	}
 
 	// Drag across the counter opens the quantity picker (the drag state machine
 	// is shared with the stash): a bag stack dropped on the shelf SELLS, a shelf
 	// item dropped on the bag BUYS. Any other release just cancels the carry.
-	if merchantInteractive && ui.game.stashDragDrop {
-		stockGrid := image.Rect(leftX, gridTop, leftX+merchantGridW, pagerY)
-		bagGrid := image.Rect(rightX, gridTop, rightX+merchantGridW, pagerY)
-		src, ok := decodeStashFrom(ui.game.stashDragFrom)
-		switch {
-		case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
-			ui.beginMerchantSellPicker(src.idx)
-		case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
-			ui.beginMerchantBuyPicker(src.idx)
+	ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+		if merchantInteractive && ui.game.stashDragDrop {
+			stockGrid := image.Rect(leftX, gridTop, leftX+merchantGridW, pagerY)
+			bagGrid := image.Rect(rightX, gridTop, rightX+merchantGridW, pagerY)
+			src, ok := decodeStashFrom(ui.game.stashDragFrom)
+			switch {
+			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
+				ui.beginMerchantSellPicker(src.idx)
+			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
+				ui.beginMerchantBuyPicker(src.idx)
+			}
+			ui.game.clearStashDrag()
 		}
-		ui.game.clearStashDrag()
-	}
+	})
 	ui.drawStashCarriedIcon(screen)
 
 	// Full item card on hover, floating at the cursor (drawn over everything via
@@ -1376,10 +1391,12 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		by := startY + i*(btnH+gap)
 		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
 		ui.drawMenuButton(screen, "", b.label, bx, by, btnW, btnH, hover)
-		if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
-			b.action()
-			return
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, (bx + btnW) - (bx), (by + btnH) - (by)}, func() {
+			if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
+				b.action()
+				return
+			}
+		})
 	}
 }
 
@@ -1505,9 +1522,8 @@ func (ui *UISystem) handleModalLayerInput() {
 	}
 }
 
-// handleMapOverlayInput claims the map overlay's clicks. It runs BEFORE the hub
-// draws (see drawOverlayInterfaces): the overlay is the topmost layer, and its
-// close button sits over the hub's inventory grid.
+// handleMapOverlayInput claims the map overlay's clicks before lower displayed
+// commands: its close button sits over the hub's inventory grid.
 func (ui *UISystem) handleMapOverlayInput() {
 	if ui == nil || ui.game == nil || !ui.game.mapOverlayOpen {
 		return
@@ -1516,14 +1532,11 @@ func (ui *UISystem) handleMapOverlayInput() {
 	layout := computeMapOverlayLayout(screenW, screenH)
 	if ui.game.consumeLeftClickIn(layout.close.x, layout.close.y, layout.close.right(), layout.close.bottom()) {
 		ui.game.mapOverlayOpen = false
-		// The map closes before the HUD and character hub draw. Drain every
-		// sibling click now: waiting for Draw's deferred cleanup would let a
-		// buffered press act on the newly uncovered interface first.
+		// Sibling clicks still belong to the map the player saw. They cannot act
+		// on the uncovered interface until a new display has been published.
 		ui.dropQueuedClicks()
 	}
-	// Anything else buffered under the overlay is dropped by the frame-end rule in
-	// UISystem.Draw (modalOwnedFrame), which covers EVERY modal - not just this
-	// one. Draining here as well would only hide whether that rule works.
+	// The Update dispatcher drops other unmatched events owned by any modal.
 }
 
 // drawMapOverlay renders the current map with NPCs and teleporters.
@@ -1883,9 +1896,11 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 			drawCenteredDebugText(screen, "Claim Reward", buttonX, buttonY, buttonWidth, buttonHeight)
 
 			// Handle click on claim button
-			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
-				ui.claimQuestReward(quest.ID)
-			}
+			ui.onDisplayedInput(uiCommandClick, layoutRect{buttonX, buttonY, (buttonX + buttonWidth) - (buttonX), (buttonY + buttonHeight) - (buttonY)}, func() {
+				if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
+					ui.claimQuestReward(quest.ID)
+				}
+			})
 		}
 
 	}
@@ -1900,12 +1915,12 @@ func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages
 		return
 	}
 	interactive := !ui.modalLayerOwnsInput()
-	if ui.drawPagerButton(screen, x, y, "<", interactive && ui.questPage > 0) {
+	ui.drawPagerButton(screen, x, y, "<", interactive && ui.questPage > 0, func() {
 		ui.questPage--
-	}
-	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", interactive && ui.questPage < totalPages-1) {
+	})
+	ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", interactive && ui.questPage < totalPages-1, func() {
 		ui.questPage++
-	}
+	})
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
 }
 

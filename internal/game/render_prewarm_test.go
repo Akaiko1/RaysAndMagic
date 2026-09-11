@@ -686,7 +686,7 @@ func TestLazyStandeeOwnershipCoversCurrentRegionStates(t *testing.T) {
 			}
 			var activeResources *mapRenderRegionResources
 			if tt.activeMapKey != "" {
-				task := &mapRenderPrewarmTask{mapKey: tt.activeMapKey, cancelled: tt.activeCancelled}
+				task := &mapRenderPrewarmTask{mapKey: tt.activeMapKey, state: testMapRenderTaskState(tt.activeCancelled)}
 				task.prewarmer = newMapRenderPrewarmer(r, task)
 				activeResources = task.prewarmer.resources
 				r.mapRenderResourcePrewarmActive = task
@@ -752,7 +752,7 @@ func TestMapRenderTaskQueueRemovalClearsBackingEntries(t *testing.T) {
 					return []mapRenderUpload{
 						{task: &mapRenderPrewarmTask{mapKey: "nil-image"}},
 						{image: ebiten.NewImage(1, 1)},
-						{image: ebiten.NewImage(1, 1), task: &mapRenderPrewarmTask{mapKey: "cancelled", cancelled: true}},
+						{image: ebiten.NewImage(1, 1), task: &mapRenderPrewarmTask{mapKey: "cancelled", state: mapRenderTaskCancelled}},
 					}
 				},
 				submit: true,
@@ -881,7 +881,7 @@ func TestMapRenderTaskQueueRemovalClearsBackingEntries(t *testing.T) {
 			{
 				name: "draw skips and releases cancelled task",
 				tasks: []*mapRenderPrewarmTask{
-					{mapKey: "cancelled", cancelled: true}, {mapKey: "live"},
+					{mapKey: "cancelled", state: mapRenderTaskCancelled}, {mapKey: "live"},
 				},
 				draw: true,
 			},
@@ -1167,7 +1167,7 @@ func TestLazyRenderResourceOwnershipCaseTable(t *testing.T) {
 			makeSource: func(r *Renderer, _ *graphics.SpriteManager) *ebiten.Image {
 				key := processedSpriteKey{tileType: world.TileType3D(777), spriteName: "forest_oak"}
 				img := ebiten.NewImage(4, 4)
-				r.processedSpriteCache[key] = img
+				r.cacheProcessedSprite(key, img)
 				return img
 			},
 			wantSource:    mapRenderSourceKey{name: "forest_oak"},
@@ -1187,7 +1187,7 @@ func TestLazyRenderResourceOwnershipCaseTable(t *testing.T) {
 				}
 				var active *mapRenderRegionResources
 				if ownerCase.activeMapKey != "" {
-					task := &mapRenderPrewarmTask{mapKey: ownerCase.activeMapKey, cancelled: ownerCase.activeCancelled}
+					task := &mapRenderPrewarmTask{mapKey: ownerCase.activeMapKey, state: testMapRenderTaskState(ownerCase.activeCancelled)}
 					task.prewarmer = newMapRenderPrewarmer(r, task)
 					active = task.prewarmer.resources
 					r.mapRenderResourcePrewarmActive = task
@@ -1260,7 +1260,7 @@ func TestLazySourceOwnershipIsScopedToWorldRender(t *testing.T) {
 			}
 			var active *mapRenderRegionResources
 			if tt.active {
-				task := &mapRenderPrewarmTask{mapKey: "forest"}
+				task := &mapRenderPrewarmTask{mapKey: "forest", generation: r.mapRenderGeneration, world: g.world}
 				task.prewarmer = newMapRenderPrewarmer(r, task)
 				active = task.prewarmer.resources
 				r.mapRenderResourcePrewarmActive = task
@@ -1342,10 +1342,10 @@ func TestCancelMapRenderPrewarmOutsideReleasesInFlightGPUImages(t *testing.T) {
 
 	r.cancelMapRenderPrewarmOutside(map[string]struct{}{})
 
-	if r.mapRenderResourcePrewarmActive != nil || !task.cancelled || task.skyCommit != nil ||
+	if r.mapRenderResourcePrewarmActive != nil || !task.isCancelled() || task.skyCommit != nil ||
 		task.standeeCommit != nil || len(task.wallRipmapBuilders) != 0 {
 		t.Fatalf("cancel path retained in-flight state: active=%v cancelled=%v sky=%v standee=%v walls=%d",
-			r.mapRenderResourcePrewarmActive != nil, task.cancelled, task.skyCommit != nil,
+			r.mapRenderResourcePrewarmActive != nil, task.isCancelled(), task.skyCommit != nil,
 			task.standeeCommit != nil, len(task.wallRipmapBuilders))
 	}
 	if skyCommit.image != nil || skyCommit.cpu != nil {
@@ -1648,16 +1648,16 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 		wantCached     bool
 	}{
 		{
-			name:         "retained environment key loses evicted static alias",
-			resourceName: "forest_oak", keyRetained: true,
+			name:         "retained environment key retains static dependency",
+			resourceName: "forest_oak", keyRetained: true, wantCached: true,
 		},
 		{
-			name:         "retained monster key loses evicted animation alias",
-			resourceName: "dire_wolf", animationType: "walking_r", keyRetained: true,
+			name:         "retained monster key retains animation dependency",
+			resourceName: "dire_wolf", animationType: "walking_r", keyRetained: true, wantCached: true,
 		},
 		{
-			name:         "retained key loses evicted processed alias",
-			resourceName: "forest_oak", processed: true, keyRetained: true,
+			name:         "retained key retains processed dependency",
+			resourceName: "forest_oak", processed: true, keyRetained: true, wantCached: true,
 		},
 		{
 			name:         "alias survives retained processed key",
@@ -1730,14 +1730,7 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 				t.Fatal("failed to seed unrelated standee cache")
 			}
 			defer func() {
-				allKeys := make(map[standeeCoreKey]struct{})
-				for cachedKey := range r.standeeCoreCache {
-					allKeys[cachedKey] = struct{}{}
-				}
-				for cachedKey := range r.standeeMipCache {
-					allKeys[cachedKey.frame] = struct{}{}
-				}
-				r.deallocateStandeeKeys(allKeys, nil)
+				r.resetMapRenderResourceResidency()
 				unrelatedSource.Deallocate()
 				sprites.EvictResource(tt.resourceName, tt.animationType)
 				for cachedKey, img := range r.processedSpriteCache {
@@ -1784,8 +1777,9 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 			}
 
 			reloaded := loadSource()
-			if gotSame := reloaded == source; gotSame != tt.sourceRetained {
-				t.Errorf("source pointer retained = %v, want %v", gotSame, tt.sourceRetained)
+			wantSource := tt.sourceRetained || tt.keyRetained && !tt.ownedLevelZero
+			if gotSame := reloaded == source; gotSame != wantSource {
+				t.Errorf("source pointer retained = %v, want %v", gotSame, wantSource)
 			}
 			if !tt.wantCached {
 				reloadedKey := makeStandeeCoreKey("test:"+tt.resourceName, reloaded, stableImage)
@@ -2249,4 +2243,11 @@ func TestPrewarmRetainsCPUImagesUntilDerivedWorkFinishes(t *testing.T) {
 	if task.cpuImages != nil {
 		t.Fatal("prewarm cancellation retained CPU pixels")
 	}
+}
+
+func testMapRenderTaskState(cancelled bool) mapRenderTaskState {
+	if cancelled {
+		return mapRenderTaskCancelled
+	}
+	return mapRenderTaskSources
 }

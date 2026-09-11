@@ -166,12 +166,14 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 		// Double-click to buy (dialog list convention): the first click only
 		// selects, so a stray click can no longer spend the party's gold.
-		if ui.game.consumeLeftClickIn(x, y, x+w, y+h) {
-			if ui.game.dialogDoubleClick("buff_service", i) {
-				ui.game.pendingBuffService = choice
-				ui.game.resetDialogClickTracker()
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + w) - (x), (y + h) - (y)}, func() {
+			if ui.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ui.game.dialogDoubleClick("buff_service", i) {
+					ui.game.pendingBuffService = choice
+					ui.game.resetDialogClickTracker()
+				}
 			}
-		}
+		})
 	}
 
 	drawDebugText(screen, "Double-click a charm to have it cast. ESC to leave.",

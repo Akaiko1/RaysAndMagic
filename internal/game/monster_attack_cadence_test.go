@@ -18,7 +18,7 @@ func TestRTMonsterAttackCadence_KitingCannotBypassCooldown(t *testing.T) {
 	thief.MaxHitPoints, thief.HitPoints = 1_000_000, 1_000_000
 	thief.Luck = -thief.BuffBonuses.Luck // zero effective Luck -> no party-side dodge skews the count
 
-	mob := monsterPkg.NewMonster3DFromConfig(g.camera.X+1, g.camera.Y, "minotaur", g.config)
+	mob := monsterPkg.NewMonster3DFromConfig(g.camera.X+float64(g.config.GetTileSize()), g.camera.Y, "minotaur", g.config)
 	if mob == nil {
 		t.Fatal("failed to load minotaur from monsters.yaml")
 	}

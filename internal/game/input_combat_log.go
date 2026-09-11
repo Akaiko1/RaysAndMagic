@@ -32,19 +32,28 @@ func (ih *InputHandler) handleCombatLogInput() {
 		return
 	}
 
-	x, y, w, h := combatLogPanelLayout(g)
-	closeX, closeY := x+w-30, y+8
-	if g.consumeLeftClickIn(closeX, closeY, closeX+20, closeY+20) {
-		g.combatLogOpen = false
+	ih.handleCombatLogMouseInput()
+	if !g.combatLogOpen {
 		return
 	}
-
 	_, wheelY := ebiten.Wheel()
 	switch {
 	case wheelY > 0 || ih.keys.Consume(ebiten.KeyUp):
 		g.combatLogScroll += 3
 	case wheelY < 0 || ih.keys.Consume(ebiten.KeyDown):
 		g.combatLogScroll -= 3
+	}
+
+	g.clampCombatLogScroll()
+}
+
+func (ih *InputHandler) handleCombatLogMouseInput() {
+	g := ih.game
+	x, y, w, h := combatLogPanelLayout(g)
+	closeX, closeY := x+w-30, y+8
+	if g.consumeLeftClickIn(closeX, closeY, closeX+20, closeY+20) {
+		g.combatLogOpen = false
+		return
 	}
 
 	contentY, contentH := y+54, h-88
@@ -56,6 +65,11 @@ func (ih *InputHandler) handleCombatLogInput() {
 		g.combatLogScroll -= 3
 	}
 
+	g.clampCombatLogScroll()
+	g.consumeLeftClick()
+}
+
+func (g *MMGame) clampCombatLogScroll() {
 	maxScroll := len(g.combatLogHistory) - 1
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -66,6 +80,4 @@ func (ih *InputHandler) handleCombatLogInput() {
 	if g.combatLogScroll > maxScroll {
 		g.combatLogScroll = maxScroll
 	}
-
-	g.consumeLeftClick()
 }

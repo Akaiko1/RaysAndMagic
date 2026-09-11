@@ -279,6 +279,7 @@ type Monster3D struct {
 	PathTargetTileX  int
 	PathTargetTileY  int
 	LastPathCalcTick int
+	PathSearchCount  uint64 // Diagnostic count, actor-owned; never persisted or used by AI.
 	pathScratch      pathScratch
 	// Pursuit stall detection: a cached path is only recomputed when the target
 	// tile changes, so a route invalidated by a door or another dynamic obstacle
