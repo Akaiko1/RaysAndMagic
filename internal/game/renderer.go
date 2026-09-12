@@ -62,6 +62,8 @@ type standeeKeyNameParts struct {
 
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
+	floorPreparation *floorPreparation
+
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
@@ -1094,8 +1096,21 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return
 	}
 	if cacheKey == r.floorTexturesKey && r.floorTexAtlas != nil {
+		r.cancelFloorPreparation()
 		return // same biome (or same combined set), atlas already built
 	}
+	if r.game.gameLoop != nil && r.game.gameLoop.loading != nil && r.game.appScreen == AppScreenInGame {
+		r.startFloorPreparation(cacheKey, groupSources)
+		return
+	}
+	textures, groups := prepareFloorTextureGroups(groupSources)
+
+	r.buildFloorTexAtlas(textures)
+	r.floorTexGroups = groups
+	r.floorTexturesKey = cacheKey
+}
+
+func prepareFloorTextureGroups(groupSources map[string][]string) ([]floorTexture, map[string]floorTextureGroup) {
 	groupNames := floorTextureGroupLoadOrder(groupSources)
 	rawGroups := make(map[string][]floorTexture, len(groupNames))
 	for _, name := range groupNames {
@@ -1147,9 +1162,7 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		groups[name] = floorTextureGroup{start: start, count: len(texs)}
 	}
 
-	r.buildFloorTexAtlas(textures)
-	r.floorTexGroups = groups
-	r.floorTexturesKey = cacheKey
+	return textures, groups
 }
 
 // openWorldFloorTextureGroups combines every merged region's biome floor
@@ -1192,6 +1205,7 @@ func (r *Renderer) floorGroupLookupKey(tileX, tileY int, group string) string {
 }
 
 func (r *Renderer) clearFloorAtlas() {
+	r.cancelFloorPreparation()
 	r.floorTexAtlas = nil
 	r.floorTexGroups = nil
 	r.floorTexCount = 0
@@ -1232,6 +1246,19 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 		r.clearFloorAtlas()
 		return
 	}
+	atlas, tileW, tileH, maxMip := prepareFloorAtlas(textures)
+
+	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
+	r.floorTexCount = len(textures)
+	r.floorTexTileW = tileW
+	r.floorTexTileH = tileH
+	r.floorTexMaxMip = maxMip
+}
+
+func prepareFloorAtlas(textures []floorTexture) (*image.RGBA, int, int, int) {
+	if len(textures) == 0 {
+		return nil, 0, 0, 0
+	}
 	tileW := textures[0].width
 	tileH := textures[0].height
 	// Levels halve cleanly only while both dimensions stay even.
@@ -1263,11 +1290,7 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 			yOff += ch
 		}
 	}
-	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
-	r.floorTexCount = len(textures)
-	r.floorTexTileW = tileW
-	r.floorTexTileH = tileH
-	r.floorTexMaxMip = maxMip
+	return atlas, tileW, tileH, maxMip
 }
 
 // boxHalve downsamples an RGBA buffer to half size by averaging each 2x2
@@ -1326,6 +1349,11 @@ func (r *Renderer) withMapRenderSourceTracking(draw func()) {
 	if r == nil || r.game == nil || r.game.sprites == nil {
 		draw()
 		return
+	}
+	if gl := r.game.gameLoop; gl != nil && gl.loading != nil {
+		loading := gl.loading
+		loading.worldPass = true
+		defer func() { loading.worldPass = false }()
 	}
 	r.game.sprites.SetLazyResourceObserver(r.observeLazySpriteLoad)
 	defer func() {

@@ -733,8 +733,7 @@ func rollChampionMonsterKey() string {
 // lockout expires at the next sunrise.
 func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 
 	if g.livingChampion() != nil {
 		g.AddCombatMessage("A duel is already underway - finish it first!")

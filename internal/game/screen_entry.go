@@ -209,8 +209,8 @@ func (g *MMGame) returnToMainMenu() {
 		g.closeAudioSettings()
 	}
 	g.clearFocusMode()
-	g.mainMenuOpen = false
-	g.mainMenuMode = MenuMain
+	g.closeMainMenu()
+	g.closeConversation()
 	g.entryMenuMode = EntryMenuRoot
 	g.appScreen = AppScreenMainMenu
 }

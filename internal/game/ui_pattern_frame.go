@@ -86,12 +86,19 @@ func patternFrameGeometry(name string, src *ebiten.Image, fallbackSlice int) (sl
 func patternFrameFor(name string, slice int) *patternFrame {
 	key := patternFrameCacheKey{name: name, slice: slice}
 	patternFrameMu.Lock()
-	defer patternFrameMu.Unlock()
 	if pf, ok := patternFrameCache[key]; ok {
+		patternFrameMu.Unlock()
 		return pf
 	}
+	patternFrameMu.Unlock()
 	pf := analyzePatternFrame(name, slice)
-	patternFrameCache[key] = pf
+	patternFrameMu.Lock()
+	if existing, ok := patternFrameCache[key]; ok {
+		pf = existing
+	} else {
+		patternFrameCache[key] = pf
+	}
+	patternFrameMu.Unlock()
 	return pf
 }
 
@@ -314,7 +321,7 @@ func planPatternFrame(pf *patternFrame, w, h, sourceScale int) ([]frameOp, bool)
 func (ui *UISystem) drawPatternFrame(screen *ebiten.Image, name string, x, y, w, h, slice int) {
 	src := ui.game.sprites.GetSprite(name)
 	slice, sourceScale := patternFrameGeometry(name, src, slice)
-	pf := patternFrameFor(name, slice)
+	pf := ui.loadingPatternFrame(name, slice)
 	if pf == nil {
 		if sourceScale == 1 {
 			drawNineSlice(screen, src, x, y, w, h, slice)

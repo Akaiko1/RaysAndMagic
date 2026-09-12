@@ -195,7 +195,12 @@ func TestSaveRowModel(t *testing.T) {
 		t.Errorf("manual row 1 path = %q, want %q (old slot 0)", got, want)
 	}
 	// 3 pages x rows-per-page total rows; selected row offsets by page.
-	g := &MMGame{savePage: 2, slotSelection: 1}
+	g := &MMGame{
+		menuState: menuState{
+			savePage:      2,
+			slotSelection: 1,
+		},
+	}
 	if got, want := g.selectedSaveRow(), 2*saveRowsPerPage+1; got != want {
 		t.Errorf("selectedSaveRow = %d, want %d", got, want)
 	}

@@ -41,6 +41,18 @@ func (sm *SpriteManager) DetachResource(name, animationType string) []*ebiten.Im
 	if sm == nil {
 		return nil
 	}
+	delete(sm.failedResources, request)
+	indexedName := name
+	if animationType != "" {
+		indexedName += "_" + animationType
+	}
+	// Negative metadata must be retryable after an explicit invalidation too.
+	if entry, ok := sm.visibleFrameBounds[indexedName]; ok && !entry.known {
+		delete(sm.visibleFrameBounds, indexedName)
+	}
+	if mask, ok := sm.alphaMasks[indexedName]; ok && mask == nil {
+		delete(sm.alphaMasks, indexedName)
+	}
 	if animationType == "" {
 		delete(sm.sprites, name)
 	} else {

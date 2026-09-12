@@ -21,6 +21,9 @@ import (
 )
 
 type SpriteManager struct {
+	deferResource   func(SpriteResourceRequest) bool
+	failedResources map[SpriteResourceRequest]bool
+
 	imageResources   map[*ebiten.Image]SpriteResourceRequest
 	sprites          map[string]*ebiten.Image
 	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
@@ -108,6 +111,10 @@ func (sm *SpriteManager) ResourceForImage(img *ebiten.Image) (SpriteResourceRequ
 // false for an absent or invalid source. CommitPreparedResource is the only
 // path that turns it into Ebitengine images.
 type PreparedSpriteResource struct {
+	metadataReady bool
+	visible       spriteVisibleFrameBounds
+	alpha         *spriteAlphaMask
+
 	QueueLease *PreparationLease
 	Request    SpriteResourceRequest
 	Image      image.Image
@@ -399,6 +406,10 @@ func animationKey(name, animType string) animationCacheKey {
 // one-result buffer prevents a fast disk from retaining a whole region of
 // decoded RGBA images while the game loop is still committing earlier work.
 func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
+	return sm.prepareResources(ctx, requests, false, budgets...)
+}
+
+func (sm *SpriteManager) prepareResources(ctx context.Context, requests []SpriteResourceRequest, interactive bool, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
 	results := make(chan PreparedSpriteResource, 1)
 	if sm == nil {
 		close(results)
@@ -436,6 +447,9 @@ func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []Sprite
 				return
 			}
 			prepared := sm.decodePreparedResourceAtPath(job.request, job.path)
+			if interactive && prepared.Found {
+				prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
+			}
 			prepared.QueueLease = lease
 			lease.ReleaseOnCancel(ctx)
 			select {
@@ -485,6 +499,8 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	prepared.Found = prepared.Image != nil
 	if prepared.Found {
 		prepared.CPU = rgbaFromImage(prepared.Image)
+		prepared.metadataReady = true
+		prepared.visible = spriteVisibleFrameBoundsFromImage(prepared.Image)
 		if request.AnimationType != "" {
 			prepared.Frames = animationCPUFrames(prepared.CPU)
 		}
@@ -507,10 +523,35 @@ func (sm *SpriteManager) BeginPreparedResourceCommit(prepared PreparedSpriteReso
 		indexedName += "_" + request.AnimationType
 	}
 	if prepared.Found {
+		delete(sm.failedResources, request)
 		if sm.visibleFrameBounds == nil {
 			sm.visibleFrameBounds = make(map[string]spriteVisibleFrameBounds)
 		}
-		sm.visibleFrameBounds[indexedName] = spriteVisibleFrameBoundsFromImage(prepared.Image)
+		bounds := prepared.visible
+		if !prepared.metadataReady {
+			bounds = spriteVisibleFrameBoundsFromImage(prepared.Image)
+		}
+		sm.visibleFrameBounds[indexedName] = bounds
+		if prepared.alpha != nil {
+			if sm.alphaMasks == nil {
+				sm.alphaMasks = make(map[string]*spriteAlphaMask)
+			}
+			sm.alphaMasks[indexedName] = prepared.alpha
+		}
+	}
+	if !prepared.Found {
+		if sm.failedResources == nil {
+			sm.failedResources = make(map[SpriteResourceRequest]bool)
+		}
+		sm.failedResources[request] = true
+		if sm.visibleFrameBounds == nil {
+			sm.visibleFrameBounds = make(map[string]spriteVisibleFrameBounds)
+		}
+		sm.visibleFrameBounds[indexedName] = spriteVisibleFrameBounds{}
+		if sm.alphaMasks == nil {
+			sm.alphaMasks = make(map[string]*spriteAlphaMask)
+		}
+		sm.alphaMasks[indexedName] = nil
 	}
 	if request.AnimationType == "" {
 		if !prepared.Found {
@@ -782,8 +823,13 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 		return sprite
 	}
 
-	// Try to dynamically load the sprite if it's not already loaded
-	sm.loadSpriteIfExists(name)
+	// Runtime callers can defer a cold source without publishing a placeholder.
+	if sm.deferMissingResource(SpriteResourceRequest{Name: name}) {
+		return nil
+	}
+	if !sm.failedResources[SpriteResourceRequest{Name: name}] {
+		sm.loadSpriteIfExists(name)
+	}
 
 	// Check again after attempting to load
 	if sprite, exists := sm.sprites[name]; exists {
@@ -791,7 +837,10 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	}
 
 	// If still not found, create placeholder
-	return sm.createPlaceholder(name)
+	sprite := sm.createPlaceholder(name)
+	sm.sprites[name] = sprite
+	sm.indexResource(SpriteResourceRequest{Name: name})
+	return sprite
 }
 
 func (sm *SpriteManager) HasSprite(name string) bool {
@@ -817,6 +866,9 @@ func (sm *SpriteManager) SpriteOpaqueAt(name string, x, y int) (opaque, known bo
 	}
 	mask, cached := sm.alphaMasks[name]
 	if !cached {
+		if sm.deferMissingResource(SpriteResourceRequest{Name: name}) {
+			return false, false
+		}
 		mask = sm.loadSpriteAlphaMask(name)
 		sm.alphaMasks[name] = mask // nil is a cached decode failure
 	}
@@ -843,6 +895,9 @@ func (sm *SpriteManager) SpriteVisibleFrameBounds(name string) (bounds image.Rec
 	}
 	entry, cached := sm.visibleFrameBounds[name]
 	if !cached {
+		if sm.deferMissingResource(SpriteResourceRequest{Name: name}) {
+			return image.Rectangle{}, 0, 0, false
+		}
 		entry = sm.loadSpriteVisibleFrameBounds(name)
 		sm.visibleFrameBounds[name] = entry
 	}
@@ -1003,6 +1058,9 @@ func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
 		return anim
 	}
 	if sm.animationMissing[key] {
+		return nil
+	}
+	if sm.deferMissingResource(SpriteResourceRequest{Name: name, AnimationType: animType}) {
 		return nil
 	}
 	sm.loadAnimationIfExists(name, animType)

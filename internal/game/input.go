@@ -104,10 +104,7 @@ func (ih *InputHandler) HandleInput() {
 			ih.game.menuOpen = false
 			return
 		}
-		ih.game.mainMenuOpen = true
-		ih.game.mainMenuSelection = 0
-		ih.game.slotSelection = 0
-		ih.game.mainMenuMode = MenuMain
+		ih.game.openMainMenu()
 		return
 	}
 
@@ -177,7 +174,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			case g.mainMenuMode != MenuMain:
 				g.mainMenuMode = MenuMain
 			default:
-				g.mainMenuOpen = false
+				g.closeMainMenu()
 			}
 			break
 		}
@@ -187,10 +184,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			if g.skillTrainerPopup {
 				g.skillTrainerPopup = false
 			} else {
-				g.dialogActive = false
-				g.dialogNPC = nil
-				g.skillTrainerPopup = false
-				g.switchDialogTab(0)
+				g.closeConversation()
 			}
 			break
 		}
@@ -343,20 +337,11 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.dialogLastClickedIdx = -1
 
 	// Reset dialog/menu states
-	g.dialogActive = false
-	g.dialogNPC = nil
-	g.dialogSelectedSpell = 0
-	g.selectedCharIdx = 0
-	g.selectedSpellKey = ""
-	g.selectedChoice = 0
+	g.closeConversation()
 	g.menuOpen = false
 	g.mapOverlayOpen = false
 	g.currentTab = TabInventory
-	g.mainMenuOpen = false
-	g.mainMenuMode = MenuMain
-	g.mainMenuSelection = 0
-	g.slotSelection = 0
-	g.closeSaveRename()
+	g.closeMainMenu()
 	g.exitRequested = false
 
 	// Reset every timed effect family (buffs, zones, utility flags)
@@ -631,22 +616,6 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	}
 }
 
-// closeSaveRename dismisses the save-rename modal and clears its scratch state.
-func (g *MMGame) closeSaveRename() {
-	g.saveRenameOpen = false
-	g.saveRenameSlot = -1
-	g.saveRenameInput = ""
-}
-
-// openSaveLoad switches the main menu into a save/load slot list, resetting the
-// cursor to the first row of the first page. Single source for the "open a slot
-// list" state so a new reset field is added in one place.
-func (g *MMGame) openSaveLoad(mode MainMenuMode) {
-	g.mainMenuMode = mode
-	g.slotSelection = 0
-	g.savePage = 0
-}
-
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
 // Autosave slot and empty slots with a message.
 func (ih *InputHandler) openSaveRename(row int) {
@@ -728,7 +697,7 @@ func (ih *InputHandler) doLoadFromSelectedRow() {
 		g.AddCombatMessage("Load failed")
 	} else {
 		g.AddCombatMessage("Loaded " + saveRowLabel(row))
-		g.mainMenuOpen = false
+		g.closeMainMenu()
 		g.mainMenuMode = MenuMain
 	}
 }
@@ -1316,8 +1285,9 @@ func (ih *InputHandler) checkTeleporter() {
 	// path as enter_map portals). Two merged regions share one world - that's a
 	// same-world jump, not a map switch.
 	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
-		ih.switchToMap(targetMapKey)
-		ih.finishMapArrival(newX, newY, AngleNorth)
+		if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, pose: MapPose{X: newX, Y: newY, Angle: AngleNorth}}); err != nil {
+			ih.game.AddCombatMessage("Teleport failed: " + err.Error())
+		}
 		return
 	}
 
@@ -1327,9 +1297,6 @@ func (ih *InputHandler) checkTeleporter() {
 		ih.game.snapToCardinalDirection()
 	}
 }
-
-// switchToMap performs a world switch and refreshes render caches for the new map
-// This ensures environment sprites and floor colors reflect the active world
 
 // tryTeleportation checks if the player is on a teleporter and attempts teleportation using the global registry
 func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
@@ -1386,90 +1353,6 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	return dest.MapKey, nx, ny, true
 }
 
-// switchToMap handles common map switching logic for teleporters and spell effects
-func (ih *InputHandler) switchToMap(targetMapKey string) {
-	oldWorld := ih.game.world
-	err := world.GlobalWorldManager.SwitchToMap(targetMapKey)
-	if err != nil {
-		fmt.Printf("Failed to switch to map %s: %v\n", targetMapKey, err)
-		return
-	}
-
-	// Update world reference and collision system
-	ih.game.world = ih.game.GetCurrentWorld()
-	if oldWorld != ih.game.world {
-		ih.game.crumbleBoundAlliesOnDeparture(oldWorld)
-	}
-	ih.game.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
-	ih.game.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
-	// Sync the new world's Fly flag to the party NOW (not next frame): it may
-	// carry a stale flyActive from a previous visit, which would make walls read
-	// as passable to anything querying it before the frame's buff sync runs.
-	if ih.game.world != nil {
-		ih.game.world.SetFlyActive(ih.game.flyActive)
-	}
-	ih.game.clearTransientCombatState()
-	// A map change ends every approach: drop the focus identity and any nudge
-	// queued for it. (The nudge producer additionally refuses to announce an NPC
-	// that is not in the CURRENT world, which is what covers the other arrival
-	// paths - focus is only recomputed on the next frame.)
-	ih.game.forgetInteractPromptTarget()
-	if ih.game.collisionSystem != nil {
-		ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
-		// Unregister old world monsters
-		if oldWorld != nil {
-			for _, monster := range oldWorld.Monsters {
-				ih.game.collisionSystem.UnregisterEntity(monster.ID)
-			}
-		}
-		// Farming maps (respawn_days) rewind their roster BEFORE registration.
-		ih.game.maybeRespawnMapMonsters()
-		// Register new world monsters
-		ih.game.world.RegisterMonstersWithCollisionSystem(ih.game.collisionSystem)
-		ih.game.registerMapStaticCollision()
-	}
-
-	// Update visual systems
-	ih.game.UpdateSkyAndGroundColors()
-	if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-		// Refresh renderer caches that depend on world tiles
-		ih.game.gameLoop.renderer.precomputeFloorColorCache()
-		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
-	}
-
-	// NOTE: do NOT autosave here. The player's position on the new map is set by
-	// finishMapArrival AFTER this returns; autosaving here would snapshot the OLD
-	// map's coordinates on the new map (e.g. the party jammed into a border wall).
-}
-
-// finishMapArrival is the single "arrived on a new map" path: it places the
-// party at (x,y,angle), re-registers collision, snaps to a cardinal heading in
-// turn-based mode, and autosaves. Keeping position + autosave together here is
-// what guarantees the autosave can't capture stale pre-switch coordinates - the
-// ordering invariant lives in one place instead of being copy-pasted per caller.
-func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
-	// Arrival targets can be stale (saved return poses, positions recorded on an
-	// older map layout); never place the party inside terrain.
-	x, y = ih.game.safePartyDestination(x, y)
-	// A fresh arrival is the moment deferred (on_entry) quest spawns may fire
-	// on this map - the Enforcer surfaces on the return trip. Flush the queue
-	// immediately: the arrival is a frame boundary (no attack in flight), and
-	// the Autosave below must snapshot the boss ALREADY in the roster.
-	ih.game.spawnQuestCompletionMonsters(true)
-	ih.game.flushPendingQuestSpawns()
-	ih.game.setPartyPosition(x, y)
-	// Landmark solidity was registered against the OLD map's coordinates during
-	// the switch; re-derive it now that the arrival position is final.
-	ih.game.refreshLandmarkCollision()
-	ih.game.snapFacing(angle)
-	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
-	// would otherwise leave the party at 45deg on the new map.
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
-	}
-	ih.game.Autosave()
-}
-
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
 func (ih *InputHandler) checkDeepWater() {
 	x, y := ih.game.camera.X, ih.game.camera.Y
@@ -1502,23 +1385,12 @@ func (ih *InputHandler) checkDeepWater() {
 
 	// If Water Breathing is active, teleport to underwater map center
 	if ih.game.waterBreathingActive {
-		// Find safe return position before going underwater - MUST succeed for safety
-		currentX, currentY := ih.game.camera.X, ih.game.camera.Y
-		safeX, safeY := ih.game.FindNearestWalkableTileMustSucceed(currentX, currentY)
-
-		// Store safe return position and current map
-		ih.game.underwaterReturnX = safeX
-		ih.game.underwaterReturnY = safeY
-		if world.GlobalWorldManager != nil {
-			ih.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-		}
-
-		// Switch to underwater map
-		ih.switchToMap("water")
-
-		// Teleport to center of water map
+		// Teleport to center of water map. The game owns arrival and autosave.
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
-		ih.finishMapArrival(centerX, centerY, ih.game.camera.Angle)
+		if err := ih.game.transitionToMap(mapTransition{mapKey: "water", arrival: mapArrivalUnderwater, pose: MapPose{X: centerX, Y: centerY, Angle: ih.game.camera.Angle}}); err != nil {
+			ih.game.AddCombatMessage("Cannot enter the depths: " + err.Error())
+			return
+		}
 
 		fmt.Println("Entered underwater realm with Water Breathing active!")
 	} else {
@@ -1632,6 +1504,9 @@ func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
 // worldClickAllowed reports whether a click can reach world objects (no menu,
 // dialog or overlay is swallowing the game view).
 func (g *MMGame) worldClickAllowed() bool {
+	if g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame {
+		return false
+	}
 	return !g.menuOpen && !g.mainMenuOpen && !g.showHighScores && !g.mapOverlayOpen &&
 		!g.dialogActive && !g.statPopupOpen && g.currentLevelUpChoice() == nil
 }
@@ -1881,21 +1756,8 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// was taken, or the cliff trolls thinned below the quota).
 	ih.game.creditClearedKillQuests(npc)
 	ih.game.applyCompletedQuestTiles() // dialogue-time credit can complete a world-changing quest
-	ih.game.dialogActive = true
-	ih.game.dialogNPC = npc
-	ih.game.switchDialogTab(0)      // tabbed dialogs always open on their primary tab
-	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
-	ih.game.selectedCharIdx = 0     // Default to first character
-	ih.game.dialogSelectedSpell = 0 // Default to first spell
-	ih.game.selectedSpellKey = ""   // No spell selected initially
-	ih.game.skillTrainerPopup = false
-	ih.game.selectedChoice = 0   // Reset encounter choice selection
-	ih.game.dialogNodePath = nil // Start every conversation at the greeting
-	ih.game.merchantBuyPage = 0
-	ih.game.merchantSellPage = 0
-	ih.game.spellTraderPage = 0
-	ih.game.skillTrainerPage = 0
-	ih.game.cardCollectorInvPage = 0
+	ih.game.beginConversation(npc)
+	ih.buildStatueChoices(npc)
 	kind := ih.game.npcDialogKindFor(npc)
 	if kind == dialogKindTavern {
 		ih.game.stashInvPage = 0
@@ -2822,20 +2684,17 @@ func (ih *InputHandler) executeEncounterChoice() {
 	}
 	// Unknown action - only a runtime-built row can get here (authored ones are
 	// rejected at boot); close the dialog rather than leave it inert.
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 }
 
 func (ih *InputHandler) handleOpenRoster() {
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 	ih.game.rosterScreenOpen = true
 	ih.game.rosterSelectedActive = -1
 }
 
 func (ih *InputHandler) handleManageStash() {
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 	ih.game.openStash()
 }
 
@@ -2860,8 +2719,7 @@ func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
 // handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).
 func (ih *InputHandler) handleGiveQuest(questID string) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if questID == "" || quests.GlobalQuestManager == nil {
 		return
 	}
@@ -2912,8 +2770,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 func (ih *InputHandler) handleTurnInQuest(questID string) {
 	g := ih.game
 	npc := g.dialogNPC // capture before clearing - we conclude it on success
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if questID == "" || g.questManager == nil {
 		return
 	}
@@ -2960,8 +2817,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 func (ih *InputHandler) handleQuestPropInteract(questID string, words *character.NPCPropCopy) {
 	g := ih.game
 	npc := g.dialogNPC
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if g.questManager == nil || npc == nil || words == nil {
 		return
 	}
@@ -3025,8 +2881,7 @@ func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	}
 	g.party.Gold -= choice.Cost
 	g.restParty()
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	g.AddCombatMessage(fmt.Sprintf("The party sleeps soundly (-%d gold). HP and spell points restored.", choice.Cost))
 }
 
@@ -3045,8 +2900,7 @@ func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, nig
 	}
 	g.party.Gold -= choice.Cost
 	g.advanceDayNightToPhase(night)
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if night {
 		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until the stars come out (-%d gold).", choice.Cost))
 	} else {
@@ -3122,8 +2976,7 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 		casterName = g.dialogNPC.Name
 	}
 	g.party.Gold -= choice.Cost
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	g.AddCombatMessage(fmt.Sprintf("%s casts %s over the party for %s (-%d gold).",
 		casterName, buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost))
 }
@@ -3170,8 +3023,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 // and removes the spent statue from the world.
 func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if npc == nil || summonIdx < 0 || summonIdx >= len(npc.Summons) {
 		return
 	}
@@ -3208,59 +3060,17 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
-	if targetMapKey == "" || world.GlobalWorldManager == nil || !world.GlobalWorldManager.IsValidMap(targetMapKey) {
+	ih.game.closeConversation()
+	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance}); err != nil {
 		ih.game.AddCombatMessage("You cannot enter from here.")
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-		return
 	}
-
-	// Remember where the player is on the current map so a return trip
-	// drops them back at the doorway, not at the map's spawn tile.
-	if ih.game.mapReturnPoses == nil {
-		ih.game.mapReturnPoses = make(map[string]MapPose)
-	}
-	if currentKey := world.GlobalWorldManager.CurrentMapKey; currentKey != "" {
-		ih.game.mapReturnPoses[currentKey] = MapPose{
-			X:     ih.game.camera.X,
-			Y:     ih.game.camera.Y,
-			Angle: ih.game.camera.Angle,
-		}
-	}
-
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
-	ih.switchToMap(targetMapKey)
-
-	currentWorld := ih.game.GetCurrentWorld()
-	if currentWorld == nil {
-		return
-	}
-
-	// Prefer the previously-stored pose for this map if we've been here before;
-	// fall back to the map's spawn tile on first visit.
-	var x, y, angle float64
-	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
-		x, y, angle = pose.X, pose.Y, pose.Angle
-	} else if rx, ry, ok := world.GlobalWorldManager.OpenWorldRegionStart(targetMapKey); ok {
-		// Merged region: the unified world's own spawn is the starting map's -
-		// arrive at THIS region's '+' instead.
-		x, y, angle = rx, ry, AngleNorth
-	} else {
-		// First arrival: drop the party on the centre of the spawn tile facing
-		// north, so every fresh location entry is consistent and predictable.
-		x, y = currentWorld.GetStartingPosition()
-		angle = AngleNorth
-	}
-	ih.finishMapArrival(x, y, angle)
 }
 
 // startEncounter initiates combat encounter with bandits
 func (ih *InputHandler) startEncounter() {
 	npc := ih.game.dialogNPC
 	if npc.EncounterData == nil {
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
+		ih.game.closeConversation()
 		return
 	}
 
@@ -3268,8 +3078,7 @@ func (ih *InputHandler) startEncounter() {
 	npc.Visited = true
 
 	// Close dialog
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 
 	// Create encounter quest if quest details are provided
 	if npc.EncounterData.QuestID != "" && quests.GlobalQuestManager != nil {

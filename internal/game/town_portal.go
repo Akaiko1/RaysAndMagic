@@ -96,24 +96,10 @@ func (g *MMGame) townPortalArrivalPoint(mapKey string) (float64, float64, bool) 
 // arrival point.
 func (g *MMGame) townPortalTeleport(mapKey string) {
 	g.townPortalPickerOpen = false
-	if g.gameLoop == nil || g.gameLoop.inputHandler == nil {
+	if err := g.transitionToMap(mapTransition{mapKey: mapKey, arrival: mapArrivalTownPortal}); err != nil {
+		g.AddCombatMessage("Town Portal failed: " + err.Error())
 		return
 	}
-	g.gameLoop.inputHandler.switchToMap(mapKey)
-	if world.GlobalWorldManager == nil || world.GlobalWorldManager.CurrentMapKey != mapKey || g.world == nil {
-		return
-	}
-	// Every arrival must complete through finishMapArrival - it re-registers the
-	// player's collision entity and autosaves; a raw camera write would leave
-	// collisions/projectiles resolving against the previous map's position.
-	x, y, ok := g.townPortalArrivalPoint(mapKey)
-	if !ok {
-		// Nothing authored to arrive at: still finish, so collision + autosave
-		// stay coherent.
-		g.gameLoop.inputHandler.finishMapArrival(g.camera.X, g.camera.Y, g.camera.Angle)
-		return
-	}
-	g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
 	g.AddCombatMessage("The portal closes behind the party.")
 }
 

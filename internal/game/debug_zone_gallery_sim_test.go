@@ -112,7 +112,7 @@ func TestDebugSim_ZoneGallery(t *testing.T) {
 
 	ih := &InputHandler{game: g}
 	for _, mapKey := range maps {
-		ih.switchToMap(mapKey)
+		ih.game.switchToMap(mapKey)
 		if fovOverride > 0 {
 			g.camera.FOV = fovOverride
 		}

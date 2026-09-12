@@ -25,7 +25,7 @@ func TestDebugSim_BurningMonster(t *testing.T) {
 	}
 	g, renderer := bootFxGalleryGame(t)
 	defer g.Shutdown()
-	g.gameLoop.inputHandler.switchToMap("forest")
+	g.switchToMap("forest")
 	ts := float64(g.config.GetTileSize())
 	g.camera.X, g.camera.Y = TileCenterFromTile(13, 36, ts)
 	g.camera.Angle = 0

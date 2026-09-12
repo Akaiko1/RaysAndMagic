@@ -23,7 +23,7 @@ func TestDebugSim_BadgeAuraPhases(t *testing.T) {
 	}
 	g, renderer := bootFxGalleryGame(t)
 	defer g.Shutdown()
-	g.gameLoop.inputHandler.switchToMap("forest")
+	g.switchToMap("forest")
 	g.camera.X, g.camera.Y = TileCenterFromTile(13, 36, float64(g.config.GetTileSize()))
 	g.camera.Angle = 45 * math.Pi / 180
 	g.party.Members[0].FreeStatPoints = 3

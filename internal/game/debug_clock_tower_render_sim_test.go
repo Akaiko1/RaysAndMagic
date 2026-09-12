@@ -134,7 +134,7 @@ func TestDebugSim_ClockTowerRender(t *testing.T) {
 	// Interiors: spawn-point view of each floor.
 	ih := &InputHandler{game: g}
 	for i, mapKey := range []string{"clock_tower_1", "clock_tower_2", "clock_tower_3"} {
-		ih.switchToMap(mapKey)
+		ih.game.switchToMap(mapKey)
 		sx, sy := g.world.GetStartingPosition()
 		g.camera.X, g.camera.Y = sx, sy
 		for a := 0; a < 3; a++ {

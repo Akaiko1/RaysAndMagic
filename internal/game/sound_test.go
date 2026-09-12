@@ -12,7 +12,10 @@ import (
 
 func TestBeginAudioSliderDragConsumesBufferedClick(t *testing.T) {
 	g := &MMGame{
-		audioSliderDrag: -1,
+		menuState: menuState{
+			audioSliderDrag: -1,
+		},
+
 		mouseLeftClicks: []queuedClick{{x: 10, y: 20, at: time.Now().UnixMilli()}},
 	}
 
@@ -159,11 +162,15 @@ func TestCloseAudioSettingsRestoresOwningMenu(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			g := &MMGame{
-				entryMenuMode:      test.entryMode,
-				mainMenuMode:       test.mainMode,
-				audioSliderDrag:    1,
-				audioSettingsDirty: true,
-				mouseLeftClicks:    []queuedClick{{x: 100, y: 200, at: time.Now().UnixMilli()}},
+				menuState: menuState{
+					mainMenuMode:       test.mainMode,
+					audioSliderDrag:    1,
+					audioSettingsDirty: true,
+				},
+
+				entryMenuMode: test.entryMode,
+
+				mouseLeftClicks: []queuedClick{{x: 100, y: 200, at: time.Now().UnixMilli()}},
 			}
 
 			g.closeAudioSettings()

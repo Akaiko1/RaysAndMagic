@@ -1480,7 +1480,7 @@ func (r *Renderer) evictMapRenderResidencyOutside(keep map[string]struct{}) {
 	}
 }
 
-// syncVisibleMapRenderResidency warms only regions in the current FOV. Once a
+// syncVisibleMapRenderResidency warms nearby regions, prioritizing the view. Once a
 // neighbour is warm, distance-only retention prevents camera turns from
 // destroying and rebuilding it; eviction happens after the party moves beyond
 // view distance plus the spatial hysteresis margin.
@@ -1498,8 +1498,8 @@ func (r *Renderer) syncVisibleMapRenderResidency() {
 	r.mapRenderLastCameraX = r.game.camera.X
 	r.mapRenderLastCameraY = r.game.camera.Y
 	r.mapRenderLastCameraValid = true
-	loadKeys := visibleOpenWorldMapKeys(wm, r.game.camera, tileSize,
-		mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize)
+	loadKeys := nearbyOpenWorldMapKeys(wm, r.game.camera, tileSize,
+		mapRenderLoadMarginInTiles*tileSize)
 	prioritizeMapRenderKeys(wm, loadKeys, currentMapKey(), r.game.camera, tileSize, moveX, moveY)
 	retainKeys := nearbyOpenWorldMapKeys(wm, r.game.camera, tileSize,
 		mapRenderUnloadDistanceInTiles*tileSize)

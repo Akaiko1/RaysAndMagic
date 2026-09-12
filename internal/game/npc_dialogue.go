@@ -462,8 +462,7 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.game.selectedChoice = 0
 	},
 	"leave": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
+		ih.game.closeConversation()
 	},
 	"combat": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.startEncounter()

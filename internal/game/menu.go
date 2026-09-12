@@ -96,7 +96,7 @@ type mainMenuOption struct {
 // mainMenuOptions owns each ESC-menu label and its action. "Main Menu" returns
 // to the title screen rather than quitting the application.
 var mainMenuOptions = []mainMenuOption{
-	{key: "continue", label: "Continue", action: func(g *MMGame) { g.mainMenuOpen = false }},
+	{key: "continue", label: "Continue", action: func(g *MMGame) { g.closeMainMenu() }},
 	{key: "save", label: "Save", action: func(g *MMGame) { g.openSaveLoad(MenuSaveSelect) }},
 	{key: "load", label: "Load", action: func(g *MMGame) { g.openSaveLoad(MenuLoadSelect) }},
 	{key: "scores", label: "High Scores", action: func(g *MMGame) { g.showHighScores = true }},

@@ -27,7 +27,7 @@ func TestDebugSim_BannerIsNotDimmedByTheDialog(t *testing.T) {
 	}
 	g, renderer := bootFxGalleryGame(t)
 	defer g.Shutdown()
-	g.gameLoop.inputHandler.switchToMap("forest")
+	g.switchToMap("forest")
 	g.camera.X, g.camera.Y = TileCenterFromTile(13, 36, float64(g.config.GetTileSize()))
 
 	const bannerText = "Reward claimed - The Missing Volumes"

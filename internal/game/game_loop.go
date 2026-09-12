@@ -14,6 +14,8 @@ import (
 
 // GameLoop manages the main game update and render cycle
 type GameLoop struct {
+	loading *gameLoadingState
+
 	game               *MMGame
 	inputHandler       *InputHandler
 	ui                 *UISystem
@@ -62,7 +64,7 @@ func (gl *GameLoop) Update() error {
 	}()
 	defer func() {
 		if gl.renderer != nil {
-			gl.renderer.prewarmPendingMapRenderResources()
+			gl.advanceResourceLoading()
 		}
 	}()
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
@@ -73,9 +75,27 @@ func (gl *GameLoop) Update() error {
 		return ErrExit
 	}
 
+	if gl.game.appScreen == AppScreenInGame {
+		gl.ensureResourceLoading()
+		if gl.loading != nil {
+			gl.game.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
+			defer gl.game.sprites.SetDeferredResourceHandler(nil)
+		}
+		if gl.loadingBarrier() {
+			gl.tickLoadingPause()
+			return nil
+		}
+	} else {
+		gl.closeResourceLoading()
+	}
+
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
 	gl.ui.dispatchDisplayedInput()
+	if gl.loadingBarrier() {
+		gl.tickLoadingPause()
+		return nil
+	}
 	// The model can close a modal in Update, but the old modal remains the image
 	// on screen until Draw replaces it. Under a stall Ebiten may run more Updates
 	// first; suppress them so input cannot act on a layer the player cannot see.
@@ -127,6 +147,10 @@ func (gl *GameLoop) updateExploration() {
 	// Resolve the Space-to-interact focus target before input reads it. Uses
 	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
+	if gl.loadingBarrier() {
+		gl.discardLoadingInput()
+		return
+	}
 
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
@@ -164,6 +188,13 @@ func (gl *GameLoop) updateExploration() {
 		// seconds. A DIALOG is deliberately not in this set - the party acted on the
 		// object, which settles its nudge (noteInteractPromptEngaged).
 		gl.game.forgetInteractPromptTarget()
+		return
+	}
+
+	// Input may have travelled or turned into a cold region. Freeze before AI,
+	// projectiles and clocks consume that new view.
+	if gl.loadingBarrier() {
+		gl.discardLoadingInput()
 		return
 	}
 
@@ -328,6 +359,14 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 		return
 	}
 
+	if gl.ensureResourceLoading() {
+		gl.drawResourceLoadingFrame(screen)
+		return
+	}
+	gl.drawExplorationFrame(screen)
+}
+
+func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
 	// the scene goes through a horizontal motion-blur shader (camera blur - the
 	// view pans sideways) whose length tracks the turn speed; otherwise it's a
@@ -916,17 +955,12 @@ func (gl *GameLoop) returnFromUnderwater() {
 		returnMapKey = "main" // Fallback to main map
 	}
 
-	// Use input handler's common map switching logic
-	if gl.inputHandler != nil {
-		gl.inputHandler.switchToMap(returnMapKey)
-	} else {
-		fmt.Printf("Error: Input handler not available for map switching\n")
+	if err := gl.game.transitionToMap(mapTransition{mapKey: returnMapKey, pose: MapPose{
+		X: gl.game.underwaterReturnX, Y: gl.game.underwaterReturnY, Angle: gl.game.camera.Angle,
+	}}); err != nil {
+		gl.game.AddCombatMessage("Cannot return to the surface: " + err.Error())
 		return
 	}
-
-	// Single arrival path: position + autosave. finishMapArrival clamps the
-	// stored return position to walkable ground.
-	gl.inputHandler.finishMapArrival(gl.game.underwaterReturnX, gl.game.underwaterReturnY, gl.game.camera.Angle)
 
 	fmt.Println("Water Breathing expired! Returned to surface.")
 }

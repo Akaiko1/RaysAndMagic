@@ -172,6 +172,8 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	menuState
+	dialogState
 	world     *world.World3D
 	camera    *FirstPersonCamera
 	party     *character.Party
@@ -266,11 +268,6 @@ type MMGame struct {
 	lastQuickClickTime int64
 	lastQuickClickedCh int
 	lastQuickClickedSl int
-
-	// Double-click support for dialogs (neutral)
-	dialogLastClickTime  int64  // Time of last dialog list click in milliseconds
-	dialogLastClickedIdx int    // Index of last clicked dialog list entry
-	dialogLastClickZone  string // Which dialog list was clicked (buy/sell/spell/...) - a double-click never spans lists
 
 	// Double-click support for utility spell icons (dispelling)
 	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
@@ -444,32 +441,10 @@ type MMGame struct {
 	statBonuses character.StatBonuses
 
 	// Dialog system
-	dialogActive        bool           // Whether a dialog is currently open
-	dialogNPC           *character.NPC // Current NPC being talked to
-	focusedNPC          *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
-	dialogSelectedSpell int            // Currently selected spell in dialog
-	selectedCharIdx     int            // Selected character index for spell learning
+	focusedNPC *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
 	// modalContentRev marks modal-content mutations invisible to the snapshot's
 	// derived fields (see bumpModalContentRev); part of the redraw barrier.
-	modalContentRev   uint64
-	skillTrainerPopup bool   // Skill trainer: per-character mastery popup open
-	skillTrainerPage  int    // Skill trainer: mastery-list page (0-based); shared by renderer and input
-	selectedSpellKey  string // Selected spell key for learning
-	selectedChoice    int    // Selected choice in encounter dialogs
-	// dialogNodePath is the chain of "info" choices the player has descended into
-	// this conversation (empty = root). It drives the body text and choice list so
-	// "ask about X" branches into a real reply instead of closing. Reset on open.
-	dialogNodePath []*character.NPCDialogueChoice
-	dialogTab      int // Active section in any tabbed NPC dialog.
-	// pendingBuffService is a service row clicked during the draw pass; the
-	// input handler resolves it next tick so a cast cannot mutate dialog state
-	// mid-render.
-	pendingBuffService   *character.NPCDialogueChoice
-	pendingTavernAction  *character.NPCDialogueChoice // Tavern service clicked during Draw; resolved on the next Update.
-	merchantBuyPage      int                          // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage     int                          // Merchant sell-grid page (0-based)
-	spellTraderPage      int                          // Spell-trader icon-grid page (0-based); shared by renderer and input
-	cardCollectorInvPage int                          // Card-collector loose-card grid page (0-based); shared by renderer and input
+	modalContentRev uint64
 	// cardSlots is the party-wide monster-card collection (MaxCardSlots).
 	// Cards held here grant passive effects; only the card collector mutates it,
 	// through setCardCollectionSlot/clearCardCollectionSlot, which keep key and
@@ -663,19 +638,8 @@ type MMGame struct {
 	// collection item's InstanceID; the timers never gate character actions.
 	cardSummonCooldowns map[string]int
 
-	// Main menu (ESC)
-	mainMenuOpen           bool
-	mainMenuSelection      int
-	mainMenuMode           MainMenuMode
-	audioSettingsSelection int
-	audioSliderDrag        int
-	audioSettingsDirty     bool
-	slotSelection          int // row within the current save page (0..saveRowsPerPage-1)
-	savePage               int // current save/load menu page (0..savePageCount-1)
-	saveRenameOpen         bool
-	saveRenameSlot         int
-	saveRenameInput        string
-	exitRequested          bool
+	// Application exit request
+	exitRequested bool
 
 	// Game over state
 	gameOver bool
@@ -822,6 +786,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	threadingComponents := threading.NewThreadingComponents(cfg)
 
 	game := &MMGame{
+		menuState:        newMenuState(),
+		dialogState:      newDialogState(),
 		world:            currentWorld,
 		camera:           camera,
 		party:            party,
@@ -852,19 +818,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		lastSchoolClickTime:  0,
 		lastSchoolClickedIdx: -1,
 
-		// Double-click support for dialogs (neutral)
-		dialogLastClickTime:  0,
-		dialogLastClickedIdx: -1,
-
 		selectedSchool:        0,
 		selectedSpell:         0,
 		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
 		combatLogHistory:      make([]combatLogEntry, 0),
 		maxMessages:           4, // Show last 4 messages
-
-		// Dialog system initialization
-		dialogSelectedSpell: 0,
 
 		// Threading components
 		threading: threadingComponents,
@@ -884,9 +843,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		// Session timer for score calculation
 		sessionStartTime: time.Now(),
 		soundManager:     sound.Global(),
-
-		saveRenameSlot:  -1,
-		audioSliderDrag: -1,
 	}
 
 	// Initialize rendering helper
@@ -1459,6 +1415,11 @@ func (g *MMGame) ensureSkyPanoramaCached(textureName string) *ebiten.Image {
 	if img, ok := g.skyPanoramaCache[textureName]; ok {
 		return img
 	}
+	// Runtime sky publication belongs to the region prewarmer. Keep the
+	// procedural sky until the loading gate installs the prepared panorama.
+	if g.gameLoop != nil && g.gameLoop.loading != nil && g.appScreen == AppScreenInGame {
+		return nil
+	}
 	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
 	if err != nil {
 		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
@@ -1787,6 +1748,9 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
+	if g.gameLoop != nil {
+		g.gameLoop.closeResourceLoading()
+	}
 	if g.threading != nil {
 		g.threading.Shutdown()
 	}
@@ -1814,23 +1778,6 @@ func (g *MMGame) checkGameOver() {
 	// autosaves firing behind a Game Over the player cannot dismiss, with the shop
 	// still taking keys. Nobody trades while the party lies dead.
 	g.closeConversation()
-}
-
-// closeConversation drops the NPC dialog and everything hanging off it. Used
-// where the WORLD ends the conversation rather than the player - a wipe today.
-func (g *MMGame) closeConversation() {
-	// A carried split fragment is conversation-owned while a shop/stash surface
-	// is open. Forced closure (currently a wipe) must end that gesture too: the
-	// fragment is not a modal layer, but HandleInput gives it exclusive ownership
-	// and it would otherwise leak through Game Over into the next run.
-	g.cancelStackSplitInteraction()
-	g.dialogActive = false
-	g.dialogNPC = nil
-	g.dialogNodePath = nil
-	g.skillTrainerPopup = false
-	g.pendingBuffService = nil
-	g.pendingTavernAction = nil
-	g.selectedChoice = 0
 }
 
 // advanceInterfaceClock is the one tick of presentation time. Every in-game

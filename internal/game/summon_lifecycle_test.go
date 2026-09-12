@@ -61,7 +61,7 @@ func TestFailedMapSwitchKeepsBoundAllies(t *testing.T) {
 	world.GlobalWorldManager = wm
 	t.Cleanup(func() { world.GlobalWorldManager = previous })
 
-	(&InputHandler{game: game}).switchToMap("missing")
+	game.switchToMap("missing")
 
 	if len(game.world.Monsters) != 1 || game.world.Monsters[0] != ally || !ally.IsAlive() {
 		t.Fatal("a failed map switch must leave card allies untouched")
@@ -91,7 +91,7 @@ func TestMapSwitchRemovesCrumbledBoundAllyCollision(t *testing.T) {
 	world.GlobalWorldManager = wm
 	t.Cleanup(func() { world.GlobalWorldManager = previous })
 
-	(&InputHandler{game: game}).switchToMap("destination")
+	game.switchToMap("destination")
 
 	if game.world != newWorld {
 		t.Fatal("map transition did not enter the destination world")

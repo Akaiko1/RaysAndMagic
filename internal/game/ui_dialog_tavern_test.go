@@ -155,11 +155,14 @@ func TestTavernPendingActionUsesExistingServiceLogic(t *testing.T) {
 
 func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	g := &MMGame{
-		dialogTab:            0,
-		pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
-		pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
-		dialogLastClickedIdx: 3,
-		dialogLastClickZone:  "tavern",
+		dialogState: dialogState{
+			dialogTab:            0,
+			pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
+			pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
+			dialogLastClickedIdx: 3,
+			dialogLastClickZone:  "tavern",
+		},
+
 		rosterSelectedActive: 1,
 		stashDragActive:      true,
 		stashDragFrom:        2,
@@ -182,10 +185,13 @@ func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 func TestEmbeddedStashParticipatesInDragLifecycle(t *testing.T) {
 	npc := tavernTestNPC()
 	g := &MMGame{
-		party:        &character.Party{},
-		dialogActive: true,
-		dialogNPC:    npc,
-		dialogTab:    1,
+		dialogState: dialogState{
+			dialogActive: true,
+			dialogNPC:    npc,
+			dialogTab:    1,
+		},
+
+		party: &character.Party{},
 	}
 	if !g.stashInteractionOpen() {
 		t.Fatal("active tavern Stash tab was not recognized as a stash interaction surface")

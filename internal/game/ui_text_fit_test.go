@@ -316,12 +316,14 @@ func TestSwitchDialogTabClearsPendingBuffService(t *testing.T) {
 		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
 	}
 	g := &MMGame{
-		dialogTab:            0,
-		selectedChoice:       3,
-		merchantBuyPage:      2,
-		pendingBuffService:   pending,
-		dialogLastClickedIdx: 4,
-		dialogLastClickZone:  "service",
+		dialogState: dialogState{
+			dialogTab:            0,
+			selectedChoice:       3,
+			merchantBuyPage:      2,
+			pendingBuffService:   pending,
+			dialogLastClickedIdx: 4,
+			dialogLastClickZone:  "service",
+		},
 	}
 
 	g.switchDialogTab(1)

@@ -420,6 +420,11 @@ func screenBannerLayout(screenW int, text string, offset float64) screenBannerGe
 // drawScreenBanner paints the current banner: a fading plate under a scaled
 // metal heading, centred at the top of the screen between the corner readouts.
 func (ui *UISystem) drawScreenBanner(screen *ebiten.Image) {
+	// The loading compositor owns this channel. Keep quest headings out of its
+	// cached scene so a longer old heading cannot show around the loading plate.
+	if gl := ui.game.gameLoop; gl != nil && gl.loading != nil && gl.loading.rendering {
+		return
+	}
 	banner := ui.game.visibleScreenBanner()
 	if banner == nil {
 		return
@@ -428,8 +433,12 @@ func (ui *UISystem) drawScreenBanner(screen *ebiten.Image) {
 	if alpha <= 0 {
 		return
 	}
-	tint := screenBannerTint(banner.kind)
-	geo := screenBannerLayout(ui.game.config.GetScreenWidth(), banner.text, offset)
+	ui.drawScreenBannerContent(screen, banner.text, banner.kind, alpha, offset)
+}
+
+func (ui *UISystem) drawScreenBannerContent(screen *ebiten.Image, text string, kind screenBannerKind, alpha, offset float64) {
+	tint := screenBannerTint(kind)
+	geo := screenBannerLayout(ui.game.config.GetScreenWidth(), text, offset)
 	// Same furniture as the victory title: a dark panel, brushed-metal rules, and
 	// the scaled metal heading itself.
 	drawFilledRect(screen, geo.plateX, geo.plateY, geo.plateW, geo.plateH, fadeVectorColor(color.RGBA{8, 7, 3, 210}, alpha))
