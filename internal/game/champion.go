@@ -210,9 +210,8 @@ func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.
 	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
-	if crit, _ := cs.RollWeaponCriticalChance(weapon, ch); crit {
-		total *= CritDamageMultiplier
-	}
+	crit, _ := cs.RollWeaponCriticalChance(weapon, ch)
+	total = weaponCriticalDamage(total, crit)
 	if total < 1 {
 		total = 1
 	}

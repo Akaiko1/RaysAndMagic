@@ -12,47 +12,18 @@ import (
 	"ugataima/internal/spells"
 )
 
-// spellScalesWithPersonality reports whether a school's spell DAMAGE scales with
-// Personality (self magic: Body/Mind/Spirit) instead of Intellect. Single source
-// of truth for both the damage formula (CalculateSpellDamage) and the tooltip's
-// stat-bonus label (spellDamageStatLabel), so they can never disagree. The school
-// classification + label themselves live in the spells package (shared SSoT with
-// EffectLines / the map editor); these thin wrappers keep the combat call sites.
-func spellScalesWithPersonality(school string) bool {
-	return spells.SchoolScalesWithPersonality(school)
-}
-
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual projectile damage.
 func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	// Self magic (Body/Mind/Spirit) scales with Personality; all elemental
-	// schools, including Light/Dark, scale with Intellect. The math is stat-agnostic -
-	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
-	def, defErr := spells.GetSpellDefinitionByID(spellID)
-	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
-	scalingStat := char.GetEffectiveIntellect()
-	if selfMagic {
-		scalingStat = char.GetEffectivePersonality()
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return 0, 0, 0
 	}
-	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
-	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
-	// Personality/divisor term on top of the primary term - but ONLY for non-self
-	// magic, else Personality (already the primary stat for self magic) is counted
-	// twice. The tooltip applies the same guard so the displayed number matches.
-	if defErr == nil && def.ScalesWithPersonality && !selfMagic {
-		perBonus := char.GetEffectivePersonality() / spells.SpellIntellectDivisor
-		intellectBonus += perBonus
-		totalDamage += perBonus
-	}
-	masteryBonus := cs.spellMasteryBonus(char, spellID)
-	if masteryBonus > 0 {
-		baseDamage += masteryBonus
-		totalDamage += masteryBonus
-	}
-	return baseDamage, intellectBonus, totalDamage
+	result := character.SpellDamageBreakdown(def, char)
+	return result.Base + result.Mastery, result.StatBonus, result.Total
 }
 
 // strongMagicPct is the caster's Strong Magic exchange percent for the given
@@ -150,11 +121,15 @@ func (cs *CombatSystem) rollSpellCritParts(spellID spells.SpellID, caster *chara
 		return parts, false
 	}
 	if crit, _ := cs.RollCriticalChance(0, caster); crit {
-		parts.Normal *= CritDamageMultiplier
-		parts.True *= CritDamageMultiplier
-		return parts, true
+		return spellCriticalParts(parts), true
 	}
 	return parts, false
+}
+
+func spellCriticalParts(parts damagecalc.Parts) damagecalc.Parts {
+	parts.Normal *= CritDamageMultiplier
+	parts.True *= CritDamageMultiplier
+	return parts
 }
 
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
@@ -163,17 +138,12 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	effectivePersonality := char.GetEffectivePersonality()
-	baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(spellID, effectivePersonality)
-	masteryBonus := cs.spellMasteryBonus(char, spellID)
-	if masteryBonus > 0 {
-		baseHeal += masteryBonus
-		totalHeal += masteryBonus
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return 0, 0, 0
 	}
-	if char.HasSkill(character.SkillNaturalHealer) {
-		totalHeal = totalHeal * (100 + character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer))) / 100
-	}
-	return baseHeal, personalityBonus, totalHeal
+	result := character.SpellHealingBreakdown(def, char)
+	return result.Base + result.Mastery, result.StatBonus, result.Total
 }
 
 // CalculateSpellDurationSeconds returns duration in seconds with mastery bonus applied.
@@ -182,18 +152,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if err != nil {
 		return 0
 	}
-	if def.Duration <= 0 {
-		return 0
-	}
-	seconds := def.Duration
-	// No school test: a spell with none resolves to no skill on its own.
-	if char != nil {
-		if skill := char.SpellMasterySkill(def); skill != nil {
-			bonusPct := int(skill.Mastery) * SpellMasteryDurationBonusPct
-			seconds = seconds * (100 + bonusPct) / 100
-		}
-	}
-	return seconds
+	return character.SpellDurationBreakdown(def, char).Seconds
 }
 
 // CalculateSpellDurationFrames returns duration in frames with mastery bonus applied.

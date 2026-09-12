@@ -3,7 +3,10 @@ package spells
 import (
 	"fmt"
 	"math"
+	"strings"
+
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 // ProjectileData represents a projectile in the game world
@@ -29,7 +32,6 @@ func NewCastingSystem(config *config.Config) *CastingSystem {
 	}
 }
 
-// CreateProjectile creates a projectile based on spell type and caster stats (now dynamic!)
 // CalculateSpellDamageByID calculates damage using SpellID (YAML-based)
 func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage, intellectBonus, totalDamage int) {
 	def, err := GetSpellDefinitionByID(spellID)
@@ -37,15 +39,14 @@ func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage,
 		return 0, 0, 0
 	}
 
-	mult := def.DamageCostMultiplier
-	if mult < 1 {
-		mult = 1
+	// Legacy API supplies the spell's primary scaling stat, not a full caster.
+	formula := def.DamageFormula()
+	values := stats.StatBonuses{}
+	if len(formula.Terms) > 0 {
+		values = stats.FromMap(map[string]int{strings.ToLower(formula.Terms[0].Stat): casterIntellect})
 	}
-	baseDamage = def.SpellPointsCost * SpellDamagePerSP * mult
-	intellectBonus = casterIntellect / SpellIntellectDivisor
-
-	totalDamage = baseDamage + intellectBonus
-	return
+	result := formula.Evaluate(values, 0)
+	return result.Base, result.StatBonus, result.Total
 }
 
 // CalculateHealingAmountByID calculates healing using SpellID (YAML-based)
@@ -55,13 +56,8 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 		return 0, 0, 0
 	}
 
-	// Healing spells MUST set heal_amount; we no longer fall back to the
-	// damage field because the damage field has been removed from the YAML
-	// schema (offensive damage is derived from spell_points_cost x N).
-	baseHealing = def.HealAmount
-	personalityBonus = casterPersonality / HealingPersonalityDivisor
-	totalHealing = baseHealing + personalityBonus
-	return
+	result := def.HealingFormula().Evaluate(stats.StatBonuses{Personality: casterPersonality}, 0)
+	return result.Base, result.StatBonus, result.Total
 }
 
 // CreateProjectile builds the PHYSICS of a spell projectile (velocity,

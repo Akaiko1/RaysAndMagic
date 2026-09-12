@@ -6,6 +6,8 @@ package spells
 // import game without a cycle, so balance numbers split along that boundary).
 
 const (
+	MasterySpellEffectPerLevel = 5
+
 	// SpellDamagePerSP: base damage of an offensive spell = SpellPointsCost
 	// multiplied by this constant. Caster Intellect adds on top.
 	SpellDamagePerSP = 3

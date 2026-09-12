@@ -488,7 +488,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: damage}, damageTypeStr)
 			damage = parts.Normal
 		} else {
-			damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+			damage = weaponDamageWithBuff(damage, cs.game.combatBuffOutBonusForDamageType(damageTypeStr))
 		}
 	}
 

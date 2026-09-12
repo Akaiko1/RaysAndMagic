@@ -139,9 +139,6 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// CreateProjectile carries physics only; damage is authored HERE
 		// (effective stats + mastery), once.
 		_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
-		if spellDef.DealsNoDamage {
-			totalDamage = 0 // Disintegrate: only the instakill roll matters
-		}
 
 		// Resolve spell config before spawning anything so a config error
 		// can't leave a projectile without a collision entity.

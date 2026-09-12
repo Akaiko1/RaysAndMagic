@@ -621,9 +621,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	summonRolled := false
 	if weaponDef.Range > 3 {
 		// Masked Huntress Card: boost ranged weapon damage.
-		if pct := cs.game.cardRangedDmgPct(); pct != 0 {
-			totalDamage = totalDamage * (100 + pct) / 100
-		}
+		totalDamage = cs.weaponRangedDamageAtLaunch(totalDamage, true)
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action - and no card procs either.
 		acted = cs.createArrowAttack(totalDamage, slot, "")
@@ -634,21 +632,16 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		acted = true
 		summonRolled = true
 	} else {
-		baseDamage := totalDamage
 		// Bronze Cesti: the pair lands every swing twice at half damage - two
 		// full strikes with independent crit rolls (steadier than one big hit).
-		strikes, strikeDamage := 1, totalDamage
-		if weaponDef.DoubleStrike {
-			strikes, strikeDamage = 2, (totalDamage+1)/2
-			baseDamage = strikeDamage
-		}
+		strikes := character.WeaponStrikeCount(weaponDef)
+		strikeDamage := character.WeaponStrikeDamage(weaponDef, totalDamage)
+		baseDamage := strikeDamage
 		var isCrit bool
 		for s := 0; s < strikes; s++ {
 			dmg := strikeDamage
 			isCrit, _ = cs.RollWeaponCriticalChance(weapon, attacker)
-			if isCrit {
-				dmg *= CritDamageMultiplier
-			}
+			dmg = weaponCriticalDamage(dmg, isCrit)
 			cs.createMeleeAttack(weapon, dmg, isCrit) // instant swing; a whiff (arc/reach) still spends the cooldown/action, silently
 		}
 		acted = true
@@ -656,9 +649,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
 			isCrit2, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 			dmg2 := baseDamage
-			if isCrit2 {
-				dmg2 *= CritDamageMultiplier
-			}
+			dmg2 = weaponCriticalDamage(dmg2, isCrit2)
 			cs.createMeleeAttack(weapon, dmg2, isCrit2)
 		}
 		// Spiritual Training (Monk): a genuine melee swing can channel a free
@@ -781,9 +772,7 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 			isCrit, _ = cs.RollWeaponCriticalChance(weapon, attacker)
 		}
 		dmg := damage
-		if isCrit {
-			dmg *= CritDamageMultiplier
-		}
+		dmg = weaponCriticalDamage(dmg, isCrit)
 		arrow := Arrow{
 			ID:                 cs.game.GenerateProjectileID("arrow"),
 			Attacker:           cs.activeAttacker(),
@@ -1338,9 +1327,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Party buffs boost melee exactly like projectiles, filtered by damage type
 	// (Heroism applies only to physical; Hour of Power applies to all).
-	if damage > 0 {
-		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
-	}
+	damage = weaponDamageWithBuff(damage, cs.game.combatBuffOutBonusForDamageType(damageTypeStr))
 	attacker := cs.activeAttacker() // melee resolves the same frame it swings
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
 	trueDmg += cs.game.cardMeleeTrueDmg()
@@ -3140,38 +3127,8 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
-	weaponDef := lookupWeaponConfigByName(weapon.Name)
-	if weaponDef == nil {
-		return 0, 0, 0
-	}
-	baseDamage := weaponDef.Damage
-	// Weapon-category mastery no longer adds to this (normal, armor-reduced,
-	// dodgeable) damage - it now grants flat TRUE damage applied at the hit site
-	// (weaponMasteryStrike), which bypasses armor and lands through dodges.
-	// ArmsMaster: general weapon expertise - flat bonus with ANY weapon.
-	baseDamage += char.ArmsMasterTier() * ArmsMasterDamagePerTier
-	if char.HasSkill(character.SkillOrcishFury) {
-		baseDamage += character.OrcishFuryDamageBonus(char.SkillTier(character.SkillOrcishFury))
-	}
-
-	// Stat scaling resolves through the SAME stat-by-name lookup the tooltip
-	// uses (getEffectiveStatValue, all seven stats) - a hand-rolled switch here
-	// once silently mapped Speed weapons to Might while the tooltip said
-	// "Scales with Speed". Stat names are validated at weapons.yaml load.
-	primaryStat := weaponDef.BonusStat
-	if primaryStat == "" {
-		primaryStat = "Might" // default for weapons without bonus stat specified
-	}
-	primaryStatBonus := getEffectiveStatValue(primaryStat, char) / WeaponPrimaryStatDivisor
-
-	var secondaryStatBonus int
-	if weaponDef.BonusStatSecondary != "" {
-		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, char) / WeaponSecondaryStatDivisor
-	}
-
-	totalStatBonus := primaryStatBonus + secondaryStatBonus
-	totalDamage := baseDamage + totalStatBonus
-	return baseDamage, totalStatBonus, totalDamage
+	result := character.WeaponDamageBreakdown(lookupWeaponConfigByName(weapon.Name), char)
+	return result.Base + result.ArmsMaster + result.OrcishFury, result.StatBonus, result.Total
 }
 
 // activeAttacker returns the currently selected party member (the attacker for

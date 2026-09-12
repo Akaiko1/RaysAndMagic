@@ -51,29 +51,13 @@ func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCo
 // school mastery. Single source of truth for the cast (tryCastPersistentDamageZone) and the
 // tooltip, so the displayed number always matches the damage dealt.
 func (cs *CombatSystem) CalculatePersistentDamageZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
-	// An authored ladder is the WHOLE payload (Firewall 15/30/45/60): no
-	// Intellect and no per-tier bonus on top, exactly like Inferno.
-	if len(def.DamageByMastery) == 4 {
-		return def.DamageForMastery(casterSpellMasteryTier(char, def))
-	}
-	tick := def.ZoneTickDamage
-	if char != nil {
-		tick += char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
-		tick += cs.spellMasteryBonus(char, def.ID)
-	}
-	return tick
+	return character.SpellDamageBreakdown(def, char).Total
 }
 
 // CalculateInfernoDamage returns the whole normal-fire nova payload. Inferno
 // has explicit YAML mastery scaling and never converts any part to true damage.
 func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
-	tier := 0
-	if char != nil && (def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4) {
-		if school := char.SpellMasterySkill(def); school != nil {
-			tier = int(school.Mastery)
-		}
-	}
-	return def.DamageForMastery(tier)
+	return character.SpellDamageBreakdown(def, char).Total
 }
 
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
@@ -348,13 +332,7 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 // school instead, a dual-school page filed under the caster's other school
 // scores 0 in the fight while the card shows the real tier.
 func casterSpellMasteryTier(caster *character.MMCharacter, def spells.SpellDefinition) int {
-	if caster == nil {
-		return 0
-	}
-	if skill := caster.SpellMasterySkill(def); skill != nil {
-		return int(skill.Mastery)
-	}
-	return 0
+	return character.SpellMasteryTier(caster, def)
 }
 
 func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCharacter, base, max int) int {

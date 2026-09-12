@@ -189,7 +189,7 @@ func (cs *CombatSystem) partyMonsterDamageOptions(attack partyMonsterAttack, tar
 			}
 			damage = applyRoundedMultiplier(damage, cs.game.cardBonusVsMultiplier(target), true)
 			if attack.IsMelee {
-				damage = damage * (100 + cs.game.cardMeleeDmgPct()) / 100
+				damage = cs.weaponMeleeDamageAfterArmor(damage, true)
 			}
 			return damage
 		},
@@ -275,16 +275,51 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		}
 	}
 
-	if isRanged {
-		preview.Normal = normal * (100 + preview.CardDamagePct) / 100
-		preview.Normal += preview.OutgoingBuff
-		critNormal := normal * (100 + preview.CardDamagePct) / 100
-		preview.CriticalTotal = critNormal*CritDamageMultiplier + preview.OutgoingBuff + preview.True
-	} else {
-		preview.Normal = (normal + preview.OutgoingBuff) * (100 + preview.CardDamagePct) / 100
-		critNormal := (normal*CritDamageMultiplier + preview.OutgoingBuff) * (100 + preview.CardDamagePct) / 100
-		preview.CriticalTotal = critNormal + preview.True
+	party := cs != nil && cs.game != nil && cs.game.isPartyMember(char)
+	resolve := func(critical bool) int {
+		damage := character.WeaponStrikeDamage(def, normal)
+		if isRanged {
+			damage = cs.weaponRangedDamageAtLaunch(damage, party)
+		}
+		damage = weaponCriticalDamage(damage, critical)
+		damage = weaponDamageWithBuff(damage, preview.OutgoingBuff)
+		if !isRanged {
+			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
+		}
+		return damage
 	}
+	preview.Normal = resolve(false)
+	preview.CriticalTotal = resolve(true) + preview.True
 	preview.Total = preview.Normal + preview.True
 	return preview
+}
+
+// These stages are used by real attacks and previews. Keep them separate:
+// ranged cards apply at launch, buffs at impact, melee cards after armor.
+func (cs *CombatSystem) weaponRangedDamageAtLaunch(normal int, party bool) int {
+	if party {
+		return normal * (100 + cs.game.cardRangedDmgPct()) / 100
+	}
+	return normal
+}
+
+func (cs *CombatSystem) weaponMeleeDamageAfterArmor(normal int, party bool) int {
+	if party {
+		return normal * (100 + cs.game.cardMeleeDmgPct()) / 100
+	}
+	return normal
+}
+
+func weaponCriticalDamage(normal int, critical bool) int {
+	if critical {
+		return normal * CritDamageMultiplier
+	}
+	return normal
+}
+
+func weaponDamageWithBuff(normal, bonus int) int {
+	if normal > 0 {
+		return normal + bonus
+	}
+	return normal
 }

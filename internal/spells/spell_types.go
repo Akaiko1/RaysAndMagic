@@ -7,6 +7,7 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
+	"ugataima/internal/stats"
 )
 
 // SpellID represents dynamic spell identifiers loaded from YAML
@@ -107,32 +108,10 @@ type SpellDefinition struct {
 	Message           string   // Effect message to display
 }
 
-// MasteryScaledDamage is the canonical damage formula for special nova spells
-// with an explicit YAML mastery step (currently Inferno). tier is the zero-based
-// Novice..Grandmaster mastery index.
-// DamageForMastery is the SINGLE damage resolver for tier-scaled spells: the
-// authored ladder when the spell has one, else the cost-derived formula.
+// DamageForMastery evaluates the authored damage without character stats.
+// Effect summaries and editor ranges use the same formula as combat.
 func (d SpellDefinition) DamageForMastery(tier int) int {
-	if len(d.DamageByMastery) == 4 {
-		if tier < 0 {
-			tier = 0
-		}
-		if tier > 3 {
-			tier = 3
-		}
-		return d.DamageByMastery[tier]
-	}
-	return d.MasteryScaledDamage(tier)
-}
-
-func (d SpellDefinition) MasteryScaledDamage(tier int) int {
-	if tier < 0 {
-		tier = 0
-	}
-	if tier > 3 {
-		tier = 3
-	}
-	return d.SpellPointsCost*SpellDamagePerSP + tier*d.MasteryDamagePerTier
+	return d.DamageFormula().Evaluate(stats.StatBonuses{}, tier).Total
 }
 
 // SchoolList returns every school the spell belongs to: Schools when authored,
@@ -324,12 +303,16 @@ func (d SpellDefinition) effectLines(includeStructured bool) []string {
 		}
 	}
 	if includeStructured && d.MapWide {
-		minDamage := d.MasteryScaledDamage(0)
-		maxDamage := d.MasteryScaledDamage(3)
+		minDamage := d.DamageForMastery(0)
+		maxDamage := d.DamageForMastery(3)
+		caught := " - your party too"
+		if d.SparesParty {
+			caught = " - the party is spared"
+		}
 		if maxDamage > minDamage {
-			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d-%d damage by mastery - your party too", minDamage, maxDamage))
+			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d-%d damage by mastery%s", minDamage, maxDamage, caught))
 		} else {
-			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage - your party too", minDamage))
+			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage%s", minDamage, caught))
 		}
 	}
 	if d.MortarRangeTiles > 0 {

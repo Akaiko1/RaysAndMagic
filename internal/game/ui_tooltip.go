@@ -191,28 +191,6 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 	return joinTooltipLines(lines)
 }
 
-func getEffectiveStatValue(statName string, char *character.MMCharacter) int {
-	might, intellect, personality, endurance, accuracy, speed, luck := char.GetEffectiveStats()
-	switch statName {
-	case "Might":
-		return might
-	case "Intellect":
-		return intellect
-	case "Personality":
-		return personality
-	case "Endurance":
-		return endurance
-	case "Accuracy":
-		return accuracy
-	case "Speed":
-		return speed
-	case "Luck":
-		return luck
-	default:
-		return might
-	}
-}
-
 // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
 
 func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {

@@ -100,7 +100,7 @@ const (
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing (buff magnitudes stay flat; duration
 	// scales via SpellMasteryDurationBonusPct).
-	MasterySpellEffectPerLevel = 5
+	MasterySpellEffectPerLevel = spells.MasterySpellEffectPerLevel
 	// SpellMasteryDurationBonusPct: +% spell duration per mastery tier above
 	// Novice (100/120/140/160% of the YAML duration).
 	SpellMasteryDurationBonusPct = 20
