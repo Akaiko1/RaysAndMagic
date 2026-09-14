@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -75,24 +76,13 @@ func TestDebugSim_ElementalAttackGallery(t *testing.T) {
 					g.elementalAttackEffects[i].Age = age
 				}
 				r.RenderFirstPersonView(dst)
-				sprites := r.unifiedSprites
-				r.unifiedSprites = nil // The gallery positions its own inspection cursor below.
 				g.gameLoop.ui.Draw(dst)
-				r.unifiedSprites = sprites
 				visible := false
 				for _, s := range r.unifiedSprites {
 					if s.monster != m {
 						continue
 					}
 					visible = true
-					ui := g.gameLoop.ui
-					ui.tooltipLines = nil
-					top := clampMonsterSpriteTopToGameplayViewport(g, s.bottomF-s.sizeF, s.sizeF)
-					ui.queueMonsterInspection(int(s.screenXF), int(top+s.sizeF*.5))
-					if len(ui.tooltipLines) == 0 {
-						t.Error("visible monster has no inspection tooltip")
-					}
-					drawTooltip(dst, ui.tooltipLines, ui.tooltipColors, nil, nil, "", ui.tooltipX, ui.tooltipY, w, g.sprites)
 					break
 				}
 				if !visible {
@@ -101,5 +91,50 @@ func TestDebugSim_ElementalAttackGallery(t *testing.T) {
 				save(fmt.Sprintf("game_%dx%d_%02d.png", w, h, age), dst)
 			})
 		}
+	}
+}
+
+// World projection data must not create a second source of game tooltips.
+func TestDebugSim_MonstersDoNotAddHoverTooltips(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live render harness")
+	}
+	g, r := bootFxGalleryGame(t)
+	defer g.Shutdown()
+	for _, state := range []string{"melee", "ranged", "champion", "dead", "occluded", "modal"} {
+		t.Run(state, func(t *testing.T) {
+			runOnDrawFrame(func(*ebiten.Image) {
+				w, h := g.gameLoop.Layout(1280, 720)
+				dst := ebiten.NewImage(w, h)
+				defer dst.Deallocate()
+				m := monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "goblin", g.config)
+				g.mainMenuOpen = state == "modal"
+				switch state {
+				case "ranged":
+					m.ProjectileSpell = "fireball"
+				case "champion":
+					m.ChampionKey = "weapon_master"
+				case "dead":
+					m.HitPoints = 0
+				}
+				g.depthBuffer = make([]float64, w)
+				for i := range g.depthBuffer {
+					g.depthBuffer[i] = math.Inf(1)
+					if state == "occluded" {
+						g.depthBuffer[i] = 1
+					}
+				}
+				r.unifiedSprites = nil
+				ui := g.gameLoop.ui
+				ui.Draw(dst)
+				before := append([]string(nil), ui.tooltipLines...)
+				x, y := ebiten.CursorPosition()
+				r.unifiedSprites = []UnifiedSpriteRenderData{{monster: m, screenXF: float64(x), sizeF: 100, bottomF: float64(y + 50), depthPerp: 10}}
+				ui.Draw(dst)
+				if !reflect.DeepEqual(before, ui.tooltipLines) {
+					t.Errorf("projected monster changed game tooltip: before %q, after %q", before, ui.tooltipLines)
+				}
+			})
+		})
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"ugataima/internal/world"
 )
 
-// monsterEffectContext resolves the inspected/attacking monster's own region.
+// monsterEffectContext resolves the attacking monster's own region.
 // Catalog previews deliberately pass no school rather than guess a biome.
 func (g *MMGame) monsterEffectContext(m *monster.Monster3D) monster.CombatEffectContext {
 	var ctx monster.CombatEffectContext
@@ -45,20 +45,6 @@ func (cs *CombatSystem) normalMonsterMeleeHit(m *monster.Monster3D, damage int) 
 		cs.game.addMonsterElementalAttackFX(m, school)
 	}
 	return hit
-}
-
-// MonsterCombatEffectLines feeds game inspection and is also available to
-// previews that already have a staged monster and map context.
-func (g *MMGame) MonsterCombatEffectLines(m *monster.Monster3D) []monster.EffectLine {
-	if m == nil || monster.MonsterConfig == nil {
-		return nil
-	}
-	d, err := monster.MonsterConfig.GetMonsterByKey(m.Key)
-	if err != nil {
-		return nil
-	}
-	d.ProjectileSpell, d.ProjectileWeapon = m.ProjectileSpell, m.ProjectileWeapon
-	return d.CombatEffectLines(g.monsterEffectContext(m))
 }
 
 // MonsterCatalogEffectContext provides the same YAML settings without assuming

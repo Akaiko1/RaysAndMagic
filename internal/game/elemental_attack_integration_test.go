@@ -115,7 +115,11 @@ func TestElementalSpecialsAndChampionsStayExcluded(t *testing.T) {
 				if m.ProjectileWeapon != before || len(cs.game.elementalAttackEffects) > 0 {
 					t.Fatal("champion changed profile or emitted elemental FX")
 				}
-				for _, line := range cs.game.MonsterCombatEffectLines(m) {
+				def, err := monster.MonsterConfig.GetMonsterByKey(m.Key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, line := range def.CombatEffectLines(cs.game.monsterEffectContext(m)) {
 					if strings.Contains(line.Text, "Elemental Attack") {
 						t.Fatal("champion acquired proc tooltip")
 					}

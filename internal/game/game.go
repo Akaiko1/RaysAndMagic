@@ -1621,8 +1621,8 @@ func (g *MMGame) snapFacing(angle float64) {
 
 // beginViewAngleSwap points the camera at the eased display angle for a draw
 // pass and returns the restore for the logical angle. The restore only undoes
-// OUR swap: a Draw-time handler (the entry menu loads saves from its draw pass)
-// may re-aim the camera mid-Draw, and that write must survive the frame.
+// OUR swap: a Draw-time UI handler may re-aim the camera mid-Draw, and that
+// write must survive the frame.
 func (g *MMGame) beginViewAngleSwap() (restore func()) {
 	logicalAngle := g.camera.Angle
 	displayAngle := g.viewAngleRender
@@ -1655,38 +1655,8 @@ func (g *MMGame) advanceViewTurn() {
 }
 
 func (g *MMGame) Draw(screen *ebiten.Image) {
-	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
-	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
-	// observes the display angle. In real time viewAngleRender == camera.Angle, so
-	// this is a no-op.
-	if g.camera != nil {
-		defer g.beginViewAngleSwap()()
-	}
-
-	// Screen shake: nudge the camera sideways (perpendicular to the view) for
-	// this frame only - the whole raycast scene shifts coherently, and the
-	// camera is restored before any game logic can observe it.
-	if g.screenShake > 0 && g.camera != nil {
-		ox := -math.Sin(g.camera.Angle) * g.screenShake
-		oy := math.Cos(g.camera.Angle) * g.screenShake
-		if g.frameCount%2 == 0 {
-			ox, oy = -ox, -oy
-		}
-		g.camera.X += ox
-		g.camera.Y += oy
-		// Record the displacement so render-time geometry that must IGNORE the
-		// cosmetic shake (the TB front-diagonal pull - see pulledFrontSlot) can
-		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
-		// pull's LOS near walls and the pulled monster blinks when struck.
-		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
-		// Same only-undo-our-own-write rule as the angle swap above.
-		defer func(shakenX, shakenY, x, y float64) {
-			if g.camera.X == shakenX && g.camera.Y == shakenY {
-				g.camera.X, g.camera.Y = x, y
-			}
-			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
-		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
-	}
+	// Loading readiness must see the same logical camera as Update. Cosmetic
+	// camera changes are scoped to the actual scene/UI draw, after that gate.
 	g.gameLoop.Draw(screen)
 }
 
