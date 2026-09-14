@@ -241,7 +241,6 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 		mob := monsterPkg.NewMonster3DFromConfig(game.camera.X+float64(game.config.GetTileSize()), game.camera.Y, "minotaur", game.config)
 		// Under test is the PHYSICAL armor curve; the minotaur's authored body
 		// school (lower elemental cap) is covered by the melee-school tests.
-		mob.MeleeDamageType = ""
 		if mob.Key != "minotaur" || mob.DamageMin != 24 || mob.DamageMax != 38 {
 			t.Fatalf("unexpected Minotaur loaded from monsters.yaml: key=%q damage=%d-%d",
 				mob.Key, mob.DamageMin, mob.DamageMax)

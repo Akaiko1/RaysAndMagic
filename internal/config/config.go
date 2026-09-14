@@ -206,17 +206,18 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
-	Display    DisplayConfig   `yaml:"display"`
-	Engine     EngineConfig    `yaml:"engine"`
-	World      WorldConfig     `yaml:"world"`
-	Movement   MovementConfig  `yaml:"movement"`
-	Camera     CameraConfig    `yaml:"camera"`
-	UI         UIConfig        `yaml:"ui"`
-	Characters CharacterConfig `yaml:"characters"`
-	MonsterAI  MonsterAIConfig `yaml:"monster_ai"`
-	Graphics   GraphicsConfig  `yaml:"graphics"`
-	Tiles      TileConfig      `yaml:"tiles"`
-	DayNight   DayNightConfig  `yaml:"day_night"`
+	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
+	Display       DisplayConfig       `yaml:"display"`
+	Engine        EngineConfig        `yaml:"engine"`
+	World         WorldConfig         `yaml:"world"`
+	Movement      MovementConfig      `yaml:"movement"`
+	Camera        CameraConfig        `yaml:"camera"`
+	UI            UIConfig            `yaml:"ui"`
+	Characters    CharacterConfig     `yaml:"characters"`
+	MonsterAI     MonsterAIConfig     `yaml:"monster_ai"`
+	Graphics      GraphicsConfig      `yaml:"graphics"`
+	Tiles         TileConfig          `yaml:"tiles"`
+	DayNight      DayNightConfig      `yaml:"day_night"`
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -739,8 +740,9 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int          `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig `yaml:"colors"`
+	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
+	RaysPerScreenWidth int                     `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig            `yaml:"colors"`
 	// RemovedSprite catches the retired graphics.sprite block so a stale config
 	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
 	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
@@ -1156,7 +1158,8 @@ type MapCanopyShadeConfig struct {
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
-	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	ElementalAttackSchool string              `yaml:"elemental_attack_school"`
+	FloorTextureGroups    map[string][]string `yaml:"floor_texture_groups,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
 	// this biome (the off-map backdrop wall). Empty -> the global "seaview"
 	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
@@ -1508,6 +1511,15 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
+	}
+
+	if err := config.MonsterCombat.ElementalAttack.Validate(); err != nil {
+		return nil, err
+	}
+	if config.MonsterCombat.ElementalAttack.Chance > 0 {
+		if err := config.Graphics.ElementalAttack.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Set global config for easy access

@@ -153,8 +153,16 @@ func (p *FxPreview) fxTileExhibits(cfg *config.Config) []FxItem {
 			return
 		}
 	}
-	// Impassable-aura billboard (rock/cliff bubble outline).
-	place("Impassable aura", 1, 4, "moss_rock", "rock", "cliff")
+	// Match the renderer's authored opt-in rule; rocks no longer imply an aura.
+	var auraKeys []string
+	for key, td := range world.GlobalTileManager.ListTiles() {
+		tt, ok := world.GlobalTileManager.GetTileTypeFromKey(key)
+		if ok && tileShowsImpassableAura(td) && !world.GlobalTileManager.IsWalkable(tt) {
+			auraKeys = append(auraKeys, key)
+		}
+	}
+	sort.Strings(auraKeys)
+	place("Impassable aura", 1, 4, auraKeys...)
 	// Teleporter glow + inherit-floor tint.
 	place("Teleporter glow", 1, 8, "vteleporter", "rteleporter")
 	// Spawn-tile border sits at StartX/StartY - camera-only entry.
@@ -234,6 +242,13 @@ func (p *FxPreview) Select(item FxItem) {
 // clearTransient wipes leftover projectiles/effects so previews don't overlap.
 func (p *FxPreview) clearTransient() {
 	g := p.g
+	// A previous utility preview (notably Fly) must not change which edges
+	// qualify for the next exhibit. Reuse the shared effect reset, without
+	// gameplay expiry callbacks such as return teleports.
+	g.resetTimedEffects()
+	g.world.SetFlyActive(false)
+	g.world.SetWalkOnWaterActive(false)
+	g.world.SetWaterBreathingActive(false)
 	for i := range g.magicProjectiles {
 		g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
 	}
@@ -362,6 +377,7 @@ func (p *FxPreview) Step() {
 	g := p.g
 	gl := g.gameLoop
 	g.frameCount++
+	g.advanceInterfaceClock()
 	if gl.hasActiveProjectiles() {
 		gl.updateProjectilesParallel()
 	}

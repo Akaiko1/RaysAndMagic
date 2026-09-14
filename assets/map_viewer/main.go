@@ -65,6 +65,7 @@ var pageTabDefs = []struct {
 }
 
 type mapInfo struct {
+	Biome  config.BiomeConfig
 	Key    string
 	Config *config.MapConfig
 	Data   *world.MapData
@@ -671,6 +672,11 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 			)
 			if def.Type != "" {
 				lines = append(lines, "Type: "+def.Type)
+			}
+			ctx := game.MonsterCatalogEffectContext(v.cfg)
+			ctx.ElementalSchool = m.Biome.ElementalAttackSchool
+			for _, line := range def.CombatEffectLines(ctx) {
+				lines = append(lines, wrapTooltipLines(line.Text, 64)...)
 			}
 		}
 		drawTooltipBox(screen, lines, mouseX, mouseY)
@@ -2230,6 +2236,7 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 		header, eol := readMapHeaderAndEOL(mapPath)
 		maps = append(maps, mapInfo{
 			Key:    key,
+			Biome:  wm.Biomes[mapCfg.Biome],
 			Config: mapCfg,
 			Data:   data,
 			Err:    err,

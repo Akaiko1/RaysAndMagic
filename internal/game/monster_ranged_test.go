@@ -172,7 +172,7 @@ func TestMonsterRangedAttack_SpawnsSpellProjectile(t *testing.T) {
 }
 
 // A projectile profile extends a monster's options instead of replacing its
-// close attack. At point blank it uses melee_damage_type; once the party steps
+// close attack. At point blank it uses physical melee; once the party steps
 // away, the projectile keeps the weapon's own damage school.
 func TestMonsterRangedAttack_PointBlankUsesMeleeAndKeepsSeparateSchools(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -200,7 +200,6 @@ func TestMonsterRangedAttack_PointBlankUsesMeleeAndKeepsSeparateSchools(t *testi
 		State:            monsterPkg.StateAttacking,
 		StateTimer:       1,
 		ProjectileWeapon: "alien_blaster",
-		MeleeDamageType:  monsterPkg.DamageDark.String(),
 		DamageMin:        50,
 		DamageMax:        50,
 		HitPoints:        100,
@@ -212,8 +211,8 @@ func TestMonsterRangedAttack_PointBlankUsesMeleeAndKeepsSeparateSchools(t *testi
 	if len(game.arrows) != 0 {
 		t.Fatalf("point-blank ranged boss fired %d projectiles, want melee", len(game.arrows))
 	}
-	if member.HitPoints != 400 {
-		t.Fatalf("dark melee bypassed 100%% dark resist: HP %d, want 400", member.HitPoints)
+	if member.HitPoints != 350 {
+		t.Fatalf("physical melee vs dark-only resist: HP %d, want 350", member.HitPoints)
 	}
 	if attacker.AttackCDFrames == 0 {
 		t.Fatal("point-blank melee did not spend the ranged boss's attack action")

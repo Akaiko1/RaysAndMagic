@@ -17,7 +17,11 @@ type EffectLine struct {
 // CombatEffectLines is the single formatter for monster attack/special ability
 // rows shown by editor previews. Keep new YAML combat knobs here so consumers do
 // not hand-pick fields and drift.
-func (d MonsterDefinition) CombatEffectLines() []EffectLine {
+func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []EffectLine {
+	var ctx CombatEffectContext
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
 	var out []EffectLine
 	add := func(text string) {
 		out = append(out, EffectLine{Text: text})
@@ -42,14 +46,31 @@ func (d MonsterDefinition) CombatEffectLines() []EffectLine {
 	}
 	if d.ProjectileWeapon != "" {
 		if w, ok := config.GetWeaponDefinition(d.ProjectileWeapon); ok && w != nil {
-			add(fmt.Sprintf("Ranged weapon: %s", w.Name))
+			school := normalizeEffectSchool(w.DamageType)
+			if d.Champion != "" {
+				add(fmt.Sprintf("Ranged weapon: %s", w.Name))
+			} else {
+				addSchool(school, fmt.Sprintf("Ranged weapon: %s (%s)", w.Name, school))
+			}
 		} else {
 			add(fmt.Sprintf("Ranged weapon: %s", d.ProjectileWeapon))
 		}
 	}
-	if d.MeleeDamageType != "" {
-		school := normalizeEffectSchool(d.MeleeDamageType)
-		addSchool(school, fmt.Sprintf("Melee strikes as %s damage", school))
+	profile := d.MeleeProfile(ctx.ElementalAttack, ctx.ElementalSchool)
+	if profile.School != "" {
+		addSchool(profile.School, "Melee: Physical")
+		if profile.ElementalAttack.Chance > 0 {
+			element := profile.ElementalSchool
+			if element == "" {
+				element = "biome-dependent"
+			}
+			line := fmt.Sprintf("Elemental Attack: %g%%, x%g raw melee damage (%s)", profile.ElementalAttack.Chance*100, profile.ElementalAttack.DamageMultiplier, element)
+			if profile.ElementalSchool == "" {
+				add(line)
+			} else {
+				addSchool(profile.ElementalSchool, line)
+			}
+		}
 	}
 	if d.hasTrapVolley() {
 		addSchool(damagecalc.Fire.String(), fmt.Sprintf(

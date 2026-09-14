@@ -312,15 +312,16 @@ type MMGame struct {
 	collapsedSpellSchools map[character.MagicSchoolID]bool
 
 	// Utility spell status icons (data-driven)
-	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
-	slashEffects         []SlashEffect
-	spellHitEffects      []SpellHitEffect
-	buffFxAnims          []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
-	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
-	screenShake          float64       // camera shake amplitude in world units, decays each tick
-	screenShakeOffsetX   float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
-	screenShakeOffsetY   float64
-	hitEffectsMu         sync.Mutex
+	utilitySpellStatuses   map[spells.SpellID]*UtilitySpellStatus
+	slashEffects           []SlashEffect
+	spellHitEffects        []SpellHitEffect
+	elementalAttackEffects []elementalAttackEffect
+	buffFxAnims            []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
+	impactLights           []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
+	screenShake            float64       // camera shake amplitude in world units, decays each tick
+	screenShakeOffsetX     float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
+	screenShakeOffsetY     float64
+	hitEffectsMu           sync.Mutex
 
 	// Smooth turn-based rotation: logic snaps camera.Angle 90deg instantly (no
 	// gameplay change), but the RENDER uses viewAngleRender, which eases toward it

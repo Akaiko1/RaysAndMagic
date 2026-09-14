@@ -1,3 +1,8 @@
+monster_combat:
+  elemental_attack:
+    chance: 0.20
+    damage_multiplier: 2.0
+
 # UgaTaima Game Configuration
 
 # Display settings
@@ -296,6 +301,11 @@ monster_ai:
 
 # Graphics and rendering
 graphics:
+  elemental_attack:
+    duration_seconds: 0.48
+    radius_tiles: 0.35
+    particle_count: 9
+    max_active: 96
   # Raycasting optimization - reduced for 60 FPS performance
   rays_per_screen_width: 1  # One ray per screen pixel: best wall quality, most expensive
 

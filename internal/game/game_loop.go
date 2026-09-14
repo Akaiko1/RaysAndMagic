@@ -666,6 +666,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	}
 
 	// Buff-cast overlay animations age out.
+	gl.game.tickElementalAttackFX()
 	gl.game.tickBuffFx()
 
 	// Quest banners: pick up whatever the journal did this frame and age the one

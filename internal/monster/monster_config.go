@@ -40,41 +40,41 @@ type MonsterDefinition struct {
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
 	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
-	// damage school comes from that weapon, so melee_damage_type is invalid.
+	// damage school comes from that weapon. Ordinary melee uses a shared profile.
 	Champion string `yaml:"champion,omitempty"`
 	// size_game and size_multiplier are retired. The fields exist only so content
 	// still authoring them FAILS LOUD in validation instead of silently rendering
 	// at the wrong scale.
-	DeprecatedSizeGame       float64        `yaml:"size_game,omitempty"`
-	DeprecatedSizeMultiplier float64        `yaml:"size_multiplier,omitempty"`
-	Resistances              map[string]int `yaml:"resistances"`
-	HabitatPrefs             []string       `yaml:"habitat_preferences"`
-	ProjectileSpell          string         `yaml:"projectile_spell"`
-	ProjectileWeapon         string         `yaml:"projectile_weapon"`
-	Flying                   bool           `yaml:"flying"`
-	RangedAttackRange        float64        `yaml:"ranged_attack_range"`
-	AttacksPerRound          int            `yaml:"attacks_per_round"`
-	AttackCooldownMult       float64        `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit          bool           `yaml:"passive_until_attacked"`
-	FireburstChance          float64        `yaml:"fireburst_chance"`
-	FireburstDamageMin       int            `yaml:"fireburst_damage_min"`
-	FireburstDamageMax       int            `yaml:"fireburst_damage_max"`
-	DragonBreathChance       float64        `yaml:"dragon_breath_chance,omitempty"`
-	DragonBreathType         string         `yaml:"dragon_breath_damage_type,omitempty"`
-	MeleeDamageType          string         `yaml:"melee_damage_type,omitempty"`
-	PiercingShotChance       float64        `yaml:"piercing_shot_chance,omitempty"`
-	PiercingShotTargets      int            `yaml:"piercing_shot_targets,omitempty"`
-	AllyHealChance           float64        `yaml:"ally_heal_chance,omitempty"`
-	AllyHealAmount           int            `yaml:"ally_heal_amount,omitempty"`
-	AllyHealRadius           float64        `yaml:"ally_heal_radius_tiles,omitempty"`
-	PoisonChance             float64        `yaml:"poison_chance"`
-	PoisonDurationSec        int            `yaml:"poison_duration_seconds"`
-	IgniteChance             float64        `yaml:"ignite_chance,omitempty"`
-	IgniteDurationSec        int            `yaml:"ignite_duration_seconds,omitempty"`
-	StunCharChance           float64        `yaml:"stun_char_chance,omitempty"`
-	StunCharSeconds          int            `yaml:"stun_char_seconds,omitempty"`
-	StunCharTurns            int            `yaml:"stun_char_turns,omitempty"`
-	DispelChance             float64        `yaml:"dispel_chance,omitempty"`
+	DeprecatedSizeGame        float64        `yaml:"size_game,omitempty"`
+	DeprecatedSizeMultiplier  float64        `yaml:"size_multiplier,omitempty"`
+	Resistances               map[string]int `yaml:"resistances"`
+	HabitatPrefs              []string       `yaml:"habitat_preferences"`
+	ProjectileSpell           string         `yaml:"projectile_spell"`
+	ProjectileWeapon          string         `yaml:"projectile_weapon"`
+	Flying                    bool           `yaml:"flying"`
+	RangedAttackRange         float64        `yaml:"ranged_attack_range"`
+	AttacksPerRound           int            `yaml:"attacks_per_round"`
+	AttackCooldownMult        float64        `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit           bool           `yaml:"passive_until_attacked"`
+	FireburstChance           float64        `yaml:"fireburst_chance"`
+	FireburstDamageMin        int            `yaml:"fireburst_damage_min"`
+	FireburstDamageMax        int            `yaml:"fireburst_damage_max"`
+	DragonBreathChance        float64        `yaml:"dragon_breath_chance,omitempty"`
+	DragonBreathType          string         `yaml:"dragon_breath_damage_type,omitempty"`
+	DeprecatedMeleeDamageType string         `yaml:"melee_damage_type,omitempty"`
+	PiercingShotChance        float64        `yaml:"piercing_shot_chance,omitempty"`
+	PiercingShotTargets       int            `yaml:"piercing_shot_targets,omitempty"`
+	AllyHealChance            float64        `yaml:"ally_heal_chance,omitempty"`
+	AllyHealAmount            int            `yaml:"ally_heal_amount,omitempty"`
+	AllyHealRadius            float64        `yaml:"ally_heal_radius_tiles,omitempty"`
+	PoisonChance              float64        `yaml:"poison_chance"`
+	PoisonDurationSec         int            `yaml:"poison_duration_seconds"`
+	IgniteChance              float64        `yaml:"ignite_chance,omitempty"`
+	IgniteDurationSec         int            `yaml:"ignite_duration_seconds,omitempty"`
+	StunCharChance            float64        `yaml:"stun_char_chance,omitempty"`
+	StunCharSeconds           int            `yaml:"stun_char_seconds,omitempty"`
+	StunCharTurns             int            `yaml:"stun_char_turns,omitempty"`
+	DispelChance              float64        `yaml:"dispel_chance,omitempty"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
@@ -186,8 +186,8 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))
 		}
-		if strings.TrimSpace(monster.Champion) != "" && strings.TrimSpace(monster.MeleeDamageType) != "" {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' sets both champion and melee_damage_type - champion melee damage school comes from its equipped weapon", key))
+		if monster.DeprecatedMeleeDamageType != "" {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed melee_damage_type - ordinary melee is physical; elemental attacks come from biome rules", key))
 		}
 		if monster.requiresBossClassification() && !monster.Boss {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' authors boss-only behavior but lacks boss: true", key))
@@ -230,14 +230,6 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
 			} else {
 				monster.DragonBreathType = damageType.String()
-			}
-		}
-		meleeType := strings.ToLower(strings.TrimSpace(monster.MeleeDamageType))
-		if meleeType != "" {
-			if damageType, err := ParseDamageType(meleeType); err != nil {
-				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown melee_damage_type %q", key, monster.MeleeDamageType))
-			} else {
-				monster.MeleeDamageType = damageType.String()
 			}
 		}
 		if monster.Resistances != nil {
@@ -526,7 +518,6 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	m.DragonBreathChance = def.DragonBreathChance
 	m.DragonBreathDamageType = def.DragonBreathType
-	m.MeleeDamageType = def.MeleeDamageType
 	m.PiercingShotChance = def.PiercingShotChance
 	m.PiercingShotTargets = def.PiercingShotTargets
 	m.AllyHealChance = def.AllyHealChance

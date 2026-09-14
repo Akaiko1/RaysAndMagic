@@ -70,6 +70,10 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		return fmt.Errorf("failed to parse map configs: %w", err)
 	}
 
+	if err := mapConfigs.ValidateElementalSchools(wm.config != nil && wm.config.MonsterCombat.ElementalAttack.Chance > 0); err != nil {
+		return err
+	}
+
 	// Store map configs
 	wm.MapConfigs = make(map[string]*config.MapConfig)
 	for key, mapConfig := range mapConfigs.Maps {

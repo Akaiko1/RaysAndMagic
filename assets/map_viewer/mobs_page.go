@@ -128,7 +128,7 @@ func (v *viewer) selectMob(idx int) {
 	if staged := mobsPage.preview.Monsters(); len(staged) > 0 {
 		runtime = staged[0]
 	}
-	mobsPage.info = buildMobInfoRuntime(key, v.monsterCfg.Monsters[key], runtime, v.cfg.GetTileSize())
+	mobsPage.info = buildMobInfoRuntime(key, v.monsterCfg.Monsters[key], runtime, v.cfg.GetTileSize(), game.MonsterCatalogEffectContext(v.cfg))
 }
 
 func (v *viewer) updateMobsPage() {
@@ -285,7 +285,7 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 // buildMobInfoRuntime uses a staged monster when available so the editor shows
 // effective values after the same setup/mirroring paths the game runs. The
 // definition remains the source for authored behavior and loot.
-func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *monster.Monster3D, tileSize float64) []infoLine {
+func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *monster.Monster3D, tileSize float64, contexts ...monster.CombatEffectContext) []infoLine {
 	var out []infoLine
 	addc := func(col color.Color, format string, args ...any) {
 		for _, line := range wrapTooltipLines(fmt.Sprintf(format, args...), mobInfoCols) {
@@ -387,7 +387,7 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	}
 
 	addHeader("ABILITIES")
-	for _, line := range effectDef.CombatEffectLines() {
+	for _, line := range effectDef.CombatEffectLines(contexts...) {
 		var col color.Color = mobStatDefault
 		if line.School != "" {
 			col = game.SchoolColor(line.School)

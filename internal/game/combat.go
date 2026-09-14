@@ -19,8 +19,9 @@ import (
 
 // CombatSystem handles all combat-related functionality
 type CombatSystem struct {
-	game           *MMGame
-	racialProcRoll func(int) bool
+	game                *MMGame
+	racialProcRoll      func(int) bool
+	elementalAttackRoll func() float64
 }
 
 // Owner namespaces of the pure party allies. They persist through
@@ -1699,15 +1700,14 @@ func (cs *CombatSystem) monsterUsesMeleeAgainstParty(monster *monsterPkg.Monster
 }
 
 // monsterUsesMeleeAgainstPoint selects delivery without changing damage data:
-// melee keeps melee_damage_type, while the ranged path keeps the projectile
+// melee resolves its shared profile, while the ranged path keeps the projectile
 // spell or weapon's own school.
 func (cs *CombatSystem) monsterUsesMeleeAgainstPoint(monster *monsterPkg.Monster3D, targetX, targetY float64) bool {
 	if monster == nil || !monster.HasRangedAttack() {
 		return monster != nil
 	}
 	// Arena champions are character builds whose `ranged` flag explicitly owns
-	// their main-hand delivery; unlike ordinary monster definitions they have no
-	// authored melee_damage_type/profile to switch to.
+	// their main-hand delivery; they do not use the ordinary melee profile.
 	if monster.IsChampion() {
 		return false
 	}
@@ -1790,22 +1790,14 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 		monster,
 		currentChar,
 		monster.Name,
-		hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterMeleeSchool(monster), monster.IgnoresArmor, 0, true, false),
+		cs.normalMonsterMeleeHit(monster, cs.monsterAttackDamage(monster)),
 	)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
 }
 
-// monsterMeleeSchool is the school a monster's melee blows land in: the
-// authored melee_damage_type (normalized at load), physical otherwise.
-func monsterMeleeSchool(m *monsterPkg.Monster3D) string {
-	if m != nil && m.MeleeDamageType != "" {
-		return m.MeleeDamageType
-	}
-	return monsterPkg.DamagePhysical.String()
-}
-
 type monsterCharacterHit struct {
+	ElementalAttack    bool
 	Parts              damagecalc.Parts
 	DamageType         string
 	IgnoresArmor       bool
@@ -1915,6 +1907,9 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.knockOut(target)
 	}
 	cs.game.TriggerDamageHit(targetIndex, finalDamage)
+	if hit.ElementalAttack && finalDamage > 0 {
+		cs.game.addElementalAttackFX(0, 0, target, hit.DamageType)
+	}
 
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
@@ -3605,7 +3600,7 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 // monster-vs-monster blow). On a kill the party is rewarded ONLY if the slain
 // monster was an enemy (not a bound ally that a mob just cut down).
 func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monster3D) {
-	if attacker == nil || target == nil || !cs.attackLineClear(attacker.X, attacker.Y, target.X, target.Y) {
+	if attacker == nil || target == nil || !attacker.IsAlive() || !target.IsAlive() || !cs.attackLineClear(attacker.X, attacker.Y, target.X, target.Y) {
 		return
 	}
 	cs.game.playMonsterSound(soundMonsterMeleeSwing, attacker)
@@ -3613,7 +3608,7 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 	cs.strikeMonsterFor(
 		attacker,
 		target,
-		hitFromMonster(attacker, damage, monsterMeleeSchool(attacker), attacker.IgnoresArmor, 0, true, false),
+		cs.normalMonsterMeleeHit(attacker, damage),
 		nil,
 		false,
 	)
@@ -3631,7 +3626,9 @@ func (cs *CombatSystem) strikeMonsterFor(
 	isRanged bool,
 ) {
 	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
-	cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.IgnoresArmor, hit.IgnoresDodge, true)
+	if cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.IgnoresArmor, hit.IgnoresDodge, true) && hit.ElementalAttack {
+		cs.game.addMonsterElementalAttackFX(target, hit.DamageType)
+	}
 }
 
 func (cs *CombatSystem) strikeMonsterPacketFor(
@@ -3639,9 +3636,9 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	packet monsterDamagePacket,
 	weaponDef *config.WeaponDefinitionConfig,
 	isRanged, ignoreArmor, ignoreDodge, canDodge bool,
-) {
+) bool {
 	if !target.IsAlive() {
-		return // already slain this frame - no double damage/reward
+		return false // already slain this frame - no double damage/reward
 	}
 	if canDodge && monsterPerfectDodges(target, ignoreDodge) {
 		actual := cs.applyMonsterDamagePacket(
@@ -3660,7 +3657,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", target.Name, attacker.Name))
 		}
-		return
+		return false
 	}
 	actual := cs.applyMonsterDamagePacket(
 		target,
@@ -3677,10 +3674,11 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, actual))
 	if target.IsAlive() {
-		return
+		return actual > 0
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
 	cs.finishMonsterKillImmediately(target)
+	return actual > 0
 }
 
 // boundAttackNearest makes a bound undead attack the nearest enemy monster -

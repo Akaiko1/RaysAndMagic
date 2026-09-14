@@ -1475,6 +1475,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
+		r.drawElementalAttackFX(screen)
 
 		// Buff-cast overlay animation, centred in the party's view.
 		r.drawBuffFx(screen)

@@ -342,7 +342,7 @@ func TestMonsterStrikeMonster_ScattersVictimsBand(t *testing.T) {
 	addBandingTestMonster(game, "wolf_b", "wolf", cx, cy, 11)
 	victim, survivor := game.world.Monsters[0], game.world.Monsters[1]
 	victim.HitPoints = 1
-	attacker := &monsterPkg.Monster3D{ID: "bound_ally", Bound: true, DamageMin: 999, DamageMax: 999}
+	attacker := &monsterPkg.Monster3D{ID: "bound_ally", Bound: true, HitPoints: 100, MaxHitPoints: 100, DamageMin: 999, DamageMax: 999}
 
 	game.combat.monsterStrikeMonster(attacker, victim)
 

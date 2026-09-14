@@ -156,7 +156,6 @@ monsters:
     experience: 180
     damage_min: 17
     damage_max: 25
-    melee_damage_type: "body"
     poison_chance: 0.20
     poison_duration_seconds: 20
     alert_radius: 4
@@ -187,7 +186,6 @@ monsters:
     experience: 620
     damage_min: 24
     damage_max: 38
-    melee_damage_type: "body"
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -215,7 +213,6 @@ monsters:
     experience: 950
     damage_min: 20
     damage_max: 32
-    melee_damage_type: "spirit"
     projectile_spell: "lightning"
     ranged_attack_range: 5
     alert_radius: 7
@@ -244,7 +241,6 @@ monsters:
     experience: 300
     damage_min: 15
     damage_max: 30
-    melee_damage_type: "earth"
     poison_chance: 0.33
     poison_duration_seconds: 23
     alert_radius: 4
@@ -597,7 +593,6 @@ monsters:
     experience: 550
     damage_min: 25
     damage_max: 35
-    melee_damage_type: "spirit"
     alert_radius: 6
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "alien_dark_bolt"
@@ -674,7 +669,6 @@ monsters:
     experience: 50
     damage_min: 12
     damage_max: 12
-    melee_damage_type: "mind"
     fireburst_chance: 0.33
     fireburst_damage_min: 6
     fireburst_damage_max: 18
@@ -766,7 +760,6 @@ monsters:
     experience: 240
     damage_min: 17
     damage_max: 23
-    melee_damage_type: "body"
     attacks_per_round: 4
     attack_cooldown_multiplier: 0.25
     alert_radius: 5
@@ -885,7 +878,6 @@ monsters:
     experience: 720
     damage_min: 28
     damage_max: 44
-    melee_damage_type: "earth"
     alert_radius: 4
     attack_radius: 1
     speed: 1.1
@@ -941,7 +933,6 @@ monsters:
     experience: 1300
     damage_min: 24
     damage_max: 36
-    melee_damage_type: "dark"
     projectile_spell: "darkbolt"
     ranged_attack_range: 5
     alert_radius: 7
@@ -975,7 +966,6 @@ monsters:
     experience: 760
     damage_min: 24
     damage_max: 38
-    melee_damage_type: "spirit"
     alert_radius: 6
     attack_radius: 1
     speed: 1.3
@@ -1040,7 +1030,6 @@ monsters:
     experience: 1800
     damage_min: 32
     damage_max: 52
-    melee_damage_type: "dark"
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     alert_radius: 8
@@ -1252,7 +1241,6 @@ monsters:
     experience: 1000
     damage_min: 26
     damage_max: 40
-    melee_damage_type: "water"
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.6
     ally_heal_chance: 0.15
@@ -1285,7 +1273,6 @@ monsters:
     experience: 1500
     damage_min: 32
     damage_max: 48
-    melee_damage_type: "spirit"
     attacks_per_round: 2          # elite inherits the base ningyo's double strike
     attack_cooldown_multiplier: 0.6
     ally_heal_chance: 0.15
@@ -1322,7 +1309,6 @@ monsters:
     experience: 3500
     damage_min: 30
     damage_max: 48
-    melee_damage_type: "dark"
     attack_radius: 1
     alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.6
@@ -1362,7 +1348,6 @@ monsters:
     experience: 800
     damage_min: 34
     damage_max: 50
-    melee_damage_type: "water"
     attack_radius: 1
     alert_radius: 7
     speed: 1.6
@@ -1388,7 +1373,6 @@ monsters:
     experience: 1000
     damage_min: 30
     damage_max: 48
-    melee_damage_type: "mind"
     attacks_per_round: 2          # a hopping flurry of tongue and rib strikes
     attack_cooldown_multiplier: 0.7
     attack_radius: 1
@@ -1417,7 +1401,6 @@ monsters:
     experience: 1200
     damage_min: 36
     damage_max: 52
-    melee_damage_type: "air"
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.7
     attack_radius: 1
@@ -1447,7 +1430,6 @@ monsters:
     experience: 1600
     damage_min: 28
     damage_max: 44
-    melee_damage_type: "fire"
     projectile_spell: "firebolt"  # foxfire
     ranged_attack_range: 6
     attack_radius: 5
@@ -1484,7 +1466,6 @@ monsters:
     experience: 4000
     damage_min: 38
     damage_max: 58
-    melee_damage_type: "body"
     poison_chance: 0.35
     poison_duration_seconds: 60
     attack_radius: 1
@@ -1606,7 +1587,6 @@ monsters:
     experience: 1300
     damage_min: 30
     damage_max: 46
-    melee_damage_type: "mind"
     attacks_per_round: 2          # whirling blades
     attack_cooldown_multiplier: 0.7
     attack_radius: 1
@@ -1636,7 +1616,6 @@ monsters:
     experience: 1700
     damage_min: 30
     damage_max: 46
-    melee_damage_type: "mind"
     dispel_chance: 0.10           # 10% to strip a random active party buff on hit
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
@@ -1670,7 +1649,6 @@ monsters:
     experience: 2600
     damage_min: 49
     damage_max: 67
-    melee_damage_type: "body"
     attack_radius: 1
     alert_radius: 10  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.5
@@ -1884,7 +1862,6 @@ monsters:
     experience: 1000
     damage_min: 42
     damage_max: 58
-    melee_damage_type: "earth"
     alert_radius: 4
     attack_radius: 1.2
     speed: 1.1
@@ -1938,7 +1915,6 @@ monsters:
     experience: 1700
     damage_min: 50
     damage_max: 68
-    melee_damage_type: "earth"
     alert_radius: 7
     attack_radius: 1.2
     attacks_per_round: 2
@@ -1968,7 +1944,6 @@ monsters:
     experience: 2400
     damage_min: 62
     damage_max: 84
-    melee_damage_type: "earth"
     alert_radius: 4
     attack_radius: 1.4
     attacks_per_round: 2
@@ -2000,7 +1975,6 @@ monsters:
     experience: 0
     damage_min: 48
     damage_max: 66
-    melee_damage_type: "body"
     poison_chance: 0.25
     poison_duration_seconds: 30
     alert_radius: 12
@@ -2027,7 +2001,6 @@ monsters:
     damage_min: 52
     damage_max: 72
     true_damage: 8
-    melee_damage_type: "spirit"
     alert_radius: 14
     attack_radius: 1
     projectile_spell: "alien_dark_bolt"
@@ -2061,7 +2034,6 @@ monsters:
     damage_min: 70
     damage_max: 100
     true_damage: 20
-    melee_damage_type: "fire"
     alert_radius: 14
     attack_radius: 2
     speed: 0
@@ -2108,7 +2080,6 @@ monsters:
     damage_min: 66
     damage_max: 92
     true_damage: 15
-    melee_damage_type: "dark"
     alert_radius: 12
     attack_radius: 1
     speed: 1.3
@@ -2152,7 +2123,6 @@ monsters:
     damage_min: 74
     damage_max: 104
     true_damage: 20
-    melee_damage_type: "air"
     alert_radius: 14
     attack_radius: 1
     speed: 1.9

@@ -721,6 +721,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			screen.DrawImage(effects, op)
 		}
 
+		ui.drawPortraitElementalAttackFX(screen, member, px, py, pw, ph)
+
 		content := makePartyCardContentLayout(panelX, panelY, panelW)
 		contentX := content.box.x
 		statsW := content.stats.w

@@ -394,7 +394,6 @@ type Monster3D struct {
 	FireburstDamageMax       int      // Fireburst damage max
 	DragonBreathChance       float64  // Chance for this attack to hit every living party member
 	DragonBreathDamageType   string   // Element used by dragon breath mitigation/resists
-	MeleeDamageType          string   // School of melee blows (canonical, normalized at load); "" = physical
 	PiercingShotChance       float64  // Chance to fire an armor-piercing shot at multiple party members
 	PiercingShotTargets      int      // Number of party members hit by Piercing Shot (default 2)
 	AllyHealChance           float64  // Chance to heal self or a nearby allied monster instead of attacking

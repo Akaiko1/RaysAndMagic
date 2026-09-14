@@ -34,6 +34,7 @@ func (g *MMGame) clearTransientCombatState() {
 	// coordinates of the destination map.
 	g.pendingMortars = g.pendingMortars[:0]
 	g.slashEffects = g.slashEffects[:0]
+	g.elementalAttackEffects = nil
 	g.hitEffectsMu.Lock()
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
