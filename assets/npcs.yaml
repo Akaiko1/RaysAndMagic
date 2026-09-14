@@ -15,15 +15,15 @@ npcs:
   spell_trader_mage:
     name: "Priestess Liora"
     type: "spell_trader"
-    description: "A serene priestess in white and gold, keeper of a lakeside shrine, who teaches the divine arts of body, mind and spirit"
+    description: "A priestess in white and gold who teaches Body, Mind, and Spirit at the lakeside shrine"
     sprite: "priestess_spell_merchant"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Peace, traveler. Few cross the bridge to my shrine; the Light rewards those who do. I teach the arts of body, mind, and spirit - choose a soul to bless."
-      insufficient_gold: "Devotion is not bought with empty hands. This teaching asks %d gold."
-      already_known: "%s already carries this prayer in their heart."
-      success: "The Light settles into %s. Wield it gently, and it will not fail you."
+      greeting: "Welcome to the shrine. Rest a moment; the lesson can wait until you have caught your breath. I am Liora, and I teach Body, Mind, and Spirit magic. Who wishes to learn?"
+      insufficient_gold: "The lesson costs %d gold. I must keep the shrine supplied."
+      already_known: "%s already knows this spell. Shall we choose another?"
+      success: "%s has learned the spell. Take time to practice it."
 
     # Self & divine magic - every Body, Mind and Spirit spell. Each entry authors
     # only its shop price; name/school/description are backfilled from spells.yaml
@@ -50,17 +50,17 @@ npcs:
   mtrader0:
     name: "Apprentice Mira"
     type: "quest_giver"
-    description: "An eager young hedge-mage camped at the forest's edge, casting her two water charms for coin while she dreams of greater teaching"
+    description: "An apprentice with two water charms, a stack of bridge planks, and plans to study at the shrine"
     sprite: "beginner_spell_merchant"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "A real adventuring party! I am Mira. I have two charms and I cannot teach either one yet, but I can cast them on you here and now for coin."
-      quest_greeting: "I am camped here because I am trying to reach Priestess Liora's shrine across the lake. I cannot finish my bridge with wolves at my back. Will you help?"
-      active_message: "The wolves are still out there. Kill every one of them in this forest and I will finish the bridge."
-      completed_message: "Every wolf is dead. The bridge is laid across the water to Priestess Liora's shrine. Here is your reward. Go and meet her, and say Mira sent you."
-      visited_message: "Use the bridge whenever you like. Give Priestess Liora my respects."
-      choice_prompt: "Mira fidgets with a half-finished plank."
+      greeting: "Oh! Customers. I know two water charms, and both work. I cannot teach them yet, but I can cast them for you. Which do you need?"
+      quest_greeting: "Liora's shrine is just across the lake. I have the timber, the nails, even a plan. What I haven't got is someone to keep the wolves off me while I build. Will you help?"
+      active_message: "There are still wolves in the Elvish Forest. I need every last one gone before I can finish the bridge."
+      completed_message: "There! A bridge all the way to Liora's shrine. Mind the new boards. Here is your pay, and do tell her Mira built it."
+      visited_message: "Have you crossed my bridge yet? I keep finding excuses to walk over it."
+      choice_prompt: "Mira brushes sawdust from her sleeves."
       choices:
         - text: "Walk us over the water"
           action: "cast_buff"
@@ -74,11 +74,11 @@ npcs:
           cost: 5000
         - text: "Why are you building a bridge?"
           action: "info"
-          response: "Priestess Liora teaches the divine arts at a shrine across the lake - body, mind and spirit. The only crossing is this bridge, and I cannot lay a plank with wolves at my back."
+          response: "Priestess Liora teaches Body, Mind, and Spirit at the shrine across the lake. I want to learn from her. First I have to finish this bridge, but whenever the wolves come near I have to drop my tools and run."
           choices:
             - text: "What's the trouble with the wolves?"
               action: "info"
-              response: "A whole pack, and they own this forest after dark. I have lost tools and nearly lost a hand. Kill every wolf in the Elvish Forest and the bridge will be finished in days."
+              response: "They come out of the trees just as I settle down to work. I've dropped enough nails to build another bridge. Kill every Wolf in the Elvish Forest and come back; I will finish the crossing."
               choices:
                 - text: "Consider it done. We'll cull the pack."
                   action: "give_quest"
@@ -99,12 +99,12 @@ npcs:
   merchant_general:
     name: "Trader Aelwen"
     type: "merchant"
-    description: "A graceful elven trader in green robes, healing vials at her belt, dealing in the road staples a far-walking party always forgets"
+    description: "An elven trader in green robes, with healing vials hanging from her belt"
     sprite: "elf"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Well met. I'm Aelwen - I don't deal in wonders, only the staples that keep a party walking. What did you forget to pack?"
+      greeting: "Aelwen's supplies. Potions, provisions, the things you remember halfway into a dungeon. Have a look before you set off."
     inventory:
       - type: "potion"
         name: "Health Potion"
@@ -118,33 +118,33 @@ npcs:
   desert_merchant:
     name: "Esna the Wayfarer"
     type: "merchant"
-    description: "A young traveling peddler - potion-tray at her hip, bedroll on her back - who walks the long desert routes and pays fair coin for cast-off gear"
+    description: "A traveling peddler carrying a tray of potions and a well-used bedroll"
     sprite: "merchant"
     render_category: npc
     size_class: person
     sell_available: true
     dialogue:
-      greeting: "Esna's the name - I walk the long routes most folk won't, tray and bedroll and all. I pay fair coin for spare gear. Anything you'd rather not carry?"
+      greeting: "Esna, at your service. I've carried these goods a long way, so I'd be pleased to sell you some. I buy spare equipment too. Let's see what you've got."
 
   card_collector:
     name: "Cartomancer Odette"
     type: "card_collector"
-    description: "A monocled scholar of monster cards, pouches of stamped parchment at every belt-loop, set up under a sun-awning in the dunes"
+    description: "A scholar with a monocle and belt pouches full of monster cards"
     sprite: "card_collector"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Monster cards! Slot one into your collection and the whole party shares its power - or pull one back out. Only I know the trick of pinning them."
+      greeting: "Collecting monster cards? Let me examine them. I can pin a card into your collection so the whole party shares its power. I can remove cards too, if you wish to change the arrangement."
 
   quest_elder:
     name: "Warden Sylvaine"
     type: "quest_giver"
-    description: "A keen-eyed elven warden in green and leather, blade at her hip, who keeps watch over the roads out of the village"
+    description: "An elven road warden in green and leather, with a blade at her hip"
     sprite: "elf_warrior"
     size_class: person
     render_category: npc
     dialogue:
-      greeting: "Hold a moment, travelers. I ward the roads out of here, and of late they run to old and hungry places. Walk them with open eyes - the land remembers more than it forgives."
+      greeting: "Before you take the road: keep your party together and watch the bends. I am Sylvaine, warden here. We've had too many travelers go missing beyond the village."
 
   shipwreck_bandit_camp:
     name: "Abandoned Shipwreck"
@@ -155,8 +155,8 @@ npcs:
     render_category: scenery
     transparent: true
     dialogue:
-      greeting: "You approach an old shipwreck half-buried in the ground. Through gaps in the rotted hull, you hear voices and see flickering firelight. It seems bandits have made this wreck their hideout."
-      visited_message: "The shipwreck appears empty now."
+      greeting: "Firelight shows through the wreck's split planking. Inside, men argue over a purse. One calls for silence; another reaches for his sword."
+      visited_message: "The bandits are gone. The wreck smells of wet timber and old smoke."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Leave quietly"
@@ -168,7 +168,7 @@ npcs:
       start_message: "Bandits emerge from the shipwreck to attack!"
       quest_id: "shipwreck_bandits"
       quest_name: "Clear the Shipwreck"
-      quest_description: "Bandits have made a hideout in an old shipwreck. Defeat them all to claim the bounty."
+      quest_description: "Bandits have occupied the old shipwreck. Defeat every bandit in the encounter to claim the bounty."
       monsters:
         - type: "bandit"
           count_min: 2
@@ -176,7 +176,7 @@ npcs:
       rewards:
         gold: 2000
         experience: 500
-        completion_message: "The shipwreck bandits have been defeated!"
+        completion_message: "The bandits are defeated. You collect the bounty."
       first_visit_only: true
 
   # Dragon statues (desert corners). Unique names so save/load tracks each
@@ -192,7 +192,7 @@ npcs:
     size_class: full_tile
     hide_when_visited: true
     dialogue:
-      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      greeting: "A hollow is cut into the base of the black dragon statue. The runes call for a matching black dragon statuette and an oath to hunt the four Elder Dragons."
       choice_prompt: "Place a statuette?"
       choices:
         - text: "Leave"
@@ -214,7 +214,7 @@ npcs:
     size_class: full_tile
     hide_when_visited: true
     dialogue:
-      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      greeting: "A hollow is cut into the base of the red dragon statue. The runes call for a matching red dragon statuette and an oath to hunt the four Elder Dragons."
       choice_prompt: "Place a statuette?"
       choices:
         - text: "Leave"
@@ -236,7 +236,7 @@ npcs:
     size_class: full_tile
     hide_when_visited: true
     dialogue:
-      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      greeting: "A hollow is cut into the base of the green dragon statue. The runes call for a matching green dragon statuette and an oath to hunt the four Elder Dragons."
       choice_prompt: "Place a statuette?"
       choices:
         - text: "Leave"
@@ -258,7 +258,7 @@ npcs:
     size_class: full_tile
     hide_when_visited: true
     dialogue:
-      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      greeting: "A hollow is cut into the base of the gold dragon statue. The runes call for a matching gold dragon statuette and an oath to hunt the four Elder Dragons."
       choice_prompt: "Place a statuette?"
       choices:
         - text: "Leave"
@@ -280,8 +280,8 @@ npcs:
     transparent: true
     size_class: medium_prop
     dialogue:
-      greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
-      visited_message: "The cages hang open and empty - the freed champions have gone to await you at the tavern."
+      greeting: "Two champions are locked in the stockade. At the bars stand two elf swordsmen. One spots you looking at the prisoners and reaches for his blade."
+      visited_message: "Both cages are empty. The freed champions have gone to the tavern, where you can recruit them."
       choice_prompt: "Free the prisoners?"
       choices:
         - text: "Break them out (fight the jailers)"
@@ -298,7 +298,7 @@ npcs:
           count_max: 2
       rewards:
         experience: 0
-        completion_message: "The cages spring open - the imprisoned champions head for the tavern to await you."
+        completion_message: "The cages open. Both champions head for the tavern, ready to join your company."
         frees_captives: true
 
   tavern:
@@ -312,8 +312,8 @@ npcs:
     size_class: medium_prop
     town_portal: true   # recall anchor: makes its map a Town Portal destination
     dialogue:
-      greeting: "The keeper nods. 'Beds upstairs, stew on the fire, and your benched companions at the corner table. What'll it be?'"
-      choice_prompt: "The keeper waits."
+      greeting: "The keeper sets down a bowl. 'Stew is hot, beds are upstairs. Your companions have claimed the corner table. Staying the night?'"
+      choice_prompt: "The keeper wipes her hands on an apron."
       choices:
         - text: "Manage roster"
           action: "open_roster"
@@ -340,19 +340,19 @@ npcs:
     size_class: structure
     rejects_lich: true
     dialogue:
-      greeting: "A voice rings down from the tower's heights, neither man's nor woman's: 'You feel the wards part for you. Few do. Speak, then - there is a trial here for those bold enough to be raised.'"
-      active_message: "The voice stirs again, cooler now: 'The Lich King still draws breath, and so the throne of Archmage stays empty. Return when the deed is done.'"
-      completed_message: "The wards blaze white: 'You have broken the Lich King. The Light has waited long for hands worthy of it. Step forward, and be raised to Archmage.'"
-      visited_message: "The tower stands quiet now - its highest seat is filled, and an Archmage walks among you."
-      choice_prompt: "The Mage Tower's wards flicker white, waiting."
+      greeting: "White fire runs up the tower door. A voice speaks from above: 'Petitioners for the rank of Archmage, hear the trial.'"
+      active_message: "'The Lich King still rules his Nexus. Destroy him and return to this tower.'"
+      completed_message: "The door shines white. 'The Lich King is defeated. Let one of you step forward to receive the Light and be raised to Archmage.'"
+      visited_message: "The tower's wards part at your approach. One of your company now bears its Light."
+      choice_prompt: "White fire outlines the open door."
       choices:
         - text: "What trial does the tower offer?"
           action: "info"
-          response: "'The seat of Archmage has stood empty since the Lich King rose. Kill him at his nexus, return alive, and one of you will be raised to command the Light.'"
+          response: "'Since the Lich King rose, we have appointed no Archmage. Slay him in the Lich Nexus and return. One of your company may then receive the Light.'"
           choices:
             - text: "What does becoming Archmage grant?"
               action: "info"
-              response: "'Command of the highest Light. The pages can be bought at any shrine that keeps them; the school itself cannot, and without it the pages are ink. It is not a blessing laid on a man. They put it inside him and it stays there. It will not go into the undead, and it will not go into anyone who has not faced the Lich King.'"
+              response: "'An Archmage can learn Light spells from the pages sold at shrines. Without the school, those pages cannot be used. We place the Light within the candidate, where it remains. The undead cannot receive it. First, you must defeat the Lich King.'"
               choices:
                 - text: "We accept. The Lich King will fall."
                   action: "give_quest"
@@ -378,19 +378,19 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Down - keep low when the wind shifts. Good. You've a steadier hand than the last lot who came up this trail. I'm Maera; I watch these cliffs so the bridge towns below get a warning before the trouble does. And lately there's trouble."
-      active_message: "Still too many of them on the ridge. Thin the pack and the bridge approaches are ours again - I'll know the moment the mist clears."
-      completed_message: "The bridge stones are quiet for the first time in weeks. I watched you work the ridge - clean, no wasted blood. You've earned your due; let me settle up."
-      visited_message: "The cliffs hold, and the towns below sleep easier. Safe travels, friend - mind the wind."
+      greeting: "Keep below the ridge. The wind can throw a grown troll off these cliffs, and I doubt you weigh as much. Maera Cliffwatch. Have you come up from the bridges?"
+      active_message: "My offer stands: kill 3 Mountain Trolls here on the Dragon Cliffs, then report to me. Watch the bridge approaches."
+      completed_message: "Three trolls down. Good work. I can send the caravans through again. Here is your pay."
+      visited_message: "Glad to see you on your feet. Keep an eye on the mist when you cross."
       choice_prompt: "Maera studies the ridgeline."
       choices:
         - text: "What kind of trouble?"
           action: "info"
-          response: "Mountain Trolls. They climb out of the gorges under the mist and hold the bridge stones, and no caravan can pass them. They have never massed like this before."
+          response: "Mountain Trolls come up from the gorges with the mist. They settle on the bridges and wait for a caravan. I've never seen this many climb out together."
           choices:
             - text: "Why are they suddenly so bold?"
               action: "info"
-              response: "I do not know. Old Varric down the trail talks about rites in the rock. What I see through the glass is more trolls every dawn, pushing for the bridges. Kill three of them and the approaches are safe again."
+              response: "Varric blames the mages and their rites. Ask him if you want the theory. I need 3 Mountain Trolls killed on these cliffs so I can get the caravans moving."
               choices:
                 - text: "We'll thin the ridge for you."
                   action: "give_quest"
@@ -416,19 +416,19 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Put your hand on the rock under your feet. Something knocks back, slow and even, always the same count. Thirty years I have hung dragon-teeth on these cliffs and never felt that. The mountain mages are working a rite down there."
-      active_message: "The knocking is still in the rock. Two Archmages are still alive up there. Kill them and it stops."
-      completed_message: "The knocking has stopped. The rock is only rock again. You broke the rite, and the old dead beneath us have gone quiet. Take what the bones owe you - they pay their debts, unlike the living."
-      visited_message: "The dragon-bones are quiet at last. Thirty years, and finally a still night. Go well, ash-walker."
+      greeting: "Stand still a moment. Feel that through your boots? Thirty years I've lived among these dragon bones. They've only just started knocking. Two mountain mages are meddling with them."
+      active_message: "The rite is still going. Kill the 2 Archmages on these cliffs and come back. I would rather spend my remaining years above ground."
+      completed_message: "Put your ear to the rock. Nothing! Best thing I've heard all week. You stopped the rite. Here, take your pay."
+      visited_message: "No more knocking. I slept so well I missed sunrise. Stay a while if you like."
       choice_prompt: "Varric taps his dragon-bone staff against the stone."
       choices:
         - text: "What is knocking in the rock?"
           action: "info"
-          response: "Dragons died on these cliffs long before your grandmother was born, and their bones are still down there. The mountain mages have found a rite that wakes the fire in them. Twice now a light has answered them out of the rock, blinking slow, the same pattern both times."
+          response: "Dragon bones, buried deep in the cliffs. The mages chant over them to wake their old fire. Twice I've seen a light flash inside the rock in reply. Exactly the same flashes, both times."
           choices:
             - text: "What happens if the rite is finished?"
               action: "info"
-              response: "Then the cliffs burn again. The trolls feel it already, which is why they climb and why Maera's bridges are under attack. Two Archmages are working the rite. Kill them and it ends."
+              response: "If they finish, we'll have dragon fire coming up through the ground. The trolls feel it already; that's why they're climbing toward Maera's bridges. Kill the 2 Archmages conducting the rite. I'll pay you when you return."
               choices:
                 - text: "We'll silence the mages and end the rite."
                   action: "give_quest"
@@ -456,8 +456,8 @@ npcs:
     transparent: true
     size_class: full_tile
     dialogue:
-      greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
-      visited_message: "The Bone-Maw is silent now - only scorched bones and a cold draft remain."
+      greeting: "Dragon ribs frame the cave mouth. From farther in comes a scrape of claws, then a rush of cold air."
+      visited_message: "Loose ribs crunch underfoot. The dragon's chamber is empty."
       choice_prompt: "Enter the Bone-Maw?"
       choices:
         - text: "Enter the lair"
@@ -470,7 +470,7 @@ npcs:
       start_message: "A green dragon coils out of the bone-strewn dark!"
       quest_id: "dragon_cliffs_bone_lair"
       quest_name: "Bone-Maw Lair"
-      quest_description: "Clear the bone-framed dragon lair in the Dragon Cliffs."
+      quest_description: "Enter the Bone-Maw Lair on the Dragon Cliffs and defeat its defenders."
       monsters:
         - type: "dragon_green"
           count_min: 1
@@ -478,7 +478,7 @@ npcs:
       rewards:
         gold: 1500
         experience: 1500
-        completion_message: "The Bone-Maw falls silent."
+        completion_message: "The Bone-Maw Lair is cleared."
 
   dragon_cliffs_ember_lair:
     name: "Ember-Heart Lair"
@@ -490,8 +490,8 @@ npcs:
     transparent: true
     size_class: full_tile
     dialogue:
-      greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
-      visited_message: "The Ember-Heart has cooled to black stone - the cavern lies dark and still."
+      greeting: "Heat beats against your face. Beyond the glowing cracks in the basalt, a dragon shifts its weight."
+      visited_message: "The cave has cooled. A few red cracks still show in the black basalt."
       choice_prompt: "Enter the Ember-Heart?"
       choices:
         - text: "Enter the lair"
@@ -504,7 +504,7 @@ npcs:
       start_message: "A red dragon erupts from the ember-lit cavern!"
       quest_id: "dragon_cliffs_ember_lair"
       quest_name: "Ember-Heart Lair"
-      quest_description: "Clear the burning dragon lair in the Dragon Cliffs."
+      quest_description: "Enter the Ember-Heart Lair on the Dragon Cliffs and defeat its defenders."
       monsters:
         - type: "dragon_red"
           count_min: 1
@@ -512,7 +512,7 @@ npcs:
       rewards:
         gold: 2000
         experience: 1500
-        completion_message: "The Ember-Heart cools to black stone."
+        completion_message: "The Ember-Heart Lair is cleared."
 
   abandoned_church:
     name: "Abandoned Church"
@@ -524,7 +524,7 @@ npcs:
     transparent: true
     size_class: structure
     dialogue:
-      greeting: "The abandoned church stands silent among the trees. Villagers say the old priest locked the doors after the crypt bells rang by themselves, and no one who entered after dusk returned unchanged."
+      greeting: "The church doors hang open. Villagers say the priest barred them when the crypt bells began to ring by themselves. Those who went in after dusk came back changed. Steps lead down beneath the nave."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter the church"
@@ -564,7 +564,7 @@ npcs:
     prompt_verb: enter
     transparent: true
     dialogue:
-      greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
+      greeting: "A narrow stair leads under the sandstone blocks. The air below smells of dust and old pitch. Someone has broken the entrance seal."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter the pyramid"
@@ -659,7 +659,7 @@ npcs:
     transparent: true
     size_class: structure
     dialogue:
-      greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
+      greeting: "Green and violet fire fills the black arch. A chorus of dead kings chants beyond it, each voice insisting on its own name."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter the nexus"
@@ -723,7 +723,7 @@ npcs:
     transparent: true
     size_class: full_tile
     dialogue:
-      greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
+      greeting: "Steps descend through the harbor outflow into Seabright's culverts. Water rushes below the grate. For a moment, lamplight catches gold in the channel."
       choice_prompt: "Descend into the culverts?"
       choices:
         - text: "Enter the culverts"
@@ -754,24 +754,24 @@ npcs:
   culverts_oldman:
     name: "Grist the Sluice-Rat"
     type: "quest_giver"
-    description: "A cloaked ratfolk who keeps the Seabright culverts and their seven sluice valves, lantern always lit"
+    description: "A cloaked ratfolk with a lantern who tends Seabright's seven sluice valves"
     sprite: "ratman_cloak"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Hsss - easy, top-dweller. Grist means no harm. I keep these culverts; have, since before your harbor learned to count its coin. Lower that steel and I'll tell you what glitters down here in the dark."
-      active_message: "Still seven valves gushing, friend. Wheel them all shut and the bug's hall drains to mud - then it's nowhere left to skitter."
-      completed_message: "I hear it now - the channels run dry, and something gold-shelled scratches at the bottom of its own hall with no water left to flee through. You did the trick. Take Grist's thanks, and the harbor's."
-      visited_message: "Dry as a picked bone down there now. Mind its bite, top-dweller - gold or no, it's still got pincers."
+      greeting: "Watch where you put those boots! That channel's deeper than it looks. Grist the Sluice-Rat, keeper of these culverts. If you've come for the gold, we ought to talk."
+      active_message: "Shut all 7 sluice valves, then come back. There is still water feeding the bug's hall."
+      completed_message: "Hear those pincers scraping? That's a rich beetle with a dry moat. All seven valves shut, just as promised. Here is your pay. The bug is yours to deal with."
+      visited_message: "Mind the pincers when you go down there. You won't spend much of that gold with your head bitten off."
       choice_prompt: "Grist's whiskers twitch toward the dark."
       choices:
         - text: "What glitters down here? (ask Grist)"
           action: "info"
-          response: "The Golden Thief Bug. Big as a hound, and it drags every dropped ring and lost crown down into its flooded hall. Half of what it takes is not jewellery at all - little warm cases, and they spark if you pry at them. It will not stand and fight, either. Close on it and it blinks away three strides off."
+          response: "The Golden Thief Bug. Big as a hound, with a taste for rings and crowns. Keeps them in a flooded hall. Warm little cases, too, that spark when you pry them open. And the thief can blink away just as you swing at it."
           choices:
             - text: "So how do you corner a thing that vanishes?"
               action: "info"
-              response: "Take its water. Seven sluice valves feed the flood in its hall. Shut all seven and the hall drains to bare stone, and then it has nowhere to swim and must fight you."
+              response: "Drain its hall. Seven sluice valves feed it; shut the lot and come back to me. Then you can get down there and fight the beast on dry ground."
               choices:
                 - text: "Then I'll shut all seven valves."
                   action: "give_quest"
@@ -782,7 +782,7 @@ npcs:
               action: "back"
         - text: "Why does a rat keep the harbor's drains?"
           action: "info"
-          response: "Because nobody above ground will. My kind were here when Seabright was three huts and a weir. We mind the valves and keep the floods out of your cellars. The bug has been eating our quiet and I want it gone."
+          response: "Somebody has to. My people worked these drains when Seabright was three huts and a weir. You sleep in a dry cellar, you can thank a rat. Now this beetle is making a mess of our channels."
           choices:
             - text: "Fair enough. Back to the bug."
               action: "back"
@@ -899,24 +899,24 @@ npcs:
   castle_oldman:
     name: "Shozo the Ronin"
     type: "quest_giver"
-    description: "A masterless swordsman in a straw cloak, the last of a fallen eastern house, lingering at the castle gate"
+    description: "A ronin in a straw cloak who still guards his dead lord's castle"
     sprite: "ronin_outcast"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Stay your feet, westerner. You stand at the gate of a dead house. I am Shozo - once sworn sword to its lord, now only the man who sweeps its steps. Speak softly here. The one who sleeps above does not love to be woken... unless it is done properly."
-      active_message: "Five racks remain, hidden behind the shoji screens of the upper halls. Bare every one, take up the house's steel, and his pride will do the rest."
-      completed_message: "The racks stand empty and my lord is stirring. You did it properly. Take this, the last gift of a house with no one left to give it, then climb. He is waiting."
-      visited_message: "He is awake. What remains between you and him is only steel, and fortune. Go with both."
+      greeting: "You may enter, but hear me first. I am Shozo. I served the lord of this castle while he lived. He lies in the high keep, and I have kept watch at his gate ever since."
+      active_message: "Find all 5 katana racks behind the shoji screens in the upper halls. Take the weapons and return to me. My lord will wake when his soldiers' swords are gone."
+      completed_message: "The racks are empty. I heard him rise. Take this payment, then go to the high keep. Whatever wears his armor, remember that he once defended these people."
+      visited_message: "I have done what I can. You know the way to the high keep."
       choice_prompt: "Shozo rests a hand on his sheathed katana."
       choices:
         - text: "Who sleeps in the keep above?"
           action: "info"
-          response: "My lord, the Samurai Warlord. He fell defending these walls, and the temple sealed him in the high keep rather than let him be taken. What killed him did not stop when he died. It is still in him and it works his hands - I have watched the fingers open and close through the screen. He will not stir for trespassers."
+          response: "The Samurai Warlord was my lord. The eastern rot killed him defending these walls, then moved his body after death. The temple sealed him in the high keep. Through the screen I have watched his dead fingers practice their grip on a sword."
           choices:
             - text: "Then how does one wake him?"
               action: "info"
-              response: "His guard hid the house's five katana racks behind the paper screens of the upper halls, so no looter could claim the blades. Find all five and take the steel. He will not abide a stranger carrying his soldiers' swords, and that will wake him."
+              response: "His guards hid five katana racks behind the upper halls' paper screens. Take every weapon from them. Even now, my lord will rise against a stranger who carries his soldiers' steel."
               choices:
                 - text: "I will bare the five racks."
                   action: "give_quest"
@@ -925,13 +925,13 @@ npcs:
                   action: "back"
             - text: "Why not let him sleep?"
               action: "info"
-              response: "Travellers vanish on this road. The temple's seal weakens every year, and when I am gone there will be nobody to keep the gate. Better he is faced now than loosed later."
+              response: "People disappear on the road. The temple seal grows weaker, and I grow older. When it fails, he will leave the keep. I would have him faced here, while we can choose the ground."
               choices:
                 - text: "Then back to how he wakes."
                   action: "back"
         - text: "And who are you, truly?"
           action: "info"
-          response: "A ronin, a sword without a master. When my lord fell I should have followed him in death. Instead I stayed to sweep these steps and warn travellers off."
+          response: "I was his sworn sword. When he fell, I stayed alive to keep people from following him. Some would call that cowardice. There are travelers who reached home because I kept this gate."
           choices:
             - text: "There's honor in that. Go on."
               action: "back"
@@ -1019,7 +1019,7 @@ npcs:
     transparent: true
     size_class: structure
     dialogue:
-      greeting: "The south gatehouse stands open. Beyond it, an old temple garden climbs the hill in white and pink - and nothing tends it anymore."
+      greeting: "Through the south gatehouse, flowering cherry trees cover the temple hill. Petals have piled on the untended paths."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter Sakura Garden"
@@ -1055,17 +1055,17 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Welcome, travellers. I am Shiori. I keep the shrine now that the priests are gone. Do not mind the bells - they have not rung true since the castle fell sick."
-      active_message: "The umbrellas hop the bamboo paths at dusk. Five of them carry chime-pieces. The bells will tell me when it is done."
-      completed_message: "The bells settled in the night, all at once. You have my thanks, and the shrine's."
-      visited_message: "The bells hold their peace. The garden is quieter for what you did."
+      greeting: "Welcome to the shrine. I am Shiori; the priests left me in charge. Please forgive the bells. I have tied up every clapper, and still they ring."
+      active_message: "Kill 5 Kasa Obake on the Sakura Garden's bamboo paths. The broken chime pieces are caught in their ribs. That should stop the bells."
+      completed_message: "The bells have stopped! I can finally hear the broom on the steps. Thank you. Take this from the shrine."
+      visited_message: "It is a pleasure to welcome guests without shouting over the bells."
       choice_prompt: "Shiori rests her broom."
       choices:
         - text: "Why do the bells ring wrong?"
           action: "info"
-          response: "The temple's wards were chimes, cut from one bronze. When the castle fell sick the wards broke, and the pieces scattered. The old umbrellas took them up - they hop the bamboo now with bronze in their ribs, and every piece rings the same slow count, all night, on its own."
+          response: "Our ward chimes were cast from one piece of bronze. When the castle's curse broke them, the Kasa Obake picked up the fragments. Now those umbrellas hop through the bamboo with bronze in their ribs, ringing all night. Please kill 5 of them."
           choices:
-            - text: "Five umbrellas. It is done."
+            - text: "We will kill five Kasa Obake."
               action: "give_quest"
               quest_id: "silent_bells"
             - text: "Back."
@@ -1087,17 +1087,17 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Mind the mud. I am Ayame; the pond is mine to keep. Or it was, before the kappa robbed it."
-      active_message: "Four kappa hold the pond. The seals will be on them - they cannot leave the things alone."
-      completed_message: "The channels run true again. The koi came back to the bridge by morning. Take this, and my thanks."
-      visited_message: "The pond keeps its level now. Come sit by the bridge whenever you like."
+      greeting: "Careful of the mud. That was a flower bed yesterday. I'm Ayame, keeper of the Moon Pond. Four kappa have taken an interest in my waterworks."
+      active_message: "Kill 4 Kappa at the Moon Pond, then come back. They took the seals that control my channels."
+      completed_message: "The water is flowing where it should, and the koi have come back to the bridge. Here is your reward. I have some flowers to replant."
+      visited_message: "There you are. The bridge is dry if you'd like to sit and watch the fish."
       choice_prompt: "Ayame leans on her ladle."
       choices:
         - text: "What did the kappa take?"
           action: "info"
-          response: "The water seals. Carved stone, palm-sized, one per channel gate. Set one in its slot and it clicks and the gate obeys the water level on its own. The kappa pried out all four when the wards failed, and now the pond drowns one terrace and starves the next."
+          response: "Four stone seals, one for each channel gate. Fit a seal in its slot and the gate adjusts to the water level by itself. The kappa pulled them out when the wards failed. Now half my beds are flooded and the other half are drying out. Kill 4 Kappa and come back to me."
           choices:
-            - text: "Four Kappa. We will drain them instead."
+            - text: "We will deal with the four Kappa."
               action: "give_quest"
               quest_id: "stolen_water_seal"
             - text: "Back."
@@ -1119,15 +1119,15 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Hold. I am Kuroha, and I no longer count as one of the flock above - I refused the new oath. Speak, ground-walker, and keep your blade loose."
-      active_message: "Four of the oath-sworn hold the ridge. They dive without a cry now. Watch the maples."
-      completed_message: "Four fewer. The knocking on the ridge went quiet for a whole day - I heard the wind again. The feather is yours; it opens more doors among my kind than gold."
-      visited_message: "The ridge is thinner. When the rest shed that oath, I will go home."
+      greeting: "Keep your sword lowered. If I meant to kill you, I would have stayed in the trees. I am Kuroha. The flock on that ridge has cast me out."
+      active_message: "Kill 4 Karasu Tengu on the garden ridge. They dive without calling now. Watch the maples above you."
+      completed_message: "Four of the oath-sworn are dead. I knew their voices before the oath took them. Take this feather as payment; my people will know it."
+      visited_message: "I will stay here until the flock is free of that oath. I would like to fly home."
       choice_prompt: "Kuroha's wings settle."
       choices:
         - text: "What oath did you refuse?"
           action: "info"
-          response: "The flock swears to the mountain. That is the old oath. The new one they swore to what stirs in the castle - the same thing that worked the dead warlord's arms. I have listened to what took their oath. It is not a voice. It is a slow even knocking, like a loom underground, and it does not stop for night."
+          response: "We swore to guard the mountain. The flock has given a new oath to the power in the castle, the thing that moves the dead warlord's hands. I heard it answer them: steady knocking beneath the earth. They knelt to it. I left. Kill 4 of its Karasu Tengu on the ridge."
           choices:
             - text: "Four Tengu. We will break the oath."
               action: "give_quest"
@@ -1154,32 +1154,32 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "I am Hina. My master went into the orchard a month ago to read the wards, and did not come back. I have been reading them from here instead. Something is wrong with the whole garden, and I can show you where the threads meet."
-      active_message: "She nests where the weeping trees grow thickest. Cut her down and the wards' echo dies with her."
-      completed_message: "The web is cut. All three wards fell silent the moment she died - I heard them stop together. My master did not walk out of that orchard, but no one else will walk into it. Take this."
-      visited_message: "The orchard is only an orchard now. I will finish my master's reading, and then I will go home and sleep for a week."
+      greeting: "Please don't step on the papers. I've nearly got them in order. My master went into the orchard a month ago to examine the wards. He never came back, so I have to finish this myself."
+      active_message: "The Sakura Jorogumo is in the orchard, among the thick weeping trees. Kill her, then come back. Her web is still feeding on the wards."
+      completed_message: "The web has broken. Every ward stopped answering it at once. I kept hoping my master would come back with you. Thank you for going in there. This is yours."
+      visited_message: "I am putting my master's notes in order. Then I shall go home. I haven't told his family yet."
       choice_prompt: "Hina looks up from her papers."
       choices:
         - text: "What is wrong with the garden?"
           action: "info"
-          response: "The temple kept three wards here - the bell bronze, the water seals, the ridge oath. The castle's sickness broke all three in one night. Broken is one thing. Used is another, and something in the orchard is using them."
+          response: "The temple had three wards: the bronze chimes, the water seals, and the tengu's oath. All three failed when the castle was cursed. Their magic still reaches the orchard. Help Shiori, Ayame, and Kuroha; I need to learn what remains after each ward is freed."
           choices:
             - text: "Back."
               action: "back"
         - text: "The bells are settled."
           action: "info"
           requires_quest: "silent_bells"
-          response: "I heard. One thread cut - and the echo in the orchard grew LOUDER, not softer. It is drawing on the other two harder now."
+          response: "Good. That frees the chimes, but their old pattern still sounds from the orchard. Something there has caught an echo of their magic. What about Ayame's water seals?"
           choices:
             - text: "The pond seals are back as well."
               action: "info"
               requires_quest: "stolen_water_seal"
-              response: "Two threads. Listen - the orchard hums at the same slow count as the broken chimes did. Whatever holds the last thread is keeping all three echoes alive in its web."
+              response: "Then the pond is free as well. The orchard still repeats the water ward's pattern. The echoes must be caught together. Have you helped Kuroha with the ridge oath?"
               choices:
                 - text: "The ridge oath is broken. Name the thing."
                   action: "info"
                   requires_quest: "feathers_false_oath"
-                  response: "The Sakura Jorogumo. The spider bride of the orchard. She has tied the three dead wards into one web and she feeds on their echo. Kill her in the orchard and the garden's last thread goes quiet."
+                  response: "That accounts for all three. It is the Sakura Jorogumo, the spider bride. She has woven their magic into her web in the orchard. Kill her and the echoes will die with her."
                   choices:
                     - text: "We will kill the Sakura Jorogumo."
                       action: "give_quest"
@@ -1307,13 +1307,13 @@ npcs:
   city_weapon_shop:
     name: "Bladewright Dalia"
     type: "merchant"
-    description: "The blade-dealer of Seabright Arms; daggers at her hip and a knife-trick for every customer who haggles"
+    description: "Seabright's blade merchant, wearing several examples of her stock"
     sprite: "city_weapon_merchant"
     render_category: npc
     size_class: person
     sell_available: true
     dialogue:
-      greeting: "Dalia, of Seabright Arms. That starter steel won't last the first real road - I've buried folk who trusted it. These will. I sharpen what I sell."
+      greeting: "Let me see that edge. Hm. I'm Dalia, of Seabright Arms. Look over the rack; everything here leaves my shop sharp."
     # Stock is one class-appropriate upgrade above the starter loadout -
     # nothing here matches an item the party already carries at L1.
     inventory:
@@ -1341,14 +1341,14 @@ npcs:
   city_potion_shop:
     name: "Apothecary Wrenna"
     type: "merchant"
-    description: "Keeper of Harbor Remedies; a belt of labelled vials and not one mystery brew among them"
+    description: "An apothecary with carefully labeled vials at her belt"
     sprite: "city_potion_merchant"
     render_category: npc
     size_class: person
     sell_available: true
     stock_refresh_weeks: 1
     dialogue:
-      greeting: "Welcome to Harbor Remedies. I'm Wrenna - careful bottles, clear labels, no mystery brews. What ails the party?"
+      greeting: "Welcome to Harbor Remedies. Wrenna, apothecary. Tell me what you need, and keep the stoppers in until you need it."
     inventory:
       - type: "potion"
         name: "Health Potion"
@@ -1366,12 +1366,12 @@ npcs:
   city_spell_shop:
     name: "Scrivener Oletta"
     type: "spell_trader"
-    description: "Mistress of the Tideglass Scriptorium; a robed scholar of the four elements whose harbor windows are always salt-fogged"
+    description: "An elemental scribe who keeps the Tideglass Scriptorium by the harbor"
     sprite: "city_spell_merchant"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Mind the wet ink. I'm Oletta of the Tideglass Scriptorium - I scribe the four elements true: fire, water, air, earth. No Light, no Dark. Choose a character."
+      greeting: "Mind the ink! Oletta, Tideglass Scriptorium. Fire, Water, Air, and Earth spells, copied to order. For Light or Dark you will need another teacher. Who will be studying?"
       insufficient_gold: "A clean copy costs %d gold. Come back when the purse allows."
       already_known: "%s already carries this one - I'll not sell you the same page twice."
       success: "There - scribed clean into %s. The ink will hold."
@@ -1403,12 +1403,12 @@ npcs:
   city_mastery_trainer:
     name: "Master Ilyra"
     type: "skill_trainer"
-    description: "A staff-bearing martial instructor in worn leathers; she sharpens skills and magic schools a party already owns"
+    description: "A martial instructor in worn leather, carrying a practice staff"
     sprite: "city_skill_trainer"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "I'm Ilyra. I sharpen what you already know - I don't hand out gifts. Pick a character and a mastery they hold."
+      greeting: "Feet apart. Shoulders back. Better. I am Ilyra. Choose a student and a skill or magic school they already know; we will work from there."
 
   # --- Silverbough (elf_city), the elven town in the Misty Highlands ---
   # The elves live in the highland pinewood - elf_archer and elf_swordsman are
@@ -1447,7 +1447,7 @@ npcs:
     size_class: person
     sell_available: true
     dialogue:
-      greeting: "Aewen, captain of the pinewood patrol. I string every bow on this rack myself and I will not sell you one you cannot draw. Look, and ask if you are unsure."
+      greeting: "Captain Aewen, pinewood patrol. These bows are from our stores. Check the string and take your time choosing; you'll be the one carrying it."
     inventory:
       - { type: "weapon", name: "Long Bow",       cost: 1200, quantity: 2, tab: "Bows" }
       - { type: "weapon", name: "Elven Bow",      cost: 750,  quantity: 3, tab: "Bows" }
@@ -1468,7 +1468,7 @@ npcs:
     sell_available: true
     stock_refresh_weeks: 1
     dialogue:
-      greeting: "Nerith. I grow what I bottle, in the garden behind you. Antivenom first if you are going down into the glen - what crawls in the peat there is worse this year."
+      greeting: "Nerith. Wipe your boots; that's my physic garden behind you. Going into the glen? Take antivenom. The things in the peat have had a good breeding year."
     inventory:
       - { type: "potion", name: "Health Potion",  cost: 50,  quantity: 20 }
       - { type: "potion", name: "Mana Potion",    cost: 60,  quantity: 20 }
@@ -1479,7 +1479,7 @@ npcs:
   elf_city_archive:
     name: "Keeper Ilthaea"
     type: "spell_trader"
-    description: "Keeper of the Starlight Archive; she carries its keys on her belt and its oldest book under her arm"
+    description: "The keeper of the Starlight Archive, with a book under her arm and its keys at her belt"
     sprite: "elf_starlight_librarian"
     render_category: npc
     size_class: person
@@ -1487,19 +1487,19 @@ npcs:
     # until archive_missing_volumes is turned in (service gate, npcServiceGateOpen).
     requires_quest: "archive_missing_volumes"
     dialogue:
-      greeting: "Keeper Ilthaea. Every page Seabright's scriptorium can copy, it copies cheaper. What is on this shelf is what Oletta cannot write at all, and the Archive prices it accordingly. Choose a character and a page."
+      greeting: "The restricted shelves are open to you. Oletta in Seabright sells the elementary pages more cheaply; you will find the advanced work here. Choose who will study it."
       insufficient_gold: "That page costs %d gold. The Archive does not lend."
       already_known: "%s has that page already. I will not sell it twice."
       success: "Copied out for %s. Read it before you need it, not after."
-      quest_greeting: "Keeper Ilthaea. Nothing on this shelf is for sale to you yet. The Archive lent three books to the clockmaker's tower and got none of them back, and I will not copy a fourth until the loan is settled."
-      active_message: "Three books, in the Gearworks of the Clock Tower. They walk on their own legs and they will come at you. Put them down and come back."
-      completed_message: "Three books down. The Archive is square with the tower, and the shelf is yours to buy from."
-      visited_message: "The tower keeps no books of mine now. Ask for any page on the shelf."
+      quest_greeting: "Keeper Ilthaea, Starlight Archive. I am attending to three overdue loans. Help me settle them, and you may buy from the restricted shelves."
+      active_message: "Destroy 3 Possessed Tomes in the Clock Tower's Gearworks and return here. Take care when they open their covers."
+      completed_message: "Three volumes destroyed. I dislike writing that in the ledger, but it closes the account. Your reward is ready, and you may now buy from the restricted shelves."
+      visited_message: "Your assistance is recorded in the ledger. The restricted shelves remain open to you."
       choice_prompt: "Ilthaea keeps one hand flat on the shelf."
       choices:
         - text: "Why will you not sell to us?"
           action: "info"
-          response: "Three volumes went up to the Gearworks with a clockmaker's apprentice and none came down. They are still there, and they move. I copy nothing while the Archive is short three books."
+          response: "A clockmaker's apprentice borrowed three volumes. They are still in the Gearworks, walking about and attacking people. Destroy those 3 Possessed Tomes, then report to me. The Archive will pay, and you may buy our advanced spells."
           choices:
             - text: "We will put the three books down."
               action: "give_quest"
@@ -1559,13 +1559,13 @@ npcs:
   nomad_city_caravan:
     name: "Zaira of the Long Road"
     type: "merchant"
-    description: "A caravan mistress who trades the whole road out of one stall: mail, plate, and what a party needs to cross sand"
+    description: "A caravan mistress selling armor and travel supplies from her desert stall"
     sprite: "nomad_caravan_merchant"
     render_category: npc
     size_class: person
     sell_available: true
     dialogue:
-      greeting: "Zaira. Forty days of road in that pack and every piece of it is for sale. You want mail - everyone crossing this sand wants mail. Say what you need."
+      greeting: "Come under the awning. Zaira of the Long Road. Mail, plate, potions, road gear. Everything survived the journey here; now let's see what will get you through yours."
     inventory:
       - { type: "item", name: "Chain Armor",     cost: 260,  quantity: 3, tab: "Chain" }
       - { type: "item", name: "Chain Coif",      cost: 170,  quantity: 3, tab: "Chain" }
@@ -1584,7 +1584,7 @@ npcs:
   nomad_city_trainer:
     name: "Blademaster Nadira"
     type: "skill_trainer"
-    description: "Dunehold's drill master, who takes the caravan guards apart every morning on the sand of the gate yard"
+    description: "Dunehold's drill master, who trains caravan guards and proven arena fighters"
     sprite: "nomad_combat_trainer"
     render_category: npc
     size_class: person
@@ -1593,15 +1593,15 @@ npcs:
     # while the gate is shut and the mastery grid replaces it once it is paid.
     requires_quest: "pit_standing"
     dialogue:
-      greeting: "Nadira. I drill the gate guard at dawn and I take paying students after. I sharpen a mastery you already hold. Name the character and the skill."
-      quest_greeting: "Nadira. I sharpen nothing for a student who has not stood on the sand. The Grand Arena is out the gate and south down the sand road. Win three bouts there, at any stakes, and I will take your money."
-      active_message: "Three bouts, and the duel master takes one wager per day at each stake. Come back when the pit has your name three times."
-      completed_message: "Three bouts on the sand. That will do - name the character and the skill."
+      greeting: "Ready to work? Choose a student and a skill or magic school they already know. I'll see how much of it needs correcting."
+      quest_greeting: "I am Nadira. Before I take you as students, win 3 duels in the Grand Arena. Any stakes will do. Go out the gate and south along the sand road, then return here with three victories."
+      active_message: "I need 3 arena wins. The duel master allows each stake once a day, so try a different wager if you have already fought at one."
+      completed_message: "Three wins. Good. Now we can find out which habits kept you alive and which ones need breaking. Choose a student and a skill."
       choice_prompt: "Nadira rests a practice blade across her shoulder."
       choices:
         - text: "Why the arena?"
           action: "info"
-          response: "Because mastery is not taught to people who have never been hit by someone better. The pit hits back and it keeps count. Three bouts."
+          response: "In practice, people stop when they think they've won. In the arena, the opponent has a say. Win 3 bouts, return to me, and we will have something to build on."
           choices:
             - text: "We will win three bouts."
               action: "give_quest"
@@ -1629,19 +1629,19 @@ npcs:
     # requirement below is a SECOND, separate gate on each purchase.
     requires_quest: "shrine_lamps"
     dialogue:
-      greeting: "Yusra, of the shrine. I keep the two high schools - the Light, and the other one. No caravan can read either, and neither can you until one of you carries the school already. Look anyway. Then pick a character and pick a page."
+      greeting: "Light spells on this side, Dark on that. Choose who will study them. They must already know the spell's school; bringing my lamps back does not grant that knowledge."
       insufficient_gold: "That page costs %d gold. Come back with it."
       already_known: "%s carries that one already."
       success: "Written out for %s. Do not waste it on lizards."
-      quest_greeting: "Yusra, of the shrine. I write nothing at a dark shrine. Three of my lamps went down into the pyramid with the last party that wanted these pages, and the party stayed down there. Bring the three lamps up to me and I will open the book."
-      active_message: "Three lamps, one on each floor of the pyramid, still in their brackets. There is no oil in them and they are still warm."
-      completed_message: "Three lamps back on the steps. The shrine burns again. Now pick a character and pick a page."
-      visited_message: "The lamps burn on the steps. Both high schools are open to you - as far as your own souls can carry them."
-      choice_prompt: "Yusra trims a wick that has nothing to burn."
+      quest_greeting: "Welcome. I am Yusra, keeper of the oasis shrine. Three pilgrims borrowed my lamps to explore the Pyramid. I am still waiting for them. Bring back the lamps and I will reopen the spell book."
+      active_message: "One shrine lamp on each of the Pyramid's three floors. Look in the wall brackets. They will be warm, though you won't find a drop of oil in them."
+      completed_message: "All three! Help me set them on the steps. There, I can see the writing again. Here is your reward; the Light and Dark pages are available to you now."
+      visited_message: "The lamps are burning well. I can copy a Light or Dark spell for anyone who already knows its school."
+      choice_prompt: "Yusra rests her hands on the spell book."
       choices:
         - text: "Why is the shrine dark?"
           action: "info"
-          response: "Because its lamps are in the pyramid. Pilgrims came for the Light pages, went down to prove they were worthy of them, and left my lamps in the stone. I keep no shop at a dark shrine."
+          response: "Those pilgrims wanted Light spells and thought a descent into the Pyramid would prove them worthy. They borrowed three lamps and never returned. Bring the lamps back from their wall brackets, one on each floor. I need them to work here."
           choices:
             - text: "We will bring the three lamps up."
               action: "give_quest"
@@ -1907,7 +1907,7 @@ npcs:
     transparent: true
     size_class: person
     dialogue:
-      greeting: "The clerk looks up from her ledger. 'Here to store your things? Your stash travels with you across all your journeys.'"
+      greeting: "The clerk opens her ledger. 'Deposits or withdrawals? Your stash is shared across all your journeys. We will keep it here until you want it.'"
       choice_prompt: "What would you like to do?"
       choices:
         - text: "Manage your stash"
@@ -1932,7 +1932,7 @@ npcs:
     stock_weapons_cost: 750
     inventory: *arena_shop
     dialogue:
-      greeting: "The duel master raps her halberd on the flagstones. 'Name your stakes, challenger. The pit picks your opponent - and each wager stands once a day. Once you step onto the sand, the gates stay down until one of you falls.'"
+      greeting: "'Choose your stakes. You may fight once a day at each wager; the arena chooses your opponent. Once you enter, the gates stay shut until the fight is over. Still interested?' The duel master lifts her pen."
       choice_prompt: "What stakes?"
       choices:
         - text: "An easy bout"
@@ -2117,7 +2117,7 @@ npcs:
   chest_iron:
     name: "Iron Chest"
     type: "loot_crate"
-    description: "A black iron strongbox - the lock looks untouched, which is worse"
+    description: "A black iron strongbox with an intact lock"
     sprite: "chest_iron"
     render_category: scenery
     transparent: true
@@ -2159,7 +2159,7 @@ npcs:
     transparent: true
     size_class: small_prop
     dialogue:
-      greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike - and, strangely, the hollow they left looks almost comfortable. A pit hand materializes at your elbow: 'Undisturbed rest on the sand costs coin.'"
+      greeting: "A skull and a split shield mark a sheltered hollow in the sand. A pit attendant notices you looking. 'You can rest there. For a fee, I'll see that nobody disturbs you.'"
       choice_prompt: "What do you do?"
       choices:
         - text: "Doze until nightfall (750 gold)"
@@ -2186,7 +2186,7 @@ npcs:
     prompt_verb: enter
     transparent: true
     dialogue:
-      greeting: "The tower gate stands ajar. Inside, something is still ticking - too many things, none of them in time."
+      greeting: "The great dial has stopped, but ticking carries through the open gate. Several clocks are striking different hours."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter the tower"
@@ -2262,7 +2262,7 @@ npcs:
     transparent: true
     size_class: full_tile
     dialogue:
-      greeting: "The stair narrows; above, the great bells hang silent - and something paces beneath them."
+      greeting: "The stair narrows beneath the belfry. The bells hang still; heavy footsteps cross the floor below them."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Climb to the belfry"
@@ -2294,13 +2294,13 @@ npcs:
   clockmaker:
     name: "Odile the Clockmaker"
     type: "merchant"
-    description: "The tower's last horologist, still keeping her shop below the madness"
+    description: "The tower's last clockmaker, still trading parts in the workshop below the Gearworks"
     sprite: "clockmaker"
     render_category: npc
     size_class: person
     currency: "item:clock_hand"
     dialogue:
-      greeting: "Odile looks up from a half-dissected escapement. 'The tower winds its monsters out of my mechanisms. Bring me back the CLOCK HANDS they carry and I will fit you for the works - armor, arms, the lot. Coin is no use to me up here.'"
+      greeting: "Odile puts down her tools. 'Those monsters upstairs are made from my mechanisms. Bring me their CLOCK HANDS. I'll trade you weapons and armor for the parts. Keep your coins; I need my clock back.'"
     inventory:
       # Leather: the scout's rig (speed and luck)
       - { type: "item", name: "Cogleather Helm",      cost: 6,  quantity: -1, tab: "Leather" }
@@ -2369,12 +2369,12 @@ npcs:
   scalewright:
     name: "Maruna the Scalewright"
     type: "merchant"
-    description: "A smith who works nothing but dragonscale, and grieves every sheet of it she cannot save"
+    description: "A smith who forges weapons from colored dragon scales"
     sprite: "scalewright"
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Maruna turns a scale to the light. 'Cliff dragons shed the finest plate in the world. Bring me scales - red, green, gold, or black - and twenty thousand in coin for the forge, and I will make you a weapon from them.'"
+      greeting: "Maruna tests a scale against her file. 'Good plate, this. Bring me red, green, gold, or black dragon scales and 20000 gold, and I can forge you a weapon. Show me what you've brought.'"
     inventory:
       # Red scale pieces (2 red scale + 20000g)
       - { type: "weapon", name: "Drakefang, the Broodmother's Tooth",  cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
@@ -2409,25 +2409,25 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Good day to you. I am Wenna, and I cut herbs on these paths - or I did, until the goblins nested south of the clearing."
-      active_message: "Five of them, and mind the thicket south of the clearing. That is where they nest."
-      completed_message: "The south path is mine again. Take this with my thanks. And I have one more trouble, if you will hear it."
-      visited_message: "Both paths are safe now. Come to me if you need a bandage."
+      greeting: "You've brought swords. Good. I was about to try a broom. Goblins have taken over my herb paths south of the clearing, and I could use your help."
+      active_message: "Kill 5 Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
+      completed_message: "That takes care of the goblins. Here is your pay. I can gather herbs to the south again, but there is trouble on the north road too."
+      visited_message: "Both herb paths open again! My thanks to you. Take care of yourselves out there."
       quest_messages:
         goblin_hunt:
-          offer: "Good day to you. I am Wenna, and I cut herbs on these paths - or I did, until the goblins nested south of the clearing."
-          active: "Five of them, and mind the thicket south of the clearing. That is where they nest."
-          completed: "The south path is mine again. Take this with my thanks. And I have one more trouble, if you will hear it."
+          offer: "You've brought swords. Good. I was about to try a broom. Goblins have taken over my herb paths south of the clearing, and I could use your help."
+          active: "Kill 5 Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
+          completed: "That takes care of the goblins. Here is your pay. I can gather herbs to the south again, but there is trouble on the north road too."
         wolf_pack:
-          offer: "The south path is mine again. But the north road is still closed to me, if you will hear why."
-          active: "Three Wolves hunt the north road after dusk. I will wait here until the carters can travel it again."
-          completed: "The north road is safe again. Take this with my thanks; both herb paths are open."
+          offer: "Now for the north road. The carters have stopped using it, and I cannot reach the meadow. Have you time for another job?"
+          active: "Kill 3 Wolves on the north forest road, then return to me. They've frightened off every carter who uses it."
+          completed: "The carters can use the north road again. Here's your pay. With both paths open, I can get back to gathering herbs."
       choice_prompt: "Wenna shifts her basket."
       choices:
         - text: "Tell us about the goblins."
           action: "info"
           quest_step: "goblin_hunt"
-          response: "Five Goblins, nesting south past the clearing. They took my second basket and near took my hand with it."
+          response: "Goblins in the thicket south of the clearing. One stole my basket; the next tried to take the hand holding it. Kill 5 Goblins and come back. I can pay for the work."
           choices:
             - text: "We will kill them."
               action: "give_quest"
@@ -2444,9 +2444,9 @@ npcs:
           action: "info"
           requires_quest: "goblin_hunt"
           quest_step: "wolf_pack"
-          response: "The north road. Three Wolves work it after dusk, and the carters will not travel it. I cannot reach the good meadow while they hold that road."
+          response: "Wolves on the north road. The carters won't go through, and the meadow I need is beyond them. Kill 3 Wolves there and return to me for another payment."
           choices:
-            - text: "Three Wolves. It is done."
+            - text: "We will kill the three Wolves."
               action: "give_quest"
               quest_id: "wolf_pack"
               requires_quest: "goblin_hunt"
@@ -2466,15 +2466,15 @@ npcs:
     size_class: person
     night_only: true
     dialogue:
-      greeting: "Keep your distance, if you please. I bathe here after dark, and every night the Forest Spiders come down to the reeds and watch me do it."
-      active_message: "Five of them will do. I will wait in the shallows - they do not cross deep water."
-      completed_message: "The shore is quiet. Take something from my bundle, you have earned it."
-      visited_message: "I have an hour of dark left and I mean to spend it in this lake."
+      greeting: "Stay there, please. The spiders have already had a good enough look. I came for a bath, and now I cannot reach my clothes. Would you clear the bank?"
+      active_message: "Kill 5 Forest Spiders here by the lake, then come back. I can wait in the water a little longer."
+      completed_message: "At last! Turn around while I get my things. There is gold and a potion in my bundle for you."
+      visited_message: "Much better. I should like to finish my bath now."
       choice_prompt: "Ilsa watches the reeds."
       choices:
         - text: "Tell us about the spiders."
           action: "info"
-          response: "Pale ones, and big. They come out of the trees when the light goes. They will not cross open water, so I stand out here and wait them out."
+          response: "Big pale Forest Spiders. They come down from the trees every night, and they won't cross the open water. Kill 5 here at the lake and I'll pay you. If they come back another night, so will the offer."
           choices:
             - text: "We will kill five of them."
               action: "give_quest"
@@ -2496,19 +2496,19 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Do not touch the stone. I have walked these four seals for two years, and I have watched three parties press a statuette to the runes and get nothing for it."
-      active_message: "Four Elder Dragons, one to each seal. They come out of the stone fighting, so keep your backs to it."
-      completed_message: "All four are dead. The desert is quiet and I have nothing left to watch. Take what the pilgrimage owed you."
-      visited_message: "Four seals, four empty plinths. I will walk east now."
+      greeting: "Trying the statue? Three parties have pressed statuettes to those runes while I watched. None knew the oath. I am Sylwen. I have kept these four seals for two years."
+      active_message: "Hunt all 4 Elder Dragons, then return to me. Each desert seal takes a statuette of its own color. The Pyramid Sanctum's reliquaries hold them. Be ready when the seal opens."
+      completed_message: "Four Elder Dragons destroyed. After two years watching these stones, I had begun to think I would grow old here. You have earned the pilgrimage's reward."
+      visited_message: "My watch is over. I keep looking at the road east, wondering how far I could walk before sundown."
       choice_prompt: "Sylwen keeps a hand on the warm stone."
       choices:
         - text: "Why do the runes do nothing?"
           action: "info"
-          response: "The seal is an oath, not a lock. Press a statuette to it as a passing traveller and the stone stays cold. Swear to hunt all four dragons first, and the same statuette will open it."
+          response: "First swear here to hunt all 4 Elder Dragons. Then take the colored dragon statuettes from the Pyramid Sanctum's reliquaries to their matching desert seals. A statuette will open its seal only after you have taken the oath."
           choices:
             - text: "What sleeps in the stone?"
               action: "info"
-              response: "Elder Dragons. Four of them, and something broke in them long ago. I have put my hand on one through the seal: rivets under the scorch, and it was warm. Warm, and not alive. The desert is not walkable while they lie there."
+              response: "Four Elder Dragons. Through a crack in one seal I touched a hide of scorched, riveted plates. It was warm. A blade struck against it threw sparks. Whatever the ancients built them for, they have become dangerous. We must destroy all four."
               choices:
                 - text: "We swear the hunt. All four."
                   action: "give_quest"

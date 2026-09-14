@@ -12,42 +12,42 @@ rumors:
   # retire as soon as the stated objective is complete.
   - quest: "culverts_valves"
     priority: 10
-    text: "Grist the Sluice-Rat waits inside the Seabright Culverts. Help him shut all seven valves and drain the Golden Thief Bug's flooded lair."
+    text: "Lose a ring in Seabright? The Golden Thief Bug probably has it. Grist the Sluice-Rat, down in the culverts, knows how to drain its lair. Seven valves to shut, he says."
   - after: "culverts_valves"
     until_monster: "golden_thief_bug"
     target_map: "culverts"
     priority: 80
-    text: "The seven culvert valves are shut. The Golden Thief Bug can no longer escape through the water; hunt it in the drained depths and kill it."
+    text: "Grist's seven valves are shut. You can reach the Golden Thief Bug in the drained Seabright Culverts now. Someone ought to kill it before it starts stealing again."
 
   - quest: "castle_armory"
     priority: 10
-    text: "Shozo the Ronin waits at the Eastern Isle Castle. Take the weapons from all five katana racks behind its paper screens to wake the Samurai Warlord."
+    text: "Ask Shozo the Ronin at the Eastern Isle Castle about his old lord. Taking the weapons from all five katana racks behind the paper screens will wake the Samurai Warlord. Shozo wants him faced before the temple seal fails."
   - after: "castle_armory"
     until_monster: "samurai_warlord"
     target_map: "japanese_castle"
     priority: 80
-    text: "All five katana racks in the Eastern Isle Castle are bare. The Samurai Warlord is awake in the high keep; climb to him and end the old curse."
+    text: "They've stripped all five katana racks in the Eastern Isle Castle. The Samurai Warlord is awake in the high keep. If you're going to end that curse, now is the time to climb."
 
   - quest: "forest_wolf_cull"
     priority: 10
-    text: "Mystic Trader Aldric will lay a bridge over the lake when every Wolf in the Elvish Forest is dead."
+    text: "Mira's building a bridge across the forest lake to Liora's shrine. Trouble is, the wolves keep driving her off. Find Apprentice Mira by the lake; she'll finish it when every Wolf in the Elvish Forest is dead."
 
   - quest: "archmage_trial"
     priority: 20
-    text: "The Mage Tower will raise one party member to Archmage. Accept its trial, kill the Lich King in the Lich Nexus, then return to the tower."
+    text: "The Mage Tower is taking candidates for Archmage. Accept the trial, kill the Lich King in the Lich Nexus, then return. They will raise one of your company. Rather a steep entrance examination."
 
   # Main story gates. These outrank optional leads.
   - quest: "dragon_slayer"
     priority: 50
-    text: "Find Sylwen the Pilgrim beside the four desert dragon seals and swear her hunt. Each seal also needs its matching colored dragon statuette from the reliquaries in the Pyramid Sanctum."
+    text: "Sylwen the Pilgrim keeps watch at the desert dragon seals. Swear her hunt before you try them. You'll also need the colored dragon statuettes from the Pyramid Sanctum's reliquaries, each matched to its seal."
 
   - quest: "broodmother_nests"
     priority: 50
-    text: "Kill every Dragon on the Dragon Cliffs. When the last one falls, the Brood Mother will wake in the Ember Crater."
+    text: "The Brood Mother stays in the Ember Crater while her dragons hold the cliffs. Kill every Dragon on the Dragon Cliffs and she'll come out. Be sure you're ready for her before you finish the last one."
 
   - quest: "water_purge"
     priority: 50
-    text: "Enter the Ocean Depths off Seabright and kill every Alien there. Leave after the purge, then listen for what the silence draws from deeper water."
+    text: "Sailors have seen rows of lamps in the Ocean Depths off Seabright. Aliens, they say. Kill every one, leave the depths, then dive again; their Enforcer will come up from below to investigate."
 
   # Immediate boss follow-ups. These stay at the top of the rumor pool until
   # their exact spawned boss is dead.
@@ -56,18 +56,18 @@ rumors:
     target_map: "pyramid_3"
     spawn: "dragon_slayer#reaper_dais"
     priority: 100
-    text: "The fourth Elder Dragon is dead, and an Ancient God of Death now stands on the dais in the Pyramid Sanctum. Return there and kill it."
+    text: "All four Elder Dragons are dead, but go back to the Pyramid Sanctum. An Ancient God of Death has appeared on the dais. You'll have to kill that one too."
 
   - after: "broodmother_nests"
     until_monster: "brood_mother"
     target_map: "dragon_cliffs"
     spawn: "broodmother_nests#brood_mother_crater"
     priority: 100
-    text: "The Dragon Cliffs have fallen silent. The Brood Mother has awakened in the Ember Crater on those same cliffs; find the crater and kill her."
+    text: "You've cleared the dragons off the cliffs? Then head for the Ember Crater on the Dragon Cliffs. The Brood Mother is awake. Best finish her before she settles in."
 
   - after: "water_purge"
     until_monster: "alien_enforcer"
     target_map: "water"
     spawn: "water_purge#enforcer_depths"
     priority: 100
-    text: "The purge drew an Alien Enforcer upward from deeper water. Dive into the Ocean Depths again, find it there, and kill it."
+    text: "The scouts are gone, and an Alien Enforcer has come up from the deeper water. Dive into the Ocean Depths again. Find it and kill it before it gets established."
