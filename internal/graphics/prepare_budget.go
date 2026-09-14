@@ -18,8 +18,10 @@ type PreparationBudget struct {
 }
 
 type PreparationLease struct {
-	once    sync.Once
-	release func()
+	mu       sync.Mutex
+	released bool
+	stop     func() bool
+	release  func()
 }
 
 func NewPreparationBudget(limit int64) *PreparationBudget {
@@ -62,9 +64,21 @@ func (b *PreparationBudget) Acquire(ctx context.Context, bytes int64) (*Preparat
 }
 
 func (lease *PreparationLease) Release() {
-	if lease != nil {
-		lease.once.Do(lease.release)
+	if lease == nil {
+		return
 	}
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	if lease.released {
+		return
+	}
+	lease.released = true
+	if lease.stop != nil {
+		lease.stop()
+		lease.stop = nil
+	}
+	lease.release()
+	lease.release = nil
 }
 
 func (b *PreparationBudget) Usage() (used, peak int64) {
@@ -105,6 +119,10 @@ func ReservePNGPreparation(ctx context.Context, path string, budget *Preparation
 // cancelled decoder must retain its reservation while it still owns scratch.
 func (lease *PreparationLease) ReleaseOnCancel(ctx context.Context) {
 	if lease != nil && ctx != nil {
-		context.AfterFunc(ctx, lease.Release)
+		lease.mu.Lock()
+		defer lease.mu.Unlock()
+		if !lease.released && lease.stop == nil {
+			lease.stop = context.AfterFunc(ctx, lease.Release)
+		}
 	}
 }

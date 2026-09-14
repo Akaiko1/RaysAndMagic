@@ -18,6 +18,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -1667,7 +1668,7 @@ func (v *viewer) saveCurrentMap() error {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, eol)+eol), 0o644)
+	return storage.WriteFileAtomic(path, []byte(strings.Join(lines, eol)+eol), 0o644)
 }
 
 func drawSaveDialog(screen *ebiten.Image, path, errMsg string) {

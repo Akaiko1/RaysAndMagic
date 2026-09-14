@@ -2864,19 +2864,6 @@ func GetSpellDefinition(spellKey string) (*SpellDefinitionConfig, bool) {
 	return def, exists
 }
 
-// GetSpellDefinitionByName retrieves spell definition by display name
-func GetSpellDefinitionByName(name string) (*SpellDefinitionConfig, string, bool) {
-	if GlobalSpells == nil {
-		return nil, "", false
-	}
-	for key, def := range GlobalSpells.Spells {
-		if def.Name == name {
-			return def, key, true
-		}
-	}
-	return nil, "", false
-}
-
 // GetSpellsBySchool returns all spells for a given magic school
 func GetSpellsBySchool(schoolKey string) []string {
 	if GlobalSpells == nil {

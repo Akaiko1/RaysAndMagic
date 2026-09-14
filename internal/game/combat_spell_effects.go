@@ -284,14 +284,6 @@ func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *cha
 	return castCommitted
 }
 
-// tryCastAoeStun handles AoE-stun effect spells (e.g. Darkness): if the spell
-// has StunRadiusTiles > 0, every alive monster within that radius of the caster
-// is stunned (RT frames + TB turns), no damage dealt. Shared by both cast
-// paths. Returns true if it handled the spell (caller should stop).
-func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition) bool {
-	return cs.tryCastAoeStunBy(spellID, def, nil)
-}
-
 func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.StunRadiusTiles <= 0 {
 		return false

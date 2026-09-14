@@ -44,13 +44,10 @@ func TestMapEncodeRoundTrip(t *testing.T) {
 			if m.Err != nil || m.Data == nil {
 				t.Fatalf("shipped map failed to load: %v", m.Err)
 			}
-			lines, err := encodeMapLines(&m, world.GlobalTileManager)
-			if err != nil {
-				t.Fatalf("encode: %v", err)
-			}
 			path := filepath.Join(tmpDir, m.Key+".map")
-			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-				t.Fatalf("write: %v", err)
+			v := &viewer{maps: []mapInfo{m}, tileManager: world.GlobalTileManager, savePath: path}
+			if err := v.saveCurrentMap(); err != nil {
+				t.Fatalf("save map: %v", err)
 			}
 			loader := world.NewMapLoaderWithBiome(cfg, m.Config.Biome)
 			got, err := loader.LoadMap(path)

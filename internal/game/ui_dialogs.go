@@ -816,7 +816,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 		// Cost under the icon, in its own line of the cell.
 		costX, costY, costW, costH := spellTraderPriceRect(x, y)
-		drawCenteredDebugText(screen, clipDebugText(fmt.Sprintf("%d g", npcSpell.Cost), costW), costX, costY, costW, costH)
+		drawCenteredTextWithShadow(screen, clipDebugText(fmt.Sprintf("%d g", npcSpell.Cost), costW), costX, costY, costW, costH,
+			purchasePriceColor(canLearn && !alreadyKnows && ui.game.party.Gold >= npcSpell.Cost))
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -1000,6 +1001,13 @@ func (g *MMGame) partyMerchantTier() int {
 	return best
 }
 
+func purchasePriceColor(canBuy bool) color.RGBA {
+	if canBuy {
+		return color.RGBA{100, 220, 120, 255}
+	}
+	return color.RGBA{255, 105, 105, 255}
+}
+
 // merchantBuyPrice / merchantSellPrice apply the party's Merchant haggling:
 // cheaper to buy, more gold when selling, scaled by the best Merchant tier.
 func (g *MMGame) merchantBuyPrice(base int) int {
@@ -1103,7 +1111,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				priceText = "sold out"
 			}
 			px, py, pw, ph := merchantPriceRect(x, y, w, h)
-			drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
+			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph,
+				purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0))
 		}
 	}
 	ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true, ui.game.resetDialogClickTracker)

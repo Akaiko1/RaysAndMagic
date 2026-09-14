@@ -7,7 +7,6 @@ package stash
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 
 	"ugataima/internal/items"
 	"ugataima/internal/storage"
@@ -62,7 +61,7 @@ func Load() (*Stash, error) {
 // Save writes the stash to disk atomically (temp file + rename), so a crash or
 // interrupted write can't leave a half-written stash.json that Load would reject.
 func Save(s *Stash) error {
-	return writeJSONAtomic(path(), s)
+	return storage.WriteJSONAtomic(path(), s, 0644)
 }
 
 // TransferJournal makes a stash transfer recoverable across the independent
@@ -100,7 +99,7 @@ func SaveTransferJournal(journal *TransferJournal) error {
 	if journal == nil || journal.ID == "" {
 		return os.ErrInvalid
 	}
-	return writeJSONAtomic(transferJournalPath(), journal)
+	return storage.WriteJSONAtomic(transferJournalPath(), journal, 0644)
 }
 
 // ClearTransferJournal acknowledges a completed or recovered transaction.
@@ -111,23 +110,4 @@ func ClearTransferJournal() error {
 		return nil
 	}
 	return err
-}
-
-func writeJSONAtomic(p string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		return err
-	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, p); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
 }

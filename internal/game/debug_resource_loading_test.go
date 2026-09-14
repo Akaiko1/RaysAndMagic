@@ -172,7 +172,10 @@ func TestDebugSim_ResourceLoadingResumesAfterCompleteFrame(t *testing.T) {
 	settle()
 	runOnDrawFrame(func(*ebiten.Image) {
 		g.mainMenuOpen = false
-		g.sprites.EvictResource("party_member_panel", "")
+		// Small HUD icons now load inline; a full inventory panel must still
+		// keep the previous complete frame behind the asynchronous barrier.
+		g.menuOpen, g.currentTab = true, TabInventory
+		g.sprites.EvictResource("inventory_grid_panel", "")
 		previous := gl.loading.front
 		gl.Draw(frame)
 		if !gl.loading.awaitingFrame || gl.loading.front != previous || gl.ui.displayedInput.ready {
@@ -181,6 +184,7 @@ func TestDebugSim_ResourceLoadingResumesAfterCompleteFrame(t *testing.T) {
 		g.mainMenuOpen = true
 	})
 	settle()
+	g.menuOpen = false
 	for _, mapKey := range []string{"clock_tower", "forest"} {
 		runOnDrawFrame(func(*ebiten.Image) { g.switchToMap(mapKey) })
 		settle()

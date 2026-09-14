@@ -180,14 +180,7 @@ func (g *MMGame) SaveGameToFile(path string) error {
 		}
 		_ = f.Close()
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(&save)
+	return storage.WriteJSONAtomic(path, &save, 0644)
 }
 
 // RenameSaveSlot updates the stored save name for an existing slot, identified
@@ -205,14 +198,7 @@ func RenameSaveSlot(row int, name string) error {
 	}
 	_ = f.Close()
 	save.SaveName = name
-	out, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-	return enc.Encode(&save)
+	return storage.WriteJSONAtomic(path, &save, 0644)
 }
 
 // LoadGameFromFile loads state from a JSON file and applies it

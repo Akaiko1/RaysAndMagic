@@ -95,11 +95,7 @@ func Load() (*Board, error) {
 
 // Save writes the leaderboard to disk.
 func Save(b *Board) error {
-	data, err := json.MarshalIndent(b, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path(), data, 0644)
+	return storage.WriteJSONAtomic(path(), b, 0644)
 }
 
 // Add inserts entry into the board, keeps it sorted by score desc, and trims

@@ -3,9 +3,34 @@ package graphics
 import (
 	"context"
 	"image"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
+
+// ResourcePixelBytesWithin reads only the source header. It lets an owner opt
+// small UI images into the synchronous API without decoding an oversized PNG.
+// Zero means absent, invalid, or outside the caller's decoded-pixel budget.
+func (sm *SpriteManager) ResourcePixelBytesWithin(request SpriteResourceRequest, limit int) int {
+	if sm == nil || limit < 4 {
+		return 0
+	}
+	sm.ensureIndex()
+	name := request.Name
+	if request.AnimationType != "" {
+		name += "_" + request.AnimationType
+	}
+	f, err := os.Open(sm.spritePaths[name])
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > limit/4 || cfg.Height > limit/(4*cfg.Width) {
+		return 0
+	}
+	return cfg.Width * cfg.Height * 4
+}
 
 // SetDeferredResourceHandler confines runtime cache misses to a request queue.
 // A nil handler preserves synchronous boot/editor APIs. The handler and all

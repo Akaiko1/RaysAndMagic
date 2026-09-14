@@ -1484,15 +1484,15 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 // Like the map editor, floor tiles remain clean color fields while walls,
 // trees, structures, and props show their actual authored sprite.
 func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
+	// A deferred sprite can unwind this draw. Publish the cache identity only
+	// after the whole layer is complete, including on a same-position resize.
+	ui.compassCacheWorld = nil
 	side := 2 * radius
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
 		ui.compassTileLayer = ebiten.NewImage(side, side)
 	} else {
 		ui.compassTileLayer.Clear()
 	}
-	ui.compassCacheWorld = ui.game.world
-	ui.compassCacheTileX = playerTileX
-	ui.compassCacheTileY = playerTileY
 
 	center := float32(radius)
 	for dy := -viewRange; dy <= viewRange; dy++ {
@@ -1533,6 +1533,9 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 			drawCompassTileSprite(ui.compassTileLayer, ui.game.sprites.GetSprite(appearance.sprite), drawX, drawY, miniTileSize)
 		}
 	}
+	ui.compassCacheWorld = ui.game.world
+	ui.compassCacheTileX = playerTileX
+	ui.compassCacheTileY = playerTileY
 }
 
 type compassTileVisual struct {

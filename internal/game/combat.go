@@ -182,20 +182,6 @@ func (cs *CombatSystem) countLiveSummonsByOwner(owner string) int {
 	return n
 }
 
-func (cs *CombatSystem) countCardSummons() int {
-	w := cs.game.GetCurrentWorld()
-	if w == nil {
-		return 0
-	}
-	n := 0
-	for _, m := range w.Monsters {
-		if m != nil && m.IsAlive() && isCardAlly(m) {
-			n++
-		}
-	}
-	return n
-}
-
 // tryCardSummonOnAction independently rolls every active summon card on a party
 // action. Each physical card owns its monster type, live limit and cooldown;
 // collection order controls only deterministic roll/spawn order. Called from
@@ -287,17 +273,6 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 	bear.DamageMin, bear.DamageMax = attack, attack
 	cs.game.AddCombatMessage(fmt.Sprintf("%s's Animal Bonding calls a bear ally!", druid.Name))
 	return true
-}
-
-// markCardAlly turns a spawned monster into a party ally summoned by the card
-// collection: Bound (hunts enemy monsters, ignores the party), tagged for the
-// summon limit, and excluded from map-clear quest counts.
-// BoundFramesRemaining 0 = never expires (the bind tick only counts down > 0).
-// A card ally is a PURE summon (never was an enemy): it yields the party no
-// XP/gold/loot on death and does not follow across maps - it simply crumbles
-// when the party leaves (a fresh set is re-summoned there via the proc).
-func markCardAlly(m *monsterPkg.Monster3D) {
-	markPurePartySummon(m, cardSummonOwner)
 }
 
 // spawnPartyAlly is THE spawn path for every pure party ally (card summons, the
@@ -3848,15 +3823,6 @@ func (g *MMGame) schoolResistPct(char *character.MMCharacter, school string) int
 	return total
 }
 
-// mitigateCharacterDamage is the int-shaped shorthand for a hit with no true
-// component: same pipeline, same armor step, one number in and out. Balance
-// tests and tooltips read better through it; there is no second formula here.
-func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
-	return cs.mitigateCharacterDamageParts(
-		damagecalc.Parts{Normal: damage}, damageTypeStr, char, ignoreArmor,
-	).Normal
-}
-
 // mitigateCharacterDamageParts is the single party-member mitigation pipeline.
 // Both components carry one school and meet its resistance. Armor and flat
 // reductions apply only to Normal; True also lands through Perfect Dodge, which
@@ -4142,15 +4108,6 @@ func (cs *CombatSystem) tankIndex() int {
 		}
 	}
 	return -1
-}
-
-// tankTarget is the tank member (front slot, or first survivor). RANGED single
-// hits in real time always land here.
-func (cs *CombatSystem) tankTarget() *character.MMCharacter {
-	if i := cs.tankIndex(); i >= 0 {
-		return cs.game.party.Members[i]
-	}
-	return nil
 }
 
 // rangedTarget preserves the authored all-human tank/off-tank split, then gives

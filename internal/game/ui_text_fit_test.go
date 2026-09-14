@@ -466,7 +466,7 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 
 	// Geometry: rows fit between greeting and footer, and never overlap.
 	dialog := npcDialogLayout(g)
-	layout := computeNPCDialogSectionLayout(layoutRect{dialog.x, dialog.y, dialog.w, dialog.h}, true)
+	layout := computeNPCDialogSectionLayout(layoutRect(dialog), true)
 	maxRows := buffServiceMaxRows(dialog.x, dialog.y, dialog.w, dialog.h)
 	if len(services) > maxRows {
 		t.Fatalf("%d service rows authored but only %d fit the dialog", len(services), maxRows)

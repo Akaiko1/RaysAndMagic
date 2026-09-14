@@ -13,6 +13,11 @@ import (
 
 const loadingBannerDelay = 200 * time.Millisecond
 
+// Icons and small portraits should not turn a shop page into a loading screen.
+// Cap both each source and the full Draw; panels and world assets still stream.
+const smallUIResourceBytes = 256 << 10
+const smallUIFrameBytes = 2 << 20
+
 // A render miss unwinds only a speculative Draw. It must never interrupt an
 // Update transaction: update lookups return unavailable and queue the source.
 type loadingRenderMiss struct{}
@@ -30,6 +35,7 @@ type gameLoadingState struct {
 	front, back   *ebiten.Image
 	uploads       []*ebiten.Image
 	pattern       <-chan struct{}
+	inlineUIBytes int
 }
 
 func (gl *GameLoop) ensureResourceLoading() bool {
@@ -72,6 +78,13 @@ func (gl *GameLoop) closeResourceLoading() {
 
 func (gl *GameLoop) deferGameplayResource(request graphics.SpriteResourceRequest) bool {
 	l := gl.loading
+	if l.rendering && !l.worldPass {
+		limit := min(smallUIResourceBytes, smallUIFrameBytes-l.inlineUIBytes)
+		if bytes := gl.game.sprites.ResourcePixelBytesWithin(request, limit); bytes > 0 {
+			l.inlineUIBytes += bytes
+			return false
+		}
+	}
 	l.stream.Request(request)
 	if l.worldPass || !l.rendering {
 		l.worldRequests[request] = true
@@ -224,6 +237,7 @@ func (gl *GameLoop) advanceResourceLoading() {
 
 func (gl *GameLoop) tryLoadingFrame(dst *ebiten.Image) (complete bool) {
 	l := gl.loading
+	l.inlineUIBytes = 0
 	l.rendering = true
 	gl.game.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
 	defer func() {

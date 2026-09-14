@@ -1,12 +1,9 @@
 package spells
 
 import (
-	"fmt"
 	"math"
-	"strings"
 
 	"ugataima/internal/config"
-	"ugataima/internal/stats"
 )
 
 // ProjectileData represents a projectile in the game world
@@ -30,34 +27,6 @@ func NewCastingSystem(config *config.Config) *CastingSystem {
 	return &CastingSystem{
 		config: config,
 	}
-}
-
-// CalculateSpellDamageByID calculates damage using SpellID (YAML-based)
-func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage, intellectBonus, totalDamage int) {
-	def, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	// Legacy API supplies the spell's primary scaling stat, not a full caster.
-	formula := def.DamageFormula()
-	values := stats.StatBonuses{}
-	if len(formula.Terms) > 0 {
-		values = stats.FromMap(map[string]int{strings.ToLower(formula.Terms[0].Stat): casterIntellect})
-	}
-	result := formula.Evaluate(values, 0)
-	return result.Base, result.StatBonus, result.Total
-}
-
-// CalculateHealingAmountByID calculates healing using SpellID (YAML-based)
-func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHealing, personalityBonus, totalHealing int) {
-	def, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	result := def.HealingFormula().Evaluate(stats.StatBonuses{Personality: casterPersonality}, 0)
-	return result.Base, result.StatBonus, result.Total
 }
 
 // CreateProjectile builds the PHYSICS of a spell projectile (velocity,
@@ -119,17 +88,4 @@ type UtilitySpellResult struct {
 	VisionRadiusTiles float64
 	WaterWalk         bool
 	WaterBreathing    bool
-}
-
-// GetProjectileColor returns the color for a projectile based on spell ID
-func GetProjectileColor(spellID SpellID) ([3]int, error) {
-	if config.GlobalConfig != nil {
-		graphicsConfig, err := config.GlobalConfig.GetSpellGraphicsConfig(string(spellID))
-		if err != nil {
-			return [3]int{}, err
-		}
-		return graphicsConfig.Color, nil
-	}
-
-	return [3]int{}, fmt.Errorf("no spell configuration available for '%s'", spellID)
 }

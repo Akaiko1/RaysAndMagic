@@ -423,12 +423,6 @@ func (gl *GameLoop) monsterAttackTurnBased(m *monster.Monster3D) {
 	gl.game.combat.commitMonsterAttack(m, monsterAttackDestination{}, monsterAttackTurn)
 }
 
-func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) {
-	if foe != nil {
-		gl.game.combat.commitMonsterAttack(attacker, monsterAttackDestination{foe: foe}, monsterAttackTurn)
-	}
-}
-
 // tryMonsterAttackFoeTurnBased applies the same logical-post gate used for
 // party attacks before a monster attacks a summon, bound undead, or other foe.
 // The entities stay physically pass-through; a rejected contender simply keeps

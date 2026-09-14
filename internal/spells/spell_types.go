@@ -490,14 +490,6 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 	}, nil
 }
 
-// GetSpellIDByName returns dynamic SpellID for a given spell name
-func GetSpellIDByName(name string) (SpellID, error) {
-	if _, spellKey, exists := config.GetSpellDefinitionByName(name); exists {
-		return SpellID(spellKey), nil
-	}
-	return "", fmt.Errorf("spell '%s' not found in spells.yaml", name)
-}
-
 // GetSpellIDsBySchool returns all spell IDs for a given magic school
 func GetSpellIDsBySchool(school string) ([]SpellID, error) {
 	spellKeys := config.GetSpellsBySchool(school)
