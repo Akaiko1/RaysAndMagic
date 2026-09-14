@@ -107,8 +107,7 @@ func (gl *GameLoop) Update() error {
 		gl.ui.cancelScreenPointerGestures()
 		// The stale modal frame blocks input/world state, not the exposed party-card
 		// presentation. Keep hit flashes and status effects animating under it.
-		gl.game.advanceInterfaceClock()
-		gl.game.UpdateDamageBlinkTimers()
+		gl.game.updateInterfacePresentation()
 		gl.inputHandler.keys.BeginFrame()
 		return nil
 	}
@@ -132,12 +131,6 @@ func (gl *GameLoop) Update() error {
 
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
-	// The interface clock runs on every in-game frame, paused or not: party-card
-	// feedback (hit flash, poison, ignite, stun stars, the badge aura) is
-	// presentation and must keep breathing under an open panel. The WORLD clock
-	// ticks further down, past the barriers, only on frames the world advances.
-	gl.game.advanceInterfaceClock()
-
 	// In turn-based, snap selectedChar to a living member if the current one
 	// died from delayed sources (in-flight projectiles, poison ticks). Has
 	// to run before HandleInput so Space/F on a corpse advances selection
@@ -148,6 +141,7 @@ func (gl *GameLoop) updateExploration() {
 	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
 	if gl.loadingBarrier() {
+		gl.game.updateInterfacePresentation()
 		gl.discardLoadingInput()
 		return
 	}
@@ -159,10 +153,10 @@ func (gl *GameLoop) updateExploration() {
 	// turns. No-op in real time. Cheap; fine to run before the pause check.
 	gl.game.advanceViewTurn()
 
-	// Party-card feedback is UI animation, not gameplay state. Keep its timers
-	// moving while an overlay pauses the world so an open character hub does not
-	// freeze a hit flash, flame, spark, or healing effect on the visible cards.
-	gl.game.UpdateDamageBlinkTimers()
+	// Update presentation after input (newly triggered feedback included), before
+	// any pause return or combat simulation. Loading and redraw paths use this
+	// same step, so clocks and overlay lifetimes cannot drift apart.
+	gl.game.updateInterfacePresentation()
 	// Hub navigation remains responsive while its overlay pauses the world.
 	// Keep this separate from spellInputCooldown: that field also spaces combat
 	// actions and therefore belongs to the paused simulation below.
@@ -230,21 +224,7 @@ func (gl *GameLoop) updateExploration() {
 
 	gl.runMonsterFrame()
 
-	// Update projectiles - skip if no active projectiles to save CPU
-	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
-	}
-
-	// Update slash effects - skip if none active
-	if len(gl.game.slashEffects) > 0 {
-		gl.updateSlashEffects()
-	}
-
-	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
-	// arrows outlive the burst, so they must keep the updater alive too.
-	if len(gl.game.spellHitEffects) > 0 {
-		gl.game.UpdateHitEffects()
-	}
+	gl.updateProjectilesAndImpacts()
 
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {
@@ -645,46 +625,12 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
-	// Renderer-owned ambient motes still advance in Update, never Draw: their
-	// lifecycle and RNG therefore follow simulation ticks even on dropped frames.
-	if gl.renderer != nil {
-		gl.renderer.updateNightMotes()
-	}
+	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub
 	// has a separate debounce above so overlays cannot drain combat timing.
 	if gl.game.spellInputCooldown > 0 {
 		gl.game.spellInputCooldown--
-	}
-
-	// Screen shake decays exponentially toward rest.
-	if gl.game.screenShake > 0 {
-		gl.game.screenShake *= 0.88
-		if gl.game.screenShake < 0.05 {
-			gl.game.screenShake = 0
-		}
-	}
-
-	// Buff-cast overlay animations age out.
-	gl.game.tickElementalAttackFX()
-	gl.game.tickBuffFx()
-
-	// Quest banners: pick up whatever the journal did this frame and age the one
-	// on screen.
-	gl.game.tickScreenBanners()
-
-	// Impact light flashes burn down and expire.
-	if len(gl.game.impactLights) > 0 {
-		gl.game.hitEffectsMu.Lock()
-		dst := gl.game.impactLights[:0]
-		for _, il := range gl.game.impactLights {
-			il.Life--
-			if il.Life > 0 {
-				dst = append(dst, il)
-			}
-		}
-		gl.game.impactLights = dst
-		gl.game.hitEffectsMu.Unlock()
 	}
 
 	// Tick down each party member's real-time action cooldown. Off in
@@ -987,4 +933,24 @@ func (gl *GameLoop) countRemainingEncounterMonsters(monsters []*monster.Monster3
 		}
 	}
 	return count
+}
+
+// updateProjectilesAndImpacts preserves the shared ordering: projectiles resolve
+// their gameplay hits first, then the resulting slash/impact visuals advance.
+func (gl *GameLoop) updateProjectilesAndImpacts() {
+	// Update projectiles - skip if no active projectiles to save CPU
+	if gl.hasActiveProjectiles() {
+		gl.updateProjectilesParallel()
+	}
+
+	// Update slash effects - skip if none active
+	if len(gl.game.slashEffects) > 0 {
+		gl.updateSlashEffects()
+	}
+
+	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
+	// arrows outlive the burst, so they must keep the updater alive too.
+	if len(gl.game.spellHitEffects) > 0 {
+		gl.game.UpdateHitEffects()
+	}
 }

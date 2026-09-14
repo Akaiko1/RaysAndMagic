@@ -376,20 +376,10 @@ func (p *FxPreview) Step() {
 	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 	g := p.g
 	gl := g.gameLoop
+	g.updateInterfacePresentation()
 	g.frameCount++
-	g.advanceInterfaceClock()
-	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
-	}
-	if len(g.slashEffects) > 0 {
-		gl.updateSlashEffects()
-	}
-	if len(g.spellHitEffects) > 0 {
-		g.UpdateHitEffects()
-	}
-	gl.updatePersistentDamageZonesRT()
 	gl.updateSpecialEffects()
-	g.UpdateDamageBlinkTimers()
+	gl.updateProjectilesAndImpacts()
 
 	p.tick++
 	if p.tick >= fxRespawnTicks {

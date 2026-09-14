@@ -196,8 +196,7 @@ func (gl *GameLoop) discardLoadingInput() {
 
 func (gl *GameLoop) tickLoadingPause() {
 	gl.discardLoadingInput()
-	gl.game.advanceInterfaceClock()
-	gl.game.UpdateDamageBlinkTimers()
+	gl.game.updateInterfacePresentation()
 }
 
 func (gl *GameLoop) advanceResourceLoading() {

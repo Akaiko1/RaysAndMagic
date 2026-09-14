@@ -1781,15 +1781,6 @@ func (g *MMGame) checkGameOver() {
 	g.closeConversation()
 }
 
-// advanceInterfaceClock is the one tick of presentation time. Every in-game
-// Update advances it, including both redraw-barrier paths; the world clock has a
-// deliberately narrower contract further down the loop.
-func (g *MMGame) advanceInterfaceClock() {
-	if g != nil {
-		g.uiFrameCount++
-	}
-}
-
 // checkVictory enters the victory state when the data-authored victory quest
 // completes.
 func (g *MMGame) checkVictory() {
@@ -2031,17 +2022,6 @@ func (g *MMGame) TriggerPartyFlame(characterIndex int) {
 // TriggerPartyHeal lights the rising green "+" overlay on a healed member's card.
 func (g *MMGame) TriggerPartyHeal(characterIndex int) {
 	g.triggerCardFx(fxHeal, characterIndex, HealEffectFrames)
-}
-
-// UpdateDamageBlinkTimers decrements every card-overlay timer each frame.
-func (g *MMGame) UpdateDamageBlinkTimers() {
-	for fx := range g.cardFxTimers {
-		for i := range g.cardFxTimers[fx] {
-			if g.cardFxTimers[fx][i] > 0 {
-				g.cardFxTimers[fx][i]--
-			}
-		}
-	}
 }
 
 // UpdateMonsterHitTintTimers decrements hit tint timers for monsters each frame
