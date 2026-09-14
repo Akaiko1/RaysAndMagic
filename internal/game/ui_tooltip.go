@@ -191,28 +191,6 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 	return joinTooltipLines(lines)
 }
 
-func getEffectiveStatValue(statName string, char *character.MMCharacter) int {
-	might, intellect, personality, endurance, accuracy, speed, luck := char.GetEffectiveStats()
-	switch statName {
-	case "Might":
-		return might
-	case "Intellect":
-		return intellect
-	case "Personality":
-		return personality
-	case "Endurance":
-		return endurance
-	case "Accuracy":
-		return accuracy
-	case "Speed":
-		return speed
-	case "Luck":
-		return luck
-	default:
-		return might
-	}
-}
-
 // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
 
 func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
@@ -382,8 +360,16 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 				lines = append(lines, fmt.Sprintf("Range: %.1f vs %.1f (%+.1f) tiles", rng, eqRng, rng-eqRng))
 			}
 		}
-		_, _, itemDmg := combatSystem.CalculateSpellDamage(itemDef.ID, char)
-		_, _, eqDmg := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
+		// Both sides quote the packet combat fires (spellDamageParts), so Strong
+		// Magic and mastery splits weigh into the comparison exactly as in play.
+		_, _, itemTotal := combatSystem.CalculateSpellDamage(itemDef.ID, char)
+		_, _, eqTotal := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
+		itemParts := combatSystem.spellDamageParts(itemDef.ID, char, itemTotal)
+		itemParts, _ = combatSystem.spellPartsWithOutgoingBuff(itemParts, itemDef.School)
+		eqParts := combatSystem.spellDamageParts(equippedDef.ID, char, eqTotal)
+		eqParts, _ = combatSystem.spellPartsWithOutgoingBuff(eqParts, equippedDef.School)
+		itemDmg := itemParts.Total()
+		eqDmg := eqParts.Total()
 		if itemDmg > 0 || eqDmg > 0 {
 			lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", itemDmg, eqDmg, itemDmg-eqDmg))
 		}
@@ -483,6 +469,31 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		out += "\n\n\"" + def.Description + "\""
 	}
 	return out
+}
+
+// spellSchoolForChar is the school a card SCORES this spell under: the one the
+// character actually holds (SpellSchoolFor), falling back to the spell's primary
+// school when there is no character to ask. A dual-school page must not be
+// scored - or labelled - against a school its caster never opened.
+func spellSchoolForChar(char *character.MMCharacter, def spells.SpellDefinition) string {
+	if char == nil {
+		return def.School
+	}
+	return string(char.SpellSchoolFor(def))
+}
+
+// spellSchoolsLabel names EVERY school a spell belongs to ("Earth / Air"), so a
+// dual-school page does not read as the one school its definition happens to
+// list first - the shop sells it to either caster.
+func spellSchoolsLabel(def spells.SpellDefinition) string {
+	schools := def.SchoolList()
+	names := make([]string, 0, len(schools))
+	for _, s := range schools {
+		if n := formatSchoolName(s); n != "" {
+			names = append(names, n)
+		}
+	}
+	return strings.Join(names, " / ")
 }
 
 func formatSchoolName(school string) string {

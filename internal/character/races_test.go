@@ -83,3 +83,68 @@ func TestNewParty_TavernRecruitsStartInReserve(t *testing.T) {
 			brinna.Name, brinna.Class, brinna.Accuracy, brinna.Might)
 	}
 }
+
+func TestEnsureRacialTraitsCaseTable(t *testing.T) {
+	cfg := racesTestConfig()
+	cfg.Characters.Races["celestial"] = config.RaceStats{}
+	cfg.Characters.Races["dark_elf"] = config.RaceStats{}
+	tests := []struct {
+		name        string
+		race        string
+		class       CharacterClass
+		oldDefense  SkillMastery
+		wantSkill   SkillType
+		wantMastery SkillMastery
+		wantDefense bool
+	}{
+		{"celestial fixed passive", "celestial", ClassKnight, MasteryNovice, SkillCelestialProvidence, MasteryNovice, true},
+		{"halfling fixed passive", "halfling", ClassArcher, MasteryNovice, SkillHalflingGuile, MasteryNovice, false},
+		{"dark elf fixed passive", "dark_elf", ClassArcher, MasteryNovice, SkillDarkElfBinding, MasteryNovice, false},
+		{"half-orc Knight migrates defense mastery", "half_orc", ClassKnight, MasteryMaster, SkillOrcishFury, MasteryMaster, false},
+		{"half-orc non-Knight gets no replacement", "half_orc", ClassArcher, MasteryNovice, SkillOrcishFury, MasteryNovice, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &MMCharacter{
+				Name:   tt.name,
+				Class:  tt.class,
+				Race:   tt.race,
+				Skills: map[SkillType]*Skill{},
+			}
+			if tt.class == ClassKnight {
+				c.Skills[SkillImpenetrableDefense] = &Skill{Mastery: tt.oldDefense}
+			}
+			c.EnsureRacialTraits(cfg)
+			skill := c.Skills[tt.wantSkill]
+			if tt.race == "half_orc" && tt.class != ClassKnight {
+				if skill != nil {
+					t.Fatalf("non-Knight half-orc received Orcish Fury")
+				}
+				return
+			}
+			if skill == nil || skill.Mastery != tt.wantMastery {
+				t.Fatalf("racial skill = %+v, want %s at %s", skill, tt.wantSkill, tt.wantMastery)
+			}
+			_, hasDefense := c.Skills[SkillImpenetrableDefense]
+			if hasDefense != tt.wantDefense {
+				t.Fatalf("defense present = %v, want %v", hasDefense, tt.wantDefense)
+			}
+		})
+	}
+}
+
+func TestEnsureRacialTraitsInfersLegacyRosterRace(t *testing.T) {
+	cfg := racesTestConfig()
+	cfg.Characters.TavernRecruits = []config.RosterEntry{{Name: "Grikka", Class: "knight", Race: "half_orc"}}
+	c := &MMCharacter{
+		Name:   "Grikka",
+		Class:  ClassKnight,
+		Skills: map[SkillType]*Skill{SkillImpenetrableDefense: {Mastery: MasteryExpert}},
+	}
+	if !c.EnsureRacialTraits(cfg) {
+		t.Fatal("legacy roster character was not migrated")
+	}
+	if c.Race != "half_orc" || c.Skills[SkillOrcishFury] == nil || c.Skills[SkillOrcishFury].Mastery != MasteryExpert {
+		t.Fatalf("legacy race migration = race %q, fury %+v", c.Race, c.Skills[SkillOrcishFury])
+	}
+}

@@ -37,6 +37,9 @@ func TestWorldGeneration(t *testing.T) {
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
+	if err := GlobalTileManager.LoadSpecialTileConfig("../../assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 
 	// Load monster configuration for world tests
 	_, err := monster.LoadMonsterConfig("../../assets/monsters.yaml")
@@ -149,6 +152,9 @@ func TestWorldMovement(t *testing.T) {
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
+	if err := GlobalTileManager.LoadSpecialTileConfig("../../assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 
 	// Load monster configuration for world tests
 	_, err := monster.LoadMonsterConfig("../../assets/monsters.yaml")
@@ -203,6 +209,9 @@ func TestWorldMonsters(t *testing.T) {
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Logf("Warning: Failed to load tile config: %v", err)
 	}
+	if err := GlobalTileManager.LoadSpecialTileConfig("../../assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 
 	// Load monster configuration for world tests
 	_, err := monster.LoadMonsterConfig("../../assets/monsters.yaml")
@@ -252,6 +261,9 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 	GlobalTileManager = NewTileManager(testTileSizeClasses())
 	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatalf("Failed to load tile config: %v", err)
+	}
+	if err := GlobalTileManager.LoadSpecialTileConfig("../../assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
 	}
 
 	var blockedKey string

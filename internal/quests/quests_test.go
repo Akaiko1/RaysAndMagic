@@ -215,6 +215,67 @@ func TestQuest_GetProgressString(t *testing.T) {
 	}
 }
 
+// An interact quest says what it counts IN ITS OWN WORDS, and the load refuses
+// one that does not. The derived line was kill-quest phrasing frozen at
+// "closed" from when valves were the only interact quest, so the arena read
+// "1/3 arena duels closed".
+func TestInteractQuestProgressIsAuthored(t *testing.T) {
+	q := &Quest{
+		ID: "pit",
+		Definition: &QuestDefinition{
+			Type: QuestTypeInteract, TargetMonster: "arena_duel", TargetCount: 3,
+			ProgressText: "arena duels won",
+		},
+		CurrentCount: 1,
+	}
+	if got, want := q.GetProgressString(), "1/3 arena duels won"; got != want {
+		t.Errorf("progress = %q, want %q", got, want)
+	}
+
+	// The contract, enforced at load: an interact quest must author its wording
+	// AND credit through the single tag the props pass to OnInteract.
+	for _, tc := range []struct {
+		name  string
+		def   *QuestDefinition
+		wants string
+	}{
+		{
+			name:  "no wording",
+			def:   &QuestDefinition{Type: QuestTypeInteract, TargetMonster: "valve", TargetCount: 7},
+			wants: "must author progress_text",
+		},
+		{
+			// The interact hooks credit without a map, so a map scope would be read
+			// by nothing - reject it instead of ignoring it.
+			name: "target_map on an interact quest",
+			def: &QuestDefinition{Type: QuestTypeInteract, TargetMonster: "valve", TargetCount: 7,
+				ProgressText: "valves closed", TargetMap: "culverts"},
+			wants: "target_map does not apply",
+		},
+		{
+			name: "target_monsters only",
+			def: &QuestDefinition{Type: QuestTypeInteract, TargetMonsters: []string{"shrine_lamp"},
+				TargetCount: 3, ProgressText: "shrine lamps lifted"},
+			wants: "must set target_monster",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateQuestConfig(&QuestConfig{Quests: map[string]*QuestDefinition{"q": tc.def}})
+			if err == nil || !strings.Contains(err.Error(), tc.wants) {
+				t.Fatalf("error = %v, want it to mention %q", err, tc.wants)
+			}
+		})
+	}
+
+	// A kill quest still derives its line - only interact needs the wording.
+	kill := &QuestConfig{Quests: map[string]*QuestDefinition{
+		"k": {Type: QuestTypeKill, TargetMonster: "goblin", TargetCount: 5},
+	}}
+	if err := validateQuestConfig(kill); err != nil {
+		t.Fatalf("a kill quest without progress_text was rejected: %v", err)
+	}
+}
+
 func TestQuest_GetStatusString(t *testing.T) {
 	tests := []struct {
 		name           string

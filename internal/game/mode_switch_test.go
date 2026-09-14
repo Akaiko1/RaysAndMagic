@@ -390,6 +390,7 @@ func TestTurnBasedSmartAttackIgnoresRetainedRTCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create firebolt: %v", err)
 	}
+	member.LearnSpell("firebolt")
 	member.Equipment[items.SlotSpell] = spell
 	member.SpellPoints, member.MaxSpellPoints = 99, 99
 	member.RTCooldown = 999

@@ -100,7 +100,9 @@ func main() {
 	}
 	tps := cfg.GetTPS()
 	if disableVsync {
-		tps = 120
+		// An unsynced loop free-runs, so pin the SHIPPED rate rather than let the
+		// display dictate it - every frame-counted duration is calibrated to it.
+		tps = config.DefaultTPS
 	}
 	ebiten.SetTPS(tps)
 

@@ -484,7 +484,11 @@ func (rh *RenderingHelper) visibleHeightFrameScale(spriteName string, aspectFrom
 	if resolved > 0 && fractionSum > 0 {
 		value = float64(resolved) / fractionSum
 	}
-	rh.visibleHeightScaleCache[key] = value
+	// Unknown can mean a deferred load, not just missing art. Never freeze a
+	// fallback or a partially measured variant family into the final geometry.
+	if resolved == len(names) {
+		rh.visibleHeightScaleCache[key] = value
+	}
 	return value
 }
 

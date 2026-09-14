@@ -14,6 +14,8 @@ import (
 
 // GameLoop manages the main game update and render cycle
 type GameLoop struct {
+	loading *gameLoadingState
+
 	game               *MMGame
 	inputHandler       *InputHandler
 	ui                 *UISystem
@@ -62,35 +64,56 @@ func (gl *GameLoop) Update() error {
 	}()
 	defer func() {
 		if gl.renderer != nil {
-			gl.renderer.prewarmPendingMapRenderResources()
+			gl.advanceResourceLoading()
 		}
 	}()
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
-
-	gl.game.frameCount++
 
 	// Handle exit request from main menu
 	if gl.game.exitRequested {
 		return ErrExit
 	}
 
+	if gl.game.appScreen == AppScreenInGame {
+		gl.ensureResourceLoading()
+		if gl.loading != nil {
+			gl.game.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
+			defer gl.game.sprites.SetDeferredResourceHandler(nil)
+		}
+		if gl.loadingBarrier() {
+			gl.tickLoadingPause()
+			return nil
+		}
+	} else {
+		gl.closeResourceLoading()
+	}
+
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
+	gl.ui.dispatchDisplayedInput()
+	if gl.loadingBarrier() {
+		gl.tickLoadingPause()
+		return nil
+	}
 	// The model can close a modal in Update, but the old modal remains the image
 	// on screen until Draw replaces it. Under a stall Ebiten may run more Updates
 	// first; suppress them so input cannot act on a layer the player cannot see.
-	if gl.ui.modalRedrawBarrierActive() {
+	// At application startup there is no displayed top-level screen yet.
+	// Wait for its first Draw before a raw press can arm a release action.
+	initialScreen := gl.game.appScreen != AppScreenInGame && !gl.ui.displayedInput.ready
+	if initialScreen || gl.ui.modalRedrawBarrierActive() {
+		gl.ui.dropQueuedClicks()
+		gl.ui.cancelScreenPointerGestures()
 		// The stale modal frame blocks input/world state, not the exposed party-card
 		// presentation. Keep hit flashes and status effects animating under it.
-		gl.game.UpdateDamageBlinkTimers()
+		gl.game.updateInterfacePresentation()
 		gl.inputHandler.keys.BeginFrame()
 		return nil
 	}
 
-	// Top-level screens replace the gameplay loop entirely. Their click handling
-	// lives in the matching Draw call (roster-screen convention); update only
-	// processes keyboard/back navigation here.
+	// Top-level screens replace the gameplay loop. Displayed mouse commands
+	// have already run; process keyboard/back navigation next.
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
 		gl.inputHandler.keys.BeginFrame()
@@ -117,6 +140,11 @@ func (gl *GameLoop) updateExploration() {
 	// Resolve the Space-to-interact focus target before input reads it. Uses
 	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
+	if gl.loadingBarrier() {
+		gl.game.updateInterfacePresentation()
+		gl.discardLoadingInput()
+		return
+	}
 
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
@@ -125,10 +153,10 @@ func (gl *GameLoop) updateExploration() {
 	// turns. No-op in real time. Cheap; fine to run before the pause check.
 	gl.game.advanceViewTurn()
 
-	// Party-card feedback is UI animation, not gameplay state. Keep its timers
-	// moving while an overlay pauses the world so an open character hub does not
-	// freeze a hit flash, flame, spark, or healing effect on the visible cards.
-	gl.game.UpdateDamageBlinkTimers()
+	// Update presentation after input (newly triggered feedback included), before
+	// any pause return or combat simulation. Loading and redraw paths use this
+	// same step, so clocks and overlay lifetimes cannot drift apart.
+	gl.game.updateInterfacePresentation()
 	// Hub navigation remains responsive while its overlay pauses the world.
 	// Keep this separate from spellInputCooldown: that field also spaces combat
 	// actions and therefore belongs to the paused simulation below.
@@ -141,17 +169,40 @@ func (gl *GameLoop) updateExploration() {
 	// still open when it runs. Keep UI-only timers above moving, but do not advance
 	// the world under the stale modal image that remains visible until Draw.
 	if gl.ui != nil && gl.ui.modalRedrawBarrierActive() {
+		gl.ui.cancelScreenPointerGestures()
 		return
 	}
 
 	// Pause gameplay updates while menus/panels are open.
 	if gl.game.gameplayPausedByOverlay() {
+		// A full-screen overlay ends the current approach. The nudge is the only
+		// thing that says Space does anything here, and it fires once per approach:
+		// without this, opening the inventory in front of a merchant and closing it
+		// again left the player with no affordance until they walked away for two
+		// seconds. A DIALOG is deliberately not in this set - the party acted on the
+		// object, which settles its nudge (noteInteractPromptEngaged).
+		gl.game.forgetInteractPromptTarget()
 		return
 	}
+
+	// Input may have travelled or turned into a cold region. Freeze before AI,
+	// projectiles and clocks consume that new view.
+	if gl.loadingBarrier() {
+		gl.discardLoadingInput()
+		return
+	}
+
+	// Past both barriers: this frame really advances the world, so the world clock
+	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
+	// is what makes a paused overlay a still picture.
+	gl.game.frameCount++
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
 	gl.game.syncOpenWorldRegion()
+	if gl.renderer != nil {
+		gl.renderer.syncVisibleMapRenderResidency()
+	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration).
 	// An RT payout clears partial TB progress so toggling modes cannot pay both
@@ -164,107 +215,16 @@ func (gl *GameLoop) updateExploration() {
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
 
-	// Card-summon proc cooldown ticks in real time in both modes; it silences
-	// only the proc, so nothing else waits on it.
-	if gl.game.cardSummonCDFrames > 0 {
-		gl.game.cardSummonCDFrames--
-	}
+	// Each summon card's proc cooldown ticks independently in real time in both
+	// modes; these timers silence only their own proc.
+	gl.game.tickCardSummonCooldowns()
 
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
-	// Refresh the party's active "traits" once per frame so passive monsters
-	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
-	monster.PartyTraits["lich"] = gl.game.party.HasLich()
+	gl.runMonsterFrame()
 
-	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
-	// retaliation) stays cheap when none exist - the overwhelmingly common case.
-	gl.game.refreshMonsterAIState()
-	// Reconcile restored or redirected combat attack posts before the next RT
-	// snapshot/TB action can use them.
-	gl.reconcileMonsterAttackPosts()
-	// Calm solo mobs that can see an unclaimed crate or spell lectern reserve up
-	// to two guard slots before movement. RT carries the prepared patrol tile into
-	// its AI pass; TB keeps calm guards stationary and uses only their normal
-	// direct-sight engagement rule.
-	gl.prepareLootPropGuards()
-
-	// Reconcile door state (closed iff a living champion is on this map) and the
-	// solid collision entities behind it, before either monster update runs.
-	gl.game.refreshDoors()
-
-	// The facing pass must see only the movement pass's displacement.
-	monsterFrameStart := gl.captureMonsterFramePositions()
-
-	// Update monsters (turn-based or real-time)
-	if gl.game.turnBasedMode {
-		// A stun can remove the final party actor after slots were assigned. Do
-		// this in the scheduler, rather than input, so keyboard, spellbook, trap,
-		// and delayed-projectile paths all hand the empty turn to monsters alike.
-		gl.game.skipTurnBasedPartyTurnWithoutActor()
-		// Evasive bosses react in real time even in TB - see tickEvasiveBossesTB.
-		gl.game.combat.tickEvasiveBossesTB()
-		gl.updateMonstersTurnBased()
-	} else {
-		// Update monsters in parallel with performance monitoring
-		gl.game.threading.PerformanceMonitor.ProfiledFunction("entity_update", func() {
-			gl.updateMonstersParallel()
-		})
-	}
-
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
-	// Parallel RT updates can nominate the same logical post from one frozen
-	// snapshot. Serial arbitration runs before combat so only one can strike.
-	gl.reconcileMonsterAttackPosts()
-
-	// Banding: stack calm same-key flockers onto their leader (or scatter a band
-	// whose member just engaged/was hit). Runs after movement so it has the final
-	// positions to snap/fan.
-	gl.updateMonsterBands()
-	// Guard pairs use the same stack/fan presentation but admit mixed monster
-	// keys and cap at two. Reconcile after movement so sight aggro scatters the
-	// pair before the combat pass and calm followers rejoin their leader.
-	gl.reconcileLootPropGuardBands()
-
-	// Alarm bells: an engaged rally monster wakes its neighbours (serial pass -
-	// the parallel update must not mutate other monsters).
-	gl.game.rallyAggroedAlarms()
-	// Transit stacks are cosmetic only: they reuse the band fan without changing
-	// band membership or physical positions.
-	gl.updateCombatTransitVisualStacks()
-
-	// Update monster hit tint timers
-	gl.game.UpdateMonsterHitTintTimers()
-
-	// Handle combat interactions (only in real-time mode)
-	if !gl.game.turnBasedMode {
-		gl.game.combat.HandleMonsterInteractions()
-	}
-
-	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
-	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
-	// TickPoisonTurn can zero a monster's HP with no CombatSystem in scope to run
-	// finishMonsterKill itself. Anything left in world.Monsters with IsAlive()
-	// false and not already queued in deadMonsterIDs died this way - finish it
-	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
-	// (steam zones and traps already self-finish via finishIndirectKill).
-	gl.finalizeIndirectKills()
-
-	// Update projectiles - skip if no active projectiles to save CPU
-	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
-	}
-
-	// Update slash effects - skip if none active
-	if len(gl.game.slashEffects) > 0 {
-		gl.updateSlashEffects()
-	}
-
-	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
-	// arrows outlive the burst, so they must keep the updater alive too.
-	if len(gl.game.spellHitEffects) > 0 {
-		gl.game.UpdateHitEffects()
-	}
+	gl.updateProjectilesAndImpacts()
 
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {
@@ -275,13 +235,27 @@ func (gl *GameLoop) updateExploration() {
 	gl.updatePerformanceMetrics()
 }
 
-// gameplayPausedByOverlay is the single pause contract for in-game overlays.
-// The fullscreen character hub pauses exactly like the ESC menu: input still
-// runs so it can close or dispatch a world action, but no world clock advances.
+// gameplayPausedByOverlay is the single pause contract for in-game overlays:
+// input still runs so a layer can close or dispatch a world action, but no world
+// clock advances. The answer comes from the modal ladder (modalLayerID.pausesWorld),
+// so a layer cannot be drawn without deciding whether it stops the world - the
+// hand-kept flag list this replaced was missing victory, high scores, game over,
+// the map and the three full-screen panels.
+//
+// The character hub is named separately: it draws under its own screen and is
+// deliberately not part of the modal ladder.
 func (g *MMGame) gameplayPausedByOverlay() bool {
-	return g.menuOpen || g.mainMenuOpen || g.combatLogOpen || g.statPopupOpen ||
-		g.revivalPickerOpen || g.healPickerOpen || g.townPortalPickerOpen ||
-		g.currentLevelUpChoice() != nil
+	if g == nil {
+		return false
+	}
+	if g.menuOpen {
+		return true
+	}
+	stackSplitOpen := false
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		stackSplitOpen = g.gameLoop.ui.stackSplitPicker.open
+	}
+	return topModalLayerFor(g, stackSplitOpen).pausesWorld()
 }
 
 // faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
@@ -336,7 +310,15 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	defer func() {
 		gl.lastDrawDuration = time.Since(drawStart)
 	}()
+	defer func() {
+		if gl.renderer != nil {
+			gl.renderer.drawMapRenderPrewarmUploads(screen)
+		}
+	}()
 	gl.game.threading.PerformanceMonitor.RecordPresentedFrame()
+	if gl.renderer != nil {
+		gl.renderer.drawMapRenderShaderWarm(screen)
+	}
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
@@ -345,20 +327,64 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	switch gl.game.appScreen {
 	case AppScreenMainMenu:
 		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
+		gl.ui.beginDisplayedInput()
 		gl.ui.drawEntryMenuScreen(screen)
+		gl.ui.endDisplayedInput()
 		return
 	case AppScreenPartyCreate:
 		gl.ui.renderedModalSnapshot = modalLayerSnapshot{}
+		gl.ui.beginDisplayedInput()
 		gl.ui.drawPartyCreateScreen(screen)
+		gl.ui.endDisplayedInput()
 		return
 	}
 
+	if gl.ensureResourceLoading() {
+		gl.drawResourceLoadingFrame(screen)
+		return
+	}
+	gl.drawExplorationFrame(screen)
+}
+
+func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
 	// the scene goes through a horizontal motion-blur shader (camera blur - the
 	// view pans sideways) whose length tracks the turn speed; otherwise it's a
 	// straight blit. Either way the UI is drawn last, directly to the screen, so it
 	// never blurs.
 	g := gl.game
+	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
+	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
+	// observes the display angle. In real time viewAngleRender == camera.Angle, so
+	// this is a no-op.
+	if g.camera != nil {
+		defer g.beginViewAngleSwap()()
+	}
+
+	// Screen shake: nudge the camera sideways (perpendicular to the view) for
+	// this frame only - the whole raycast scene shifts coherently, and the
+	// camera is restored before any game logic can observe it.
+	if g.screenShake > 0 && g.camera != nil {
+		ox := -math.Sin(g.camera.Angle) * g.screenShake
+		oy := math.Cos(g.camera.Angle) * g.screenShake
+		if g.frameCount%2 == 0 {
+			ox, oy = -ox, -oy
+		}
+		g.camera.X += ox
+		g.camera.Y += oy
+		// Record the displacement so render-time geometry that must IGNORE the
+		// cosmetic shake (the TB front-diagonal pull - see pulledFrontSlot) can
+		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
+		// pull's LOS near walls and the pulled monster blinks when struck.
+		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
+		// Same only-undo-our-own-write rule as the angle swap above.
+		defer func(shakenX, shakenY, x, y float64) {
+			if g.camera.X == shakenX && g.camera.Y == shakenY {
+				g.camera.X, g.camera.Y = x, y
+			}
+			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
+		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
+	}
 	screenBounds := screen.Bounds()
 	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
 	if blurPx >= 0.75 {
@@ -631,41 +657,12 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
-	// Renderer-owned ambient motes still advance in Update, never Draw: their
-	// lifecycle and RNG therefore follow simulation ticks even on dropped frames.
-	if gl.renderer != nil {
-		gl.renderer.updateNightMotes()
-	}
+	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub
 	// has a separate debounce above so overlays cannot drain combat timing.
 	if gl.game.spellInputCooldown > 0 {
 		gl.game.spellInputCooldown--
-	}
-
-	// Screen shake decays exponentially toward rest.
-	if gl.game.screenShake > 0 {
-		gl.game.screenShake *= 0.88
-		if gl.game.screenShake < 0.05 {
-			gl.game.screenShake = 0
-		}
-	}
-
-	// Buff-cast overlay animations age out.
-	gl.game.tickBuffFx()
-
-	// Impact light flashes burn down and expire.
-	if len(gl.game.impactLights) > 0 {
-		gl.game.hitEffectsMu.Lock()
-		dst := gl.game.impactLights[:0]
-		for _, il := range gl.game.impactLights {
-			il.Life--
-			if il.Life > 0 {
-				dst = append(dst, il)
-			}
-		}
-		gl.game.impactLights = dst
-		gl.game.hitEffectsMu.Unlock()
 	}
 
 	// Tick down each party member's real-time action cooldown. Off in
@@ -694,7 +691,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	gl.game.tickCombatBuffs()
 	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
-	gl.updateSteamZonesRT()
+	gl.updatePersistentDamageZonesRT()
 	// Stone Blossom mortars in flight (detonate on landing; flies in RT and TB).
 	gl.game.tickPendingMortars()
 	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.
@@ -703,7 +700,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
-		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 		gl.game.world.SetFlyActive(gl.game.flyActive)
 	}
@@ -819,6 +816,23 @@ func (g *MMGame) timedBuffByID(id spells.SpellID) (timedBuff, bool) {
 	return timedBuff{}, false
 }
 
+// isTimedBuffActive reports whether a registry buff currently runs, whatever
+// its remaining span. Paid services refuse while it does.
+func (g *MMGame) isTimedBuffActive(id spells.SpellID) bool {
+	buff, ok := g.timedBuffByID(id)
+	return ok && *buff.active
+}
+
+// serviceBuffAlreadyCovered is the paid-service refusal predicate: the chant
+// already runs, or a permanent passive grants the same effect (the walk-on-
+// water card) - either way the coin would buy nothing.
+func (g *MMGame) serviceBuffAlreadyCovered(id spells.SpellID) bool {
+	if g.isTimedBuffActive(id) {
+		return true
+	}
+	return id == "walk_on_water" && g.hasCardWalkOnWater()
+}
+
 // activateTimedBuffFrames is the single activation path for flag-based timed
 // buffs. Exact refresh is used by spells; preserveLonger is used by paid
 // services so buying a shorter span never cuts an existing longer one.
@@ -920,17 +934,12 @@ func (gl *GameLoop) returnFromUnderwater() {
 		returnMapKey = "main" // Fallback to main map
 	}
 
-	// Use input handler's common map switching logic
-	if gl.inputHandler != nil {
-		gl.inputHandler.switchToMap(returnMapKey)
-	} else {
-		fmt.Printf("Error: Input handler not available for map switching\n")
+	if err := gl.game.transitionToMap(mapTransition{mapKey: returnMapKey, pose: MapPose{
+		X: gl.game.underwaterReturnX, Y: gl.game.underwaterReturnY, Angle: gl.game.camera.Angle,
+	}}); err != nil {
+		gl.game.AddCombatMessage("Cannot return to the surface: " + err.Error())
 		return
 	}
-
-	// Single arrival path: position + autosave. finishMapArrival clamps the
-	// stored return position to walkable ground.
-	gl.inputHandler.finishMapArrival(gl.game.underwaterReturnX, gl.game.underwaterReturnY, gl.game.camera.Angle)
 
 	fmt.Println("Water Breathing expired! Returned to surface.")
 }
@@ -956,4 +965,24 @@ func (gl *GameLoop) countRemainingEncounterMonsters(monsters []*monster.Monster3
 		}
 	}
 	return count
+}
+
+// updateProjectilesAndImpacts preserves the shared ordering: projectiles resolve
+// their gameplay hits first, then the resulting slash/impact visuals advance.
+func (gl *GameLoop) updateProjectilesAndImpacts() {
+	// Update projectiles - skip if no active projectiles to save CPU
+	if gl.hasActiveProjectiles() {
+		gl.updateProjectilesParallel()
+	}
+
+	// Update slash effects - skip if none active
+	if len(gl.game.slashEffects) > 0 {
+		gl.updateSlashEffects()
+	}
+
+	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
+	// arrows outlive the burst, so they must keep the updater alive too.
+	if len(gl.game.spellHitEffects) > 0 {
+		gl.game.UpdateHitEffects()
+	}
 }

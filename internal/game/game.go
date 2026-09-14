@@ -172,6 +172,8 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	menuState
+	dialogState
 	world     *world.World3D
 	camera    *FirstPersonCamera
 	party     *character.Party
@@ -193,7 +195,18 @@ type MMGame struct {
 	// focusedPartyMask is a transient RT-only actor filter. Bit i belongs to
 	// party slot i; zero means normal full-party cycling.
 	focusedPartyMask uint8
-	frameCount       int64
+	// frameCount is the WORLD clock: it advances only on frames the world itself
+	// advanced, so everything the world's picture is drawn from (sprite cadence,
+	// standee yaw, torch and firefly flicker, the screen-shake phase) freezes with
+	// it. A paused overlay must present a STILL frame; while this counter kept
+	// running under one, the shake alternated the camera every frame and the scene
+	// shivered in place. Also keeps frame-stamped windows (attack posts, loot-guard
+	// patrols, TB move animations) from expiring while a menu is open.
+	frameCount int64
+	// uiFrameCount is the INTERFACE clock: it advances every frame, paused or not.
+	// Party-card feedback (flame, poison, ignite, stun stars, the badge aura) is
+	// presentation, not world state, and must keep breathing under an open hub.
+	uiFrameCount int64
 	// entombedMsgFrame throttles the "can't fight inside stone" explanation
 	// (see partyEntombed) so held attack keys don't spam the log.
 	entombedMsgFrame int64
@@ -256,11 +269,6 @@ type MMGame struct {
 	lastQuickClickedCh int
 	lastQuickClickedSl int
 
-	// Double-click support for dialogs (neutral)
-	dialogLastClickTime  int64  // Time of last dialog list click in milliseconds
-	dialogLastClickedIdx int    // Index of last clicked dialog list entry
-	dialogLastClickZone  string // Which dialog list was clicked (buy/sell/spell/...) - a double-click never spans lists
-
 	// Double-click support for utility spell icons (dispelling)
 	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
 	lastClickedUtilitySpell   string // Icon of last clicked utility spell
@@ -271,10 +279,9 @@ type MMGame struct {
 	skyPanorama       *ebiten.Image
 	currentSkyTexture string
 	skyShader         *ebiten.Shader // lazily compiled, reused across frames
-	// skyPanoramaCache holds every decoded sky backdrop for the session: a
-	// day/night flip or map switch swaps pointers instead of paying a mid-frame
-	// PNG decode (a night panorama costs ~20ms = dropped frames at the flip).
-	// Filled by prewarmSkyPanoramas at boot; misses still decode-and-fill.
+	// skyPanoramaCache holds backdrops owned by the current render-resident map
+	// regions. Both phases are prepared together, so a day/night flip is a
+	// pointer swap while unrelated visited skies can be released.
 	skyPanoramaCache map[string]*ebiten.Image
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
@@ -305,15 +312,16 @@ type MMGame struct {
 	collapsedSpellSchools map[character.MagicSchoolID]bool
 
 	// Utility spell status icons (data-driven)
-	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
-	slashEffects         []SlashEffect
-	spellHitEffects      []SpellHitEffect
-	buffFxAnims          []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
-	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
-	screenShake          float64       // camera shake amplitude in world units, decays each tick
-	screenShakeOffsetX   float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
-	screenShakeOffsetY   float64
-	hitEffectsMu         sync.Mutex
+	utilitySpellStatuses   map[spells.SpellID]*UtilitySpellStatus
+	slashEffects           []SlashEffect
+	spellHitEffects        []SpellHitEffect
+	elementalAttackEffects []elementalAttackEffect
+	buffFxAnims            []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
+	impactLights           []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
+	screenShake            float64       // camera shake amplitude in world units, decays each tick
+	screenShakeOffsetX     float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
+	screenShakeOffsetY     float64
+	hitEffectsMu           sync.Mutex
 
 	// Smooth turn-based rotation: logic snaps camera.Angle 90deg instantly (no
 	// gameplay change), but the RENDER uses viewAngleRender, which eases toward it
@@ -371,12 +379,15 @@ type MMGame struct {
 	// Skin, Heroism, ...) - see combat_buffs.go. Their ResistPct/OutBonus/InReduce
 	// sum across all active entries.
 	combatBuffs []TimedCombatBuff
+	// celestialBuffSpellID identifies the race-granted buff so the next real
+	// dawn/dusk boundary removes exactly the previous Providence result.
+	celestialBuffSpellID string
 
 	// Persistent damage zones (Hot Steam) - see combat_zones.go.
-	steamZones           []SteamZone
-	nextSteamZoneFieldID uint64
-	traps                []PlacedTrap // armed thief traps (map-scoped, persisted)
-	selectedTrap         int          // trap-book browse index (selection != equipped quick trap)
+	persistentDamageZones           []PersistentDamageZone
+	nextPersistentDamageZoneFieldID uint64
+	traps                           []PlacedTrap // armed thief traps (map-scoped, persisted)
+	selectedTrap                    int          // trap-book browse index (selection != equipped quick trap)
 
 	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
@@ -431,32 +442,10 @@ type MMGame struct {
 	statBonuses character.StatBonuses
 
 	// Dialog system
-	dialogActive        bool           // Whether a dialog is currently open
-	dialogNPC           *character.NPC // Current NPC being talked to
-	focusedNPC          *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
-	dialogSelectedSpell int            // Currently selected spell in dialog
-	selectedCharIdx     int            // Selected character index for spell learning
+	focusedNPC *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
 	// modalContentRev marks modal-content mutations invisible to the snapshot's
 	// derived fields (see bumpModalContentRev); part of the redraw barrier.
-	modalContentRev   uint64
-	skillTrainerPopup bool   // Skill trainer: per-character mastery popup open
-	skillTrainerPage  int    // Skill trainer: mastery-list page (0-based); shared by renderer and input
-	selectedSpellKey  string // Selected spell key for learning
-	selectedChoice    int    // Selected choice in encounter dialogs
-	// dialogNodePath is the chain of "info" choices the player has descended into
-	// this conversation (empty = root). It drives the body text and choice list so
-	// "ask about X" branches into a real reply instead of closing. Reset on open.
-	dialogNodePath []*character.NPCDialogueChoice
-	dialogTab      int // Active section in any tabbed NPC dialog.
-	// pendingBuffService is a service row clicked during the draw pass; the
-	// input handler resolves it next tick so a cast cannot mutate dialog state
-	// mid-render.
-	pendingBuffService   *character.NPCDialogueChoice
-	pendingTavernAction  *character.NPCDialogueChoice // Tavern service clicked during Draw; resolved on the next Update.
-	merchantBuyPage      int                          // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage     int                          // Merchant sell-grid page (0-based)
-	spellTraderPage      int                          // Spell-trader icon-grid page (0-based); shared by renderer and input
-	cardCollectorInvPage int                          // Card-collector loose-card grid page (0-based); shared by renderer and input
+	modalContentRev uint64
 	// cardSlots is the party-wide monster-card collection (MaxCardSlots).
 	// Cards held here grant passive effects; only the card collector mutates it,
 	// through setCardCollectionSlot/clearCardCollectionSlot, which keep key and
@@ -472,6 +461,19 @@ type MMGame struct {
 	selectedSpell           int
 	spellInputCooldown      int // gameplay input stagger; pauses with the world
 	tabbedMenuInputCooldown int // hub-only navigation debounce; advances while the hub is open
+
+	// Screen banners: the queue of headings waiting their turn at the top of the
+	// screen (screen_banner.go is the only place that draws one), plus the
+	// producers' state - the per-quest snapshot the quest watcher diffs against
+	// and the focus identity the approach prompt fires on the edge of.
+	screenBannerQueue      []screenBanner
+	questBannerSeen        map[string]questBannerSnapshot
+	questBannerGen         uint64
+	bannerPromptNPC        *character.NPC
+	bannerPromptLostFrames int
+	// Legendary names collected since the last tick. One event can drop several
+	// containers, and they announce together as one heading.
+	pendingLegendaryDrops []string
 
 	// Combat log: one ordered list of (text, color) entries. The HUD shows the
 	// last maxMessages of them; the scrollable overlay shows up to
@@ -625,39 +627,20 @@ type MMGame struct {
 	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
 	// the same party/monster turn instead of granting a fresh party round.
 	turnBasedTurnSuspended bool
-	currentTurn            int  // 0 = party turn, 1 = monster turn
-	partyActionsUsed       int  // Actions used this turn (0-2)
-	turnBasedMoveCooldown  int  // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown   int  // Rotation cooldown in frames (18 FPS = 0.3 second)
-	monsterTurnResolved    bool // Whether monster turn already processed this round
-	turnBasedSpRegenCount  int  // Counter for turn-based SP regeneration (every 5 turns)
-	// turnBasedExtraMonsterAction grants the next monster turn one extra action
-	// pass when the party attacks/casts first and then retreats in the same TB
-	// round. This closes infinite shoot-and-step-back kiting without forbidding
-	// tactical retreats outright.
-	turnBasedExtraMonsterAction bool
-	turnBasedMonsterPassesLeft  int
-	turnBasedMonsterPassDelay   int
-	turnBasedMonsterStatusTick  bool
-	turnBasedMonsterStunned     map[*monster.Monster3D]bool
+	currentTurn            int // 0 = party turn, 1 = monster turn
+	partyActionsUsed       int // Actions used this turn (0-2)
+	turnBasedMoveCooldown  int // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown   int // Rotation cooldown in frames (18 FPS = 0.3 second)
+	monsterTurnState
+	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every 5 turns)
 
-	// cardSummonCDFrames silences the card-collection summon PROC after it
-	// fires (card_summon_cd_seconds); it never gates the character's actions.
-	cardSummonCDFrames int
+	// cardSummonCooldowns independently silence each physical summon card after
+	// it fires. Keys are the stable per-card owner strings derived from the
+	// collection item's InstanceID; the timers never gate character actions.
+	cardSummonCooldowns map[string]int
 
-	// Main menu (ESC)
-	mainMenuOpen           bool
-	mainMenuSelection      int
-	mainMenuMode           MainMenuMode
-	audioSettingsSelection int
-	audioSliderDrag        int
-	audioSettingsDirty     bool
-	slotSelection          int // row within the current save page (0..saveRowsPerPage-1)
-	savePage               int // current save/load menu page (0..savePageCount-1)
-	saveRenameOpen         bool
-	saveRenameSlot         int
-	saveRenameInput        string
-	exitRequested          bool
+	// Application exit request
+	exitRequested bool
 
 	// Game over state
 	gameOver bool
@@ -804,6 +787,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	threadingComponents := threading.NewThreadingComponents(cfg)
 
 	game := &MMGame{
+		menuState:        newMenuState(),
+		dialogState:      newDialogState(),
 		world:            currentWorld,
 		camera:           camera,
 		party:            party,
@@ -834,19 +819,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		lastSchoolClickTime:  0,
 		lastSchoolClickedIdx: -1,
 
-		// Double-click support for dialogs (neutral)
-		dialogLastClickTime:  0,
-		dialogLastClickedIdx: -1,
-
 		selectedSchool:        0,
 		selectedSpell:         0,
 		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
 		combatLogHistory:      make([]combatLogEntry, 0),
 		maxMessages:           4, // Show last 4 messages
-
-		// Dialog system initialization
-		dialogSelectedSpell: 0,
 
 		// Threading components
 		threading: threadingComponents,
@@ -866,9 +844,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		// Session timer for score calculation
 		sessionStartTime: time.Now(),
 		soundManager:     sound.Global(),
-
-		saveRenameSlot:  -1,
-		audioSliderDrag: -1,
 	}
 
 	// Initialize rendering helper
@@ -889,13 +864,36 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Connect global quest manager
 	game.questManager = quests.GlobalQuestManager
-	if err := validateQuestWorldReferences(game.questManager); err != nil {
+	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
+	// Adopt the journal as it stands (the endgame gates start active) so boot
+	// itself raises no quest banners.
+	game.resyncQuestBannerBaseline()
 
 	// A paid cast_buff service must name a real party buff; the registry only
 	// exists once the game does, so this check lives here.
 	if err := game.validateNPCCastBuffs(); err != nil {
+		panic(err)
+	}
+	// Spell rows only sell if the kind dispatch resolves to the trader dialog.
+	if err := game.validateSpellShopsAreReachable(); err != nil {
+		panic(err)
+	}
+	// The same hazard for ordinary rows: a fixed-layout dialog draws none.
+	if err := game.validateDialogueRowsAreDrawable(); err != nil {
+		panic(err)
+	}
+	// And an action name nothing dispatches draws a row that does nothing.
+	if err := game.validateDialogueActionsAreDispatched(); err != nil {
+		panic(err)
+	}
+	// Every interact quest must be finishable: its tag credited by something, and
+	// enough of those props actually standing. Runs HERE, with its siblings, so
+	// every boot path is covered - the headless sim, the map viewer and the test
+	// fixtures all build a game, and only the shipped binary called it before.
+	// It stands down on a world with no props (a blank fixture) and warns instead.
+	if err := ValidateInteractTagProducers(quests.GlobalQuestManager); err != nil {
 		panic(err)
 	}
 
@@ -1285,7 +1283,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 			return x, y
 		}
 		if tile == world.TileWater || tile == world.TileDeepWater {
-			if g.walkOnWaterActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+			if g.walkOnWaterEffective() || g.waterBreathingActive {
 				return x, y
 			}
 		}
@@ -1408,48 +1406,63 @@ func (g *MMGame) updateSkyPanorama(textureName string) {
 	if textureName == "" {
 		return
 	}
+	g.skyPanorama = g.ensureSkyPanoramaCached(textureName)
+}
+
+func (g *MMGame) ensureSkyPanoramaCached(textureName string) *ebiten.Image {
+	if textureName == "" {
+		return nil
+	}
 	if img, ok := g.skyPanoramaCache[textureName]; ok {
-		g.skyPanorama = img
-		return
+		return img
+	}
+	// Runtime sky publication belongs to the region prewarmer. Keep the
+	// procedural sky until the loading gate installs the prepared panorama.
+	if g.gameLoop != nil && g.gameLoop.loading != nil && g.appScreen == AppScreenInGame {
+		return nil
 	}
 	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
 	if err != nil {
 		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
-		return
+		return nil
 	}
 	if g.skyPanoramaCache == nil {
 		g.skyPanoramaCache = make(map[string]*ebiten.Image)
 	}
 	g.skyPanoramaCache[textureName] = img
-	g.skyPanorama = img
+	return img
 }
 
-// prewarmSkyPanoramas decodes every shipped sky backdrop once at game start.
-// The whole set stays resident for the session - skies are the one art family
-// small in count yet paid for at the worst moment (mid-frame on a phase flip).
+func skyTextureNamesForMap(mapKey string) []string {
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return nil
+	}
+	mc := wm.MapConfigs[mapKey]
+	if mc == nil || mc.SkyTexture == "" {
+		return nil
+	}
+	names := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	for _, night := range []bool{false, true} {
+		name := mc.SkyTexture
+		if variant := skyVariantName(mc.SkyTexture, night); skyTextureExists(variant) {
+			name = variant
+		}
+		if _, exists := seen[name]; exists || !skyTextureExists(name) {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
+// prewarmSkyPanoramas prepares only the initial map's phase pair. Visible
+// neighbour prewarm uses the same helper and residency manifest later.
 func (g *MMGame) prewarmSkyPanoramas() {
-	entries, err := os.ReadDir("assets/sprites/sky")
-	if err != nil {
-		return
-	}
-	if g.skyPanoramaCache == nil {
-		g.skyPanoramaCache = make(map[string]*ebiten.Image)
-	}
-	for _, entry := range entries {
-		fileName := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(fileName, ".png") {
-			continue
-		}
-		name := strings.TrimSuffix(fileName, ".png")
-		if _, ok := g.skyPanoramaCache[name]; ok {
-			continue
-		}
-		img, err := loadPNGAsEbiten(filepath.Join("assets/sprites/sky", fileName))
-		if err != nil {
-			fmt.Printf("[Sky] failed to prewarm %q: %v\n", fileName, err)
-			continue
-		}
-		g.skyPanoramaCache[name] = img
+	for _, name := range skyTextureNamesForMap(currentMapKey()) {
+		g.ensureSkyPanoramaCached(name)
 	}
 }
 
@@ -1608,8 +1621,8 @@ func (g *MMGame) snapFacing(angle float64) {
 
 // beginViewAngleSwap points the camera at the eased display angle for a draw
 // pass and returns the restore for the logical angle. The restore only undoes
-// OUR swap: a Draw-time handler (the entry menu loads saves from its draw pass)
-// may re-aim the camera mid-Draw, and that write must survive the frame.
+// OUR swap: a Draw-time UI handler may re-aim the camera mid-Draw, and that
+// write must survive the frame.
 func (g *MMGame) beginViewAngleSwap() (restore func()) {
 	logicalAngle := g.camera.Angle
 	displayAngle := g.viewAngleRender
@@ -1642,38 +1655,8 @@ func (g *MMGame) advanceViewTurn() {
 }
 
 func (g *MMGame) Draw(screen *ebiten.Image) {
-	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
-	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
-	// observes the display angle. In real time viewAngleRender == camera.Angle, so
-	// this is a no-op.
-	if g.camera != nil {
-		defer g.beginViewAngleSwap()()
-	}
-
-	// Screen shake: nudge the camera sideways (perpendicular to the view) for
-	// this frame only - the whole raycast scene shifts coherently, and the
-	// camera is restored before any game logic can observe it.
-	if g.screenShake > 0 && g.camera != nil {
-		ox := -math.Sin(g.camera.Angle) * g.screenShake
-		oy := math.Cos(g.camera.Angle) * g.screenShake
-		if g.frameCount%2 == 0 {
-			ox, oy = -ox, -oy
-		}
-		g.camera.X += ox
-		g.camera.Y += oy
-		// Record the displacement so render-time geometry that must IGNORE the
-		// cosmetic shake (the TB front-diagonal pull - see pulledFrontSlot) can
-		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
-		// pull's LOS near walls and the pulled monster blinks when struck.
-		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
-		// Same only-undo-our-own-write rule as the angle swap above.
-		defer func(shakenX, shakenY, x, y float64) {
-			if g.camera.X == shakenX && g.camera.Y == shakenY {
-				g.camera.X, g.camera.Y = x, y
-			}
-			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
-		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
-	}
+	// Loading readiness must see the same logical camera as Update. Cosmetic
+	// camera changes are scoped to the actual scene/UI draw, after that gate.
 	g.gameLoop.Draw(screen)
 }
 
@@ -1736,6 +1719,9 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
+	if g.gameLoop != nil {
+		g.gameLoop.closeResourceLoading()
+	}
 	if g.threading != nil {
 		g.threading.Shutdown()
 	}
@@ -1753,9 +1739,16 @@ func (g *MMGame) checkGameOver() {
 			break
 		}
 	}
-	if allDown {
-		g.gameOver = true
+	if !allDown {
+		return
 	}
+	g.gameOver = true
+	// A wipe ends the conversation with it. The modal ladder ranks a dialog ABOVE
+	// Game Over (a shop is drawn later than the death screen), so leaving one open
+	// would keep the top layer non-pausing: monsters walking, the clock ticking and
+	// autosaves firing behind a Game Over the player cannot dismiss, with the shop
+	// still taking keys. Nobody trades while the party lies dead.
+	g.closeConversation()
 }
 
 // checkVictory enters the victory state when the data-authored victory quest
@@ -1782,10 +1775,7 @@ func (g *MMGame) enterPostVictoryFreeMode() {
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
 	g.turnBasedExtraMonsterAction = false
-	g.turnBasedMonsterPassesLeft = 0
-	g.turnBasedMonsterPassDelay = 0
-	g.turnBasedMonsterStatusTick = false
-	g.turnBasedMonsterStunned = nil
+	g.monsterTurnState.resetPasses()
 	g.clearTransientCombatState()
 }
 
@@ -1939,15 +1929,31 @@ const (
 	cardFxCount
 )
 
+// framesForSeconds converts an AUTHORED duration to simulation frames at the
+// live tick rate. THE conversion for anything timed: a raw frame count is a
+// duration only at one rate, and the shipped rate is config.DefaultTPS (120), so
+// a constant written "at 60fps" elapses in half its documented time.
+func (g *MMGame) framesForSeconds(seconds float64) int {
+	tps := config.DefaultTPS
+	if g != nil && g.config != nil {
+		tps = g.config.GetTPS()
+	}
+	frames := int(seconds*float64(tps) + 0.5)
+	if frames < 1 && seconds > 0 {
+		return 1 // never round a real duration down to "no frames at all"
+	}
+	return frames
+}
+
 // HitSparkFrames is how long the hit feedback (whole-card red flash + spark
 // burst) plays on a party card after the member takes a hit.
-const HitSparkFrames = 18
+const HitSparkFrames = 18 // ~0.15s at 120 TPS
 
 // PartyFlameFrames is how long the Inferno flame overlay burns on a card.
-const PartyFlameFrames = 45
+const PartyFlameFrames = 45 // ~0.38s at 120 TPS
 
 // HealEffectFrames is how long the rising green "+" overlay plays on a card.
-const HealEffectFrames = 48
+const HealEffectFrames = 48 // ~0.40s at 120 TPS
 
 // triggerCardFx lights one card overlay on one member for `frames` frames.
 func (g *MMGame) triggerCardFx(fx cardFx, characterIndex, frames int) {
@@ -1986,17 +1992,6 @@ func (g *MMGame) TriggerPartyFlame(characterIndex int) {
 // TriggerPartyHeal lights the rising green "+" overlay on a healed member's card.
 func (g *MMGame) TriggerPartyHeal(characterIndex int) {
 	g.triggerCardFx(fxHeal, characterIndex, HealEffectFrames)
-}
-
-// UpdateDamageBlinkTimers decrements every card-overlay timer each frame.
-func (g *MMGame) UpdateDamageBlinkTimers() {
-	for fx := range g.cardFxTimers {
-		for i := range g.cardFxTimers[fx] {
-			if g.cardFxTimers[fx][i] > 0 {
-				g.cardFxTimers[fx][i]--
-			}
-		}
-	}
 }
 
 // UpdateMonsterHitTintTimers decrements hit tint timers for monsters each frame
@@ -2540,7 +2535,7 @@ func (g *MMGame) updatePartyClocks() {
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	bonusActions := 0
 	for _, m := range g.party.Members {
-		if m != nil && m.CanUseCombatAction() {
+		if m != nil && m.TBRoundActionFloor > 0 && m.CanUseCombatAction() {
 			if tier := m.SpeedBonusActionTier(); tier > bonusActions {
 				bonusActions = tier
 			}
@@ -2556,7 +2551,7 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 			// Eligible until they exceed their PERSONAL floor: a dual-wielder
 			// or Suppressor gunner keeps their floor AND can earn Speed
 			// bonuses on top (each member gets at most one per round).
-			if m == nil || !m.CanAct() || m.IsStunned() || m.ActionsRemaining > m.TBRoundActionFloor {
+			if m == nil || m.TBRoundActionFloor <= 0 || !m.CanUseCombatAction() || m.ActionsRemaining > m.TBRoundActionFloor {
 				continue
 			}
 			speed := m.GetEffectiveSpeed()
@@ -2818,10 +2813,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.partyActionsUsed = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
-		g.turnBasedMonsterPassesLeft = 0
-		g.turnBasedMonsterPassDelay = 0
-		g.turnBasedMonsterStatusTick = false
-		g.turnBasedMonsterStunned = nil
+		g.monsterTurnState.resetPasses()
 		g.startPartyTurn()
 	}
 	g.turnBasedTurnSuspended = false
@@ -2917,158 +2909,17 @@ func (g *MMGame) snapMonstersToTileCenters() {
 	}
 }
 
-// Wrapper types for threading system integration
-
-// MonsterWrapper implements entities.MonsterUpdateInterface
-type MonsterWrapper struct {
-	Monster         *monster.Monster3D
-	collisionSystem *collision.CollisionSystem   // LIVE system - touched only by ApplyCollisionUpdate (Phase 2, serial)
-	snapshot        *collision.CollisionSnapshot // frozen view for THIS tick - the only thing Update (Phase 1, parallel) may query
-	game            *MMGame                      // Added to access camera position for tethering system
-
-	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
-}
-
-// Update is the canonical RT monster tick: AI movement + the desired collision
-// marker - COMPUTED ONLY here, against the frozen
-// snapshot; nothing shared is written. Code that steps monsters manually
-// (including tests) must call this AND ApplyCollisionUpdate, not the bare
-// Monster3D.Update - that alone leaves the collision type stale.
-//
-// debugMonsterFilter caches the DEBUG_MONSTER env filter once at startup: the
-// parallel monster update must not pay an env lookup + alloc per monster per tick.
-var debugMonsterFilter = strings.ToLower(strings.TrimSpace(os.Getenv("DEBUG_MONSTER")))
-
-// Runs in a worker goroutine (see entities.EntityUpdater.UpdateMonstersParallel):
-// every read here must come from mw.Monster's own fields or mw.snapshot (frozen
-// before the parallel phase started), never mw.collisionSystem - the live
-// system is being written by every OTHER monster's own worker at the same time.
-func (mw *MonsterWrapper) Update() {
-	oldX, oldY := mw.Monster.X, mw.Monster.Y
-
-	// Get player position from camera for tethering system
-	playerX := mw.game.camera.X
-	playerY := mw.game.camera.Y
-
-	// AI pursuit/engagement target: normally the party, but charmed monsters are
-	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
-	// so they never chase the party. Precomputed single-threaded each frame in
-	// refreshMonsterAIState to keep this parallel update race-free.
-	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
-	if mw.Monster.LootGuarding {
-		// The guard override moves to its precomputed prop tile internally, but
-		// player detection must still inspect the actual party position.
-		targetX, targetY = playerX, playerY
-	}
-
-	// Party sight and the movement target are deliberately separate: a redirect
-	// to a summon (or an evasive boss holding at self) must never make the AI
-	// interpret that target as the party's location. Reads the frozen snapshot
-	// only - never the live, concurrently-mutating system.
-	mw.Monster.UpdateWithTarget(mw.snapshot, playerX, playerY, targetX, targetY)
-
-	newX, newY := mw.Monster.X, mw.Monster.Y
-
-	// Sync this monster's own logical post state, then compute (don't apply) its
-	// collision marker. Both touch only frame-local data on this monster, so are
-	// safe in the parallel worker. ApplyCollisionUpdate writes them serially.
-	mw.game.syncMonsterAttackPost(mw.Monster)
-	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster)
-
-	// Temporary movement debug (opt-in via env var).
-	// Example: DEBUG_MONSTER=bandit
-	if debugMonsterFilter != "" {
-		name := strings.ToLower(mw.Monster.Name)
-		if strings.Contains(name, debugMonsterFilter) {
-			// Throttle logs to avoid spamming.
-			if mw.Monster.StateTimer%60 == 0 {
-				withinTether := mw.Monster.IsWithinTetherRadius()
-				fmt.Printf(
-					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
-					mw.Monster.Name,
-					mw.Monster.ID,
-					mw.Monster.State,
-					mw.Monster.StateTimer,
-					mw.Monster.IsEngagingPlayer,
-					withinTether,
-					newX,
-					newY,
-					oldX,
-					oldY,
-					mw.Monster.SpawnX,
-					mw.Monster.SpawnY,
-					mw.Monster.TetherRadius,
-					playerX,
-					playerY,
-				)
-
-				// If not moving while supposed to wander, probe cardinal target tile centers.
-				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
-					if oldX == newX && oldY == newY {
-						const tileSize = 64.0
-						centerX := TileCenter(newX, tileSize)
-						centerY := TileCenter(newY, tileSize)
-
-						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
-							centerX, centerY,
-							mw.Monster.LastX, mw.Monster.LastY,
-							mw.Monster.StuckCounter,
-							mw.Monster.LastChosenDir,
-						)
-
-						targets := []struct {
-							label string
-							dx    float64
-							dy    float64
-						}{
-							{label: "E", dx: tileSize, dy: 0},
-							{label: "S", dx: 0, dy: tileSize},
-							{label: "W", dx: -tileSize, dy: 0},
-							{label: "N", dx: 0, dy: -tileSize},
-						}
-
-						for _, t := range targets {
-							x := centerX + t.dx
-							y := centerY + t.dy
-							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.Monster.ID, x, y)
-							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
-								t.label,
-								x,
-								y,
-								ok,
-								reason,
-								mw.Monster.CanMoveWithinTether(x, y),
-							)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// The collision-system write for the new position happens in
-	// ApplyCollisionUpdate (Phase 2) - oldX/oldY above were only for the debug
-	// block.
-}
-
-// ApplyCollisionUpdate writes this monster's Update()-computed position and
-// collision type to the LIVE collision system. Phase 2 of the two-phase RT
-// tick (see entities.EntityUpdater.UpdateMonstersParallel): called serially,
-// once every monster's Update() has returned - never from a worker.
-func (mw *MonsterWrapper) ApplyCollisionUpdate() {
-	if mw.collisionSystem == nil || mw.Monster == nil {
-		return
-	}
-	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
-	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
-}
-
 const partyAttackTargetID = "player"
 
 // monsterAttackTarget returns the current combat target for logical-post
 // arbitration. A bound ally without an enemy only follows the party and has no
 // attack target; a normal hostile targets either its closer AIFoe or the party.
 func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
+	frame := g.monsterFrameContext()
+	return monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+}
+
+func monsterAttackTargetAt(m *monster.Monster3D, partyX, partyY float64, hasParty bool) (id string, x, y float64, ok bool) {
 	if m == nil {
 		return "", 0, 0, false
 	}
@@ -3085,10 +2936,10 @@ func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y floa
 	if foe := m.AIFoe; foe != nil {
 		return foe.ID, m.AITargetX, m.AITargetY, true
 	}
-	if behavior == monster.AIBehaviorBoundAlly || !m.TargetsParty() || g == nil || g.camera == nil {
+	if behavior == monster.AIBehaviorBoundAlly || !m.TargetsParty() || !hasParty {
 		return "", 0, 0, false
 	}
-	return partyAttackTargetID, g.camera.X, g.camera.Y, true
+	return partyAttackTargetID, partyX, partyY, true
 }
 
 func (g *MMGame) monsterHasAttackTarget(m *monster.Monster3D) bool {
@@ -3125,28 +2976,8 @@ func clearMonsterAttackPost(m *monster.Monster3D) {
 // This method never reads another monster, so MonsterWrapper may call it from a
 // parallel real-time worker.
 func (g *MMGame) syncMonsterAttackPost(m *monster.Monster3D) {
-	if m == nil {
-		return
-	}
 	targetID, _, _, hasTarget := g.monsterAttackTarget(m)
-	if !hasTarget {
-		clearMonsterAttackPost(m)
-		return
-	}
-	if m.State == monster.StateAttacking {
-		if !m.AttackPost || m.AttackPostTargetID != targetID {
-			m.AttackPost = true
-			m.AttackPostTargetID = targetID
-			if g != nil {
-				m.AttackPostSince = g.frameCount
-			}
-		}
-		m.AttackTransit = false
-		return
-	}
-	if m.State != monster.StateAlert || !m.AttackPost || m.AttackPostTargetID != targetID {
-		clearMonsterAttackPost(m)
-	}
+	monsterAttackPostFor(m, targetID, hasTarget, g.monsterFrameContext().tick).apply(m)
 }
 
 // tryClaimMonsterAttackPost grants m the post at its current tile. Movement
@@ -3211,17 +3042,23 @@ func desiredMonsterCollisionType(m *monster.Monster3D) collision.CollisionType {
 // a monster-update worker; see desiredMonsterCollisionType for the race-free
 // compute half.
 func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
-	if g == nil || g.collisionSystem == nil {
+	if g != nil {
+		applyMonsterCollisionTypeTo(g.collisionSystem, monsterID, desired)
+	}
+}
+
+func applyMonsterCollisionTypeTo(system *collision.CollisionSystem, monsterID string, desired collision.CollisionType) {
+	if system == nil {
 		return
 	}
-	entity := g.collisionSystem.GetEntityByID(monsterID)
+	entity := system.GetEntityByID(monsterID)
 	if entity == nil {
 		return
 	}
 	if entity.CollisionType != desired {
 		// Through the setter, never a direct field write: it maintains the
 		// engaged-post index that reservation queries scan.
-		g.collisionSystem.SetEntityCollisionType(monsterID, desired)
+		system.SetEntityCollisionType(monsterID, desired)
 	}
 	entity.Solid = false
 }
@@ -3236,23 +3073,6 @@ func (g *MMGame) refreshMonsterCollisionState(m *monster.Monster3D) {
 	}
 	g.syncMonsterAttackPost(m)
 	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
-}
-
-func (mw *MonsterWrapper) IsAlive() bool {
-	return mw.Monster.IsAlive()
-}
-
-func (mw *MonsterWrapper) GetPosition() (float64, float64) {
-	return mw.Monster.X, mw.Monster.Y
-}
-
-func (mw *MonsterWrapper) SetPosition(x, y float64) {
-	mw.Monster.X = x
-	mw.Monster.Y = y
-	// Update collision system position
-	if mw.collisionSystem != nil {
-		mw.collisionSystem.UpdateEntity(mw.Monster.ID, x, y)
-	}
 }
 
 // MagicProjectileWrapper implements entities.ProjectileUpdateInterface

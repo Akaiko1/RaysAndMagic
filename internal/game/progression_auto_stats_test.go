@@ -12,6 +12,9 @@ func TestAutoEnduranceTargets(t *testing.T) {
 		want  int
 	}{
 		{character.ClassKnight, 28},
+		{character.ClassBattleMage, 36},
+		{character.ClassMonk, 28},
+		{character.ClassArmsMaster, 26},
 		{character.ClassPaladin, 24},
 		{character.ClassCleric, 22},
 		{character.ClassDruid, 20},
@@ -19,9 +22,38 @@ func TestAutoEnduranceTargets(t *testing.T) {
 		{character.ClassThief, 18},
 		{character.ClassSorcerer, 16},
 	}
+	if len(tests) != len(character.PlayableClasses) {
+		t.Fatalf("endurance table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
+	}
 	for _, tt := range tests {
 		if got := autoEnduranceTarget(tt.class); got != tt.want {
 			t.Errorf("%s endurance target = %d, want %d", tt.class, got, tt.want)
+		}
+	}
+}
+
+func TestAutoSpeedTargets(t *testing.T) {
+	tests := []struct {
+		class character.CharacterClass
+		want  int
+	}{
+		{character.ClassKnight, 16},
+		{character.ClassPaladin, 16},
+		{character.ClassArcher, 16},
+		{character.ClassCleric, 16},
+		{character.ClassSorcerer, 16},
+		{character.ClassDruid, 16},
+		{character.ClassThief, 16},
+		{character.ClassArmsMaster, 16},
+		{character.ClassMonk, 26},
+		{character.ClassBattleMage, 16},
+	}
+	if len(tests) != len(character.PlayableClasses) {
+		t.Fatalf("speed table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
+	}
+	for _, tt := range tests {
+		if got := autoSpeedTarget(tt.class); got != tt.want {
+			t.Errorf("%s speed target = %d, want %d", tt.class, got, tt.want)
 		}
 	}
 }
@@ -42,6 +74,12 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 		{character.ClassSorcerer, "intellect", "", 6, 0},
 		{character.ClassDruid, "intellect", "personality", 4, 2},
 		{character.ClassThief, "accuracy", "intellect", 4, 2},
+		{character.ClassArmsMaster, "might", "", 6, 0},
+		{character.ClassMonk, "might", "personality", 4, 2},
+		{character.ClassBattleMage, "intellect", "might", 4, 2},
+	}
+	if len(tests) != len(character.PlayableClasses) {
+		t.Fatalf("priority table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
 	}
 
 	statValue := func(member *character.MMCharacter, stat string) int {
@@ -63,7 +101,7 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 		t.Run(tt.class.String(), func(t *testing.T) {
 			member := character.CreateCharacter("Auto", tt.class, cfg)
 			member.Might, member.Intellect, member.Personality = 10, 10, 10
-			member.Accuracy, member.Speed = 10, autoStatSpeedTarget
+			member.Accuracy, member.Speed = 10, autoSpeedTarget(tt.class)
 			member.Endurance = autoEnduranceTarget(tt.class) - 2
 			member.FreeStatPoints = 8
 			member.OwedLevelChoices = []int{3}
@@ -77,8 +115,8 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 			if spent != 8 || member.FreeStatPoints != 0 {
 				t.Fatalf("spent/free = %d/%d, want 8/0", spent, member.FreeStatPoints)
 			}
-			if member.Speed != autoStatSpeedTarget {
-				t.Errorf("speed = %d, want %d", member.Speed, autoStatSpeedTarget)
+			if member.Speed != autoSpeedTarget(tt.class) {
+				t.Errorf("speed = %d, want %d", member.Speed, autoSpeedTarget(tt.class))
 			}
 			if member.Endurance != autoEnduranceTarget(tt.class) {
 				t.Errorf("endurance = %d, want %d", member.Endurance, autoEnduranceTarget(tt.class))
@@ -98,6 +136,128 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 				if got := member.Skills[skillType].Mastery; got != mastery {
 					t.Errorf("%s mastery changed from %v to %v", skillType, mastery, got)
 				}
+			}
+		})
+	}
+}
+
+// Monk AUTO covers four distinct class needs: the Fists/TB Speed threshold,
+// unarmored HP, Fists' primary Might term, and Personality-scaled offensive
+// self-magic fired by Spiritual Training. Every row enters through the real
+// allocator at one phase boundary.
+func TestMonkAutoLevelContractTable(t *testing.T) {
+	cfg := loadTestConfig(t)
+	tests := []struct {
+		name                       string
+		points                     int
+		speed, endurance           int
+		might, personality         int
+		wantSpeed, wantEndurance   int
+		wantMight, wantPersonality int
+	}{
+		{
+			name:   "speed gate",
+			points: 1, speed: 25, endurance: 27, might: 10, personality: 10,
+			wantSpeed: 26, wantEndurance: 27, wantMight: 10, wantPersonality: 10,
+		},
+		{
+			name:   "endurance alternates with primary",
+			points: 2, speed: 26, endurance: 27, might: 10, personality: 10,
+			wantSpeed: 26, wantEndurance: 28, wantMight: 11, wantPersonality: 10,
+		},
+		{
+			name:   "primary alternates with secondary",
+			points: 3, speed: 26, endurance: 28, might: 10, personality: 10,
+			wantSpeed: 26, wantEndurance: 28, wantMight: 12, wantPersonality: 11,
+		},
+		{
+			name:   "secondary soft cap leaves primary climbing",
+			points: 2, speed: 26, endurance: 28, might: 10, personality: autoSecondarySoftCap,
+			wantSpeed: 26, wantEndurance: 28, wantMight: 12, wantPersonality: autoSecondarySoftCap,
+		},
+		{
+			name:   "maxed primary releases secondary and endurance",
+			points: 2, speed: 26, endurance: 28, might: MaxStatValue, personality: autoSecondarySoftCap,
+			wantSpeed: 26, wantEndurance: 29, wantMight: MaxStatValue, wantPersonality: autoSecondarySoftCap + 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			member := character.CreateCharacter("Auto", character.ClassMonk, cfg)
+			member.Speed, member.Endurance = tt.speed, tt.endurance
+			member.Might, member.Personality = tt.might, tt.personality
+			member.FreeStatPoints = tt.points
+
+			if spent := autoDistributeStatPoints(member, cfg); spent != tt.points {
+				t.Fatalf("spent = %d, want %d", spent, tt.points)
+			}
+			if member.Speed != tt.wantSpeed || member.Endurance != tt.wantEndurance ||
+				member.Might != tt.wantMight || member.Personality != tt.wantPersonality {
+				t.Fatalf("Speed/Endurance/Might/Personality = %d/%d/%d/%d, want %d/%d/%d/%d",
+					member.Speed, member.Endurance, member.Might, member.Personality,
+					tt.wantSpeed, tt.wantEndurance, tt.wantMight, tt.wantPersonality)
+			}
+		})
+	}
+}
+
+// Battle Mage's AUTO contract is a four-stat priority ladder. Each row enters
+// through the real allocator at a different phase so a missing class switch or
+// reordered production branch fails at the behavior boundary, not only in a
+// classifier helper.
+func TestBattleMageAutoLevelContractTable(t *testing.T) {
+	cfg := loadTestConfig(t)
+	tests := []struct {
+		name                     string
+		points                   int
+		speed, endurance         int
+		intellect, might         int
+		wantSpeed, wantEndurance int
+		wantIntellect, wantMight int
+	}{
+		{
+			name:   "speed gate",
+			points: 1, speed: 15, endurance: 35, intellect: 10, might: 10,
+			wantSpeed: 16, wantEndurance: 35, wantIntellect: 10, wantMight: 10,
+		},
+		{
+			name:   "endurance alternates with primary",
+			points: 2, speed: 16, endurance: 35, intellect: 10, might: 10,
+			wantSpeed: 16, wantEndurance: 36, wantIntellect: 11, wantMight: 10,
+		},
+		{
+			name:   "primary alternates with secondary",
+			points: 3, speed: 16, endurance: 36, intellect: 10, might: 10,
+			wantSpeed: 16, wantEndurance: 36, wantIntellect: 12, wantMight: 11,
+		},
+		{
+			name:   "secondary soft cap leaves primary climbing",
+			points: 2, speed: 16, endurance: 36, intellect: 10, might: autoSecondarySoftCap,
+			wantSpeed: 16, wantEndurance: 36, wantIntellect: 12, wantMight: autoSecondarySoftCap,
+		},
+		{
+			name:   "maxed primary releases secondary and endurance",
+			points: 2, speed: 16, endurance: 36, intellect: MaxStatValue, might: autoSecondarySoftCap,
+			wantSpeed: 16, wantEndurance: 37, wantIntellect: MaxStatValue, wantMight: autoSecondarySoftCap + 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			member := character.CreateCharacter("Auto", character.ClassBattleMage, cfg)
+			member.Speed, member.Endurance = tt.speed, tt.endurance
+			member.Intellect, member.Might = tt.intellect, tt.might
+			member.FreeStatPoints = tt.points
+
+			if spent := autoDistributeStatPoints(member, cfg); spent != tt.points {
+				t.Fatalf("spent = %d, want %d", spent, tt.points)
+			}
+			if member.Speed != tt.wantSpeed || member.Endurance != tt.wantEndurance ||
+				member.Intellect != tt.wantIntellect || member.Might != tt.wantMight {
+				t.Fatalf("Speed/Endurance/Intellect/Might = %d/%d/%d/%d, want %d/%d/%d/%d",
+					member.Speed, member.Endurance, member.Intellect, member.Might,
+					tt.wantSpeed, tt.wantEndurance, tt.wantIntellect, tt.wantMight)
 			}
 		})
 	}

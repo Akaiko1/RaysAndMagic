@@ -73,7 +73,7 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
 	}
 
-	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, game: game}
+	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, frame: game.monsterFrameContext()}
 	for i := 0; i < 2*tps+1; i++ { // outlast the RT stun duration
 		mw.snapshot = game.collisionSystem.Snapshot()
 		mw.Update()
@@ -109,7 +109,7 @@ func TestMonsterPoisonKillRT_FinalizedByIndirectSweep(t *testing.T) {
 	m.State = monsterPkg.StatePursuing
 	m.StateTimer = 7
 
-	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, game: game}
+	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, frame: game.monsterFrameContext()}
 	for i := 0; i < tps-1; i++ {
 		mw.snapshot = game.collisionSystem.Snapshot()
 		mw.Update()

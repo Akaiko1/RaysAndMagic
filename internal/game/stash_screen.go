@@ -10,7 +10,6 @@ import (
 	"ugataima/internal/stash"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // The tavern stash: a cross-save shared chest. The keeper's "Manage your stash"
@@ -19,20 +18,24 @@ import (
 // autosaved so the bag side is committed too - keeping the two stores in step.
 
 // stashDragFrom encodes the drag SOURCE in one int, decoded by decodeStashFrom:
-// a chest cell (0..SlotCount-1), a card cell (+stashCardDragBase), or a bag index
-// (+stashDragInvBase). The bases are disjoint (bag base is far above any real
-// inventory size), so a single field addresses all three banks.
+// a chest cell (0..SlotCount-1), a card cell (+stashCardDragBase), a bag index
+// (+stashDragInvBase), or a merchant shelf index (+stashShopDragBase). The bases
+// are disjoint (each far above any real bank size), so a single field addresses
+// every source the shared drag machine serves.
 const (
 	stashCardDragBase = 1000
 	stashDragInvBase  = 100000
+	stashShopDragBase = 200000
 )
 
 // Stash cell banks. kindBag addresses the party inventory (a slice, add/remove),
-// the others address fixed cell arrays via stashCellPtr.
+// kindShop the open merchant's visible stock (buy source only, never a drop
+// target), the others fixed cell arrays via stashCellPtr.
 const (
 	stashKindChest = iota
 	stashKindCard
 	stashKindBag
+	stashKindShop
 )
 
 // stashAddr identifies one slot: a bank kind + index within it.
@@ -175,15 +178,22 @@ func (g *MMGame) finishPendingStashTransfer() bool {
 // updateStashDrag samples the raw mouse to drive the drag lifecycle while the
 // stash is open. Source capture and drop resolution happen in drawStashScreen
 // (where the cell rects are known), matching the quick-slot drag model.
-func (ui *UISystem) updateStashDrag() bool {
+// updateStashDrag advances the shared drag machine for the stash and merchant
+// surfaces. While it runs, left clicks are RELEASE-driven: a press only arms a
+// gesture, and only a release that never crossed the drag threshold becomes a
+// click (queued here with the press coordinates). Without that arbitration the
+// press that STARTS a drag is also consumed as a click by the Update-side
+// handlers, so beginning a drag off a selected item would buy or sell a unit
+// before the drag was even recognized.
+func (ui *UISystem) updateStashDrag(now int64) bool {
 	g := ui.game
 	if g.stashDragPickedUp {
-		if !g.stashInteractionOpen() {
+		if !g.stashDragSurfaceOpen() {
 			g.clearStashDrag()
 			return false
 		}
-		g.stashDragCurX, g.stashDragCurY = ebiten.CursorPosition()
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		g.stashDragCurX, g.stashDragCurY = pointerPosition()
+		if pointerLeftJustPressed() {
 			g.stashDragDrop = true
 			return true // destination click is a drag drop, never a stash click
 		}
@@ -192,14 +202,14 @@ func (ui *UISystem) updateStashDrag() bool {
 	if ui.stackSplitPicker.open {
 		return false
 	}
-	if !g.stashInteractionOpen() {
+	if !g.stashDragSurfaceOpen() {
 		if g.stashDragArmed || g.stashDragActive {
 			g.clearStashDrag()
 		}
 		return false
 	}
-	x, y := ebiten.CursorPosition()
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	x, y := pointerPosition()
+	if pointerLeftJustPressed() {
 		g.stashDragArmed = true
 		g.stashDragActive = false
 		g.stashDragDrop = false
@@ -209,22 +219,36 @@ func (ui *UISystem) updateStashDrag() bool {
 		g.stashDragItem = items.Item{}
 		g.stashDragSplitQuantity = 0
 	}
-	if g.stashDragArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if g.stashDragArmed && pointerLeftPressed() {
 		g.stashDragCurX, g.stashDragCurY = x, y
 		if !g.stashDragActive && (absInt(x-g.stashDragStartX) > quickDragThreshold || absInt(y-g.stashDragStartY) > quickDragThreshold) {
 			g.stashDragActive = true
 		}
 	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+	if pointerLeftJustRelease() {
+		wasArmed := g.stashDragArmed
 		g.stashDragCurX, g.stashDragCurY = x, y
 		if g.stashDragActive && g.stashDragFrom >= 0 {
-			g.stashDragDrop = true // Draw resolves against the cell under the cursor
+			g.stashDragDrop = true // Update resolves against the displayed cell
 		} else {
+			if wasArmed && !g.stashDragActive {
+				// A press that never became a drag IS the click - queue it now,
+				// at the point it started, so grids act on completed gestures.
+				g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: g.stashDragStartX, y: g.stashDragStartY, at: now})
+				g.mouseLeftClickX, g.mouseLeftClickY = g.stashDragStartX, g.stashDragStartY
+			}
 			g.clearStashDrag()
 		}
 		g.stashDragArmed = false
 	}
 	return false
+}
+
+// stashDragSurfaceOpen is every surface the stash drag state machine serves:
+// the stash manager (standalone or tavern tab) and the merchant dialog's
+// drag-to-sell grid, which reuses the same bag-cell drag.
+func (g *MMGame) stashDragSurfaceOpen() bool {
+	return g.stashInteractionOpen() || g.merchantDragOpen()
 }
 
 // stashInteractionOpen includes the embedded tavern Stash tab as well as the
@@ -234,7 +258,7 @@ func (g *MMGame) stashInteractionOpen() bool {
 	if g.stashScreenOpen {
 		return true
 	}
-	if !g.dialogActive || npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
+	if !g.dialogActive || g.npcDialogKindFor(g.dialogNPC) != dialogKindTavern {
 		return false
 	}
 	tab, ok := g.activeTavernTab(g.dialogNPC)
@@ -247,6 +271,8 @@ func decodeStashFrom(from int) (stashAddr, bool) {
 	switch {
 	case from < 0:
 		return stashAddr{}, false
+	case from >= stashShopDragBase:
+		return stashAddr{stashKindShop, from - stashShopDragBase}, true
 	case from >= stashDragInvBase:
 		return stashAddr{stashKindBag, from - stashDragInvBase}, true
 	case from >= stashCardDragBase:
@@ -484,9 +510,9 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open) {
+	ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open, func() {
 		g.closeStashScreen()
-	}
+	})
 }
 
 // drawStashManager renders and operates the actual stash grids. The caller owns
@@ -540,9 +566,11 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 		if interactive {
 			ui.stashSplitPickerTrigger(from, it, r)
 		}
-		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
-			g.resolveStashDrop(stashAddr{kind, i})
-		}
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
+				g.resolveStashDrop(stashAddr{kind, i})
+			}
+		})
 	}
 
 	// Party bag grid (bottom), paginated.
@@ -580,25 +608,31 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 			ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
 		}
 		// Dropping onto any bag cell returns a carried chest/card item to the bag.
-		if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
-			g.resolveStashDrop(stashAddr{stashKindBag, idx})
-		}
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+			if interactive && g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
+				g.resolveStashDrop(stashAddr{stashKindBag, idx})
+			}
+		})
 	}
 	pagerY := L.pagerY
 	ui.drawPager(screen, L.centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, interactive && !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// Carried icon, drawn last so it floats above everything; then clear the drop.
-	if g.stashDragActive && g.stashDragFrom >= 0 {
-		const sz = 48
-		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
-	}
-	if interactive && g.stashDragDrop {
-		g.clearStashDrag()
-	}
+	ui.drawStashCarriedIcon(screen)
+	ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
+		if interactive && g.stashDragDrop {
+			g.clearStashDrag()
+		}
+	})
 }
 
 // stashCellSource captures a chest cell as a drag source.
 func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCellSource(i, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return
@@ -611,6 +645,11 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 
 // stashInvSource captures a bag cell as a drag source.
 func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashInvSource(idx, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return
@@ -635,12 +674,27 @@ func (ui *UISystem) beginStashDrag(from int, item items.Item) {
 // stashSplitPickerTrigger opens the exact quantity picker on right-click. The
 // regular Shift-drag one-unit shortcut remains available for rapid transfers.
 func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{}, func() { ui.stashSplitPickerTrigger(from, item, r) })
+		return
+	}
+
 	g := ui.game
 	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
 		return
 	}
 	if g.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 		ui.openStackSplitPicker(stackSplitPickerStash, from, item)
+	}
+}
+
+// drawStashCarriedIcon floats the item carried by the stash drag machine at
+// the cursor - shared by the stash manager and the merchant's drag-to-sell.
+func (ui *UISystem) drawStashCarriedIcon(screen *ebiten.Image) {
+	g := ui.game
+	if g.stashDragActive && g.stashDragFrom >= 0 {
+		const sz = 48
+		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
 	}
 }
 
@@ -679,10 +733,12 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
 	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
-		g.stashShowCards = !g.stashShowCards
-		g.clearStashDrag()
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{rt.Min.X, rt.Min.Y, (rt.Max.X) - (rt.Min.X), (rt.Max.Y) - (rt.Min.Y)}, func() {
+		if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
+			g.stashShowCards = !g.stashShowCards
+			g.clearStashDrag()
+		}
+	})
 }
 
 // stashCellTooltip queues the item tooltip for a hovered, filled cell (chest,
@@ -711,6 +767,11 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 
 // stashCardSource captures a card cell as a drag source.
 func (ui *UISystem) stashCardSource(i int, r image.Rectangle) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCardSource(i, r) })
+		return
+	}
+
 	g := ui.game
 	if !g.stashDragArmed || g.stashDragFrom >= 0 {
 		return

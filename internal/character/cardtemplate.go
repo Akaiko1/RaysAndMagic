@@ -273,6 +273,15 @@ func FilteredItemEffectLines(def *config.ItemDefinitionConfig) []string {
 // once via CombatSystem; the editor builds the same facts with nil values; one
 // renderer picks value-or-formula) - NOT an injected CombatSystem.
 
+// WeaponStrikeFormulaLine describes the split after all Normal formula terms
+// have been summed. True damage, crits and outgoing buffs are separate stages.
+func WeaponStrikeFormulaLine(def *config.WeaponDefinitionConfig) string {
+	if strikes := WeaponStrikeCount(def); strikes > 1 {
+		return fmt.Sprintf("Per strike: divide Normal formula total by %d, round up", strikes)
+	}
+	return ""
+}
+
 // WeaponCardSections renders a weapon in template shape with formulas in
 // place of caster numbers.
 func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
@@ -289,6 +298,9 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	if hb := ProjectileHitboxLine(def.Physics); hb != "" {
 		attack.AddDetail("%s", hb)
 	}
+	if WeaponStrikeCount(def) > 1 {
+		attack.Add("Strikes per attack: %d", WeaponStrikeCount(def))
+	}
 	if def.MaxProjectiles > 0 {
 		attack.Add("Maximum Projectiles: %d", def.MaxProjectiles)
 	}
@@ -302,16 +314,18 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	}
 
 	dmg := CardSection{Title: "DAMAGE"}
-	dmg.Add("Base: %d", def.Damage)
-	primary := def.BonusStat
-	if primary == "" {
-		primary = "Might"
+	formula := WeaponDamageFormula(def)
+	if WeaponStrikeCount(def) > 1 {
+		dmg.Add("Normal damage formula before strike split:")
 	}
-	dmg.Add("%s / %d: scales", primary, WeaponPrimaryStatDivisor)
-	if def.BonusStatSecondary != "" {
-		dmg.Add("%s / %d: scales", def.BonusStatSecondary, WeaponSecondaryStatDivisor)
+	dmg.Add("Base: %d", formula.Base)
+	for _, term := range formula.Terms {
+		dmg.Add("%s / %d: scales", term.Stat, term.Divisor)
 	}
 	dmg.Add("Arms Master: +%d Normal per tier above Novice", ArmsMasterDamagePerTier)
+	if line := WeaponStrikeFormulaLine(def); line != "" {
+		dmg.Add("%s", line)
+	}
 	_, hasWeaponSkill := WeaponSkillForCategory(strings.ToLower(def.Category))
 	if hasWeaponSkill {
 		dmg.Add("Weapon Mastery: +%d True per tier above Novice", MasteryWeaponTrueDamagePerTier)
@@ -379,53 +393,49 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		casting.Add("Target: Self")
 	}
 
+	formula := sd.DamageFormula()
+	base := formula.Evaluate(EffectiveCombatStats(nil), 0)
 	dmg := CardSection{Title: "DAMAGE"}
-	if sd.IsProjectile && !sd.DealsNoDamage {
-		mult := def.DamageCostMultiplier
-		if mult <= 1 {
-			dmg.Add("Base (%d SP x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, def.SpellPointsCost*spells.SpellDamagePerSP)
-		} else {
-			dmg.Add("Base (%d SP x %d x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, def.SpellPointsCost*spells.SpellDamagePerSP*mult)
+	switch formula.Kind {
+	case spells.DamageProjectile, spells.DamageZone:
+		if formula.Kind == spells.DamageZone {
+			dmg.Title = "DAMAGE PER TICK"
 		}
-		stat := "Intellect"
-		if spells.SchoolScalesWithPersonality(def.School) {
-			stat = "Personality"
-		}
-		dmg.Add("%s / %d: scales", stat, spells.SpellIntellectDivisor)
-		if sd.ScalesWithPersonality {
-			dmg.Add("Personality / %d: scales", spells.SpellIntellectDivisor)
-		}
-		dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
-	}
-	if sd.ZoneRadiusTiles > 0 {
-		dmg.Title = "DAMAGE PER TICK"
-		if len(sd.DamageByMastery) == 4 {
-			// Authored ladder: the whole payload, no Intellect and no per-tier bonus.
-			dmg.Add("Novice: %d", sd.DamageByMastery[0])
-			dmg.Add("Expert / Master / GM: %d / %d / %d",
-				sd.DamageByMastery[1], sd.DamageByMastery[2], sd.DamageByMastery[3])
-		} else {
-			dmg.Add("Base: %d", sd.ZoneTickDamage)
-			dmg.Add("Intellect / %d: scales", spells.SpellIntellectDivisor)
-			dmg.Add("School Mastery: +%d damage per tier above Novice", MasterySpellEffectPerLevel)
-		}
-	}
-	if sd.PartyAoeRadiusTiles > 0 {
-		dmg.Title = "EFFECT"
-		base := sd.DamageForMastery(0)
 		switch {
-		case len(sd.DamageByMastery) == 4:
-			dmg.Add("Novice: %d", base)
-			dmg.Add("Expert / Master / GM: %d / %d / %d",
-				sd.DamageByMastery[1], sd.DamageByMastery[2], sd.DamageByMastery[3])
-		case sd.MasteryDamagePerTier > 0:
-			dmg.Add("Base: %d", base)
-			dmg.Add("Mastery: +%d per tier above Novice", sd.MasteryDamagePerTier)
-			dmg.Add("Damage: %d-%d", base, sd.DamageForMastery(3))
+		case len(formula.MasteryLadder) == 4:
+			dmg.Add("Novice: %d", base.Total)
+			dmg.Add("Expert / Master / GM: %d / %d / %d", formula.MasteryLadder[1], formula.MasteryLadder[2], formula.MasteryLadder[3])
+		case formula.Kind == spells.DamageZone:
+			dmg.Add("Base: %d", base.Base)
+		case formula.CostMultiplier > 1:
+			dmg.Add("Base (%d SP x %d x %d): %d", sd.SpellPointsCost, spells.SpellDamagePerSP, formula.CostMultiplier, base.Base)
 		default:
-			dmg.Add("Damage: %d", base)
+			dmg.Add("Base (%d SP x %d): %d", sd.SpellPointsCost, spells.SpellDamagePerSP, base.Base)
 		}
-		dmg.Add("Radius: %.0f tiles", sd.PartyAoeRadiusTiles)
+		for _, term := range formula.Terms {
+			dmg.Add("%s / %d: scales", term.Stat, term.Divisor)
+		}
+		if formula.MasteryPerTier > 0 {
+			dmg.Add("School Mastery: +%d damage per tier above Novice", formula.MasteryPerTier)
+		}
+	case spells.DamageNova:
+		dmg.Title = "EFFECT"
+		switch {
+		case len(formula.MasteryLadder) == 4:
+			dmg.Add("Novice: %d", base.Total)
+			dmg.Add("Expert / Master / GM: %d / %d / %d", formula.MasteryLadder[1], formula.MasteryLadder[2], formula.MasteryLadder[3])
+		case formula.MasteryPerTier > 0:
+			dmg.Add("Base: %d", base.Base)
+			dmg.Add("Mastery: +%d per tier above Novice", formula.MasteryPerTier)
+			dmg.Add("Damage: %d-%d", base.Total, formula.Evaluate(EffectiveCombatStats(nil), 3).Total)
+		default:
+			dmg.Add("Damage: %d", base.Total)
+		}
+		if sd.MapWide {
+			dmg.Add("Radius: Current map")
+		} else {
+			dmg.Add("Radius: %.0f tiles", sd.PartyAoeRadiusTiles)
+		}
 		if sd.SparesParty {
 			dmg.Add("Targets: Monsters only")
 		} else {
@@ -435,23 +445,15 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 			dmg.Add("Topples trees, dunes and rocks: %.0f%% each", sd.StandeeDestroyChance*100)
 		}
 	}
-	if sd.MapWide {
-		dmg.Title = "EFFECT"
-		base := sd.MasteryScaledDamage(0)
-		dmg.Add("Base: %d", base)
-		if sd.MasteryDamagePerTier > 0 {
-			dmg.Add("Mastery: +%d per tier above Novice", sd.MasteryDamagePerTier)
-		}
-		dmg.Add("Damage: %d-%d", base, sd.MasteryScaledDamage(3))
-		dmg.Add("Radius: Current map")
-		dmg.Add("Targets: Monsters and Party")
-	}
 
 	heal := CardSection{Title: "HEALING"}
 	if sd.HealAmount > 0 {
-		heal.Add("Base: %d", sd.HealAmount)
-		heal.Add("Personality / %d: scales", spells.HealingPersonalityDivisor)
-		heal.Add("School Mastery: +%d healing per tier above Novice", MasterySpellEffectPerLevel)
+		healing := sd.HealingFormula()
+		heal.Add("Base: %d", healing.Base)
+		for _, term := range healing.Terms {
+			heal.Add("%s / %d: scales", term.Stat, term.Divisor)
+		}
+		heal.Add("School Mastery: +%d healing per tier above Novice", healing.MasteryPerTier)
 		heal.Add("Natural Healer: +%d-%d%%", NaturalHealerBonusPct(0), NaturalHealerBonusPct(3))
 	}
 
@@ -460,7 +462,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	// contribute; the in-game card shows the current values while this editor
 	// card remains character-independent.
 	crit := CardSection{Title: "CRITICAL"}
-	if sd.IsProjectile && !sd.DealsNoDamage {
+	if formula.Kind == spells.DamageProjectile {
 		crit.Add("Chance: Luck / %d + active bonuses", LuckToCritDivisor)
 		crit.Add("Critical hits deal x%d damage", CritDamageMultiplier)
 	}
@@ -481,7 +483,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
-	if sd.IsProjectile && !sd.DealsNoDamage {
+	if formula.Kind == spells.DamageProjectile {
 		effects.Add("%s", DamageTypeAoELine(def.School, sd.AoeRadiusTiles))
 	}
 	for _, ln := range FilteredSpellEffectLines(sd) {

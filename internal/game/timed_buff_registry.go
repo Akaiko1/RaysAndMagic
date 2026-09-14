@@ -10,6 +10,7 @@ import "ugataima/internal/spells"
 // spellKeyedBuff is any timed buff entry keyed by its source spell id.
 type spellKeyedBuff interface {
 	buffSpellID() string
+	buffSourceID() string
 }
 
 // upsertBuff replaces the existing entry from the same spell (recast refreshes
@@ -24,6 +25,17 @@ func upsertBuff[T spellKeyedBuff](list []T, b T) []T {
 	return append(list, b)
 }
 
+// buffRegistryID is the ownership key used for explicit removal. Ordinary
+// casts are owned by their spell id. A system-granted cast can use a distinct
+// source id, so later cleanup cannot remove a player's refreshed cast of the
+// same spell.
+func buffRegistryID[T spellKeyedBuff](b T) string {
+	if sourceID := b.buffSourceID(); sourceID != "" {
+		return sourceID
+	}
+	return b.buffSpellID()
+}
+
 // buffByID returns the active entry for a spell, if any.
 func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
 	for i := range list {
@@ -35,12 +47,12 @@ func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
 	return zero, false
 }
 
-// removeBuffByID drops the entry for a spell (dispel) and clears its HUD
-// status. Reports whether anything was removed.
-func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, spellID string) ([]T, bool) {
+// removeBuffByID drops the entry owned by buffID and clears the actual spell's
+// HUD status. Reports whether anything was removed.
+func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, buffID string) ([]T, bool) {
 	for i := range list {
-		if list[i].buffSpellID() == spellID {
-			g.updateUtilityStatus(spells.SpellID(spellID), 0, false)
+		if buffRegistryID(list[i]) == buffID {
+			g.updateUtilityStatus(spells.SpellID(list[i].buffSpellID()), 0, false)
 			return append(list[:i], list[i+1:]...), true
 		}
 	}
@@ -73,7 +85,7 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 }
 
 // resetTimedEffects drops every timed party effect family at once: stat buffs
-// (re-deriving the aggregate), combat buffs, steam zones, and the flag-based
+// (re-deriving the aggregate), combat buffs, persistent damage zones, and the flag-based
 // utility effects (torch / wizard eye / water - WITHOUT firing onExpire: a new
 // game must not trigger the underwater return teleport). The ONE reset for
 // new game; save load overwrites these via their restore* counterparts.
@@ -81,8 +93,9 @@ func (g *MMGame) resetTimedEffects() {
 	g.statBuffs = nil
 	g.recomputeStatBonuses()
 	g.combatBuffs = nil
-	g.steamZones = nil
-	g.nextSteamZoneFieldID = 0
+	g.celestialBuffSpellID = ""
+	g.persistentDamageZones = nil
+	g.nextPersistentDamageZoneFieldID = 0
 	for _, b := range g.timedBuffs() {
 		*b.active = false
 		*b.duration = 0

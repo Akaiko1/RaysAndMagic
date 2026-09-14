@@ -108,9 +108,10 @@ func extractSkeleton(card string) mechanicSkeleton {
 			sk.hasGMTrue = true
 		}
 		// Weapon ATTACK mechanics (arc, attack-speed multiplier, projectile speed,
-		// hitbox, max projectiles, range) - the shared/identical lines. The ABSOLUTE
-		// "RT Cooldown: Xs" is excluded (editor has no Speed to compute it).
-		if section == "ATTACK" && !strings.HasPrefix(ln, "RT Cooldown:") {
+		// hitbox, max projectiles, range) - the shared/identical lines. Bearer-only
+		// cooldown values are excluded: the editor has no character Speed, Dual
+		// Wielding mastery, or final safety-clamp state to compute them.
+		if section == "ATTACK" && !isBearerWeaponCooldownLine(ln) {
 			sk.attack[ln] = true
 		}
 		// Spell CASTING delivery mechanics - whitelist the lines whose TEXT is shared
@@ -158,6 +159,15 @@ func extractSkeleton(card string) mechanicSkeleton {
 		sk.crit["mult"] = true
 	}
 	return sk
+}
+
+func isBearerWeaponCooldownLine(line string) bool {
+	for _, prefix := range []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeRule collapses the few RULES lines whose WORDING legitimately differs

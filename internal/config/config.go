@@ -206,17 +206,18 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
-	Display    DisplayConfig   `yaml:"display"`
-	Engine     EngineConfig    `yaml:"engine"`
-	World      WorldConfig     `yaml:"world"`
-	Movement   MovementConfig  `yaml:"movement"`
-	Camera     CameraConfig    `yaml:"camera"`
-	UI         UIConfig        `yaml:"ui"`
-	Characters CharacterConfig `yaml:"characters"`
-	MonsterAI  MonsterAIConfig `yaml:"monster_ai"`
-	Graphics   GraphicsConfig  `yaml:"graphics"`
-	Tiles      TileConfig      `yaml:"tiles"`
-	DayNight   DayNightConfig  `yaml:"day_night"`
+	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
+	Display       DisplayConfig       `yaml:"display"`
+	Engine        EngineConfig        `yaml:"engine"`
+	World         WorldConfig         `yaml:"world"`
+	Movement      MovementConfig      `yaml:"movement"`
+	Camera        CameraConfig        `yaml:"camera"`
+	UI            UIConfig            `yaml:"ui"`
+	Characters    CharacterConfig     `yaml:"characters"`
+	MonsterAI     MonsterAIConfig     `yaml:"monster_ai"`
+	Graphics      GraphicsConfig      `yaml:"graphics"`
+	Tiles         TileConfig          `yaml:"tiles"`
+	DayNight      DayNightConfig      `yaml:"day_night"`
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -505,7 +506,7 @@ type ClassStats struct {
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
 	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
 	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
-	Armor      string            `yaml:"armor,omitempty"`       // items.yaml key worn at start
+	Equipment  []string          `yaml:"equipment,omitempty"`   // items.yaml keys worn at start, each routed by its own equip_slot
 	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
 	QuickTrap  string            `yaml:"quick_trap,omitempty"`  // traps.yaml key pre-selected in the trap book
 	// SkillStartMastery overrides a kit skill's starting mastery above the
@@ -739,8 +740,9 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int          `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig `yaml:"colors"`
+	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
+	RaysPerScreenWidth int                     `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig            `yaml:"colors"`
 	// RemovedSprite catches the retired graphics.sprite block so a stale config
 	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
 	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
@@ -1156,7 +1158,8 @@ type MapCanopyShadeConfig struct {
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
-	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	ElementalAttackSchool string              `yaml:"elemental_attack_school"`
+	FloorTextureGroups    map[string][]string `yaml:"floor_texture_groups,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
 	// this biome (the off-map backdrop wall). Empty -> the global "seaview"
 	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
@@ -1355,20 +1358,29 @@ type WeaponDefinitionConfig struct {
 	Graphics *WeaponGraphicsConfig `yaml:"graphics"`
 }
 
-const defaultTPS = 120
+// DefaultTPS is the simulation tick rate the game SHIPS at: config.yaml sets
+// engine.tps to it, and main.go pins the same value when vsync is off (an
+// unsynced loop free-runs otherwise). It is the fallback here so a config-less
+// path ticks at the shipped rate rather than at a slower legacy one.
+//
+// EVERY frame count in this codebase is a duration only at this rate: 60 frames
+// is half a second here, not one. Author durations in seconds and convert with
+// GetTPS (MMGame.framesForSeconds does exactly that); where a raw frame constant
+// remains, its comment states what it lasts at this rate.
+const DefaultTPS = 120
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
 		return c.Engine.TPS
 	}
-	return defaultTPS
+	return DefaultTPS
 }
 
 func GetTargetTPS() int {
 	if GlobalConfig != nil {
 		return GlobalConfig.GetTPS()
 	}
-	return defaultTPS
+	return DefaultTPS
 }
 
 var GlobalConfig *Config
@@ -1499,6 +1511,15 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
+	}
+
+	if err := config.MonsterCombat.ElementalAttack.Validate(); err != nil {
+		return nil, err
+	}
+	if config.MonsterCombat.ElementalAttack.Chance > 0 {
+		if err := config.Graphics.ElementalAttack.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Set global config for easy access
@@ -2853,19 +2874,6 @@ func GetSpellDefinition(spellKey string) (*SpellDefinitionConfig, bool) {
 	}
 	def, exists := GlobalSpells.Spells[spellKey]
 	return def, exists
-}
-
-// GetSpellDefinitionByName retrieves spell definition by display name
-func GetSpellDefinitionByName(name string) (*SpellDefinitionConfig, string, bool) {
-	if GlobalSpells == nil {
-		return nil, "", false
-	}
-	for key, def := range GlobalSpells.Spells {
-		if def.Name == name {
-			return def, key, true
-		}
-	}
-	return nil, "", false
 }
 
 // GetSpellsBySchool returns all spells for a given magic school

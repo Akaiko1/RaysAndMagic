@@ -86,15 +86,15 @@ func TestValidateMonsterConfiguration_StunRequiresBothModeClocks(t *testing.T) {
 func TestValidateMonsterConfiguration_ChampionRejectsMeleeDamageType(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"arena_champion": {
-			Name:            "Arena Champion",
-			SizeClass:       "person",
-			Champion:        "arena_champion",
-			MeleeDamageType: "fire",
+			Name:                      "Arena Champion",
+			SizeClass:                 "person",
+			Champion:                  "arena_champion",
+			DeprecatedMeleeDamageType: "fire",
 		},
 	}}
 
 	err := validateMonsterConfiguration(cfg)
-	if err == nil || !strings.Contains(err.Error(), "equipped weapon") {
+	if err == nil || !strings.Contains(err.Error(), "removed melee_damage_type") {
 		t.Fatalf("champion melee_damage_type conflict should fail clearly, got: %v", err)
 	}
 }

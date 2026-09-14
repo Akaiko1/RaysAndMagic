@@ -7,8 +7,11 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Every merchant price form must FIT the box it is drawn in, and the box must
@@ -313,12 +316,14 @@ func TestSwitchDialogTabClearsPendingBuffService(t *testing.T) {
 		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
 	}
 	g := &MMGame{
-		dialogTab:            0,
-		selectedChoice:       3,
-		merchantBuyPage:      2,
-		pendingBuffService:   pending,
-		dialogLastClickedIdx: 4,
-		dialogLastClickZone:  "service",
+		dialogState: dialogState{
+			dialogTab:            0,
+			selectedChoice:       3,
+			merchantBuyPage:      2,
+			pendingBuffService:   pending,
+			dialogLastClickedIdx: 4,
+			dialogLastClickZone:  "service",
+		},
 	}
 
 	g.switchDialogTab(1)
@@ -431,15 +436,15 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 		t.Fatal("mtrader0 missing from the catalog")
 	}
 	npc := &character.NPC{Name: data.Name, DialogueData: data.Dialogue}
+	g := newTestGame(cfg, newTestWorld(cfg))
 
-	if got := npcDialogKindFor(npc); got != dialogKindBuffService {
+	if got := g.npcDialogKindFor(npc); got != dialogKindBuffService {
 		t.Fatalf("Mira resolves to dialog kind %d, want dialogKindBuffService (%d)", got, dialogKindBuffService)
 	}
 	services := buffServiceChoices(npc)
 	if len(services) != 2 {
 		t.Fatalf("service rows = %d, want 2 (walk on water, water breathing)", len(services))
 	}
-	g := newTestGame(cfg, newTestWorld(cfg))
 	for _, service := range services {
 		if strings.Contains(strings.ToLower(service.Text), "gold") {
 			t.Errorf("service label %q duplicates its authored cost", service.Text)
@@ -448,7 +453,7 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 			t.Errorf("generic dialogue label %q does not derive cost %d", label, service.Cost)
 		}
 	}
-	if !buffServiceHasQuestTab(npc) {
+	if !g.npcDialogHasTalkTab(npc) {
 		t.Fatal("Mira still has quest dialogue, so the Talk tab must exist")
 	}
 
@@ -461,7 +466,7 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 
 	// Geometry: rows fit between greeting and footer, and never overlap.
 	dialog := npcDialogLayout(g)
-	layout := computeNPCDialogSectionLayout(layoutRect{dialog.x, dialog.y, dialog.w, dialog.h}, true)
+	layout := computeNPCDialogSectionLayout(layoutRect(dialog), true)
 	maxRows := buffServiceMaxRows(dialog.x, dialog.y, dialog.w, dialog.h)
 	if len(services) > maxRows {
 		t.Fatalf("%d service rows authored but only %d fit the dialog", len(services), maxRows)
@@ -532,5 +537,105 @@ func TestValidateNPCCastBuffsRejectsCatalogBeyondDialogCapacity(t *testing.T) {
 	want := fmt.Sprintf("%d cast_buff service rows exceed dialog capacity %d", len(choices), maxRows)
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("capacity error = %q, want it to contain %q", err, want)
+	}
+}
+
+// The service refuses while its chant is ALREADY woven over the party - at any
+// remaining span. Before this rule an active-but-shorter buff was silently
+// extended and charged, so stray clicks drained the purse.
+func TestCastBuffRefusedWhileChantActive(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.gameLoop = &GameLoop{game: g}
+	ih := &InputHandler{game: g}
+	tps := cfg.GetTPS()
+
+	g.party.Gold = 5000
+	g.walkOnWaterActive = true
+	g.walkOnWaterDuration = 10 * tps // nearly spent - still refuses
+
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if g.party.Gold != 5000 {
+		t.Fatalf("an active chant was re-sold: gold = %d, want 5000", g.party.Gold)
+	}
+	if g.walkOnWaterDuration != 10*tps {
+		t.Fatalf("the refused sale still extended the buff to %d frames", g.walkOnWaterDuration)
+	}
+	if countCombatLog(g, "no gold was spent") != 1 {
+		t.Fatal("the refusal did not explain that no gold was spent")
+	}
+
+	// Control: once the chant fades, the same purchase works again.
+	g.walkOnWaterActive = false
+	g.walkOnWaterDuration = 0
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if !g.walkOnWaterActive || g.party.Gold != 3000 {
+		t.Fatalf("control failed: expired chant not re-sold (active=%v gold=%d)", g.walkOnWaterActive, g.party.Gold)
+	}
+}
+
+// Buff-service rows follow the dialog list convention: the first click only
+// selects, the second within the window queues the purchase.
+func TestBuffServiceRowNeedsDoubleClick(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.sprites = graphics.NewSpriteManager()
+	ui := NewUISystem(g)
+	g.dialogActive = true
+	g.dialogNPC = &character.NPC{
+		Name: "Apprentice Mira",
+		DialogueData: &character.NPCDialogue{
+			Greeting: "Charms for coin.",
+			Choices: []*character.NPCDialogueChoice{{
+				Text: "Walk us over the water", Action: "cast_buff",
+				Buff: "walk_on_water", DurationSeconds: 300, Cost: 100,
+			}},
+		},
+	}
+	g.party.Gold = 1000
+
+	dlg := npcDialogLayout(g)
+	x, y, w, h := buffServiceRowRect(dlg.x, dlg.y, dlg.w, 0)
+	rowClick := func() {
+		g.mouseLeftClicks = []queuedClick{{x: x + w/2, y: y + h/2, at: 1000}}
+		ui.drawBuffServiceDialog(ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()), dlg.x, dlg.y, dlg.w, dlg.h)
+	}
+
+	rowClick()
+	if g.pendingBuffService != nil {
+		t.Fatal("a single click queued the paid cast - gold is one misclick away again")
+	}
+	rowClick()
+	if g.pendingBuffService == nil {
+		t.Fatal("control failed: the double click did not queue the cast")
+	}
+}
+
+// The walk-on-water CARD grants the effect permanently: the paid chant is the
+// same wasted coin as an active buff, so the service refuses card holders too.
+func TestCastBuffRefusedWithPermanentCard(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.gameLoop = &GameLoop{game: g}
+	ih := &InputHandler{game: g}
+
+	g.party.Gold = 5000
+	g.cardSlots[0].key = "medusa_card" // grants permanent walk-on-water
+
+	ih.handleCastBuff(&character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
+	})
+	if g.walkOnWaterActive || g.party.Gold != 5000 {
+		t.Fatalf("a card holder was sold the chant: active=%v gold=%d", g.walkOnWaterActive, g.party.Gold)
+	}
+	if countCombatLog(g, "no gold was spent") != 1 {
+		t.Fatal("the refusal did not explain that no gold was spent")
 	}
 }

@@ -15,9 +15,9 @@ import (
 // Screen-space like the melee flourish - no camera/depth involvement.
 
 const (
-	buffFxTotalFrames  = 56  // ~0.9s at 60 TPS
-	buffFxFadeInEnd    = 6   // ticks of fade-in
-	buffFxFadeOutStart = 42  // fade to zero from here to the end
+	buffFxTotalFrames  = 56  // ~0.47s at 120 TPS
+	buffFxFadeInEnd    = 6   // ticks of fade-in (~0.05s at 120 TPS)
+	buffFxFadeOutStart = 42  // fade to zero from here to the end (~0.35s at 120 TPS)
 	buffFxHeightFrac   = 0.6 // target sprite height as a fraction of screen height
 )
 

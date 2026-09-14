@@ -4,9 +4,9 @@
 # grandfather clocks (g) guard the bell chamber and the regal chest
 # @ = NPC placeholder, $ = decor tile placeholder (bound by >[...] at line end)
 ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
-Z..$.Z...$.....$$$$$..$...........Z  >[tile:blueprint], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster]
+Z..$.Z...$.....$$$$$..$........$..Z  >[tile:blueprint], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:wallclock]
 Z.........k.k.............k.k.....Z
-Z$..@Z.....k...ZZ.ZZ......k....$..Z  >[npc:chest_wooden], [tile:blueprint], [tile:wallclock]
+Z$..@Z.....k...ZZ.ZZ......k......$Z  >[npc:chest_wooden], [tile:blueprint], [tile:wallclock]
 Z...@Z.........$Z.Z@..............Z  >[npc:chest_wooden], [npc:chest_gearwood], [tile:blueprint]
 ZZ.ZZZZZZZZZZZZZZ.ZZZZZZZZZZZZ....Z
 Z....Z.@kZ..................lZ....Z  >[npc:chest_chrono]

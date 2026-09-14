@@ -40,7 +40,7 @@ func NewInputHandler(game *MMGame) *InputHandler {
 }
 
 // inputDebounceCooldown is a minimal cooldown to prevent key repeat issues
-const inputDebounceCooldown = 10
+const inputDebounceCooldown = 10 // ~0.08s at 120 TPS
 
 // rtActionStagger is the short global gap (frames) between any two real-time
 // combat actions. The big gate is each character's own RTCooldown; this small
@@ -52,7 +52,7 @@ const rtActionStagger = 8
 // starts auto-repeating (cycling the party). Set well above a normal tap (even a
 // slow ~0.3s one) so single presses fire exactly once - only a deliberate hold
 // cycles. ~0.45s at 120 TPS.
-const rtHoldRepeatDelay = 54
+const rtHoldRepeatDelay = 54 // ~0.45s at 120 TPS
 
 // spacePickupWanted gates the ground-loot pickup on Space with the same
 // tap-vs-hold discipline as the combat keys: a fresh tap fires exactly once; a
@@ -104,10 +104,7 @@ func (ih *InputHandler) HandleInput() {
 			ih.game.menuOpen = false
 			return
 		}
-		ih.game.mainMenuOpen = true
-		ih.game.mainMenuSelection = 0
-		ih.game.slotSelection = 0
-		ih.game.mainMenuMode = MenuMain
+		ih.game.openMainMenu()
 		return
 	}
 
@@ -177,7 +174,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			case g.mainMenuMode != MenuMain:
 				g.mainMenuMode = MenuMain
 			default:
-				g.mainMenuOpen = false
+				g.closeMainMenu()
 			}
 			break
 		}
@@ -187,10 +184,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			if g.skillTrainerPopup {
 				g.skillTrainerPopup = false
 			} else {
-				g.dialogActive = false
-				g.dialogNPC = nil
-				g.skillTrainerPopup = false
-				g.switchDialogTab(0)
+				g.closeConversation()
 			}
 			break
 		}
@@ -238,8 +232,32 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			g.closeStashScreen()
 		}
 	case modalLayerStackSplit:
+		// The picker types like a form: digits write the quantity (first digit
+		// replaces the prefill), arrows step it, Enter confirms, ESC cancels.
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.cancelStackSplitInteraction()
+			break
+		}
+		gl := g.gameLoop
+		if gl == nil || gl.ui == nil {
+			break
+		}
+		switch {
+		case ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyNumpadEnter):
+			gl.ui.stackSplitConfirm()
+		case ih.keys.Consume(ebiten.KeyUp) || ih.keys.Consume(ebiten.KeyRight):
+			gl.ui.stackSplitAdjust(1)
+		case ih.keys.Consume(ebiten.KeyDown) || ih.keys.Consume(ebiten.KeyLeft):
+			gl.ui.stackSplitAdjust(-1)
+		case ih.keys.Consume(ebiten.KeyBackspace):
+			gl.ui.stackSplitBackspace()
+		default:
+			for d := 0; d <= 9; d++ {
+				if ih.keys.Consume(ebiten.KeyDigit0+ebiten.Key(d)) || ih.keys.Consume(ebiten.KeyNumpad0+ebiten.Key(d)) {
+					gl.ui.stackSplitAppendDigit(d)
+					break
+				}
+			}
 		}
 	case modalLayerLevelChoice:
 		ih.handleLevelUpChoiceInput()
@@ -257,6 +275,9 @@ func (ih *InputHandler) restartNewGame() {
 // drops the player into gameplay with the given party. Shared by restartNewGame
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	// A fresh run inherits no UI gesture from the replaced timeline. This also
+	// closes the UI-owned quantity picker through its existing SSoT.
+	g.cancelStackSplitInteraction()
 	g.party = party
 	g.selectedChar = 0
 	g.parkSelection = false
@@ -316,20 +337,11 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.dialogLastClickedIdx = -1
 
 	// Reset dialog/menu states
-	g.dialogActive = false
-	g.dialogNPC = nil
-	g.dialogSelectedSpell = 0
-	g.selectedCharIdx = 0
-	g.selectedSpellKey = ""
-	g.selectedChoice = 0
+	g.closeConversation()
 	g.menuOpen = false
 	g.mapOverlayOpen = false
 	g.currentTab = TabInventory
-	g.mainMenuOpen = false
-	g.mainMenuMode = MenuMain
-	g.mainMenuSelection = 0
-	g.slotSelection = 0
-	g.closeSaveRename()
+	g.closeMainMenu()
 	g.exitRequested = false
 
 	// Reset every timed effect family (buffs, zones, utility flags)
@@ -381,6 +393,11 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// Anchor starting exterminate quests to the fresh rosters (they never pass
 	// through handleGiveQuest, the only other DynamicTarget assigner).
 	g.reconcileExterminationQuests()
+	// Only NOW take the banner baseline - after reconciliation has moved whatever
+	// counters it is going to move, exactly like the load path. Baselining first
+	// would make the fresh run's first frame announce its own bookkeeping. This
+	// also drops the old run's heading and its focus identity.
+	g.resetScreenBanners()
 
 	// Move player to start position (fallback to nearest walkable tile if map has no '+')
 	if currentWorld := g.GetCurrentWorld(); currentWorld != nil {
@@ -540,8 +557,6 @@ func (ih *InputHandler) handleMainMenuInput() {
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
 		// Navigate options (debounced)
 		if ih.keys.Consume(ebiten.KeyUp) {
 			if ih.game.mainMenuSelection > 0 {
@@ -561,9 +576,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		if ih.keys.Consume(ebiten.KeyEnter) {
 			ih.activateMainMenuSelection()
 		}
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			ih.activateMainMenuSelection()
-		}
+		ih.handleMainMenuMouseInput()
 	case MenuSaveSelect:
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
@@ -589,12 +602,8 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 		ih.handleSaveRenameInput()
 		return
 	}
-	ih.navigateSavePage(px, py, panelW, panelH)
-	// Right-click rename follows the same Save-menu-only gate as the R key: the
-	// Load menu can't rename (and, crucially, never draws the rename dialog), so
-	// letting a right-click open it there strands an invisible modal that only
-	// surfaces when you next open the Save menu.
-	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
+	ih.navigateSavePage()
+	if ih.handleSaveLoadMouseInput(px, py, panelW, panelH, allowRename, activate) {
 		return
 	}
 	// Mouse hover selection (row within page).
@@ -605,26 +614,6 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	if allowRename && ih.keys.Consume(ebiten.KeyR) {
 		ih.openSaveRename(ih.game.selectedSaveRow())
 	}
-	// Mouse click activation
-	if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-		activate()
-	}
-}
-
-// closeSaveRename dismisses the save-rename modal and clears its scratch state.
-func (g *MMGame) closeSaveRename() {
-	g.saveRenameOpen = false
-	g.saveRenameSlot = -1
-	g.saveRenameInput = ""
-}
-
-// openSaveLoad switches the main menu into a save/load slot list, resetting the
-// cursor to the first row of the first page. Single source for the "open a slot
-// list" state so a new reset field is added in one place.
-func (g *MMGame) openSaveLoad(mode MainMenuMode) {
-	g.mainMenuMode = mode
-	g.slotSelection = 0
-	g.savePage = 0
 }
 
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
@@ -660,10 +649,9 @@ func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
 }
 
 // navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor
-// within the current page, Left/Right (keys) or the on-screen Prev/Next buttons
-// (a strip below the panel) flip between pages. The button rects are shared with
-// the draw side via savePagerButtonRects.
-func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
+// within the current page and Left/Right keys flip between pages. Buffered
+// pager clicks use navigateSavePageMouse and the same wrapping rule.
+func (ih *InputHandler) navigateSavePage() {
 	g := ih.game
 	if ih.keys.Consume(ebiten.KeyUp) && g.slotSelection > 0 {
 		g.slotSelection--
@@ -671,12 +659,11 @@ func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
 	if ih.keys.Consume(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
 		g.slotSelection++
 	}
-	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
 	// Pages wrap in both directions: Prev on the first page jumps to the last.
-	if ih.keys.Consume(ebiten.KeyLeft) || g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2) {
+	if ih.keys.Consume(ebiten.KeyLeft) {
 		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
 	}
-	if ih.keys.Consume(ebiten.KeyRight) || g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2) {
+	if ih.keys.Consume(ebiten.KeyRight) {
 		g.savePage = (g.savePage + 1) % savePageCount
 	}
 }
@@ -710,7 +697,7 @@ func (ih *InputHandler) doLoadFromSelectedRow() {
 		g.AddCombatMessage("Load failed")
 	} else {
 		g.AddCombatMessage("Loaded " + saveRowLabel(row))
-		g.mainMenuOpen = false
+		g.closeMainMenu()
 		g.mainMenuMode = MenuMain
 	}
 }
@@ -807,7 +794,7 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	}
 
 	if req.isMultiSelect() {
-		ih.handleMultiSelectInput(req, popupX, popupW, startY, rowH)
+		ih.handleMultiSelectInput(req)
 		return
 	}
 
@@ -816,19 +803,12 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 		ih.game.consumeLevelUpChoice(req.selection)
 		return
 	}
-	for i := 0; i < optionCount; i++ {
-		y := startY + i*rowH
-		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			req.selection = i
-			ih.game.consumeLevelUpChoice(req.selection)
-			return
-		}
-	}
+	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMultiSelectInput drives the "pick K of N" picker: Space/Enter on an
 // option toggles it, Enter/click on the Confirm row applies all picks.
-func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX, popupW, startY, rowH int) {
+func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest) {
 	optionCount := len(req.options)
 	confirmIdx := req.confirmRowIndex()
 
@@ -843,20 +823,7 @@ func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX
 		}
 		return
 	}
-	// Clicks: option rows toggle, the Confirm row confirms.
-	for i := 0; i < optionCount; i++ {
-		y := startY + i*rowH
-		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			req.selection = i
-			ih.game.toggleLevelUpSelection(i)
-			return
-		}
-	}
-	cy := startY + optionCount*rowH
-	if ih.game.consumeLeftClickIn(popupX+16, cy-2, popupX+popupW-16, cy-2+rowH) {
-		req.selection = confirmIdx
-		ih.game.confirmLevelUpSelections()
-	}
+	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMovementInput processes movement and camera controls
@@ -1318,8 +1285,9 @@ func (ih *InputHandler) checkTeleporter() {
 	// path as enter_map portals). Two merged regions share one world - that's a
 	// same-world jump, not a map switch.
 	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
-		ih.switchToMap(targetMapKey)
-		ih.finishMapArrival(newX, newY, AngleNorth)
+		if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, pose: MapPose{X: newX, Y: newY, Angle: AngleNorth}}); err != nil {
+			ih.game.AddCombatMessage("Teleport failed: " + err.Error())
+		}
 		return
 	}
 
@@ -1329,9 +1297,6 @@ func (ih *InputHandler) checkTeleporter() {
 		ih.game.snapToCardinalDirection()
 	}
 }
-
-// switchToMap performs a world switch and refreshes render caches for the new map
-// This ensures environment sprites and floor colors reflect the active world
 
 // tryTeleportation checks if the player is on a teleporter and attempts teleportation using the global registry
 func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
@@ -1388,85 +1353,6 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	return dest.MapKey, nx, ny, true
 }
 
-// switchToMap handles common map switching logic for teleporters and spell effects
-func (ih *InputHandler) switchToMap(targetMapKey string) {
-	oldWorld := ih.game.world
-	err := world.GlobalWorldManager.SwitchToMap(targetMapKey)
-	if err != nil {
-		fmt.Printf("Failed to switch to map %s: %v\n", targetMapKey, err)
-		return
-	}
-
-	// Update world reference and collision system
-	ih.game.world = ih.game.GetCurrentWorld()
-	if oldWorld != ih.game.world {
-		ih.game.crumbleBoundAlliesOnDeparture(oldWorld)
-	}
-	ih.game.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
-	ih.game.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
-	// Sync the new world's Fly flag to the party NOW (not next frame): it may
-	// carry a stale flyActive from a previous visit, which would make walls read
-	// as passable to anything querying it before the frame's buff sync runs.
-	if ih.game.world != nil {
-		ih.game.world.SetFlyActive(ih.game.flyActive)
-	}
-	ih.game.clearTransientCombatState()
-	if ih.game.collisionSystem != nil {
-		ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
-		// Unregister old world monsters
-		if oldWorld != nil {
-			for _, monster := range oldWorld.Monsters {
-				ih.game.collisionSystem.UnregisterEntity(monster.ID)
-			}
-		}
-		// Farming maps (respawn_days) rewind their roster BEFORE registration.
-		ih.game.maybeRespawnMapMonsters()
-		// Register new world monsters
-		ih.game.world.RegisterMonstersWithCollisionSystem(ih.game.collisionSystem)
-		ih.game.registerMapStaticCollision()
-	}
-
-	// Update visual systems
-	ih.game.UpdateSkyAndGroundColors()
-	if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-		// Refresh renderer caches that depend on world tiles
-		ih.game.gameLoop.renderer.precomputeFloorColorCache()
-		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
-	}
-
-	// NOTE: do NOT autosave here. The player's position on the new map is set by
-	// finishMapArrival AFTER this returns; autosaving here would snapshot the OLD
-	// map's coordinates on the new map (e.g. the party jammed into a border wall).
-}
-
-// finishMapArrival is the single "arrived on a new map" path: it places the
-// party at (x,y,angle), re-registers collision, snaps to a cardinal heading in
-// turn-based mode, and autosaves. Keeping position + autosave together here is
-// what guarantees the autosave can't capture stale pre-switch coordinates - the
-// ordering invariant lives in one place instead of being copy-pasted per caller.
-func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
-	// Arrival targets can be stale (saved return poses, positions recorded on an
-	// older map layout); never place the party inside terrain.
-	x, y = ih.game.safePartyDestination(x, y)
-	// A fresh arrival is the moment deferred (on_entry) quest spawns may fire
-	// on this map - the Enforcer surfaces on the return trip. Flush the queue
-	// immediately: the arrival is a frame boundary (no attack in flight), and
-	// the Autosave below must snapshot the boss ALREADY in the roster.
-	ih.game.spawnQuestCompletionMonsters(true)
-	ih.game.flushPendingQuestSpawns()
-	ih.game.setPartyPosition(x, y)
-	// Landmark solidity was registered against the OLD map's coordinates during
-	// the switch; re-derive it now that the arrival position is final.
-	ih.game.refreshLandmarkCollision()
-	ih.game.snapFacing(angle)
-	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
-	// would otherwise leave the party at 45deg on the new map.
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
-	}
-	ih.game.Autosave()
-}
-
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
 func (ih *InputHandler) checkDeepWater() {
 	x, y := ih.game.camera.X, ih.game.camera.Y
@@ -1493,29 +1379,18 @@ func (ih *InputHandler) checkDeepWater() {
 	// Fly and Walk on Water keep the party ABOVE the surface - deep water is
 	// scenery to them, not a hazard. (A per-step warning here used to spam the
 	// log on every flight across a lake.)
-	if ih.game.flyActive || ih.game.walkOnWaterActive || ih.game.hasCardWalkOnWater() {
+	if ih.game.flyActive || ih.game.walkOnWaterEffective() {
 		return
 	}
 
 	// If Water Breathing is active, teleport to underwater map center
 	if ih.game.waterBreathingActive {
-		// Find safe return position before going underwater - MUST succeed for safety
-		currentX, currentY := ih.game.camera.X, ih.game.camera.Y
-		safeX, safeY := ih.game.FindNearestWalkableTileMustSucceed(currentX, currentY)
-
-		// Store safe return position and current map
-		ih.game.underwaterReturnX = safeX
-		ih.game.underwaterReturnY = safeY
-		if world.GlobalWorldManager != nil {
-			ih.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-		}
-
-		// Switch to underwater map
-		ih.switchToMap("water")
-
-		// Teleport to center of water map
+		// Teleport to center of water map. The game owns arrival and autosave.
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
-		ih.finishMapArrival(centerX, centerY, ih.game.camera.Angle)
+		if err := ih.game.transitionToMap(mapTransition{mapKey: "water", arrival: mapArrivalUnderwater, pose: MapPose{X: centerX, Y: centerY, Angle: ih.game.camera.Angle}}); err != nil {
+			ih.game.AddCombatMessage("Cannot enter the depths: " + err.Error())
+			return
+		}
 
 		fmt.Println("Entered underwater realm with Water Breathing active!")
 	} else {
@@ -1629,6 +1504,9 @@ func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
 // worldClickAllowed reports whether a click can reach world objects (no menu,
 // dialog or overlay is swallowing the game view).
 func (g *MMGame) worldClickAllowed() bool {
+	if g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame {
+		return false
+	}
 	return !g.menuOpen && !g.mainMenuOpen && !g.showHighScores && !g.mapOverlayOpen &&
 		!g.dialogActive && !g.statPopupOpen && g.currentLevelUpChoice() == nil
 }
@@ -1852,6 +1730,11 @@ func (ih *InputHandler) tryFocusedNPCInteraction() bool {
 // openNPCInteraction starts a dialog with the given NPC - the single entry
 // point shared by the T key, Space-in-focus, and mouse click paths.
 func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
+	// Pressing Space is the ANSWER to this object's nudge, whatever comes of it:
+	// settle it first, because the paths below return early (a ward that refuses
+	// to speak, a chest or a lectern that has no dialog at all) and would leave
+	// their own "Press SPACE to interact" heading hanging over the result.
+	ih.game.noteInteractPromptEngaged(npc)
 	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" - other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
@@ -1873,22 +1756,10 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// was taken, or the cliff trolls thinned below the quota).
 	ih.game.creditClearedKillQuests(npc)
 	ih.game.applyCompletedQuestTiles() // dialogue-time credit can complete a world-changing quest
-	ih.game.dialogActive = true
-	ih.game.dialogNPC = npc
-	ih.game.switchDialogTab(0)      // tabbed dialogs always open on their primary tab
-	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
-	ih.game.selectedCharIdx = 0     // Default to first character
-	ih.game.dialogSelectedSpell = 0 // Default to first spell
-	ih.game.selectedSpellKey = ""   // No spell selected initially
-	ih.game.skillTrainerPopup = false
-	ih.game.selectedChoice = 0   // Reset encounter choice selection
-	ih.game.dialogNodePath = nil // Start every conversation at the greeting
-	ih.game.merchantBuyPage = 0
-	ih.game.merchantSellPage = 0
-	ih.game.spellTraderPage = 0
-	ih.game.skillTrainerPage = 0
-	ih.game.cardCollectorInvPage = 0
-	if npcDialogKindFor(npc) == dialogKindTavern {
+	ih.game.beginConversation(npc)
+	ih.buildStatueChoices(npc)
+	kind := ih.game.npcDialogKindFor(npc)
+	if kind == dialogKindTavern {
 		ih.game.stashInvPage = 0
 		ih.game.stashShowCards = false
 		if !ih.game.ensureStashLoaded() {
@@ -1897,7 +1768,7 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	}
 
 	// If NPC has spells, select the first one (deterministic order)
-	if npcHasSpellTrading(npc) {
+	if kind == dialogKindSpellTrader {
 		spellKeys := npcSpellKeys(npc) // Use deterministic ordering
 		if len(spellKeys) > 0 {
 			ih.game.selectedSpellKey = spellKeys[0]
@@ -1929,7 +1800,7 @@ func (ih *InputHandler) handleDialogInput() {
 
 	// Handle different NPC capabilities
 	if ih.game.dialogNPC != nil {
-		switch npcDialogKindFor(ih.game.dialogNPC) {
+		switch ih.game.npcDialogKindFor(ih.game.dialogNPC) {
 		case dialogKindSpellTrader:
 			ih.handleSpellTraderInput()
 		case dialogKindSkillTrainer:
@@ -2031,7 +1902,17 @@ func (ih *InputHandler) npcShopLine(pick func(*character.NPCDialogue) string, va
 
 // purchaseSelectedSpell attempts to purchase the selected spell for the selected character
 func (ih *InputHandler) purchaseSelectedSpell() {
-	if ih.game.dialogNPC == nil || ih.game.selectedSpellKey == "" {
+	if ih.game.selectedSpellKey == "" {
+		return
+	}
+	// Same reason as purchaseSelectedTraining: the shop must be OPEN, not merely
+	// stocked, wherever money changes hands.
+	if ih.game.npcDialogKindFor(ih.game.dialogNPC) != dialogKindSpellTrader {
+		return
+	}
+	// Same bounds guard as purchaseSelectedTraining: a roster swap can shrink the
+	// party under a stale selection while the shop is open.
+	if ih.game.selectedCharIdx < 0 || ih.game.selectedCharIdx >= len(ih.game.party.Members) {
 		return
 	}
 
@@ -2044,8 +1925,9 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 
 	vars := npcDialogVars{Name: selectedChar.Name, Spell: spellData.Name, Cost: spellData.Cost}
 
-	// Check if character already knows this spell
-	if characterKnowsSpellByName(selectedChar, spellData.Name) {
+	// Already known? By the same catalog KEY the gate and the teach use - a row
+	// with an authored display name must not read as buyable and then refuse.
+	if selectedChar.KnowsSpell(spells.SpellID(ih.game.selectedSpellKey)) {
 		ih.game.AddCombatMessage(ih.npcShopLine(
 			func(d *character.NPCDialogue) string { return d.AlreadyKnown }, vars,
 			fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)))
@@ -2061,14 +1943,14 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	}
 
 	// The matching magic school must already be open.
-	if !canCharacterLearnNPCSpell(selectedChar, spellData) {
+	if !canCharacterLearnNPCSpell(selectedChar, ih.game.selectedSpellKey) {
 		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (matching magic school is not open)", selectedChar.Name, spellData.Name))
 		return
 	}
 
 	// Teach FIRST, charge after: a spell that fails to resolve must not eat
 	// the gold (and must not leave an empty school behind).
-	if !ih.addSpellToCharacter(selectedChar, spellData) {
+	if !ih.addSpellToCharacter(selectedChar, ih.game.selectedSpellKey) {
 		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot be taught right now.", spellData.Name))
 		return
 	}
@@ -2079,17 +1961,11 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)))
 }
 
-// addSpellToCharacter teaches a shop spell; reports whether the spellbook
-// actually changed (false: unresolvable spell or already known - the caller
-// must not charge for it). Resolution and learning go through the ONE path
-// (LearnSpell), which also picks the school from spells.yaml rather than the
-// trader catalog.
-func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) bool {
-	spellIDToAdd, err := spells.GetSpellIDByName(spellData.Name)
-	if err != nil {
-		return false // Spell not found
-	}
-	return char.LearnSpell(spellIDToAdd)
+// addSpellToCharacter teaches the row by its catalog KEY (the spell id), the same
+// identity the gate reads. Reports whether the spellbook changed - false for an
+// already-known page, and the caller must not charge for it.
+func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellKey string) bool {
+	return char.LearnSpell(spells.SpellID(spellKey))
 }
 
 // handleDialogMouseInput handles mouse input in dialog mode
@@ -2102,10 +1978,17 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dlg := npcDialogLayout(ih.game)
 	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
 
+	// Route by the DIALOG KIND, exactly like the renderer and the keyboard
+	// handler. Reading the raw capabilities here instead would hit-test widgets
+	// that were never drawn: a service-gated trader shows the conversation, and
+	// its invisible portrait strip and icon grid would swallow clicks aimed at the
+	// quest choices - and a double-click would buy from a shop that is shut.
+	kind := ih.game.npcDialogKindFor(ih.game.dialogNPC)
+
 	// Card collector - double-click a slotted card to take it back, a loose card
 	// to slot it (matches the inventory's equip/unequip double-click). Reset after
 	// each action since the lists shift underneath the cursor.
-	if npcIsCardCollector(ih.game.dialogNPC) {
+	if kind == dialogKindCardCollector {
 		for slot := 0; slot < MaxCardSlots; slot++ {
 			x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
@@ -2141,10 +2024,10 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	}
 
 	// Spell trader - portrait strip + icon grid.
-	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
+	if kind == dialogKindSpellTrader {
 		// On the Quests tab the shop widgets aren't drawn - don't let their
 		// hidden rects swallow clicks meant for the quest choices/tabs.
-		if ih.game.dialogTab == 1 && npcHasChoiceDialog(ih.game.dialogNPC) {
+		if ih.game.dialogTab == 1 && ih.game.npcDialogHasTalkTab(ih.game.dialogNPC) {
 			return
 		}
 		for i := range ih.game.party.Members {
@@ -2181,7 +2064,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// Skill trainer - portrait click opens the per-character popup with
 	// trainable masteries. Popup option clicks select/purchase. Clicks
 	// outside the popup close it (back to portrait grid).
-	if ih.game.dialogNPC != nil && npcHasSkillTraining(ih.game.dialogNPC) {
+	if kind == dialogKindSkillTrainer {
 		if ih.game.skillTrainerPopup &&
 			ih.game.selectedCharIdx >= 0 &&
 			ih.game.selectedCharIdx < len(ih.game.party.Members) {
@@ -2236,10 +2119,10 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// buttons are consumed in the draw pass, so a click that misses every cell
 	// here falls through to flip the page. idx (absolute list position) keys the
 	// double-click so the same item keeps its identity across pages.
-	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
+	if kind == dialogKindMerchant || kind == dialogKindArenaGladiator {
 		// Gladiator tabbed dialog: the shop grids exist only on the Shop tab -
 		// their hidden rects must not swallow Talk/Board clicks.
-		if npcDialogKindFor(ih.game.dialogNPC) == dialogKindArenaGladiator && ih.game.dialogTab != 1 {
+		if kind == dialogKindArenaGladiator && ih.game.dialogTab != 1 {
 			return
 		}
 		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
@@ -2256,58 +2139,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("merchant_buy", idx) {
-					entry := stock[idx]
-					if !entry.InStock() {
-						ih.game.AddCombatMessage("That item is sold out.")
-						return
-					}
-					// Arena-points merchants trade at flat prices in the victory
-					// currency; gold merchants keep the Merchant-skill discount.
-					// A per-entry currency_item (Scalewright) overrides the shop
-					// currency and may add a flat gold surcharge.
-					entryCurrency := entry.EffectiveCurrency(ih.game.dialogNPC.Currency)
-					if name, ok := currencyItemName(entryCurrency); ok {
-						if entry.GoldCost > ih.game.party.Gold {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold on top of the %ss for %s.", entry.GoldCost, name, entry.Item.Name))
-							return
-						}
-						if !ih.game.party.RemoveItemsByName(name, entry.Cost) {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d %ss to trade for %s.", entry.Cost, name, entry.Item.Name))
-							return
-						}
-						ih.game.party.Gold -= entry.GoldCost
-						ih.game.party.AddItem(entry.Item)
-						entry.Take()
-						if entry.GoldCost > 0 {
-							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss and %d gold for %s.", entry.Cost, name, entry.GoldCost, entry.Item.Name))
-						} else {
-							ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost, name, entry.Item.Name))
-						}
+					// Stacks buy one unit per double-click; bulk purchases go
+					// through the drag-to-buy quantity picker.
+					if ih.game.buyMerchantUnits(stock[idx], 1) {
 						ih.resetDialogDoubleClick()
-						return
 					}
-					if entryCurrency == character.CurrencyArenaPoints {
-						if entry.Cost > ih.game.party.ArenaPoints {
-							ih.game.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", entry.Cost, entry.Item.Name))
-							return
-						}
-						ih.game.party.ArenaPoints -= entry.Cost
-						ih.game.party.AddItem(entry.Item)
-						entry.Take()
-						ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d arena points.", entry.Item.Name, entry.Cost))
-						ih.resetDialogDoubleClick()
-						return
-					}
-					cost := ih.game.merchantBuyPrice(entry.Cost) // Merchant skill discount
-					if cost > ih.game.party.Gold {
-						ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", cost, entry.Item.Name))
-						return
-					}
-					ih.game.party.Gold -= cost
-					ih.game.party.AddItem(entry.Item)
-					entry.Take()
-					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
-					ih.resetDialogDoubleClick()
 				}
 				return
 			}
@@ -2325,17 +2161,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 				x, y, w, h := merchantCellRect(rightX, gridTop, slot)
 				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 					if ih.dialogDoubleClick("merchant_sell", idx) {
-						item := inv[idx]
-						base := item.Attributes["value"]
-						if base <= 0 {
-							ih.game.AddCombatMessage("This item has no value.")
-							return
+						// Stacks sell one unit per double-click; bulk sales go
+						// through the drag-to-sell quantity picker.
+						if ih.game.sellInventoryUnits(idx, 1) {
+							ih.resetDialogDoubleClick()
 						}
-						price := ih.game.merchantSellPrice(base) // Merchant skill markup
-						ih.game.awardGold(price)
-						ih.game.party.ConsumeOneAt(idx) // stacks sell one unit per double-click
-						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
-						ih.resetDialogDoubleClick()
 					}
 					return
 				}
@@ -2353,13 +2183,21 @@ func (ih *InputHandler) handleDialogMouseInput() {
 // same list entry. zone keys the tracker per list (buy/sell/spell/...), so two
 // fast clicks on the same index of DIFFERENT lists never count.
 func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
+	return ih.game.dialogDoubleClick(zone, index)
+}
+
+// dialogDoubleClick is the ONE dialog-list double-click tracker, shared by the
+// Update-side handlers (trainer, merchant, trader, cards) and Draw-side rows
+// (buff service): first click selects, a second on the same zone+index within
+// the window acts.
+func (g *MMGame) dialogDoubleClick(zone string, index int) bool {
 	currentTime := time.Now().UnixMilli()
-	doubleClick := ih.game.dialogLastClickZone == zone &&
-		ih.game.dialogLastClickedIdx == index &&
-		withinDoubleClickWindow(currentTime, ih.game.dialogLastClickTime)
-	ih.game.dialogLastClickTime = currentTime
-	ih.game.dialogLastClickedIdx = index
-	ih.game.dialogLastClickZone = zone
+	doubleClick := g.dialogLastClickZone == zone &&
+		g.dialogLastClickedIdx == index &&
+		withinDoubleClickWindow(currentTime, g.dialogLastClickTime)
+	g.dialogLastClickTime = currentTime
+	g.dialogLastClickedIdx = index
+	g.dialogLastClickZone = zone
 	return doubleClick
 }
 
@@ -2662,9 +2500,9 @@ func (ih *InputHandler) handleArenaGladiatorInput() {
 
 // handleSpellTraderInput handles input for spell trader NPCs
 func (ih *InputHandler) handleSpellTraderInput() {
-	// Quest-giving traders (e.g. Aldric) carry a second "Quests" tab; Tab
-	// switches, and on that tab the encounter-style choice input takes over.
-	if npcHasChoiceDialog(ih.game.dialogNPC) {
+	// Quest-giving traders carry a second "Quests" tab; Tab switches, and on that
+	// tab the encounter-style choice input takes over.
+	if ih.game.npcDialogHasTalkTab(ih.game.dialogNPC) {
 		if ih.keys.Consume(ebiten.KeyTab) {
 			ih.game.switchDialogTab(1 - ih.game.dialogTab)
 		}
@@ -2732,7 +2570,9 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 }
 
 func (ih *InputHandler) purchaseSelectedTraining() {
-	if ih.game.dialogNPC == nil || !npcHasSkillTraining(ih.game.dialogNPC) {
+	// The gate is checked HERE too, not only where the click was routed: this is
+	// where the gold leaves the party.
+	if ih.game.npcDialogKindFor(ih.game.dialogNPC) != dialogKindSkillTrainer {
 		return
 	}
 	if ih.game.selectedCharIdx < 0 || ih.game.selectedCharIdx >= len(ih.game.party.Members) {
@@ -2785,22 +2625,8 @@ func (ih *InputHandler) handleEncounterInput() {
 		ih.game.selectedChoice = len(choices) - 1
 	}
 
-	// Mouse: clicking a choice row selects it; a second click on the same row
-	// (double-click, like every other dialog list) executes it.
-	dlg := npcDialogLayout(ih.game)
-	for i := range choices {
-		x, y, w, h := ih.game.dialogueChoiceRect(npc, i, dlg.x, dlg.y, dlg.w)
-		if h == 0 {
-			continue
-		}
-		if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
-			ih.game.selectedChoice = i
-			if ih.dialogDoubleClick("encounter_choice", i) {
-				ih.executeEncounterChoice()
-				ih.resetDialogDoubleClick()
-			}
-			return
-		}
+	if ih.consumeEncounterMouseInput(npc, choices) {
+		return
 	}
 
 	// Navigate choices with Up/Down arrows
@@ -2844,94 +2670,31 @@ func (ih *InputHandler) executeEncounterChoice() {
 		return
 	}
 
+	// The selection indexes visibleNPCChoices, so a service withheld by
+	// requires_quest cannot be reached from here at all: that filter IS the gate,
+	// not merely the presentation of it.
 	choice := choices[ih.game.selectedChoice]
 
-	switch choice.Action {
-	case "info":
-		// Branch deeper: show this choice's reply + its follow-up choices. The
-		// conversation stays open (no quest taken) until the player picks a
-		// terminal action inside the branch.
-		ih.game.dialogNodePath = append(ih.game.dialogNodePath, choice)
-		ih.game.selectedChoice = 0
-
-	case "back":
-		// Pop one conversation level (back toward the greeting).
-		if n := len(ih.game.dialogNodePath); n > 0 {
-			ih.game.dialogNodePath = ih.game.dialogNodePath[:n-1]
-		}
-		ih.game.selectedChoice = 0
-
-	case "leave":
-		// Close dialog and leave
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-
-	case "combat":
-		// Start encounter combat
-		ih.startEncounter()
-
-	case "enter_map":
-		ih.enterEncounterMap(choice.Map)
-
-	case "open_door":
-		ih.game.openLockedDoor(ih.game.dialogNPC, choice.RuntimeOptionIndex)
-
-	case "start_arena_duel":
-		ih.startArenaDuel(choice)
-
-	case "give_quest":
-		ih.handleGiveQuest(choice.QuestID)
-
-	case "turn_in_quest":
-		ih.handleTurnInQuest(choice.QuestID)
-
-	case "close_valve":
-		ih.handleCloseValve(choice.QuestID)
-
-	case "take_swords":
-		ih.handleOpenSwordRack(choice.QuestID)
-
-	case "tavern_rest":
-		ih.handleTavernRest(choice)
-
-	case "wait_until_night":
-		ih.handleArenaWait(choice, true)
-
-	case "wait_until_dawn":
-		ih.handleArenaWait(choice, false)
-
-	case "buy_food":
-		ih.handleBuyFood(choice)
-
-	case "cast_buff":
-		ih.handleCastBuff(choice)
-
-	case "summon_dragon":
-		ih.summonDragonFromStatue(npc, choice.RuntimeOptionIndex)
-
-	case "open_roster":
-		ih.handleOpenRoster()
-
-	case "manage_stash":
-		ih.handleManageStash()
-
-	default:
-		// Unknown action - just close dialog
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
+	// The action NAME is the dispatch key (dialogActions), and a `prop:` block
+	// travels with the reserved prop action - validated both ways at load, so the
+	// row that draws is the row that runs.
+	if run := dialogActions[choice.Action]; run != nil {
+		run(ih, npc, choice)
+		return
 	}
+	// Unknown action - only a runtime-built row can get here (authored ones are
+	// rejected at boot); close the dialog rather than leave it inert.
+	ih.game.closeConversation()
 }
 
 func (ih *InputHandler) handleOpenRoster() {
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 	ih.game.rosterScreenOpen = true
 	ih.game.rosterSelectedActive = -1
 }
 
 func (ih *InputHandler) handleManageStash() {
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 	ih.game.openStash()
 }
 
@@ -2956,8 +2719,7 @@ func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
 // handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).
 func (ih *InputHandler) handleGiveQuest(questID string) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if questID == "" || quests.GlobalQuestManager == nil {
 		return
 	}
@@ -3008,8 +2770,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 func (ih *InputHandler) handleTurnInQuest(questID string) {
 	g := ih.game
 	npc := g.dialogNPC // capture before clearing - we conclude it on success
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if questID == "" || g.questManager == nil {
 		return
 	}
@@ -3048,75 +2809,65 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	}
 }
 
-// handleCloseValve shuts a sluice valve: advances the interact-quest by one (only
-// while it's active) and marks this valve Visited so it stays shut and can't be
-// re-counted. The quest's tag is its TargetMonster ("valve").
-func (ih *InputHandler) handleCloseValve(questID string) {
+// handleQuestPropInteract is the ONE body behind every authored quest prop (a
+// valve, a rack, a lamp). Its wording and tag come from the choice's `prop:`
+// block. An ACTIVE quest is required so the prop is never consumed for nothing,
+// Visited keeps it from counting twice, and the credit is addressed by quest_id
+// AND tag - both must match or nothing is spent.
+func (ih *InputHandler) handleQuestPropInteract(questID string, words *character.NPCPropCopy) {
 	g := ih.game
 	npc := g.dialogNPC
-	g.dialogActive = false
-	g.dialogNPC = nil
-	if g.questManager == nil || npc == nil {
+	g.closeConversation()
+	if g.questManager == nil || npc == nil || words == nil {
 		return
 	}
-	q := g.questManager.GetQuest(questID)
-	if q == nil || q.Status != quests.QuestStatusActive {
-		g.AddCombatMessage("The valve won't budge - no reason to shut it yet.")
-		return
-	}
-	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
-	npc.Visited = true // this valve stays shut and can't be re-counted
-	g.AddCombatMessage(fmt.Sprintf("You heave the valve shut. (%s)", q.GetProgressString()))
-	for _, cq := range completed {
-		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
-	}
-}
-
-// handleOpenSwordRack loots a katana rack hidden behind a shoji: rolls the zone
-// loot table into the party (random zone gear + a little gold, never a unique),
-// advances the interact-quest, and marks the rack Visited so it can't be
-// re-looted. Gating on an ACTIVE quest avoids consuming a rack that wouldn't
-// count (no soft-lock). Gathering all of them completes castle_armory, which
-// wakes the dormant Samurai Warlord (passive_until_quest).
-func (ih *InputHandler) handleOpenSwordRack(questID string) {
-	g := ih.game
-	npc := g.dialogNPC
-	g.dialogActive = false
-	g.dialogNPC = nil
-	if g.questManager == nil || npc == nil {
-		return
-	}
+	// A used prop is CONCLUDED, so its action is normally hidden - but a prop
+	// authored as a repeatable encounter keeps offering rows, so answer with its
+	// own visited_message rather than closing the dialog in silence.
 	if npc.Visited {
-		g.AddCombatMessage("The rack stands empty.")
+		if npc.DialogueData != nil && npc.DialogueData.VisitedMessage != "" {
+			g.AddCombatMessage(npc.DialogueData.VisitedMessage)
+		}
 		return
 	}
 	q := g.questManager.GetQuest(questID)
 	if q == nil || q.Status != quests.QuestStatusActive {
-		g.AddCombatMessage("No reason to disturb the armoury yet.")
+		g.AddCombatMessage(words.NotYet)
+		return
+	}
+	// Credit FIRST, consume after. The prop is one-shot and often
+	// hide_when_visited, so spending it on a bump the manager refused would
+	// delete the only way to finish the errand. The credit is addressed to THIS
+	// quest (never a tag broadcast): a refused prop stays live, and a live prop
+	// must not have moved anyone else's counter on the way.
+	credited, completed := g.questManager.AdvanceInteractQuest(questID, words.Tag)
+	if !credited {
+		g.AddCombatMessage(words.NotYet)
 		return
 	}
 	npc.Visited = true
-	loot, gold := rollWeightedLootTable("castle_armory")
-	for _, it := range loot {
-		g.party.AddItem(it)
+	if words.LootTable != "" {
+		loot, gold := rollWeightedLootTable(words.LootTable)
+		for _, it := range loot {
+			g.party.AddItem(it)
+		}
+		if gold > 0 {
+			g.awardGold(gold)
+		}
+		parts := make([]string, 0, len(loot)+1)
+		if gold > 0 {
+			parts = append(parts, fmt.Sprintf("%d gold", gold))
+		}
+		for _, it := range loot {
+			parts = append(parts, it.Name)
+		}
+		if len(parts) > 0 && words.LootLine != "" {
+			g.AddCombatMessage(fmt.Sprintf(words.LootLine, strings.Join(parts, ", ")))
+		}
 	}
-	if gold > 0 {
-		g.awardGold(gold)
-	}
-	parts := make([]string, 0, len(loot)+1)
-	if gold > 0 {
-		parts = append(parts, fmt.Sprintf("%d gold", gold))
-	}
-	for _, it := range loot {
-		parts = append(parts, it.Name)
-	}
-	if len(parts) > 0 {
-		g.AddCombatMessage(fmt.Sprintf("You take from the rack: %s.", strings.Join(parts, ", ")))
-	}
-	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
-	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
+	g.AddCombatMessage(fmt.Sprintf("%s (%s)", words.Took, q.GetProgressString()))
 	for _, cq := range completed {
-		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep - the Warlord wakes.", cq.Definition.Name))
+		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! %s", cq.Definition.Name, words.Completed))
 	}
 }
 
@@ -3130,8 +2881,7 @@ func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	}
 	g.party.Gold -= choice.Cost
 	g.restParty()
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	g.AddCombatMessage(fmt.Sprintf("The party sleeps soundly (-%d gold). HP and spell points restored.", choice.Cost))
 }
 
@@ -3150,8 +2900,7 @@ func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, nig
 	}
 	g.party.Gold -= choice.Cost
 	g.advanceDayNightToPhase(night)
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if night {
 		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until the stars come out (-%d gold).", choice.Cost))
 	} else {
@@ -3178,13 +2927,18 @@ func (ih *InputHandler) handleBuyFood(choice *character.NPCDialogueChoice) {
 // mid-draw, so the dialog can close cleanly).
 func (ih *InputHandler) handleBuffServiceInput() {
 	g := ih.game
-	if buffServiceHasQuestTab(g.dialogNPC) && ih.keys.Consume(ebiten.KeyTab) {
-		g.switchDialogTab(1 - g.dialogTab)
-		return
-	}
-	if g.dialogTab == 1 {
-		ih.handleEncounterInput()
-		return
+	// Nested exactly like handleSpellTraderInput: when the tab is gone the draw
+	// pass paints the service rows again, so input must fall back with it -
+	// otherwise the choice handler keeps eating clicks meant for the shop.
+	if g.npcDialogHasTalkTab(g.dialogNPC) {
+		if ih.keys.Consume(ebiten.KeyTab) {
+			g.switchDialogTab(1 - g.dialogTab)
+			return
+		}
+		if g.dialogTab == 1 {
+			ih.handleEncounterInput()
+			return
+		}
 	}
 	if choice := g.pendingBuffService; choice != nil {
 		g.pendingBuffService = nil
@@ -3197,6 +2951,13 @@ func (ih *InputHandler) handleBuffServiceInput() {
 // dialogue entry rather than any caster's mastery.
 func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 	g := ih.game
+	// A chant already woven over the party - of ANY remaining span - refuses
+	// the sale outright: a misclick must never re-buy a running blessing.
+	if g.serviceBuffAlreadyCovered(spells.SpellID(choice.Buff)) {
+		g.AddCombatMessage(fmt.Sprintf("%s is already woven over the party - no gold was spent.",
+			buffServiceLabel(choice.Buff)))
+		return
+	}
 	if g.party.Gold < choice.Cost {
 		g.AddCombatMessage(fmt.Sprintf("That casting costs %d gold - your purse is too light.", choice.Cost))
 		return
@@ -3215,8 +2976,7 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 		casterName = g.dialogNPC.Name
 	}
 	g.party.Gold -= choice.Cost
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	g.AddCombatMessage(fmt.Sprintf("%s casts %s over the party for %s (-%d gold).",
 		casterName, buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost))
 }
@@ -3263,8 +3023,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 // and removes the spent statue from the world.
 func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 	if npc == nil || summonIdx < 0 || summonIdx >= len(npc.Summons) {
 		return
 	}
@@ -3301,59 +3060,17 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
-	if targetMapKey == "" || world.GlobalWorldManager == nil || !world.GlobalWorldManager.IsValidMap(targetMapKey) {
+	ih.game.closeConversation()
+	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance}); err != nil {
 		ih.game.AddCombatMessage("You cannot enter from here.")
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-		return
 	}
-
-	// Remember where the player is on the current map so a return trip
-	// drops them back at the doorway, not at the map's spawn tile.
-	if ih.game.mapReturnPoses == nil {
-		ih.game.mapReturnPoses = make(map[string]MapPose)
-	}
-	if currentKey := world.GlobalWorldManager.CurrentMapKey; currentKey != "" {
-		ih.game.mapReturnPoses[currentKey] = MapPose{
-			X:     ih.game.camera.X,
-			Y:     ih.game.camera.Y,
-			Angle: ih.game.camera.Angle,
-		}
-	}
-
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
-	ih.switchToMap(targetMapKey)
-
-	currentWorld := ih.game.GetCurrentWorld()
-	if currentWorld == nil {
-		return
-	}
-
-	// Prefer the previously-stored pose for this map if we've been here before;
-	// fall back to the map's spawn tile on first visit.
-	var x, y, angle float64
-	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
-		x, y, angle = pose.X, pose.Y, pose.Angle
-	} else if rx, ry, ok := world.GlobalWorldManager.OpenWorldRegionStart(targetMapKey); ok {
-		// Merged region: the unified world's own spawn is the starting map's -
-		// arrive at THIS region's '+' instead.
-		x, y, angle = rx, ry, AngleNorth
-	} else {
-		// First arrival: drop the party on the centre of the spawn tile facing
-		// north, so every fresh location entry is consistent and predictable.
-		x, y = currentWorld.GetStartingPosition()
-		angle = AngleNorth
-	}
-	ih.finishMapArrival(x, y, angle)
 }
 
 // startEncounter initiates combat encounter with bandits
 func (ih *InputHandler) startEncounter() {
 	npc := ih.game.dialogNPC
 	if npc.EncounterData == nil {
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
+		ih.game.closeConversation()
 		return
 	}
 
@@ -3361,8 +3078,7 @@ func (ih *InputHandler) startEncounter() {
 	npc.Visited = true
 
 	// Close dialog
-	ih.game.dialogActive = false
-	ih.game.dialogNPC = nil
+	ih.game.closeConversation()
 
 	// Create encounter quest if quest details are provided
 	if npc.EncounterData.QuestID != "" && quests.GlobalQuestManager != nil {

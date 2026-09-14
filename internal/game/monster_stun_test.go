@@ -19,7 +19,7 @@ func TestStunnedMonster_DoesNotAttackRealTime(t *testing.T) {
 
 	mk := func(stun int) *monsterPkg.Monster3D {
 		return &monsterPkg.Monster3D{
-			ID: "m1", Name: "Test", X: 10, Y: 0,
+			ID: "m1", Name: "Test", X: 64, Y: 0,
 			State: monsterPkg.StateAttacking, StateTimer: 1,
 			StunFramesRemaining: stun,
 			AttackRadius:        64,

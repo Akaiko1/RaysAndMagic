@@ -8,7 +8,6 @@ import (
 	"ugataima/internal/sound"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 const (
@@ -161,8 +160,8 @@ func (g *MMGame) updateAudioSettingsPointer(px, py, panelW int) {
 	if g.soundManager == nil {
 		return
 	}
-	mx, my := ebiten.CursorPosition()
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	mx, my := pointerPosition()
+	if pointerLeftJustPressed() {
 		g.audioSliderDrag = -1
 		for row := range audioSettingDefinitions {
 			r := audioSliderRect(px, py, panelW, row)
@@ -172,7 +171,7 @@ func (g *MMGame) updateAudioSettingsPointer(px, py, panelW int) {
 			}
 		}
 	}
-	if g.audioSliderDrag >= 0 && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if g.audioSliderDrag >= 0 && pointerLeftPressed() {
 		r := audioSliderRect(px, py, panelW, g.audioSliderDrag)
 		volume := float64(mx-r.x1) / float64(r.x2-r.x1)
 		channel := audioSettingDefinitions[g.audioSliderDrag].channel
@@ -180,7 +179,7 @@ func (g *MMGame) updateAudioSettingsPointer(px, py, panelW int) {
 			g.audioSettingsDirty = true
 		}
 	}
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && g.audioSliderDrag >= 0 {
+	if pointerLeftJustRelease() && g.audioSliderDrag >= 0 {
 		g.saveAudioSettings()
 		g.audioSliderDrag = -1
 	}

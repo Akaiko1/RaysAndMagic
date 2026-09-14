@@ -81,6 +81,7 @@ quests:
     type: "interact"
     target_monster: "valve"   # interaction tag matched by OnInteract
     target_count: 7
+    progress_text: "valves closed"
     is_starting_quest: false
     rewards:
       gold: 1500
@@ -92,10 +93,79 @@ quests:
     type: "interact"
     target_monster: "sword_rack"   # interaction tag matched by OnInteract
     target_count: 5
+    progress_text: "sword racks stripped"
     is_starting_quest: false
     rewards:
       gold: 2500
       experience: 1600
+
+  # --- Sakura Garden (eastern island, L18-24) ---
+  # Four local errands: three ward quests in any order, then Hina's capstone
+  # boss hunt. Hina's offer is gated behind all three via a nested
+  # requires_quest chain on her dialogue (npcs.yaml), one prerequisite per
+  # level - the quest definitions themselves stay flat.
+  silent_bells:
+    name: "The Silent Bells"
+    description: "Kill 5 Kasa Obake in the Sakura Garden for Shiori the shrine keeper and report back to her. The umbrellas carry pieces of the castle's broken ward chimes, and the shrine bells will not settle while they hop."
+    type: "kill"
+    target_monster: "kasa_obake"
+    target_count: 5
+    target_map: "sakura_garden"
+    is_starting_quest: false
+    rewards:
+      gold: 1000
+      experience: 1000
+      item_pool:
+        - "flame_ward_draught"
+        - "storm_ward_draught"
+        - "gloom_ward_draught"
+        - "stoneskin_draught"
+
+  stolen_water_seal:
+    name: "The Stolen Water Seals"
+    description: "Kill 4 Kappa at the Moon Pond in the Sakura Garden for Ayame the pond keeper and report back to her. They stole the carved seals that work the koi channels."
+    type: "kill"
+    target_monster: "kappa"
+    target_count: 4
+    target_map: "sakura_garden"
+    is_starting_quest: false
+    rewards:
+      gold: 1200
+      experience: 1100
+      item_pool:
+        - "health_potion"
+        - "mana_potion"
+        - "stoneskin_draught"
+
+  feathers_false_oath:
+    name: "Feathers of the False Oath"
+    description: "Kill 4 Karasu Tengu on the ridge in the Sakura Garden for Kuroha the exile and report back. The flock swore a new oath to what stirs in the castle."
+    type: "kill"
+    target_monster: "karasu_tengu"
+    target_count: 4
+    target_map: "sakura_garden"
+    is_starting_quest: false
+    rewards:
+      gold: 1600
+      experience: 1500
+      item_pool:
+        - "tengu_feather"
+
+  fivefold_web:
+    name: "The Fivefold Web"
+    description: "Kill the Sakura Jorogumo in the orchard of the Sakura Garden for Hina the onmyoji apprentice and report back to her. The spider has tied the garden's three broken wards into one web and feeds on their echo."
+    type: "kill"
+    target_monster: "sakura_jorogumo"
+    target_count: 1
+    target_map: "sakura_garden"
+    is_starting_quest: false
+    rewards:
+      gold: 3000
+      experience: 3000
+      item_pool:
+        - "spider_lily_obi"
+        - "fivefold_ceremonial_ribbon"
+        - "moonspun_silk"
 
   # Aldric's wolf cull: completes when NO living wolf remains on the forest map
   # (extermination check), not just at the kill quota. Completion swaps the two
@@ -147,6 +217,48 @@ quests:
     # he materializes on the sanctum dais among his Isis handmaidens.
     on_complete_spawns:
       - { id: reaper_dais, map: pyramid_3, x: 15, y: 5, monster: ancient_god_of_death }
+
+  # ============ SERVICE GATES ============
+  # Three outland services stay shut until their errand is paid off
+  # (requires_quest on the NPC in npcs.yaml): the Starlight Archive's deep
+  # pages, Dunehold's Light and Dark pages, and Dunehold's mastery training.
+  # Each giver is the shopkeeper, so the task is the price of admission.
+
+  archive_missing_volumes:
+    name: "The Archive's Missing Volumes"
+    description: "Kill 3 Possessed Tomes in the Gearworks of the Clock Tower for Keeper Ilthaea and report back to her. The Archive lent the tower three books. They walk the floor down there on their own legs."
+    type: "kill"
+    target_monster: "possessed_tome"
+    target_count: 3
+    target_map: "clock_tower_2"   # the Gearworks; the Belfry libraries hold far more of them
+    is_starting_quest: false
+    rewards:
+      gold: 2000
+      experience: 2000
+
+  shrine_lamps:
+    name: "The Shrine's Lamps"
+    description: "Recover the 3 shrine lamps from the Pyramid for Yusra of the Oasis and return them to her. There is no oil in them and they are still warm."
+    type: "interact"
+    target_monster: "shrine_lamp"   # interaction tag matched by OnInteract
+    target_count: 3
+    progress_text: "shrine lamps lifted"
+    is_starting_quest: false
+    rewards:
+      gold: 2000
+      experience: 2200
+
+  pit_standing:
+    name: "Standing in the Pit"
+    description: "Win 3 duels in the Grand Arena for Blademaster Nadira and report back to her. She sharpens no mastery for a student who has not stood on the sand."
+    type: "interact"
+    target_monster: "arena_duel"   # bumped when a challenged champion falls (arenaDuelQuestTag)
+    target_count: 3
+    progress_text: "arena duels won"
+    is_starting_quest: false
+    rewards:
+      gold: 2500
+      experience: 2500
 
   # ============ ENDGAME TRIAD GATES ============
   # Starting quests so they are active on every run AND on loaded old saves

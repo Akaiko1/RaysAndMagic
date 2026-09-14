@@ -45,7 +45,7 @@ func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
 	w.Monsters = append(w.Monsters, m)
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 
-	mw := &MonsterWrapper{Monster: m, collisionSystem: g.collisionSystem, game: g}
+	mw := &MonsterWrapper{Monster: m, collisionSystem: g.collisionSystem, frame: g.monsterFrameContext()}
 	mw.snapshot = g.collisionSystem.Snapshot()
 	mw.Update()               // the real RT step, Phase 1: AI + desired collision type
 	mw.ApplyCollisionUpdate() // Phase 2: write it
@@ -88,7 +88,7 @@ func TestPassiveRangedBand_NoTeleportThrash(t *testing.T) {
 		m.TetherRadius = 2 * ts
 		m.AITargetX, m.AITargetY = g.camera.X, g.camera.Y
 		w.Monsters = append(w.Monsters, m)
-		wraps[i] = &MonsterWrapper{Monster: m, collisionSystem: g.collisionSystem, game: g}
+		wraps[i] = &MonsterWrapper{Monster: m, collisionSystem: g.collisionSystem, frame: g.monsterFrameContext()}
 	}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 

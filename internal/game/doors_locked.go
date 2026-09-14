@@ -322,8 +322,7 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 	}
 	if !opened {
 		g.playSound(soundDoorLocked)
-		g.dialogActive = false
-		g.dialogNPC = nil
+		g.closeConversation()
 		return
 	}
 	g.playSound(soundDoorOpen)
@@ -332,8 +331,7 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 		g.collisionSystem.UnregisterEntity(lockedDoorEntityID(npc))
 	}
 	delete(g.lockedDoorEntityIDs, lockedDoorEntityID(npc))
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 }
 
 // resolveNonKeyDoorAttempt is the deterministic lock state transition shared

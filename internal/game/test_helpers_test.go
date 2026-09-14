@@ -21,7 +21,7 @@ func testTileSizeClasses() map[string]float64 {
 
 // Shared fixtures for internal/game tests. Keep scenario-specific setup next to
 // its test; only reusable game, world, party, and champion setup belongs here.
-func loadTestConfig(t *testing.T) *config.Config {
+func loadTestConfig(t testing.TB) *config.Config {
 	t.Helper()
 
 	cfg, err := config.LoadConfig("../../config.yaml")
@@ -193,10 +193,10 @@ func fillTestParty(t *testing.T, g *MMGame) {
 // tickZoneSpellOnce fires exactly one tick of every live cell of a spell, through
 // the production billing path.
 func tickZoneSpellOnce(cs *CombatSystem, spellID string) {
-	cs.game.ensureSteamZoneFieldIDs()
+	cs.game.ensurePersistentDamageZoneFieldIDs()
 	var firing []firingZoneCell
-	for i := range cs.game.steamZones {
-		if z := &cs.game.steamZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
+	for i := range cs.game.persistentDamageZones {
+		if z := &cs.game.persistentDamageZones[i]; z.SpellID == spellID && z.FramesLeft > 0 {
 			firing = append(firing, firingZoneCell{cell: *z, ticks: 1})
 		}
 	}

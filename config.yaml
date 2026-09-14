@@ -1,3 +1,8 @@
+monster_combat:
+  elemental_attack:
+    chance: 0.20
+    damage_multiplier: 2.0
+
 # UgaTaima Game Configuration
 
 # Display settings
@@ -10,6 +15,10 @@ display:
   disable_vsync_on_mac: true
 
 # Engine settings
+# tps is the simulation tick rate and the yardstick for every frame-counted
+# duration in the code (config.DefaultTPS mirrors it; main.go pins the same
+# value when vsync is off). Changing it rescales any duration still written in
+# raw frames - durations authored in seconds convert themselves.
 engine:
   tps: 120
 
@@ -140,7 +149,7 @@ characters:
       magic:
         - { school: body, spells: [heal] }
       main_hand: bronze_labrys
-      armor: chain_helmet
+      equipment: [chain_helmet]
       quick_spell: heal
 
     druid:
@@ -171,7 +180,7 @@ characters:
       luck: 12
       skills: [dagger, blaster, leather, trapper, sleight_of_hand, meditation, disarm_trap, lockpicking]
       main_hand: magic_dagger
-      armor: leather_armor
+      equipment: [leather_armor]
       quick_trap: cleave_trap
 
     arms_master:
@@ -203,6 +212,27 @@ characters:
       main_hand: monk_fists
       quick_spell: mind_blast
 
+    # Spellblade in plate. Two class passives: Spell Absorption (a hostile
+    # spell hit can be eaten for HP+SP) and Strong Magic (offensive casts burn
+    # extra HP for proportionally harder hits) - numbers in character/catalog.go.
+    battle_mage:
+      might: 13
+      intellect: 13
+      personality: 8
+      endurance: 13
+      accuracy: 11
+      speed: 10
+      luck: 11
+      skills: [sword, mace, axe, plate, bodybuilding, spell_absorption, strong_magic]
+      magic:
+        - { school: light, spells: [resurrect] }
+        - { school: earth, spells: [rock_blast] }
+        - { school: fire,  spells: [firewall] }
+        - { school: air,   spells: [sparks] }
+      main_hand: silver_sword
+      equipment: [iron_armor, magic_ring]
+      quick_spell: rock_blast
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -233,6 +263,7 @@ characters:
     - { name: Brinna,  class: archer,   race: halfling }
     - { name: Gwen,    class: arms_master }
     - { name: Sora,    class: monk }
+    - { name: Isolde,  class: battle_mage }
 
 
 # Monster stats and AI
@@ -270,6 +301,11 @@ monster_ai:
 
 # Graphics and rendering
 graphics:
+  elemental_attack:
+    duration_seconds: 0.48
+    radius_tiles: 0.35
+    particle_count: 9
+    max_active: 96
   # Raycasting optimization - reduced for 60 FPS performance
   rays_per_screen_width: 1  # One ray per screen pixel: best wall quality, most expensive
 
@@ -461,6 +497,14 @@ day_night:
       night_monsters:
         - { monster: ningyo, count: 4 }
         - { monster: vengeful_ningyo, count: 1 }
+    # Tengu rule the garden ridge by day; the umbrellas and the foxes come
+    # out after dark (SAKURA_GARDEN design: night-weighted spirits).
+    - map: sakura_garden
+      day_monster: karasu_tengu
+      count: 4
+      night_monsters:
+        - { monster: kasa_obake, count: 3 }
+        - { monster: kitsune_onmyoji, count: 2 }
 
     # Black dragons return only after the cliffs have been completely cleared.
     - map: dragon_cliffs

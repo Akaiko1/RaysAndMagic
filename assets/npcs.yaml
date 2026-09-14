@@ -310,6 +310,7 @@ npcs:
     prompt_verb: enter
     transparent: true
     size_class: medium_prop
+    town_portal: true   # recall anchor: makes its map a Town Portal destination
     dialogue:
       greeting: "The keeper nods. 'Beds upstairs, stew on the fire, and your benched companions at the corner table. What'll it be?'"
       choice_prompt: "The keeper waits."
@@ -811,7 +812,12 @@ npcs:
       choice_prompt: "Close the valve?"
       choices:
         - text: "Heave the wheel shut"
-          action: "close_valve"
+          action: "prop"
+          prop:
+            tag: "valve"
+            not_yet: "The valve won't budge - no reason to shut it yet."
+            took: "You heave the valve shut."
+            completed: "The flood drains from the lair."
           quest_id: "culverts_valves"
         - text: "Leave it"
           action: "leave"
@@ -955,8 +961,15 @@ npcs:
       choice_prompt: "Take the castle's arms?"
       choices:
         - text: "Take from the rack"
-          action: "take_swords"
+          action: "prop"
           quest_id: "castle_armory"
+          prop:
+            tag: "sword_rack"
+            not_yet: "No reason to disturb the armoury yet."
+            took: "Sword rack cleared."
+            completed: "A cold wind stirs the keep - the Warlord wakes."
+            loot_table: "castle_armory"
+            loot_line: "You take from the rack: %s."
         - text: "Leave it"
           action: "leave"
   sword_rack_2:
@@ -991,6 +1004,245 @@ npcs:
     transparent: true
     size_class: tiny_prop
     dialogue: *rack_dialogue
+
+  # --- Sakura Garden (eastern island, L18-24) ---
+  # Paired garden gates: the entrance stands on the castle's south wall by the
+  # arrival court, the exit just inside the garden. In open-world mode both are
+  # removed (open_world.yaml) - the carved passage replaces them.
+  sakura_garden_entrance:
+    name: "Garden Gatehouse"
+    type: "encounter"
+    description: "A broad gatehouse in the castle's south wall; sakura crowns show through the open doors"
+    sprite: "sakura_garden_entrance"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_class: structure
+    dialogue:
+      greeting: "The south gatehouse stands open. Beyond it, an old temple garden climbs the hill in white and pink - and nothing tends it anymore."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter Sakura Garden"
+          action: "enter_map"
+          map: "sakura_garden"
+        - text: "Stay in the castle"
+          action: "leave"
+
+  sakura_garden_exit:
+    name: "Castle Gate"
+    type: "encounter"
+    description: "The smaller garden gate leading back to the castle courtyard"
+    sprite: "sakura_garden_exit"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_class: structure
+    dialogue:
+      greeting: "The garden's north gate opens on the castle courtyard, and the road back to the ship."
+      choice_prompt: "Leave the garden?"
+      choices:
+        - text: "Return to Eastern Isle Castle"
+          action: "enter_map"
+          map: "japanese_castle"
+        - text: "Stay in the garden"
+          action: "leave"
+
+  miko_shiori:
+    name: "Shiori"
+    type: "quest_giver"
+    description: "A young shrine keeper in red and white, sweeping the entry court alone"
+    sprite: "miko_shiori"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Welcome, travellers. I am Shiori. I keep the shrine now that the priests are gone. Do not mind the bells - they have not rung true since the castle fell sick."
+      active_message: "The umbrellas hop the bamboo paths at dusk. Five of them carry chime-pieces. The bells will tell me when it is done."
+      completed_message: "The bells settled in the night, all at once. You have my thanks, and the shrine's."
+      visited_message: "The bells hold their peace. The garden is quieter for what you did."
+      choice_prompt: "Shiori rests her broom."
+      choices:
+        - text: "Why do the bells ring wrong?"
+          action: "info"
+          response: "The temple's wards were chimes, cut from one bronze. When the castle fell sick the wards broke, and the pieces scattered. The old umbrellas took them up - they hop the bamboo now with bronze in their ribs, and every piece rings the same slow count, all night, on its own."
+          choices:
+            - text: "Five umbrellas. It is done."
+              action: "give_quest"
+              quest_id: "silent_bells"
+            - text: "Back."
+              action: "back"
+        - text: "We will still the bells."
+          action: "give_quest"
+          quest_id: "silent_bells"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "silent_bells"
+        - text: "Leave"
+          action: "leave"
+
+  pond_keeper_ayame:
+    name: "Ayame"
+    type: "quest_giver"
+    description: "A sun-browned gardener with a ladle and gourd, working the pond terraces"
+    sprite: "pond_keeper_ayame"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Mind the mud. I am Ayame; the pond is mine to keep. Or it was, before the kappa robbed it."
+      active_message: "Four kappa hold the pond. The seals will be on them - they cannot leave the things alone."
+      completed_message: "The channels run true again. The koi came back to the bridge by morning. Take this, and my thanks."
+      visited_message: "The pond keeps its level now. Come sit by the bridge whenever you like."
+      choice_prompt: "Ayame leans on her ladle."
+      choices:
+        - text: "What did the kappa take?"
+          action: "info"
+          response: "The water seals. Carved stone, palm-sized, one per channel gate. Set one in its slot and it clicks and the gate obeys the water level on its own. The kappa pried out all four when the wards failed, and now the pond drowns one terrace and starves the next."
+          choices:
+            - text: "Four Kappa. We will drain them instead."
+              action: "give_quest"
+              quest_id: "stolen_water_seal"
+            - text: "Back."
+              action: "back"
+        - text: "We will get the seals back."
+          action: "give_quest"
+          quest_id: "stolen_water_seal"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "stolen_water_seal"
+        - text: "Leave"
+          action: "leave"
+
+  tengu_exile_kuroha:
+    name: "Kuroha"
+    type: "quest_giver"
+    description: "A black-winged tengu in a faded blue robe, watching the ridge from a safe overlook"
+    sprite: "tengu_exile_kuroha"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Hold. I am Kuroha, and I no longer count as one of the flock above - I refused the new oath. Speak, ground-walker, and keep your blade loose."
+      active_message: "Four of the oath-sworn hold the ridge. They dive without a cry now. Watch the maples."
+      completed_message: "Four fewer. The knocking on the ridge went quiet for a whole day - I heard the wind again. The feather is yours; it opens more doors among my kind than gold."
+      visited_message: "The ridge is thinner. When the rest shed that oath, I will go home."
+      choice_prompt: "Kuroha's wings settle."
+      choices:
+        - text: "What oath did you refuse?"
+          action: "info"
+          response: "The flock swears to the mountain. That is the old oath. The new one they swore to what stirs in the castle - the same thing that worked the dead warlord's arms. I have listened to what took their oath. It is not a voice. It is a slow even knocking, like a loom underground, and it does not stop for night."
+          choices:
+            - text: "Four Tengu. We will break the oath."
+              action: "give_quest"
+              quest_id: "feathers_false_oath"
+            - text: "Back."
+              action: "back"
+        - text: "We will thin the oath-sworn."
+          action: "give_quest"
+          quest_id: "feathers_false_oath"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "feathers_false_oath"
+        - text: "Leave"
+          action: "leave"
+
+  # Hina's capstone: the give_quest sits at the bottom of a nested chain, one
+  # requires_quest per level, so the boss hunt only opens once all three ward
+  # errands (bells, seals, oath) are turned in and paid.
+  onmyoji_hina:
+    name: "Hina"
+    type: "quest_giver"
+    description: "An onmyoji apprentice in pale blue, a bell in one hand and a folded paper seal in the other"
+    sprite: "onmyoji_hina"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "I am Hina. My master went into the orchard a month ago to read the wards, and did not come back. I have been reading them from here instead. Something is wrong with the whole garden, and I can show you where the threads meet."
+      active_message: "She nests where the weeping trees grow thickest. Cut her down and the wards' echo dies with her."
+      completed_message: "The web is cut. All three wards fell silent the moment she died - I heard them stop together. My master did not walk out of that orchard, but no one else will walk into it. Take this."
+      visited_message: "The orchard is only an orchard now. I will finish my master's reading, and then I will go home and sleep for a week."
+      choice_prompt: "Hina looks up from her papers."
+      choices:
+        - text: "What is wrong with the garden?"
+          action: "info"
+          response: "The temple kept three wards here - the bell bronze, the water seals, the ridge oath. The castle's sickness broke all three in one night. Broken is one thing. Used is another, and something in the orchard is using them."
+          choices:
+            - text: "Back."
+              action: "back"
+        - text: "The bells are settled."
+          action: "info"
+          requires_quest: "silent_bells"
+          response: "I heard. One thread cut - and the echo in the orchard grew LOUDER, not softer. It is drawing on the other two harder now."
+          choices:
+            - text: "The pond seals are back as well."
+              action: "info"
+              requires_quest: "stolen_water_seal"
+              response: "Two threads. Listen - the orchard hums at the same slow count as the broken chimes did. Whatever holds the last thread is keeping all three echoes alive in its web."
+              choices:
+                - text: "The ridge oath is broken. Name the thing."
+                  action: "info"
+                  requires_quest: "feathers_false_oath"
+                  response: "The Sakura Jorogumo. The spider bride of the orchard. She has tied the three dead wards into one web and she feeds on their echo. Kill her in the orchard and the garden's last thread goes quiet."
+                  choices:
+                    - text: "We will kill the Sakura Jorogumo."
+                      action: "give_quest"
+                      quest_id: "fivefold_web"
+                    - text: "Not yet."
+                      action: "back"
+                - text: "Back."
+                  action: "back"
+            - text: "Back."
+              action: "back"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "fivefold_web"
+        - text: "Leave"
+          action: "leave"
+
+  # The oasis shrine's lamps, one per pyramid floor: taking all three settles
+  # Yusra's requires_quest and opens her Light/Dark shelf. Same one-shot prop
+  # pattern as the valves and the katana racks (action: prop -> the prop's own
+  # tag -> the quest's interact tag), so a lamp taken before the errand is
+  # accepted is refused instead of being wasted.
+  shrine_lamp_1:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    # A lamp the party lifted is IN THE PACK: it stops rendering and stops being
+    # interactable, and the Visited flag carries that through a save.
+    hide_when_visited: true
+    dialogue: &shrine_lamp_dialogue
+      greeting: "A brass oasis lamp stands in a wall bracket. It is dry, and warm to the hand."
+      choice_prompt: "Take the lamp?"
+      choices:
+        - text: "Lift it out of the bracket"
+          action: "prop"
+          quest_id: "shrine_lamps"
+          prop:
+            tag: "shrine_lamp"
+            not_yet: "No reason to take the lamp yet."
+            took: "You lift the shrine lamp out of its bracket."
+            completed: "The shrine's lamps are out of the stone."
+        - text: "Leave it"
+          action: "leave"
+  shrine_lamp_2:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    hide_when_visited: true
+    dialogue: *shrine_lamp_dialogue
+  shrine_lamp_3:
+    name: "Shrine Lamp"
+    type: "encounter"
+    sprite: "nomad_lantern"
+    render_category: scenery
+    transparent: true
+    size_class: small_prop
+    hide_when_visited: true
+    dialogue: *shrine_lamp_dialogue
 
   # Invisible gate NPCs for the forest<->highlands portal. sprite "" renders
   # nothing at all; ground_tile paints the portal-stream tile under the gate so
@@ -1231,11 +1483,37 @@ npcs:
     sprite: "elf_starlight_librarian"
     render_category: npc
     size_class: person
+    # The shelf is shut until the Archive's loan is settled: no spell rows at all
+    # until archive_missing_volumes is turned in (service gate, npcServiceGateOpen).
+    requires_quest: "archive_missing_volumes"
     dialogue:
       greeting: "Keeper Ilthaea. Every page Seabright's scriptorium can copy, it copies cheaper. What is on this shelf is what Oletta cannot write at all, and the Archive prices it accordingly. Choose a character and a page."
       insufficient_gold: "That page costs %d gold. The Archive does not lend."
       already_known: "%s has that page already. I will not sell it twice."
       success: "Copied out for %s. Read it before you need it, not after."
+      quest_greeting: "Keeper Ilthaea. Nothing on this shelf is for sale to you yet. The Archive lent three books to the clockmaker's tower and got none of them back, and I will not copy a fourth until the loan is settled."
+      active_message: "Three books, in the Gearworks of the Clock Tower. They walk on their own legs and they will come at you. Put them down and come back."
+      completed_message: "Three books down. The Archive is square with the tower, and the shelf is yours to buy from."
+      visited_message: "The tower keeps no books of mine now. Ask for any page on the shelf."
+      choice_prompt: "Ilthaea keeps one hand flat on the shelf."
+      choices:
+        - text: "Why will you not sell to us?"
+          action: "info"
+          response: "Three volumes went up to the Gearworks with a clockmaker's apprentice and none came down. They are still there, and they move. I copy nothing while the Archive is short three books."
+          choices:
+            - text: "We will put the three books down."
+              action: "give_quest"
+              quest_id: "archive_missing_volumes"
+            - text: "Back."
+              action: "back"
+        - text: "We will put the three books down."
+          action: "give_quest"
+          quest_id: "archive_missing_volumes"
+        - text: "Report the three books destroyed"
+          action: "turn_in_quest"
+          quest_id: "archive_missing_volumes"
+        - text: "Leave"
+          action: "leave"
     # The mage schools' deep pages: every Fire/Water/Air/Earth spell that
     # Seabright does NOT stock - Fly excluded on purpose, so the wandering
     # spell_lectern keeps one spell nobody can buy. Priced 10000+ because these
@@ -1310,8 +1588,34 @@ npcs:
     sprite: "nomad_combat_trainer"
     render_category: npc
     size_class: person
+    # No training until the party has a record in the pit (pit_standing). The
+    # trainer dialog has no quest tab, so the errand is the whole conversation
+    # while the gate is shut and the mastery grid replaces it once it is paid.
+    requires_quest: "pit_standing"
     dialogue:
       greeting: "Nadira. I drill the gate guard at dawn and I take paying students after. I sharpen a mastery you already hold. Name the character and the skill."
+      quest_greeting: "Nadira. I sharpen nothing for a student who has not stood on the sand. The Grand Arena is out the gate and south down the sand road. Win three bouts there, at any stakes, and I will take your money."
+      active_message: "Three bouts, and the duel master takes one wager per day at each stake. Come back when the pit has your name three times."
+      completed_message: "Three bouts on the sand. That will do - name the character and the skill."
+      choice_prompt: "Nadira rests a practice blade across her shoulder."
+      choices:
+        - text: "Why the arena?"
+          action: "info"
+          response: "Because mastery is not taught to people who have never been hit by someone better. The pit hits back and it keeps count. Three bouts."
+          choices:
+            - text: "We will win three bouts."
+              action: "give_quest"
+              quest_id: "pit_standing"
+            - text: "Back."
+              action: "back"
+        - text: "We will win three bouts."
+          action: "give_quest"
+          quest_id: "pit_standing"
+        - text: "Report three bouts won"
+          action: "turn_in_quest"
+          quest_id: "pit_standing"
+        - text: "Leave"
+          action: "leave"
 
   nomad_city_spells:
     name: "Yusra of the Oasis"
@@ -1320,17 +1624,46 @@ npcs:
     sprite: "nomad_oasis_spell_seller"
     render_category: npc
     size_class: person
+    # Her shrine is dark until its lamps come back out of the pyramid: no spell
+    # rows until shrine_lamps is turned in (service gate). The Light/Dark school
+    # requirement below is a SECOND, separate gate on each purchase.
+    requires_quest: "shrine_lamps"
     dialogue:
       greeting: "Yusra, of the shrine. I keep the two high schools - the Light, and the other one. No caravan can read either, and neither can you until one of you carries the school already. Look anyway. Then pick a character and pick a page."
       insufficient_gold: "That page costs %d gold. Come back with it."
       already_known: "%s carries that one already."
       success: "Written out for %s. Do not waste it on lizards."
-    # Light and Dark, priced 10000+. NOTE the hard gate: canCharacterLearnNPCSpell
-    # requires char.MagicSchools[school] != nil, and NO starting class opens Light
-    # or Dark (config.yaml class kits) - so this shop only becomes usable once a
-    # party member holds the school, i.e. after the Archmage trial or a lich
-    # turn. That is deliberate: it is the endgame gold sink, and her greeting
-    # says the requirement out loud instead of leaving a wall of red rows.
+      quest_greeting: "Yusra, of the shrine. I write nothing at a dark shrine. Three of my lamps went down into the pyramid with the last party that wanted these pages, and the party stayed down there. Bring the three lamps up to me and I will open the book."
+      active_message: "Three lamps, one on each floor of the pyramid, still in their brackets. There is no oil in them and they are still warm."
+      completed_message: "Three lamps back on the steps. The shrine burns again. Now pick a character and pick a page."
+      visited_message: "The lamps burn on the steps. Both high schools are open to you - as far as your own souls can carry them."
+      choice_prompt: "Yusra trims a wick that has nothing to burn."
+      choices:
+        - text: "Why is the shrine dark?"
+          action: "info"
+          response: "Because its lamps are in the pyramid. Pilgrims came for the Light pages, went down to prove they were worthy of them, and left my lamps in the stone. I keep no shop at a dark shrine."
+          choices:
+            - text: "We will bring the three lamps up."
+              action: "give_quest"
+              quest_id: "shrine_lamps"
+            - text: "Back."
+              action: "back"
+        - text: "We will bring the three lamps up."
+          action: "give_quest"
+          quest_id: "shrine_lamps"
+        - text: "Return the three shrine lamps"
+          action: "turn_in_quest"
+          quest_id: "shrine_lamps"
+        - text: "Leave"
+          action: "leave"
+    # Light and Dark, priced 10000+. NOTE the hard gate: a row sells only to a
+    # character who already holds ONE OF the page's schools (HasSchoolOpenFor over
+    # the spell's whole school list - a dual-school page sells to a holder of
+    # either), and NO starting class opens Light or Dark (config.yaml class kits)
+    # - so this shop only becomes usable once a party member holds the school,
+    # i.e. after the Archmage trial or a lich turn. That is deliberate: it is the
+    # endgame gold sink, and her greeting says the requirement out loud instead of
+    # leaving a wall of red rows.
     # alien_dark_bolt is monster_only and is excluded - it is never learnable.
     spells:
       # Light

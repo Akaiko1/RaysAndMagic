@@ -59,6 +59,170 @@ func TestTooltipCompact_WeaponHidesBreakdownKeepsTotals(t *testing.T) {
 	}
 }
 
+func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
+	type setupFunc func(*CombatSystem, *character.MMCharacter)
+	fury := func(mastery character.SkillMastery) setupFunc {
+		return func(_ *CombatSystem, char *character.MMCharacter) {
+			char.Skills[character.SkillOrcishFury] = &character.Skill{Mastery: mastery}
+		}
+	}
+	dualWielding := func(mastery character.SkillMastery) setupFunc {
+		return func(_ *CombatSystem, char *character.MMCharacter) {
+			char.Skills[character.SkillDualWielding] = &character.Skill{Mastery: mastery}
+		}
+	}
+	tests := []struct {
+		name      string
+		weaponKey string
+		shop      bool
+		setup     setupFunc
+		want      []string
+		wantOnce  []string
+		absent    []string
+		order     []string
+	}{
+		{
+			name: "baseline names Speed but omits inactive factors", weaponKey: "iron_sword",
+			setup: func(_ *CombatSystem, char *character.MMCharacter) {
+				delete(char.Skills, character.SkillOrcishFury)
+				delete(char.Skills, character.SkillDualWielding)
+			},
+			want:   []string{"Speed ("},
+			absent: []string{"Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"},
+		},
+		{
+			name: "shop omits every bearer factor", weaponKey: "iron_sword", shop: true,
+			absent: []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"},
+		},
+		{
+			name: "shop keeps category cooldown property", weaponKey: "hunting_bow", shop: true,
+			want:     []string{"Attack cooldown x1.20 (20% slower than standard)"},
+			wantOnce: []string{"Attack cooldown x1.20"},
+			absent:   []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"},
+		},
+		{
+			name: "shop keeps authored cooldown override", weaponKey: "suppressor_gun", shop: true,
+			want:     []string{"Attack cooldown x0.40 (60% faster than standard)"},
+			wantOnce: []string{"Attack cooldown x0.40"},
+			absent:   []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"},
+		},
+		{
+			name: "equipped card keeps one category cooldown property", weaponKey: "hunting_bow",
+			want:     []string{"Speed (", "Attack cooldown x1.20 (20% slower than standard)", "RT Cooldown:"},
+			wantOnce: []string{"Attack cooldown x1.20"},
+		},
+		{name: "Fury Novice", weaponKey: "iron_sword", setup: fury(character.MasteryNovice), want: []string{"Orcish Fury - Novice: +3"}},
+		{name: "Fury Expert", weaponKey: "iron_sword", setup: fury(character.MasteryExpert), want: []string{"Orcish Fury - Expert: +5"}},
+		{name: "Fury Master", weaponKey: "iron_sword", setup: fury(character.MasteryMaster), want: []string{"Orcish Fury - Master: +7"}},
+		{name: "Fury Grandmaster", weaponKey: "iron_sword", setup: fury(character.MasteryGrandMaster), want: []string{"Orcish Fury - Grandmaster: +10"}},
+		{
+			name: "Dual Wielding Novice has no cooldown bonus", weaponKey: "iron_sword",
+			setup: dualWielding(character.MasteryNovice), absent: []string{"Dual Wielding -"},
+		},
+		{
+			name: "Dual Wielding Expert", weaponKey: "iron_sword", setup: dualWielding(character.MasteryExpert),
+			want: []string{"Dual Wielding - Expert: -10% cooldown"},
+		},
+		{
+			name: "Dual Wielding Master", weaponKey: "iron_sword", setup: dualWielding(character.MasteryMaster),
+			want: []string{"Dual Wielding - Master: -20% cooldown"},
+		},
+		{
+			name: "Dual Wielding Grandmaster", weaponKey: "iron_sword", setup: dualWielding(character.MasteryGrandMaster),
+			want: []string{"Dual Wielding - Grandmaster: -30% cooldown"},
+		},
+		{
+			name: "cooldown safety floor is named only when active", weaponKey: "suppressor_gun",
+			setup: func(_ *CombatSystem, char *character.MMCharacter) {
+				char.Speed = int(AttackCooldownCapSpeed)
+				char.Skills[character.SkillDualWielding] = &character.Skill{Mastery: character.MasteryGrandMaster}
+			},
+			want:     []string{"Attack cooldown x0.40 (60% faster than standard)", "Safety clamp: 0.1s"},
+			wantOnce: []string{"Attack cooldown x0.40"},
+		},
+		{
+			name: "critical cap is named only when active", weaponKey: "iron_sword",
+			setup: func(_ *CombatSystem, char *character.MMCharacter) {
+				char.Luck = 1000
+			},
+			want: []string{"Chance: 100%", "Capped at 100%"},
+		},
+		{
+			name: "melee buff precedes card multiplier", weaponKey: "iron_sword",
+			setup: func(cs *CombatSystem, _ *character.MMCharacter) {
+				cs.game.cardSlots[0].key = "masked_serpent_dancer_card"
+				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
+			},
+			want:  []string{"Active party buff: +5", "Cards: +20% melee damage"},
+			order: []string{"Active party buff: +5", "Cards: +20% melee damage", "Normal Damage:"},
+		},
+		{
+			name: "ranged card multiplier precedes buff", weaponKey: "hunting_bow",
+			setup: func(cs *CombatSystem, _ *character.MMCharacter) {
+				cs.game.cardSlots[0].key = "masked_huntress_card"
+				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
+			},
+			want:  []string{"Cards: +20% ranged damage", "Active party buff: +5"},
+			order: []string{"Cards: +20% ranged damage", "Active party buff: +5", "Normal Damage:"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			char := cs.game.party.Members[0]
+			delete(char.Skills, character.SkillOrcishFury)
+			delete(char.Skills, character.SkillDualWielding)
+			if tt.setup != nil {
+				tt.setup(cs, char)
+			}
+			weapon, err := items.TryCreateWeaponFromYAML(tt.weaponKey)
+			if err != nil {
+				t.Fatalf("create %s: %v", tt.weaponKey, err)
+			}
+			bearer := char
+			if tt.shop {
+				bearer = nil
+			}
+			full := GetItemTooltip(weapon, bearer, cs, true)
+			compact := GetItemTooltip(weapon, bearer, cs, false)
+
+			for _, want := range tt.want {
+				if !strings.Contains(full, want) {
+					t.Errorf("full tooltip missing %q:\n%s", want, full)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(full, absent) {
+					t.Errorf("full tooltip contains inactive factor %q:\n%s", absent, full)
+				}
+			}
+			for _, wantOnce := range tt.wantOnce {
+				if count := strings.Count(full, wantOnce); count != 1 {
+					t.Errorf("full tooltip contains %q %d times, want exactly once:\n%s", wantOnce, count, full)
+				}
+			}
+			for _, detail := range []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"} {
+				if strings.Contains(compact, detail) {
+					t.Errorf("compact tooltip contains detail factor %q:\n%s", detail, compact)
+				}
+			}
+			last := -1
+			for _, part := range tt.order {
+				idx := ttIndexOf(full, part)
+				if idx < 0 || idx <= last {
+					t.Errorf("factor order %q after line %d failed (line %d):\n%s", part, last, idx, full)
+					break
+				}
+				last = idx
+			}
+			if tt.shop && strings.Contains(full, "RT Cooldown:") {
+				t.Errorf("shop tooltip unexpectedly contains bearer cooldown:\n%s", full)
+			}
+		})
+	}
+}
+
 func TestTooltipCompact_ArmorRequirementAndOrder(t *testing.T) {
 	g, thief := newThiefTestGame(t) // thief lacks Plate skill
 	plate, err := items.TryCreateItemFromYAML("iron_armor")

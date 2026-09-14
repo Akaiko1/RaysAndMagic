@@ -56,7 +56,7 @@ type FxItem struct {
 const fxStageMapKey = "fx_stage"
 
 // fxRespawnTicks is how often the selected effect re-fires so it loops.
-const fxRespawnTicks = 75
+const fxRespawnTicks = 75 // ~0.62s at 120 TPS
 
 // NewFxPreview builds the sandbox: a small flat arena world registered under
 // the global world manager (created if the host app never set one), a real
@@ -153,8 +153,16 @@ func (p *FxPreview) fxTileExhibits(cfg *config.Config) []FxItem {
 			return
 		}
 	}
-	// Impassable-aura billboard (rock/cliff bubble outline).
-	place("Impassable aura", 1, 4, "moss_rock", "rock", "cliff")
+	// Match the renderer's authored opt-in rule; rocks no longer imply an aura.
+	var auraKeys []string
+	for key, td := range world.GlobalTileManager.ListTiles() {
+		tt, ok := world.GlobalTileManager.GetTileTypeFromKey(key)
+		if ok && tileShowsImpassableAura(td) && !world.GlobalTileManager.IsWalkable(tt) {
+			auraKeys = append(auraKeys, key)
+		}
+	}
+	sort.Strings(auraKeys)
+	place("Impassable aura", 1, 4, auraKeys...)
 	// Teleporter glow + inherit-floor tint.
 	place("Teleporter glow", 1, 8, "vteleporter", "rteleporter")
 	// Spawn-tile border sits at StartX/StartY - camera-only entry.
@@ -234,6 +242,13 @@ func (p *FxPreview) Select(item FxItem) {
 // clearTransient wipes leftover projectiles/effects so previews don't overlap.
 func (p *FxPreview) clearTransient() {
 	g := p.g
+	// A previous utility preview (notably Fly) must not change which edges
+	// qualify for the next exhibit. Reuse the shared effect reset, without
+	// gameplay expiry callbacks such as return teleports.
+	g.resetTimedEffects()
+	g.world.SetFlyActive(false)
+	g.world.SetWalkOnWaterActive(false)
+	g.world.SetWaterBreathingActive(false)
 	for i := range g.magicProjectiles {
 		g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
 	}
@@ -245,7 +260,7 @@ func (p *FxPreview) clearTransient() {
 	g.slashEffects = g.slashEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
-	g.steamZones = g.steamZones[:0]
+	g.persistentDamageZones = g.persistentDamageZones[:0]
 	g.traps = g.traps[:0]
 	g.screenShake = 0
 }
@@ -361,19 +376,10 @@ func (p *FxPreview) Step() {
 	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 	g := p.g
 	gl := g.gameLoop
+	g.updateInterfacePresentation()
 	g.frameCount++
-	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
-	}
-	if len(g.slashEffects) > 0 {
-		gl.updateSlashEffects()
-	}
-	if len(g.spellHitEffects) > 0 {
-		g.UpdateHitEffects()
-	}
-	gl.updateSteamZonesRT()
 	gl.updateSpecialEffects()
-	g.UpdateDamageBlinkTimers()
+	gl.updateProjectilesAndImpacts()
 
 	p.tick++
 	if p.tick >= fxRespawnTicks {

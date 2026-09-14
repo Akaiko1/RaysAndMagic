@@ -94,7 +94,7 @@ func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "inferno", 100, 30)
 	caster := game.party.Members[0]
-	caster.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	caster.MagicSchools[character.MagicSchoolFire].Mastery = character.MasteryGrandMaster
 	caster.Equipment[items.SlotRing1] = items.Item{
 		Type:       items.ItemAccessory,
 		Attributes: map[string]int{"resist_fire": 50},
@@ -188,12 +188,12 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("first hot_steam cast failed")
 	}
-	radius := game.steamZones[0].Radius
+	radius := game.persistentDamageZones[0].Radius
 
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("same-tile hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 1 {
+	if got := len(game.persistentDamageZones); got != 1 {
 		t.Fatalf("same-tile re-cast = %d zones, want 1", got)
 	}
 
@@ -201,7 +201,7 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("overlapping hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 2 {
+	if got := len(game.persistentDamageZones); got != 2 {
 		t.Fatalf("overlapping cast from another tile = %d zones, want 2", got)
 	}
 
@@ -209,7 +209,7 @@ func TestHotSteam_ZonesMergeByTileNotByOverlap(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("separate hot_steam cast failed")
 	}
-	if got := len(game.steamZones); got != 3 {
+	if got := len(game.persistentDamageZones); got != 3 {
 		t.Fatalf("separate cast = %d zones, want 3", got)
 	}
 }

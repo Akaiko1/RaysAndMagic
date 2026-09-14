@@ -1224,6 +1224,7 @@ func (m *Monster3D) HasPathToTile(collisionChecker CollisionChecker, targetTileX
 }
 
 func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int) []TileCoord {
+	m.PathSearchCount++
 	if maxX < minX || maxY < minY {
 		return nil
 	}
@@ -1457,7 +1458,7 @@ func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
 }
 
 func (m *Monster3D) speedPerTick() float64 {
-	tps := 60
+	tps := config.DefaultTPS
 	if m.config != nil {
 		tps = m.config.GetTPS()
 	} else {

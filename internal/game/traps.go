@@ -23,7 +23,7 @@ const (
 	MaxTrapsPerOwner    = config.MaxTrapsPerOwner
 	TrapPlaceRangeTiles = config.TrapPlaceRangeTiles
 	// trapSwirlPeriodTicks is the cadence of the ambient swirl particle spawn.
-	trapSwirlPeriodTicks = 9
+	trapSwirlPeriodTicks = 9 // ~0.07s at 120 TPS
 )
 
 // PlacedTrap is one armed trap on a map tile.

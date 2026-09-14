@@ -1,8 +1,8 @@
 package spells
 
 import (
-	"fmt"
 	"math"
+
 	"ugataima/internal/config"
 )
 
@@ -27,41 +27,6 @@ func NewCastingSystem(config *config.Config) *CastingSystem {
 	return &CastingSystem{
 		config: config,
 	}
-}
-
-// CreateProjectile creates a projectile based on spell type and caster stats (now dynamic!)
-// CalculateSpellDamageByID calculates damage using SpellID (YAML-based)
-func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage, intellectBonus, totalDamage int) {
-	def, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	mult := def.DamageCostMultiplier
-	if mult < 1 {
-		mult = 1
-	}
-	baseDamage = def.SpellPointsCost * SpellDamagePerSP * mult
-	intellectBonus = casterIntellect / SpellIntellectDivisor
-
-	totalDamage = baseDamage + intellectBonus
-	return
-}
-
-// CalculateHealingAmountByID calculates healing using SpellID (YAML-based)
-func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHealing, personalityBonus, totalHealing int) {
-	def, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	// Healing spells MUST set heal_amount; we no longer fall back to the
-	// damage field because the damage field has been removed from the YAML
-	// schema (offensive damage is derived from spell_points_cost x N).
-	baseHealing = def.HealAmount
-	personalityBonus = casterPersonality / HealingPersonalityDivisor
-	totalHealing = baseHealing + personalityBonus
-	return
 }
 
 // CreateProjectile builds the PHYSICS of a spell projectile (velocity,
@@ -123,17 +88,4 @@ type UtilitySpellResult struct {
 	VisionRadiusTiles float64
 	WaterWalk         bool
 	WaterBreathing    bool
-}
-
-// GetProjectileColor returns the color for a projectile based on spell ID
-func GetProjectileColor(spellID SpellID) ([3]int, error) {
-	if config.GlobalConfig != nil {
-		graphicsConfig, err := config.GlobalConfig.GetSpellGraphicsConfig(string(spellID))
-		if err != nil {
-			return [3]int{}, err
-		}
-		return graphicsConfig.Color, nil
-	}
-
-	return [3]int{}, fmt.Errorf("no spell configuration available for '%s'", spellID)
 }

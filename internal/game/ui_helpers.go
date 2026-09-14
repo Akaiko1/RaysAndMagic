@@ -5,8 +5,10 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ugataima/internal/character"
@@ -210,6 +212,24 @@ const (
 	modalLayerCount
 )
 
+// pausesWorld answers, per layer, whether the world clock stops while this layer
+// is on top. Derived from the ONE ladder rather than kept as a second list of
+// flags: that second list is how the victory screen ended up running the world
+// (monsters, day/night, cooldowns) behind a full-screen summary for as long as
+// the player looked at it.
+//
+// The default is PAUSE, so a new full-screen layer is safe the day it is added
+// and only a deliberate exception is written here. The exceptions are the
+// conversation layers: this engine keeps the world running while the party
+// talks, so a monster can interrupt a shop.
+func (id modalLayerID) pausesWorld() bool {
+	switch id {
+	case modalLayerNone, modalLayerDialog, modalLayerSkillTrainer:
+		return false
+	}
+	return true
+}
+
 // topModalLayerFor is the single source of truth for modal identity and visual
 // priority. Cases are ordered from the last-drawn (topmost) layer downward.
 // stackSplitOpen is passed explicitly because that transient picker belongs to
@@ -403,22 +423,6 @@ func isOverlayModalLayer(layer modalLayerID) bool {
 	}
 }
 
-// claimQueueIfModalChanged is the checkpoint form of rule 3 in UISystem.Draw.
-// Clicks queued for one identity never carry into a newly opened child, sibling,
-// parent, or uncovered lower layer.
-func (ui *UISystem) claimQueueIfModalChanged(inputLayer *modalLayerSnapshot) bool {
-	if ui == nil || inputLayer == nil {
-		return false
-	}
-	current := ui.topModalSnapshot()
-	if current == *inputLayer {
-		return false
-	}
-	ui.dropQueuedClicks()
-	*inputLayer = current
-	return true
-}
-
 // dropQueuedClicks discards both buffered click queues. Used wherever a modal
 // layer owns the frame: a press it did not consume was aimed at its dim, and a
 // press queued before it opened was aimed at the interface it replaced.
@@ -430,18 +434,23 @@ func (ui *UISystem) dropQueuedClicks() {
 	ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
 }
 
-// modalRedrawBarrierActive covers every Update between a modal identity change
-// and the Draw that presents that identity. This includes close, open, sibling,
-// and parent/child transitions.
+// modalRedrawBarrierActive covers every Update between an input-screen/modal
+// change and its presentation. Top-level screens and their submenus must obey
+// the same barrier as in-game modals, including raw press/release handlers.
 func (ui *UISystem) modalRedrawBarrierActive() bool {
-	return ui != nil && ui.game != nil && ui.game.appScreen == AppScreenInGame &&
-		ui.renderedModalSnapshot != ui.topModalSnapshot()
+	if ui == nil || ui.displayedInput.building || ui.game == nil {
+		return false
+	}
+	if ui.displayedInput.ready && ui.displayedInput.identity.screen != ui.inputScreenIdentity() {
+		return true
+	}
+	return ui.game.appScreen == AppScreenInGame && ui.renderedModalSnapshot != ui.topModalSnapshot()
 }
 
 // modalLayerOwnsInput is the lower-layer gate shared by the HUD and character
 // hub. It includes both a currently open modal and the one-frame redraw barrier.
 func (ui *UISystem) modalLayerOwnsInput() bool {
-	return ui != nil && (ui.renderedModalSnapshot.layer != modalLayerNone || ui.topModalLayer() != modalLayerNone)
+	return ui != nil && ((!ui.displayedInput.building && ui.renderedModalSnapshot.layer != modalLayerNone) || ui.topModalLayer() != modalLayerNone)
 }
 
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
@@ -480,12 +489,15 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 	drawImageScaled(screen, icon, x, y, w, h)
 }
 
-// drawPopupCloseButton draws the standard red close-X button (hover-brightened)
-// and reports whether a queued left click landed on it. canClick=false still
-// draws but leaves any queued click unconsumed (e.g. mid-drag, popup just opened).
-func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool) bool {
+// drawPopupCloseButton renders the shared close-X and registers its Update
+// action. canClick=false leaves the visual present without consuming input.
+func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool, onClick func()) {
 	ui.drawCloseButtonVisual(screen, x, y, size, size)
-	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
+	ui.onDisplayedInput(uiCommandNavigation, layoutRect{x, y, size, size}, func() {
+		if canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size) {
+			onClick()
+		}
+	})
 }
 
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
@@ -549,7 +561,111 @@ func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 	drawPart(slice, slice, centerSrcW, centerSrcH, x+slice, y+slice, centerDstW, centerDstH)
 }
 
-// drawRectBorder draws a rectangle border of given thickness and color
+// SOFT GLOW - the halo that bleeds outward from a box with a quadratic falloff,
+// used for "look here" cues (a selected hero card, a portrait badge with an
+// unspent point). ONE generator: the falloff, the rounded corners and the cache
+// live here, callers pass their box, reach and tint.
+//
+// It is a cached IMAGE, not a stack of vector fills: per-pixel falloff is what
+// makes it read as a glow instead of a frame, and drawing an image also lets a
+// caller fade it with ColorScale (premultiplied-safe, unlike a tinted fill).
+type softGlowKey struct {
+	w, h, spread int
+	tint         color.RGBA
+	peak         uint8
+}
+
+// The cache is guarded: it is a package-level map and the glow it serves is
+// requested from draw paths that the debug harnesses drive off more than one
+// goroutine (this lock came with the hero-card glow this generator absorbed).
+// Capped the same way as outlinedLabelCache, and for the same reason: the key
+// carries the WIDGET SIZE, so every window resize mints fresh entries (hero
+// cards size from the layout) and an unbounded map would hold a full-size glow
+// texture per size for the life of the process.
+const softGlowCacheMax = 64
+
+var (
+	softGlowMu        sync.Mutex
+	softGlowCache     = map[softGlowKey]*ebiten.Image{}
+	softGlowCachePrev = map[softGlowKey]*ebiten.Image{}
+)
+
+// rotateSoftGlowCache retires the older generation once the live one is full.
+// Called after EVERY insert - promoting a previous-generation hit is an insert
+// too, so a resize sweeping back through old sizes cannot refill past the cap.
+// Caller holds softGlowMu.
+func rotateSoftGlowCache() {
+	if len(softGlowCache) < softGlowCacheMax {
+		return
+	}
+	softGlowCachePrev = softGlowCache
+	softGlowCache = make(map[softGlowKey]*ebiten.Image, softGlowCacheMax)
+}
+
+func softGlowImage(w, h, spread int, tint color.RGBA, peak uint8) *ebiten.Image {
+	if w <= 0 || h <= 0 || spread <= 0 {
+		return nil
+	}
+	key := softGlowKey{w, h, spread, tint, peak}
+	softGlowMu.Lock()
+	defer softGlowMu.Unlock()
+	if cached := softGlowCache[key]; cached != nil {
+		return cached
+	}
+	if cached := softGlowCachePrev[key]; cached != nil {
+		softGlowCache[key] = cached
+		rotateSoftGlowCache()
+		return cached
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, w+2*spread, h+2*spread))
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		dy := 0
+		if y < spread {
+			dy = spread - y
+		} else if y >= spread+h {
+			dy = y - (spread + h - 1)
+		}
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			dx := 0
+			if x < spread {
+				dx = spread - x
+			} else if x >= spread+w {
+				dx = x - (spread + w - 1)
+			}
+			distance := math.Hypot(float64(dx), float64(dy))
+			if distance > float64(spread) {
+				continue
+			}
+			strength := 1 - distance/float64(spread+1)
+			alpha := uint8(float64(peak) * strength * strength)
+			img.SetNRGBA(x, y, color.NRGBA{R: tint.R, G: tint.G, B: tint.B, A: alpha})
+		}
+	}
+	glow := ebiten.NewImageFromImage(img)
+	softGlowCache[key] = glow
+	rotateSoftGlowCache()
+	return glow
+}
+
+// drawSoftGlowAround paints the halo centred on the box, faded by alpha (1 =
+// full strength). Draw it BEFORE the thing it highlights.
+func drawSoftGlowAround(screen *ebiten.Image, x, y, w, h, spread int, tint color.RGBA, peak uint8, alpha float64) {
+	if alpha <= 0 {
+		return
+	}
+	glow := softGlowImage(w, h, spread, tint, peak)
+	if glow == nil {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(x-spread), float64(y-spread))
+	if alpha < 1 {
+		op.ColorScale.ScaleAlpha(float32(alpha))
+	}
+	screen.DrawImage(glow, op)
+}
+
+// drawRectBorder draws a rectangle border of given thickness and color.
 func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Color) {
 	// Top border
 	vector.FillRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
@@ -1075,7 +1191,14 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 // Over heading intentionally stays on drawScaledCenteredText with its flat red
 // fill; Victory uses this variant for gold.
 func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA) {
-	if text == "" || scale <= 0 {
+	drawScaledMetalCenteredTextAlpha(screen, text, cx, cy, scale, base, 1)
+}
+
+// drawScaledMetalCenteredTextAlpha is the same heading with a fade multiplier,
+// for headings that animate in and out (the quest banner). alpha <= 0 draws
+// nothing; the opaque path above is this one at alpha 1.
+func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA, alpha float64) {
+	if text == "" || scale <= 0 || alpha <= 0 {
 		return
 	}
 	img := outlinedLabelImage(text, base)
@@ -1086,6 +1209,9 @@ func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, 
 		float64(cx)-float64(w)*scale/2,
 		float64(cy)-float64(h)*scale/2,
 	)
+	if alpha < 1 {
+		op.ColorScale.ScaleAlpha(float32(alpha))
+	}
 	screen.DrawImage(img, op)
 }
 
@@ -1238,6 +1364,7 @@ var metallicColors = map[color.RGBA]bool{
 	rarityGold:     true,
 	rarityFire:     true,
 	rarityEmerald:  true,
+	bannerWorkTint: true, // the quest banner's pale gold - see screenBannerTint
 	focusModeMetal: true,
 }
 
@@ -1251,6 +1378,14 @@ func asMetal(col color.Color) (color.RGBA, bool) {
 }
 
 func rarityColor(rarity string) color.Color {
+	return rarityRGBA(rarity)
+}
+
+// rarityRGBA is the rarity palette itself - THE mapping from an authored rarity
+// string to its tint. rarityColor is this in color.Color clothing; anything that
+// needs the concrete RGBA (a metal heading, a plate) calls this, so retinting a
+// rarity here moves every surface that shows it.
+func rarityRGBA(rarity string) color.RGBA {
 	switch strings.ToLower(rarity) {
 	case "uncommon":
 		return raritySilver
@@ -1261,7 +1396,7 @@ func rarityColor(rarity string) color.Color {
 	case "unique":
 		return rarityEmerald
 	default:
-		return color.White // Common/default
+		return color.RGBA{255, 255, 255, 255} // Common/default
 	}
 }
 

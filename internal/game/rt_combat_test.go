@@ -165,6 +165,7 @@ func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
 	}
 	caster := members[0]
 	g.selectedChar = 0
+	caster.LearnSpell("heal_other")
 	caster.Equipment[items.SlotSpell] = items.Item{
 		Name: "Heal", Type: items.ItemUtilitySpell,
 		SpellEffect: items.SpellEffectHealOther, SpellCost: 4,
@@ -245,6 +246,7 @@ func TestSmartAttack_BookHealOverOffensiveQuickSlot(t *testing.T) {
 	cleric := members[2]
 	g.selectedChar = 2
 	if spellItem, err := spells.CreateSpellItem(spells.SpellID("harm")); err == nil {
+		cleric.LearnSpell("harm")
 		cleric.Equipment[items.SlotSpell] = spellItem
 	} else {
 		t.Fatalf("create harm spell item: %v", err)
@@ -280,6 +282,7 @@ func TestSmartAttack_QuickSlottedHealPreferred(t *testing.T) {
 	cleric := members[2]
 	g.selectedChar = 2
 	if spellItem, err := spells.CreateSpellItem(spells.SpellID("mass_heal")); err == nil {
+		cleric.LearnSpell("mass_heal")
 		cleric.Equipment[items.SlotSpell] = spellItem
 	} else {
 		t.Fatalf("create mass_heal spell item: %v", err)

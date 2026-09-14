@@ -48,3 +48,26 @@ func TestRangedWeaponTravelsStatedRange(t *testing.T) {
 		}
 	}
 }
+
+func TestVerdantEyeIsSevenTileRangedStaff(t *testing.T) {
+	cfg, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := cfg.Weapons["verdant_eye_scepter"]
+	if def == nil {
+		t.Fatal("Verdant Eye definition missing")
+	}
+	if def.Range != 7 {
+		t.Errorf("Verdant Eye range = %d, want 7", def.Range)
+	}
+	if def.Physics == nil || def.Physics.RangeTiles != 7 {
+		t.Errorf("Verdant Eye physics = %+v, want range_tiles 7", def.Physics)
+	}
+	if def.Melee != nil {
+		t.Error("Verdant Eye still has dead melee configuration")
+	}
+	if def.ProjectileSchool != def.DamageType {
+		t.Errorf("Verdant Eye projectile school = %q, want damage type %q", def.ProjectileSchool, def.DamageType)
+	}
+}

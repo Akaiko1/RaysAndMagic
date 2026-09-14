@@ -568,6 +568,9 @@ func (g *MMGame) pruneLevelUpOptions(req *levelUpChoiceRequest) bool {
 
 func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillType) (string, string, string, bool) {
 	name := skillType.String()
+	if !skillType.UsesMastery() {
+		return name + " (Racial Passive)", "", "", false
+	}
 	current := character.MasteryNovice
 	if skill, ok := char.Skills[skillType]; ok {
 		current = skill.Mastery
@@ -607,14 +610,7 @@ func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
 }
 
 func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
-	for _, magicSkill := range char.MagicSchools {
-		for _, known := range magicSkill.KnownSpells {
-			if known == spellID {
-				return true
-			}
-		}
-	}
-	return false
+	return char != nil && char.KnowsSpell(spellID)
 }
 
 func spellDisplayName(spellID spells.SpellID) string {
@@ -625,6 +621,9 @@ func spellDisplayName(spellID spells.SpellID) string {
 }
 
 func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillType) bool {
+	if !skillType.UsesMastery() {
+		return false
+	}
 	skill, ok := char.Skills[skillType]
 	if !ok {
 		skill = &character.Skill{Mastery: character.MasteryNovice}

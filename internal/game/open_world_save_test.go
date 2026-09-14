@@ -216,7 +216,7 @@ func TestOpenWorldTavernRegionScoping(t *testing.T) {
 	for _, key := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
 		count := 0
 		for _, npc := range wm.OpenWorld.NPCs {
-			if npcOffersTavernRest(npc) && g.npcOnMapRegion(npc, key) {
+			if tavernChoice(npc, "tavern_rest") != nil && g.npcOnMapRegion(npc, key) {
 				count++
 			}
 		}

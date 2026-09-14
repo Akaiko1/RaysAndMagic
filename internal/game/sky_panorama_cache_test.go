@@ -2,12 +2,22 @@ package game
 
 import (
 	"testing"
+
+	"ugataima/internal/config"
+	"ugataima/internal/world"
 )
 
-// A day/night flip must not pay a mid-frame PNG decode: the boot prewarm
-// decodes every shipped backdrop, and re-selecting a texture reuses the SAME
-// image. Cache misses still decode and join the cache.
+// A day/night flip must not pay a mid-frame PNG decode: boot prepares the
+// current map's pair, and re-selecting a texture reuses the same image.
 func TestSkyPanoramaCacheServesFlipsWithoutDecode(t *testing.T) {
+	previousWorldManager := world.GlobalWorldManager
+	t.Cleanup(func() { world.GlobalWorldManager = previousWorldManager })
+	world.GlobalWorldManager = &world.WorldManager{
+		CurrentMapKey: "forest",
+		MapConfigs: map[string]*config.MapConfig{
+			"forest": {SkyTexture: "forest_panorama"},
+		},
+	}
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
 	t.Chdir("../..") // panorama paths are repo-root-relative, like the real game's cwd
@@ -18,6 +28,9 @@ func TestSkyPanoramaCacheServesFlipsWithoutDecode(t *testing.T) {
 	}
 	if _, ok := g.skyPanoramaCache["forest_panorama_night"]; !ok {
 		t.Fatal("boot prewarm missed the forest night panorama")
+	}
+	if _, ok := g.skyPanoramaCache["desert_panorama_day"]; ok {
+		t.Fatal("boot prewarm decoded an unrelated map panorama")
 	}
 
 	// Selecting a phase must serve the cached instance: same pointer each time.

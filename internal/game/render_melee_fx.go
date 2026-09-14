@@ -11,7 +11,7 @@ import (
 
 // MeleeFxLingerFrames is the minimum lifetime of a melee swing's visual so the
 // shaped trail (flourish) fades slowly after the fast swing completes.
-const MeleeFxLingerFrames = 22
+const MeleeFxLingerFrames = 22 // ~0.18s at 120 TPS
 
 // meleeSweepFrac: the swing itself completes in this fraction of the lifetime;
 // the rest is the trail lingering/fading.

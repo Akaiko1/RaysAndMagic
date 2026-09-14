@@ -182,7 +182,8 @@ func TestChampionRTDualStreams(t *testing.T) {
 	primeTestChampions(t, cs.game)
 	fillTestParty(t, cs.game)
 
-	m := monsterPkg.NewMonster3DFromConfig(0, 0, "weapon_master", cs.game.config)
+	m := monsterPkg.NewMonster3DFromConfig(float64(cs.game.config.GetTileSize()), 0, "weapon_master", cs.game.config)
+	m.BeginPlayerEngagement()
 	cs.game.mirrorChampionStats(m)
 	ch := cs.game.championTemplate("weapon_master", "impossible")
 
@@ -420,7 +421,7 @@ func TestChampionVictoryRewardsFromCardSummonKill(t *testing.T) {
 		t.Fatal("easy champion tier missing")
 	}
 	before := cs.game.party.ArenaPoints
-	hit := hitFromMonster(summon, 9999, monsterPkg.DamagePhysical.String(), false, 0, true)
+	hit := hitFromMonster(summon, 9999, monsterPkg.DamagePhysical.String(), false, 0, true, false)
 	cs.strikeMonsterFor(summon, champion, hit, nil, false)
 
 	if got, want := cs.game.party.ArenaPoints-before, tier.ArenaPoints; got != want {

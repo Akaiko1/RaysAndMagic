@@ -1,6 +1,7 @@
 package graphics
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"image/draw"
@@ -9,7 +10,284 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
+
+func TestPrepareResourcesDecodesOffLoopAndCommitsOnLoop(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    SpriteResourceRequest
+		width      int
+		height     int
+		indexed    bool
+		wantFound  bool
+		wantFrames int
+	}{
+		{name: "static sprite", request: SpriteResourceRequest{Name: "tree"}, width: 4, height: 4, indexed: true, wantFound: true},
+		{name: "horizontal animation", request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"}, width: 8, height: 2, indexed: true, wantFound: true, wantFrames: 4},
+		{name: "missing source", request: SpriteResourceRequest{Name: "missing"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := NewSpriteManager()
+			sm.spritePaths = make(map[string]string)
+			sm.spriteDirType = make(map[string]string)
+			if tt.indexed {
+				path := filepath.Join(t.TempDir(), "source.png")
+				img := image.NewNRGBA(image.Rect(0, 0, tt.width, tt.height))
+				img.SetNRGBA(0, 0, color.NRGBA{R: 30, G: 180, B: 50, A: 255})
+				file, err := os.Create(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := png.Encode(file, img); err != nil {
+					_ = file.Close()
+					t.Fatal(err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatal(err)
+				}
+				indexedName := tt.request.Name
+				if tt.request.AnimationType != "" {
+					indexedName += "_" + tt.request.AnimationType
+				}
+				sm.spritePaths[indexedName] = path
+				sm.spriteDirType[indexedName] = "environment"
+			}
+
+			prepared, ok := <-sm.PrepareResources(context.Background(), []SpriteResourceRequest{tt.request})
+			if !ok {
+				t.Fatal("CPU loader closed without one result")
+			}
+			if prepared.Found != tt.wantFound {
+				t.Fatalf("prepared source found = %v, want %v", prepared.Found, tt.wantFound)
+			}
+			sm.CommitPreparedResource(prepared)
+			if tt.request.AnimationType == "" {
+				_, loaded := sm.sprites[tt.request.Name]
+				if loaded != tt.wantFound {
+					t.Fatalf("static source committed = %v, want %v", loaded, tt.wantFound)
+				}
+				return
+			}
+			animation := sm.animations[animationKey(tt.request.Name, tt.request.AnimationType)]
+			if animation == nil || len(animation.Frames) != tt.wantFrames {
+				t.Fatalf("animation frames = %v, want %d", animation, tt.wantFrames)
+			}
+		})
+	}
+}
+
+func TestPrepareResourcesHonorsCancellationBeforeDecode(t *testing.T) {
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{"tree": filepath.Join(t.TempDir(), "unused.png")}
+	sm.spriteDirType = map[string]string{"tree": "environment"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if prepared, ok := <-sm.PrepareResources(ctx, []SpriteResourceRequest{{Name: "tree"}}); ok {
+		t.Fatalf("cancelled worker produced result: %+v", prepared)
+	}
+}
+
+func TestPreparedSpriteCommitHonorsPixelBudget(t *testing.T) {
+	tests := []struct {
+		name         string
+		prepared     PreparedSpriteResource
+		budget       int
+		wantAdvances int
+		wantImages   int
+	}{
+		{
+			name: "static rows",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "tree"},
+				Image:   image.NewRGBA(image.Rect(0, 0, 8, 4)),
+				CPU:     image.NewRGBA(image.Rect(0, 0, 8, 4)),
+				Found:   true,
+			},
+			budget: 64, wantAdvances: 2, wantImages: 1,
+		},
+		{
+			name: "animation frames",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"},
+				Image:   image.NewRGBA(image.Rect(0, 0, 8, 2)),
+				Frames: []*image.RGBA{
+					image.NewRGBA(image.Rect(0, 0, 2, 2)),
+					image.NewRGBA(image.Rect(0, 0, 2, 2)),
+					image.NewRGBA(image.Rect(0, 0, 2, 2)),
+					image.NewRGBA(image.Rect(0, 0, 2, 2)),
+				},
+				Found: true,
+			},
+			budget: 16, wantAdvances: 4, wantImages: 4,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := NewSpriteManager()
+			commit := sm.BeginPreparedResourceCommit(tt.prepared)
+			advances := 0
+			var images map[*ebiten.Image]*image.RGBA
+			for {
+				advances++
+				var done bool
+				images, done = commit.Advance(tt.budget)
+				if done {
+					break
+				}
+				if tt.prepared.Request.AnimationType == "" && sm.sprites[tt.prepared.Request.Name] != nil {
+					t.Fatal("static sprite became visible before its final pixel chunk")
+				}
+			}
+			if advances != tt.wantAdvances {
+				t.Fatalf("Advance calls = %d, want %d", advances, tt.wantAdvances)
+			}
+			if len(images) != tt.wantImages {
+				t.Fatalf("committed images = %d, want %d", len(images), tt.wantImages)
+			}
+		})
+	}
+}
+
+func TestPreparedSpriteCommitCancelReleasesEveryUnpublishedTarget(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepared PreparedSpriteResource
+	}{
+		{
+			name: "partial static source",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "tree"}, CPU: image.NewRGBA(image.Rect(0, 0, 8, 8)), Found: true,
+			},
+		},
+		{
+			name: "completed and pending animation frames",
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"}, Found: true,
+				Frames: []*image.RGBA{
+					image.NewRGBA(image.Rect(0, 0, 4, 4)),
+					image.NewRGBA(image.Rect(0, 0, 4, 4)),
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := NewSpriteManager()
+			commit := sm.BeginPreparedResourceCommit(tt.prepared)
+			_, _ = commit.Advance(32)
+			commit.Cancel()
+			commit.Cancel()
+
+			if len(commit.targets) != 0 || len(commit.completed) != 0 || !commit.done {
+				t.Fatalf("cancelled commit retained work: targets=%d completed=%d done=%v",
+					len(commit.targets), len(commit.completed), commit.done)
+			}
+			if sm.sprites[tt.prepared.Request.Name] != nil ||
+				sm.animations[animationKey(tt.prepared.Request.Name, tt.prepared.Request.AnimationType)] != nil {
+				t.Fatal("cancelled commit published a cache entry")
+			}
+		})
+	}
+}
+
+func TestPreparedSpriteCommitKeepsLazyLoadedWinner(t *testing.T) {
+	tests := []struct {
+		name      string
+		request   SpriteResourceRequest
+		prepared  PreparedSpriteResource
+		install   func(*SpriteManager) []*ebiten.Image
+		winnerFor func(*SpriteManager) []*ebiten.Image
+	}{
+		{
+			name:    "static sprite",
+			request: SpriteResourceRequest{Name: "tree"},
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "tree"}, Image: image.NewRGBA(image.Rect(0, 0, 2, 2)),
+				CPU: image.NewRGBA(image.Rect(0, 0, 2, 2)), Found: true,
+			},
+			install: func(sm *SpriteManager) []*ebiten.Image {
+				winner := ebiten.NewImage(2, 2)
+				sm.sprites["tree"] = winner
+				return []*ebiten.Image{winner}
+			},
+			winnerFor: func(sm *SpriteManager) []*ebiten.Image { return []*ebiten.Image{sm.sprites["tree"]} },
+		},
+		{
+			name:    "animation",
+			request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"},
+			prepared: PreparedSpriteResource{
+				Request: SpriteResourceRequest{Name: "wolf", AnimationType: "walking_r"},
+				Image:   image.NewRGBA(image.Rect(0, 0, 4, 2)), Frames: []*image.RGBA{
+					image.NewRGBA(image.Rect(0, 0, 2, 2)), image.NewRGBA(image.Rect(0, 0, 2, 2)),
+				}, Found: true,
+			},
+			install: func(sm *SpriteManager) []*ebiten.Image {
+				winners := []*ebiten.Image{ebiten.NewImage(2, 2), ebiten.NewImage(2, 2)}
+				sm.animations[animationKey("wolf", "walking_r")] = &SpriteAnimation{Frames: winners}
+				return winners
+			},
+			winnerFor: func(sm *SpriteManager) []*ebiten.Image {
+				return sm.animations[animationKey("wolf", "walking_r")].Frames
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := NewSpriteManager()
+			commit := sm.BeginPreparedResourceCommit(tt.prepared)
+			winners := tt.install(sm)
+			images, done := commit.Advance(0)
+			if !done {
+				t.Fatal("unbounded commit did not finish")
+			}
+			if got := tt.winnerFor(sm); !reflect.DeepEqual(got, winners) {
+				t.Fatalf("cached winner changed: got %v want %v", got, winners)
+			}
+			for _, winner := range winners {
+				if images[winner] == nil {
+					t.Fatal("CPU pixels were not attached to the lazy-loaded winner")
+				}
+			}
+		})
+	}
+}
+
+func TestEvictResourceDropsStaticAndAnimationCaches(t *testing.T) {
+	static := ebiten.NewImage(4, 4)
+	frameA := ebiten.NewImage(4, 4)
+	frameB := ebiten.NewImage(4, 4)
+	sm := NewSpriteManager()
+	sm.sprites["tree"] = static
+	key := animationKey("wolf", "walking_r")
+	sm.animations[key] = &SpriteAnimation{Frames: []*ebiten.Image{frameA, frameB}}
+
+	tests := []struct {
+		name          string
+		resourceName  string
+		animationType string
+		wantImages    int
+	}{
+		{name: "static sprite", resourceName: "tree", wantImages: 1},
+		{name: "animation", resourceName: "wolf", animationType: "walking_r", wantImages: 2},
+		{name: "already absent", resourceName: "missing", wantImages: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := len(sm.EvictResource(tt.resourceName, tt.animationType)); got != tt.wantImages {
+				t.Fatalf("evicted images = %d, want %d", got, tt.wantImages)
+			}
+		})
+	}
+	if _, ok := sm.sprites["tree"]; ok {
+		t.Fatal("static sprite remained cached")
+	}
+	if _, ok := sm.animations[key]; ok {
+		t.Fatal("animation remained cached")
+	}
+}
 
 func TestGetSpriteVariants(t *testing.T) {
 	tests := []struct {

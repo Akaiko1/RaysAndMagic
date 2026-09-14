@@ -25,8 +25,10 @@ func tavernTestNPC() *character.NPC {
 }
 
 func TestTavernDialogUsesWorkingTabs(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	npc := tavernTestNPC()
-	if got := npcDialogKindFor(npc); got != dialogKindTavern {
+	if got := g.npcDialogKindFor(npc); got != dialogKindTavern {
 		t.Fatalf("dialog kind = %v, want tavern", got)
 	}
 
@@ -46,6 +48,8 @@ func TestTavernDialogUsesWorkingTabs(t *testing.T) {
 }
 
 func TestNestedTavernRestRemainsARegularDialogueChoice(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
 	npc := &character.NPC{
 		DialogueData: &character.NPCDialogue{
 			Choices: []*character.NPCDialogueChoice{{
@@ -60,11 +64,15 @@ func TestNestedTavernRestRemainsARegularDialogueChoice(t *testing.T) {
 		},
 	}
 
-	if !npcOffersTavernRest(npc) {
-		t.Fatal("nested rest should still identify a Town Portal tavern capability")
-	}
-	if got := npcDialogKindFor(npc); got != dialogKindChoices {
+	// A nested rest is ordinary conversation: no tavern dialog, and no tavern
+	// TABS. Town Portal destinations no longer read dialogue shape at all - they
+	// are authored per map (town_portal_destination), so nothing here can make a
+	// map a travel target by accident.
+	if got := g.npcDialogKindFor(npc); got != dialogKindChoices {
 		t.Fatalf("nested rest dialog kind = %v, want regular choices", got)
+	}
+	if tavernChoice(npc, "tavern_rest") != nil {
+		t.Fatal("a nested rest must not read as a tavern service")
 	}
 }
 
@@ -147,11 +155,14 @@ func TestTavernPendingActionUsesExistingServiceLogic(t *testing.T) {
 
 func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	g := &MMGame{
-		dialogTab:            0,
-		pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
-		pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
-		dialogLastClickedIdx: 3,
-		dialogLastClickZone:  "tavern",
+		dialogState: dialogState{
+			dialogTab:            0,
+			pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
+			pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
+			dialogLastClickedIdx: 3,
+			dialogLastClickZone:  "tavern",
+		},
+
 		rosterSelectedActive: 1,
 		stashDragActive:      true,
 		stashDragFrom:        2,
@@ -174,10 +185,13 @@ func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 func TestEmbeddedStashParticipatesInDragLifecycle(t *testing.T) {
 	npc := tavernTestNPC()
 	g := &MMGame{
-		party:        &character.Party{},
-		dialogActive: true,
-		dialogNPC:    npc,
-		dialogTab:    1,
+		dialogState: dialogState{
+			dialogActive: true,
+			dialogNPC:    npc,
+			dialogTab:    1,
+		},
+
+		party: &character.Party{},
 	}
 	if !g.stashInteractionOpen() {
 		t.Fatal("active tavern Stash tab was not recognized as a stash interaction surface")

@@ -74,7 +74,6 @@ func TestTurnBasedRangedUsesMeleeFromDiagonalContact(t *testing.T) {
 
 	bandit := spawnMonsterAtTile(game, "bandit", 11, 11, tile)
 	bandit.DamageMin, bandit.DamageMax = 20, 20
-	bandit.MeleeDamageType = monster.DamageDark.String()
 	beforeHP := partyHPSum(game)
 
 	runOneMonsterTurn(game, gl)

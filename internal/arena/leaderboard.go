@@ -72,11 +72,7 @@ func Load() *Board {
 
 // Save writes the board.
 func Save(b *Board) error {
-	data, err := json.MarshalIndent(b, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filePath(), data, 0644)
+	return storage.WriteJSONAtomic(filePath(), b, 0644)
 }
 
 // RecordVictory upserts the RUN's entry: member snapshot refreshed, the

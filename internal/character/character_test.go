@@ -6,18 +6,6 @@ import (
 	"ugataima/internal/config"
 )
 
-func TestParseMagicSchoolIDUsesDamageCatalog(t *testing.T) {
-	if got, ok := ParseMagicSchoolID(" DARK "); !ok || got != MagicSchoolDark {
-		t.Fatalf("ParseMagicSchoolID(DARK) = (%q, %v), want (%q, true)", got, ok, MagicSchoolDark)
-	}
-	if _, ok := ParseMagicSchoolID("physical"); ok {
-		t.Fatal("physical passed as a learnable magic school")
-	}
-	if _, ok := ParseMagicSchoolID("arcane"); ok {
-		t.Fatal("unknown magic school passed validation")
-	}
-}
-
 func TestCharacterCreation(t *testing.T) {
 	cfg := &config.Config{
 		Characters: config.CharacterConfig{

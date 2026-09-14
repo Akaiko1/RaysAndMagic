@@ -21,16 +21,23 @@ type tavernTab struct {
 	action string
 }
 
+// tavernDrawsAction is the authored-action contract of the fixed tavern
+// surface. Both the tabs and boot validation ask this predicate, so adding a new
+// tavern service cannot make the validator accept a row the UI ignores.
+func tavernDrawsAction(action string) bool {
+	switch action {
+	case "tavern_rest", "buy_food", "open_roster", "manage_stash":
+		return true
+	default:
+		return false
+	}
+}
+
 func tavernChoice(npc *character.NPC, action string) *character.NPCDialogueChoice {
-	if npc == nil || npc.DialogueData == nil {
+	if npc == nil || !tavernDrawsAction(action) {
 		return nil
 	}
-	for _, choice := range npc.DialogueData.Choices {
-		if choice != nil && choice.Action == action {
-			return choice
-		}
-	}
-	return nil
+	return npc.DialogueData.TopLevelChoice(action)
 }
 
 func tavernServiceChoices(npc *character.NPC) []*character.NPCDialogueChoice {
@@ -206,9 +213,11 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 		} else {
 			drawDebugTextColored(screen, "Click to select", card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
 		}
-		if g.consumeLeftClickIn(card.x, card.y, card.right(), card.bottom()) {
-			g.selectedChoice = i
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{card.x, card.y, (card.right()) - (card.x), (card.bottom()) - (card.y)}, func() {
+			if g.consumeLeftClickIn(card.x, card.y, card.right(), card.bottom()) {
+				g.selectedChoice = i
+			}
+		})
 	}
 
 	selected := choices[g.selectedChoice]
@@ -231,9 +240,11 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 		label = fmt.Sprintf("Confirm Rations - %d gold", selected.Cost)
 	}
 	drawCenteredDebugText(screen, clipDebugText(label, confirm.w-20), confirm.x, confirm.y, confirm.w, confirm.h)
-	if affordable && g.consumeLeftClickIn(confirm.x, confirm.y, confirm.right(), confirm.bottom()) {
-		g.pendingTavernAction = selected
-	}
+	ui.onDisplayedInput(uiCommandClick, layoutRect{confirm.x, confirm.y, (confirm.right()) - (confirm.x), (confirm.bottom()) - (confirm.y)}, func() {
+		if affordable && g.consumeLeftClickIn(confirm.x, confirm.y, confirm.right(), confirm.bottom()) {
+			g.pendingTavernAction = selected
+		}
+	})
 }
 
 func (ui *UISystem) drawTavernRumor(screen *ebiten.Image, npc *character.NPC, area layoutRect) {

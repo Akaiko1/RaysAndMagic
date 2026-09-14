@@ -585,6 +585,80 @@ loots:
       key: "o_yoroi"
       chance: 0.15
 
+  # --- Sakura Garden mobs (L18-24) ---
+  kappa:
+    - type: "item"
+      key: "kappa_shell_guard"
+      chance: 0.06
+    - type: "item"
+      key: "bound_cucumbers"
+      chance: 0.18
+    - type: "item"
+      key: "mirror_basin"
+      chance: 0.04
+    - type: "item"
+      key: "kappa_card"
+      chance: 0.01
+
+  kasa_obake:
+    - type: "item"
+      key: "lacquered_umbrella_rib"
+      chance: 0.16
+    - type: "item"
+      key: "rain_ward_ofuda"
+      chance: 0.06
+    - type: "item"
+      key: "stormfold_umbrella"
+      chance: 0.03
+    - type: "item"
+      key: "kasa_obake_card"
+      chance: 0.01
+
+  karasu_tengu:
+    - type: "item"
+      key: "tengu_feather"
+      chance: 0.18
+    - type: "weapon"
+      key: "gale_war_fan"
+      chance: 0.04
+    - type: "item"
+      key: "tengu_mask"
+      chance: 0.04
+    - type: "item"
+      key: "karasu_tengu_card"
+      chance: 0.01
+
+  kitsune_onmyoji:
+    - type: "item"
+      key: "foxfire_ofuda"
+      chance: 0.06
+    - type: "item"
+      key: "kitsune_shrine_bell"
+      chance: 0.04
+    - type: "item"
+      key: "fivefold_ceremonial_ribbon"
+      chance: 0.03
+    - type: "item"
+      key: "kitsune_onmyoji_card"
+      chance: 0.01
+
+  sakura_jorogumo:
+    - type: "item"
+      key: "moonspun_silk"
+      chance: 0.30
+    - type: "weapon"
+      key: "widow_hairpin"
+      chance: 0.12
+    - type: "item"
+      key: "spider_lily_obi"
+      chance: 0.10
+    - type: "item"
+      key: "sakura_jorogumo_card"
+      chance: 0.03
+    - type: "item"
+      key: "emerald"
+      chance: 0.10
+
   # --- Deep Jungle (Amazon) drops ---
   ocelot:
     - type: "item"

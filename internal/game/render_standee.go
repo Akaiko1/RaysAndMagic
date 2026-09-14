@@ -2,6 +2,7 @@ package game
 
 import (
 	"image"
+	"image/draw"
 	"math"
 
 	"ugataima/internal/config"
@@ -25,8 +26,8 @@ const (
 	// Shell spacing is authored in 1920-wide screen pixels; above that width it
 	// scales with the resolution (constant ANGULAR density), so 4K pays the same
 	// layer count as 1080p instead of double.
-	standeeShellRefWidth   = 1920
-	standeeShellSpacingPx  = 1.5
+	standeeShellRefWidth  = 1920
+	standeeShellSpacingPx = 1.5
 	// At high shell counts the exact same stack is composited in one fragment
 	// pass. This is a render optimization, not a visual LOD.
 	standeeVolumeMinShells = 6
@@ -69,6 +70,140 @@ func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) stande
 	return key
 }
 
+const standeeRenderSourceMaxPixels = 1024 * 1024
+
+func standeeRenderSourceSize(width, height int) (int, int) {
+	for width > 0 && height > 0 && int64(width)*int64(height) > standeeRenderSourceMaxPixels {
+		width = max(1, (width+1)/2)
+		height = max(1, (height+1)/2)
+	}
+	return width, height
+}
+
+// retainedSpriteCPU returns pixels still owned by either the current world-pass
+// lazy-load stash or the active streaming task. It resolves a static sheet's
+// SubImage frame to the matching CPU crop. Callers that get nil pay the
+// ReadPixels readback they always did.
+func (r *Renderer) retainedSpriteCPU(src *ebiten.Image) *image.RGBA {
+	if r == nil || src == nil {
+		return nil
+	}
+	cpuFor := func(img *ebiten.Image) *image.RGBA {
+		if cpu := r.lazySpriteCPUPixels[img]; cpu != nil {
+			return cpu
+		}
+		if task := r.mapRenderResourcePrewarmActive; r.mapRenderTaskCurrent(task) {
+			return task.cpuImages[img]
+		}
+		return nil
+	}
+	if cpu := cpuFor(src); cpu != nil {
+		return cpu
+	}
+	for sheet, frames := range r.animFrameCache {
+		for _, frame := range frames {
+			if frame != src {
+				continue
+			}
+			cpu := cpuFor(sheet)
+			if cpu == nil {
+				return nil
+			}
+			sub, ok := cpu.SubImage(src.Bounds()).(*image.RGBA)
+			if !ok || sub.Bounds().Empty() {
+				return nil
+			}
+			return sub
+		}
+	}
+	return nil
+}
+
+// boundedStandeeRenderSource prevents one high-resolution campaign sprite from
+// multiplying into an equally large core plus two mip chains. Geometry still
+// uses the authored size class; only the texture sampling source is reduced.
+func (r *Renderer) boundedStandeeRenderSource(key standeeCoreKey, src *ebiten.Image) *ebiten.Image {
+	if src == nil {
+		return nil
+	}
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	targetW, targetH := standeeRenderSourceSize(w, h)
+	if targetW == w && targetH == h {
+		return src
+	}
+	if cached := r.standeeRenderSourceCache[key]; cached != nil {
+		return cached
+	}
+	if cpu := r.retainedSpriteCPU(src); cpu != nil {
+		bounded, cpuLevel := r.boundedStandeeRenderSourceFromCPU(key, src, cpu)
+		if bounded != nil {
+			// The silhouette build that follows receives the BOUNDED image, so
+			// hand the reduced pixels forward under the same lifetime.
+			if bounded != src && cpuLevel != nil {
+				if r.lazySpriteCPUPixels == nil {
+					r.lazySpriteCPUPixels = make(map[*ebiten.Image]*image.RGBA)
+				}
+				r.lazySpriteCPUPixels[bounded] = cpuLevel
+			}
+			return bounded
+		}
+	}
+	pixels := make([]byte, 4*w*h)
+	src.ReadPixels(pixels)
+	cpuLevel := &image.RGBA{
+		Pix:    pixels,
+		Stride: 4 * w,
+		Rect:   image.Rect(0, 0, w, h),
+	}
+	for cpuLevel.Bounds().Dx() != targetW || cpuLevel.Bounds().Dy() != targetH {
+		nextW := max(targetW, (cpuLevel.Bounds().Dx()+1)/2)
+		nextH := max(targetH, (cpuLevel.Bounds().Dy()+1)/2)
+		cpuLevel = downsampleMip(cpuLevel, image.Pt(nextW, nextH))
+		if cpuLevel == nil {
+			return src
+		}
+	}
+	bounded := ebiten.NewImageFromImage(cpuLevel)
+	if r.standeeRenderSourceCache == nil {
+		r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
+	}
+	r.standeeRenderSourceCache[key] = bounded
+	return bounded
+}
+
+// boundedStandeeRenderSourceFromCPU is the streaming-prewarm variant. The
+// loader already owns these pixels, so keep all reduction work on the CPU and
+// avoid synchronizing a freshly uploaded source back through ReadPixels.
+func (r *Renderer) boundedStandeeRenderSourceFromCPU(key standeeCoreKey, src *ebiten.Image, cpu *image.RGBA) (*ebiten.Image, *image.RGBA) {
+	if src == nil || cpu == nil {
+		return r.boundedStandeeRenderSource(key, src), nil
+	}
+	w, h := cpu.Bounds().Dx(), cpu.Bounds().Dy()
+	targetW, targetH := standeeRenderSourceSize(w, h)
+	if targetW == w && targetH == h {
+		return src, cpu
+	}
+	if cached := r.standeeRenderSourceCache[key]; cached != nil {
+		return cached, nil
+	}
+	cpuLevel := cpu
+	for cpuLevel.Bounds().Dx() != targetW || cpuLevel.Bounds().Dy() != targetH {
+		nextW := max(targetW, (cpuLevel.Bounds().Dx()+1)/2)
+		nextH := max(targetH, (cpuLevel.Bounds().Dy()+1)/2)
+		cpuLevel = downsampleMip(cpuLevel, image.Pt(nextW, nextH))
+		if cpuLevel == nil {
+			return src, cpu
+		}
+	}
+	bounded := ebiten.NewImageFromImage(cpuLevel)
+	if r.standeeRenderSourceCache == nil {
+		r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
+	}
+	r.standeeRenderSourceCache[key] = bounded
+	return bounded, cpuLevel
+}
+
 type standeeMipLayer uint8
 
 const (
@@ -89,8 +224,11 @@ type standeeMipKey struct {
 // blend plus faint horizontal grain, so the token core follows the die-cut art.
 func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) *ebiten.Image {
 	if img, ok := r.standeeCoreCache[key]; ok {
-		r.trackResidentStandeeKey(key)
+		r.trackResidentStandeeKey(key, src)
 		return img
+	}
+	if cpu := r.retainedSpriteCPU(src); cpu != nil {
+		return r.standeeCoreSilhouetteFromCPU(key, src, cpu)
 	}
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -99,6 +237,54 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 	}
 	buf := make([]byte, 4*w*h)
 	src.ReadPixels(buf)
+	cpu := &image.RGBA{Pix: buf, Stride: 4 * w, Rect: image.Rect(0, 0, w, h)}
+	return r.standeeCoreSilhouetteFromCPU(key, src, cpu)
+}
+
+func (r *Renderer) standeeCoreSilhouetteFromCPU(key standeeCoreKey, src *ebiten.Image, cpu *image.RGBA) *ebiten.Image {
+	if img, ok := r.standeeCoreCache[key]; ok {
+		r.trackResidentStandeeKey(key, src)
+		return img
+	}
+	if src == nil || cpu == nil {
+		return nil
+	}
+	prepared := prepareStandeePixels(cpu, r.game.config.Graphics.Standee.CoreTint, false)
+	_, core := r.commitPreparedStandeePixels(key, src, prepared)
+	return core
+}
+
+type standeePreparedPixels struct {
+	sticker     *image.RGBA
+	core        *image.RGBA
+	stickerMips []*image.RGBA
+	coreMips    []*image.RGBA
+}
+
+func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource bool) standeePreparedPixels {
+	if cpu == nil {
+		return standeePreparedPixels{}
+	}
+	b := cpu.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return standeePreparedPixels{}
+	}
+	sticker := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(sticker, sticker.Bounds(), cpu, b.Min, draw.Src)
+	if boundSource {
+		targetW, targetH := standeeRenderSourceSize(w, h)
+		for sticker.Bounds().Dx() != targetW || sticker.Bounds().Dy() != targetH {
+			nextW := max(targetW, (sticker.Bounds().Dx()+1)/2)
+			nextH := max(targetH, (sticker.Bounds().Dy()+1)/2)
+			sticker = downsampleMip(sticker, image.Pt(nextW, nextH))
+			if sticker == nil {
+				return standeePreparedPixels{}
+			}
+		}
+	}
+	buf := sticker.Pix
+	w, h = sticker.Bounds().Dx(), sticker.Bounds().Dy()
 
 	// Perceived color of the art: a chroma-weighted average of the opaque
 	// texels. A plain mean reads wrong - dark outlines and brown gear drown a
@@ -123,7 +309,6 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 	}
 	tone := standeeWoodTone
 	if sumW > 0 {
-		tint := r.game.config.Graphics.Standee.CoreTint
 		if tint < 0 {
 			tint = 0
 		} else if tint > 1 {
@@ -151,23 +336,78 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 			out.Pix[o+3] = a
 		}
 	}
-	img := ebiten.NewImageFromImage(out)
+	return standeePreparedPixels{
+		sticker:     sticker,
+		core:        out,
+		stickerMips: prepareStandeeMipPixels(sticker),
+		coreMips:    prepareStandeeMipPixels(out),
+	}
+}
+
+func prepareStandeeMipPixels(base *image.RGBA) []*image.RGBA {
+	if base == nil {
+		return nil
+	}
+	sizes := mipSizesUniform(base.Bounds().Dx(), base.Bounds().Dy())
+	if len(sizes) == 0 {
+		return nil
+	}
+	levels := make([]*image.RGBA, 0, len(sizes))
+	level := base
+	levels = append(levels, level)
+	for _, size := range sizes[1:] {
+		level = downsampleMip(level, size)
+		if level == nil {
+			return nil
+		}
+		levels = append(levels, level)
+	}
+	return levels
+}
+
+// standeeMipBaseNeedsCopy is the shared level-0 ownership rule for both the
+// synchronous and streaming standee builders. Shader coordinates are expressed
+// in a normalized (0,0,w,h) space, so a sheet SubImage with a non-zero origin
+// cannot be bound directly. A prepared base with a different size likewise
+// needs its own image. Standalone sources already matching that space may alias
+// level 0 to avoid the mip cache's largest duplicate allocation.
+func standeeMipBaseNeedsCopy(src *ebiten.Image, preparedBase *image.RGBA) bool {
+	if src == nil || preparedBase == nil {
+		return false
+	}
+	return src.Bounds().Min != (image.Point{}) ||
+		src.Bounds().Size() != preparedBase.Bounds().Size()
+}
+
+func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.Image, prepared standeePreparedPixels) (*ebiten.Image, *ebiten.Image) {
+	if src == nil || prepared.sticker == nil || prepared.core == nil {
+		return src, nil
+	}
+	if existing := r.standeeCoreCache[key]; existing != nil {
+		sticker := src
+		if bounded := r.standeeRenderSourceCache[key]; bounded != nil {
+			sticker = bounded
+		}
+		r.trackResidentStandeeKey(key, src)
+		return sticker, existing
+	}
+	sticker := src
+	if src.Bounds().Size() != prepared.sticker.Bounds().Size() {
+		sticker = ebiten.NewImageFromImage(prepared.sticker)
+		if r.standeeRenderSourceCache == nil {
+			r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
+		}
+		r.standeeRenderSourceCache[key] = sticker
+	}
+	img := ebiten.NewImageFromImage(prepared.core)
 	if r.standeeCoreCache == nil {
 		r.standeeCoreCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
 	r.standeeCoreCache[key] = img
-	// The source pixels are already on the CPU here. Build both immutable mip
-	// chains now instead of immediately reading the freshly uploaded core back
-	// from the GPU in standeeMipChainFor (a sync point per visible frame).
-	stickerPixels := &image.RGBA{
-		Pix:    buf,
-		Stride: 4 * w,
-		Rect:   image.Rect(0, 0, w, h),
-	}
-	r.cacheStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, src, stickerPixels)
-	r.cacheStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, out)
-	r.trackResidentStandeeKey(key)
-	return img
+	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, sticker, prepared.stickerMips)
+	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, prepared.coreMips)
+	r.trackResidentStandeeKey(key, src)
+	return sticker, img
 }
 
 func clampByte(v float64) byte {
@@ -239,30 +479,29 @@ func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWid
 // the automatic texture atlas. Level 0 is normalized to (0,0,w,h) only when
 // the source is a sheet SubImage.
 func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *mipChain {
+	return r.cachePreparedStandeeMipChain(key, src, prepareStandeeMipPixels(cpuLevel))
+}
+
+func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
-	if src == nil || cpuLevel == nil {
-		return nil
-	}
-	sizes := mipSizesUniform(cpuLevel.Bounds().Dx(), cpuLevel.Bounds().Dy())
-	if len(sizes) == 0 {
+	if src == nil || len(cpuLevels) == 0 || cpuLevels[0] == nil {
 		return nil
 	}
 
-	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(sizes))}
+	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels))}
 	base := src
-	if src.Bounds().Min != (image.Point{}) {
+	if standeeMipBaseNeedsCopy(src, cpuLevels[0]) {
 		// The shader's full-size coordinate reference is normalized. Most sprite
 		// images already start at (0,0) and can be reused directly; only sheet
 		// SubImages need this managed-source copy. Avoiding a duplicate level 0
 		// for standalone images cuts the mip cache's dominant allocation.
-		base = ebiten.NewImageFromImage(cpuLevel)
+		base = ebiten.NewImageFromImage(cpuLevels[0])
 		chain.owned = append(chain.owned, base)
 	}
 	chain.levels = append(chain.levels, base)
-	for _, size := range sizes[1:] {
-		cpuLevel = downsampleMip(cpuLevel, size)
+	for _, cpuLevel := range cpuLevels[1:] {
 		level := ebiten.NewImageFromImage(cpuLevel)
 		chain.levels = append(chain.levels, level)
 		chain.owned = append(chain.owned, level)
@@ -808,6 +1047,10 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 // aliases dst (grown), so the caller reclaims it after drawing. See
 // drawStandeeSprite's doc for the parameter meanings.
 func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
+	sprite = r.boundedStandeeRenderSource(coreKey, sprite)
+	if sprite == nil {
+		return standeeSlab{}, false
+	}
 	screenW := r.game.config.GetScreenWidth()
 	cam := r.game.camera
 	halfFovTan := math.Tan(cam.FOV / 2)
@@ -1424,74 +1667,6 @@ func (r *Renderer) reserveStandeeBuffers() {
 	if cap(r.standeeSurfacesB) < surfaceCapacity {
 		r.standeeSurfacesB = make([]standeeSurface, 0, surfaceCapacity)
 	}
-}
-
-// flushPrewarmedImageUploads submits every map image and generated mip as a
-// source before gameplay. One ReadPixels on the tiny destination flushes the
-// whole command queue (graphicscommand.ReadPixels drains it), so the buffered
-// WritePixels uploads land once here instead of stalling the first frame that
-// draws each image; reading every source instead would pay that stall - plus a
-// full-image GPU readback - per sprite.
-func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *mipChain) {
-	if len(images) == 0 {
-		return
-	}
-	target := ebiten.NewImage(len(images)+2, 1)
-	defer target.Deallocate()
-	x := 0
-	for img := range images {
-		bounds := img.Bounds()
-		if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
-			continue
-		}
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(-bounds.Min.X), float64(-bounds.Min.Y))
-		opts.GeoM.Scale(1/float64(bounds.Dx()), 1/float64(bounds.Dy()))
-		opts.GeoM.Translate(float64(x), 0)
-		target.DrawImage(img, opts)
-		x++
-	}
-
-	if stickerMips != nil && coreMips != nil &&
-		len(stickerMips.levels) > 0 && len(coreMips.levels) > 0 {
-		stickerLevel1 := min(1, len(stickerMips.levels)-1)
-		stickerLevel2 := min(2, len(stickerMips.levels)-1)
-		coreLevel := min(1, len(coreMips.levels)-1)
-		origin := stickerMips.levels[0].Bounds().Min
-		srcX, srcY := float32(origin.X)+0.5, float32(origin.Y)+0.5
-		indices := []uint32{0, 1, 2, 1, 3, 2}
-		shaderOpts := func() *ebiten.DrawTrianglesShaderOptions {
-			opts := &ebiten.DrawTrianglesShaderOptions{}
-			opts.Images[0] = stickerMips.levels[0]
-			opts.Images[1] = stickerMips.levels[stickerLevel1]
-			opts.Images[2] = stickerMips.levels[stickerLevel2]
-			opts.Images[3] = coreMips.levels[coreLevel]
-			return opts
-		}
-
-		if r.standeeTrilinearShader != nil {
-			left := float32(x)
-			vertices := []ebiten.Vertex{
-				{DstX: left, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left + 1, DstY: 0, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-				{DstX: left + 1, DstY: 1, SrcX: srcX, SrcY: srcY, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom2: 1},
-			}
-			target.DrawTrianglesShader32(vertices, indices, r.standeeTrilinearShader, shaderOpts())
-			x++
-		}
-		if r.standeeVolumeShader != nil {
-			left := float32(x)
-			vertices := []ebiten.Vertex{
-				{DstX: left, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left + 1, DstY: 0, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-				{DstX: left + 1, DstY: 1, SrcX: srcX + 1, SrcY: srcY, ColorR: 1, ColorG: 100, ColorA: standeeVolumeMinShells, Custom0: 2, Custom1: 1, Custom2: 0.5, Custom3: 0.5},
-			}
-			target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
-		}
-	}
-	target.ReadPixels(make([]byte, 4*(len(images)+2)))
 }
 
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {

@@ -20,7 +20,9 @@ import (
 	"math/rand"
 	"os"
 
+	"ugataima/internal/character"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -107,6 +109,7 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 	g.applySkyForPhase(true)
 	g.syncDayNightPacks(night)
 	g.dayNightDay++
+	g.refreshCelestialProvidence()
 	if night {
 		g.refreshRepeatableQuests()
 		g.AddCombatMessage("Night falls.")
@@ -116,6 +119,122 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 		g.refreshScheduledMerchantStocks()
 	}
 	g.AddCombatMessage("The sun rises.")
+}
+
+var celestialProvidenceBuffPool = []spells.SpellID{
+	"day_of_the_gods",
+	"hour_of_power",
+	"bless",
+	"stone_skin",
+	"heroism",
+}
+
+const celestialProvidenceSourceID = "racial:celestial_providence"
+const timedBuffSourceSaveVersion = 1
+
+// restoreCelestialProvidenceOwnership migrates saves written by the first
+// Providence implementation, which persisted the selected spell but not its
+// source id. Released pre-feature saves have neither field and are unchanged.
+func (g *MMGame) restoreCelestialProvidenceOwnership(sourceVersion int) {
+	if sourceVersion >= timedBuffSourceSaveVersion {
+		return
+	}
+	spellID := g.celestialBuffSpellID
+	if spellID == "" {
+		return
+	}
+	for i := range g.statBuffs {
+		if g.statBuffs[i].SpellID == spellID {
+			if g.statBuffs[i].SourceID == "" {
+				g.statBuffs[i].SourceID = celestialProvidenceSourceID
+			}
+			return
+		}
+	}
+	for i := range g.combatBuffs {
+		if g.combatBuffs[i].SpellID == spellID {
+			if g.combatBuffs[i].SourceID == "" {
+				g.combatBuffs[i].SourceID = celestialProvidenceSourceID
+			}
+			return
+		}
+	}
+	// A stale marker without a matching buff must not claim a future cast.
+	g.celestialBuffSpellID = ""
+}
+
+// refreshCelestialProvidence replaces the last race-granted party buff at a
+// real phase boundary. The duration is a safety clock; explicit replacement is
+// authoritative, including paid skips that cross several boundaries at once.
+func (g *MMGame) refreshCelestialProvidence() {
+	if g.combat == nil {
+		return
+	}
+	if g.celestialBuffSpellID != "" {
+		g.removeStatBuff(celestialProvidenceSourceID)
+		g.removeCombatBuff(celestialProvidenceSourceID)
+		g.celestialBuffSpellID = ""
+	}
+	hasLivingCelestial := false
+	if g.party != nil {
+		for _, member := range g.party.Members {
+			if member != nil && member.Race == "celestial" && member.HitPoints > 0 &&
+				!member.HasCondition(character.ConditionDead) && !member.HasCondition(character.ConditionEradicated) {
+				hasLivingCelestial = true
+				break
+			}
+		}
+	}
+	if !hasLivingCelestial || len(celestialProvidenceBuffPool) == 0 {
+		return
+	}
+	// A normal cast that is still active owns its spell slot. Providence may
+	// replace its own previous grant above, but must never downgrade, relabel, or
+	// later remove a player-owned cast of the same spell.
+	available := make([]spells.SpellID, 0, len(celestialProvidenceBuffPool))
+	for _, candidate := range celestialProvidenceBuffPool {
+		_, statActive := g.statBuffByID(string(candidate))
+		_, combatActive := g.combatBuffByID(string(candidate))
+		if !statActive && !combatActive {
+			available = append(available, candidate)
+		}
+	}
+	if len(available) == 0 {
+		return
+	}
+	spellID := available[rand.Intn(len(available))]
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return
+	}
+	caster := &character.MMCharacter{
+		MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{
+			character.MagicSchoolID(def.School): {Mastery: character.MasteryMaster},
+		},
+	}
+	frames := g.dayNightCycleFrames()/2 + 1
+	if frames <= 1 {
+		frames = g.config.GetTPS()
+	}
+	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
+		g.combat.applyStatBuffSpellFromSource(spellID, celestialProvidenceSourceID, frames, g.combat.spellStatBuffBonuses(spellID, caster))
+	} else {
+		g.addCombatBuff(TimedCombatBuff{
+			SpellID:         string(spellID),
+			SourceID:        celestialProvidenceSourceID,
+			Frames:          frames,
+			OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
+			OutDamageType:   def.OutgoingDamageType,
+			InReduce:        scaledIncomingDamageReduction(def, caster),
+			ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
+			ResistSchool:    def.ResistBuffSchool,
+			ResistSchoolPct: def.ResistBuffSchoolPct,
+		})
+	}
+	g.celestialBuffSpellID = string(spellID)
+	g.setUtilityStatus(spellID, frames)
+	g.combat.playSpellBuffFx(spellID)
+	g.AddCombatMessage(fmt.Sprintf("Celestial Providence grants Master-tier %s until the next dawn or dusk.", def.Name))
 }
 
 // advanceDayNightToPhase queues every crossed phase start and lets the normal

@@ -54,8 +54,6 @@ type World3D struct {
 	MonsterSpawns  []MonsterSpawn
 	LastRespawnDay int
 	NPCs           []*character.NPC
-	Items          []*character.WorldItem
-	Teachers       []*character.SkillTeacher
 	config         *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
@@ -79,17 +77,12 @@ func NewWorld3D(cfg *config.Config) *World3D {
 		Monsters:           make([]*monster.Monster3D, 0),
 		InitialMonsterKeys: make(map[string]struct{}),
 		NPCs:               make([]*character.NPC, 0),
-		Items:              make([]*character.WorldItem, 0),
-		Teachers:           make([]*character.SkillTeacher, 0),
 		config:             cfg,
 		OutOfBoundsKey:     "oob_cliff",
 	}
 
 	// Note: Map loading is now handled by WorldManager
 	// No longer auto-loading forest.map here to avoid conflicts
-
-	// Place skill teachers in appropriate locations
-	world.placeSkillTeachers()
 
 	return world
 }
@@ -520,13 +513,19 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 
 		// Optional ground-tile override: paint a specific tile under the NPC
 		// instead of the default '.' (e.g. a portal-stream tile beneath an
-		// invisible gate NPC). Lets a spriteless NPC sit on bespoke ground.
-		if npc.GroundTile != "" && GlobalTileManager != nil &&
+		// invisible gate NPC, water under a lake chest). The placement's own
+		// [npc:key@tile] override wins over the NPC definition's ground_tile -
+		// specific over general.
+		groundTile := spawn.GroundTile
+		if groundTile == "" {
+			groundTile = npc.GroundTile
+		}
+		if groundTile != "" && GlobalTileManager != nil &&
 			spawn.Y >= 0 && spawn.Y < len(w.Tiles) && spawn.X >= 0 && spawn.X < len(w.Tiles[spawn.Y]) {
-			if tileType, ok := GlobalTileManager.GetTileTypeFromKey(npc.GroundTile); ok {
+			if tileType, ok := GlobalTileManager.GetTileTypeFromKey(groundTile); ok {
 				w.Tiles[spawn.Y][spawn.X] = tileType
 			} else {
-				fmt.Printf("Warning: NPC %s ground_tile %q not found\n", spawn.NPCKey, npc.GroundTile)
+				fmt.Printf("Warning: NPC %s ground_tile %q not found\n", spawn.NPCKey, groundTile)
 			}
 		}
 

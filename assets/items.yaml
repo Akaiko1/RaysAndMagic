@@ -956,6 +956,206 @@ items:
     rarity: "common"
     value: 60
 
+  # --- Sakura Garden loot ---
+  # Zone-loot identity per mob: themed gear + a trophy trinket + a card, boss
+  # signatures on the jorogumo. Icons sliced from the per-mob drop sheets.
+  kappa_shell_guard:
+    name: "Kappa Shell Guard"
+    type: "armor"
+    armor_category: "leather"
+    description: "Overlapping mossy shell plates lashed into a cuirass"
+    flavor: "Still damp. It never dries, and never cracks."
+    equip_slot: "armor"
+    armor_class_base: 4
+    endurance_scaling_divisor: 10
+    bonus_endurance: 5
+    rarity: "uncommon"
+    value: 380
+    resistances:
+      water: 20
+
+  bound_cucumbers:
+    name: "Bound Cucumbers"
+    type: "trinket"
+    description: "A rope-tied bundle of prize cucumbers, a kappa's whole treasury"
+    flavor: "Grocers pay well; kappa pay better, but never in coin."
+    rarity: "common"
+    value: 140
+
+  mirror_basin:
+    name: "Mirror Basin"
+    type: "accessory"
+    description: "A shallow silver dish that always holds a ring of still water"
+    flavor: "Tip it over and the water stays. Nobody ever taught it to spill."
+    equip_slot: "amulet"
+    bonus_personality: 6
+    bonus_luck: 5
+    rarity: "rare"
+    value: 720
+    resistances:
+      water: 20
+
+  kappa_card:
+    name: "Kappa Card"
+    type: "card"
+    card_resist_bonus:
+      water: 20
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a river imp, the dish on its head brimming."
+    rarity: "legendary"
+    value: 500
+
+  lacquered_umbrella_rib:
+    name: "Lacquered Umbrella Rib"
+    type: "trinket"
+    description: "A red-lacquered rib snapped from a hopping umbrella"
+    flavor: "Lacquerers buy them by the bundle and ask no questions."
+    rarity: "common"
+    value: 150
+
+  rain_ward_ofuda:
+    name: "Rain-Ward Ofuda"
+    type: "accessory"
+    description: "An inked paper seal that keeps storm and spray at arm's length"
+    flavor: "The ink beads water like waxed cloth."
+    equip_slot: "ring"
+    bonus_intellect: 4
+    rarity: "uncommon"
+    value: 420
+    resistances:
+      water: 20
+      air: 15
+
+  stormfold_umbrella:
+    name: "Stormfold Umbrella"
+    type: "accessory"
+    description: "A patched oil-paper umbrella that shrugs the wind aside"
+    flavor: "Folded, it fits a sleeve. Open, it turns a gale."
+    equip_slot: "cloak"
+    bonus_speed: 6
+    rarity: "rare"
+    value: 780
+    resistances:
+      air: 25
+
+  kasa_obake_card:
+    name: "Kasa Obake Card"
+    type: "card"
+    card_dodge_bonus_pct: 5
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a one-eyed umbrella mid-hop, tongue out."
+    rarity: "legendary"
+    value: 500
+
+  tengu_feather:
+    name: "Tengu Feather"
+    type: "trinket"
+    description: "A long black wing feather, edged like a knife"
+    flavor: "Fletchers and fan-makers bid against each other for these."
+    rarity: "common"
+    value: 190
+
+  tengu_mask:
+    name: "Tengu Mask"
+    type: "armor"
+    armor_category: "cloth"
+    description: "A carved crow-faced mask, beaked and red-lacquered"
+    flavor: "Wear it long enough and you stop tripping on roots."
+    equip_slot: "helmet"
+    armor_class_base: 2
+    bonus_speed: 7
+    bonus_personality: 5
+    rarity: "rare"
+    value: 760
+
+  karasu_tengu_card:
+    name: "Karasu Tengu Card"
+    type: "card"
+    card_ranged_dmg_pct: 15
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a crow-headed swordsman, wings spread."
+    rarity: "legendary"
+    value: 500
+
+  foxfire_ofuda:
+    name: "Foxfire Ofuda"
+    type: "accessory"
+    description: "A paper seal that burns with a cold blue flame and is not consumed"
+    flavor: "The flame gives no heat, and reads by night."
+    equip_slot: "ring"
+    bonus_intellect: 7
+    rarity: "uncommon"
+    value: 520
+    resistances:
+      fire: 20
+      mind: 15
+
+  kitsune_shrine_bell:
+    name: "Kitsune Shrine Bell"
+    type: "accessory"
+    description: "A gilt bell on a fox-fur tassel, rung to call attention kindly"
+    flavor: "It rings only when shaken by an honest hand."
+    equip_slot: "amulet"
+    bonus_personality: 8
+    bonus_luck: 5
+    rarity: "rare"
+    value: 740
+
+  fivefold_ceremonial_ribbon:
+    name: "Fivefold Ceremonial Ribbon"
+    type: "accessory"
+    description: "A knotted silk ribbon worn across the shoulders at rites"
+    flavor: "Five knots, five bows; the fox ties them with her teeth."
+    equip_slot: "cloak"
+    bonus_intellect: 8
+    bonus_speed: 5
+    rarity: "rare"
+    value: 800
+
+  kitsune_onmyoji_card:
+    name: "Kitsune Onmyoji Card"
+    type: "card"
+    card_resist_bonus:
+      mind: 15
+      spirit: 15
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a nine-tailed diviner, fan raised."
+    rarity: "legendary"
+    value: 500
+
+  moonspun_silk:
+    name: "Moonspun Silk"
+    type: "trinket"
+    description: "A spool of spider silk drawn on a moonless night, sold by weight"
+    flavor: "Weavers whisper it holds a dye no vat ever mixed."
+    rarity: "uncommon"
+    value: 450
+
+  spider_lily_obi:
+    name: "Spider Lily Obi"
+    type: "accessory"
+    description: "A black sash brocaded with red spider lilies and pale web-thread"
+    flavor: "Her wedding sash. She was the only one wed."
+    equip_slot: "cloak"
+    bonus_speed: 10
+    bonus_intellect: 8
+    rarity: "legendary"
+    value: 2600
+    resistances:
+      body: 35
+      mind: 25
+
+  sakura_jorogumo_card:
+    name: "Sakura Jorogumo Card"
+    type: "card"
+    card_stat_bonuses:
+      speed: 10
+      intellect: 10
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a bride above eight black legs, bowing."
+    rarity: "legendary"
+    value: 800
+
   # --- Deep Jungle (Amazon) loot ---
   jaguar_pelt_jerkin:
     name: "Jaguar-Pelt Jerkin"

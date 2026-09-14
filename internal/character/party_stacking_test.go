@@ -158,3 +158,26 @@ func TestMergeStacksMigratesOldSaves(t *testing.T) {
 		t.Errorf("lone trinket stays a stack of 1, got %d", p.Inventory[2].Count())
 	}
 }
+
+func TestConsumeUnitsAt(t *testing.T) {
+	p := &Party{}
+	p.AddItem(potion(5))
+	if !p.ConsumeUnitsAt(0, 3) {
+		t.Fatal("partial multi-unit consume failed")
+	}
+	if len(p.Inventory) != 1 || p.Inventory[0].Count() != 2 {
+		t.Fatalf("want stack of 2 left, got %+v", p.Inventory)
+	}
+	if p.ConsumeUnitsAt(0, 3) {
+		t.Fatal("consuming more units than the stack holds must fail")
+	}
+	if p.Inventory[0].Count() != 2 {
+		t.Fatalf("a refused consume mutated the stack: %+v", p.Inventory[0])
+	}
+	if !p.ConsumeUnitsAt(0, 2) {
+		t.Fatal("consuming the exact remainder failed")
+	}
+	if len(p.Inventory) != 0 {
+		t.Fatalf("the emptied entry must be removed, got %+v", p.Inventory)
+	}
+}

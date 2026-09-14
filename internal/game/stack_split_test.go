@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -70,6 +71,57 @@ func TestCancelPickedUpStackSplitKeepsInventorySource(t *testing.T) {
 	}
 	if got := g.party.Inventory[0]; got.Count() != 5 || got.InstanceID != 42 {
 		t.Fatalf("cancel mutated the source: %+v", got)
+	}
+}
+
+// Picked-up fragments belong to the current timeline. Both entry points that
+// replace that timeline must clear the shared interaction owner before any input
+// can reach the fresh run or restored save.
+func TestTimelineReplacementCancelsEverySplitGesture(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, g *MMGame, wm *world.WorldManager)
+	}{
+		{
+			name: "new game",
+			run: func(_ *testing.T, g *MMGame, _ *world.WorldManager) {
+				g.startNewGameWithParty(character.NewParty(g.config))
+			},
+		},
+		{
+			name: "load save",
+			run: func(t *testing.T, g *MMGame, wm *world.WorldManager) {
+				save := g.buildSave(wm)
+				if err := g.applySave(wm, &save); err != nil {
+					t.Fatalf("apply save: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			w := newTestWorldSized(cfg, 8, 8)
+			w.StartX, w.StartY = 1, 1
+			wm := world.NewWorldManager(cfg)
+			wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+			wm.CurrentMapKey = "forest"
+			previous := world.GlobalWorldManager
+			world.GlobalWorldManager = wm
+			t.Cleanup(func() { world.GlobalWorldManager = previous })
+
+			g := newTestGame(cfg, w)
+			ui := NewUISystem(g)
+			g.gameLoop = &GameLoop{game: g, ui: ui}
+			ui.openStackSplitPicker(stackSplitPickerInventory, 0, items.Item{Name: "Potion", Quantity: 2})
+			g.dragActive, g.dragPickedUp = true, true
+			g.stashDragActive, g.stashDragPickedUp = true, true
+
+			tc.run(t, g, wm)
+			if ui.stackSplitPicker.open || g.dragPickedUp || g.stashDragPickedUp || g.stackSplitInteractionActive() {
+				t.Fatalf("timeline replacement kept split state: picker=%v inventory=%v stash=%v",
+					ui.stackSplitPicker.open, g.dragPickedUp, g.stashDragPickedUp)
+			}
+		})
 	}
 }
 

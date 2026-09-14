@@ -126,14 +126,14 @@ func TestBackfillTraderSpells(t *testing.T) {
 
 	// Lake trader: a Body spell entry given as just an ID is fully backfilled.
 	heal := get("spell_trader_mage", "heal")
-	if heal.Name == "" || heal.School != "body" || heal.Cost <= 0 {
+	if heal.Name == "" || heal.Cost <= 0 {
 		t.Errorf("heal not backfilled: %+v", heal)
 	}
 
 	// Catalog entries carry price + identity only - there is no purchase gate to
 	// backfill, so a bare ID must still resolve its school and cost.
 	wb := get("city_spell_shop", "water_breathing")
-	if wb.Name == "" || wb.School != "water" || wb.Cost <= 0 {
+	if wb.Name == "" || wb.Cost <= 0 {
 		t.Errorf("water_breathing not backfilled: %+v", wb)
 	}
 
@@ -158,11 +158,87 @@ func TestBackfillTraderSpells(t *testing.T) {
 		t.Errorf("Mira's paid casts = %v, want walk_on_water 300s and water_breathing 600s", casts)
 	}
 
-	// City sells elemental only - no Light/Dark.
-	for _, sp := range NPCConfigInstance.NPCs["city_spell_shop"].Spells {
-		if sp.School == "light" || sp.School == "dark" {
-			t.Errorf("city shop must not sell light/dark, found %q (%s)", sp.Name, sp.School)
+	// City sells elemental only - no Light/Dark. The row carries no school of its
+	// own any more (it would only drift), so the check reads the definition the
+	// row key names - the same place the shop label and the counter read.
+	for id := range NPCConfigInstance.NPCs["city_spell_shop"].Spells {
+		def, ok := config.GetSpellDefinition(id)
+		if !ok || def == nil {
+			t.Fatalf("city shop sells %q, which spells.yaml does not define", id)
 		}
+		schools := def.Schools
+		if len(schools) == 0 {
+			schools = []string{def.School}
+		}
+		for _, school := range schools {
+			if school == "light" || school == "dark" {
+				t.Errorf("city shop must not sell light/dark, found %q (%s)", id, school)
+			}
+		}
+	}
+}
+
+// Spell rows only become a shop on a spell_trader - CreateNPCFromConfig copies
+// SpellData for that type alone. Authored on any other type the rows are
+// silently dropped: no shop, no complaint, and the catalog reads like it sells
+// something. That is a load-time error, and every row is validated wherever it
+// is written rather than only on the rows that happen to be typed right.
+func TestSpellRowsBelongToSpellTraders(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+
+	for _, tc := range []struct {
+		name  string
+		npc   *NPCData
+		wants string
+	}{
+		{
+			name:  "rows on a non-trader",
+			npc:   &NPCData{Type: "quest_giver", Spells: map[string]*NPCSpell{"heal": {Cost: 120}}},
+			wants: "only become a shop on a spell_trader",
+		},
+		{
+			name:  "no cost",
+			npc:   &NPCData{Type: "spell_trader", Spells: map[string]*NPCSpell{"heal": {}}},
+			wants: "positive cost",
+		},
+		{
+			name:  "unknown spell",
+			npc:   &NPCData{Type: "spell_trader", Spells: map[string]*NPCSpell{"no_such_spell": {Cost: 10}}},
+			wants: "not defined in spells.yaml",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			NPCConfigInstance = &NPCConfig{NPCs: map[string]*NPCData{"hedge_witch": tc.npc}}
+			err := backfillTraderSpells()
+			if err == nil || !strings.Contains(err.Error(), tc.wants) {
+				t.Fatalf("error = %v, want it to mention %q", err, tc.wants)
+			}
+		})
+	}
+
+	// A properly typed row is filled and kept.
+	NPCConfigInstance = &NPCConfig{NPCs: map[string]*NPCData{
+		"hedge_witch": {Type: "spell_trader", Spells: map[string]*NPCSpell{"heal": {Cost: 120}}},
+	}}
+	if err := backfillTraderSpells(); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if sp := NPCConfigInstance.NPCs["hedge_witch"].Spells["heal"]; sp.Name == "" {
+		t.Fatalf("row not backfilled: %+v", sp)
+	}
+
+	// And the type that gets the rows is the one the runtime reads them from -
+	// this is the pairing that made the old check useless.
+	npc, err := CreateNPCFromConfig("hedge_witch", 0, 0)
+	if err != nil {
+		t.Fatalf("build NPC: %v", err)
+	}
+	if len(npc.SpellData) != 1 {
+		t.Fatalf("a spell_trader's rows did not reach SpellData: %v", npc.SpellData)
 	}
 }
 

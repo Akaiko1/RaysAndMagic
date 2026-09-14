@@ -42,7 +42,8 @@ func allySourceCases() []allySourceCase {
 			name: "card_summon",
 			spawn: func(t *testing.T, g *MMGame) *monsterPkg.Monster3D {
 				t.Helper()
-				if n := g.combat.summonCardAllies("masked_huntress", 1); n != 1 {
+				source := cardSummonSource{CardName: "Test Card", MonsterKey: "masked_huntress", Owner: cardSummonOwner}
+				if n := g.combat.summonCardAllies(source, 1); n != 1 {
 					t.Fatalf("summonCardAllies = %d, want 1", n)
 				}
 				return g.world.Monsters[len(g.world.Monsters)-1]
@@ -71,7 +72,7 @@ func allySourceCases() []allySourceCase {
 				if err != nil {
 					t.Fatalf("summon_ice_elemental definition: %v", err)
 				}
-				if !g.combat.tryCastSummon(def, g.party.Members[0]) {
+				if !g.combat.tryCastSummon(def, g.party.Members[0]).handled() {
 					t.Fatal("summon spell was not handled by the summon path")
 				}
 				return g.world.Monsters[len(g.world.Monsters)-1]
@@ -164,7 +165,7 @@ func TestAllyMatrix_PartyDamageTransparency(t *testing.T) {
 			}
 
 			hp = m.HitPoints
-			g.steamZones = append(g.steamZones[:0], SteamZone{SpellID: "firewall", X: m.X, Y: m.Y,
+			g.persistentDamageZones = append(g.persistentDamageZones[:0], PersistentDamageZone{SpellID: "firewall", X: m.X, Y: m.Y,
 				Radius:     float64(g.config.GetTileSize()),
 				TickDamage: 25, FramesLeft: 60, IntervalFrames: 60})
 			g.combat.applyZoneEntrySpell("firewall")
@@ -463,7 +464,8 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 	t.Run("card", func(t *testing.T) {
 		game, _ := summonTileWorld(t)
 		cs := game.combat
-		if n := cs.summonCardAllies("masked_huntress", 1); n != 1 {
+		source := cardSummonSource{CardName: "Test Card", MonsterKey: "masked_huntress", Owner: cardSummonOwner}
+		if n := cs.summonCardAllies(source, 1); n != 1 {
 			t.Fatalf("summonCardAllies = %d, want 1", n)
 		}
 		assertAlly(t, cs.game, cs.game.world.Monsters[len(cs.game.world.Monsters)-1], cardSummonOwner)
@@ -478,14 +480,14 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 			t.Fatalf("%s definition: %v", id, err)
 		}
 		caster := cs.game.party.Members[0]
-		if !cs.tryCastSummon(def, caster) {
+		if !cs.tryCastSummon(def, caster).handled() {
 			t.Fatal("summon spell must be handled by the summon path")
 		}
 		ally := cs.game.world.Monsters[len(cs.game.world.Monsters)-1]
 		assertAlly(t, cs.game, ally, summonSpellOwner(id))
 		// The summon cap counts only this spell's own allies.
 		before := len(cs.game.world.Monsters)
-		if !cs.tryCastSummon(def, caster) {
+		if !cs.tryCastSummon(def, caster).handled() {
 			t.Fatal("a capped summon still consumes the cast")
 		}
 		if len(cs.game.world.Monsters) != before {

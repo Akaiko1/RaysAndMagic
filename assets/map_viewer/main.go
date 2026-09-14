@@ -18,6 +18,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -64,6 +65,7 @@ var pageTabDefs = []struct {
 }
 
 type mapInfo struct {
+	Biome  config.BiomeConfig
 	Key    string
 	Config *config.MapConfig
 	Data   *world.MapData
@@ -670,6 +672,11 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 			)
 			if def.Type != "" {
 				lines = append(lines, "Type: "+def.Type)
+			}
+			ctx := game.MonsterCatalogEffectContext(v.cfg)
+			ctx.ElementalSchool = m.Biome.ElementalAttackSchool
+			for _, line := range def.CombatEffectLines(ctx) {
+				lines = append(lines, wrapTooltipLines(line.Text, 64)...)
 			}
 		}
 		drawTooltipBox(screen, lines, mouseX, mouseY)
@@ -1667,7 +1674,7 @@ func (v *viewer) saveCurrentMap() error {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, eol)+eol), 0o644)
+	return storage.WriteFileAtomic(path, []byte(strings.Join(lines, eol)+eol), 0o644)
 }
 
 func drawSaveDialog(screen *ebiten.Image, path, errMsg string) {
@@ -2007,7 +2014,7 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 				continue
 			}
 			row[npc.X] = world.MapCellInteractive
-			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, npc.NPCKey)})
+			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, world.NPCSpawnDefBody(npc))})
 		}
 		for _, sp := range specialByRow[y] {
 			if sp.X < 0 || sp.X >= width {
@@ -2229,6 +2236,7 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 		header, eol := readMapHeaderAndEOL(mapPath)
 		maps = append(maps, mapInfo{
 			Key:    key,
+			Biome:  wm.Biomes[mapCfg.Biome],
 			Config: mapCfg,
 			Data:   data,
 			Err:    err,

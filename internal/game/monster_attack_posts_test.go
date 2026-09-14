@@ -57,8 +57,22 @@ func TestCombatAttackPostsReserveOneMobPerTile(t *testing.T) {
 	if posts != len(offsets) {
 		t.Fatalf("claimed posts = %d, want one for every free adjacent tile (%d)", posts, len(offsets))
 	}
-	if duplicate.AttackPost || duplicate.State != monster.StatePursuing || !duplicate.AttackTransit {
-		t.Fatalf("duplicate attacker must become transit: post=%v state=%v transit=%v", duplicate.AttackPost, duplicate.State, duplicate.AttackTransit)
+	// The tie-break between two contenders on one tile is the stable ID order -
+	// deliberately arbitrary (random IDs), not spawn order. The rule is only:
+	// exactly one claims the post, the loser demotes to pursuing transit.
+	holders := 0
+	for _, contender := range []*monster.Monster3D{mobs[0], duplicate} {
+		if contender.AttackPost {
+			holders++
+			continue
+		}
+		if contender.State != monster.StatePursuing || !contender.AttackTransit {
+			t.Fatalf("losing contender must become transit: post=%v state=%v transit=%v",
+				contender.AttackPost, contender.State, contender.AttackTransit)
+		}
+	}
+	if holders != 1 {
+		t.Fatalf("same-tile contenders holding posts = %d, want exactly 1", holders)
 	}
 }
 
@@ -83,7 +97,7 @@ func TestRTMonsterOnReservedPostKeepsSeeking(t *testing.T) {
 		Monster:         contender,
 		collisionSystem: game.collisionSystem,
 		snapshot:        game.collisionSystem.Snapshot(),
-		game:            game,
+		frame:           game.monsterFrameContext(),
 	}
 	wrapper.Update()
 	wrapper.ApplyCollisionUpdate()
@@ -457,8 +471,8 @@ func TestRealTimeRearMeleeReachesDistinctPostAcrossTargets(t *testing.T) {
 				setup.gl.reconcileMonsterAttackPosts()
 				snapshot := setup.game.collisionSystem.Snapshot()
 				wrappers := []*MonsterWrapper{
-					{Monster: setup.front, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
-					{Monster: setup.rear, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, game: setup.game},
+					{Monster: setup.front, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, frame: setup.game.monsterFrameContext()},
+					{Monster: setup.rear, collisionSystem: setup.game.collisionSystem, snapshot: snapshot, frame: setup.game.monsterFrameContext()},
 				}
 				for _, wrapper := range wrappers {
 					wrapper.Update()

@@ -34,6 +34,13 @@ func NewEntityUpdater() *EntityUpdater {
 	}
 }
 
+// NewEntityUpdaterWithWorkers runs the same barrier with an explicit pool size.
+func NewEntityUpdaterWithWorkers(workers int) *EntityUpdater {
+	pool := core.NewWorkerPool(workers)
+	pool.Start()
+	return &EntityUpdater{workerPool: pool}
+}
+
 // MonsterUpdateInterface defines the interface for monsters that can be
 // updated. Update() computes the tick (AI/movement + the desired collision
 // state) reading only a frozen collision.CollisionSnapshot; ApplyCollisionUpdate

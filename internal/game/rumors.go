@@ -259,16 +259,3 @@ func (g *MMGame) currentRumorText(seed uint64) string {
 	order := rumorOrder(len(pool), seed)
 	return pool[order[day%len(order)]]
 }
-
-// rumorDialogueChoice builds the synthetic view-only tavern branch (never
-// written into DialogueData - the YAML dialogue pointer is shared).
-func (g *MMGame) rumorDialogueChoice(npc *character.NPC) *character.NPCDialogueChoice {
-	return &character.NPCDialogueChoice{
-		Text:     "Listen for rumors",
-		Action:   "info",
-		Response: g.currentRumorText(tavernRumorSeed(npc, g.tavernRegionKey(npc))),
-		Choices: []*character.NPCDialogueChoice{
-			{Text: "Enough gossip", Action: "back"},
-		},
-	}
-}

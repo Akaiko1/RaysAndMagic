@@ -48,10 +48,14 @@ func TestConsumeEntryMenuRootReleaseHandlesStart(t *testing.T) {
 func TestConsumeEntryMenuRootReleaseUsesCurrentCursorPosition(t *testing.T) {
 	cfg := entryMenuTestConfig()
 	g := &MMGame{
-		config:                  cfg,
-		entryMenuMode:           EntryMenuRoot,
-		slotSelection:           4,
-		savePage:                3,
+		menuState: menuState{
+			slotSelection: 4,
+			savePage:      3,
+		},
+
+		config:        cfg,
+		entryMenuMode: EntryMenuRoot,
+
 		entryMenuRootPressArmed: true,
 		mouseLeftClicks: []queuedClick{{
 			x:  0,

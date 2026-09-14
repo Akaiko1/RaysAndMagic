@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"os"
 	"sort"
 
 	"ugataima/internal/config"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -310,7 +310,7 @@ func (v *viewer) owSave() error {
 		"# orient; connections are authored in each map's own LOCAL edge/at terms\n" +
 		"# and carve straight 2-tile passes when placed edges align (auto-routed\n" +
 		"# L/Z canyons otherwise). removals strip split-world travel devices.\n"
-	return os.WriteFile(openWorldConfigPath, append([]byte(header), body...), 0o644)
+	return storage.WriteFileAtomic(openWorldConfigPath, append([]byte(header), body...), 0o644)
 }
 
 func (v *viewer) drawOpenWorldPage(screen *ebiten.Image) {

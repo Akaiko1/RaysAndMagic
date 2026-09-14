@@ -59,7 +59,7 @@ func (f nightMote) pose(tick int64, tileSize float64) (nightMotePose, bool) {
 		return nightMotePose{}, false
 	}
 	progress := float64(tick-f.bornTick) / float64(span)
-	travel := progress * progress * (3 - 2*progress)
+	travel := smoothStep(progress)
 	dx, dy := f.targetX-f.startX, f.targetY-f.startY
 	distance := math.Hypot(dx, dy)
 	perpX, perpY := 0.0, 0.0
@@ -102,7 +102,7 @@ func (r *Renderer) nightMoteMaxDepth() float64 {
 func (r *Renderer) nightMoteSpawnInterval() int64 {
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 120
+		tps = config.DefaultTPS
 	}
 	return max(1, int64(math.Round(r.game.config.Graphics.NightMotes.EmissionIntervalSeconds*float64(tps))))
 }
@@ -141,7 +141,7 @@ func (r *Renderer) updateNightMotes() {
 
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 120
+		tps = config.DefaultTPS
 	}
 	if tick < r.nightMoteScanTick {
 		return
@@ -268,7 +268,7 @@ func (r *Renderer) spawnNightMote(tick int64, chosen *TransparentSpriteData, cur
 	targetY += (rand.Float64()*2 - 1) * jitter
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 120
+		tps = config.DefaultTPS
 	}
 	r.nightMotes = append(r.nightMotes, nightMote{
 		startX: chosen.worldX, startY: chosen.worldY,

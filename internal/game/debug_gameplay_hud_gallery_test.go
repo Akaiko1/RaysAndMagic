@@ -24,7 +24,7 @@ func TestDebugSim_GameplayHUDGallery(t *testing.T) {
 	g, renderer := bootFxGalleryGame(t)
 	defer g.Shutdown()
 
-	g.gameLoop.inputHandler.switchToMap("forest")
+	g.switchToMap("forest")
 	g.camera.X, g.camera.Y = TileCenterFromTile(13, 36, float64(g.config.GetTileSize()))
 	g.camera.Angle = 45 * math.Pi / 180
 	g.turnBasedMode = false
@@ -67,6 +67,13 @@ func TestDebugSim_GameplayHUDGallery(t *testing.T) {
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0}, {charIndex: 2}}
 	g.AddCombatMessage("The forest path bends toward Silverbough.")
 	g.AddCombatMessage("Wizard Eye reveals movement beyond the trees.")
+	// Park a banner mid-hold so the gallery shows it at rest, fully faded in -
+	// the frame the player reads.
+	g.screenBannerQueue = []screenBanner{{
+		text:  "Legendary drop - Wyrmcleaver, the Closing Jaws",
+		kind:  bannerLegendaryDrop,
+		frame: g.bannerInFrames() + g.bannerHoldFrames(bannerLegendaryDrop)/2,
+	}}
 
 	out := filepath.Join(os.Getenv("HOME"), "Downloads", "RaysAndMagic_gameplay_hud")
 	if err := os.RemoveAll(out); err != nil {

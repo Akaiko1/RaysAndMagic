@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -20,6 +21,51 @@ import (
 // one shared instance per key is safe. Primed at startup (PrimeChampions) for
 // fail-fast validation, then read at runtime.
 var championTemplates = map[string]*character.MMCharacter{}
+
+// creditArenaDuelWin advances duel-count quests when a CHALLENGED champion dies.
+// ChampionTier is set only by startArenaDuel, so a roaming champion mob killed in
+// the wild never counts as a bout in the pit.
+func (g *MMGame) creditArenaDuelWin(m *monster.Monster3D) {
+	if g.questManager == nil || m == nil || m.ChampionTier == "" {
+		return
+	}
+	// ON THE SAND. ChampionTier is written by startArenaDuel and survives a save,
+	// so a tagged champion left behind (the party walked out, or reloaded and
+	// went elsewhere) could still die to a DoT or a summon and post a bout the
+	// party never fought. A duel arena is authored data (map_configs `duel:`),
+	// so this asks the map, not a hardcoded key.
+	if !g.currentMapHasDuelArena() {
+		return
+	}
+	// The manager reports what it ACTUALLY advanced; re-deriving the match here
+	// would print progress for a quest whose counter never moved.
+	advanced, completed := g.questManager.OnInteract(quests.ArenaDuelTag)
+	// Both lists come out of a map walk: sort them, or two quests sharing the tag
+	// would write the combat log in a different order run to run (the same hazard
+	// the banner producer sorts away).
+	sortQuestsByID(advanced)
+	sortQuestsByID(completed)
+	for _, q := range advanced {
+		if q.Completed {
+			continue
+		}
+		g.AddCombatMessage(fmt.Sprintf("The bout goes on your record. (%s)", q.GetProgressString()))
+	}
+	for _, q := range completed {
+		g.announceQuestCompletion(q)
+	}
+}
+
+// currentMapHasDuelArena reports whether the party stands on a map that hosts
+// champion duels - the authored `duel:` block startArenaDuel itself reads.
+func (g *MMGame) currentMapHasDuelArena() bool {
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return false
+	}
+	mc := wm.MapConfigs[wm.CurrentMapKey]
+	return mc != nil && mc.Duel != nil
+}
 
 // championTierOf resolves a champion mob's difficulty tier name (default for
 // pre-placed spawns and older saves).
@@ -164,9 +210,8 @@ func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.
 	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
-	if crit, _ := cs.RollWeaponCriticalChance(weapon, ch); crit {
-		total *= CritDamageMultiplier
-	}
+	crit, _ := cs.RollWeaponCriticalChance(weapon, ch)
+	total = weaponCriticalDamage(total, crit)
 	if total < 1 {
 		total = 1
 	}
@@ -219,7 +264,7 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 	if wd != nil {
 		armorPiercePct = wd.ArmorPiercePct
 	}
-	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true)
+	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true, false)
 	hit.ArmorPiercePct = armorPiercePct
 	return hit
 }
@@ -229,6 +274,10 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 // share this sink so the selected hand's damage, riders, arc, and AoE cannot
 // diverge or re-roll between targets caught by the same swing.
 func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, hit monsterCharacterHit) bool {
+	camX, camY := cs.logicalCameraXY()
+	if m == nil || !cs.attackLineClear(m.X, m.Y, camX, camY) {
+		return false
+	}
 	if wd != nil && wd.AoeRadiusTiles > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
@@ -261,6 +310,9 @@ func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd 
 // selected hand's normal formation hit. AoE never re-rolls and never stacks
 // with the arc (the weapon is one or the other).
 func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D, offHand bool) {
+	if m == nil || foe == nil || !cs.attackLineClear(m.X, m.Y, foe.X, foe.Y) {
+		return
+	}
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
@@ -303,7 +355,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 			if o == nil || !o.Bound || !o.IsAlive() || monsterInAttackTransit(o) {
 				continue
 			}
-			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
+			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok && cs.attackLineClear(m.X, m.Y, o.X, o.Y) {
 				summon := o
 				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, hit, wd, false) }})
 			}
@@ -362,7 +414,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		cs.championCrossfireStrike(m, foe, false)
 		struck = true
 	}
-	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && foe.IsAlive() {
+	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{foe: foe}, monsterAttackRealtime) {
 		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
 		cs.championCrossfireStrike(m, foe, true)
 		struck = true
@@ -412,7 +464,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 		}
 		struck = true
 	}
-	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 {
+	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{}, monsterAttackRealtime) {
 		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
 		cs.championMeleeStrike(m, true)
 		struck = true
@@ -532,6 +584,11 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 		cs.game.AddCombatMessage("The board already honors this day's victory.")
 	}
 	cs.game.arenaBoardStale = true
+	// A bout on the record is a bout for the quest: credited HERE, beside the
+	// board and the points, not from the kill-quest hook - that path carries
+	// guards about kill credit (quest_progress_ignored, pure summons) which have
+	// nothing to do with duels.
+	cs.game.creditArenaDuelWin(m)
 	cs.rollChampionSetDrops(m)
 }
 
@@ -613,13 +670,33 @@ func ValidateDuelGrounds(wm *world.WorldManager) error {
 	if wm == nil {
 		return nil
 	}
-	for mapKey, w := range wm.LoadedMaps {
-		for _, npc := range w.NPCs {
-			if npcDialogueHasAction(npc, "start_arena_duel") {
-				if mc := wm.MapConfigs[mapKey]; mc == nil || mc.Duel == nil {
-					return fmt.Errorf("map %q places duel NPC %q but authors no duel: block in map_configs.yaml", mapKey, npc.Name)
-				}
-			}
+	tileSize := 0.0
+	if config.GlobalConfig != nil {
+		tileSize = config.GlobalConfig.GetTileSize()
+	}
+	for mapKey := range wm.LoadedMaps {
+		mc := wm.MapConfigs[mapKey]
+		if npc := placedNPCWithActionOnMap(wm, mapKey, "start_arena_duel", tileSize); npc != nil && (mc == nil || mc.Duel == nil) {
+			return fmt.Errorf("map %q places duel NPC %q but authors no duel: block in map_configs.yaml", mapKey, npc.Name)
+		}
+	}
+	return nil
+}
+
+// placedNPCWithActionOnMap finds a real, map-local producer of an authored
+// dialogue action. Split maps and stitched regions share this lookup so duel
+// validation cannot count a starter from another region of the unified world.
+func placedNPCWithActionOnMap(wm *world.WorldManager, mapKey, action string, tileSize float64) *character.NPC {
+	if wm == nil || action == "" {
+		return nil
+	}
+	w := wm.WorldByKey(mapKey)
+	if w == nil {
+		return nil
+	}
+	for _, npc := range w.NPCs {
+		if npcOnMapRegionWith(wm, npc, mapKey, tileSize) && npcDialogueHasAction(npc, action) {
+			return npc
 		}
 	}
 	return nil
@@ -656,8 +733,7 @@ func rollChampionMonsterKey() string {
 // lockout expires at the next sunrise.
 func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	g := ih.game
-	g.dialogActive = false
-	g.dialogNPC = nil
+	g.closeConversation()
 
 	if g.livingChampion() != nil {
 		g.AddCombatMessage("A duel is already underway - finish it first!")

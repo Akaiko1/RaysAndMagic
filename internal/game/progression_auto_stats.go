@@ -7,16 +7,31 @@ import (
 
 const (
 	autoStatSpeedTarget = 16
+	autoMonkSpeedTarget = 26
 	// autoSecondarySoftCap: AUTO lifts a class's secondary stat only this far while
 	// the primary is still climbing; the secondary is taken the rest of the way to
 	// 99 only AFTER the primary is maxed.
 	autoSecondarySoftCap = 50
 )
 
+// autoSpeedTarget is the class-aware early Speed floor. Most classes stop at
+// the RT baseline; Monk reaches the first TB bonus-action threshold while also
+// feeding the Speed/4 term on Fists.
+func autoSpeedTarget(class character.CharacterClass) int {
+	if class == character.ClassMonk {
+		return autoMonkSpeedTarget
+	}
+	return autoStatSpeedTarget
+}
+
 func autoEnduranceTarget(class character.CharacterClass) int {
 	switch class {
 	case character.ClassKnight:
 		return 28
+	case character.ClassBattleMage:
+		// Plate helps with mitigation, but Strong Magic spends HP to empower
+		// offensive casts, so the hybrid needs the highest early HP target.
+		return 36
 	case character.ClassMonk:
 		// No armor slots at all (Iron Body is the only AC source besides
 		// Endurance) - target as high as the tankiest class to compensate.
@@ -43,7 +58,7 @@ func primaryDamageStat(member *character.MMCharacter) *int {
 		return nil
 	}
 	switch member.Class {
-	case character.ClassSorcerer, character.ClassDruid:
+	case character.ClassSorcerer, character.ClassDruid, character.ClassBattleMage:
 		return &member.Intellect
 	case character.ClassCleric:
 		return &member.Personality
@@ -68,9 +83,11 @@ func secondaryAutoStat(member *character.MMCharacter) *int {
 	case character.ClassDruid:
 		return &member.Personality
 	case character.ClassMonk:
-		// Speed/4 is the Monk's other direct damage term (fists), unlike a
-		// normal melee class where Speed is only cooldown/initiative.
-		return &member.Speed
+		// Personality scales the offensive self-magic that Spiritual Training
+		// fires for free; Fists' Speed scaling is covered by autoSpeedTarget.
+		return &member.Personality
+	case character.ClassBattleMage:
+		return &member.Might
 	default:
 		return nil
 	}
@@ -97,7 +114,7 @@ func autoDistributeStatPoints(member *character.MMCharacter, cfg *config.Config)
 	enduranceTarget := autoEnduranceTarget(member.Class)
 
 	// 1) Speed to its flat target.
-	for spendOne(&member.Speed, autoStatSpeedTarget) {
+	for spendOne(&member.Speed, autoSpeedTarget(member.Class)) {
 	}
 
 	// 2) Alternate Endurance / primary (1 each) until Endurance reaches its target.

@@ -111,6 +111,16 @@ func (g *MMGame) floorColorForTile(tx, ty int, fallback [3]int) [3]int {
 // registration) region-accurate when one world holds five maps' NPCs.
 func (g *MMGame) npcOnMapRegion(npc *character.NPC, mapKey string) bool {
 	wm := world.GlobalWorldManager
+	if g == nil || g.config == nil {
+		return true
+	}
+	return npcOnMapRegionWith(wm, npc, mapKey, g.config.GetTileSize())
+}
+
+// npcOnMapRegionWith is the world-explicit form used by boot validators before
+// an MMGame is necessarily available. This is the one region-membership rule
+// for placed NPC capabilities in a stitched world.
+func npcOnMapRegionWith(wm *world.WorldManager, npc *character.NPC, mapKey string, tileSize float64) bool {
 	if wm == nil || npc == nil {
 		return true
 	}
@@ -118,8 +128,7 @@ func (g *MMGame) npcOnMapRegion(npc *character.NPC, mapKey string) bool {
 	if r == nil {
 		return true
 	}
-	ts := g.config.GetTileSize()
-	return wm.OpenWorldRegionAtTile(TileIndex(npc.X, ts), TileIndex(npc.Y, ts)) == r
+	return wm.OpenWorldRegionAtTile(TileIndex(npc.X, tileSize), TileIndex(npc.Y, tileSize)) == r
 }
 
 // projectTileToCurrentWorld converts an authored map-local tile position

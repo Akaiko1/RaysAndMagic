@@ -14,7 +14,12 @@ func TestLoadMenuRightClickNeverOpensRename(t *testing.T) {
 	// Centre of the first save row's right-click hitbox.
 	rowY := py + saveMenuListTopY + 12
 
-	g := &MMGame{config: loadTestConfig(t), savePage: 0, slotSelection: 0}
+	g := &MMGame{
+		menuState: menuState{
+			savePage:      0,
+			slotSelection: 0,
+		},
+		config: loadTestConfig(t)}
 	ih := NewInputHandler(g)
 	g.mouseRightClicks = []queuedClick{{x: px + saveMenuPanelW/2, y: rowY, at: 1}}
 
@@ -32,7 +37,13 @@ func TestLoadMenuRightClickNeverOpensRename(t *testing.T) {
 // submenu), the Enter path, and the full input reset: all rename scratch
 // fields must clear together, or a stale slot/name leaks into the next open.
 func TestCloseSaveRenameClearsState(t *testing.T) {
-	g := &MMGame{saveRenameOpen: true, saveRenameSlot: 3, saveRenameInput: "Old Name"}
+	g := &MMGame{
+		menuState: menuState{
+			saveRenameOpen:  true,
+			saveRenameSlot:  3,
+			saveRenameInput: "Old Name",
+		},
+	}
 	g.closeSaveRename()
 	if g.saveRenameOpen || g.saveRenameSlot != -1 || g.saveRenameInput != "" {
 		t.Fatalf("closeSaveRename left state: open=%v slot=%d input=%q",

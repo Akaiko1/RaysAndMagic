@@ -257,15 +257,20 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 }
 
 func weaponCard(section, key string, def *config.WeaponDefinitionConfig) contentCard {
-	subtitle := fmt.Sprintf("Dmg %d  Range %d", def.Damage, def.Range)
+	formula := character.WeaponDamageFormula(def)
+	subtitle := fmt.Sprintf("Dmg %d  Range %d", formula.Base, def.Range)
+	if character.WeaponStrikeCount(def) > 1 {
+		subtitle = fmt.Sprintf("Pre-split dmg %d  Range %d", formula.Base, def.Range)
+	}
 	if def.AoeRadiusTiles > 0 {
 		subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
 	}
-	if def.BonusStat != "" {
-		subtitle += "  +" + def.BonusStat
-	}
-	if def.BonusStatSecondary != "" {
-		subtitle += fmt.Sprintf("  +%s/%d", def.BonusStatSecondary, character.WeaponSecondaryStatDivisor)
+	for i, term := range formula.Terms {
+		if i == 0 {
+			subtitle += "  +" + term.Stat
+		} else {
+			subtitle += fmt.Sprintf("  +%s/%d", term.Stat, term.Divisor)
+		}
 	}
 	// Unified template (shared engine in character/cardtemplate.go): the
 	// editor shows the character-independent variant - formulas in place of
@@ -427,17 +432,17 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		}
 	}
 
-	// Base damage comes from the SAME formula combat uses (cost x
-	// SpellDamagePerSP x damage_cost_multiplier) - intellect 0 isolates the
-	// character-independent base. A hand-rolled costxN here ignored the
-	// multiplier (Ray of Light showed half its real base).
 	baseDamage := 0
-	if def.IsProjectile && !def.DealsNoDamage { // no-damage projectiles (Charm/Disintegrate) deal nothing
-		baseDamage, _, _ = spells.CalculateSpellDamageByID(spells.SpellID(key), 0)
+	kind := spells.DamageNone
+	if sdErr == nil {
+		kind = sd.DamageFormula().Kind
+		baseDamage = character.SpellDamageBreakdown(sd, nil).Total
 	}
 
 	subtitle := fmt.Sprintf("SP %d", def.SpellPointsCost)
 	switch {
+	case kind == spells.DamageZone:
+		subtitle += fmt.Sprintf("  Tick %d", baseDamage)
 	case baseDamage > 0:
 		subtitle += fmt.Sprintf("  Dmg %d", baseDamage)
 		if def.AoeRadiusTiles > 0 {

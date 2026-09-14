@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -246,6 +247,16 @@ func sortQuestJournal(qs []*quests.Quest) {
 		}
 		return qs[i].Definition.Name < qs[j].Definition.Name
 	})
+}
+
+// questIDLess is THE stable order for quests collected out of the manager's map
+// (it walks a Go map, so every consumer that prints or queues them has to impose
+// one, or the output differs run to run). Consumers that carry the quest inside
+// a bigger value (the banner events) compare with this rather than restating it.
+func questIDLess(a, b *quests.Quest) bool { return a.ID < b.ID }
+
+func sortQuestsByID(qs []*quests.Quest) {
+	sort.Slice(qs, func(i, j int) bool { return questIDLess(qs[i], qs[j]) })
 }
 
 // creditQuestIfCleared credits an active kill quest when its targets were
@@ -556,9 +567,310 @@ func (g *MMGame) completeClearedKillQuestsForTarget(monsterType string) {
 	}
 }
 
+// placedNPCKeys is the set of NPC keys actually standing in a loaded world. The
+// catalog holds far more entries than any run spawns - an NPC dropped from every
+// map still parses fine - so this is what turns "authored" into "reachable".
+// Nil means no trustworthy world census is available. A non-nil empty map means
+// worlds loaded successfully and contain no NPCs.
+func placedNPCKeys(wm *world.WorldManager) map[string]bool {
+	if wm == nil || len(wm.FailedMaps) > 0 {
+		// A map that failed to load takes its NPCs with it (LoadAllMaps only
+		// warns and continues). Judging placement off a partial world turns one
+		// broken map into an unbootable game, and blames the content for it.
+		return nil
+	}
+	placed := make(map[string]bool)
+	loadedWorld := false
+	wm.EachWorld(func(_ string, w *world.World3D) {
+		if w == nil {
+			return
+		}
+		loadedWorld = true
+		for _, npc := range w.NPCs {
+			if npc != nil && npc.Key != "" {
+				placed[npc.Key] = true
+			}
+		}
+	})
+	if !loadedWorld {
+		return nil
+	}
+	return placed
+}
+
+// questIsObtainable reports whether the party can ever hold this quest: it starts
+// active, or an NPC that is really out there OFFERS it on a choice the party can
+// reach. A gate on anything else is a permanent lock.
+//
+// placed is the live spawn set. Nil means placement is unavailable and authoring
+// alone counts; an empty non-nil set is a trustworthy world with no givers.
+func questIsObtainable(qm *quests.QuestManager, questID string, catalog map[string]*character.NPCData, placed map[string]bool) bool {
+	return questIsObtainableVia(qm, questID, catalog, placed, map[string]bool{}, map[string]bool{})
+}
+
+// questIsObtainableVia is the recursive body. An offer can carry its own
+// requires_quest, so "somebody gives it" is only true if that somebody's offer is
+// itself reachable - and a chain that loops back on itself (pending marks the
+// quests already being resolved) reaches nothing.
+//
+// Only requires_quest is followed. quest_step scopes a choice to a step of the
+// giver's OWN chain, which is a sequencing detail rather than a lock, and
+// judging it here would abort boots over authoring that works.
+func questIsObtainableVia(qm *quests.QuestManager, questID string, catalog map[string]*character.NPCData,
+	placed, pending, obtainable map[string]bool) bool {
+	if def := qm.Definitions()[questID]; def != nil && def.IsStartingQuest {
+		return true
+	}
+	if obtainable[questID] {
+		return true // answered already: two offers gated on one quest resolve it once
+	}
+	if pending[questID] {
+		// Already being resolved further up: this branch offers nothing, but that
+		// is a fact about the CYCLE, not about the quest - another giver may still
+		// reach it, so the answer must not be memoized.
+		return false
+	}
+	pending[questID] = true
+	defer delete(pending, questID)
+
+	for npcKey, npc := range catalog {
+		if npc == nil || (placed != nil && !placed[npcKey]) {
+			continue
+		}
+		if dialogueOffersObtainableQuest(qm, npc.Dialogue, questID, catalog, placed, pending, obtainable) {
+			obtainable[questID] = true
+			return true
+		}
+	}
+	// Only POSITIVE answers are remembered. A negative can be the product of a
+	// cycle cut anywhere below this walk, and another branch may still reach the
+	// quest - memoizing it would answer a later branch with a wrong "no".
+	return false
+}
+
+// dialogueOffersObtainableQuest follows the same navigation topology as the
+// runtime: only an info row opens its children, and every requires_quest on the
+// path must itself be obtainable. A flat WalkChoices scan loses both facts and
+// can certify a quest hidden behind an unreachable parent.
+func dialogueOffersObtainableQuest(qm *quests.QuestManager, dialogue *character.NPCDialogue, questID string,
+	catalog map[string]*character.NPCData, placed, pending, obtainable map[string]bool) bool {
+	if dialogue == nil {
+		return false
+	}
+	var walk func([]*character.NPCDialogueChoice) bool
+	walk = func(choices []*character.NPCDialogueChoice) bool {
+		for _, c := range choices {
+			if c == nil {
+				continue
+			}
+			if c.RequiresQuest != "" &&
+				!questIsObtainableVia(qm, c.RequiresQuest, catalog, placed, pending, obtainable) {
+				continue
+			}
+			if c.Action == "give_quest" && c.QuestID == questID {
+				return true
+			}
+			if c.Action == "info" && walk(c.Choices) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(dialogue.Choices)
+}
+
+// ValidateInteractTagProducers fails when an interact quest cannot be finished:
+// its tag is credited by nothing, or fewer props carrying that tag are PLACED in
+// the world than the errand asks for. Both lock any service gated behind it, and
+// the shipped errands run with zero slack - 3 lamps for 3, 7 valves for 7, 5
+// racks for 5 - so one prop lost off a map is a dead run.
+//
+// Called from BOOT (after the maps load), not from validateQuestWorldReferences:
+// it needs both real catalogs plus the live spawn set, and that validator is also
+// run by fixtures that install a handful of NPCs.
+func ValidateInteractTagProducers(qm *quests.QuestManager) error {
+	if qm == nil || character.NPCConfigInstance == nil {
+		return nil
+	}
+	producers := interactTagProducers(character.NPCConfigInstance.NPCs)
+	placedPerTag, censusErr := placedPropTagCounts(world.GlobalWorldManager)
+	if censusErr != nil {
+		return censusErr
+	}
+	ids := sortedMapKeys(qm.Definitions()) // one error first, the same one every run
+	for _, id := range ids {
+		def := qm.Definitions()[id]
+		if def == nil || def.Type != quests.QuestTypeInteract {
+			continue
+		}
+		source, credited := producers[def.TargetMonster]
+		if !credited {
+			return fmt.Errorf("quest %q counts interact tag %q, which nothing credits: no prop declares it and no code path produces it",
+				id, def.TargetMonster)
+		}
+		// A code-produced tag is repeatable (a bout can be fought again) and has
+		// no props to count - but its code path must still be able to fire.
+		if source != interactTagFromProp {
+			if ready := codeInteractTagReady[def.TargetMonster]; ready != nil && !ready(world.GlobalWorldManager) {
+				return fmt.Errorf("quest %q counts code tag %q, but nothing in the loaded world can produce it (the arena tag needs a duel block and a placed duel starter on the same map)",
+					id, def.TargetMonster)
+			}
+			continue
+		}
+		if placedPerTag == nil {
+			// Nothing to judge: no loaded world, or a map failed to load. An empty
+			// non-nil census is trustworthy and must reject an impossible quest.
+			fmt.Printf("[WARN] quest %q needs %d props tagged %q; the prop census was unavailable and was skipped (failed maps: %v)\n",
+				id, def.TargetCount, def.TargetMonster, failedMapsOf(world.GlobalWorldManager))
+			continue
+		}
+		if placed := placedPerTag[def.TargetMonster]; placed < def.TargetCount {
+			return fmt.Errorf("quest %q asks for %d of tag %q but only %d such props are placed in the world - it could never be finished",
+				id, def.TargetCount, def.TargetMonster, placed)
+		}
+	}
+	return nil
+}
+
+// placedPropTagCounts counts distinct one-shot NPC props actually standing in
+// loaded worlds. A physical NPC counts once; multiple prop actions on one NPC
+// are ambiguous authoring rather than multiple usable objects. A nil map means
+// the census is unavailable. A non-nil empty map is a trustworthy count of zero.
+func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
+	if wm == nil || len(wm.FailedMaps) > 0 {
+		// Same rule as placedNPCKeys: a map that failed to load took its props
+		// with it, and counting off a partial world turns one broken map into an
+		// unbootable game that blames the quest data for it.
+		return nil, nil
+	}
+	counts := map[string]int{}
+	seenNPCs := make(map[*character.NPC]struct{})
+	loadedWorld := false
+	var censusErr error
+	wm.EachWorld(func(_ string, w *world.World3D) {
+		if w == nil || censusErr != nil {
+			return
+		}
+		loadedWorld = true
+		for _, npc := range w.NPCs {
+			if npc == nil || npc.DialogueData == nil {
+				continue
+			}
+			if _, duplicate := seenNPCs[npc]; duplicate {
+				continue
+			}
+			seenNPCs[npc] = struct{}{}
+			propTag := ""
+			propChoices := 0
+			if err := npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
+				if c.Prop == nil {
+					return nil
+				}
+				propChoices++
+				if propChoices > 1 {
+					return fmt.Errorf("NPC %q declares multiple one-shot prop actions; one physical NPC can credit only one prop", npc.Key)
+				}
+				propTag = c.Prop.Tag
+				return nil
+			}); err != nil {
+				censusErr = err
+				return
+			}
+			if propTag != "" {
+				counts[propTag]++
+			}
+		}
+	})
+	if censusErr != nil {
+		return nil, censusErr
+	}
+	if !loadedWorld {
+		return nil, nil
+	}
+	return counts, nil
+}
+
+// failedMapsOf reports the maps LoadAllMaps could not read, for diagnostics.
+func failedMapsOf(wm *world.WorldManager) []string {
+	if wm == nil {
+		return nil
+	}
+	return wm.FailedMaps
+}
+
+// interactTagSource is WHO credits an interact tag. The distinction is not
+// cosmetic: a prop is a one-shot object that has to be standing in the world,
+// a code tag is an event that can happen again, so only prop tags get counted.
+type interactTagSource int
+
+const (
+	interactTagFromProp interactTagSource = iota // an authored prop:/tag block
+	interactTagFromCode                          // produced by a code path (the arena bout)
+)
+
+// codeInteractTagReady names every tag no prop declares, WITH the world condition
+// that makes its code path able to fire. Naming a code tag is not evidence: the
+// arena bout credits only while some map authors a `duel:` block, so deleting
+// that block silently locks pit_standing - and with it Nadira's training - while
+// the validator reports the tag as credited.
+var codeInteractTagReady = map[string]func(*world.WorldManager) bool{
+	quests.ArenaDuelTag: func(wm *world.WorldManager) bool {
+		// Nothing to judge: no manager, a catalog-less fixture, or a run where a
+		// map failed to load - the same stand-down the prop census takes, so a
+		// broken map file is never reported as a quest-data fault.
+		if wm == nil || len(wm.MapConfigs) == 0 || len(wm.FailedMaps) > 0 {
+			return true
+		}
+		loadedWorld := len(wm.LoadedMaps) > 0 || wm.OpenWorld != nil
+		if !loadedWorld {
+			return true // a catalog-only fixture has no placement census to judge
+		}
+		tileSize := 0.0
+		if config.GlobalConfig != nil {
+			tileSize = config.GlobalConfig.GetTileSize()
+		}
+		for mapKey, mc := range wm.MapConfigs {
+			if mc == nil || mc.Duel == nil {
+				continue
+			}
+			if placedNPCWithActionOnMap(wm, mapKey, "start_arena_duel", tileSize) != nil {
+				return true
+			}
+		}
+		return false
+	},
+}
+
+// interactTagProducers is every tag something in the game can actually credit:
+// the authored props declare theirs, the code tags declare their own.
+func interactTagProducers(catalog map[string]*character.NPCData) map[string]interactTagSource {
+	tags := map[string]interactTagSource{}
+	for tag := range codeInteractTagReady {
+		tags[tag] = interactTagFromCode
+	}
+	for _, npc := range catalog {
+		if npc == nil {
+			continue
+		}
+		_ = npc.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			// A code tag stays a code tag even if a prop also declares it (a
+			// trophy rack beside the pit that credits a bout): the code path still
+			// produces it, so demanding one placed prop per target would abort the
+			// boot on content that works.
+			if c.Prop != nil && c.Prop.Tag != "" {
+				if _, code := codeInteractTagReady[c.Prop.Tag]; !code {
+					tags[c.Prop.Tag] = interactTagFromProp
+				}
+			}
+			return nil
+		})
+	}
+	return tags
+}
+
 // validateQuestWorldReferences fails fast on every cross-catalog reference
 // used by quest-driven world behavior.
-func validateQuestWorldReferences(qm *quests.QuestManager) error {
+func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 	if qm == nil {
 		return nil
 	}
@@ -601,7 +913,10 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 		}
 	}
 	if character.NPCConfigInstance != nil {
-		for npcKey, npc := range character.NPCConfigInstance.NPCs {
+		catalog := character.NPCConfigInstance.NPCs
+		placed := placedNPCKeys(wm)
+		for _, npcKey := range sortedMapKeys(catalog) {
+			npc := catalog[npcKey]
 			if npc == nil {
 				continue
 			}
@@ -611,6 +926,33 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 			// fine and then never appear, so both fields are checked against the
 			// giver's own chain.
 			chainQuests := npcChainQuestIDs(npc.Dialogue)
+			// A service gate has to be OPENABLE, not merely well-spelled. Three
+			// ways it can be authored into a permanent lock, all rejected here.
+			if npc.RequiresQuest != "" {
+				if qm.Definitions()[npc.RequiresQuest] == nil {
+					return fmt.Errorf("NPC %q references unknown requires_quest %q", npcKey, npc.RequiresQuest)
+				}
+				hasService, err := g.npcDataHasGatedService(npcKey)
+				if err != nil {
+					return fmt.Errorf("NPC %q gates on %q but cannot be built: %w", npcKey, npc.RequiresQuest, err)
+				}
+				if !hasService {
+					return fmt.Errorf("NPC %q sets requires_quest %q but owns no service to gate", npcKey, npc.RequiresQuest)
+				}
+				// The gate quest must be reachable at all: a typo that lands on
+				// another real quest id - or a giver that no map spawns any more -
+				// passes the existence check above and then shuts the shop forever.
+				if !questIsObtainable(qm, npc.RequiresQuest, catalog, placed) {
+					return fmt.Errorf("NPC %q gates on quest %q that no PLACED NPC gives and that does not start active - the service could never open",
+						npcKey, npc.RequiresQuest)
+				}
+				// And the gated NPC must be able to say something about it: either
+				// it hands the errand out itself, or it authors the greeting that
+				// explains why the shop is shut.
+				if !chainQuests[npc.RequiresQuest] && (npc.Dialogue == nil || npc.Dialogue.QuestGreeting == "") {
+					return fmt.Errorf("NPC %q gates on quest %q it does not give: it needs a quest_greeting explaining the closed service", npcKey, npc.RequiresQuest)
+				}
+			}
 			if npc.Dialogue != nil {
 				for questID := range npc.Dialogue.QuestMessages {
 					if qm.Definitions()[questID] == nil {
@@ -622,13 +964,76 @@ func validateQuestWorldReferences(qm *quests.QuestManager) error {
 				}
 			}
 			if err := npc.Dialogue.WalkChoices(func(choice *character.NPCDialogueChoice) error {
-				switch choice.Action {
-				case "give_quest", "turn_in_quest":
+				isQuestProp := choice.Prop != nil
+				// The reserved action and the prop block travel together: a block on
+				// any other action would be silently overridden by the prop route, and
+				// the action alone would fall through the switch and do nothing.
+				if isQuestProp != (choice.Action == questPropAction) {
+					return fmt.Errorf("NPC %q dialogue action %q: a quest prop must declare action %q and nothing else may (prop block present: %v)",
+						npcKey, choice.Action, questPropAction, isQuestProp)
+				}
+				switch {
+				case choice.Action == "give_quest", choice.Action == "turn_in_quest", isQuestProp:
+					// Prop actions carry the quest they count toward: without it the
+					// prop would consume itself and advance nothing.
 					if choice.QuestID == "" {
 						return fmt.Errorf("NPC %q dialogue action %q has empty quest_id", npcKey, choice.Action)
 					}
-					if qm.Definitions()[choice.QuestID] == nil {
+					def := qm.Definitions()[choice.QuestID]
+					if def == nil {
 						return fmt.Errorf("NPC %q dialogue action %q references unknown quest %q", npcKey, choice.Action, choice.QuestID)
+					}
+					// A prop credits its quest through OnInteract, which only advances
+					// INTERACT quests carrying a tag. Point one at a kill quest (a
+					// plausible copy-paste) and the prop still consumes itself, prints
+					// "(0/3)" and can never be undone - the soft-lock this branch
+					// exists to prevent.
+					if isQuestProp {
+						if def.Type != quests.QuestTypeInteract {
+							return fmt.Errorf("NPC %q prop action %q counts toward quest %q of type %q, want %q",
+								npcKey, choice.Action, choice.QuestID, def.Type, quests.QuestTypeInteract)
+						}
+						// An interact quest with no tag at all: LoadQuestConfig refuses one,
+						// but a definition built in code does not pass through it. Named
+						// separately from the mismatch below because the fix is different -
+						// author target_monster, rather than align two tags.
+						// (target_monsters is deliberately NOT accepted here: an interact
+						// quest counts ONE tag, and LoadQuestConfig rejects the list form.)
+						if def.TargetMonster == "" {
+							return fmt.Errorf("NPC %q prop action %q counts toward quest %q, which carries no interact tag (target_monster)",
+								npcKey, choice.Action, choice.QuestID)
+						}
+						// The prop's own tag must be the quest's: quest_id alone routes the
+						// credit, so a copy-pasted id would let a valve advance the lamps.
+						if choice.Prop.Tag == "" || def.TargetMonster != choice.Prop.Tag {
+							return fmt.Errorf("NPC %q prop action %q credits tag %q but quest %q counts %q",
+								npcKey, choice.Action, choice.Prop.Tag, choice.QuestID, def.TargetMonster)
+						}
+						if choice.Prop.NotYet == "" || choice.Prop.Took == "" || choice.Prop.Completed == "" {
+							return fmt.Errorf("NPC %q prop action %q is missing prop copy (not_yet/took/completed)", npcKey, choice.Action)
+						}
+						// A spent prop must either LEAVE the world (hide_when_visited, like
+						// a lifted lamp) or be able to say it is spent - otherwise the
+						// dialog closes in silence when the player tries it again.
+						if !npc.HideWhenVisited && (npc.Dialogue == nil || npc.Dialogue.VisitedMessage == "") {
+							return fmt.Errorf("NPC %q carries prop action %q but neither hides when visited nor authors a visited_message",
+								npcKey, choice.Action)
+						}
+						if (choice.Prop.LootTable == "") != (choice.Prop.LootLine == "") {
+							return fmt.Errorf("NPC %q prop action %q must author loot_table and loot_line together", npcKey, choice.Action)
+						}
+						if choice.Prop.LootTable != "" {
+							if _, ok := config.GetWeightedLootTable(choice.Prop.LootTable); !ok {
+								return fmt.Errorf("NPC %q prop action %q rolls unknown loot table %q", npcKey, choice.Action, choice.Prop.LootTable)
+							}
+							// The line is printed with fmt.Sprintf and the item list: any
+							// other count prints %!(EXTRA ...) into the combat log.
+							if strings.Count(choice.Prop.LootLine, "%s") != 1 ||
+								strings.Count(choice.Prop.LootLine, "%") != 1 {
+								return fmt.Errorf("NPC %q prop action %q loot_line %q must contain exactly one %%s",
+									npcKey, choice.Action, choice.Prop.LootLine)
+							}
+						}
 					}
 				}
 				if choice.RequiresQuest != "" && qm.Definitions()[choice.RequiresQuest] == nil {

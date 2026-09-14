@@ -8,6 +8,75 @@ import (
 	"ugataima/internal/spells"
 )
 
+// A dual-school page must name BOTH of its schools: Town Portal is earth and
+// air, and a card that says only "Earth Magic" reads as unbuyable to the Air
+// caster the shop will happily sell it to.
+func TestSpellTooltipNamesEverySchoolOfADualSchoolSpell(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID("town_portal"))
+	if err != nil {
+		t.Fatalf("town_portal: %v", err)
+	}
+	if len(def.SchoolList()) < 2 {
+		t.Fatalf("town_portal is no longer dual-school: %v", def.SchoolList())
+	}
+	got := buildSpellTooltipUnified(def, char, cs, false)
+	for _, want := range []string{"Earth", "Air"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the Town Portal card does not mention its %s school:\n%s", want, got)
+		}
+	}
+	// And the card is SCORED under the school this caster actually holds - the
+	// mastery line must never name a school the character never opened. Combat
+	// reads the same rule (MMCharacter.SpellSchoolFor), so the number on the card
+	// and the number in the fight come from one place.
+	air := character.MagicSchoolAir
+	caster := cs.game.party.Members[0]
+	caster.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
+		air: {Mastery: character.MasteryExpert},
+	}
+	if got := caster.SpellSchoolFor(def); got != air {
+		t.Fatalf("an Air-only caster files Town Portal under %q, want air", got)
+	}
+	if got := spellSchoolForChar(caster, def); got != string(air) {
+		t.Fatalf("the card scores Town Portal under %q for an Air-only caster", got)
+	}
+	if card := buildSpellTooltipUnified(def, caster, cs, true); strings.Contains(card, "Earth Mastery") {
+		t.Errorf("the card credits Earth mastery to a caster who only holds Air:\n%s", card)
+	}
+	// FILED, not merely open: opening the other school later must not move the
+	// page. A sorcerer who bought Town Portal through Air keeps casting it as Air
+	// even after a promotion opens Earth at Novice.
+	if !caster.LearnSpell(def.ID) {
+		t.Fatal("the Air caster could not learn Town Portal")
+	}
+	caster.MagicSchools[character.MagicSchoolEarth] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	if got := caster.SpellSchoolFor(def); got != air {
+		t.Fatalf("opening Earth moved the page to %q - it is filed under Air", got)
+	}
+	if skill := caster.SpellMasterySkill(def); skill == nil || skill.Mastery != character.MasteryExpert {
+		t.Fatalf("mastery = %+v, want the Expert AIR skill the page is filed under", skill)
+	}
+	if card := buildSpellTooltipUnified(def, caster, cs, true); strings.Contains(card, "Earth Mastery") {
+		t.Errorf("the card credits Earth mastery to a page filed under Air:\n%s", card)
+	}
+
+	// Nobody to ask: the spell's own primary school.
+	if got := spellSchoolForChar(nil, def); got != def.School {
+		t.Fatalf("with no character the card scores under %q, want the primary %q", got, def.School)
+	}
+
+	// A single-school spell keeps its plain subtitle.
+	fire, err := spells.GetSpellDefinitionByID(spells.SpellID("fireball"))
+	if err != nil {
+		t.Fatalf("fireball: %v", err)
+	}
+	if card := buildSpellTooltipUnified(fire, char, cs, false); !strings.Contains(card, "Fire Magic") {
+		t.Errorf("a single-school card lost its subtitle:\n%s", card)
+	}
+}
+
 // TestSpellTooltipMechanics_Complete asserts every spell's tooltip surfaces its
 // real mechanics (the fields combat actually uses), and that no-damage spells
 // (Charm/Disintegrate) don't claim damage.

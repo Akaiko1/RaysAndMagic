@@ -13,7 +13,11 @@ import (
 
 // WorldManager handles multiple loaded maps and transitions between them
 type WorldManager struct {
-	CurrentMapKey        string
+	CurrentMapKey string
+	// FailedMaps are the maps LoadAllMaps could not load. It only warns and
+	// continues, so their NPCs are simply absent - any check that reads the live
+	// spawn set must say so, or it blames the content instead of the broken map.
+	FailedMaps           []string
 	LoadedMaps           map[string]*World3D
 	MapConfigs           map[string]*config.MapConfig
 	Biomes               map[string]config.BiomeConfig
@@ -64,6 +68,10 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	err = yaml.Unmarshal(data, &mapConfigs)
 	if err != nil {
 		return fmt.Errorf("failed to parse map configs: %w", err)
+	}
+
+	if err := mapConfigs.ValidateElementalSchools(wm.config != nil && wm.config.MonsterCombat.ElementalAttack.Chance > 0); err != nil {
+		return err
 	}
 
 	// Store map configs
@@ -161,6 +169,7 @@ func (wm *WorldManager) validateTileFloorTextureGroups() error {
 // LoadAllMaps preloads all maps for instant switching. Maps placed in the
 // unified open world are stitched into OpenWorld instead of LoadedMaps.
 func (wm *WorldManager) LoadAllMaps() error {
+	wm.FailedMaps = nil // a fresh load, a fresh list (Reset re-runs this)
 	for mapKey, mapConfig := range wm.MapConfigs {
 		if wm.openWorldConfig != nil {
 			if _, merged := wm.openWorldConfig.Placements[mapKey]; merged {
@@ -172,6 +181,7 @@ func (wm *WorldManager) LoadAllMaps() error {
 		world, err := wm.loadSingleMap(mapKey, mapConfig)
 		if err != nil {
 			fmt.Printf("Warning: Failed to load map %s: %v\n", mapKey, err)
+			wm.FailedMaps = append(wm.FailedMaps, mapKey)
 			continue
 		}
 

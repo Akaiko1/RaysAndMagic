@@ -1,0 +1,64 @@
+# Sakura Garden (biome: sakura_garden) - 56x48 outdoor, party L18-24
+# Zones: entry court (N, paved) | moon pond (NW) | bamboo maze (SW) | shrine
+#   precinct + tea house (C) | tengu ridge (NE, off the court) | spider orchard
+#   (SE, boss) | maple walk (S return loop). Cycle: court-pond-maze-walk-
+#   orchard-precinct-court; the ridge is the one paying spur.
+# Tiles: % fieldstone  # plaster  B vermilion  = lattice | . moss , earth
+#   : paving ; koi shallows 1 verge 2 path 3 pond-edge 4 stream W/Q deep pond
+# Props: T/U/V sakura K bamboo M maple R rock O outcrop A azalea P petals
+#   I iris C clover L lantern G torii F fence E ema J statues N bench
+#   S signpost H basin X shrine Z tea house D moon bridge
+# Monsters: k kappa  u kasa_obake  t karasu_tengu  f kitsune_onmyoji  j jorogumo (boss)
+# OPEN WORLD: the north edge x29..31 is carved through to the castle
+#   (open_world.yaml); the paving behind it (y1) stays walkable.
+# gate: water (11,10) chest_golden - the pond islet, wants Walk on Water
+# gate: jump (8,44) spell_lectern - the azalea ring on the Maple Walk, wants Jump
+# Reserved secret anchor: the lone azalea between twin lanterns at (24,42).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%.......................%:::::::::::%.M................%
+%..OO.....k.....T...OO..%::@::::::::%.M....M......O..P.%  >[npc:sakura_garden_exit]
+%..O...k............O.T.%:::::+::@::%.M..O......M..O...%  >[npc:miko_shiori]
+%.........III...P...T...%:::::::::::=.M...O.....t......%
+%.....I;;;;;;;;;........=:::S:::::::=.M..O.....R.......%
+%.....;;;;;;;;;;;.@.....=:::::::::::%.M.....O.....t.M..%  >[npc:pond_keeper_ayame]
+%OO..;;;;;WWW;;;;;......%:::::::::::%.MO.......t.......%
+%OO.;;;;WWWWWWW;;;;H....%%%%%222%%%%%.MOO.M............%
+%.O.;;;;WWQQQWW;;;;.....T....222......MMMMMt.........O.%
+%OO.;;;WWQQ@QQWW;D;....OT....2G2..........MOO.......O..%  >[npc:chest_golden]
+%OO.P;;;WWQQQWW;;;;...OOT...L222L.....MMM.MOOM.........%
+%...;;;;WWWWWWW;;;;..UTTT....222......MO..........M....%
+%....;;;;;WWW;;I;;...........222..@...MO...............%  >[npc:tengu_exile_kuroha]
+%...k.III;;;;;;I;;.....TT...L222L.....MM.........t.....%
+%......;;;;;;;;k..I....OT....222......MO...............%
+%..O.....k;;;......I....TBBBBB::BBBBB.M............t...%
+%..OO.......k.......I...TB::::::::::B.M................%
+%....................I..TBE::::::::$B.M......O..O......%  >[tile:brazier]
+%KKKKKKKKK..KKKKKKKKKKKKKB::::::::::B.MOMOMOMO..MOMOMOM%
+%KKKKKKKKK..KKKKKKKKKKKKKB$:J::::J::B.OMOMOMOM..OMOMOMO%  >[tile:omikuji]
+%...........P............B:::::::::::..................%
+%....KKKK................B:::::X:::::A.................%
+%....KKKK...KKKK.........B$::::::::$BVVVVVVVVVVVVVVV.VV%  >[tile:taiko], [tile:sake_barrels]
+%....KKKK...KKKK.......T.B::::::@:::B,,,VVVV,,,,VVVV,VV%  >[npc:onmyoji_hina]
+%...........KKKK.........B::::::::::B,,,VVVV,,,,VVVV,VV%
+%..u....FFFF.............B::::::::::B,f,VVVV,,,,,,,,,,V%
+%......,,u......KKKK.....BBBBB::BBBBB,,,,,,,VVV,,,U,,,V%
+%...KKK,,,...u..KKKK.....K....22....VVVV,,,,VVV,,,,,,,V%
+%...KKK...KKK...KKKK.....K....22....VVVV,,P,,,,,,f,,,,V%
+%...KKK...KKK,,,........UK....22....VVVV,U,,,,,P,,,,,UV%
+%...KKK...KKK,,,.u.F.....K....22....V,,,,,,,f,,,,P,,,,V%
+%....,,...KKK,,,...F.....K..:::::::.V,,,,f,,,,,,,,,,,,V%
+%....,,.......KKKK.F..A..K.C:::::::.V,U,,,,VVV,,VVVV,,V%
+%..u...KKK.u..KKKK.......K..N::Z:::.V,,,,,V,,,,,,,,,V,V%
+%......KKK....KKKK.......K..:::::C:.V,,,,,,,,,,,,,,,,,V%
+%...K..KKK..............AK..:::::::.V,,P,,V,,,P,P,,,V,V%
+%...@K............u......K....22....V,,,,,,,,,,,,,,,,,V%  >[npc:chest_iron]
+%KKKKKKKKKK.KKKKKKKKKKKKKK....22....V,,,,,V,,,,j,,,,,,V%
+%KKKKKKKKKK.KKKKKKKKKKKKKK....22....V,,,,,,,,,,,,,,,V,V%
+%...................................V,,,,,V,,,,,,,,,,,V%
+%......M.....C.M............M.......V,,,,,,V@,,,,,@,V,V%  >[npc:chest_iron], [npc:chest_golden]
+%...A............AA....LAL.....u....VVV,,,,V,,,,,,V,,,V%
+%...A,,AAA,,,,,,,,,,,,,,,,,,,,,,,,,..,,,,,,,,V,,V,,,,,V%
+%...A.A.@.A....AA...u..AA..P....A...VVV,,,,,,,,,,,,,,,V%  >[npc:spell_lectern]
+%......AAA.M.......M...M.........M..VVVVVVVVVVVVVVVVVVV%
+%......................................................%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

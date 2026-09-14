@@ -26,16 +26,16 @@ const (
 // steamBubbleColor is the light blue-white of hot steam.
 var steamBubbleColor = [3]int{205, 228, 245}
 
-// drawSteamZoneBubbles renders rising steam bubbles across every tile covered by
-// an active Hot Steam zone, in both real-time and turn-based modes.
-func (r *Renderer) drawSteamZoneBubbles(screen *ebiten.Image) {
-	if len(r.game.steamZones) == 0 || r.game.world == nil {
+// drawPersistentDamageZoneEffects renders the authored steam or flame effect
+// across every active persistent damage-zone cell in both combat clocks.
+func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
+	if len(r.game.persistentDamageZones) == 0 || r.game.world == nil {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
 
-	for zi := range r.game.steamZones {
-		z := &r.game.steamZones[zi]
+	for zi := range r.game.persistentDamageZones {
+		z := &r.game.persistentDamageZones[zi]
 		if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 			continue
 		}
@@ -150,6 +150,51 @@ var (
 	flameCoreColor = [3]int{255, 176, 48} // orange base
 	flameTipColor  = [3]int{132, 26, 10}  // dark ember tip
 )
+
+// Burning MOB flames: the wall's tuning, shrunk. A mob is not a curtain - fewer,
+// shorter tongues, and no merging.
+const (
+	monsterFlameRiseMultiplier = 1.3 // ~0.7 tiles of flame: up the body, not over it
+	monsterFlameColumns        = 5   // tongues across the mob's width
+	monsterFlamePerColumn      = 4
+	monsterFlameSizeFloor      = 4.0  // the wall uses 5.0 - a mob's tongues are smaller
+	monsterFlameSizeCoef       = 0.17 // ... and thinner (the wall's 0.26)
+	monsterFlameFadeTiles      = 12.0
+	monsterFlameFrontOffset    = 0.28 // tiles toward the camera, so the mob does not occlude its own fire
+)
+
+// monsterFlameMaxDepth is the far clip for a burning mob's tongues.
+func monsterFlameMaxDepth(tileSize float64) float64 {
+	return monsterFlameFadeTiles * tileSize
+}
+
+// emitMonsterFlameColumn draws one short flame tongue stack on a burning mob,
+// through the same emitter the Firewall uses.
+func (r *Renderer) emitMonsterFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, sIdx int, maxDepth float64) {
+	r.emitBubbleColumn(screen, bubbleColumnFx{
+		wx: wx, wy: wy,
+		hx: tx, hy: ty, hi: sIdx,
+		salt:         11, // decorrelate from the steam and wall streams
+		maxDepth:     maxDepth,
+		riseFraction: auraRiseFraction * monsterFlameRiseMultiplier,
+		baseAlpha:    flameBaseAlpha,
+		colBright:    1.0,
+		perColumn:    monsterFlamePerColumn,
+		periodTick:   flamePeriodTick,
+		jitterMin:    auraSpeedJitterMin,
+		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
+		sizeFloor:    monsterFlameSizeFloor,
+		sizeCoef:     monsterFlameSizeCoef,
+		wobbleCoef:   0.5,
+		sizeJitter:   flameSizeJitter,
+		soft:         true,
+		sizeTaper:    flameTipSizeScale,
+		color:        flameCoreColor,
+		heightScale:  flameTongueAspect,
+		srcOver:      true,
+		colorTop:     flameTipColor,
+	})
+}
 
 // emitFlameColumn draws one flame tongue stack at a sampled point of a fire zone.
 func (r *Renderer) emitFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, sIdx int, maxDepth float64) {

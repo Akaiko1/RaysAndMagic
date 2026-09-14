@@ -34,7 +34,9 @@ func TestProjectCatalogLoads(t *testing.T) {
 		"forest": "forest", "desert": "desert", "water": "water", "church": "church",
 		"clock_tower_workshop": "clock_tower", "clock_tower_gearworks": "clock_tower", "clock_tower_belfry": "clock_tower",
 		"arena": "arena", "pyramid": "pyramid", "lich_nexus": "lich_nexus", "culverts": "culverts",
-		"japanese_castle": "japanese_castle", "city": "city", "elf_city": "elf_city", "nomad_city": "nomad_city",
+		// The eastern island shares the castle theme until the garden gets its own.
+		"japanese_castle": "japanese_castle", "sakura_garden": "japanese_castle",
+		"city": "city", "elf_city": "elf_city", "nomad_city": "nomad_city",
 		"highlands": "highlands", "dragon_cliffs": "dragon_cliffs", "jungle": "jungle",
 	}
 	gotMusicBiomes := make(map[string]string, len(wantMusicBiomes))

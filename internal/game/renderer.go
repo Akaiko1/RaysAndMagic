@@ -62,6 +62,8 @@ type standeeKeyNameParts struct {
 
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
+	floorPreparation *floorPreparation
+
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
@@ -98,6 +100,10 @@ type Renderer struct {
 	ambientLight float64
 	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
 	standeeCoreCache map[standeeCoreKey]*ebiten.Image
+	// Oversized authored standees are reduced once before core/mip generation.
+	// The original source remains SpriteManager-owned; this bounded render copy
+	// follows the same region ownership and eviction key as its derived caches.
+	standeeRenderSourceCache map[standeeCoreKey]*ebiten.Image
 	// Stable prefixed names used by standeeCoreKey. Constructing "mob:"+key,
 	// "npc:"+key, etc. for every visible object every frame showed up as
 	// allocator churn; the identity set is tiny and immutable after load.
@@ -157,12 +163,26 @@ type Renderer struct {
 	// same map scan that builds the sprite caches. The map-resource prewarmer uses
 	// it instead of rescanning the world or maintaining a parallel asset list.
 	mapRenderTileTypes              []world.TileType3D
+	processedSpriteOrigins          map[*ebiten.Image]processedSpriteKey
+	animFrameOrigins                map[*ebiten.Image]*ebiten.Image
+	mapRenderRegistry               *renderResourceRegistry
+	mapRenderGeneration             uint64
 	mapRenderResourcePrewarmPending bool
-	mapRenderResourcePrewarmMapKey  string
+	mapRenderResourcePrewarmMapKeys []string
+	mapRenderResourcePrewarmActive  *mapRenderPrewarmTask
 	mapRenderResidentMapKeys        []string
-	mapRenderStandeeKeysByMap       map[string]map[standeeCoreKey]struct{}
-	mapRenderSharedResourcesReady   bool
-	mapRenderSharedStandeeKeys      map[standeeCoreKey]struct{}
+	mapRenderResourcesByMap         map[string]*mapRenderRegionResources
+	mapRenderUploadQueue            []mapRenderUpload
+	mapRenderUploadQueued           map[*ebiten.Image]struct{}
+	mapRenderShaderWarmTasks        []*mapRenderPrewarmTask
+	mapRenderLastCameraX            float64
+	mapRenderLastCameraY            float64
+	mapRenderLastCameraValid        bool
+	// lazySpriteCPUPixels holds the decoded pixels of resources lazily loaded
+	// during the current world pass, keyed by their root images (plus bounded
+	// standee copies), so same-frame derived builders skip ReadPixels. Cleared
+	// when the pass ends - lifetime is one Draw, RAM cost one cold viewport.
+	lazySpriteCPUPixels map[*ebiten.Image]*image.RGBA
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -200,6 +220,7 @@ type Renderer struct {
 	// Ripmap grids of the tileable wall textures, keyed by sprite - see
 	// render_wall_mip.go for why walls need their own anisotropic levels.
 	wallRipmaps      map[*ebiten.Image]*wallRipmap
+	wallRipmapBytes  int64
 	wallSliceVerts   [4]ebiten.Vertex
 	wallSliceTriOpts ebiten.DrawTrianglesOptions
 	// Minified opaque wall slices are independent screen columns, so slices
@@ -315,7 +336,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 		r.treeTilesCache = nil
 		r.mapRenderTileTypes = nil
 		r.mapRenderResourcePrewarmPending = false
-		r.mapRenderResourcePrewarmMapKey = ""
+		r.mapRenderResourcePrewarmMapKeys = nil
 		r.tileLightCache = nil
 		r.resetNightMotes()
 		r.clearCanopyShadeCache()
@@ -1075,8 +1096,21 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return
 	}
 	if cacheKey == r.floorTexturesKey && r.floorTexAtlas != nil {
+		r.cancelFloorPreparation()
 		return // same biome (or same combined set), atlas already built
 	}
+	if r.game.gameLoop != nil && r.game.gameLoop.loading != nil && r.game.appScreen == AppScreenInGame {
+		r.startFloorPreparation(cacheKey, groupSources)
+		return
+	}
+	textures, groups := prepareFloorTextureGroups(groupSources)
+
+	r.buildFloorTexAtlas(textures)
+	r.floorTexGroups = groups
+	r.floorTexturesKey = cacheKey
+}
+
+func prepareFloorTextureGroups(groupSources map[string][]string) ([]floorTexture, map[string]floorTextureGroup) {
 	groupNames := floorTextureGroupLoadOrder(groupSources)
 	rawGroups := make(map[string][]floorTexture, len(groupNames))
 	for _, name := range groupNames {
@@ -1128,9 +1162,7 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		groups[name] = floorTextureGroup{start: start, count: len(texs)}
 	}
 
-	r.buildFloorTexAtlas(textures)
-	r.floorTexGroups = groups
-	r.floorTexturesKey = cacheKey
+	return textures, groups
 }
 
 // openWorldFloorTextureGroups combines every merged region's biome floor
@@ -1173,6 +1205,7 @@ func (r *Renderer) floorGroupLookupKey(tileX, tileY int, group string) string {
 }
 
 func (r *Renderer) clearFloorAtlas() {
+	r.cancelFloorPreparation()
 	r.floorTexAtlas = nil
 	r.floorTexGroups = nil
 	r.floorTexCount = 0
@@ -1213,6 +1246,19 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 		r.clearFloorAtlas()
 		return
 	}
+	atlas, tileW, tileH, maxMip := prepareFloorAtlas(textures)
+
+	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
+	r.floorTexCount = len(textures)
+	r.floorTexTileW = tileW
+	r.floorTexTileH = tileH
+	r.floorTexMaxMip = maxMip
+}
+
+func prepareFloorAtlas(textures []floorTexture) (*image.RGBA, int, int, int) {
+	if len(textures) == 0 {
+		return nil, 0, 0, 0
+	}
 	tileW := textures[0].width
 	tileH := textures[0].height
 	// Levels halve cleanly only while both dimensions stay even.
@@ -1244,11 +1290,7 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 			yOff += ch
 		}
 	}
-	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
-	r.floorTexCount = len(textures)
-	r.floorTexTileW = tileW
-	r.floorTexTileH = tileH
-	r.floorTexMaxMip = maxMip
+	return atlas, tileW, tileH, maxMip
 }
 
 // boxHalve downsamples an RGBA buffer to half size by averaging each 2x2
@@ -1292,7 +1334,50 @@ func loadFloorTexture(name string) (floorTexture, error) {
 
 // RenderFirstPersonView renders the complete first-person 3D view
 func (r *Renderer) RenderFirstPersonView(screen *ebiten.Image) {
-	r.renderFirstPerson3D(screen)
+	r.withMapRenderSourceTracking(func() {
+		r.renderFirstPerson3D(screen)
+	})
+}
+
+// withMapRenderSourceTracking scopes synchronous SpriteManager fallback loads
+// to the 3D world pass. UI, menus, and other global consumers draw after this
+// returns and therefore never become owned by an arbitrary map region.
+func (r *Renderer) withMapRenderSourceTracking(draw func()) {
+	if draw == nil {
+		return
+	}
+	if r == nil || r.game == nil || r.game.sprites == nil {
+		draw()
+		return
+	}
+	if gl := r.game.gameLoop; gl != nil && gl.loading != nil {
+		loading := gl.loading
+		loading.worldPass = true
+		defer func() { loading.worldPass = false }()
+	}
+	r.game.sprites.SetLazyResourceObserver(r.observeLazySpriteLoad)
+	defer func() {
+		r.game.sprites.SetLazyResourceObserver(nil)
+		clear(r.lazySpriteCPUPixels)
+	}()
+	draw()
+}
+
+// observeLazySpriteLoad attributes a synchronous fallback load to the current
+// region and keeps its decoded pixels for the rest of the world pass, so the
+// standee builders that fire in the same Draw build from CPU instead of a
+// GPU readback.
+func (r *Renderer) observeLazySpriteLoad(request graphics.SpriteResourceRequest, images map[*ebiten.Image]*image.RGBA) {
+	r.trackResidentSourceRequest(request)
+	for img, cpu := range images {
+		if img == nil || cpu == nil {
+			continue
+		}
+		if r.lazySpriteCPUPixels == nil {
+			r.lazySpriteCPUPixels = make(map[*ebiten.Image]*image.RGBA)
+		}
+		r.lazySpriteCPUPixels[img] = cpu
+	}
 }
 
 // renderFirstPerson3D performs the main 3D rendering using raycasting
@@ -1378,7 +1463,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
-		r.drawSteamZoneBubbles(screen)
+		r.drawPersistentDamageZoneEffects(screen)
 		// Steam rising from every shut culvert valve's tile.
 		r.drawClosedValveSteam(screen)
 
@@ -1390,6 +1475,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
+		r.drawElementalAttackFX(screen)
 
 		// Buff-cast overlay animation, centred in the party's view.
 		r.drawBuffFx(screen)
@@ -2109,10 +2195,12 @@ func (r *Renderer) getProcessedSpriteByName(tileType world.TileType3D, spriteNam
 
 	cacheKey := processedSpriteKey{tileType: tileType, spriteName: spriteName}
 	if cached, ok := r.processedSpriteCache[cacheKey]; ok {
+		r.trackResidentProcessedKey(cacheKey)
 		return cached
 	}
 	processed := applyBrightnessToAlpha(sprite, tileData.AlphaFromBrightness)
-	r.processedSpriteCache[cacheKey] = processed
+	r.cacheProcessedSprite(cacheKey, processed)
+	r.trackResidentProcessedKey(cacheKey)
 	return processed
 }
 
@@ -2120,25 +2208,41 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 	if sprite == nil || strength <= 0 {
 		return sprite
 	}
-	if strength > 1 {
-		strength = 1
-	}
-	w := sprite.Bounds().Dx()
-	h := sprite.Bounds().Dy()
+	w, h := sprite.Bounds().Dx(), sprite.Bounds().Dy()
 	if w <= 0 || h <= 0 {
 		return sprite
 	}
+	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
+	sprite.ReadPixels(pixels.Pix)
+	processed, _ := applyBrightnessToAlphaCPU(pixels, strength)
+	return processed
+}
 
-	pixels := make([]byte, 4*w*h)
-	sprite.ReadPixels(pixels)
-	for i := 0; i < len(pixels); i += 4 {
-		a := pixels[i+3]
+func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Image, *image.RGBA) {
+	if source == nil {
+		return nil, nil
+	}
+	bounds := source.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w <= 0 || h <= 0 {
+		return nil, nil
+	}
+	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(pixels, pixels.Bounds(), source, bounds.Min, draw.Src)
+	if strength <= 0 {
+		return ebiten.NewImageFromImage(pixels), pixels
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	for i := 0; i < len(pixels.Pix); i += 4 {
+		a := pixels.Pix[i+3]
 		if a == 0 {
 			continue
 		}
-		rv := float64(pixels[i])
-		gv := float64(pixels[i+1])
-		bv := float64(pixels[i+2])
+		rv := float64(pixels.Pix[i])
+		gv := float64(pixels.Pix[i+1])
+		bv := float64(pixels.Pix[i+2])
 		maxv := math.Max(rv, math.Max(gv, bv))
 		minv := math.Min(rv, math.Min(gv, bv))
 		brightness := (rv + gv + bv) / (3.0 * 255.0)
@@ -2157,15 +2261,12 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 		if alphaScale < 0 {
 			alphaScale = 0
 		}
-		pixels[i] = uint8(rv*alphaScale + 0.5)
-		pixels[i+1] = uint8(gv*alphaScale + 0.5)
-		pixels[i+2] = uint8(bv*alphaScale + 0.5)
-		pixels[i+3] = uint8(float64(a)*alphaScale + 0.5)
+		pixels.Pix[i] = uint8(rv*alphaScale + 0.5)
+		pixels.Pix[i+1] = uint8(gv*alphaScale + 0.5)
+		pixels.Pix[i+2] = uint8(bv*alphaScale + 0.5)
+		pixels.Pix[i+3] = uint8(float64(a)*alphaScale + 0.5)
 	}
-
-	img := ebiten.NewImage(w, h)
-	img.WritePixels(pixels)
-	return img
+	return ebiten.NewImageFromImage(pixels), pixels
 }
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
@@ -2355,9 +2456,10 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 					return
 				}
 				r.flushMipmappedWallBatch(screen)
-				r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU)
-				return
+				if r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
+					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					return
+				}
 			}
 		}
 	}
@@ -2959,7 +3061,7 @@ func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *mon
 func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
-		tps = 60
+		tps = config.DefaultTPS
 	}
 	const animFPS = 8
 	ticksPerFrame := tps / animFPS
@@ -3637,7 +3739,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// 5. Collect ground containers (loot bags + treasure chests)
 	for i := range r.game.groundContainers {
 		c := &r.game.groundContainers[i]
-		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
+		if !c.onCurrentWorld() {
 			continue
 		}
 		// Loot containers are interactable, so they do NOT use the one-tile
@@ -4190,6 +4292,9 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	if s.monster.PoisonedFramesRemaining > 0 {
 		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}
+	if s.monster.BurnFramesRemaining > 0 {
+		r.drawMonsterBurnFlames(screen, s.monster)
+	}
 }
 
 // drawMonsterPoisonBubbles rises a column of small green bubbles past a
@@ -4212,6 +4317,43 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
 		vector.FillCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
 	}
+}
+
+// drawMonsterBurnFlames sets a burning monster alight with the SAME flame
+// machinery as a Firewall cell (emitFlameColumn -> emitBubbleColumn), scaled
+// down to a mob: a few short tongues instead of a wall's curtain. Reusing the
+// zone emitter keeps one fire look in the game, and it projects and depth-tests
+// the columns itself, so the flames sit at the monster's feet without any
+// screen-space guesswork. No area glow - the tongues are the whole effect.
+func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, m *monster.Monster3D) {
+	tile := float64(r.game.config.GetTileSize())
+	maxDepth := monsterFlameMaxDepth(tile)
+	tx, ty := TileIndex(m.X, tile), TileIndex(m.Y, tile)
+	// Salted by the monster ID so two burning mobs do not flicker in lockstep.
+	salt := monsterBurnSalt(m.ID)
+	// Spread ACROSS the view, like the wall spreads along its axis: offsetting by
+	// world axes puts the whole fire to one side of the sprite at most angles.
+	rx, ry := -math.Sin(r.game.camera.Angle), math.Cos(r.game.camera.Angle)
+	// A hair TOWARD the camera: the columns are depth-tested, and the mob's own
+	// standee would otherwise hide every tongue that is not past its edge.
+	fx := -math.Cos(r.game.camera.Angle) * tile * monsterFlameFrontOffset
+	fy := -math.Sin(r.game.camera.Angle) * tile * monsterFlameFrontOffset
+	for i := 0; i < monsterFlameColumns; i++ {
+		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * 0.5
+		r.emitMonsterFlameColumn(screen, m.X+rx*off+fx, m.Y+ry*off+fy, tx, ty, salt+i, maxDepth)
+	}
+}
+
+// monsterBurnSalt derives a stable per-monster hash salt from its ID.
+func monsterBurnSalt(id string) int {
+	salt := 31
+	for i := 0; i < len(id); i++ {
+		salt = salt*17 + int(id[i])
+	}
+	if salt < 0 {
+		salt = -salt
+	}
+	return salt % 4096
 }
 
 // stunStarRingGeometry places the stun ring above the monster's head. A
@@ -4504,6 +4646,7 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 	if h <= 0 || w != h*SpriteSheetFrameCount {
 		frames := []*ebiten.Image{sprite}
 		r.animFrameCache[sprite] = frames
+		r.indexAnimationViews(sprite, frames)
 		return frames
 	}
 
@@ -4516,6 +4659,7 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 		frames[i] = sprite.SubImage(rect).(*ebiten.Image)
 	}
 	r.animFrameCache[sprite] = frames
+	r.indexAnimationViews(sprite, frames)
 	return frames
 }
 
@@ -4529,7 +4673,7 @@ func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount in
 }
 
 func (r *Renderer) selectNPCIdleSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
-	tps := 120
+	tps := config.DefaultTPS
 	if r != nil && r.game != nil && r.game.config != nil {
 		tps = r.game.config.GetTPS()
 	}
@@ -5037,8 +5181,7 @@ func bowHandConvergence(distance, tileSize float64) float64 {
 	if tileSize <= 0 || distance >= 3*tileSize {
 		return 0
 	}
-	t := math.Max(0, distance/(3*tileSize))
-	return 1 - t*t*(3-2*t)
+	return 1 - smoothStep(distance/(3*tileSize))
 }
 
 func arrowFallbackScreenAngle(dirX float64) float64 {

@@ -71,7 +71,7 @@ func TestRangedTB_SeventyThirtyTankSplit(t *testing.T) {
 	const trials = 6000
 	nonTank := 0
 	for i := 0; i < trials; i++ {
-		if cs.rangedTBTarget() != m[0] {
+		if cs.rangedTarget() != m[0] {
 			nonTank++
 		}
 	}
@@ -82,33 +82,40 @@ func TestRangedTB_SeventyThirtyTankSplit(t *testing.T) {
 	}
 }
 
-// TestRangedRT_AlwaysTank: real-time ranged single-target always lands on the
-// tank (slot 0).
-func TestRangedRT_AlwaysTank(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	cs.game.turnBasedMode = false
-	m := cs.game.party.Members
-	if len(m) < 2 {
-		t.Skip("need >=2 members")
-	}
-	for _, x := range m {
-		x.Luck = 0 // no dodge
-	}
-	for i := 0; i < 40; i++ {
-		for _, x := range m { // reset so the tank never dies -> never falls back
-			x.HitPoints = x.MaxHitPoints
+// This integration table mutation-checks the production projectile wiring in
+// both clocks. With an all-human party, each clock must retain the authored
+// 70/30 tank/off-tank split.
+func TestRangedProjectile_UsesSharedTankBiasedTargeting(t *testing.T) {
+	for _, turnBased := range []bool{false, true} {
+		name := "real_time"
+		if turnBased {
+			name = "turn_based"
 		}
-		cs.applyMonsterProjectileDamage(nil, "Test", monsterCharacterHit{ // sourceless; tests targeting only
-			Parts:      damagecalc.Parts{Normal: 999},
-			DamageType: "true",
-		})
-		if m[0].HitPoints >= m[0].MaxHitPoints {
-			t.Fatalf("RT ranged did not hit the tank (slot 0) on iter %d", i)
-		}
-		for j := 1; j < len(m); j++ {
-			if m[j].HitPoints < m[j].MaxHitPoints {
-				t.Fatalf("RT ranged hit non-tank slot %d (should only ever hit the tank)", j)
+		t.Run(name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			cs.game.turnBasedMode = turnBased
+			members := cs.game.party.Members
+			if len(members) < 2 {
+				t.Skip("need >=2 members")
 			}
-		}
+			const trials = 4000
+			offTank := 0
+			for i := 0; i < trials; i++ {
+				for _, member := range members {
+					member.Race = "human"
+					member.HitPoints = member.MaxHitPoints
+				}
+				cs.applyMonsterProjectileDamage(nil, "Test", monsterCharacterHit{
+					Parts: damagecalc.Parts{True: 1}, DamageType: "true", IgnoresDodge: true,
+				})
+				if members[0].HitPoints == members[0].MaxHitPoints {
+					offTank++
+				}
+			}
+			fraction := float64(offTank) / trials
+			if math.Abs(fraction-RangedOffTankChance) > 0.04 {
+				t.Fatalf("off-tank fraction = %.3f, want %.2f", fraction, RangedOffTankChance)
+			}
+		})
 	}
 }

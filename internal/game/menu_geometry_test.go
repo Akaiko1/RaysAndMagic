@@ -38,7 +38,12 @@ func TestMainMenuOptionsOwnTheirActions(t *testing.T) {
 	if settingsIndex < 0 {
 		t.Fatal("Settings option is missing")
 	}
-	g := &MMGame{mainMenuSelection: settingsIndex, audioSliderDrag: 2}
+	g := &MMGame{
+		menuState: menuState{
+			mainMenuSelection: settingsIndex,
+			audioSliderDrag:   2,
+		},
+	}
 	(&InputHandler{game: g}).activateMainMenuSelection()
 	if g.mainMenuMode != MenuSettings || g.audioSliderDrag != -1 {
 		t.Fatalf("Settings action produced mode %d and drag %d", g.mainMenuMode, g.audioSliderDrag)

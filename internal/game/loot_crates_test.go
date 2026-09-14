@@ -4,10 +4,12 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 func crateTestGame(t *testing.T) *MMGame {
@@ -455,5 +457,44 @@ func TestSpellLectern(t *testing.T) {
 	}
 	if !airReachable {
 		t.Errorf("lectern taught %q (schools %v) to an Air-only reader", learned, def.SchoolList())
+	}
+}
+
+// The lake-chest contract: a crate standing on deep water opens across water
+// (water tiles are transparent, so the LOS gate passes) while a wall on the
+// same ray still refuses the interaction.
+func TestCrateOpensAcrossWaterButNotThroughWalls(t *testing.T) {
+	g := crateTestGame(t)
+	tile := float64(g.config.GetTileSize())
+	g.camera.X, g.camera.Y = TileCenterFromTile(1, 1, tile)
+	g.collisionSystem = collision.NewCollisionSystem(g.world, tile)
+
+	stageCrate := func(between world.TileType3D) *character.NPC {
+		g.world.Tiles[1][2] = between
+		g.world.Tiles[1][3] = world.TileDeepWater
+		x, y := TileCenterFromTile(3, 1, tile)
+		npc, err := character.CreateNPCFromConfig("chest_iron", x, y)
+		if err != nil {
+			t.Fatalf("create chest: %v", err)
+		}
+		return npc
+	}
+
+	chest := stageCrate(world.TileDeepWater)
+	g.useLootCrate(chest)
+	if !chest.Visited {
+		t.Fatal("chest across deep water refused to open - water must not block the LOS gate")
+	}
+
+	walled := stageCrate(world.TileThicket)
+	g.useLootCrate(walled)
+	if walled.Visited {
+		t.Fatal("chest behind a thicket opened - the through-wall guard is gone")
+	}
+
+	treed := stageCrate(world.TileTree)
+	g.useLootCrate(treed)
+	if treed.Visited {
+		t.Fatal("chest behind a tree opened - the through-tree guard is gone")
 	}
 }

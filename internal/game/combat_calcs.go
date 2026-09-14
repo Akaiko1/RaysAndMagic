@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -11,60 +12,96 @@ import (
 	"ugataima/internal/spells"
 )
 
-// spellScalesWithPersonality reports whether a school's spell DAMAGE scales with
-// Personality (self magic: Body/Mind/Spirit) instead of Intellect. Single source
-// of truth for both the damage formula (CalculateSpellDamage) and the tooltip's
-// stat-bonus label (spellDamageStatLabel), so they can never disagree. The school
-// classification + label themselves live in the spells package (shared SSoT with
-// EffectLines / the map editor); these thin wrappers keep the combat call sites.
-func spellScalesWithPersonality(school string) bool {
-	return spells.SchoolScalesWithPersonality(school)
-}
-
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual projectile damage.
 func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	// Self magic (Body/Mind/Spirit) scales with Personality; all elemental
-	// schools, including Light/Dark, scale with Intellect. The math is stat-agnostic -
-	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
-	def, defErr := spells.GetSpellDefinitionByID(spellID)
-	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
-	scalingStat := char.GetEffectiveIntellect()
-	if selfMagic {
-		scalingStat = char.GetEffectivePersonality()
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return 0, 0, 0
 	}
-	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
-	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
-	// Personality/divisor term on top of the primary term - but ONLY for non-self
-	// magic, else Personality (already the primary stat for self magic) is counted
-	// twice. The tooltip applies the same guard so the displayed number matches.
-	if defErr == nil && def.ScalesWithPersonality && !selfMagic {
-		perBonus := char.GetEffectivePersonality() / spells.SpellIntellectDivisor
-		intellectBonus += perBonus
-		totalDamage += perBonus
-	}
-	masteryBonus := cs.spellMasteryBonus(char, spellID)
-	if masteryBonus > 0 {
-		baseDamage += masteryBonus
-		totalDamage += masteryBonus
-	}
-	return baseDamage, intellectBonus, totalDamage
+	result := character.SpellDamageBreakdown(def, char)
+	return result.Base + result.Mastery, result.StatBonus, result.Total
 }
 
-// spellDamageParts converts only an elemental school's regular +5/tier mastery
+// strongMagicPct is the caster's Strong Magic exchange percent for the given
+// spell: the share of the SP cost burned as HP at cast, and the share added to
+// the spell's damage. Zero when the passive does not apply (no skill, no
+// caster, or a non-offensive spell).
+func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) int {
+	if caster == nil || !def.IsOffensive() || !caster.HasSkill(character.SkillStrongMagic) {
+		return 0
+	}
+	return character.StrongMagicPct(caster.SkillTier(character.SkillStrongMagic))
+}
+
+// applyStrongMagicBurn is Strong Magic's HP price, paid at the SAME site the
+// SP cost is paid (castResolvedSpell - the one payment point for offensive
+// casts): pct% of the paid cost, clamped so the passive never takes the last
+// hit point. The matching damage boost lives in spellDamageParts, so tooltips
+// and combat read one number.
+func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def spells.SpellDefinition, paidCost int) {
+	pct := strongMagicPct(caster, def)
+	if pct <= 0 || paidCost <= 0 {
+		return
+	}
+	burn := paidCost * pct / 100
+	if burn >= caster.HitPoints {
+		burn = caster.HitPoints - 1
+	}
+	if burn <= 0 {
+		return
+	}
+	caster.HitPoints -= burn
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's Strong Magic burns %d HP for power!", caster.Name, burn))
+}
+
+// spellDamageParts is the ONE damage builder for every party/champion cast
+// (projectiles, zones, mortars, and both tooltips read it): the mastery
+// true-damage split below, then the Strong Magic boost on the final packet.
+func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+	parts := cs.spellMasteryDamageParts(spellID, caster, total)
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		if pct := strongMagicPct(caster, def); pct > 0 {
+			parts.Normal += parts.Normal * pct / 100
+			parts.True += parts.True * pct / 100
+		}
+	}
+	return parts
+}
+
+// spellPartsWithOutgoingBuff applies the party's flat outgoing-damage bonus
+// after every spell-owned packet modifier (mastery, Strong Magic, and crit).
+// The bonus always joins the Normal component and is never multiplied by those
+// modifiers. Runtime spell forms and their tooltips share this final step.
+func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int) {
+	if cs == nil || cs.game == nil || parts.Normal <= 0 {
+		return parts, 0
+	}
+	bonus := cs.game.combatBuffOutBonusForDamageType(damageType)
+	parts.Normal += bonus
+	return parts, bonus
+}
+
+// spellMasteryDamageParts converts only an elemental school's regular +5/tier mastery
 // bonus to typed true damage at Grandmaster. A spell with its own explicit
 // mastery step (currently Inferno's 45-90 scaling) remains entirely Normal.
-func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
+func (cs *CombatSystem) spellMasteryDamageParts(spellID spells.SpellID, caster *character.MMCharacter, total int) damagecalc.Parts {
 	parts := damagecalc.Parts{Normal: total}
 	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || !character.MagicSchoolID(def.School).IsElemental() ||
-		def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
+	if err != nil || def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4 || caster == nil {
 		return parts
 	}
-	school := caster.MagicSchools[character.MagicSchoolID(def.School)]
+	// The school this caster holds the spell under decides BOTH the branch and
+	// the mastery, exactly as in spellResistPierce: a dual-school page learned
+	// through Air is scored against Air, and a page authored with only `schools:`
+	// has no primary school to test at all.
+	if !caster.SpellSchoolFor(def).IsElemental() {
+		return parts
+	}
+	school := caster.SpellMasterySkill(def)
 	if school == nil || school.Mastery < character.MasteryGrandMaster {
 		return parts
 	}
@@ -84,11 +121,15 @@ func (cs *CombatSystem) rollSpellCritParts(spellID spells.SpellID, caster *chara
 		return parts, false
 	}
 	if crit, _ := cs.RollCriticalChance(0, caster); crit {
-		parts.Normal *= CritDamageMultiplier
-		parts.True *= CritDamageMultiplier
-		return parts, true
+		return spellCriticalParts(parts), true
 	}
 	return parts, false
+}
+
+func spellCriticalParts(parts damagecalc.Parts) damagecalc.Parts {
+	parts.Normal *= CritDamageMultiplier
+	parts.True *= CritDamageMultiplier
+	return parts
 }
 
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
@@ -97,17 +138,12 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	effectivePersonality := char.GetEffectivePersonality()
-	baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(spellID, effectivePersonality)
-	masteryBonus := cs.spellMasteryBonus(char, spellID)
-	if masteryBonus > 0 {
-		baseHeal += masteryBonus
-		totalHeal += masteryBonus
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return 0, 0, 0
 	}
-	if char.HasSkill(character.SkillNaturalHealer) {
-		totalHeal = totalHeal * (100 + character.NaturalHealerBonusPct(char.SkillTier(character.SkillNaturalHealer))) / 100
-	}
-	return baseHeal, personalityBonus, totalHeal
+	result := character.SpellHealingBreakdown(def, char)
+	return result.Base + result.Mastery, result.StatBonus, result.Total
 }
 
 // CalculateSpellDurationSeconds returns duration in seconds with mastery bonus applied.
@@ -116,18 +152,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if err != nil {
 		return 0
 	}
-	if def.Duration <= 0 {
-		return 0
-	}
-	seconds := def.Duration
-	if char != nil && def.School != "" {
-		school := character.MagicSchoolID(def.School)
-		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
-			bonusPct := int(skill.Mastery) * SpellMasteryDurationBonusPct
-			seconds = seconds * (100 + bonusPct) / 100
-		}
-	}
-	return seconds
+	return character.SpellDurationBreakdown(def, char).Seconds
 }
 
 // CalculateSpellDurationFrames returns duration in frames with mastery bonus applied.
@@ -389,33 +414,39 @@ func (cs *CombatSystem) OffHandWeaponCooldownFrames(char *character.MMCharacter)
 // weapon (tooltips hover unequipped weapons too) - the ONE formula combat and
 // every tooltip share. Empty name = unarmed (sword baseline).
 func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weaponName string) int {
+	return cs.weaponCooldownBreakdown(char, weaponName).TotalFrames
+}
+
+type weaponCooldownBreakdown struct {
+	Speed                    int
+	BaseFrames               float64
+	WeaponMultiplier         float64
+	DualWieldingReductionPct int
+	RawFrames                int
+	TotalFrames              int
+}
+
+func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, weaponName string) weaponCooldownBreakdown {
+	result := weaponCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
 	if cs == nil || cs.game == nil || char == nil {
-		return RTCooldownMinFrames
+		return result
 	}
-	speed := char.GetEffectiveSpeed()
-	base := float64(calculateSpeedActionCooldownFrames(speed)) * RTBaseCooldownMult
-	mult := 1.0
+	result.Speed = char.GetEffectiveSpeed()
+	result.BaseFrames = float64(calculateSpeedActionCooldownFrames(result.Speed)) * RTBaseCooldownMult
 	if weaponName != "" {
 		if def, _, found := config.GetWeaponDefinitionByName(weaponName); found && def != nil {
-			switch {
-			case def.CooldownMultiplier > 0:
-				mult = def.CooldownMultiplier // legendary / per-weapon override
-			default:
-				// Resolve the weapon's category to its canonical weapon SKILL
-				// (so "throwing" -> dagger) and read that type's multiplier from
-				// weapons.yaml. Unlisted skill types stay at 1.0.
-				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
-					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
-				}
-			}
+			result.WeaponMultiplier = character.WeaponCooldownMultiplier(def)
 		}
 	}
 	// Dual Wielding: -10%/tier ABOVE Novice on cooldown, either hand (Novice
 	// itself only unlocks the off-hand weapon slot, no reduction yet).
 	if tier := char.SkillTier(character.SkillDualWielding); char.HasSkill(character.SkillDualWielding) && tier > 0 {
-		mult *= 1.0 - float64(tier*character.DualWieldingCDReductionPerTier)/100.0
+		result.DualWieldingReductionPct = tier * character.DualWieldingCDReductionPerTier
 	}
-	return clampRTCooldown(int(math.Round(base * mult)))
+	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
+	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
+	result.TotalFrames = clampRTCooldown(result.RawFrames)
+	return result
 }
 
 // spellCooldownSpeedFactor scales a spell's authored cooldown_seconds by Speed,

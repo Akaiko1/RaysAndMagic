@@ -162,7 +162,7 @@ func TestDebugSim_TownRender(t *testing.T) {
 
 	ih := &InputHandler{game: g}
 	for _, tour := range tours {
-		ih.switchToMap(tour.mapKey)
+		ih.game.switchToMap(tour.mapKey)
 		for _, s := range tour.shots {
 			g.camera.X, g.camera.Y = s.cx*ts, s.cy*ts
 			g.camera.Angle = math.Atan2((s.ty-s.cy)*ts, (s.tx-s.cx)*ts)

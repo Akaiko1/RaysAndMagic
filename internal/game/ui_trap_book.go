@@ -62,27 +62,29 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 		// Spell-like mouse controls: click selects, double-click ARMS the
 		// clicked trap in the world (spells cast on double-click; Enter/F
 		// equip the quick slot). TB consumes an action like a book-cast spell.
-		if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
-			now := ui.game.mouseLeftClickAt
-			if ui.lastClickedTrap == i && withinDoubleClickWindow(now, ui.lastTrapClickTime) {
-				canArm := ui.game.canSpendCombatAction(ui.game.selectedChar)
-				if canArm {
-					placed := ui.game.dispatchCharacterHubWorldAction(func() bool {
-						_, ok := ui.game.combat.placeTrapByKey(currentChar, key, true)
-						return ok
-					})
-					if placed {
-						ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.TrapCooldownFrames(currentChar, key))
+		ui.onDisplayedInput(uiCommandClick, layoutRect{cardX, cardY, (cardX + bl.cardW) - (cardX), (cardY + bl.cardH) - (cardY)}, func() {
+			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
+				now := ui.game.mouseLeftClickAt
+				if ui.lastClickedTrap == i && withinDoubleClickWindow(now, ui.lastTrapClickTime) {
+					canArm := ui.game.canSpendCombatAction(ui.game.selectedChar)
+					if canArm {
+						placed := ui.game.dispatchCharacterHubWorldAction(func() bool {
+							_, ok := ui.game.combat.placeTrapByKey(currentChar, key, true)
+							return ok
+						})
+						if placed {
+							ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.TrapCooldownFrames(currentChar, key))
+						}
 					}
+					ui.lastTrapClickTime = 0
+					ui.lastClickedTrap = -1
+				} else {
+					ui.lastTrapClickTime = now
+					ui.lastClickedTrap = i
 				}
-				ui.lastTrapClickTime = 0
-				ui.lastClickedTrap = -1
-			} else {
-				ui.lastTrapClickTime = now
-				ui.lastClickedTrap = i
+				ui.game.selectedTrap = i
 			}
-			ui.game.selectedTrap = i
-		}
+		})
 		ui.quickTrapCardDragSource(key, cardX, cardY, bl.cardW, bl.cardH)
 		ui.drawTrapCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, key, def, currentChar, i == ui.game.selectedTrap)
 
@@ -96,9 +98,9 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 	if tooltip != "" {
 		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
-	if ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput()) {
+	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedTrap = ui.spellPage * perSpread
-	}
+	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }

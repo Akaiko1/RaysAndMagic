@@ -124,7 +124,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 					t.Errorf("monster not stunned")
 				}
 			case def.ZoneRadiusTiles > 0:
-				if len(game.steamZones) == 0 {
+				if len(game.persistentDamageZones) == 0 {
 					t.Errorf("no damage zone created")
 				}
 			case def.PartyAoeRadiusTiles > 0 || def.MapWide:

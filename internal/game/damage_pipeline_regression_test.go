@@ -295,7 +295,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 		t.Fatalf("hot_steam: %v", err)
 	}
 	steamTooltip := buildSpellTooltipUnified(steam, char, cs, true)
-	wantTick := cs.CalculateSteamZoneTickDamage(steam, char) + 5
+	wantTick := cs.CalculatePersistentDamageZoneTickDamage(steam, char) + 5
 	if want := fmt.Sprintf("Total per tick: %d", wantTick); !strings.Contains(steamTooltip, want) {
 		t.Fatalf("Hot Steam tooltip missing live tick %q:\n%s", want, steamTooltip)
 	}

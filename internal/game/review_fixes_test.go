@@ -202,7 +202,7 @@ func TestWeakenDragsWholeOutgoingPacketOnce(t *testing.T) {
 	if got := cs.monsterAttackDamage(m); got != 100 {
 		t.Fatalf("monsterAttackDamage applied weaken (%d), hitFromMonster owns it", got)
 	}
-	hit := hitFromMonster(m, cs.monsterAttackDamage(m), monsterPkg.DamagePhysical.String(), false, 0, true)
+	hit := hitFromMonster(m, cs.monsterAttackDamage(m), monsterPkg.DamagePhysical.String(), false, 0, true, false)
 	if hit.Parts.Normal != 75 || hit.Parts.True != 30 {
 		t.Fatalf("weakened packet = %+v, want Normal 75 / True 30", hit.Parts)
 	}
@@ -418,7 +418,6 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	}
 
 	mon := monsterPkg.MonsterDefinition{
-		MeleeDamageType:           "earth",
 		TrapVolleyCount:           20,
 		TrapVolleyRadiusTiles:     15,
 		TrapVolleyIntervalSeconds: 10,
@@ -430,7 +429,7 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 		lines = append(lines, l.Text)
 	}
 	joined = strings.Join(lines, "\n")
-	if !strings.Contains(joined, "Melee strikes as earth damage") {
+	if !strings.Contains(joined, "Melee: Physical") {
 		t.Fatalf("monster lines missing melee school in:\n%s", joined)
 	}
 	if !strings.Contains(joined, "Trap field: sows 20 fire traps") {

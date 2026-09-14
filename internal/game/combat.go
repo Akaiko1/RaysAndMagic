@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"strings"
-
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -20,7 +19,9 @@ import (
 
 // CombatSystem handles all combat-related functionality
 type CombatSystem struct {
-	game *MMGame
+	game                *MMGame
+	racialProcRoll      func(int) bool
+	elementalAttackRoll func() float64
 }
 
 // Owner namespaces of the pure party allies. They persist through
@@ -37,74 +38,11 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
 }
 
-// CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
-// Returns true if the spell was successfully cast.
-func (cs *CombatSystem) CastEquippedSpell() bool {
-	caster := cs.game.party.Members[cs.game.selectedChar]
-
-	// Stunned characters cannot start a combat action either.
-	if !caster.CanUseCombatAction() {
-		return false
+func (cs *CombatSystem) rollRacialProc(chancePct int) bool {
+	if cs != nil && cs.racialProcRoll != nil {
+		return cs.racialProcRoll(chancePct)
 	}
-
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
-	if !hasSpell {
-		return false // No spell equipped
-	}
-	if spell.Type == items.ItemTrap {
-		// Thief quick slot: F arms the slotted trap exactly like a quick
-		// spell - explicit cast, so refusal messages stay on.
-		_, placed := cs.tryPlaceQuickTrap(caster, true)
-		return placed
-	}
-	if spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell {
-		return false // SlotSpell should only contain spells
-	}
-
-	spellID := spells.SpellID(spell.SpellEffect)
-	spellDef, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return false
-	}
-
-	// Quick-cast stays quiet on launch; the hit itself reports (anti-spam).
-	return cs.castResolvedSpell(spellID, spellDef, caster, cs.effectiveSpellCost(caster, spell.SpellCost), false, true)
-}
-
-// healMember is the single source for applying a heal to ONE party member: add
-// HP, clamp to max, clear Unconscious when revived above 0, and flash the green
-// "+" overlay. Every single-target heal path funnels through here so the clamp /
-// revive / VFX behaviour can't drift between them.
-func (cs *CombatSystem) healMember(idx, amount int) {
-	if idx < 0 || idx >= len(cs.game.party.Members) {
-		return
-	}
-	m := cs.game.party.Members[idx]
-	if m == nil {
-		return
-	}
-	m.HitPoints += amount
-	if m.HitPoints > m.MaxHitPoints {
-		m.HitPoints = m.MaxHitPoints
-	}
-	if m.HitPoints > 0 {
-		m.RemoveCondition(character.ConditionUnconscious)
-	}
-	cs.game.TriggerPartyHeal(idx) // rising green "+" overlay on the healed card
-}
-
-func (cs *CombatSystem) healWholeParty(amount int) int {
-	healed := 0
-	for i, m := range cs.game.party.Members {
-		if m == nil || m.HitPoints <= 0 ||
-			m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
-			continue
-		}
-		cs.healMember(i, amount)
-		healed++
-	}
-	return healed
+	return chancePct > 0 && rand.Intn(100) < chancePct
 }
 
 // knockOut handles a member reaching 0 HP from a hit: the Lich Card may cheat
@@ -245,33 +183,29 @@ func (cs *CombatSystem) countLiveSummonsByOwner(owner string) int {
 	return n
 }
 
-func (cs *CombatSystem) countCardSummons() int {
-	return cs.countLiveSummonsByOwner(cardSummonOwner)
-}
-
-// tryCardSummonOnAction rolls the Orc Warlord Card on a party action: a chance to
-// summon allied monsters (Bound - they hunt enemy monsters, ignore the party) up
-// to the collection's summon limit. Called from the attack and cast chokepoints.
-// A successful summon arms the CARD's own cooldown (card_summon_cd_seconds) -
-// it silences only this proc, never the character's actions.
+// tryCardSummonOnAction independently rolls every active summon card on a party
+// action. Each physical card owns its monster type, live limit and cooldown;
+// collection order controls only deterministic roll/spawn order. Called from
+// the attack and cast chokepoints.
 func (cs *CombatSystem) tryCardSummonOnAction() {
-	if cs.game.cardSummonCDFrames > 0 {
+	if cs.game.GetCurrentWorld() == nil {
 		return
 	}
-	chance := cs.game.cardSummonChance()
-	limit := cs.game.cardSummonLimit()
-	key := cs.game.cardSummonMonsterKey()
-	if chance <= 0 || limit <= 0 || key == "" || cs.game.GetCurrentWorld() == nil {
-		return
-	}
-	if rand.Intn(100) >= chance {
-		return
-	}
-	if want := limit - cs.countCardSummons(); want > 0 {
-		// Arm the cooldown only when allies actually appeared: a whiffed spawn
-		// (no free tile around the party) must not waste the proc for 5s.
-		if cs.summonCardAllies(key, want) > 0 {
-			cs.game.cardSummonCDFrames = cs.game.cardSummonCDSeconds() * cs.game.config.GetTPS()
+	for _, source := range cs.game.cardSummonSources() {
+		if cs.game.cardSummonCooldown(source.Owner) > 0 {
+			continue
+		}
+		// Preserve the old trigger order: a card rolls first, then checks whether
+		// its live cap has room. A capped card consumes no cooldown.
+		if rand.Intn(100) >= source.Chance {
+			continue
+		}
+		if want := source.Limit - cs.countLiveSummonsByOwner(source.Owner); want > 0 {
+			// Arm the cooldown only when allies actually appeared: a whiffed spawn
+			// (no free tile around the party) must not waste the proc for 5s.
+			if cs.summonCardAllies(source, want) > 0 {
+				cs.game.armCardSummonCooldown(source.Owner, source.CooldownSeconds*cs.game.config.GetTPS())
+			}
 		}
 	}
 }
@@ -342,17 +276,6 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 	return true
 }
 
-// markCardAlly turns a spawned monster into a party ally summoned by the card
-// collection: Bound (hunts enemy monsters, ignores the party), tagged for the
-// summon limit, and excluded from map-clear quest counts.
-// BoundFramesRemaining 0 = never expires (the bind tick only counts down > 0).
-// A card ally is a PURE summon (never was an enemy): it yields the party no
-// XP/gold/loot on death and does not follow across maps - it simply crumbles
-// when the party leaves (a fresh set is re-summoned there via the proc).
-func markCardAlly(m *monsterPkg.Monster3D) {
-	markPurePartySummon(m, cardSummonOwner)
-}
-
 // spawnPartyAlly is THE spawn path for every pure party ally (card summons, the
 // druid's bear, summon spells): free-tile search near the party, ally tagging and
 // world/collision registration. Callers only override per-source stats on the
@@ -394,12 +317,11 @@ func markPurePartySummon(m *monsterPkg.Monster3D, owner string) {
 	m.QuestProgressIgnored = true
 }
 
-// isCardAlly reports whether a monster is a card-collection summon (Orc Warlord
-// Card huntresses) - a pure ally, distinct from a spell-bound undead (a former
-// ENEMY that still yields its reward). The single source of truth for the
-// "yields the party nothing / crumbles on map exit" rules.
+// isCardAlly reports whether a monster is a card-collection summon - including
+// legacy shared-owner saves and new per-card owners. It is a pure ally, distinct
+// from a spell-bound undead (a former ENEMY that still yields its reward).
 func isCardAlly(m *monsterPkg.Monster3D) bool {
-	return m != nil && m.SummonedBy == cardSummonOwner
+	return m != nil && (m.SummonedBy == cardSummonOwner || strings.HasPrefix(m.SummonedBy, cardSummonOwnerPrefix))
 }
 
 // isPurePartySummon is the shared distinction between creatures created for
@@ -456,179 +378,20 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 	departing.Monsters = kept
 }
 
-// summonCardAllies spawns up to n permanent allied (Bound) monsters of `key` near
-// the party. BoundFramesRemaining 0 = never expires (the bind tick only counts
-// down values > 0), so they fight on until slain. Returns how many spawned.
-func (cs *CombatSystem) summonCardAllies(key string, n int) int {
+// summonCardAllies spawns up to n permanent Bound allies for one physical card.
+// BoundFramesRemaining 0 = never expires, so they fight on until slain. Returns
+// how many spawned.
+func (cs *CombatSystem) summonCardAllies(source cardSummonSource, n int) int {
 	spawned := 0
 	for attempts := 0; spawned < n && attempts < n*12+12; attempts++ {
-		if cs.spawnPartyAlly(key, cardSummonOwner) != nil {
+		if cs.spawnPartyAlly(source.MonsterKey, source.Owner) != nil {
 			spawned++
 		}
 	}
 	if spawned > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("The Orc Warlord Card rallies %d ally to your side!", spawned))
+		cs.game.AddCombatMessage(fmt.Sprintf("The %s rallies %d ally to your side!", source.CardName, spawned))
 	}
 	return spawned
-}
-
-func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
-	caster := cs.game.party.Members[cs.game.selectedChar]
-
-	// Stunned characters cannot cast heals either.
-	if !caster.CanUseCombatAction() {
-		return false
-	}
-
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
-	if !hasSpell {
-		return false
-	}
-	// Allow both heal-type spells for targeting
-	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return false
-	}
-
-	spellID := spells.SpellID(spell.SpellEffect)
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return false
-	}
-	// SP gate, target resolution (self-only heals redirect to the caster),
-	// 0-HP refusal, cost and messages all live in the ONE heal cast path.
-	return cs.castKnownHealOn(spellID, def, targetIndex)
-}
-
-// bestKnownHealSpell returns the most powerful heal spell the caster knows
-// across all their magic schools: party heals first (Mass Heal's 10-per-member
-// outvalues a 20 single-target), then the larger HealAmount, then the pricier
-// spell, then ID for a stable pick over map-ordered spellbooks. False if none.
-// healRank orders known heals for bestKnownHealSpell. Party reach dominates raw
-// magnitude, then magnitude, then cost; the ID tail keeps the choice stable.
-type healRankKey struct {
-	party  bool
-	amount int
-	cost   int
-	id     string
-}
-
-func healRank(def spells.SpellDefinition, id spells.SpellID) healRankKey {
-	return healRankKey{party: def.HealParty, amount: def.HealAmount, cost: def.SpellPointsCost, id: string(id)}
-}
-
-func (k healRankKey) beats(other healRankKey) bool {
-	if k.party != other.party {
-		return k.party
-	}
-	if k.amount != other.amount {
-		return k.amount > other.amount
-	}
-	if k.cost != other.cost {
-		return k.cost > other.cost
-	}
-	return k.id < other.id
-}
-
-func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
-	var bestID spells.SpellID
-	var best spells.SpellDefinition
-	found := false
-	for _, school := range caster.MagicSchools {
-		if school == nil {
-			continue
-		}
-		for _, id := range school.KnownSpells {
-			def, err := spells.GetSpellDefinitionByID(id)
-			if err != nil || !def.IsHeal() {
-				continue
-			}
-			better := !found || healRank(def, id).beats(healRank(best, bestID))
-			if better {
-				bestID, best, found = id, def, true
-			}
-		}
-	}
-	return bestID, found
-}
-
-// CastBestHealOnTarget casts the selected character's strongest known heal
-// (see bestKnownHealSpell) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
-// First Aid) ignore the requested target and heal the caster; other heals use
-// targetIndex (resolved from the mouse by the caller). Returns whether a heal
-// fired plus the spell used (for the real-time cooldown).
-func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.SpellID) {
-	caster := cs.game.party.Members[cs.game.selectedChar]
-	if !caster.CanUseCombatAction() {
-		return false, ""
-	}
-	spellID, ok := cs.bestKnownHealSpell(caster)
-	if !ok {
-		// Silent no-op: the C-key cycle only ever targets known healers, so this
-		// just guards stray callers - no chat spam.
-		return false, ""
-	}
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return false, ""
-	}
-	if cs.castKnownHealOn(spellID, def, targetIndex) {
-		return true, spellID
-	}
-	return false, ""
-}
-
-// castKnownHealOn pays for and casts a known (book) heal on a resolved party
-// target. Party heals restore everyone; self-only heals always land on the
-// caster; an out-of-range target falls back to the caster. Callers resolve def
-// once and pass it in.
-func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.SpellDefinition, targetIndex int) bool {
-	caster := cs.game.party.Members[cs.game.selectedChar]
-	spellCost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
-	if caster.SpellPoints < spellCost {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
-			caster.Name, def.Name, caster.SpellPoints, spellCost))
-		return false
-	}
-
-	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
-
-	// Party heal: restore everyone, ignore the single target.
-	if def.HealParty {
-		caster.SpellPoints -= spellCost
-		n := cs.healWholeParty(healAmount)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s, healing %d allies for %d HP!",
-			caster.Name, def.Name, n, healAmount))
-		// Targeted/book healing predates castResolvedSpell and must join the
-		// Druid's per-spell Animal Bonding rule without changing the older,
-		// attack/generic-cast-only Orc Warlord Card cadence.
-		cs.tryAnimalBondingOnAction(caster)
-		cs.game.playSpellSound(def)
-		return true
-	}
-
-	// Single-target heal. Self-only heals (TargetSelf) always land on the caster.
-	if def.TargetSelf {
-		targetIndex = cs.game.selectedChar
-	}
-	if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
-		targetIndex = cs.game.selectedChar
-	}
-	target := cs.game.party.Members[targetIndex]
-	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
-		return false
-	}
-
-	caster.SpellPoints -= spellCost
-	cs.healMember(targetIndex, healAmount)
-	if targetIndex == cs.game.selectedChar {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s heals themselves for %d HP with %s!", caster.Name, healAmount, def.Name))
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
-	}
-	cs.tryAnimalBondingOnAction(caster)
-	cs.game.playSpellSound(def)
-	return true
 }
 
 // SmartAttack is the Space-key "smart attack" (both modes). Priority:
@@ -834,34 +597,27 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	summonRolled := false
 	if weaponDef.Range > 3 {
 		// Masked Huntress Card: boost ranged weapon damage.
-		if pct := cs.game.cardRangedDmgPct(); pct != 0 {
-			totalDamage = totalDamage * (100 + pct) / 100
-		}
+		totalDamage = cs.weaponRangedDamageAtLaunch(totalDamage, true)
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action - and no card procs either.
 		acted = cs.createArrowAttack(totalDamage, slot, "")
 	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
 		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
-		// castResolvedSpell already rolled the Orc Warlord summon check for this
+		// castResolvedSpell already rolled the summon-card checks for this
 		// action (a real cast counts as one) - don't roll it a second time below.
 		acted = true
 		summonRolled = true
 	} else {
-		baseDamage := totalDamage
 		// Bronze Cesti: the pair lands every swing twice at half damage - two
 		// full strikes with independent crit rolls (steadier than one big hit).
-		strikes, strikeDamage := 1, totalDamage
-		if weaponDef.DoubleStrike {
-			strikes, strikeDamage = 2, (totalDamage+1)/2
-			baseDamage = strikeDamage
-		}
+		strikes := character.WeaponStrikeCount(weaponDef)
+		strikeDamage := character.WeaponStrikeDamage(weaponDef, totalDamage)
+		baseDamage := strikeDamage
 		var isCrit bool
 		for s := 0; s < strikes; s++ {
 			dmg := strikeDamage
 			isCrit, _ = cs.RollWeaponCriticalChance(weapon, attacker)
-			if isCrit {
-				dmg *= CritDamageMultiplier
-			}
+			dmg = weaponCriticalDamage(dmg, isCrit)
 			cs.createMeleeAttack(weapon, dmg, isCrit) // instant swing; a whiff (arc/reach) still spends the cooldown/action, silently
 		}
 		acted = true
@@ -869,9 +625,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
 			isCrit2, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 			dmg2 := baseDamage
-			if isCrit2 {
-				dmg2 *= CritDamageMultiplier
-			}
+			dmg2 = weaponCriticalDamage(dmg2, isCrit2)
 			cs.createMeleeAttack(weapon, dmg2, isCrit2)
 		}
 		// Spiritual Training (Monk): a genuine melee swing can channel a free
@@ -994,9 +748,7 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 			isCrit, _ = cs.RollWeaponCriticalChance(weapon, attacker)
 		}
 		dmg := damage
-		if isCrit {
-			dmg *= CritDamageMultiplier
-		}
+		dmg = weaponCriticalDamage(dmg, isCrit)
 		arrow := Arrow{
 			ID:                 cs.game.GenerateProjectileID("arrow"),
 			Attacker:           cs.activeAttacker(),
@@ -1241,7 +993,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 			continue
 		}
 		ang, ok := meleeReachAngle(playerX, playerY, playerAngle, rangeTiles, tileSize, monster.X, monster.Y)
-		if !ok {
+		if !ok || !cs.attackLineClear(playerX, playerY, monster.X, monster.Y) {
 			continue
 		}
 		cands = append(cands, meleeHitCandidate{monster, ang})
@@ -1524,14 +1276,14 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 // applyTrueDamageThroughDodge deals the typed true components that landed
 // despite Perfect Dodge, with the usual hit bookkeeping. Caller owns projectile
 // cleanup. Keeping the packet preserves the correct school resistance.
-func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, packet monsterDamagePacket, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
+func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, packet monsterDamagePacket, attacker *character.MMCharacter, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
 	actual := cs.applyMonsterDamagePacket(monster, packet.trueOnly(), monsterDamageOptions{}).Total()
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, monster)
 	}
 	cs.markMonsterHit(monster)
 	if !monster.IsAlive() {
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's true damage pierces %s's dodge for %d and kills it!", attackerName, monster.Name, actual))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	} else {
@@ -1551,9 +1303,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Party buffs boost melee exactly like projectiles, filtered by damage type
 	// (Heroism applies only to physical; Hour of Power applies to all).
-	if damage > 0 {
-		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
-	}
+	damage = weaponDamageWithBuff(damage, cs.game.combatBuffOutBonusForDamageType(damageTypeStr))
 	attacker := cs.activeAttacker() // melee resolves the same frame it swings
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
 	trueDmg += cs.game.cardMeleeTrueDmg()
@@ -1572,6 +1322,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		false,
 		true,
 	)
+	attack.Attacker = attacker
 	attack.IgnoreDodge = ignoreDodge
 	attack.ArmorIgnoreChancePct = cs.game.cardArmorPiercePct()
 
@@ -1583,10 +1334,13 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		// pacified forever while absorbing melee swings.
 		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attackerName, weaponDef)
+			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, attackerName))
 		}
+		return
+	}
+	if cs.tryDarkElfBindInstead(attacker, monster) {
 		return
 	}
 
@@ -1595,7 +1349,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	if pct := cs.game.cardDisintegratePct(); pct > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < float64(pct)/100 {
 		monster.HitPoints = 0
 		cs.markMonsterHit(monster)
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 		return
@@ -1609,7 +1363,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	cs.spawnWeaponHitImpactFX(monster, finalDamage)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
-		if cs.tryWeaponExecute(monster, weaponDef, attackerName) {
+		if cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName) {
 			if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
 				cs.applyAoeSplash(monster, attack, weaponDef.AoeRadiusTiles)
 			}
@@ -1618,7 +1372,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 	xpAwarded := 0
 	if !monster.IsAlive() {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef)
+		xpAwarded = cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
 
 	// Add combat message
@@ -1671,72 +1425,6 @@ func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Mo
 	}
 }
 
-// CastSelectedSpell casts the currently selected spell from the spellbook.
-// It returns the spell ID only when the cast actually spent SP and went off,
-// so callers can consume a TB action and retain its RT cooldown on a later
-// mode switch.
-func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
-	currentChar := cs.game.party.Members[cs.game.selectedChar]
-
-	// Prevent casting while down or stunned; utility healing cannot act as a revive.
-	if !currentChar.CanUseCombatAction() {
-		return false, ""
-	}
-	// SAME filtered list the spellbook UI numbers (schools with spells only) -
-	// indexing the full school list desynced selection when a school was empty.
-	schools := spellbookSchoolsWithSpells(currentChar)
-
-	if cs.game.selectedSchool < 0 || cs.game.selectedSchool >= len(schools) {
-		return false, ""
-	}
-
-	selectedSchool := schools[cs.game.selectedSchool]
-	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
-
-	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
-		return false, ""
-	}
-
-	selectedSpellID := availableSpells[cs.game.selectedSpell]
-	selectedSpellDef, err := spells.GetSpellDefinitionByID(selectedSpellID)
-	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return false, ""
-	}
-
-	if !cs.castResolvedSpell(selectedSpellID, selectedSpellDef, currentChar,
-		cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost), true, true) {
-		return false, ""
-	}
-	return true, selectedSpellID
-}
-
-// castResolvedSpell is the ONE cast path behind both the equipped quick-slot
-// and the spellbook: SP gate, special effects, projectile spawn and utility
-// application all live here so the two entry points cannot drift. announce
-// controls the "Casting X!" launch message (quick-cast stays quiet).
-// countsAsAction gates the Orc Warlord summon roll - false for a cast that
-// rides along on an action which already rolled it elsewhere (Spiritual
-// Training's free proc on a melee/ranged hit that already summon-rolled at
-// swing time; rolling again here would double the odds for one action).
-func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool, countsAsAction bool) bool {
-	ok := cs.castResolvedSpellCore(spellID, spellDef, caster, spellCost, announce, countsAsAction)
-	if ok {
-		cs.game.playSpellSound(spellDef)
-	}
-	// Verdant Eye echo: an OFFENSIVE cast may repeat itself once, free (no SP,
-	// no action, no card procs) - projectiles, mortars, zones (Firewall) and
-	// quakes alike, matching the tooltip. Calling the core directly makes the
-	// repeat non-recursive without additional runtime state.
-	if ok && spellDef.IsOffensive() {
-		if pct := weaponSpellEchoPct(caster); pct > 0 && rand.Intn(100) < pct {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s's spell echoes!", caster.Name))
-			cs.castResolvedSpellCore(spellID, spellDef, caster, 0, false, false)
-		}
-	}
-	return ok
-}
-
 // tbPersonalActionFloor is a member's guaranteed TB actions before the
 // party-wide Speed bonus pool: one by default, dual-wield's floor, or the
 // weapon-authored floor - whichever is highest.
@@ -1767,283 +1455,6 @@ func weaponTBActionsPerRound(member *character.MMCharacter) int {
 		}
 	}
 	return best
-}
-
-// weaponSpellEchoPct is the strongest spell_echo_pct across the caster's
-// equipped weapons (Verdant Eye scepter - either hand counts).
-func weaponSpellEchoPct(caster *character.MMCharacter) int {
-	if caster == nil {
-		return 0
-	}
-	best := 0
-	for _, def := range equippedWeaponDefinitions(caster) {
-		if def != nil && def.SpellEchoPct > best {
-			best = def.SpellEchoPct
-		}
-	}
-	return best
-}
-
-func (cs *CombatSystem) castResolvedSpellCore(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool, countsAsAction bool) bool {
-	if countsAsAction && !caster.CanUseCombatAction() {
-		return false
-	}
-	if caster.SpellPoints < spellCost {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			caster.Name, caster.SpellPoints, spellCost))
-		return false
-	}
-	// Flying inside solid terrain: no casting from within the stone (the melee
-	// gate's twin - see partyEntombed). Checked before the SP spend.
-	if cs.partyEntombed() {
-		return false
-	}
-	// Outdoor-only spells (Fly) need an open day/night sky - never in dungeons.
-	// Checked before the SP spend so a refused cast costs nothing.
-	if spellDef.OutdoorOnly && !cs.game.currentMapHasOpenSky() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s needs the open sky.", spellDef.Name))
-		return false
-	}
-	// Town Portal with no known destination is a no-op - refuse it BEFORE the SP spend
-	// and the action-proc roll (Orc Warlord summon), or a failed cast would still
-	// pay SP and free-summon before the deep refund runs.
-	if spellDef.TownPortal && len(cs.game.sortedTownPortalDestinations()) == 0 {
-		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a tavern, town, or major landmark first.")
-		return false
-	}
-	caster.SpellPoints -= spellCost
-	spAfterPay := caster.SpellPoints
-
-	// Data-driven effect spells (AoE stun, party buffs, resurrect) - no
-	// projectile, no direct damage.
-	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
-		// Orc Warlord Card: only a REAL cast is a party action. Empty
-		// Resurrect/Awaken/Raise Dead refund the SP and still return handled, so
-		// gate the summon roll on the SP staying spent - no free summons on a
-		// no-op cast.
-		if caster.SpellPoints <= spAfterPay {
-			if countsAsAction {
-				cs.tryPartyActionSummons(caster)
-			}
-			cs.playSpellBuffFx(spellID) // same no-op gate: refunded cast = no animation
-		}
-		return true
-	}
-
-	// A projectile or utility cast that reaches here is a real party action
-	// unless it is a free proc riding on an action that already rolled cards.
-	if countsAsAction {
-		cs.tryPartyActionSummons(caster)
-	}
-
-	castingSystem := spells.NewCastingSystem(cs.game.config)
-
-	// Mortar spells (Stone Blossom): the arc ignores everything in flight and
-	// detonates at a fixed distance - never the straight-line projectile path.
-	if spellDef.IsProjectile && spellDef.MortarRangeTiles > 0 {
-		return cs.castMortarSpell(spellID, spellDef, caster, announce)
-	}
-
-	if spellDef.IsProjectile {
-		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle)
-		if err != nil {
-			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return false
-		}
-		// CreateProjectile carries physics only; damage is authored HERE
-		// (effective stats + mastery), once.
-		_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
-		if spellDef.DealsNoDamage {
-			totalDamage = 0 // Disintegrate: only the instakill roll matters
-		}
-
-		// Resolve spell config before spawning anything so a config error
-		// can't leave a projectile without a collision entity.
-		spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
-		if err != nil {
-			cs.game.AddCombatMessage("Spell config error: " + err.Error())
-			return false
-		}
-		disintegrateChance := 0.0
-		if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
-			disintegrateChance = spellDefConfig.DisintegrateChance
-		}
-		disintegrateChance += float64(cs.game.cardDisintegratePct()) / 100
-
-		// Luck-based spell crit doubles the normal and typed-true components
-		// together. Elemental GM converts only the regular mastery bonus.
-		parts := cs.spellDamageParts(spellID, caster, totalDamage)
-		var isCrit bool
-		parts, isCrit = cs.rollSpellCritParts(spellID, caster, parts)
-		projectile.Damage = parts.Normal
-
-		magicProjectile := MagicProjectile{
-			ID:                 cs.game.GenerateProjectileID(string(spellID)),
-			Attacker:           cs.activeAttacker(),
-			X:                  projectile.X,
-			Y:                  projectile.Y,
-			VelX:               projectile.VelX,
-			VelY:               projectile.VelY,
-			Damage:             projectile.Damage,
-			TrueDamage:         parts.True,
-			LifeTime:           projectile.LifeTime,
-			Active:             projectile.Active,
-			SpellType:          string(spellID),
-			Size:               projectile.Size,
-			Crit:               isCrit,
-			DisintegrateChance: disintegrateChance,
-			Owner:              ProjectileOwnerPlayer,
-		}
-		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
-
-		tileSize := cs.game.config.GetTileSize()
-		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
-		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
-		cs.game.collisionSystem.RegisterEntity(projectileEntity)
-
-		if announce {
-			cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))
-		}
-		return true
-	}
-
-	if spellDef.IsUtility {
-		// ApplyUtilitySpell resolves flags + message only; every NUMBER
-		// (heal total, duration, stat bonuses) is computed here, once.
-		result, err := castingSystem.ApplyUtilitySpell(spellID)
-		if err != nil {
-			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return false
-		}
-		if !result.Success {
-			return false
-		}
-
-		duration := 0
-		if spellDef.Duration > 0 {
-			duration = cs.CalculateSpellDurationFrames(spellID, caster)
-		}
-		timedBuffActivated := cs.activateUtilityTimedBuff(spellID, spellDef, result, duration) == timedBuffApplied
-
-		// Stat-buff spells (Bless, ...) announce the ACTUAL granted bonus -
-		// mastery-scaled and caster-dependent - so the chat can never drift from
-		// the number really applied (e.g. Bless is +5 base, +10 only at GM).
-		isStatBuff := spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0
-		var statBuff character.StatBonuses
-		msg := result.Message
-		if isStatBuff {
-			statBuff = cs.spellStatBuffBonuses(spellID, caster)
-			if suffix := statBuff.Summary(); suffix != "" {
-				msg = fmt.Sprintf("%s (%s)", strings.TrimSpace(result.Message), suffix)
-			}
-		}
-		cs.game.AddCombatMessage(msg)
-
-		// Apply healing
-		if spellDef.HealAmount > 0 {
-			_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
-			if spellDef.HealParty {
-				// Mass Heal: restore every party member.
-				cs.healWholeParty(totalHeal)
-			} else {
-				// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
-				cs.healMember(cs.game.selectedChar, totalHeal)
-			}
-		}
-
-		// Town Portal: open the visited-destination picker; the teleport happens
-		// on confirm. The no-destination case was already refused before the SP spend.
-		if spellDef.TownPortal {
-			cs.game.townPortalPickerOpen = true
-		}
-
-		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID -
-		// any spell authored with a bonus block applies it; different buff
-		// spells stack, recasting one refreshes it. Reuses the block already
-		// resolved for the announcement above (this cast only, not the aggregate).
-		if isStatBuff {
-			cs.applyStatBuffSpell(spellID, duration, statBuff)
-		}
-
-		if !timedBuffActivated {
-			cs.game.setUtilityStatus(spellID, duration)
-		}
-		cs.playSpellBuffFx(spellID)
-		return true
-	}
-
-	return false
-}
-
-// playSpellBuffFx plays the spell's buff overlay animation if it defines one
-// (buff_fx_sprite in spells.yaml). Called from every successful cast branch -
-// special-effect AND utility - so any spell can be given the animation by data.
-func (cs *CombatSystem) playSpellBuffFx(spellID spells.SpellID) {
-	if cfgDef, ok := config.GetSpellDefinition(string(spellID)); ok && cfgDef != nil {
-		cs.game.playBuffFx(cfgDef.BuffFxSprite)
-	}
-}
-
-// activateUtilityTimedBuff maps authored utility-effect flags to the runtime
-// state they control. The YAML flags decide whether an effect exists; the timed
-// buff registry owns only its active flag, duration, and lifecycle hooks.
-func (cs *CombatSystem) activateUtilityTimedBuff(
-	spellID spells.SpellID,
-	spellDef spells.SpellDefinition,
-	result spells.UtilitySpellResult,
-	duration int,
-) timedBuffActivation {
-	activation := timedBuffNotHandled
-	activate := func(id spells.SpellID) {
-		if cs.game.activateTimedBuffFrames(id, duration, false) == timedBuffApplied {
-			activation = timedBuffApplied
-		}
-	}
-	if result.WaterWalk {
-		activate("walk_on_water")
-	}
-	if spellDef.Fly {
-		activate("fly")
-	}
-	if result.WaterBreathing {
-		activate("water_breathing")
-	}
-	if result.VisionRadiusTiles > 0 {
-		// Torch Light and Wizard Eye have distinct runtime state, so their
-		// authored spell ID selects the matching registry entry.
-		activate(spellID)
-	}
-	return activation
-}
-
-// EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
-func (cs *CombatSystem) EquipSelectedSpell() {
-	currentChar := cs.game.party.Members[cs.game.selectedChar]
-	// Same filtered list the spellbook UI numbers - see CastSelectedSpell.
-	schools := spellbookSchoolsWithSpells(currentChar)
-
-	if cs.game.selectedSchool < 0 || cs.game.selectedSchool >= len(schools) {
-		return
-	}
-
-	selectedSchool := schools[cs.game.selectedSchool]
-	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
-
-	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
-		return
-	}
-
-	selectedSpellID := availableSpells[cs.game.selectedSpell]
-
-	// Use centralized spell item creation - no fallbacks, no hardcoded mappings
-	item, err := spells.CreateSpellItem(selectedSpellID)
-	if err != nil {
-		cs.game.AddCombatMessage("Failed to create spell item: " + err.Error())
-		return
-	}
-
-	// Equip the spell item in the unified spell slot
-	currentChar.Equipment[items.SlotSpell] = item
 }
 
 // HandleMonsterInteractions handles combat between monsters and the player
@@ -2090,8 +1501,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
 		// per-monster attack cooldown, never the party.
 		if behavior == monsterPkg.AIBehaviorBoundAlly {
-			if monster.AttackCDFrames == 0 && cs.boundAttackNearest(monster) {
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
+			if monster.AttackCDFrames == 0 {
+				cs.boundAttackNearest(monster)
 			}
 			continue
 		}
@@ -2124,21 +1535,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// outlive that foe when an earlier monster kills it; in that case this actor
 		// waits for the next shared retarget instead of falling into party combat.
 		if behavior == monsterPkg.AIBehaviorFightFoe {
-			foe := monster.AIFoe
-			if monster.IsChampion() {
-				if cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
-					monster.State = monsterPkg.StateAttacking
-					cs.championRTCrossfireStrike(monster, foe)
-				} else if monsterInAttackTransit(monster) {
-					cs.game.releaseMonsterAttackPost(monster)
-				}
-				continue
-			}
-			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
-				monster.State = monsterPkg.StateAttacking
-				cs.game.armMonsterAttackAnimation(monster)
-				cs.performMonsterAttackAgainstMonster(monster, foe, ProjectileOwnerMonsterAtBound)
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
+			if !cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) && monsterInAttackTransit(monster) {
+				cs.game.releaseMonsterAttackPost(monster)
 			}
 			continue
 		}
@@ -2155,8 +1553,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 				cs.monsterCanPounceParty(monster) {
 				if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
-					cs.applyMonsterMeleeDamage(monster)
-					cs.armMonsterRTAttackCooldowns(monster)
+					cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
 					monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
 					continue
 				}
@@ -2169,22 +1566,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// also count diagonally-adjacent tiles as point-blank so they can surround
 		// the party instead of queueing only on N/S/E/W.
 		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
-			usesMelee := cs.monsterUsesMeleeAgainstParty(monster)
-			// Melee champions run two independent hand streams (party dual-wield
-			// parity); everyone else fires on the single attack tick below.
-			if monster.IsChampion() && usesMelee &&
-				cs.championRTDualStrike(monster, monster.StateTimer == 1) {
-				continue
-			}
-			// Fire on the first frame of the attacking state, but only if the
-			// persistent attack cooldown has elapsed - re-entering the attacking
-			// state (e.g. after chasing a kiting player back into range) no longer
-			// grants a free hit. On a hit, arm the cooldown for the next interval.
-			if monster.StateTimer == 1 && monster.AttackCDFrames == 0 {
-				monster.AttackCDFrames = monster.AttackCooldownFrames()
-				cs.game.armMonsterAttackAnimation(monster)
-				cs.performMonsterAttackAgainstParty(monster)
-			}
+			cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackRealtime)
 		}
 	}
 }
@@ -2285,13 +1667,14 @@ func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dis
 	// A ranged combat profile supplies the long-distance option, not a ban on
 	// hand-to-hand combat. Adjacent attackers may use their authored melee
 	// school even when the radial projectile range is shorter than a diagonal.
+	camX, camY := cs.logicalCameraXY()
+	if !cs.attackLineClear(monster.X, monster.Y, camX, camY) {
+		return false
+	}
 	if monster.HasRangedAttack() && cs.monsterUsesMeleeAgainstParty(monster) {
 		return true
 	}
 	if dist <= attackRange {
-		if monster.HasRangedAttack() {
-			return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, cs.game.camera.X, cs.game.camera.Y)
-		}
 		return true
 	}
 	if monster.HasRangedAttack() {
@@ -2317,15 +1700,14 @@ func (cs *CombatSystem) monsterUsesMeleeAgainstParty(monster *monsterPkg.Monster
 }
 
 // monsterUsesMeleeAgainstPoint selects delivery without changing damage data:
-// melee keeps melee_damage_type, while the ranged path keeps the projectile
+// melee resolves its shared profile, while the ranged path keeps the projectile
 // spell or weapon's own school.
 func (cs *CombatSystem) monsterUsesMeleeAgainstPoint(monster *monsterPkg.Monster3D, targetX, targetY float64) bool {
 	if monster == nil || !monster.HasRangedAttack() {
 		return monster != nil
 	}
 	// Arena champions are character builds whose `ranged` flag explicitly owns
-	// their main-hand delivery; unlike ordinary monster definitions they have no
-	// authored melee_damage_type/profile to switch to.
+	// their main-hand delivery; they do not use the ordinary melee profile.
 	if monster.IsChampion() {
 		return false
 	}
@@ -2378,6 +1760,10 @@ func (cs *CombatSystem) monsterMeleeAdjacentToPoint(monster *monsterPkg.Monster3
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
+	camX, camY := cs.logicalCameraXY()
+	if monster == nil || !cs.attackLineClear(monster.X, monster.Y, camX, camY) {
+		return
+	}
 	if cs.tryMonsterSpecialAbility(monster) {
 		return
 	}
@@ -2404,22 +1790,14 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 		monster,
 		currentChar,
 		monster.Name,
-		hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterMeleeSchool(monster), monster.IgnoresArmor, 0, true),
+		cs.normalMonsterMeleeHit(monster, cs.monsterAttackDamage(monster)),
 	)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
 }
 
-// monsterMeleeSchool is the school a monster's melee blows land in: the
-// authored melee_damage_type (normalized at load), physical otherwise.
-func monsterMeleeSchool(m *monsterPkg.Monster3D) string {
-	if m != nil && m.MeleeDamageType != "" {
-		return m.MeleeDamageType
-	}
-	return monsterPkg.DamagePhysical.String()
-}
-
 type monsterCharacterHit struct {
+	ElementalAttack    bool
 	Parts              damagecalc.Parts
 	DamageType         string
 	IgnoresArmor       bool
@@ -2427,15 +1805,21 @@ type monsterCharacterHit struct {
 	IgnoresDodge       bool
 	DisintegrateChance float64
 	Melee              bool
+	// Spell labels the CHANNEL this hit arrived through: spell projectiles,
+	// dragon breath, fireburst, inferno and champion spell splashes are spells;
+	// melee, weapon projectiles and traps are not. Spell Absorption reads only
+	// this flag - never a name or damage-type heuristic.
+	Spell bool
 }
 
-func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee bool) monsterCharacterHit {
+func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee, spell bool) monsterCharacterHit {
 	hit := monsterCharacterHit{
 		Parts:              damagecalc.Parts{Normal: normalDamage},
 		DamageType:         damageType,
 		IgnoresArmor:       ignoresArmor,
 		DisintegrateChance: disintegrateChance,
 		Melee:              melee,
+		Spell:              spell,
 	}
 	if monster != nil {
 		hit.Parts.True = monster.TrueDamage
@@ -2455,6 +1839,11 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 	if sourceName == "" {
 		sourceName = "Monster"
+	}
+	// Spell Absorption preempts everything - an absorbed spell has nothing left
+	// to dodge, disintegrate with, or ride a status on.
+	if cs.tryAbsorbSpellHit(target, hit.Parts, hit.Spell, sourceName) {
+		return
 	}
 	targetIndex := cs.findCharacterIndex(target)
 
@@ -2518,6 +1907,9 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.knockOut(target)
 	}
 	cs.game.TriggerDamageHit(targetIndex, finalDamage)
+	if hit.ElementalAttack && finalDamage > 0 {
+		cs.game.addElementalAttackFX(0, 0, target, hit.DamageType)
+	}
 
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
@@ -2832,9 +2224,15 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 	}
 	var pool []dispelTarget
 	for i := range cs.game.statBuffs {
+		if cs.game.statBuffs[i].SourceID != "" {
+			continue
+		}
 		pool = append(pool, dispelTarget{cs.game.statBuffs[i].SpellID, false})
 	}
 	for i := range cs.game.combatBuffs {
+		if cs.game.combatBuffs[i].SourceID != "" {
+			continue
+		}
 		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
 	}
 	if len(pool) == 0 {
@@ -2853,11 +2251,41 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s rips %s from the party!", monster.Name, name), combatMessagePurple)
 }
 
+// tryAbsorbSpellHit is Spell Absorption's SINGLE gate: a hostile SPELL hit on
+// a member holding the skill has a per-tier chance to be eaten whole - it
+// deals no damage and its own (pre-mitigation) damage returns as both HP and
+// SP. Both monster->character sinks consult it before dealing anything; the
+// hostile-spell flag comes from the hit's origin, never from a name heuristic.
+func (cs *CombatSystem) tryAbsorbSpellHit(member *character.MMCharacter, parts damagecalc.Parts, hostileSpell bool, sourceName string) bool {
+	if !hostileSpell || member == nil || !member.HasSkill(character.SkillSpellAbsorption) {
+		return false
+	}
+	chance := character.SpellAbsorbChancePct(member.SkillTier(character.SkillSpellAbsorption))
+	if rand.Intn(100) >= chance {
+		return false
+	}
+	restored := parts.Total()
+	hpBefore, spBefore := member.HitPoints, member.SpellPoints
+	member.HitPoints = min(member.HitPoints+restored, member.MaxHitPoints)
+	member.SpellPoints = min(member.SpellPoints+restored, member.MaxSpellPoints)
+	hpRestored := member.HitPoints - hpBefore
+	spRestored := member.SpellPoints - spBefore
+	if sourceName == "" {
+		sourceName = "the hostile"
+	} else {
+		sourceName += "'s"
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s absorbs %s spell! (+%d HP, +%d SP)",
+		member.Name, sourceName, hpRestored, spRestored))
+	return true
+}
+
 // damagePartyMemberElement applies one normal elemental hit to a single party
 // member. Special monster attacks that also carry authored true damage use
-// damagePartyMemberParts directly.
-func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string) int {
-	return cs.damagePartyMemberParts(idx, member, damagecalc.Parts{Normal: rawDamage}, school)
+// damagePartyMemberParts directly. hostileSpell labels whether the channel is
+// an enemy spell eligible for Spell Absorption; friendly self-splash is false.
+func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string, hostileSpell bool) int {
+	return cs.damagePartyMemberParts(idx, member, damagecalc.Parts{Normal: rawDamage}, school, hostileSpell)
 }
 
 // damagePartyMemberParts applies an undodgeable damage packet through the shared
@@ -2865,8 +2293,12 @@ func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCh
 // (armor%/resist/buffs), subtract, clamp at 0, knock out at 0 (the Lich Card
 // cheat-death chokepoint), and flash the damage-blink. The ONE body behind
 // every whole-party elemental attack (Fireburst, Inferno, the Inferno nova);
-// callers supply their own flavor line and any extra VFX (e.g. party flame).
-func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string) int {
+// callers supply their own flavor line, hostility, and any extra VFX (e.g.
+// party flame).
+func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool) int {
+	if cs.tryAbsorbSpellHit(member, parts, hostileSpell, "") {
+		return 0
+	}
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
 	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
 	member.HitPoints -= dealt
@@ -2980,6 +2412,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
+			true, // Fireburst is a cast - absorbable
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
@@ -3043,7 +2476,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
-	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false)
+	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s breathes %s over the whole party!", monster.Name, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), hit)
@@ -3093,7 +2526,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 			monster,
 			target,
 			"Piercing Shot",
-			hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false),
+			hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false, false),
 		)
 	}
 	return true
@@ -3174,266 +2607,6 @@ func (cs *CombatSystem) spawnMonsterRangedAttackAt(monster *monsterPkg.Monster3D
 // monster (BoundUndead: bound undead -> enemy; MonsterAtBound: mob -> bound undead).
 func (cs *CombatSystem) spawnMonsterRangedAttackAtMonster(monster, target *monsterPkg.Monster3D, owner ProjectileOwner) bool {
 	return cs.spawnMonsterRangedAttackAt(monster, target.X, target.Y, owner)
-}
-
-func projectileSourceMonster(projectile interface{}) *monsterPkg.Monster3D {
-	switch p := projectile.(type) {
-	case *MagicProjectile:
-		return p.SourceMonster
-	case *Arrow:
-		return p.SourceMonster
-	default:
-		return nil
-	}
-}
-
-// resolveReflectedMonsterProjectile consumes an Aegis return only when it
-// reaches the original shooter. It preserves the old reflection contract:
-// same snapshotted payload and school, target mitigation, but no projectile
-// riders, splash, ricochet, or armor-pierce inheritance.
-func (cs *CombatSystem) resolveReflectedMonsterProjectile(
-	projectile interface{},
-	projectileType string,
-	target *monsterPkg.Monster3D,
-	entityID string,
-) {
-	if target == nil || target != projectileSourceMonster(projectile) || !target.IsAlive() {
-		return
-	}
-
-	var parts damagecalc.Parts
-	var damageTypeStr string
-	var weaponDef *config.WeaponDefinitionConfig
-	switch projectileType {
-	case "magic_projectile":
-		mp, ok := projectile.(*MagicProjectile)
-		if !ok || !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerReflected {
-			return
-		}
-		mp.Active = false
-		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-		damageTypeStr = spellDamageTypeStr(mp.SpellType)
-		fxX, fxY := cs.monsterVisualPos(target)
-		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
-	case "arrow":
-		ar, ok := projectile.(*Arrow)
-		if !ok || !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerReflected {
-			return
-		}
-		ar.Active = false
-		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		weaponDef = lookupWeaponConfigByKey(ar.BowKey)
-		cs.spawnRangedHitEffect(target, weaponDef, parts.Total())
-	default:
-		return
-	}
-	cs.game.collisionSystem.UnregisterEntity(entityID)
-
-	dealt := cs.applyMonsterDamagePacket(
-		target,
-		singleMonsterDamagePacket(parts, damageTypeStr, 0),
-		monsterDamageOptions{},
-	).Total()
-	if dealt > 0 {
-		cs.game.playMonsterSound(soundMonsterHit, target)
-		target.HitTintFrames = MonsterHitFlashFrames
-	}
-	if !target.IsAlive() {
-		xpAwarded := cs.finishMonsterKill(target)
-		cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt slays %s! (+%d XP)", target.Name, xpAwarded))
-		return
-	}
-	cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt hits %s for %d!", target.Name, dealt))
-}
-
-// resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
-// another monster (bound undead <-> enemy crossfire). Damage is the projectile's
-// own; the party is rewarded ONLY when an enemy falls (never for a bound ally).
-func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, pType string, target *monsterPkg.Monster3D, entityID string) {
-	var parts damagecalc.Parts
-	var dmgTypeStr, spellFx, sourceName string
-	var disintegrateChance, aoeRadiusTiles, stunChance float64
-	var stunSeconds, stunTurns int
-	var ignoresDodge bool
-	var weaponDef *config.WeaponDefinitionConfig
-	var srcMonster *monsterPkg.Monster3D
-	var owner ProjectileOwner
-	switch pType {
-	case "magic_projectile":
-		mp := projectile.(*MagicProjectile)
-		if !mp.Active || mp.LifeTime <= 0 {
-			return
-		}
-		mp.Active = false
-		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-		sourceName, spellFx = mp.SourceName, mp.SpellType
-		disintegrateChance = mp.DisintegrateChance
-		ignoresDodge = mp.IgnoresDodge
-		srcMonster = mp.SourceMonster
-		owner = mp.Owner
-		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
-		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
-		aoeRadiusTiles = spellDef.AoeRadiusTiles
-		stunChance, stunSeconds, stunTurns = spellDef.StunChance, spellDef.StunDurationSeconds, spellDef.StunDurationTurns
-	case "arrow":
-		ar := projectile.(*Arrow)
-		if !ar.Active || ar.LifeTime <= 0 {
-			return
-		}
-		ar.Active = false
-		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-		sourceName = ar.SourceName
-		disintegrateChance = ar.DisintegrateChance
-		ignoresDodge = ar.IgnoresDodge
-		dmgTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		srcMonster = ar.SourceMonster
-		owner = ar.Owner
-		// A weapon projectile carries its own AoE rider (a champion's archmage staff,
-		// Bow of Hellfire): read it so the impact splashes nearby monsters, matching
-		// the spell path above and the party-side splash.
-		if ar.BowKey != "" {
-			if wd, ok := config.GetWeaponDefinition(ar.BowKey); ok && wd != nil {
-				weaponDef = wd
-				aoeRadiusTiles = wd.AoeRadiusTiles
-			}
-		}
-	default:
-		return
-	}
-	cs.game.collisionSystem.UnregisterEntity(entityID)
-	// Target already slain this frame (another hit landed first): consume the
-	// projectile but don't re-damage or double-reward.
-	if !target.IsAlive() {
-		return
-	}
-	if sourceName == "" {
-		sourceName = "A bolt"
-	}
-	if spellFx != "" {
-		tx, ty := cs.monsterVisualPos(target) // banded/pulled: burst where the mob is DRAWN
-		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx)
-	}
-
-	// kill finalizes a slain crossfire target through the same kill choke point as
-	// a party hit, so a bound summon can earn champion rewards for the party too.
-	kill := func() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
-		cs.finishMonsterKillImmediately(target)
-	}
-
-	// The projectile already snapshotted source-side modifiers when fired.
-	packet := singleMonsterDamagePacket(parts, dmgTypeStr, 0)
-	ignoreArmor := srcMonster != nil && srcMonster.IgnoresArmor
-
-	// Crossfire uses the target's real Perfect Dodge too. Typed true damage still
-	// lands through a dodge; the avoided projectile cannot trigger riders or AoE,
-	// matching a party projectile that misses its primary target.
-	if monsterPerfectDodges(target, ignoresDodge) {
-		actual := cs.applyMonsterDamagePacket(
-			target,
-			packet.trueOnly(),
-			cs.monsterWeaponDamageOptions(weaponDef, target, true, true),
-		).Total()
-		if actual > 0 {
-			cs.game.playMonsterSound(soundMonsterHit, target)
-			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, sourceName, actual))
-			if !target.IsAlive() {
-				kill()
-			}
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's bolt!", target.Name, sourceName))
-		}
-		return
-	}
-
-	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
-	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(target) && rand.Float64() < disintegrateChance {
-		target.HitPoints = 0
-		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt disintegrates %s!", sourceName, target.Name))
-		kill()
-		return
-	}
-
-	if parts.Total() > 0 {
-		actual := cs.applyMonsterDamagePacket(
-			target,
-			packet,
-			cs.monsterWeaponDamageOptions(weaponDef, target, true, ignoreArmor),
-		).Total()
-		if actual > 0 {
-			cs.game.playMonsterSound(soundMonsterHit, target)
-		}
-		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt hits %s for %d!", sourceName, target.Name, actual))
-	}
-	// Stun rider (Psychic Shock etc.) carries over too.
-	if target.IsAlive() && stunChance > 0 && rand.Float64() < stunChance {
-		cs.applyStun(target, stunSeconds, stunTurns) // announces stun/resist itself
-	}
-	if !target.IsAlive() {
-		kill()
-		return
-	}
-	// AoE rider: crossfire may splash only the direct target's faction. Reusing
-	// the player AoE path here would hit the firing champion and its own ordinary
-	// allies, then incorrectly credit their deaths to the party.
-	if aoeRadiusTiles > 0 {
-		cs.applyCrossfireAoeSplash(target, srcMonster, owner, packet, weaponDef, ignoreArmor, aoeRadiusTiles)
-		// A CHAMPION's AoE bolt that reaches the party strikes it too (the extra
-		// action - the summon-splash's party twin). Plain mob crossfire never hits
-		// the party, so this is gated to champions.
-		if srcMonster != nil && srcMonster.IsChampion() &&
-			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) {
-			hit := monsterCharacterHit{
-				Parts:          parts, // already weakened once at packet build
-				DamageType:     dmgTypeStr,
-				IgnoresArmor:   srcMonster.IgnoresArmor,
-				ArmorPiercePct: weaponArmorPiercePct(weaponDef),
-				IgnoresDodge:   ignoresDodge,
-			}
-			cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-				cs.monsterHitCharacter(srcMonster, member, srcMonster.Name, hit)
-			})
-		}
-	}
-}
-
-// applyCrossfireAoeSplash applies an AoE monster projectile to the same faction
-// as its direct target. Bound allies splash enemy monsters; enemies splash bound
-// allies. The firing monster is never a splash target, so a close-range AoE
-// cannot self-kill a champion or damage its own pack.
-func (cs *CombatSystem) applyCrossfireAoeSplash(
-	center, source *monsterPkg.Monster3D,
-	owner ProjectileOwner,
-	packet monsterDamagePacket,
-	weaponDef *config.WeaponDefinitionConfig,
-	ignoreArmor bool,
-	radiusTiles float64,
-) {
-	if center == nil || source == nil || radiusTiles <= 0 {
-		return
-	}
-	radius := radiusTiles * float64(cs.game.config.GetTileSize())
-	for _, candidate := range cs.game.world.Monsters {
-		if candidate == nil || candidate == center || candidate == source || !candidate.IsAlive() {
-			continue
-		}
-		if owner == ProjectileOwnerBoundUndead {
-			if !cs.boundAllyCanDamageMonster(candidate) {
-				continue
-			}
-		} else if !candidate.Bound {
-			continue
-		}
-		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius {
-			// An explosion cannot be Perfect-Dodged, but still uses the victim's
-			// armor, resistance and one shared soak.
-			cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, ignoreArmor, false, false)
-		}
-	}
 }
 
 func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3D, spellID spells.SpellID, targetX, targetY float64, owner ProjectileOwner) {
@@ -3563,682 +2736,6 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	}
 	cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
-}
-
-// CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
-// using perspective-scaled bounding boxes for accurate visual collision detection.
-// Crossfire and reflected shots use authoritative world-space collision instead.
-func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
-	// Collect all active projectiles. Monster-owned ones are excluded (they hit
-	// the party, not other monsters); party, crossfire, and reflected owners can
-	// hit monsters under their respective target filters below.
-	type projectileInfo struct {
-		entityID string
-		data     interface{}
-		pType    string
-		owner    ProjectileOwner
-	}
-	var projectiles []projectileInfo
-
-	for i := range cs.game.arrows {
-		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 && cs.game.arrows[i].Owner != ProjectileOwnerMonster {
-			projectiles = append(projectiles, projectileInfo{cs.game.arrows[i].ID, &cs.game.arrows[i], "arrow", cs.game.arrows[i].Owner})
-		}
-	}
-	for i := range cs.game.magicProjectiles {
-		if cs.game.magicProjectiles[i].NoCollide {
-			continue // mortar display bolt: the scheduled detonation is the real hit
-		}
-		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 && cs.game.magicProjectiles[i].Owner != ProjectileOwnerMonster {
-			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile", cs.game.magicProjectiles[i].Owner})
-		}
-	}
-	// Player shots retain the perspective-scaled first-person assist. Crossfire is
-	// autonomous world combat and must not depend on where the party is looking,
-	// so those projectiles use the registered world-space collision boxes.
-	for _, proj := range projectiles {
-		var hitMonster *monsterPkg.Monster3D
-		bestDepth := 0.0
-		bestLateral := 0.0
-		bestWorldDistance := math.MaxFloat64
-		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
-		reflected := proj.owner == ProjectileOwnerReflected
-		worldSpace := crossfire || reflected
-		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
-
-		camCos := math.Cos(cs.game.camera.Angle)
-		camSin := math.Sin(cs.game.camera.Angle)
-
-		for _, monster := range cs.game.world.Monsters {
-			if !monster.IsAlive() {
-				continue
-			}
-			// A mirror-scale return belongs to its original shooter. Other mobs
-			// remain transparent even when they stand across the return path.
-			if reflected && projectileSourceMonster(proj.data) != monster {
-				continue
-			}
-			if proj.owner == ProjectileOwnerPlayer && isPurePartySummon(monster) {
-				continue
-			}
-			// A pierce continuation bolt (Arena Arbalest) flies on THROUGH the
-			// monster it already hit - never collides with it again.
-			if ar, ok := proj.data.(*Arrow); ok && ar.SkipMonster == monster {
-				continue
-			}
-			// Crossfire faction rules: a bound undead's bolt skips controlled allies
-			// (hits enemies); a mob's anti-undead bolt hits ONLY the bound undead.
-			if proj.owner == ProjectileOwnerBoundUndead && !cs.boundAllyCanDamageMonster(monster) {
-				continue
-			}
-			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
-				continue
-			}
-			if worldSpace {
-				if !cs.checkWorldSpaceProjectileCollision(proj.entityID, monster) {
-					continue
-				}
-				dx, dy := monster.X-projectileX, monster.Y-projectileY
-				distSq := dx*dx + dy*dy
-				if hitMonster == nil || distSq < bestWorldDistance ||
-					(distSq == bestWorldDistance && monster.ID < hitMonster.ID) {
-					bestWorldDistance = distSq
-					hitMonster = monster
-				}
-				continue
-			}
-			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
-				dx := monster.X - cs.game.camera.X
-				dy := monster.Y - cs.game.camera.Y
-				depth := dx*camCos + dy*camSin
-				if depth <= 0 {
-					continue
-				}
-				angle := math.Atan2(dy, dx)
-				angleDiff := angle - cs.game.camera.Angle
-				for angleDiff > math.Pi {
-					angleDiff -= 2 * math.Pi
-				}
-				for angleDiff < -math.Pi {
-					angleDiff += 2 * math.Pi
-				}
-				if math.Abs(angleDiff) > cs.game.camera.FOV/2 {
-					continue
-				}
-				lateral := math.Abs(-dx*camSin + dy*camCos)
-				if hitMonster == nil || depth < bestDepth || (depth == bestDepth && lateral < bestLateral) {
-					bestDepth = depth
-					bestLateral = lateral
-					hitMonster = monster
-				}
-			}
-		}
-		if hitMonster == nil && proj.owner == ProjectileOwnerPlayer {
-			var px, py, vx, vy float64
-			switch d := proj.data.(type) {
-			case *Arrow:
-				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
-			case *MagicProjectile:
-				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
-			}
-			hitMonster = cs.turnBasedProjectileAssistTarget(px, py, vx, vy)
-			// A pierce continuation must not re-hit the monster it went
-			// through via the TB assist either.
-			if ar, ok := proj.data.(*Arrow); ok && hitMonster != nil && hitMonster == ar.SkipMonster {
-				hitMonster = nil
-			}
-		}
-		if hitMonster != nil {
-			// Reflections preserve only the Aegis' mirrored damage contract.
-			// Crossfire retains its monster-vs-monster riders, while player
-			// projectiles use the full party-damage path.
-			if reflected {
-				cs.resolveReflectedMonsterProjectile(proj.data, proj.pType, hitMonster, proj.entityID)
-			} else if crossfire {
-				cs.resolveMonsterProjectileVsMonster(proj.data, proj.pType, hitMonster, proj.entityID)
-			} else {
-				cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
-			}
-		}
-	}
-}
-
-// CheckProjectilePlayerCollisions checks for collisions between monster projectiles and the player.
-func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
-	playerEntity := cs.game.collisionSystem.GetEntityByID("player")
-	if playerEntity == nil || playerEntity.BoundingBox == nil {
-		return
-	}
-
-	for i := range cs.game.magicProjectiles {
-		mp := &cs.game.magicProjectiles[i]
-		if !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerMonster {
-			continue
-		}
-		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
-			damageTypeStr := spellDamageTypeStr(mp.SpellType)
-			// Broodscale Aegis: this same bolt may turn and fly back at its caster.
-			if cs.tryReflectMonsterProjectile(
-				mp.SourceMonster,
-				mp.X,
-				mp.Y,
-				&mp.VelX,
-				&mp.VelY,
-				&mp.LifeTime,
-				&mp.Owner,
-			) {
-				continue
-			}
-			// The projectile carries one source-adjusted snapshot for delivery.
-			parts := damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-			// Champion spell riders (lightning/psychic-shock stun) resolve from
-			// the spell that actually flew - a weapon swing landing mid-flight
-			// may have re-stamped the mob's rider fields for a hand.
-			cs.stampChampionSpellRiders(mp.SourceMonster, mp.SpellType)
-			hit := monsterCharacterHit{
-				Parts:              parts,
-				DamageType:         damageTypeStr,
-				IgnoresArmor:       mp.SourceMonster != nil && mp.SourceMonster.IgnoresArmor,
-				IgnoresDodge:       mp.IgnoresDodge,
-				DisintegrateChance: mp.DisintegrateChance,
-			}
-			if mp.AoE {
-				cs.applyMonsterProjectileDamageAoE(mp.SourceMonster, mp.SourceName, hit)
-			} else {
-				cs.applyMonsterProjectileDamage(mp.SourceMonster, mp.SourceName, hit)
-			}
-			mp.Active = false
-			cs.game.collisionSystem.UnregisterEntity(mp.ID)
-		}
-	}
-
-	for i := range cs.game.arrows {
-		ar := &cs.game.arrows[i]
-		if !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerMonster {
-			continue
-		}
-		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
-			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
-			// Broodscale Aegis: this same dart may turn and fly back at its shooter.
-			if cs.tryReflectMonsterProjectile(
-				ar.SourceMonster,
-				ar.X,
-				ar.Y,
-				&ar.VelX,
-				&ar.VelY,
-				&ar.LifeTime,
-				&ar.Owner,
-			) {
-				continue
-			}
-			// Reuse the source-adjusted snapshot recorded when the dart fired.
-			parts := damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-			// Riders resolve from the weapon that FIRED this dart - a swing landing
-			// mid-flight may have re-armed the mob's rider fields for another hand.
-			cs.stampChampionProjectileRiders(ar.SourceMonster, ar.BowKey)
-			weaponDef, _ := config.GetWeaponDefinition(ar.BowKey)
-			hit := monsterCharacterHit{
-				Parts:              parts,
-				DamageType:         damageTypeStr,
-				IgnoresArmor:       ar.SourceMonster != nil && ar.SourceMonster.IgnoresArmor,
-				ArmorPiercePct:     weaponArmorPiercePct(weaponDef),
-				IgnoresDodge:       ar.IgnoresDodge,
-				DisintegrateChance: ar.DisintegrateChance,
-			}
-			// An AoE-rider weapon (bow_of_hellfire) engulfs the WHOLE party once
-			// per volley - the champion rule: arc/AoE never multiply.
-			if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 && !ar.SuppressAoE {
-				cs.applyMonsterProjectileDamageAoE(ar.SourceMonster, ar.SourceName, hit)
-			} else {
-				cs.applyMonsterProjectileDamage(ar.SourceMonster, ar.SourceName, hit)
-			}
-			ar.Active = false
-			cs.game.collisionSystem.UnregisterEntity(ar.ID)
-		}
-	}
-}
-
-func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *collision.Entity) bool {
-	projEntity := cs.game.collisionSystem.GetEntityByID(projectileID)
-	if projEntity == nil || projEntity.BoundingBox == nil {
-		return false
-	}
-	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
-}
-
-// applyMonsterProjectileDamage applies a single-target monster projectile/arrow.
-// Real-time -> the tank (front slot). Turn-based -> mostly the tank, sometimes a
-// back-liner (see rangedTBTarget / RangedOffTankChance).
-func (cs *CombatSystem) applyMonsterProjectileDamage(src *monsterPkg.Monster3D, sourceName string, hit monsterCharacterHit) {
-	var target *character.MMCharacter
-	if cs.game.turnBasedMode {
-		target = cs.rangedTBTarget()
-	} else {
-		target = cs.tankTarget()
-	}
-	cs.applyMonsterProjectileDamageToChar(src, target, sourceName, hit)
-}
-
-// applyMonsterProjectileDamageAoE splashes a monster projectile across EVERY
-// party member that can still take a hit (AoE spells like a monster's fireball).
-func (cs *CombatSystem) applyMonsterProjectileDamageAoE(src *monsterPkg.Monster3D, sourceName string, hit monsterCharacterHit) {
-	if sourceName == "" {
-		sourceName = "Monster"
-	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s's blast engulfs the whole party!", sourceName))
-	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-		cs.applyMonsterProjectileDamageToChar(src, member, sourceName, hit)
-	})
-}
-
-func (cs *CombatSystem) forEachDamageablePartyMember(fn func(idx int, member *character.MMCharacter)) {
-	for idx, member := range cs.game.party.Members {
-		if member == nil || member.HitPoints <= 0 {
-			continue
-		}
-		fn(idx, member)
-	}
-}
-
-func (cs *CombatSystem) applyMonsterProjectileDamageToChar(src *monsterPkg.Monster3D, currentChar *character.MMCharacter, sourceName string, hit monsterCharacterHit) {
-	if currentChar == nil {
-		return
-	}
-	// The projectile carries its immutable damage/dodge packet; src remains only
-	// for authored status riders and kill attribution.
-	cs.monsterHitCharacter(src, currentChar, sourceName, hit)
-}
-
-// getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
-func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projectileType string) (baseSize float64, minSize, maxSize int, ok bool) {
-	switch projectileType {
-	case "magic_projectile":
-		magicProj := projectile.(*MagicProjectile)
-		cfg, err := cs.game.config.GetSpellGraphicsConfig(magicProj.SpellType)
-		if err != nil {
-			return 0, 0, 0, false
-		}
-		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
-	case "arrow":
-		arrow := projectile.(*Arrow)
-		weaponDef := lookupWeaponConfigByKey(arrow.BowKey)
-		if weaponDef == nil || weaponDef.Graphics == nil {
-			return 0, 0, 0, false
-		}
-		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
-	}
-	return 0, 0, 0, false
-}
-
-// getProjectilePosition returns the X, Y position of a projectile
-func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectileType string) (float64, float64) {
-	switch projectileType {
-	case "magic_projectile":
-		p := projectile.(*MagicProjectile)
-		return p.X, p.Y
-	case "arrow":
-		p := projectile.(*Arrow)
-		return p.X, p.Y
-	}
-	return 0, 0
-}
-
-// calculatePerspectiveScale calculates the scale factor for perspective-based collision
-func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSize, maxSize int) float64 {
-	dist := Distance(cs.game.camera.X, cs.game.camera.Y, x, y)
-	if dist == 0 {
-		dist = 0.001 // Avoid division by zero
-	}
-
-	visualSize := baseSize / dist * float64(cs.game.config.GetTileSize())
-	if visualSize > float64(maxSize) {
-		visualSize = float64(maxSize)
-	}
-	if visualSize < float64(minSize) {
-		visualSize = float64(minSize)
-	}
-	scale := visualSize / baseSize
-	// Never INFLATE the collision box above its true world size. Near the camera
-	// (e.g. the spawn frame, dist~0) this scale would otherwise balloon - a
-	// fireball's 2-tile box x ~3.9 ~ 8 tiles - so it "hit" and exploded on a
-	// monster several tiles away before the projectile was even drawn. Clamping
-	// to 1 keeps collision at the world box up close and only shrinks it far away.
-	if scale > 1.0 {
-		scale = 1.0
-	}
-	return scale
-}
-
-// spawnProjectileHitFX bursts the impact FX for a projectile hit at the FX
-// anchor: spell-typed particles for magic projectiles (school-colored fallback
-// otherwise), or the ranged-weapon effect for arrows.
-func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY float64, isSpell, isRanged bool, damageTypeStr string, monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int) {
-	if isSpell {
-		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
-		} else {
-			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
-		}
-	} else if isRanged {
-		cs.spawnRangedHitEffect(monster, weaponDef, damage)
-	}
-}
-
-// applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
-func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
-	// This guard is also kept at the resolver boundary for direct callers.
-	// Do not consume or unregister the projectile: pure summons are transparent.
-	if isPurePartySummon(monster) {
-		return
-	}
-	var damage int
-	var isCrit bool
-	var weaponName string
-	var damageTypeStr string
-	var isSpell bool
-	var isRanged bool
-	var weaponDef *config.WeaponDefinitionConfig
-	var disintegrateChance float64
-	var aoeRadiusTiles float64
-	var isBindSpell bool
-	var bindSeconds int
-	var isPacifySpell bool
-	var pacifySeconds int
-	var dealsNoDamage bool
-	var stunChance float64
-	var stunSeconds int
-	var stunTurns int
-	var starburstFx bool
-	var ricochetArrow *Arrow
-
-	switch projectileType {
-	case "magic_projectile":
-		mp := projectile.(*MagicProjectile)
-		if !mp.Active || mp.LifeTime <= 0 {
-			return
-		}
-		damage, isCrit = mp.Damage, mp.Crit
-		disintegrateChance = mp.DisintegrateChance
-		spellID := spells.SpellID(mp.SpellType)
-		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
-		weaponName = spellDef.Name
-		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
-		aoeRadiusTiles = spellDef.AoeRadiusTiles
-		isBindSpell = spellDef.BindUndead
-		bindSeconds = spellDef.BindDurationSeconds
-		isPacifySpell = spellDef.Pacify
-		pacifySeconds = spellDef.PacifyDurationSeconds
-		dealsNoDamage = spellDef.DealsNoDamage
-		stunChance = spellDef.StunChance
-		stunSeconds = spellDef.StunDurationSeconds
-		stunTurns = spellDef.StunDurationTurns
-		starburstFx = spellDef.StarburstFx
-		mp.Active = false
-		isSpell = true
-
-	case "arrow":
-		ar := projectile.(*Arrow)
-		if !ar.Active || ar.LifeTime <= 0 {
-			return
-		}
-		ricochetArrow = ar
-		damage, isCrit = ar.Damage, ar.Crit
-		disintegrateChance = ar.DisintegrateChance
-		weaponName = "Arrow"
-		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		ar.Active = false
-		isRanged = true
-		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" && ar.Label == "" {
-			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
-			if weaponDef != nil {
-				aoeRadiusTiles = weaponDef.AoeRadiusTiles
-				if weaponDef.Name != "" {
-					weaponName = weaponDef.Name
-				}
-			}
-		}
-		// A labeled bolt (Bandit Card proc) reports under its own name - the
-		// BowKey above may be the hunting-bow PHYSICS fallback of a melee wielder.
-		if ar.Label != "" {
-			weaponName = ar.Label
-		}
-		// Arena Arbalest: the bolt goes through the first target and flies on as
-		// a continuation that can never re-hit the monster it pierced. Spawned
-		// before damage resolution so even a killing hit passes through.
-		if ar.PierceLeft > 0 && ar.Owner == ProjectileOwnerPlayer {
-			cont := *ar
-			cont.PierceLeft = ar.PierceLeft - 1
-			cont.SkipMonster = monster
-			cs.spawnArrowContinuation(cont, weaponDef)
-		}
-	default:
-		return
-	}
-
-	// A sealed (dormant) boss absorbs the projectile - no damage, control effect,
-	// or aggro - until its quest unseals it. The projectile is already consumed by
-	// the switch above; drop its collision entity and stop here.
-	if cs.absorbIfSealed(monster) {
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		return
-	}
-
-	// Party buffs: flat bonus to party outgoing damage, filtered by damage type
-	// (Heroism applies only to physical; Hour of Power applies to all).
-	if damage > 0 {
-		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
-	}
-
-	// Resolve the attacker the projectile was fired by (stamped at spawn) -
-	// selection may have auto-advanced (or the roster swapped) while it flew.
-	var attacker *character.MMCharacter
-	switch pr := projectile.(type) {
-	case *MagicProjectile:
-		attacker = pr.Attacker
-	case *Arrow:
-		attacker = pr.Attacker
-	}
-	attackerName := "The party"
-	if attacker != nil {
-		attackerName = attacker.Name
-	}
-
-	// Impact FX anchor: the projectile bursts where the monster is DRAWN. For a
-	// turn-based pulled front-diagonal target that's the pulled slot (where the
-	// assist connects), not its real off-to-the-side tile.
-	fxX, fxY := cs.monsterVisualPos(monster)
-
-	// Typed true damage is stamped when the projectile leaves its source.
-	// Resolving weapon mastery here used to let equipment/mastery changes in
-	// flight alter an arrow and made Bandit Card's generic bolt inherit the
-	// Hunting Bow physics fallback.
-	trueDmg, ignoreDodge := 0, false
-	switch p := projectile.(type) {
-	case *Arrow:
-		trueDmg, ignoreDodge = p.TrueDamage, p.IgnoresDodge
-	case *MagicProjectile:
-		trueDmg, ignoreDodge = p.TrueDamage, p.IgnoresDodge
-	}
-	resistPierce := 0
-	if isSpell {
-		if mp, ok := projectile.(*MagicProjectile); ok {
-			resistPierce = cs.spellResistPierce(attacker, mp.SpellType)
-		}
-	}
-	attack := cs.newPartyMonsterAttack(
-		damage,
-		trueDmg,
-		damageTypeStr,
-		resistPierce,
-		weaponDef,
-		weaponName,
-		isRanged,
-		isSpell,
-		false,
-	)
-	attack.IgnoreDodge = ignoreDodge
-
-	// Check monster perfect dodge (applies to all attack types). A Grandmaster
-	// weapon strike ignores it; otherwise the normal hit is dodged but typed
-	// TRUE damage still lands.
-	if monsterPerfectDodges(monster, attack.IgnoreDodge) {
-		cs.breakPacifyOnHit(monster)
-		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attackerName, weaponDef)
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
-		}
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		return
-	}
-
-	// Ricochet is an on-impact rider, unlike straight-line pierce. A sealed
-	// target absorbs the projectile and Perfect Dodge avoids it, so neither can
-	// seed a second bolt.
-	cs.trySpawnArrowRicochet(ricochetArrow, monster, weaponDef)
-
-	// Control spells deal no damage - Bind Undead takes control, Charm pacifies.
-	if isBindSpell {
-		cs.applyBindUndead(monster, bindSeconds, weaponName)
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		return
-	}
-	if isPacifySpell {
-		cs.applyPacify(monster, pacifySeconds, weaponName)
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		return
-	}
-
-	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < disintegrateChance {
-		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
-
-		monster.HitPoints = 0
-		cs.markMonsterHit(monster)
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef)
-
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
-		return
-	}
-
-	// A no-damage projectile (Disintegrate) that DIDN'T trigger its instakill - or
-	// struck an immune target (undead/dragon) - deals nothing but is still a HIT:
-	// run the same impact-FX and aggro/pacify/pack bookkeeping a real hit does
-	// (the zero-valued packet still sets WasAttacked + engages, so passive mobs aggro)
-	// and report "no effect" instead of falling into the damage path, which would
-	// spam "hit for 0 damage" with a bogus "Critical!" (the spell can't crit).
-	// Bind/Charm are handled earlier; this is the Disintegrate case.
-	if dealsNoDamage {
-		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
-		cs.applyMonsterDamagePacket(
-			monster,
-			singleMonsterDamagePacket(damagecalc.Parts{}, damageTypeStr, resistPierce),
-			monsterDamageOptions{IgnoreArmor: true},
-		)
-		cs.markMonsterHit(monster)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
-		cs.game.collisionSystem.UnregisterEntity(entityID)
-		return
-	}
-
-	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
-	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
-
-	actualDamage := cs.applyPartyMonsterAttack(monster, attack).Total()
-	cs.markMonsterHit(monster)
-	executed := false
-	if monster.IsAlive() {
-		cs.tryApplyWeaponHitRiders(monster, weaponDef)
-		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
-		if stunChance > 0 && rand.Float64() < stunChance {
-			cs.applyStun(monster, stunSeconds, stunTurns) // announces stun/resist itself
-		}
-		// The Maw already credits its kill and announces itself.
-		executed = cs.tryWeaponExecute(monster, weaponDef, attackerName)
-	}
-	xpAwarded := 0
-	if !monster.IsAlive() && !executed {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef)
-	}
-	cs.game.collisionSystem.UnregisterEntity(entityID)
-
-	if executed {
-		if aoeRadiusTiles > 0 {
-			cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
-		}
-		return
-	}
-
-	if !monster.IsAlive() {
-		prefix := ""
-		if isCrit {
-			prefix = "Critical! "
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
-			prefix, attackerName, monster.Name, actualDamage))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
-	} else {
-		prefix := ""
-		if isCrit {
-			prefix = "Critical! "
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
-			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
-	}
-
-	if aoeRadiusTiles > 0 {
-		cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
-	}
-	// Starburst: a star falls into every tile of the blast (purely visual).
-	if starburstFx {
-		r := aoeRadiusTiles
-		if r <= 0 {
-			r = 1
-		}
-		cs.game.spawnStarburstFx(monster.X, monster.Y, r)
-	}
-}
-
-// applyAoeSplash deals one already-rolled party attack to every OTHER alive
-// monster in radius. Crit/true/conversion are source-side and therefore shared;
-// armor, target bonuses, resistance and soak resolve independently per victim.
-// Splash itself cannot disintegrate, stun or trigger weapon/card on-hit riders.
-func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack partyMonsterAttack, radiusTiles float64) {
-	if center == nil || radiusTiles <= 0 {
-		return
-	}
-	tileSize := float64(cs.game.config.GetTileSize())
-	radiusPx := radiusTiles * tileSize
-	radiusSq := radiusPx * radiusPx
-	cx, cy := center.X, center.Y
-
-	for _, m := range cs.game.world.Monsters {
-		// An invulnerable boss (sealed or idol-warded) takes no splash and triggers
-		// no hit-flash / pack-aggro / message: skip it entirely.
-		if m == nil || m == center || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
-			continue
-		}
-		dx := m.X - cx
-		dy := m.Y - cy
-		if dx*dx+dy*dy > radiusSq {
-			continue
-		}
-		actual := cs.applyPartyMonsterAttack(m, attack).Total()
-		cs.markMonsterHit(m)
-		primarySchool := monsterPkg.DamagePhysical.String()
-		if len(attack.Packet.Components) > 0 {
-			primarySchool = attack.Packet.Components[0].School.String()
-		}
-		cs.spawnMonsterHitBurst(m, primarySchool)
-
-		if !m.IsAlive() {
-			xpAwarded := cs.finishWeaponKill(m, attack.WeaponDef)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", attack.WeaponName, m.Name, xpAwarded))
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d damage.", attack.WeaponName, m.Name, actual))
-		}
-	}
 }
 
 func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinitionConfig, monster *monsterPkg.Monster3D) float64 {
@@ -4373,55 +2870,6 @@ func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
 	if monster.ApplyPoison(frames) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", monster.Name))
 	}
-}
-
-// checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
-func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, projectile interface{}, projectileType string, monster *monsterPkg.Monster3D) bool {
-	// Get projectile graphics info for scaling
-	baseSize, minSize, maxSize, ok := cs.getProjectileGraphicsInfo(projectile, projectileType)
-	if !ok {
-		return false
-	}
-
-	// Get collision entities
-	projEntity := cs.game.collisionSystem.GetEntityByID(entityID)
-	monsterCollisionEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
-	if projEntity == nil || monsterCollisionEntity == nil {
-		return false
-	}
-
-	// Calculate perspective-scaled collision boxes
-	projX, projY := cs.getProjectilePosition(projectile, projectileType)
-	projScale := cs.calculatePerspectiveScale(projX, projY, baseSize, minSize, maxSize)
-	scaledProjW := projEntity.BoundingBox.Width * projScale
-	scaledProjH := projEntity.BoundingBox.Height * projScale
-
-	// Monster scaling
-	monsterMultiplier := float64(cs.game.config.Graphics.Monster.SizeDistanceMultiplier)
-	monsterScale := cs.calculatePerspectiveScale(monster.X, monster.Y, monsterMultiplier,
-		cs.game.config.Graphics.Monster.MinSpriteSize, cs.game.config.Graphics.Monster.MaxSpriteSize)
-	scaledMonsterW := monsterCollisionEntity.BoundingBox.Width * monsterScale
-	scaledMonsterH := monsterCollisionEntity.BoundingBox.Height * monsterScale
-
-	// Check collision with perspective-scaled boxes
-	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
-	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
-	return scaledProjBox.Intersects(scaledMonsterBox)
-}
-
-// checkWorldSpaceProjectileCollision is the camera-independent impact rule for
-// monster-vs-monster crossfire. Both entities already own authoritative world
-// boxes in the collision system; scaling them by the party camera would make a
-// fight stop dealing damage when it moved behind or outside the player's FOV.
-func (cs *CombatSystem) checkWorldSpaceProjectileCollision(entityID string, monster *monsterPkg.Monster3D) bool {
-	if cs == nil || cs.game == nil || cs.game.collisionSystem == nil || monster == nil {
-		return false
-	}
-	projectileEntity := cs.game.collisionSystem.GetEntityByID(entityID)
-	monsterEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
-	return projectileEntity != nil && projectileEntity.BoundingBox != nil &&
-		monsterEntity != nil && monsterEntity.BoundingBox != nil &&
-		projectileEntity.BoundingBox.Intersects(monsterEntity.BoundingBox)
 }
 
 // markMonsterHit applies the side effects every hit shares regardless of source
@@ -4648,36 +3096,9 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 }
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
-func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
-	weaponDef := lookupWeaponConfigByName(weapon.Name)
-	if weaponDef == nil {
-		return 0, 0, 0
-	}
-	baseDamage := weaponDef.Damage
-	// Weapon-category mastery no longer adds to this (normal, armor-reduced,
-	// dodgeable) damage - it now grants flat TRUE damage applied at the hit site
-	// (weaponMasteryStrike), which bypasses armor and lands through dodges.
-	// ArmsMaster: general weapon expertise - flat bonus with ANY weapon.
-	baseDamage += character.ArmsMasterTier() * ArmsMasterDamagePerTier
-
-	// Stat scaling resolves through the SAME stat-by-name lookup the tooltip
-	// uses (getEffectiveStatValue, all seven stats) - a hand-rolled switch here
-	// once silently mapped Speed weapons to Might while the tooltip said
-	// "Scales with Speed". Stat names are validated at weapons.yaml load.
-	primaryStat := weaponDef.BonusStat
-	if primaryStat == "" {
-		primaryStat = "Might" // default for weapons without bonus stat specified
-	}
-	primaryStatBonus := getEffectiveStatValue(primaryStat, character) / WeaponPrimaryStatDivisor
-
-	var secondaryStatBonus int
-	if weaponDef.BonusStatSecondary != "" {
-		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, character) / WeaponSecondaryStatDivisor
-	}
-
-	totalStatBonus := primaryStatBonus + secondaryStatBonus
-	totalDamage := baseDamage + totalStatBonus
-	return baseDamage, totalStatBonus, totalDamage
+func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
+	result := character.WeaponDamageBreakdown(lookupWeaponConfigByName(weapon.Name), char)
+	return result.Base + result.ArmsMaster + result.OrcishFury, result.StatBonus, result.Total
 }
 
 // activeAttacker returns the currently selected party member (the attacker for
@@ -4715,79 +3136,10 @@ func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, wea
 	return trueDmg + tier*MasteryWeaponTrueDamagePerTier, tier >= int(character.MasteryGrandMaster)
 }
 
-func (cs *CombatSystem) spawnArrowContinuation(cont Arrow, weaponDef *config.WeaponDefinitionConfig) {
-	if weaponDef == nil || weaponDef.Physics == nil {
-		return
-	}
-	cont.ID = cs.game.GenerateProjectileID("arrow")
-	cont.Active = true
-	collisionSize := weaponDef.Physics.GetCollisionSizePixels(float64(cs.game.config.GetTileSize()))
-	cs.game.arrows = append(cs.game.arrows, cont)
-	entity := collision.NewEntity(
-		cont.ID,
-		cont.X,
-		cont.Y,
-		collisionSize,
-		collisionSize,
-		collision.CollisionTypeProjectile,
-		false,
-	)
-	cs.game.collisionSystem.RegisterEntity(entity)
-}
-
-// trySpawnArrowRicochet creates the re-aimed Nest Arbalest leg after the
-// primary projectile has passed absorption and dodge resolution.
-func (cs *CombatSystem) trySpawnArrowRicochet(ar *Arrow, victim *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
-	if ar == nil || victim == nil || ar.RicochetLeft <= 0 ||
-		ar.Owner != ProjectileOwnerPlayer || weaponDef == nil || weaponDef.Physics == nil {
-		return
-	}
-	next := cs.nearestRicochetTarget(victim, weaponDef)
-	if next == nil {
-		return
-	}
-	speed := math.Hypot(ar.VelX, ar.VelY)
-	dist := math.Hypot(next.X-victim.X, next.Y-victim.Y)
-	if speed <= 0 || dist <= 0 {
-		return
-	}
-	cont := *ar
-	cont.RicochetLeft--
-	cont.SkipMonster = victim
-	cont.X, cont.Y = victim.X, victim.Y
-	// Each leg receives the YAML-authored lifetime. The parent may have spent
-	// nearly all of its own lifetime reaching the first victim.
-	cont.LifeTime = weaponDef.Physics.GetLifetimeFrames()
-	cont.VelX = (next.X - victim.X) / dist * speed
-	cont.VelY = (next.Y - victim.Y) / dist * speed
-	cs.spawnArrowContinuation(cont, weaponDef)
-}
-
-// nearestRicochetTarget picks the closest other living ENEMY monster within
-// seek range of the struck victim (bound allies and pure party summons are
-// never ricochet food).
-func (cs *CombatSystem) nearestRicochetTarget(victim *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) *monsterPkg.Monster3D {
-	if victim == nil || weaponDef == nil || weaponDef.RicochetRangeTiles <= 0 || cs.game.world == nil {
-		return nil
-	}
-	maxDist := weaponDef.RicochetRangeTiles * float64(cs.game.config.GetTileSize())
-	var best *monsterPkg.Monster3D
-	bestDist := maxDist
-	for _, m := range cs.game.world.Monsters {
-		if isExcludedFromPartyAutoTarget(m) || m == victim || !m.IsAlive() {
-			continue
-		}
-		if d := Distance(victim.X, victim.Y, m.X, m.Y); d <= bestDist {
-			best, bestDist = m, d
-		}
-	}
-	return best
-}
-
 // tryWeaponExecute closes the Wyrmcleaver's jaws: a SURVIVING target left at
 // or under execute_below_pct of its max HP dies outright. Returns the XP-
 // awarded kill flag so callers skip their own alive-branch messaging.
-func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attackerName string) bool {
+func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter, attackerName string) bool {
 	if monster == nil || weaponDef == nil || weaponDef.ExecuteBelowPct <= 0 {
 		return false
 	}
@@ -4799,7 +3151,7 @@ func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDe
 	}
 	monster.HitPoints = 0
 	cs.markMonsterHit(monster)
-	xpAwarded := cs.finishWeaponKill(monster, weaponDef)
+	xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 	cs.game.AddCombatMessage(fmt.Sprintf("The Maw closes - %s devours %s outright!", attackerName, monster.Name))
 	cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	return true
@@ -4808,15 +3160,15 @@ func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDe
 // finishWeaponKill is the single finalization path for a monster killed by a
 // party weapon. Kill riders run before generic reward/removal bookkeeping;
 // callers pass nil for non-weapon splash packets, preventing recursive bursts.
-func (cs *CombatSystem) finishWeaponKill(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) int {
-	cs.tryWeaponDeathBurst(monster, weaponDef)
+func (cs *CombatSystem) finishWeaponKill(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter) int {
+	cs.tryWeaponDeathBurst(monster, weaponDef, attacker)
 	return cs.finishMonsterKill(monster)
 }
 
 // tryWeaponDeathBurst pops the Ember Egg: a target KILLED by this weapon
 // bursts, dealing flat fire damage to every other monster in the radius
 // (its own attack packet - armor/resists resolve per victim; kills credit).
-func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
+func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, attacker *character.MMCharacter) {
 	if corpse == nil || weaponDef == nil || weaponDef.DeathBurstDamage <= 0 || weaponDef.DeathBurstRadiusTiles <= 0 {
 		return
 	}
@@ -4834,85 +3186,9 @@ func (cs *CombatSystem) tryWeaponDeathBurst(corpse *monsterPkg.Monster3D, weapon
 		false,
 		false,
 	)
+	burst.Attacker = attacker
 	cs.spawnMonsterHitBurst(corpse, monsterPkg.DamageFire.String())
 	cs.applyAoeSplash(corpse, burst, weaponDef.DeathBurstRadiusTiles)
-}
-
-// spellResistPierce returns the resistance-pierce percent for the given
-// caster's spell. Elemental schools (including Light/Dark) use the separate
-// Elemental Mastery skill; Body/Mind/Spirit retain their school-GM pierce.
-func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellType string) int {
-	if caster == nil {
-		return 0
-	}
-	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType))
-	if err != nil || def.School == "" {
-		return 0
-	}
-	school := character.MagicSchoolID(def.School)
-	if school.IsElemental() {
-		if !caster.HasSkill(character.SkillElementalMastery) {
-			return 0
-		}
-		return character.ElementalMasteryPiercePct(caster.SkillTier(character.SkillElementalMastery))
-	}
-	if ms, ok := caster.MagicSchools[school]; ok && ms != nil && ms.Mastery >= character.MasteryGrandMaster {
-		return SelfMagicGMResistPiercePct
-	}
-	return 0
-}
-
-// effectiveSpellCost applies a Grandmaster meditator's flat percent spell-cost
-// reduction. Single source used by every SP check/deduction site.
-func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCost int) int {
-	if caster != nil && caster.SkillTier(character.SkillMeditation) >= int(character.MasteryGrandMaster) {
-		baseCost = baseCost * (100 - MeditationGMSpellCostReductionPct) / 100
-	}
-	return baseCost
-}
-
-// CalculateSteamZoneTickDamage is the per-tick damage of a persistent damage zone
-// (Hot Steam), scaled by the caster like the elemental spells: the YAML
-// zone_tick_damage is the flat base, plus Intellect/divisor and the caster's
-// school mastery. Single source of truth for the cast (tryCastSteamZone) and the
-// tooltip, so the displayed number always matches the damage dealt.
-func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
-	// An authored ladder is the WHOLE payload (Firewall 15/30/45/60): no
-	// Intellect and no per-tier bonus on top, exactly like Inferno.
-	if len(def.DamageByMastery) == 4 {
-		return def.DamageForMastery(spellMasteryTierForSchool(char, def.School))
-	}
-	tick := def.ZoneTickDamage
-	if char != nil {
-		tick += char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
-		tick += cs.spellMasteryBonus(char, def.ID)
-	}
-	return tick
-}
-
-// CalculateInfernoDamage returns the whole normal-fire nova payload. Inferno
-// has explicit YAML mastery scaling and never converts any part to true damage.
-func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
-	tier := 0
-	if char != nil && (def.MasteryDamagePerTier > 0 || len(def.DamageByMastery) == 4) {
-		if school := char.MagicSchools[character.MagicSchoolID(def.School)]; school != nil {
-			tier = int(school.Mastery)
-		}
-	}
-	return def.DamageForMastery(tier)
-}
-
-// spellMasteryBonus returns +5 per mastery level for the spell's school.
-func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID spells.SpellID) int {
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || def.School == "" {
-		return 0
-	}
-	school := character.MagicSchoolID(def.School)
-	if skill, exists := char.MagicSchools[school]; exists {
-		return int(skill.Mastery) * MasterySpellEffectPerLevel
-	}
-	return 0
 }
 
 // CriticalChanceBreakdown returns the universal crit components shared by
@@ -4998,202 +3274,6 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 		return true
 	}
 	return false
-}
-
-// tryCastSpecialEffect runs the data-driven "effect spell" dispatchers in order
-// (AoE stun -> party buffs -> resurrect). Each returns false unless the spell
-// carries its trigger field, so the OR-chain stops at the first that handles
-// the cast. Returns true if one did - callers must then skip the
-// projectile/utility paths. Single place to register a new effect-spell type.
-func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	return cs.tryCastAoeStun(spellID, def) ||
-		cs.tryCastJump(def, caster) ||
-		cs.tryCastSummon(def, caster) ||
-		cs.tryCastInferno(def, caster) ||
-		cs.tryCastSteamZone(spellID, def, caster) ||
-		cs.tryCastPartyBuff(spellID, def, caster) ||
-		cs.tryCastRaiseDead(def, caster) ||
-		cs.tryCastResurrect(def, caster) ||
-		cs.tryCastAwaken(def, caster)
-}
-
-// tryCastInferno handles party-centered nova spells (Inferno): every monster AND
-// every party member takes the spell's full damage (cost x SpellDamagePerSP).
-// MapWide burns the ENTIRE current map - no radius; the party always burns too
-// (fire resistance is the intended answer). Gated on either trigger field.
-func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if def.PartyAoeRadiusTiles <= 0 && !def.MapWide {
-		return false
-	}
-	dmg := cs.CalculateInfernoDamage(def, caster)
-	radius := math.Inf(1) // MapWide: every monster on the map
-	if !def.MapWide {
-		radius = def.PartyAoeRadiusTiles * float64(cs.game.config.GetTileSize())
-	}
-	cx, cy := cs.game.camera.X, cs.game.camera.Y
-	damageTypeStr := normalizeDamageTypeStr(def.School)
-	monsterDmg := dmg + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
-	resistPierce := cs.spellResistPierce(caster, string(def.ID))
-
-	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
-
-	// Monsters in range. A sealed (dormant) boss is invulnerable and inert -
-	// skip it so the nova neither damages nor wakes it. On the unified world
-	// "the map" is the party's REGION - MapWide must not burn the other four.
-	regionScoped := def.MapWide && cs.game.openWorldActive()
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
-			Distance(cx, cy, m.X, m.Y) > radius {
-			continue
-		}
-		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
-			continue
-		}
-		dealt := cs.applyMonsterDamagePacket(
-			m,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: monsterDmg}, damageTypeStr, resistPierce),
-			monsterDamageOptions{},
-		)
-		cs.markMonsterHit(m)
-		cs.spawnMonsterHitBurst(m, damageTypeStr)
-		if !m.IsAlive() {
-			cs.game.collisionSystem.UnregisterEntity(m.ID)
-			xpAwarded := cs.finishMonsterKill(m)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, xpAwarded))
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d from %s! (HP: %d/%d)",
-				m.Name, dealt.Total(), def.Name, m.HitPoints, m.MaxHitPoints))
-		}
-	}
-
-	// Ground-shaking novas topple what stands on the shaken ground.
-	if def.StandeeDestroyChance > 0 {
-		cs.topplePropsInRadius(cx, cy, radius, def.StandeeDestroyChance)
-	}
-
-	// The nova's own ground FX (graphics.nova_fx). Without one the cast is only
-	// the per-monster bursts above, which is nothing at all when it hits empty
-	// ground. Map-wide spells paint out to a visible reach, not the whole map.
-	fxRadiusTiles := def.PartyAoeRadiusTiles
-	if def.MapWide {
-		fxRadiusTiles = mapWideNovaFxRadiusTiles
-	}
-	cs.game.spawnNovaFx(string(def.ID), cx, cy, fxRadiusTiles)
-
-	// Inferno catches the party in its own blast; a spell that spares the party
-	// (Earthquake) says so in YAML rather than in a name check here.
-	if def.SparesParty {
-		return true
-	}
-	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
-		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
-	})
-	return true
-}
-
-// tryCastRaiseDead handles Raise Dead: revives the first fallen ally that is
-// Unconscious or Dead (NOT eradicated - that's Resurrect's domain) to
-// ReviveHpPct% of max HP, clearing both conditions. Returns true if it handled
-// the spell. Gated on ReviveHpPct > 0 so it never collides with Resurrect.
-func (cs *CombatSystem) tryCastRaiseDead(def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if def.ReviveHpPct <= 0 {
-		return false
-	}
-	var target *character.MMCharacter
-	for _, m := range cs.game.party.Members {
-		if m == nil || m.HasCondition(character.ConditionEradicated) {
-			continue
-		}
-		if m.HasCondition(character.ConditionUnconscious) || m.HasCondition(character.ConditionDead) || m.HitPoints <= 0 {
-			target = m
-			break
-		}
-	}
-	if target == nil {
-		// Nothing to raise - refund the SP actually paid (matches Resurrect/Awaken).
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
-		cs.game.AddCombatMessage("There is no fallen ally to raise.")
-		return true
-	}
-	target.RemoveCondition(character.ConditionUnconscious)
-	target.RemoveCondition(character.ConditionDead)
-	hp := target.MaxHitPoints * def.ReviveHpPct / 100
-	if hp < 1 {
-		hp = 1
-	}
-	target.HitPoints = hp
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is raised to %d HP!", target.Name, hp))
-	return true
-}
-
-// tryCastAwaken handles the Awaken spell: rouses EVERY unconscious party member
-// back to 1 HP (does not touch the truly dead/eradicated - that's Resurrect).
-// Shared by both cast paths. Returns true if it handled the spell.
-func (cs *CombatSystem) tryCastAwaken(def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if !def.Awaken {
-		return false
-	}
-	revived := 0
-	for _, m := range cs.game.party.Members {
-		if m == nil || !m.HasCondition(character.ConditionUnconscious) {
-			continue
-		}
-		m.RemoveCondition(character.ConditionUnconscious)
-		if m.HitPoints < 1 {
-			m.HitPoints = 1
-		}
-		revived++
-	}
-	if revived == 0 {
-		// No one to wake - refund the SP actually paid (matches Meditation discount).
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
-		cs.game.AddCombatMessage("No one is unconscious to awaken.")
-		return true
-	}
-	cs.game.AddCombatMessage(fmt.Sprintf("Awakening rouses %d fallen ally(s) back to 1 HP!", revived))
-	return true
-}
-
-// tryCastResurrect handles the Resurrect spell: restores the first fallen party
-// member (unconscious, dead, or even eradicated) - to full HP if FullHeal.
-// Shared by both cast paths. Returns true if it handled the spell.
-func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if !def.Revive {
-		return false
-	}
-	var target *character.MMCharacter
-	for _, m := range cs.game.party.Members {
-		if m == nil {
-			continue
-		}
-		if m.HasCondition(character.ConditionUnconscious) ||
-			m.HasCondition(character.ConditionDead) ||
-			m.HasCondition(character.ConditionEradicated) ||
-			m.HitPoints <= 0 {
-			target = m
-			break
-		}
-	}
-	if target == nil {
-		// Nothing to resurrect - refund the spell points actually paid (matches
-		// the Meditation-discounted cost so a GM can't farm SP on empty casts).
-		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
-		cs.game.AddCombatMessage("There is no fallen ally to resurrect.")
-		return true
-	}
-	target.RemoveCondition(character.ConditionUnconscious)
-	target.RemoveCondition(character.ConditionDead)
-	target.RemoveCondition(character.ConditionEradicated)
-	if def.FullHeal {
-		target.HitPoints = target.MaxHitPoints
-	} else if target.HitPoints <= 0 {
-		target.HitPoints = 1
-	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is restored to life!", target.Name))
-	return true
 }
 
 // ceilStunDRPct scales v by pct% (0-100), rounding UP. turns is usually
@@ -5297,6 +3377,34 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
 }
 
+const darkElfBindingChancePct = 10
+
+func darkElfBindingEligible(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
+	if attacker == nil || attacker.Race != "dark_elf" || target == nil || !target.IsAlive() ||
+		target.Bound || target.IsBoss() || target.IsDamageInvulnerable() || isPurePartySummon(target) {
+		return false
+	}
+	monsterType := strings.ToLower(strings.TrimSpace(target.MonsterType))
+	return monsterType != "undead" && monsterType != "formless"
+}
+
+// tryDarkElfBindInstead is the one racial proc boundary for every party-sourced
+// hit, including persistent fields. A successful proc replaces the entire hit and all of its on-hit riders;
+// the newly bound former enemy remains a normal reward-bearing map creature.
+func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
+	if !darkElfBindingEligible(attacker, target) || !cs.rollRacialProc(darkElfBindingChancePct) {
+		return false
+	}
+	target.Bound = true
+	target.BoundFramesRemaining = 0
+	target.Pacified = false
+	target.PacifiedFramesRemaining = 0
+	target.WasAttacked = false
+	target.AIFoe = nil
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's dark binding claims %s instead of the hit!", attacker.Name, target.Name))
+	return true
+}
+
 // applyPacify (Charm) pacifies a LIVING target - it stops attacking and breaks
 // free on any hit it takes (see breakPacifyOnHit). No effect on undead, no
 // damage. A separate, mutually exclusive effect from Bind Undead.
@@ -5353,12 +3461,14 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 			return false
 		}
 	}
+	if !cs.attackLineClear(attacker.X, attacker.Y, target.X, target.Y) {
+		return false
+	}
 	if attacker.HasRangedAttack() && cs.monsterUsesMeleeAgainstPoint(attacker, target.X, target.Y) {
 		return true
 	}
 	if Distance(attacker.X, attacker.Y, target.X, target.Y) <= attacker.GetAttackRangePixels() {
-		return !attacker.HasRangedAttack() || cs.game.collisionSystem == nil ||
-			cs.game.collisionSystem.CheckLineOfSight(attacker.X, attacker.Y, target.X, target.Y)
+		return true
 	}
 	if attacker.HasRangedAttack() {
 		return false
@@ -5490,12 +3600,15 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 // monster-vs-monster blow). On a kill the party is rewarded ONLY if the slain
 // monster was an enemy (not a bound ally that a mob just cut down).
 func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monster3D) {
+	if attacker == nil || target == nil || !attacker.IsAlive() || !target.IsAlive() || !cs.attackLineClear(attacker.X, attacker.Y, target.X, target.Y) {
+		return
+	}
 	cs.game.playMonsterSound(soundMonsterMeleeSwing, attacker)
 	damage := cs.monsterAttackDamage(attacker)
 	cs.strikeMonsterFor(
 		attacker,
 		target,
-		hitFromMonster(attacker, damage, monsterMeleeSchool(attacker), attacker.IgnoresArmor, 0, true),
+		cs.normalMonsterMeleeHit(attacker, damage),
 		nil,
 		false,
 	)
@@ -5513,7 +3626,9 @@ func (cs *CombatSystem) strikeMonsterFor(
 	isRanged bool,
 ) {
 	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
-	cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.IgnoresArmor, hit.IgnoresDodge, true)
+	if cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.IgnoresArmor, hit.IgnoresDodge, true) && hit.ElementalAttack {
+		cs.game.addMonsterElementalAttackFX(target, hit.DamageType)
+	}
 }
 
 func (cs *CombatSystem) strikeMonsterPacketFor(
@@ -5521,9 +3636,9 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	packet monsterDamagePacket,
 	weaponDef *config.WeaponDefinitionConfig,
 	isRanged, ignoreArmor, ignoreDodge, canDodge bool,
-) {
+) bool {
 	if !target.IsAlive() {
-		return // already slain this frame - no double damage/reward
+		return false // already slain this frame - no double damage/reward
 	}
 	if canDodge && monsterPerfectDodges(target, ignoreDodge) {
 		actual := cs.applyMonsterDamagePacket(
@@ -5542,7 +3657,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", target.Name, attacker.Name))
 		}
-		return
+		return false
 	}
 	actual := cs.applyMonsterDamagePacket(
 		target,
@@ -5559,10 +3674,11 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, actual))
 	if target.IsAlive() {
-		return
+		return actual > 0
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
 	cs.finishMonsterKillImmediately(target)
+	return actual > 0
 }
 
 // boundAttackNearest makes a bound undead attack the nearest enemy monster -
@@ -5572,22 +3688,10 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 // toward it (it hunts instead of striking across the room). Returns true only
 // when it actually attacked.
 func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
-	target := m.AIFoe // precomputed this frame (= nearest enemy within seek radius)
-	if target == nil || !target.IsAlive() {
+	if m == nil || m.AIFoe == nil {
 		return false
 	}
-	if !cs.monsterCanAttackMonster(m, target) {
-		return false // in sight but out of reach - close the distance first
-	}
-	if !cs.game.tryClaimMonsterAttackPost(m) {
-		return false
-	}
-	m.State = monsterPkg.StateAttacking
-	// A projectile-capable bound undead still strikes directly at point blank;
-	// otherwise it looses a visible bolt resolved on impact.
-	cs.game.armMonsterAttackAnimation(m)
-	cs.performMonsterAttackAgainstMonster(m, target, ProjectileOwnerBoundUndead)
-	return true
+	return cs.commitMonsterAttack(m, monsterAttackDestination{foe: m.AIFoe}, monsterAttackRealtime)
 }
 
 // awardExperienceOnly grants the party a monster's XP with NO gold or loot - used
@@ -5599,116 +3703,6 @@ func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
 	// Same per-member share as awardExperienceAndGold, but no gold/loot. Routed
 	// through grantSharedXP so Learning bonuses and bench training apply uniformly.
 	cs.game.grantSharedXP(monster.Experience / len(cs.game.party.Members))
-}
-
-// tryCastAoeStun handles AoE-stun effect spells (e.g. Darkness): if the spell
-// has StunRadiusTiles > 0, every alive monster within that radius of the caster
-// is stunned (RT frames + TB turns), no damage dealt. Shared by both cast
-// paths. Returns true if it handled the spell (caller should stop).
-func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition) bool {
-	if def.StunRadiusTiles <= 0 {
-		return false
-	}
-	tileSize := float64(cs.game.config.GetTileSize())
-	radius := def.StunRadiusTiles * tileSize
-	frames := def.StunDurationSeconds * cs.game.config.GetTPS()
-	turns := def.StunDurationTurns
-	stunned := 0
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
-			continue
-		}
-		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {
-			continue
-		}
-		if cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
-			stunned++
-		}
-	}
-	// Flavor lead comes from the spell's own `message:` (Darkness engulfs, a
-	// shockwave rips...); the count suffix is shared.
-	lead := def.Message
-	if lead == "" {
-		lead = def.Name
-	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s - %d foe(s) stunned!", lead, stunned))
-	cs.game.setUtilityStatus(spellID, frames)
-	return true
-}
-
-func spellMasteryTierForSchool(caster *character.MMCharacter, schoolID string) int {
-	if caster == nil || schoolID == "" {
-		return 0
-	}
-	school := character.MagicSchoolID(schoolID)
-	if skill, ok := caster.MagicSchools[school]; ok && skill != nil {
-		return int(skill.Mastery)
-	}
-	return 0
-}
-
-func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCharacter, base, max int) int {
-	if base <= 0 || max <= base {
-		return base
-	}
-	tier := spellMasteryTierForSchool(caster, def.School)
-	gmTier := int(character.MasteryGrandMaster)
-	if tier <= 0 || gmTier <= 0 {
-		return base
-	}
-	if tier > gmTier {
-		tier = gmTier
-	}
-	return base + (max-base)*tier/gmTier
-}
-
-func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character.MMCharacter) int {
-	return scaledSpellMasteryValue(def, caster, def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster)
-}
-
-// tryCastPartyBuff handles party combat-buff spells (Day of the Gods, Hour of
-// Power, Stone Skin). If the spell carries any party-buff field it activates the
-// buff for `duration` seconds and returns true. Shared by both cast paths.
-func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 && def.ResistBuffSchoolPct <= 0 {
-		return false
-	}
-	// Party-buff magnitudes may opt into mastery scaling with *_grandmaster
-	// caps; spells without a cap stay flat at their authored base value.
-	frames := cs.CalculateSpellDurationFrames(spellID, caster)
-	cs.game.addCombatBuff(TimedCombatBuff{
-		SpellID:         string(spellID),
-		Frames:          frames,
-		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
-		OutDamageType:   def.OutgoingDamageType,
-		InReduce:        scaledIncomingDamageReduction(def, caster),
-		ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
-		ResistSchool:    def.ResistBuffSchool,
-		ResistSchoolPct: def.ResistBuffSchoolPct,
-	})
-	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
-	cs.game.setUtilityStatus(spellID, frames)
-	return true
-}
-
-// spellStatBuffBonuses resolves the stat-buff block a cast of spellID grants:
-// per-stat `stat_bonuses:` maps are authored absolute; uniform `stat_bonus`
-// may opt into mastery scaling with stat_bonus_grandmaster.
-func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *character.MMCharacter) character.StatBonuses {
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return character.StatBonuses{}
-	}
-	if len(def.StatBonuses) > 0 {
-		return character.StatBonusesFromMap(def.StatBonuses)
-	}
-	return character.UniformStatBonuses(cs.CalculateSpellStatBonus(spellID, caster))
-}
-
-// applyStatBuffSpell registers a stat-buff spell in the timed registry:
-// different spells stack, recasting the same one refreshes it.
-func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int, bonuses character.StatBonuses) {
-	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), Frames: duration, Bonuses: bonuses})
 }
 
 // armorGMDodgeBonus grants ArmorGMDodgeBonus dodge for each Grandmaster-mastered
@@ -5825,15 +3819,6 @@ func (g *MMGame) schoolResistPct(char *character.MMCharacter, school string) int
 		total = 100
 	}
 	return total
-}
-
-// mitigateCharacterDamage is the int-shaped shorthand for a hit with no true
-// component: same pipeline, same armor step, one number in and out. Balance
-// tests and tooltips read better through it; there is no second formula here.
-func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
-	return cs.mitigateCharacterDamageParts(
-		damagecalc.Parts{Normal: damage}, damageTypeStr, char, ignoreArmor,
-	).Normal
 }
 
 // mitigateCharacterDamageParts is the single party-member mitigation pipeline.
@@ -6048,22 +4033,64 @@ func (cs *CombatSystem) randomLivingMember() *character.MMCharacter {
 	if len(alive) == 0 {
 		return nil
 	}
-	return cs.game.party.Members[alive[rand.Intn(len(alive))]]
+	return cs.game.party.Members[cs.weightedPartyTargetIndex(alive)]
 }
 
 // randomLivingMembers returns up to n DISTINCT living members in random order -
 // the target set of a champion's melee arc (each catches the same swing once).
 func (cs *CombatSystem) randomLivingMembers(n int) []*character.MMCharacter {
 	alive := alivePartyIndices(cs.game.party.Members)
-	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
 	if n > len(alive) {
 		n = len(alive)
 	}
 	out := make([]*character.MMCharacter, 0, n)
-	for _, idx := range alive[:n] {
+	for len(out) < n {
+		idx := cs.weightedPartyTargetIndex(alive)
 		out = append(out, cs.game.party.Members[idx])
+		for i, candidate := range alive {
+			if candidate == idx {
+				alive = append(alive[:i], alive[i+1:]...)
+				break
+			}
+		}
 	}
 	return out
+}
+
+// weightedPartyTargetIndex gives a halfling one ticket and every other race
+// two. Thus a halfling has exactly half another hero's relative probability
+// in every random party-target draw, including draws without replacement.
+func (cs *CombatSystem) weightedPartyTargetIndex(indices []int) int {
+	return cs.weightedPartyTargetIndexWithBase(indices, func(int) int { return 1 })
+}
+
+func (cs *CombatSystem) partyTargetWeight(idx, baseWeight int) int {
+	weight := baseWeight * 2
+	if member := cs.game.party.Members[idx]; member != nil && member.Race == "halfling" {
+		weight /= 2
+	}
+	return weight
+}
+
+// weightedPartyTargetIndexWithBase applies the racial multiplier at the final
+// draw, after the caller has expressed positional or attack-specific bias.
+func (cs *CombatSystem) weightedPartyTargetIndexWithBase(indices []int, baseWeight func(int) int) int {
+	if len(indices) == 0 {
+		return -1
+	}
+	total := 0
+	for _, idx := range indices {
+		total += cs.partyTargetWeight(idx, baseWeight(idx))
+	}
+	roll := rand.Intn(total)
+	for _, idx := range indices {
+		weight := cs.partyTargetWeight(idx, baseWeight(idx))
+		if roll < weight {
+			return idx
+		}
+		roll -= weight
+	}
+	return indices[len(indices)-1]
 }
 
 // tankIndex returns the party slot that counts as the "tank": the FRONT slot
@@ -6081,34 +4108,32 @@ func (cs *CombatSystem) tankIndex() int {
 	return -1
 }
 
-// tankTarget is the tank member (front slot, or first survivor). RANGED single
-// hits in real time always land here.
-func (cs *CombatSystem) tankTarget() *character.MMCharacter {
-	if i := cs.tankIndex(); i >= 0 {
-		return cs.game.party.Members[i]
-	}
-	return nil
-}
-
-// rangedTBTarget is the turn-based ranged single-target rule: mostly the tank,
-// but RangedOffTankChance of the time a random NON-tank living member instead.
-func (cs *CombatSystem) rangedTBTarget() *character.MMCharacter {
+// rangedTarget preserves the authored all-human tank/off-tank split, then gives
+// every halfling half the raw ticket weight of the same slot occupied by any
+// other race. The same rule is used in RT and TB.
+func (cs *CombatSystem) rangedTarget() *character.MMCharacter {
 	ti := cs.tankIndex()
 	if ti < 0 {
 		return nil
 	}
-	if rand.Float64() < RangedOffTankChance {
-		others := make([]int, 0, len(cs.game.party.Members))
-		for i, x := range cs.game.party.Members {
-			if i != ti && x != nil && x.HitPoints > 0 {
-				others = append(others, i)
-			}
-		}
-		if len(others) > 0 {
-			return cs.game.party.Members[others[rand.Intn(len(others))]]
+	indices := make([]int, 0, len(cs.game.party.Members))
+	for i, member := range cs.game.party.Members {
+		if member != nil && member.HitPoints > 0 {
+			indices = append(indices, i)
 		}
 	}
-	return cs.game.party.Members[ti]
+	if len(indices) == 1 {
+		return cs.game.party.Members[indices[0]]
+	}
+	offTankTickets := max(1, int(math.Round(RangedOffTankChance*100)))
+	tankTickets := max(1, 100-offTankTickets) * (len(indices) - 1)
+	idx := cs.weightedPartyTargetIndexWithBase(indices, func(idx int) int {
+		if idx == ti {
+			return tankTickets
+		}
+		return offTankTickets
+	})
+	return cs.game.party.Members[idx]
 }
 
 // findCharacterIndex finds the index of a character in the party

@@ -138,8 +138,10 @@ func (ui *UISystem) drawInventoryTabs(screen *ebiten.Image, x, y, w int) {
 		text := clipDebugText(inventoryTabs[i].label, r.w-2)
 		textX, textY := centeredTextPos(text, r.x, r.y, r.w, r.h)
 		drawDebugTextColored(screen, text, textX, textY, label)
-		if clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			ui.setInventoryTab(i)
-		}
+		ui.onDisplayedInput(uiCommandClick, layoutRect{r.x, r.y, (r.right()) - (r.x), (r.bottom()) - (r.y)}, func() {
+			if clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
+				ui.setInventoryTab(i)
+			}
+		})
 	}
 }

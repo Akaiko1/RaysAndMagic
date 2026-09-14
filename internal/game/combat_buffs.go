@@ -13,6 +13,7 @@ import (
 // clobbers another and any number of buff spells can coexist.
 type TimedCombatBuff struct {
 	SpellID       string // spell id (HUD status icon + replace-on-recast key)
+	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
 	OutBonus      int    // flat add to party outgoing damage
 	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
@@ -26,7 +27,8 @@ type TimedCombatBuff struct {
 	ArmorBonus int
 }
 
-func (b TimedCombatBuff) buffSpellID() string { return b.SpellID }
+func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
+func (b TimedCombatBuff) buffSourceID() string { return b.SourceID }
 
 // timedCombatBuffFromItem is the one item-definition -> runtime mapping for
 // timed draughts. Consumption and save restore must not copy this field list.
@@ -48,9 +50,12 @@ func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 	g.combatBuffs = upsertBuff(g.combatBuffs, b)
 }
 
-// removeCombatBuff drops a combat buff by spell id (dispel). No-op if absent.
-func (g *MMGame) removeCombatBuff(spellID string) {
-	g.combatBuffs, _ = removeBuffByID(g, g.combatBuffs, spellID)
+// removeCombatBuff drops a combat buff by ownership id. Ordinary casts use the
+// spell id; system-owned casts use their source id.
+func (g *MMGame) removeCombatBuff(buffID string) bool {
+	var removed bool
+	g.combatBuffs, removed = removeBuffByID(g, g.combatBuffs, buffID)
+	return removed
 }
 
 // combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
@@ -123,6 +128,7 @@ func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 // re-derived from spells.yaml or items.yaml on restore.
 type CombatBuffSave struct {
 	SpellID         string `json:"spell_id"`
+	SourceID        string `json:"source_id,omitempty"`
 	Frames          int    `json:"frames"`
 	OutBonus        int    `json:"out_bonus,omitempty"`
 	InReduce        int    `json:"in_reduce,omitempty"`
@@ -142,6 +148,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 	for i, b := range buffs {
 		out[i] = CombatBuffSave{
 			SpellID:         b.SpellID,
+			SourceID:        b.SourceID,
 			Frames:          b.Frames,
 			OutBonus:        b.OutBonus,
 			InReduce:        b.InReduce,
@@ -198,6 +205,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	for i, s := range saves {
 		b := TimedCombatBuff{
 			SpellID:         s.SpellID,
+			SourceID:        s.SourceID,
 			Frames:          s.Frames,
 			OutBonus:        s.OutBonus,
 			InReduce:        s.InReduce,

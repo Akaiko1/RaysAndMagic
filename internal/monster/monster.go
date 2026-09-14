@@ -1,9 +1,14 @@
 package monster
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"math"
 	"math/rand"
 	"strconv"
+	"sync/atomic"
+	"time"
+
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
@@ -194,14 +199,39 @@ func (m *Monster3D) IsCalmForSocialBehavior() bool {
 	return m.State == StateIdle || m.State == StatePatrolling
 }
 
-// Global counter for unique monster IDs
-var nextMonsterID int = 1
+// monsterIDGen mints monster IDs. Same rationale as items.InstanceID: 64
+// random bits make uniqueness STATELESS - it holds across save/load and
+// process restarts with no counter to persist or re-sync when a save's IDs
+// are adopted back. That matters because IDs are compared as opaque strings
+// by the dead-ID sweep, collision keys and SummonedBy ownership: a reissued
+// ID silently deletes or re-owns an unrelated monster. Package var so tests
+// can swap in a deterministic generator.
+var monsterIDGen = randomMonsterID
+
+func randomMonsterID() string {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		// crypto/rand should never fail; if it does, it fails for the whole
+		// session, so the fallback must stay unique on its own.
+		return fallbackMonsterID(time.Now().UnixNano())
+	}
+	return "monster_" + hex.EncodeToString(b[:])
+}
+
+// fallbackIDSeq disambiguates fallback IDs minted within one clock tick: a
+// coarse clock hands a whole pack-spawn loop the same UnixNano, and duplicate
+// IDs are exactly the ID-twin sweep bug this generator exists to prevent. The
+// stamp keeps fallback IDs unique across sessions, the sequence within one.
+var fallbackIDSeq atomic.Uint64
+
+func fallbackMonsterID(stamp int64) string {
+	return "monster_t" + strconv.FormatInt(stamp, 36) +
+		"_" + strconv.FormatUint(fallbackIDSeq.Add(1), 36)
+}
 
 // generateUniqueMonsterID creates a unique ID for a monster
 func generateUniqueMonsterID() string {
-	id := "monster_" + strconv.Itoa(nextMonsterID)
-	nextMonsterID++
-	return id
+	return monsterIDGen()
 }
 
 type Monster3D struct {
@@ -249,6 +279,7 @@ type Monster3D struct {
 	PathTargetTileX  int
 	PathTargetTileY  int
 	LastPathCalcTick int
+	PathSearchCount  uint64 // Diagnostic count, actor-owned; never persisted or used by AI.
 	pathScratch      pathScratch
 	// Pursuit stall detection: a cached path is only recomputed when the target
 	// tile changes, so a route invalidated by a door or another dynamic obstacle
@@ -363,7 +394,6 @@ type Monster3D struct {
 	FireburstDamageMax       int      // Fireburst damage max
 	DragonBreathChance       float64  // Chance for this attack to hit every living party member
 	DragonBreathDamageType   string   // Element used by dragon breath mitigation/resists
-	MeleeDamageType          string   // School of melee blows (canonical, normalized at load); "" = physical
 	PiercingShotChance       float64  // Chance to fire an armor-piercing shot at multiple party members
 	PiercingShotTargets      int      // Number of party members hit by Piercing Shot (default 2)
 	AllyHealChance           float64  // Chance to heal self or a nearby allied monster instead of attacking

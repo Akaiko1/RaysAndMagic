@@ -334,15 +334,13 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
-		// Melee lands in the mob's AUTHORED school (melee_damage_type),
-		// matching production - physical is only the unauthored default.
-		school := monsterMeleeSchool(m)
+		// This diagnostic has no map context: use the ordinary physical baseline.
+		// Elemental mixtures are covered by the biome-aware integration tests.
+		school := monsterPkg.DamagePhysical.String()
 		ignoreArmor := m.IgnoresArmor
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
-			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
-			// uses ranged whenever HasRangedAttack, even point-blank - it never
-			// melees). Mitigate it by the breath's element so the target's armor
-			// (elemental cap), resists, and buffs actually apply.
+			// This diagnostic models projectile-capable monsters at range.
+			// Production uses ordinary melee when they are adjacent.
 			if d, ok := config.GetSpellDefinition(m.ProjectileSpell); ok && d != nil && d.School != "" {
 				school = d.School
 			}
