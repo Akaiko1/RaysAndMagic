@@ -880,6 +880,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		})
 	}
+	// The exposed party strip is UI even while the character hub is open.
+	// Register it after its badges so those controls retain first claim, and
+	// resolve selection before the dispatcher retires unmatched UI clicks.
+	ui.onDisplayedInput(uiCommandClick, layoutRect{baseLeft, startY, portraitWidth * len(ui.game.party.Members), portraitHeight}, func() {
+		if ui.partyCardClicksBlocked() || ui.game.dragPickedUp || ui.game.stashDragPickedUp {
+			return
+		}
+		handler := InputHandler{game: ui.game}
+		handler.handlePartyPortraitMouseInput(shiftModifierHeld())
+	})
 }
 
 // drawCardFlames draws rising flame-tongue particles over a party card while
@@ -1701,6 +1711,15 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	}
 
 	bx, by, bw, bh := ui.game.hudMessageBlockRect(len(lines))
+	ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, bw, bh}, func() {
+		if ui.hudClicksBlocked() {
+			return
+		}
+		handler := InputHandler{game: ui.game}
+		if handler.handleCombatLogOpenInput() {
+			ui.displayedInput.capturedGameplay = true
+		}
+	})
 	vector.FillRect(screen, float32(bx), float32(by), float32(bw), float32(bh), color.RGBA{0, 0, 0, 150}, false)
 
 	// Draw lines from top to bottom (most recent at bottom)

@@ -25,7 +25,7 @@ func TestLoadMenuRightClickNeverOpensRename(t *testing.T) {
 
 	// Load menu: allowRename=false. The gate must short-circuit before the
 	// rename path runs, so no dialog opens (and no save file is touched).
-	ih.handleSaveLoadMenuInput(0, 0, w, h, saveMenuPanelW, saveMenuPanelH, false, func() {})
+	ih.handleSaveLoadMouseInput(px, py, saveMenuPanelW, saveMenuPanelH, false, func() {})
 
 	if g.saveRenameOpen {
 		t.Fatal("right-click in the Load menu opened the rename dialog; it must be Save-menu-only")

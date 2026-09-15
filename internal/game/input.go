@@ -111,14 +111,11 @@ func (ih *InputHandler) HandleInput() {
 	// Handle tabbed menu UI (blocks movement when open, but allows UI input)
 	if ih.game.menuOpen {
 		ih.handleTabbedMenuInput()
-		// The party cards remain visible below the character hub and are its
-		// single mouse selector. Do not route the click to world objects.
-		ih.handlePartyPortraitMouseInput(false)
 		ih.handleUIInput() // Allow UI input to close the panel
 		return
 	}
 
-	if ih.handleCombatLogOpenInput() {
+	if gl := ih.game.gameLoop; gl != nil && gl.ui != nil && gl.ui.displayedInput.capturedGameplay {
 		return
 	}
 
@@ -131,7 +128,7 @@ func (ih *InputHandler) HandleInput() {
 	}
 	ih.handleCharacterSelectionInput()
 	ih.handleUIInput()
-	ih.handleMouseInput()
+	ih.handleWorldMouseInput()
 }
 
 func (ih *InputHandler) topModalLayer() modalLayerID {
@@ -147,7 +144,7 @@ func (ih *InputHandler) topModalLayer() modalLayerID {
 
 // handleTopModalInput dispatches only to the layer that Draw places on top.
 // Returning true means a modal owns the frame even when that layer has no
-// keyboard actions and handles its clicks later in its draw pass.
+// keyboard actions. Mouse actions already ran through displayed commands.
 func (ih *InputHandler) handleTopModalInput() bool {
 	g := ih.game
 	switch ih.topModalLayer() {
@@ -206,7 +203,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 			g.statPopupOpen = false
 		}
 	case modalLayerRevival:
-		// Picker clicks resolve in the draw pass; the ESC edge is consumed HERE.
+		// Picker clicks resolve in the displayed dispatcher; ESC is consumed HERE.
 		// A draw-side IsKeyPressed poll would miss a press-and-release that falls
 		// entirely between two Draws when Ebiten runs Updates back to back.
 		if ih.keys.Consume(ebiten.KeyEscape) {
@@ -576,36 +573,25 @@ func (ih *InputHandler) handleMainMenuInput() {
 		if ih.keys.Consume(ebiten.KeyEnter) {
 			ih.activateMainMenuSelection()
 		}
-		ih.handleMainMenuMouseInput()
 	case MenuSaveSelect:
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
 		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, false, ih.doLoadFromSelectedRow)
 	case MenuSettings:
-		ih.handleAudioSettingsInput(audioSettingsPanelLayoutAt(
-			(w-panelW)/2,
-			(h-panelH)/2,
-			panelW,
-			panelH,
-			false,
-		))
+		ih.game.updateAudioSettingsKeys(ih.keys.Consume)
 	}
 }
 
 // handleSaveLoadMenuInput drives the shared Save/Load slot-list input: rename
-// dialog, page navigation, right-click rename, row hover selection, and
-// Enter/click activation. allowRename adds the R rename key (Save menu only).
+// dialog, page navigation, row hover selection, and
+// Enter activation. Mouse commands are registered by the displayed menu.
+// allowRename adds the R rename key (Save menu only).
 func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH int, allowRename bool, activate func()) {
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
 	if ih.game.saveRenameOpen {
 		ih.handleSaveRenameInput()
 		return
 	}
 	ih.navigateSavePage()
-	if ih.handleSaveLoadMouseInput(px, py, panelW, panelH, allowRename, activate) {
-		return
-	}
 	// Mouse hover selection (row within page).
 	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
 	if ih.keys.Consume(ebiten.KeyEnter) {
@@ -803,7 +789,6 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 		ih.game.consumeLevelUpChoice(req.selection)
 		return
 	}
-	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMultiSelectInput drives the "pick K of N" picker: Space/Enter on an
@@ -823,7 +808,6 @@ func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest) {
 		}
 		return
 	}
-	ih.handleLevelUpChoiceMouseInput()
 }
 
 // handleMovementInput processes movement and camera controls
@@ -1443,13 +1427,11 @@ func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchoolID)
 	}
 }
 
-// handleMouseInput processes mouse input for targeting and UI interaction
-func (ih *InputHandler) handleMouseInput() {
+// handleWorldMouseInput resolves exploration objects after displayed UI input.
+func (ih *InputHandler) handleWorldMouseInput() {
 	// Heal targeting (H/C key) is handled in the combat input handlers
 	// (handleCombatInput / handleTurnBasedInput) so it shares the new
 	// per-character cooldown + auto-advance, instead of a separate path here.
-	ih.handlePartyPortraitMouseInput(shiftModifierHeld())
-
 	// World-object clicks (only during gameplay, no overlays). Containers get
 	// first claim - they're small and usually in front of whoever dropped them.
 	if ih.game.worldClickAllowed() {
@@ -1778,9 +1760,6 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 
 // handleDialogInput handles input when in dialog mode
 func (ih *InputHandler) handleDialogInput() {
-	// Handle mouse input for character selection
-	ih.handleDialogMouseInput()
-
 	// ESC is handled at the top-level input dispatcher (sees the
 	// skillTrainerPopup flag and peels off the popup before the dialog).
 
@@ -2623,10 +2602,6 @@ func (ih *InputHandler) handleEncounterInput() {
 	// State may have shrunk the list since the dialog opened - keep the cursor valid.
 	if ih.game.selectedChoice >= len(choices) {
 		ih.game.selectedChoice = len(choices) - 1
-	}
-
-	if ih.consumeEncounterMouseInput(npc, choices) {
-		return
 	}
 
 	// Navigate choices with Up/Down arrows

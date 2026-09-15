@@ -200,20 +200,11 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 	}
 }
 
-func (g *MMGame) updateEntryAudioSettings(pressed func(ebiten.Key) bool) {
-	layout := makeAudioSettingsPanelLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight(), true)
-	g.updateAudioSettingsKeys(pressed)
-	g.updateAudioSettingsPointer(layout.px, layout.py, layout.panelW)
-}
-
-func (ih *InputHandler) handleAudioSettingsInput(layout audioSettingsPanelLayout) {
-	g := ih.game
-	g.updateAudioSettingsKeys(ih.keys.Consume)
-	g.updateAudioSettingsPointer(layout.px, layout.py, layout.panelW)
-}
-
 func (ui *UISystem) drawAudioSettingsContent(screen *ebiten.Image, px, py, panelW, panelH, contentInset int, title string) {
 	g := ui.game
+	ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() {
+		g.updateAudioSettingsPointer(px, py, panelW)
+	})
 	drawDebugText(screen, title, px+contentInset, py+contentInset-2)
 	if g.soundManager == nil {
 		drawDebugText(screen, "Audio is unavailable", px+contentInset, py+64)

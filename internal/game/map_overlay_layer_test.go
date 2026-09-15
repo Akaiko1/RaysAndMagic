@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/threading"
@@ -500,10 +501,8 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	g.cardFxTimers[fxBlink][0] = 2
 	g.cardSummonCooldowns = map[string]int{"test-card": 2}
 	uiBefore := g.uiFrameCount
-	x, y, w, _ := combatLogPanelLayout(g)
-	g.mouseLeftClicks = []queuedClick{{x: x + w - 20, y: y + 18, at: 1000}}
-
 	loop := &GameLoop{game: g, inputHandler: NewInputHandler(g), ui: ui}
+	loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyEscape })
 	loop.updateExploration()
 
 	if g.combatLogOpen {

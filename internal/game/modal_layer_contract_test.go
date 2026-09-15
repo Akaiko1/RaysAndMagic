@@ -179,6 +179,7 @@ func TestMainMenuContentChangeActivatesRedrawBarrier(t *testing.T) {
 func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	g.sprites = graphics.NewSpriteManager()
 	ui := NewUISystem(g)
 	g.gameLoop = &GameLoop{game: g, ui: ui}
 	g.gameVictory = true
@@ -189,13 +190,12 @@ func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	g.levelUpChoiceOpen = true
 	req := g.currentLevelUpChoice()
 	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	defer screen.Deallocate()
+	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{{x: popupX + popupW/2, y: startY + rowH/2}}
 
-	ih := NewInputHandler(g)
-	ih.keys.BeginFrame()
-	if !ih.handleTopModalInput() {
-		t.Fatal("top modal did not claim input")
-	}
+	ui.dispatchDisplayedInput()
 	if len(g.levelUpChoiceQueue) != 0 {
 		t.Fatal("visible level choice did not receive input above victory")
 	}

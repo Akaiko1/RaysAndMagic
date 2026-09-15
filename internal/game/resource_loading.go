@@ -13,6 +13,12 @@ import (
 
 const loadingBannerDelay = 200 * time.Millisecond
 
+// Keep the completed banner steady briefly so adjacent demand batches do not
+// make it leave and re-enter. This is presentation only; gameplay resumes as
+// soon as its resources and a complete frame are ready.
+const loadingBannerSettle = 300 * time.Millisecond
+const loadingBannerFade = 120 * time.Millisecond
+
 // Icons and small portraits should not turn a shop page into a loading screen.
 // Cap both each source and the full Draw; panels and world assets still stream.
 const smallUIResourceBytes = 256 << 10
@@ -31,6 +37,7 @@ type gameLoadingState struct {
 	started       time.Time
 	finished      time.Time
 	awaitingFrame bool
+	area          bool
 	rendering     bool
 	front, back   *ebiten.Image
 	uploads       []*ebiten.Image
@@ -88,8 +95,10 @@ func (gl *GameLoop) deferGameplayResource(request graphics.SpriteResourceRequest
 	l.stream.Request(request)
 	if l.worldPass || !l.rendering {
 		l.worldRequests[request] = true
+		l.beginArea(time.Now())
+	} else {
+		l.begin(time.Now())
 	}
-	l.begin(time.Now())
 	if l.rendering {
 		panic(loadingRenderMiss{})
 	}
@@ -97,18 +106,37 @@ func (gl *GameLoop) deferGameplayResource(request graphics.SpriteResourceRequest
 }
 
 func (l *gameLoadingState) begin(now time.Time) {
+	if !l.finished.IsZero() && now.Sub(l.finished) >= loadingBannerSettle+loadingBannerFade {
+		l.started = time.Time{}
+	}
 	if l.started.IsZero() {
 		l.started = now
+		l.area = false
 	}
 	l.finished = time.Time{}
 	l.awaitingFrame = true
 }
 
+func (l *gameLoadingState) beginArea(now time.Time) {
+	l.begin(now)
+	l.area = true
+}
+
 func (r *Renderer) requiredLoadingRegions() []string {
 	keys := []string{currentMapKey()}
 	if r.game.openWorldActive() {
-		keys = append(keys, visibleOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
-			float64(r.game.config.GetTileSize()), mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*float64(r.game.config.GetTileSize()))...)
+		tileSize := float64(r.game.config.GetTileSize())
+		gl := r.game.gameLoop
+		if gl != nil && gl.loading != nil && gl.loading.awaitingFrame {
+			// Once paused, finish the same surrounding batch that residency
+			// already prefetches. Releasing on the current frustum alone lets
+			// small party steps expose each unfinished neighbour in turn.
+			keys = append(keys, nearbyOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
+				tileSize, mapRenderLoadMarginInTiles*tileSize)...)
+		} else {
+			keys = append(keys, visibleOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
+				tileSize, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize)...)
+		}
 	}
 	return keys
 }
@@ -148,6 +176,13 @@ func (gl *GameLoop) loadingWorkReady() bool {
 	if l == nil {
 		return true
 	}
+	// Queue known combat dependencies on both Update and Draw, even while
+	// another worker is busy. A renderable idle pose alone is not readiness.
+	gl.prepareLiveCombatResources()
+	regionsReady := gl.renderer.loadingRegionsReady()
+	if !regionsReady || gl.renderer.floorPreparation != nil {
+		l.beginArea(time.Now())
+	}
 	if l.pattern != nil {
 		select {
 		case <-l.pattern:
@@ -156,7 +191,7 @@ func (gl *GameLoop) loadingWorkReady() bool {
 			return false
 		}
 	}
-	return !l.stream.Pending() && len(l.uploads) == 0 && gl.renderer.floorPreparation == nil && gl.renderer.loadingRegionsReady()
+	return !l.stream.Pending() && len(l.uploads) == 0 && gl.renderer.floorPreparation == nil && regionsReady
 }
 
 func (gl *GameLoop) loadingBarrier() bool {
@@ -166,8 +201,6 @@ func (gl *GameLoop) loadingBarrier() bool {
 	gl.ensureResourceLoading()
 	if !gl.loadingWorkReady() {
 		gl.loading.begin(time.Now())
-	} else {
-		gl.prepareLiveCombatResources()
 	}
 	return gl.loading.awaitingFrame
 }
@@ -300,6 +333,9 @@ func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 }
 
 func (ui *UISystem) loadingBannerLabel() string {
+	if gl := ui.game.gameLoop; gl != nil && gl.loading != nil && gl.loading.area {
+		return "Loading area..."
+	}
 	// Use the same layer priority as input so a hidden hub tab cannot name a
 	// loading message for a dialog or another overlay above it.
 	if ui.topModalLayer() != modalLayerNone {
@@ -327,7 +363,7 @@ func (ui *UISystem) drawLoadingBanner(screen *ebiten.Image, elapsed time.Duratio
 	drawFilledRect(screen, x, y, width, 3, fadeVectorColor(color.RGBA{48, 42, 20, 255}, alpha))
 	// An indeterminate sweep, not a completion percentage. Wall time keeps it
 	// moving even when simulation is paused or Draw runs without an Update.
-	phase := math.Mod(max(0, (elapsed-loadingBannerDelay).Seconds()), 1.2) / 1.2
+	phase := math.Mod(max(0, elapsed.Seconds()), 1.2) / 1.2
 	position := (1 - math.Cos(2*math.Pi*phase)) / 2
 	segment := max(12, width/5)
 	x += int(math.Round(position * float64(width-segment)))
@@ -339,18 +375,23 @@ func (l *gameLoadingState) bannerAlpha(now time.Time) float64 {
 		return 0
 	}
 	if !l.finished.IsZero() {
-		if l.finished.Sub(l.started) < loadingBannerDelay {
+		if !l.area && l.finished.Sub(l.started) < loadingBannerDelay {
 			l.started = time.Time{}
 			return 0
 		}
-		alpha := 1 - float64(now.Sub(l.finished))/float64(120*time.Millisecond)
+		alpha := 1 - float64(max(0, now.Sub(l.finished)-loadingBannerSettle))/float64(loadingBannerFade)
 		if alpha <= 0 {
 			l.started = time.Time{}
 			return 0
 		}
 		return alpha
 	}
-	return min(1, max(0, float64(now.Sub(l.started)-loadingBannerDelay)/float64(120*time.Millisecond)))
+	// A territory pause must be explained from its first presented frame.
+	// Only interface-only work uses the delay that suppresses tiny loads.
+	if l.area {
+		return 1
+	}
+	return min(1, max(0, float64(now.Sub(l.started)-loadingBannerDelay)/float64(loadingBannerFade)))
 }
 
 // Metadata analysis is CPU-only and shares the ordinary pattern cache. Abort

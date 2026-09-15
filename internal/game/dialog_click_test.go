@@ -39,7 +39,6 @@ func queueClickAtChoice(g *MMGame, npc *character.NPC, i int) {
 // Quest choices on the spell trader's Quests tab require a DOUBLE click, same
 // as every other dialog list: first click selects, second executes.
 func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
-	cfg := loadTestConfig(t)
 	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
 	if err != nil {
 		t.Fatalf("quests: %v", err)
@@ -48,9 +47,9 @@ func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
 	t.Cleanup(func() { quests.GlobalQuestManager = prevQM })
 	quests.GlobalQuestManager = quests.NewQuestManager(questCfg)
 
-	g := newTestGame(cfg, newTestWorld(cfg))
+	h := newDisplayedModalHarness(t, 1024, 768)
+	g := h.g
 	g.questManager = quests.GlobalQuestManager
-	ih := &InputHandler{game: g}
 
 	npc := aldricLikeNPC()
 	g.dialogActive = true
@@ -59,8 +58,9 @@ func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
 	g.selectedChoice = 0
 
 	// First click: must SELECT only - quest not taken, dialog still open.
+	h.ui.Draw(h.screen)
 	queueClickAtChoice(g, npc, 0)
-	ih.handleSpellTraderInput()
+	h.ui.dispatchDisplayedInput()
 	if q := g.questManager.GetQuest("forest_wolf_cull"); q != nil {
 		t.Fatal("single click must not execute the choice (quest was activated)")
 	}
@@ -69,8 +69,9 @@ func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
 	}
 
 	// Second click on the same row inside the double-click window: executes.
+	h.ui.Draw(h.screen)
 	queueClickAtChoice(g, npc, 0)
-	ih.handleSpellTraderInput()
+	h.ui.dispatchDisplayedInput()
 	if q := g.questManager.GetQuest("forest_wolf_cull"); q == nil {
 		t.Fatal("double click should execute give_quest")
 	}

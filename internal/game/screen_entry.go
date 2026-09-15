@@ -170,7 +170,7 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 		return
 	}
 	if g.entryMenuMode == EntryMenuSettings {
-		g.updateEntryAudioSettings(pressed)
+		g.updateAudioSettingsKeys(pressed)
 		return
 	}
 	if g.entryMenuMode == EntryMenuLoad {
@@ -181,6 +181,18 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 			g.savePage = (g.savePage + 1) % savePageCount
 		}
 	}
+	if g.entryMenuMode == EntryMenuAchievements {
+		_, wy := ebiten.Wheel()
+		if wy < 0 {
+			g.achievementsScroll++
+		} else if wy > 0 && g.achievementsScroll > 0 {
+			g.achievementsScroll--
+		}
+	}
+}
+
+// updateEntryMenuPointer retains release activation for the displayed root.
+func (g *MMGame) updateEntryMenuPointer() {
 	if pointerLeftJustPressed() {
 		g.entryMenuRootPressArmed = g.entryMenuMode == EntryMenuRoot
 	}
@@ -188,14 +200,6 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 		x, y := pointerPosition()
 		if g.consumeEntryMenuRootReleaseAt(x, y) {
 			return
-		}
-	}
-	if g.entryMenuMode == EntryMenuAchievements {
-		_, wy := ebiten.Wheel()
-		if wy < 0 {
-			g.achievementsScroll++
-		} else if wy > 0 && g.achievementsScroll > 0 {
-			g.achievementsScroll--
 		}
 	}
 }
@@ -245,6 +249,7 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 
 func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 	g := ui.game
+	ui.onDisplayedInput(uiCommandPointer, layoutRect{}, g.updateEntryMenuPointer)
 	layout := makeEntryMenuRootLayout(w, h)
 
 	// Logo / title.

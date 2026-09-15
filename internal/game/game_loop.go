@@ -312,13 +312,13 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	}()
 	defer func() {
 		if gl.renderer != nil {
+			// Observe pending GPU preparation in the loading gate before
+			// submitting it, just as we do for texture uploads below.
+			gl.renderer.drawMapRenderShaderWarm(screen)
 			gl.renderer.drawMapRenderPrewarmUploads(screen)
 		}
 	}()
 	gl.game.threading.PerformanceMonitor.RecordPresentedFrame()
-	if gl.renderer != nil {
-		gl.renderer.drawMapRenderShaderWarm(screen)
-	}
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
@@ -340,6 +340,10 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	}
 
 	if gl.ensureResourceLoading() {
+		// Draw can be the first owner after new actors become visible. Its
+		// readiness preflight uses the same deferred resource policy as Update.
+		gl.game.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
+		defer gl.game.sprites.SetDeferredResourceHandler(nil)
 		gl.drawResourceLoadingFrame(screen)
 		return
 	}

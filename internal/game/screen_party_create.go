@@ -11,7 +11,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,7 +21,7 @@ import (
 // prison (jail) and everyone else waits at the tavern. Dragging a hero onto an
 // occupied slot swaps the two.
 //
-// Input (drag/drop, button clicks) is handled in updatePartyCreate (Update tick)
+// Input (drag/drop, button clicks) is registered by Draw and dispatched during Update
 // so inpututil press/release fire reliably; drawPartyCreateScreen only renders.
 // Both share the same layout via partyCreateLayout.
 //
@@ -189,7 +188,14 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	return lay
 }
 
-// updatePartyCreate handles all mouse + keyboard interaction (Update tick).
+func (g *MMGame) leavePartyCreate() {
+	g.partyCreate = nil
+	g.appScreen = AppScreenMainMenu
+	g.entryMenuMode = EntryMenuRoot
+}
+
+// updatePartyCreate handles keyboard cancellation; pointer gestures are
+// registered by the displayed party-creation screen.
 func (g *MMGame) updatePartyCreate() {
 	pc := g.partyCreate
 	if pc == nil {
@@ -197,13 +203,7 @@ func (g *MMGame) updatePartyCreate() {
 		g.partyCreate = pc
 	}
 
-	backOut := func() {
-		g.partyCreate = nil
-		g.appScreen = AppScreenMainMenu
-		g.entryMenuMode = EntryMenuRoot
-	}
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+	if pointerCancelJustPress() {
 		if pc.drag != nil {
 			pc.clearDrag()
 			return
@@ -212,7 +212,14 @@ func (g *MMGame) updatePartyCreate() {
 			pc.clearPending()
 			return
 		}
-		backOut()
+		g.leavePartyCreate()
+		return
+	}
+}
+
+func (g *MMGame) updatePartyCreatePointer() {
+	pc := g.partyCreate
+	if pc == nil {
 		return
 	}
 
@@ -262,7 +269,7 @@ func (g *MMGame) updatePartyCreate() {
 		return
 	}
 	if lay.back.contains(mouseX, mouseY) {
-		backOut()
+		g.leavePartyCreate()
 		return
 	}
 
@@ -343,6 +350,7 @@ func (g *MMGame) beginAdventure(pc *partyCreateState) {
 
 func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	g := ui.game
+	ui.onDisplayedInput(uiCommandPointer, layoutRect{}, g.updatePartyCreatePointer)
 	pc := g.partyCreate
 	if pc == nil {
 		pc = newPartyCreateState(g.config)

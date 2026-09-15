@@ -1517,20 +1517,6 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	drawDebugText(screen, "Press ESC to close", centerX-70, h-50)
 }
 
-// handleModalLayerInput lets the topmost UI layer claim the click queue before
-// any lower pass draws. It runs at the very start of UISystem.Draw: the HUD and
-// the hub handle clicks inside their own draw passes, so a modal that only acted
-// later would find its click already spent (that is how the map overlay's close
-// button died, and how a click through the dim could still hit a card badge).
-func (ui *UISystem) handleModalLayerInput() {
-	if ui == nil || ui.game == nil {
-		return
-	}
-	if ui.topModalLayer() == modalLayerMap {
-		ui.handleMapOverlayInput()
-	}
-}
-
 // handleMapOverlayInput claims the map overlay's clicks before lower displayed
 // commands: its close button sits over the hub's inventory grid.
 func (ui *UISystem) handleMapOverlayInput() {
@@ -1572,6 +1558,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	drawDebugText(screen, clipDebugText(title, layout.title.w), layout.title.x, layout.title.y)
 
 	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	ui.onDisplayedInput(uiCommandClick, layout.close, ui.handleMapOverlayInput)
 	mapX, mapY, mapW, mapH := layout.body.x, layout.body.y, layout.body.w, layout.body.h
 
 	worldW := ui.game.world.Width
