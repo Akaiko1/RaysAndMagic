@@ -70,6 +70,7 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 		}
 	}
 	g.finishMapArrival(pose.X, pose.Y, pose.Angle)
+	g.recordProfileTravel(originKey, request.mapKey)
 	return nil
 }
 

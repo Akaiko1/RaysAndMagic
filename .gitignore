@@ -45,3 +45,5 @@ assets/sprites/characters/archive/
 assets/app_icons/*.iconset/
 
 /tmp*
+
+docs/

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"image/color"
 
-	"ugataima/internal/config"
-
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -39,6 +37,12 @@ var entryButtonDefs = []entryButton{
 	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 	{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
 	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
+	{"statistics", "Player Statistics", func(g *MMGame) {
+		g.entryMenuMode = EntryMenuStatistics
+		g.statisticsTab = 0
+		g.statisticsPage = 0
+		g.statisticsScroll = 0
+	}},
 	{"settings", "Settings", func(g *MMGame) {
 		g.entryMenuMode = EntryMenuSettings
 		g.beginAudioSettings()
@@ -173,6 +177,10 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 		g.updateAudioSettingsKeys(pressed)
 		return
 	}
+	if g.entryMenuMode == EntryMenuStatistics {
+		g.updatePlayerStatisticsKeys(pressed)
+		return
+	}
 	if g.entryMenuMode == EntryMenuLoad {
 		if pressed(ebiten.KeyLeft) {
 			g.savePage = (g.savePage + savePageCount - 1) % savePageCount
@@ -240,6 +248,8 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 	case EntryMenuScores:
 		ui.drawHighScoresOverlay(screen)
 		ui.drawBackHint(screen, h)
+	case EntryMenuStatistics:
+		ui.drawPlayerStatistics(screen, w, h)
 	case EntryMenuAchievements:
 		ui.drawAchievementsScreen(screen, w, h)
 	case EntryMenuSettings:
@@ -352,79 +362,6 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
 
 	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })
-}
-
-// drawAchievementsScreen renders the data-driven (stub) achievements list. All
-// entries display as locked - unlock tracking is not implemented yet.
-func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
-	g := ui.game
-	panelW, panelH := 640, 480
-	if panelW > w-40 {
-		panelW = w - 40
-	}
-	if panelH > h-40 {
-		panelH = h - 40
-	}
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
-	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
-	drawDebugText(screen, "Achievements", px+menuFrameInset, py+menuFrameInset-4)
-
-	defs := config.GetAchievements()
-	listX := px + menuFrameInset
-	listY := py + menuFrameInset + 22
-	listW := panelW - 2*menuFrameInset
-	rowH := 64
-	backY := py + panelH - menuFrameInset - 30
-	visibleRows := (backY - listY - 8) / rowH
-
-	if len(defs) == 0 {
-		drawDebugText(screen, "No achievements defined.", listX, listY+8)
-		ui.drawBackButton(screen, listX, backY, func() { g.entryMenuMode = EntryMenuRoot })
-		return
-	}
-
-	// Clamp scroll.
-	maxScroll := len(defs) - visibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if g.achievementsScroll > maxScroll {
-		g.achievementsScroll = maxScroll
-	}
-
-	for row := 0; row < visibleRows; row++ {
-		idx := g.achievementsScroll + row
-		if idx >= len(defs) {
-			break
-		}
-		def := defs[idx]
-		y := listY + row*rowH
-		drawFilledRect(screen, listX, y, listW, rowH-8, color.RGBA{34, 34, 54, 220})
-		drawRectBorder(screen, listX, y, listW, rowH-8, 1, color.RGBA{80, 80, 120, 200})
-
-		// Icon (sprite hook) or procedural locked badge.
-		iconSize := rowH - 20
-		iconX := listX + 8
-		iconY := y + 6
-		if def.Icon != "" && g.sprites.HasSprite(def.Icon) {
-			drawImageScaled(screen, g.sprites.GetSprite(def.Icon), iconX, iconY, iconSize, iconSize)
-		} else {
-			drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{50, 50, 60, 255})
-			drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{90, 90, 110, 255})
-			drawCenteredDebugText(screen, "?", iconX, iconY, iconSize, iconSize)
-		}
-
-		textX := iconX + iconSize + 12
-		drawDebugTextColored(screen, def.Name, textX, y+8, color.RGBA{220, 210, 160, 255})
-		drawDebugTextColored(screen, def.Description, textX, y+26, color.RGBA{170, 170, 180, 255})
-		drawDebugTextColored(screen, "[ Locked ]", listX+listW-90, y+8, color.RGBA{140, 110, 110, 255})
-	}
-
-	if maxScroll > 0 {
-		drawDebugText(screen, "Scroll: mouse wheel", px+panelW-menuFrameInset-150, py+menuFrameInset-4)
-	}
-	ui.drawBackButton(screen, listX, backY, func() { g.entryMenuMode = EntryMenuRoot })
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ func (g *MMGame) awardGold(amount int) {
 	}
 	g.party.Gold += amount
 	g.totalGoldEarned += amount
+	g.profileAdd("gold", int64(amount))
 	g.playSound(soundCoins)
 }
 

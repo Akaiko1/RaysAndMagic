@@ -1,50 +1,59 @@
-# Achievement definitions (data-driven, graphics-ready stub).
-#
-# Unlock tracking is NOT implemented yet - the entry-menu Achievements screen
-# renders every entry as locked. To wire real progress later, add unlock logic
-# that flips a per-key flag; the screen already reads this list.
-#
-# icon (optional): sprite key under assets/sprites/<icon>.png. When absent or
-# missing, the UI draws a procedural placeholder, so art can be added per-entry
-# at any time without code changes.
+# Lifetime unlock rules. Metrics are emitted by committed gameplay events.
+# any_of is an OR over counters; target is the required minimum.
 
 achievements:
   - key: first_steps
+    any_of: ["departures:city"]
+    target: 1
     name: "First Steps"
     description: "Leave the starting town for the first time."
     icon: "icon_achievement_first_steps"
 
   - key: first_blood
+    any_of: ["kills"]
+    target: 1
     name: "First Blood"
     description: "Defeat your first monster in combat."
     icon: "icon_achievement_first_blood"
 
   - key: free_the_captives
+    any_of: ["captives_freed"]
+    target: 1
     name: "Jailbreak"
     description: "Free the imprisoned heroes from the mountain prison."
     icon: "icon_achievement_jailbreak"
 
   - key: full_roster
+    any_of: ["all_heroes_played"]
+    target: 1
     name: "Band of Heroes"
-    description: "Recruit every available hero to your cause."
+    description: "Have every hero serve in your active party at least once."
     icon: "icon_achievement_full_roster"
 
   - key: warlord_slayer
+    any_of: ["kills:old_samurai", "kills:orc_hero_boss"]
+    target: 1
     name: "Warlord Slayer"
     description: "Defeat one of the realm's warlord bosses."
     icon: "icon_achievement_warlord"
 
   - key: archmage
+    any_of: ["promotion:archmage"]
+    target: 1
     name: "Master of the Arcane"
     description: "Promote a party member to Archmage."
     icon: "icon_achievement_archmage"
 
   - key: lichdom
+    any_of: ["promotion:lich"]
+    target: 1
     name: "Beyond Death"
     description: "Promote a party member to Lich."
     icon: "icon_achievement_lich"
 
   - key: victory
+    any_of: ["victories"]
+    target: 1
     name: "Champion of the Realm"
     description: "Complete the main quest and win the game."
     icon: "icon_achievement_victory"

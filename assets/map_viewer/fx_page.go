@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/config"
 	"ugataima/internal/game"
@@ -194,10 +195,7 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 	dx := panelX + (panelW-dw)/2
 	dy := panelY + (panelH-dh)/2
 	vector.FillRect(screen, float32(dx-2), float32(dy-2), float32(dw+4), float32(dh+4), color.RGBA{60, 60, 80, 255}, false)
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate(float64(dx), float64(dy))
-	screen.DrawImage(scene, opts)
+	graphics.DrawImageScaled(screen, scene, float64(dx), float64(dy), float64(sw)*scale, float64(sh)*scale, nil)
 
 	sel := fxPage.items[fxPage.selIdx]
 	ebitenutil.DebugPrintAt(screen,

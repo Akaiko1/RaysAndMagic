@@ -359,9 +359,6 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[1] = g.mainMenuSelection
 		s.state[2] = g.slotSelection
 		s.state[3] = g.savePage
-		// MenuSettings: Down then Right across two pre-Draw Updates must not
-		// adjust a channel whose highlight the player has not seen move.
-		s.state[4] = g.audioSettingsSelection
 	case modalLayerSaveRename:
 		s.state[0] = int(g.mainMenuMode)
 		s.state[1] = g.saveRenameSlot
@@ -461,27 +458,7 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 }
 
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
-	if src == nil || w <= 0 || h <= 0 {
-		return
-	}
-	bounds := src.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= 0 || srcH <= 0 {
-		return
-	}
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
-	opts.GeoM.Translate(float64(x), float64(y))
-	// Shrinking with the default nearest filter drops whole source rows/columns,
-	// which clips thin baked-in details - e.g. an icon's frame on the trailing
-	// (right/bottom) edges. Linear filtering (mipmaps kick in automatically for
-	// shrink) resamples instead and keeps them. Upscales stay nearest so pixel
-	// art is not blurred.
-	if w < srcW || h < srcH {
-		opts.Filter = ebiten.FilterLinear
-	}
-	dst.DrawImage(src, opts)
+	graphics.DrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
 }
 
 func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w, h int) {
@@ -1173,11 +1150,9 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	y := float64(cy) - float64(h)*scale/2
 	blit := func(ox, oy float64, c color.Color) {
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Scale(scale, scale)
-		op.GeoM.Translate(x+ox, y+oy)
 		r, g, b, a := c.RGBA()
 		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
-		screen.DrawImage(glyphs, op)
+		graphics.DrawImageScaled(screen, glyphs, x+ox, y+oy, float64(w)*scale, float64(h)*scale, op)
 	}
 	outline := color.RGBA{0, 0, 0, 235}
 	for _, d := range textOutlineOffsets {
@@ -1204,15 +1179,11 @@ func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy 
 	img := outlinedLabelImage(text, base)
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(
-		float64(cx)-float64(w)*scale/2,
-		float64(cy)-float64(h)*scale/2,
-	)
+
 	if alpha < 1 {
 		op.ColorScale.ScaleAlpha(float32(alpha))
 	}
-	screen.DrawImage(img, op)
+	graphics.DrawImageScaled(screen, img, float64(cx)-float64(w)*scale/2, float64(cy)-float64(h)*scale/2, float64(w)*scale, float64(h)*scale, op)
 }
 
 // drawDebugText draws left-aligned OUTLINED white text - the game-wide default,

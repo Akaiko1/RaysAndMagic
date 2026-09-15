@@ -65,6 +65,11 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 	if outcome != castCommitted {
 		caster.SpellPoints += req.Cost
 	}
+	if outcome == castCommitted && req.PlayerInitiated && cs.game.playerProfile != nil {
+		d := &cs.game.playerProfile.Data
+		d.Add("spells", 1)
+		d.Rank("spells", string(req.ID), def.Name, spellTooltipIconName(req.ID), 1)
+	}
 	return outcome
 }
 

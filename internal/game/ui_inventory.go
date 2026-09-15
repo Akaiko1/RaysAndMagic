@@ -788,7 +788,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		ui.game.selectedSpell = -1
 	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Cast  Click: Select  Double-click: Equip fast spell", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
+	drawCenteredDebugText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {

@@ -140,9 +140,8 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 	return cs.placeTrapByKey(caster, trapKey, announce)
 }
 
-// placeTrapByKey arms a SPECIFIC trap (the trap book's double-click casts the
-// clicked entry, slotted or not) - gates and placement shared with the quick
-// slot path.
+// placeTrapByKey arms a specific trap (Enter/F in the book uses the selected
+// entry, slotted or not). Gates and placement are shared with the quick slot.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
 	if !caster.CanUseCombatAction() || !hasTrapBook(caster) {
 		return "", false

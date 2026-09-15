@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"sort"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/config"
 	"ugataima/internal/storage"
@@ -325,12 +326,10 @@ func (v *viewer) drawOpenWorldPage(screen *ebiten.Image) {
 
 	if owPage.preview != nil {
 		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(scale, scale)
-		opts.GeoM.Translate(float64(viewX), float64(viewY))
 		if owPage.dragging || owPage.dirty {
 			opts.ColorScale.Scale(0.45, 0.45, 0.45, 1) // stale while editing
 		}
-		screen.DrawImage(owPage.preview, opts)
+		graphics.DrawImageScaled(screen, owPage.preview, float64(viewX), float64(viewY), float64(owPage.preview.Bounds().Dx())*scale, float64(owPage.preview.Bounds().Dy())*scale, opts)
 	}
 
 	// Region frames + labels from the LIVE config (correct mid-drag).

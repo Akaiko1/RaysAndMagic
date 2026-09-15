@@ -6,6 +6,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -29,9 +30,13 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                *MMGame
-	displayedInput      uiDisplayedInput
-	justOpenedStatPopup bool
+	profileViewport           *ebiten.Image
+	profileArt                *profileArt
+	profileExplorationReady   bool
+	profileExplorationEntries []playerprofile.Entry
+	game                      *MMGame
+	displayedInput            uiDisplayedInput
+	justOpenedStatPopup       bool
 	// renderedModalSnapshot is the complete top-modal state in the last completed
 	// Draw. Comparing it with topModalSnapshot catches layer changes and visible
 	// content replacement while Ebiten runs Updates before the new frame lands.
@@ -62,8 +67,6 @@ type UISystem struct {
 	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
-	lastTrapClickTime     int64
-	lastClickedTrap       int
 	hubInteractionOpen    bool
 	hubInteractionChar    int
 	hubInteractionTab     MenuTab
@@ -100,7 +103,6 @@ func NewUISystem(game *MMGame) *UISystem {
 		game:               game,
 		lastClickedItem:    -1,
 		lastClickedSlot:    items.EquipSlot(-1),
-		lastClickedTrap:    -1,
 		hubInteractionChar: -1,
 	}
 	ui.initRadarDots()
@@ -145,6 +147,11 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
+	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
+		ui.profileExplorationReady = false
+		ui.profileExplorationEntries = nil
+	}
+	defer ui.drawScreenBanner(screen)
 	ui.beginDisplayedInput()
 	defer ui.endDisplayedInput()
 	ui.tooltipLines = nil
@@ -180,14 +187,6 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	} else {
 		ui.drawOverlayInterfaces(screen)
 	}
-
-	// The screen banner sits ABOVE the dialog. Quest news and legendary drops are
-	// allowed through while a conversation is open (visibleScreenBanner), and the
-	// dialog fills the screen with a 50% dim - painting the banner with the rest of
-	// the HUD would leave the turn-in heading half-lit under it. It stays BELOW
-	// everything drawn after this point: those either pause the world (the banner
-	// is hidden then) or are full screens of their own.
-	ui.drawScreenBanner(screen)
 
 	if ui.game.combatLogOpen {
 		ui.drawCombatLogOverlay(screen)

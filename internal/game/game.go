@@ -20,6 +20,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/quests"
 	"ugataima/internal/sound"
 	"ugataima/internal/spells"
@@ -232,12 +233,12 @@ type MMGame struct {
 	prevWorldClickAllowed bool
 
 	// Double-click support for spellbook
-	lastSpellClickTime int64 // Time of last spell click in milliseconds
-	lastClickedSpell   int   // Index of last clicked spell
-	lastClickedSchool  int   // Index of last clicked school
+	lastBookClickTime    int64 // Time of last book entry click in milliseconds
+	lastClickedBookEntry int   // Index of last clicked spell or trap
+	lastClickedBookGroup int   // School index, or -1 for the trap book
 	// Double-click support for spellbook school collapse
 	lastSchoolClickTime  int64 // Time of last school click in milliseconds
-	lastSchoolClickedIdx int   // Index of last clicked school header
+	lastSchoolClickedIdx int   // School index, or -1 for the trap book header
 
 	// Quick-slot drag-and-drop (sampled in updateMouseState, resolved in Draw).
 	// A drag is only armed while the menu is open; the in-game bar is double-click
@@ -669,8 +670,17 @@ type MMGame struct {
 	// Top-level screen state (entry menu / party creation / gameplay). See
 	// AppScreen. The entry menu and party-creation screens live in
 	// screen_entry.go and screen_party_create.go.
-	appScreen          AppScreen
-	entryMenuMode      EntryMenuMode
+	appScreen                              AppScreen
+	entryMenuMode                          EntryMenuMode
+	playerProfile                          *playerprofile.Store
+	playerProfileError                     string
+	profileLastTick, profileLastCheckpoint time.Time
+	profileKilled                          map[string]bool
+	pendingAchievements                    []config.AchievementDef
+	statisticsTab                          int
+	statisticsPage                         int
+	statisticsScroll                       int
+
 	achievementsScroll int               // achievements list scroll offset (rows)
 	partyCreate        *partyCreateState // built lazily on entering AppScreenPartyCreate
 }
@@ -703,6 +713,7 @@ const (
 	EntryMenuScores
 	EntryMenuAchievements
 	EntryMenuSettings
+	EntryMenuStatistics
 )
 
 // MainMenuMode represents sub-modes of the ESC menu
@@ -813,9 +824,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		currentTab: TabInventory,
 
 		// Double-click support for spellbook
-		lastSpellClickTime:   0,
-		lastClickedSpell:     -1,
-		lastClickedSchool:    -1,
+		lastBookClickTime:    0,
+		lastClickedBookEntry: -1,
+		lastClickedBookGroup: -1,
 		lastSchoolClickTime:  0,
 		lastSchoolClickedIdx: -1,
 
@@ -1719,6 +1730,17 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
+	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
+		g.gameLoop.ui.profileViewport.Deallocate()
+		g.gameLoop.ui.profileViewport = nil
+	}
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		g.gameLoop.ui.profileArt.close()
+		g.gameLoop.ui.profileArt = nil
+	}
+	if err := g.playerProfile.Close(); err != nil {
+		fmt.Printf("Warning: player profile save failed: %v\n", err)
+	}
 	if g.gameLoop != nil {
 		g.gameLoop.closeResourceLoading()
 	}

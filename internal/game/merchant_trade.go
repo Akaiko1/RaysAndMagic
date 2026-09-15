@@ -107,6 +107,7 @@ func (g *MMGame) buyMerchantUnits(entry *character.MerchantStockItem, n int) boo
 		}
 		g.party.Gold -= goldCost
 		g.takeMerchantUnits(entry, n)
+		g.recordProfileItemTrade(currency, name, entry.Cost*n)
 		if goldCost > 0 {
 			g.AddCombatMessage(fmt.Sprintf("Traded %d %ss and %d gold for %s.", entry.Cost*n, name, goldCost, merchantUnitsLabel(entry, n)))
 		} else {

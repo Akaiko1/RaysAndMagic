@@ -301,6 +301,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.calendarDay, g.calendarWeek, g.calendarMonth = 1, 1, 1
 	g.arenaTierFoughtDay = nil
 	g.playthroughID = mintPlaythroughID()
+	g.profileKilled = nil
 	// Town Portal knows only THIS run's taverns.
 	g.visitedTavernMaps = nil
 	g.townPortalPickerOpen = false
@@ -325,9 +326,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.tabbedMenuInputCooldown = 0
 	g.collapsedSpellSchools = make(map[character.MagicSchoolID]bool)
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
-	g.lastSpellClickTime = 0
-	g.lastClickedSpell = -1
-	g.lastClickedSchool = -1
+	g.lastBookClickTime = 0
+	g.lastClickedBookEntry = -1
+	g.lastClickedBookGroup = -1
 	g.lastSchoolClickTime = 0
 	g.lastSchoolClickedIdx = -1
 	g.dialogLastClickTime = 0
@@ -1175,6 +1176,7 @@ func (ih *InputHandler) handleUIInput() {
 // axis slides (sliding both would just recreate the blocked diagonal and clip).
 func (ih *InputHandler) movePlayer(dx, dy float64) {
 	cam := ih.game.camera
+	oldX, oldY := cam.X, cam.Y
 	cs := ih.game.collisionSystem
 	moved := false
 	switch {
@@ -1193,6 +1195,7 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
+	ih.game.recordProfileStep(oldX, oldY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
 	ih.applyLandingTileEffects()
 }
@@ -1616,85 +1619,81 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	}
 }
 
-// handleSpellbookNavigation handles navigation within the spellbook tab
+// handleSpellbookNavigation browses either book, then dispatches its shared use gesture.
 func (ih *InputHandler) handleSpellbookNavigation() {
-	currentChar := ih.game.party.Members[ih.game.selectedChar]
-
-	// Trap book (thief): spell-like controls - Up/Down browse, Enter/F equips
-	// the selection into the quick slot. MUST run before the magic-school
-	// checks: a trapper has no schools and would bail out early.
+	g := ih.game
+	currentChar := g.party.Members[g.selectedChar]
 	if hasTrapBook(currentChar) {
 		keys := availableTraps(currentChar)
 		if len(keys) == 0 {
 			return
 		}
-		if ih.game.selectedTrap >= len(keys) || ih.game.selectedTrap < 0 {
-			ih.game.selectedTrap = 0
+		if g.selectedTrap >= len(keys) || g.selectedTrap < 0 {
+			g.selectedTrap = 0
 		}
 		if ih.keys.Consume(ebiten.KeyUp) || ih.keys.Consume(ebiten.KeyW) {
-			ih.game.selectedTrap = (ih.game.selectedTrap - 1 + len(keys)) % len(keys)
+			g.selectedTrap = (g.selectedTrap - 1 + len(keys)) % len(keys)
 		}
 		if ih.keys.Consume(ebiten.KeyDown) || ih.keys.Consume(ebiten.KeyS) {
-			ih.game.selectedTrap = (ih.game.selectedTrap + 1) % len(keys)
+			g.selectedTrap = (g.selectedTrap + 1) % len(keys)
 		}
-		if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
-			equipTrap(currentChar, keys[ih.game.selectedTrap])
-			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
+	} else {
+		schools := spellbookSchoolsWithSpells(currentChar)
+		if len(schools) == 0 {
+			return
 		}
-		return
+		if g.selectedSchool >= len(schools) || g.selectedSchool < 0 {
+			g.selectedSchool, g.selectedSpell = 0, -1
+		}
+		if ih.keys.Consume(ebiten.KeyUp) {
+			ih.navigateSpellbookUp(schools)
+		}
+		if ih.keys.Consume(ebiten.KeyDown) {
+			ih.navigateSpellbookDown(schools)
+		}
 	}
-
-	schools := spellbookSchoolsWithSpells(currentChar)
-	if len(schools) == 0 {
-		return
-	}
-
-	// The school list is PER CHARACTER: switching members (keys 1-4, mouse)
-	// can shrink it under a stale index - clamp before any schools[...] access.
-	if ih.game.selectedSchool >= len(schools) || ih.game.selectedSchool < 0 {
-		ih.game.selectedSchool = 0
-		ih.game.selectedSpell = -1
-	}
-
-	// Navigation: step one spell per key press so the user can't overshoot.
-	// No cooldown needed - IsKeyJustPressed already debounces to one step per press.
-	if ih.keys.Consume(ebiten.KeyUp) {
-		ih.navigateSpellbookUp(schools)
-	}
-
-	if ih.keys.Consume(ebiten.KeyDown) {
-		ih.navigateSpellbookDown(schools)
-	}
-
-	// Cast the highlighted spell. The hub closes before the action observes the
-	// world; a failed cast restores it so the player can fix the selection.
 	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
-		if ih.castSelectedSpellFromHub() {
-			// The action closed the hub, so its follow-up debounce belongs to
-			// gameplay and must pause with every later overlay.
-			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		if ih.useSelectedBookEntryFromHub() {
+			g.spellInputCooldown = g.config.UI.SpellInputCooldown
 		} else {
-			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
+			g.tabbedMenuInputCooldown = g.config.UI.SpellInputCooldown
 		}
 	}
 }
 
-func (ih *InputHandler) castSelectedSpellFromHub() bool {
+// Both books close before using an ability and reopen on refusal. Successful
+// use consumes exactly one action and retains the RT cooldown across mode changes.
+func (ih *InputHandler) useSelectedBookEntryFromHub() bool {
 	g := ih.game
 	if g == nil || g.combat == nil || !g.canSpendCombatAction(g.selectedChar) {
 		return false
 	}
-	var spellID spells.SpellID
-	cast := g.dispatchCharacterHubWorldAction(func() bool {
-		var ok bool
-		ok, spellID = g.combat.CastSelectedSpell()
-		return ok
+	currentChar := g.party.Members[g.selectedChar]
+	cooldown := 0
+	used := g.dispatchCharacterHubWorldAction(func() bool {
+		if hasTrapBook(currentChar) {
+			keys := availableTraps(currentChar)
+			if g.selectedTrap < 0 || g.selectedTrap >= len(keys) {
+				return false
+			}
+			key := keys[g.selectedTrap]
+			if _, ok := g.combat.placeTrapByKey(currentChar, key, true); !ok {
+				return false
+			}
+			cooldown = g.combat.TrapCooldownFrames(currentChar, key)
+		} else {
+			ok, spellID := g.combat.CastSelectedSpell()
+			if !ok {
+				return false
+			}
+			cooldown = g.combat.SpellCooldownFrames(currentChar, spellID)
+		}
+		return true
 	})
-	if !cast {
+	if !used {
 		return false
 	}
-	currentChar := g.party.Members[g.selectedChar]
-	g.consumeSelectedCharActionWithRTCooldown(g.combat.SpellCooldownFrames(currentChar, spellID))
+	g.consumeSelectedCharActionWithRTCooldown(cooldown)
 	return true
 }
 
@@ -2399,7 +2398,9 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 
 	// In turn-based mode, if the tile is passable, we should always be able to move there
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
+	oldX, oldY := ih.game.camera.X, ih.game.camera.Y
 	ih.game.setPartyPosition(targetX, targetY)
+	ih.game.recordProfileStep(oldX, oldY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
 	ih.applyLandingTileEffects()
 	return true

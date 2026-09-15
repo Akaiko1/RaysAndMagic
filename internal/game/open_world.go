@@ -30,6 +30,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 	if r == nil || r.MapKey == wm.CurrentMapKey {
 		return
 	}
+	g.recordProfileTravel(wm.CurrentMapKey, r.MapKey)
 	wm.CurrentMapKey = r.MapKey
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		// The stitched world does not rebuild renderer caches at a seamless

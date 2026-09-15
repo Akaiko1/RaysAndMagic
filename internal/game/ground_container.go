@@ -154,6 +154,7 @@ func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
 	if g == nil || (len(drops) == 0 && gold <= 0) {
 		return
 	}
+	g.recordProfileLoot(drops)
 	ts := g.config.GetTileSize()
 	g.addGroundContainer(GroundContainer{
 		Kind: ContainerKindLootBag,
@@ -422,6 +423,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	// sight names them now that the party has walked to it.
 	if c.Kind == ContainerKindTreasureChest {
 		g.announceLegendaryDrops(c.Items)
+		g.recordProfileLoot(c.Items)
 	}
 
 	for _, it := range c.Items {

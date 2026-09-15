@@ -59,6 +59,7 @@ func NewGameLoop(game *MMGame) *GameLoop {
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
 	updateStart := time.Now()
+	defer func() { gl.game.updatePlayerProfile(time.Now()) }()
 	defer func() {
 		gl.lastUpdateDuration = time.Since(updateStart)
 	}()
@@ -616,7 +617,9 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 	if rewards == nil || !rewards.FreesCaptives {
 		return
 	}
-	for _, c := range gl.game.party.FreeCaptives() {
+	freed := gl.game.party.FreeCaptives()
+	gl.game.profileAdd("captives_freed", int64(len(freed)))
+	for _, c := range freed {
 		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }

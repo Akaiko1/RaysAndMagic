@@ -27,7 +27,7 @@ func main() {
 	// Game-only configs.
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
-	// Load achievement definitions (optional - stubbed feature, non-fatal).
+	// Load the data-driven achievement catalog and unlock rules.
 	if _, err := config.LoadAchievementConfig("assets/achievements.yaml"); err != nil {
 		log.Printf("Warning: Failed to load achievements config: %v", err)
 	}
@@ -107,6 +107,7 @@ func main() {
 	ebiten.SetTPS(tps)
 
 	g := game.NewMMGame(cfg)
+	g.LoadPlayerProfile()
 	defer g.Shutdown()
 
 	// --test-arena: fast-forward the party to a mid-game state for testing.

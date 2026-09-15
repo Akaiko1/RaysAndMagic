@@ -462,52 +462,41 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	ui.lastClickedItem = -1
 	ui.lastEquipClickTime = time.Time{}
 	ui.lastClickedSlot = items.EquipSlot(-1)
-	ui.lastTrapClickTime = 0
-	ui.lastClickedTrap = -1
-	ui.game.lastSpellClickTime = 0
-	ui.game.lastClickedSpell = -1
-	ui.game.lastClickedSchool = -1
+	ui.game.lastBookClickTime = 0
+	ui.game.lastClickedBookEntry = -1
+	ui.game.lastClickedBookGroup = -1
 	ui.game.lastSchoolClickTime = 0
 	ui.game.lastSchoolClickedIdx = -1
 }
 
-// handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
-func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
+// Both books bind a double-click to the quick action. The callback only
+// supplies the book's selection and equipment rules; gesture ownership is shared.
+func (ui *UISystem) handleBookEntryClick(bounds layoutRect, group, index int, selectEntry, equipEntry func()) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{spellX, spellY, spellWidth, spellHeight}, func() { ui.handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex) })
+		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleBookEntryClick(bounds, group, index, selectEntry, equipEntry) })
 		return
 	}
-
-	if ui.modalLayerOwnsInput() {
+	if ui.modalLayerOwnsInput() || !ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
 		return
 	}
-	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
-		currentTime := ui.game.mouseLeftClickAt
-
-		// Check for a fast second click on the same spell.
-		doubleClick := ui.game.lastClickedSpell == spellIndex &&
-			ui.game.lastClickedSchool == schoolIndex &&
-			withinDoubleClickWindow(currentTime, ui.game.lastSpellClickTime)
-
-		// Update selection for highlight and keyboard navigation
-		ui.game.selectedSchool = schoolIndex
-		ui.game.selectedSpell = spellIndex
-
-		if doubleClick {
-			// Double-click binds the highlighted spell as the character's fast
-			// spell and deliberately keeps the book open. Enter/F owns casting.
-			ui.game.combat.EquipSelectedSpell()
-			ui.game.lastSpellClickTime = 0
-			ui.game.lastClickedSpell = -1
-			ui.game.lastClickedSchool = -1
-			return
-		}
-
-		// Update click tracking
-		ui.game.lastSpellClickTime = currentTime
-		ui.game.lastClickedSpell = spellIndex
-		ui.game.lastClickedSchool = schoolIndex
+	g := ui.game
+	now := g.mouseLeftClickAt
+	doubleClick := g.lastClickedBookEntry == index && g.lastClickedBookGroup == group && withinDoubleClickWindow(now, g.lastBookClickTime)
+	selectEntry()
+	if doubleClick {
+		equipEntry()
+		g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = 0, -1, -1
+		return
 	}
+	g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = now, index, group
 }
+
+func (ui *UISystem) handleSpellbookSpellClick(x, y, w, h, schoolIndex, spellIndex int) {
+	ui.handleBookEntryClick(layoutRect{x, y, w, h}, schoolIndex, spellIndex, func() {
+		ui.game.selectedSchool, ui.game.selectedSpell = schoolIndex, spellIndex
+	}, func() { ui.game.combat.EquipSelectedSpell() })
+}
+
+const bookControlsHint = "Up/Down: Navigate  Enter/F: Use  Click: Select  Double-click: Equip quick slot"
 
 // updateMouseState should be called once per frame before input handling.

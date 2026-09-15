@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/config"
 	"ugataima/internal/game"
@@ -252,10 +253,7 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 	dw, dh := int(float64(sw)*scale), int(float64(sh)*scale)
 	dx := panelX + (panelW-dw)/2
 	vector.FillRect(screen, float32(dx-2), float32(panelY-2), float32(dw+4), float32(dh+4), color.RGBA{60, 60, 80, 255}, false)
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate(float64(dx), float64(panelY))
-	screen.DrawImage(scene, opts)
+	graphics.DrawImageScaled(screen, scene, float64(dx), float64(panelY), float64(sw)*scale, float64(sh)*scale, nil)
 
 	// Below: the stat sheet + drop table, flowing top-to-bottom into columns.
 	infoY := panelY + dh + contentPad

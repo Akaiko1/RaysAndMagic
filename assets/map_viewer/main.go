@@ -1463,14 +1463,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 
 // drawImageInBox draws img scaled to fit a swxsw box at (bx,by).
 func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int) {
-	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
-	if iw == 0 || ih == 0 {
-		return
-	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(bw)/float64(iw), float64(bh)/float64(ih))
-	op.GeoM.Translate(float64(bx), float64(by))
-	screen.DrawImage(img, op)
+	drawImageScaled(screen, img, bx, by, bw, bh)
 }
 
 // clipText truncates text with an ellipsis to fit availPx (~6px per glyph in
@@ -2771,27 +2764,9 @@ func drawHeaderBandForTextRow(screen *ebiten.Image, x, textY, w, rowAdvance int)
 	drawRectBorder(screen, x, y, w, h, 1, viewerHeaderBorder)
 }
 
-// drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's
-// helper (ui_helpers.go): linear filtering when SHRINKING (mipmaps) so thin
-// baked-in details/frames aren't dropped, nearest when upscaling so pixel art
-// stays crisp. Used for sprite icons and portraits so the editor renders them
-// exactly like the game (no "squished"/clipped look from nearest downscaling).
+// drawImageScaled uses the same resampling policy as the game's interface.
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
-	if src == nil || w <= 0 || h <= 0 {
-		return
-	}
-	b := src.Bounds()
-	sw, sh := b.Dx(), b.Dy()
-	if sw <= 0 || sh <= 0 {
-		return
-	}
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(float64(w)/float64(sw), float64(h)/float64(sh))
-	opts.GeoM.Translate(float64(x), float64(y))
-	if w < sw || h < sh {
-		opts.Filter = ebiten.FilterLinear
-	}
-	dst.DrawImage(src, opts)
+	graphics.DrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
 }
 
 func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.RGBA) {

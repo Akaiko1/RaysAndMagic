@@ -9,6 +9,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
@@ -1284,11 +1285,7 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 	}
 	w, h := float64(iw)*scale, float64(ih)*scale
 	x, y := (float64(sw)-w)/2, (float64(sh)-h)/2
-	opts := &ebiten.DrawImageOptions{}
-	opts.Filter = ebiten.FilterLinear
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate(x, y)
-	screen.DrawImage(img, opts)
+	graphics.DrawImageScaled(screen, img, x, y, w, h, nil)
 	drawRectBorder(screen, int(x)-2, int(y)-2, int(w)+4, int(h)+4, 2, color.RGBA{210, 170, 80, 235})
 }
 
@@ -1965,6 +1962,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
 		return false
 	}
+	g.profileAdd("quest_rewards", 1)
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}

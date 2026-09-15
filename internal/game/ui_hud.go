@@ -12,6 +12,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -474,13 +475,7 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 	img := ebiten.NewImage(w, h)
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 	scale := math.Max(float64(w)/float64(sw), float64(h)/float64(sh)) // cover-fit
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate((float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2)
-	if scale < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink, no nearest mush
-	}
-	img.DrawImage(src, opts)
+	graphics.DrawImageScaled(img, src, (float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2, float64(sw)*scale, float64(sh)*scale, nil)
 
 	if usePartyAperture {
 		if w != panelPortraitW || h != panelPortraitH {
@@ -1278,14 +1273,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 
 	if icon != "" {
 		sprite := ui.game.sprites.GetSprite(icon)
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(float64(size)/float64(sprite.Bounds().Dx()), float64(size)/float64(sprite.Bounds().Dy()))
-		opts.GeoM.Translate(float64(x), float64(y))
-		// Linear (mipmapped) on the typical downscale keeps spell icons crisp.
-		if size < sprite.Bounds().Dx() || size < sprite.Bounds().Dy() {
-			opts.Filter = ebiten.FilterLinear
-		}
-		screen.DrawImage(sprite, opts)
+		drawImageScaled(screen, sprite, x, y, size, size)
 	} else if fallback != "" {
 		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
@@ -1633,11 +1621,7 @@ func drawCompassTileSprite(dst, sprite *ebiten.Image, x, y, size float32) {
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		return
 	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(size)/float64(bounds.Dx()), float64(size)/float64(bounds.Dy()))
-	op.GeoM.Translate(float64(x), float64(y))
-	op.Filter = ebiten.FilterLinear
-	dst.DrawImage(sprite, op)
+	graphics.DrawImageScaled(dst, sprite, float64(x), float64(y), float64(size), float64(size), nil)
 }
 
 // drawWizardEyeRadar draws enemy dots on the compass when wizard eye is active

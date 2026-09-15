@@ -5,6 +5,9 @@ package game
 // clock its drawing code reads; render-only frames never call this method.
 func (g *MMGame) updateInterfacePresentation() {
 	g.uiFrameCount++
+	if g.gameplayPausedByOverlay() {
+		g.tickPausedAchievementBanner()
+	}
 	for fx := range g.cardFxTimers {
 		for i := range g.cardFxTimers[fx] {
 			if g.cardFxTimers[fx][i] > 0 {

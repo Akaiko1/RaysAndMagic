@@ -1834,6 +1834,7 @@ func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType 
 // resolution, so an in-flight champion projectile cannot inherit a later hand
 // or spell's mutable state.
 func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, hit monsterCharacterHit) {
+	defer cs.game.beginProfileMonsterHit(monster, sourceName)()
 	if target == nil {
 		return
 	}
@@ -2390,6 +2391,7 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 }
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
+	defer cs.game.beginProfileMonsterHit(monster, monster.Name)()
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, monster)
 
@@ -2956,6 +2958,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 		return 0
 	}
 
+	cs.game.recordProfileKill(monster)
 	xpAwarded := monster.Experience
 	if monster.SummonedBy != "" && !monster.CharmedByParty {
 		xpAwarded = 0

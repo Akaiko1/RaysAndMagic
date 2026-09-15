@@ -69,9 +69,8 @@ func audioSettingsPanelLayoutAt(px, py, panelW, panelH int, ornate bool) audioSe
 func (g *MMGame) beginAudioSliderDrag(row int) {
 	g.audioSettingsSelection = row
 	g.audioSliderDrag = row
-	// Slider presses are handled directly through inpututil instead of the
-	// buffered click queue. Consume that press here so it cannot activate an
-	// option after the settings screen closes.
+	// The displayed pointer gesture owns this press. Retire any buffered copy
+	// so it cannot activate an option after the settings screen closes.
 	g.mouseLeftClicks = g.mouseLeftClicks[:0]
 }
 
@@ -94,7 +93,7 @@ func (g *MMGame) saveAudioSettings() {
 func (g *MMGame) closeAudioSettings() {
 	g.saveAudioSettings()
 	g.audioSliderDrag = -1
-	// Settings handles pointer presses outside the buffered-click system. Drop
+	// Settings owns pointer gestures through the displayed dispatcher. Drop
 	// every pending press at this UI boundary, including clicks in dead space,
 	// so the root menu cannot replay them on its next update.
 	g.mouseLeftClicks = g.mouseLeftClicks[:0]
@@ -185,12 +184,37 @@ func (g *MMGame) updateAudioSettingsPointer(px, py, panelW int) {
 	}
 }
 
+func (ui *UISystem) audioSettingsOwnsInput() bool {
+	g := ui.game
+	switch g.appScreen {
+	case AppScreenMainMenu:
+		return g.entryMenuMode == EntryMenuSettings
+	case AppScreenInGame:
+		return ui.topModalLayer() == modalLayerMainMenu && g.mainMenuMode == MenuSettings
+	default:
+		return false
+	}
+}
+
 func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
+	// Selection is presentation state, not ownership of the fixed slider
+	// geometry. Gate keyboard targeting here without cancelling mouse drags.
+	if gl := g.gameLoop; gl != nil && gl.ui != nil {
+		ui := gl.ui
+		if !ui.audioSettingsOwnsInput() || !ui.displayedInputCurrent() ||
+			ui.displayedInput.audioSelection != g.audioSettingsSelection {
+			return
+		}
+	}
+	selection := g.audioSettingsSelection
 	if pressed(ebiten.KeyUp) && g.audioSettingsSelection > 0 {
 		g.audioSettingsSelection--
 	}
 	if pressed(ebiten.KeyDown) && g.audioSettingsSelection < len(audioSettingDefinitions)-1 {
 		g.audioSettingsSelection++
+	}
+	if selection != g.audioSettingsSelection {
+		return
 	}
 	if pressed(ebiten.KeyLeft) {
 		g.setSelectedAudioVolume(-0.05)
@@ -202,9 +226,12 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 
 func (ui *UISystem) drawAudioSettingsContent(screen *ebiten.Image, px, py, panelW, panelH, contentInset int, title string) {
 	g := ui.game
-	ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() {
-		g.updateAudioSettingsPointer(px, py, panelW)
-	})
+	if ui.audioSettingsOwnsInput() {
+		ui.displayedInput.audioSelection = g.audioSettingsSelection
+		ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() {
+			g.updateAudioSettingsPointer(px, py, panelW)
+		})
+	}
 	drawDebugText(screen, title, px+contentInset, py+contentInset-2)
 	if g.soundManager == nil {
 		drawDebugText(screen, "Audio is unavailable", px+contentInset, py+64)

@@ -31,7 +31,7 @@ type uiDisplayIdentity struct {
 	party        *character.Party
 	modal        modalLayerSnapshot
 	screen       uiScreenIdentity
-	state        [12]int
+	state        [16]int
 	items        uint64
 	partyCreate  *partyCreateState
 	questManager *quests.QuestManager
@@ -55,6 +55,7 @@ type uiDisplayedInput struct {
 	building, suspended  bool
 	processingClick      bool
 	capturedGameplay     bool
+	audioSelection       int // Last presented keyboard target; not a gesture owner.
 	quickDrag, stashDrag uiDragIdentity
 	holdIdentity         uiDisplayIdentity
 	holdActor            *character.MMCharacter
@@ -70,7 +71,8 @@ type uiDisplayedInput struct {
 func (ui *UISystem) syncPointerScreen() {
 	d := &ui.displayedInput
 	screen := ui.inputScreenIdentity()
-	if d.pointerScreenSet && d.pointerScreen != screen {
+	if d.pointerScreenSet && d.pointerScreen != screen ||
+		ui.game.audioSliderDrag >= 0 && !ui.audioSettingsOwnsInput() {
 		ui.cancelScreenPointerGestures()
 	}
 	d.pointerScreen, d.pointerScreenSet = screen, true
@@ -92,9 +94,9 @@ func (ui *UISystem) cancelScreenPointerGestures() {
 func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	g := ui.game
 	id := uiDisplayIdentity{world: g.world, party: g.party, partyCreate: g.partyCreate, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
-	id.state = [12]int{g.savePage,
+	id.state = [16]int{g.savePage,
 		boolInt(g.menuOpen), int(g.currentTab), g.selectedChar, ui.inventoryPage, ui.inventoryTab, ui.spellPage, ui.questPage,
-		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell}
+		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsPage, g.achievementsScroll, g.statisticsScroll}
 	hash := uint64(14695981039346656037)
 	mix := func(v uint64) { hash ^= v; hash *= 1099511628211 }
 	item := func(it items.Item) { mix(uiItemIdentity(it)) }
@@ -197,6 +199,7 @@ func (ui *UISystem) beginDisplayedInput() {
 	d := &ui.displayedInput
 	d.building = true
 	d.suspended = false
+	d.audioSelection = -1
 	// Release captured references from the previous layout before reuse.
 	clear(d.commands)
 	d.commands = d.commands[:0]

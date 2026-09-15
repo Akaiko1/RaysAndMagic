@@ -161,18 +161,15 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 	ui.lastClickTime = time.UnixMilli(1000)
 	ui.lastClickedSlot = items.SlotMainHand
 	ui.lastEquipClickTime = time.UnixMilli(1000)
-	ui.lastClickedTrap = 2
-	ui.lastTrapClickTime = 1000
-	g.lastClickedSpell = 1
-	g.lastClickedSchool = 0
-	g.lastSpellClickTime = 1000
+	g.lastClickedBookEntry = 1
+	g.lastClickedBookGroup = 0
+	g.lastBookClickTime = 1000
 
 	g.selectedChar = 1
 	ui.syncCharacterHubClickContext()
 	if ui.lastClickedItem != -1 || !ui.lastClickTime.IsZero() ||
 		ui.lastClickedSlot != items.EquipSlot(-1) || !ui.lastEquipClickTime.IsZero() ||
-		ui.lastClickedTrap != -1 || ui.lastTrapClickTime != 0 ||
-		g.lastClickedSpell != -1 || g.lastClickedSchool != -1 || g.lastSpellClickTime != 0 {
+		g.lastClickedBookEntry != -1 || g.lastClickedBookGroup != -1 || g.lastBookClickTime != 0 {
 		t.Fatal("character switch preserved a double-click chain from the previous character")
 	}
 }
@@ -404,7 +401,7 @@ func TestSpellbookDoubleClickEquipsFastSpellWithoutCasting(t *testing.T) {
 func TestSpellbookKeyboardActionClosesHubBeforeSuccessfulCast(t *testing.T) {
 	g, ih, caster, _, _ := setupSorcererFireboltSelection(t)
 	beforeSP := caster.SpellPoints
-	if !ih.castSelectedSpellFromHub() {
+	if !ih.useSelectedBookEntryFromHub() {
 		t.Fatal("selected Firebolt did not cast")
 	}
 	if g.menuOpen {

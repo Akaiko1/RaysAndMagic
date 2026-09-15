@@ -6,6 +6,7 @@ toolchain go1.25.10
 
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
+	golang.org/x/image v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

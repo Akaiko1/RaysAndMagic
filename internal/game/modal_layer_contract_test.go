@@ -277,23 +277,6 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 	}
 }
 
-// MenuSettings: Down (select channel) then Right (adjust) across two catch-up
-// Updates must not change a channel whose highlight has not been drawn yet.
-func TestAudioSettingsSelectionActivatesRedrawBarrier(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	g.appScreen = AppScreenInGame
-	g.mainMenuOpen = true
-	g.mainMenuMode = MenuSettings
-	ui := NewUISystem(g)
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-
-	g.audioSettingsSelection++
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("audio channel selection change did not activate the redraw barrier")
-	}
-}
-
 // A drag frozen under a higher modal misses its one-tick release edge and would
 // resurrect when the layer returns: stale coordinates resolve a drop the player
 // never confirmed. Losing layer ownership must cancel armed/active/drop state;

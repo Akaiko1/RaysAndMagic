@@ -309,9 +309,7 @@ func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 	}
 	screen.Fill(color.RGBA{12, 15, 18, 255})
 	if l.front != nil {
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(float64(screen.Bounds().Dx())/float64(l.front.Bounds().Dx()), float64(screen.Bounds().Dy())/float64(l.front.Bounds().Dy()))
-		screen.DrawImage(l.front, opts)
+		drawImageScaled(screen, l.front, 0, 0, screen.Bounds().Dx(), screen.Bounds().Dy())
 	}
 	// Demand uploads also get a draw submission before the loading gate opens.
 	if len(l.uploads) > 0 {
