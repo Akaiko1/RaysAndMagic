@@ -584,16 +584,16 @@ func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 }
 
 // CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current
-// HP/SP - character creation and level-up only. Everything else (equip, stat
-// spend, buff change) goes through RecalculateMaxStatsKeepingCurrent.
+// HP/SP for character creation. Level-ups use RecalculateMaxStatsKeepingCurrent;
+// explicit stat/skill gains use RecalculateMaxStatsGrantingGain.
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.recomputeMaxFromEffective(cfg)
 	c.HitPoints = c.MaxHitPoints
 	c.SpellPoints = c.MaxSpellPoints
 }
 
-// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for REVERSIBLE
-// stat changes (equip/unequip, buff apply/expire): the maxima move, the
+// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for level-ups and
+// reversible stat changes (equip/unequip, buff apply/expire): the maxima move, the
 // CURRENT values never grow - only get capped. Granting current on a gain
 // here would be a pump: equip +End (+HP granted) -> unequip (cap can't take it
 // back) -> repeat until full. Irreversible gains (spending a stat point,

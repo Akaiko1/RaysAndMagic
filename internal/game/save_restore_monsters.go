@@ -240,6 +240,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 		}
 
+		// A load replaces the timeline. Missing stamps mean unknown age, not a
+		// date inherited from whichever save happened to be loaded before it.
+		for _, w := range wm.LoadedMaps {
+			if w != nil {
+				w.LastRespawnDay = 0
+			}
+		}
 		if len(save.MapMonsters) > 0 {
 			for mapKey, w := range wm.LoadedMaps {
 				monsters, ok := save.MapMonsters[mapKey]
@@ -253,12 +260,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// authored roster forever. A genuinely cleared farming map always
 				// has its first-arrival stamp, so preserve only this legacy case.
 				mapConfig := wm.MapConfigs[mapKey]
-				_, hasRespawnStamp := save.MapRespawnDay[mapKey]
+				hasRespawnStamp := save.MapRespawnDay[mapKey] > 0
 				if len(monsters) == 0 && !hasRespawnStamp && mapConfig != nil && mapConfig.RespawnDays > 0 && len(w.MonsterSpawns) > 0 {
-					if len(w.Monsters) == 0 {
-						w.RespawnAuthoredMonsters()
-					}
-					w.LastRespawnDay = g.dayNightDay + 1
+					// Gameplay respawns preserve party charms. A load must not
+					// carry those allies over from the previous timeline.
+					w.Monsters = nil
+					w.RespawnAuthoredMonsters()
+					w.LastRespawnDay = g.currentCalendarDay()
 					g.loadNeedsResave = true
 					continue
 				}
@@ -339,7 +347,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 		}
 		for mapKey, day := range save.MapRespawnDay {
-			if w := wm.LoadedMaps[mapKey]; w != nil {
+			if w := wm.LoadedMaps[mapKey]; w != nil && day > 0 {
 				w.LastRespawnDay = day
 			}
 		}

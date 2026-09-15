@@ -80,7 +80,7 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	// skill mapping needed for the default multiplier lives there); only the
 	// spell-cooldown perk is computable at this layer.
 	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
-		lines = append(lines, line)
+		lines = append(lines, line+" (main hand only)")
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -1122,7 +1122,7 @@ type MapConfig struct {
 	// for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
 	// RespawnDays > 0 makes the map a FARMING zone: on arrival, if at least this
-	// many day/night phase changes have passed since the roster was last spawned,
+	// many calendar days have passed since the roster was last spawned,
 	// the authored monsters respawn in full (the clock tower winds new horrors).
 	RespawnDays int `yaml:"respawn_days,omitempty"`
 	// ClearEncounter: a single map-wide encounter - ALL monsters on the map

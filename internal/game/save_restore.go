@@ -64,6 +64,7 @@ func prepareSaveRestore(wm *world.WorldManager, save *GameSave) (*GameSave, *wor
 	if targetWorld == nil {
 		return nil, nil, fmt.Errorf("saved map is not loaded: %s", save.MapKey)
 	}
+	migrateRespawnDays(save)
 	return save, targetWorld, nil
 }
 

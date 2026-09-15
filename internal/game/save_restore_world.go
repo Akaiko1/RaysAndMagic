@@ -1,6 +1,7 @@
 package game
 
 import (
+	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -146,6 +147,13 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 	if g.questManager != nil {
 		g.questManager.Reset()
 		for _, qs := range save.Quests {
+			if encounter := character.NPCConfigInstance.EncounterByQuestID(qs.ID); encounter != nil {
+				gold, xp := 0, 0
+				if encounter.Rewards != nil {
+					gold, xp = encounter.Rewards.Gold, encounter.Rewards.Experience
+				}
+				g.questManager.CreateEncounterQuest(qs.ID, encounter.QuestName, encounter.QuestDescription, gold, xp)
+			}
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
 		// Completion spawns already fired in this save's timeline must not fire

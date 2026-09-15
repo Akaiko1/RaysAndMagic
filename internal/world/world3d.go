@@ -49,7 +49,7 @@ type World3D struct {
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
 	// MonsterSpawns is the authored roster (retained verbatim) and
-	// LastRespawnDay the day/night phase count when it was last spawned -
+	// LastRespawnDay is the one-based calendar day when it was last spawned -
 	// respawn_days maps (the clock tower) rebuild the roster from it.
 	MonsterSpawns  []MonsterSpawn
 	LastRespawnDay int

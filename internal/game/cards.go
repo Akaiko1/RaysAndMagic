@@ -654,41 +654,21 @@ func (g *MMGame) cardArmorPiercePct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardArmorPiercePct })
 }
 
-// cardBonusVsMultiplier mirrors weaponBonusMultiplier but sources from the card
-// collection and also matches the monster's Type (e.g. "formless") in addition
-// to its Name/Key - letting a card grant "+dmg vs a whole creature category"
-// the way a weapon's bonus_vs can't.
+// cardBonusVsMultiplier uses the same name/key/type selectors as weapons.
+// Matching entries multiply across cards, once per selector within each card.
 func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 	if monster == nil {
 		return 1.0
 	}
-	candidates := []string{monster.Name}
-	if monster.Key != "" {
-		candidates = append(candidates, monster.Key)
-	}
-	if monster.MonsterType != "" {
-		candidates = append(candidates, monster.MonsterType)
-	}
 	mult := 1.0
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		def := cardDef(g.cardCollectionKey(slot))
-		if def == nil || len(def.CardBonusVs) == 0 {
+		if def == nil {
 			continue
 		}
 		for bonusKey, m := range def.CardBonusVs {
-			if m <= 0 {
-				continue
-			}
-			// Name/Key/MonsterType often name the same identity (e.g. the Dragon
-			// monster has Name="Dragon", Key="dragon", MonsterType="dragon") - one
-			// matching bonus_vs entry means "this card applies to this monster",
-			// not "multiply once per field that happened to match", so stop at the
-			// first hit instead of checking the remaining candidates.
-			for _, candidate := range candidates {
-				if strings.EqualFold(bonusKey, candidate) {
-					mult *= m
-					break
-				}
+			if m > 0 && monsterMatchesBonusTarget(monster, bonusKey) {
+				mult *= m
 			}
 		}
 	}

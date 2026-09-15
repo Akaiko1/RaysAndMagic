@@ -204,7 +204,7 @@ func (g *MMGame) recordProfileLoot(loot []items.Item) {
 		n := int64(it.Count())
 		key, icon := fmt.Sprintf("%d:%s", it.Type, it.Name), itemTooltipIconName(it)
 		g.playerProfile.Data.Add("loot", n)
-		g.playerProfile.Data.Rank("loot", key, it.Name, icon, n)
+		g.playerProfile.Data.RankValued("loot", key, it.Name, icon, n, int64(it.Attributes["value"]))
 		group := ""
 		if it.Type == items.ItemCard {
 			group = "cards_found"

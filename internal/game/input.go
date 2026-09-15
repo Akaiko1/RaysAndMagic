@@ -2047,7 +2047,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			ih.game.selectedCharIdx >= 0 &&
 			ih.game.selectedCharIdx < len(ih.game.party.Members) {
 			px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
-			options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx])
+			options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx], ih.game.dialogNPC)
 			// Only the current page's rows are clickable; idx (absolute list
 			// position) keys the selection and double-click so an option keeps
 			// its identity across pages (merchant-grid convention).
@@ -2516,7 +2516,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 	if ih.game.selectedCharIdx < 0 || ih.game.selectedCharIdx >= len(ih.game.party.Members) {
 		return
 	}
-	options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx])
+	options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx], ih.game.dialogNPC)
 	if len(options) == 0 {
 		ih.game.dialogSelectedSpell = 0
 		return
@@ -2559,7 +2559,7 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 		return
 	}
 	selectedChar := ih.game.party.Members[ih.game.selectedCharIdx]
-	options := trainerOptions(selectedChar)
+	options := trainerOptions(selectedChar, ih.game.dialogNPC)
 	if ih.game.dialogSelectedSpell < 0 || ih.game.dialogSelectedSpell >= len(options) {
 		return
 	}

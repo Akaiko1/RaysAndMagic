@@ -731,13 +731,16 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 	if !bonusBolt {
 		trueDamage, ignoresDodge = cs.weaponMasteryStrike(attacker, equippedDef)
 	}
-	disintegrateChance, pierceLeft, ricochetLeft := 0.0, 0, 0
+	disintegrateDef := equippedDef
+	if bonusBolt {
+		disintegrateDef = nil // Bonus bolts inherit cards, never the held weapon proc.
+	}
+	disintegrateChance := cs.game.weaponDisintegrateChance(disintegrateDef)
+	pierceLeft, ricochetLeft := 0, 0
 	if !bonusBolt && equippedDef != nil {
-		disintegrateChance = equippedDef.DisintegrateChance
 		pierceLeft = equippedDef.PierceCount
 		ricochetLeft = equippedDef.RicochetTargets
 	}
-	disintegrateChance += float64(cs.game.cardDisintegratePct()) / 100
 	ang := cs.game.camera.Angle
 	dirX, dirY := math.Cos(ang), math.Sin(ang)
 	spacing := volleySpacingFrac * float64(tileSize)
@@ -1344,9 +1347,8 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	// Alien Card: chance any melee hit instantly disintegrates the target (same
-	// immunity gate as weapon/spell Disintegrate: undead/dragon/invulnerable boss).
-	if pct := cs.game.cardDisintegratePct(); pct > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < float64(pct)/100 {
+	// Weapon and card chances share the projectile policy and immunity gate.
+	if rollMonsterDisintegrate(monster, cs.game.weaponDisintegrateChance(weaponDef)) {
 		monster.HitPoints = 0
 		cs.markMonsterHit(monster)
 		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
@@ -2745,22 +2747,9 @@ func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinition
 		return 1.0
 	}
 
-	// Match bonus_vs against both the display Name (so `bonus_vs: dragon`
-	// hits every elemental dragon, all named "Dragon") and the exact key
-	// (so a key-specific `bonus_vs: dragon_gold` is also possible).
-	candidates := []string{monster.Name}
-	if monster.Key != "" {
-		candidates = append(candidates, monster.Key)
-	}
-
 	for bonusKey, mult := range weaponDef.BonusVs {
-		for _, candidate := range candidates {
-			if strings.EqualFold(bonusKey, candidate) {
-				if mult <= 0 {
-					return 1.0
-				}
-				return mult
-			}
+		if mult > 0 && monsterMatchesBonusTarget(monster, bonusKey) {
+			return mult
 		}
 	}
 
@@ -3069,12 +3058,8 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 
 			character.FreeStatPoints += StatPointsPerLevel
 
-			// Recalculate derived stats (health and mana increase with level)
-			character.CalculateDerivedStats(cs.game.config)
-
-			// Restore full health and mana on level up
-			character.HitPoints = character.MaxHitPoints
-			character.SpellPoints = character.MaxSpellPoints
+			// Levels increase capacity, but do not replenish combat resources.
+			character.RecalculateMaxStatsKeepingCurrent(cs.game.config)
 
 			if announce {
 				cs.game.playSound(soundLevelUp)

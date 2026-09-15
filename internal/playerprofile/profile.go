@@ -17,9 +17,10 @@ import (
 const Version = 1
 
 type Entry struct {
-	Name  string `json:"name"`
-	Icon  string `json:"icon,omitempty"`
-	Count int64  `json:"count"`
+	Name      string `json:"name"`
+	Icon      string `json:"icon,omitempty"`
+	Count     int64  `json:"count"`
+	BaseValue int64  `json:"base_value,omitempty"`
 }
 
 type Run struct {
@@ -133,6 +134,38 @@ func (d *Data) Rank(group, key, name, icon string, count int64) {
 	e := d.Rankings[group][key]
 	e.Name, e.Icon, e.Count = name, icon, e.Count+count
 	d.Rankings[group][key] = e
+}
+
+// RankValued keeps the highest observed unit value without multiplying by
+// quantity. Older records retain their counts when a value is first observed.
+func (d *Data) RankValued(group, key, name, icon string, count, baseValue int64) {
+	if count <= 0 || key == "" {
+		return
+	}
+	d.Rank(group, key, name, icon, count)
+	e := d.Rankings[group][key]
+	e.BaseValue = max(e.BaseValue, baseValue)
+	d.Rankings[group][key] = e
+}
+
+func (d *Data) MostValuableLoot() []Entry {
+	result := make([]Entry, 0, len(d.Rankings["loot"]))
+	for _, e := range d.Rankings["loot"] {
+		if e.BaseValue > 0 {
+			result = append(result, e)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		a, b := result[i], result[j]
+		if a.BaseValue != b.BaseValue {
+			return a.BaseValue > b.BaseValue
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Icon < b.Icon
+	})
+	return result
 }
 func (d *Data) ObserveRun(id string, won, lost bool) {
 	if id == "" {

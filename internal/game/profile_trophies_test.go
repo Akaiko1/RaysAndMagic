@@ -49,11 +49,11 @@ func TestProfileTrophyLootBoundaries(t *testing.T) {
 				attachTestProfile(t, g)
 				g.turnBasedMode = tb
 				tc.act(g, []items.Item{
-					{Name: "Legendary Armor", Type: items.ItemArmor, Rarity: "Legendary"},
-					{Name: "Legendary Trophy", Type: items.ItemTrinket, Rarity: "legendary", Quantity: 3},
-					{Name: "Legendary Card", Type: items.ItemCard, Rarity: "legendary", Quantity: 4},
-					{Name: "Common Card", Type: items.ItemCard, Rarity: "common", Quantity: 2},
-					{Name: "Rare Weapon", Type: items.ItemWeapon, Rarity: "rare"},
+					{Name: "Legendary Armor", Attributes: map[string]int{"value": 1000}, Type: items.ItemArmor, Rarity: "Legendary"},
+					{Name: "Legendary Trophy", Attributes: map[string]int{"value": 500}, Type: items.ItemTrinket, Rarity: "legendary", Quantity: 3},
+					{Name: "Legendary Card", Attributes: map[string]int{"value": 2000}, Type: items.ItemCard, Rarity: "legendary", Quantity: 4},
+					{Name: "Common Card", Attributes: map[string]int{"value": 50}, Type: items.ItemCard, Rarity: "common", Quantity: 2},
+					{Name: "Rare Weapon", Attributes: map[string]int{"value": 700}, Type: items.ItemWeapon, Rarity: "rare"},
 				})
 				for metric, units := range map[string]int64{"loot": 11, "legendary_loot": 4, "cards_found": 6} {
 					if !tc.recorded {
@@ -68,6 +68,23 @@ func TestProfileTrophyLootBoundaries(t *testing.T) {
 					}
 					if total != units {
 						t.Fatalf("%s ranking=%d want %d", metric, total, units)
+					}
+				}
+				spec := profilePages[2].rankings[2]
+				if spec.title != "Most valuable finds" || spec.duration {
+					t.Fatal("Discoveries does not display the valuable finds ranking")
+				}
+				valuable := h.ui.profileRankingEntries(spec, &g.playerProfile.Data)
+				if !tc.recorded {
+					if len(valuable) != 0 {
+						t.Fatal("uncommitted loot entered valuable finds")
+					}
+				} else {
+					if len(valuable) != 5 || valuable[0].Name != "Legendary Card" || valuable[0].BaseValue != 2000 || valuable[0].Count != 4 {
+						t.Fatalf("incorrect value ranking: %+v", valuable)
+					}
+					if spec.score(valuable[0]) != 2000 || spec.entryValue(valuable[0]) != "2,000g" {
+						t.Fatal("ranking presentation uses quantity instead of unit value")
 					}
 				}
 				for _, e := range g.playerProfile.Data.Top("legendary_loot") {

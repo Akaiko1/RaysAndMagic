@@ -32,8 +32,9 @@ type GameSave struct {
 	CalendarDay           int                        `json:"calendar_day,omitempty"`
 	CalendarWeek          int                        `json:"calendar_week,omitempty"`
 	CalendarMonth         int                        `json:"calendar_month,omitempty"`
+	RespawnDayVersion     int                        `json:"respawn_day_version,omitempty"`
 	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
-	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // respawn_days maps: day the roster was last spawned (+1 sentinel form)
+	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // One-based calendar day; zero means unstamped.
 	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`

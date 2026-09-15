@@ -15,7 +15,7 @@ import (
 
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
 // using perspective-scaled bounding boxes for accurate visual collision detection.
-// Crossfire and reflected shots use authoritative world-space collision instead.
+// Crossfire, reflected shots and arrow continuations use world-space collision.
 func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	// Collect all active projectiles. Monster-owned ones are excluded (they hit
 	// the party, not other monsters); party, crossfire, and reflected owners can
@@ -44,9 +44,8 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, "magic_projectile", snapshot.Owner, i})
 		}
 	}
-	// Player shots retain the perspective-scaled first-person assist. Crossfire is
-	// autonomous world combat and must not depend on where the party is looking,
-	// so those projectiles use the registered world-space collision boxes.
+	// Initial player shots retain first-person aim assistance. Autonomous shots
+	// and continuations use world collision without camera-dependent assistance.
 	for _, proj := range projectiles {
 		var hitMonster *monsterPkg.Monster3D
 		bestDepth := 0.0
@@ -54,7 +53,11 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		bestWorldDistance := math.MaxFloat64
 		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
 		reflected := proj.owner == ProjectileOwnerReflected
-		worldSpace := crossfire || reflected
+		continuation := false
+		if ar, ok := proj.data.(*Arrow); ok {
+			continuation = ar.SkipMonster != nil
+		}
+		worldSpace := crossfire || reflected || continuation
 		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
 
 		camCos := math.Cos(cs.game.camera.Angle)
@@ -124,7 +127,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 				}
 			}
 		}
-		if hitMonster == nil && proj.owner == ProjectileOwnerPlayer {
+		if hitMonster == nil && proj.owner == ProjectileOwnerPlayer && !worldSpace {
 			var px, py, vx, vy float64
 			switch d := proj.data.(type) {
 			case *Arrow:
@@ -133,11 +136,6 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
 			}
 			hitMonster = cs.turnBasedProjectileAssistTarget(px, py, vx, vy)
-			// A pierce continuation must not re-hit the monster it went
-			// through via the TB assist either.
-			if ar, ok := proj.data.(*Arrow); ok && hitMonster != nil && hitMonster == ar.SkipMonster {
-				hitMonster = nil
-			}
 		}
 		if hitMonster != nil {
 			// Reflections preserve only the Aegis' mirrored damage contract.
@@ -577,7 +575,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < disintegrateChance {
+	if rollMonsterDisintegrate(monster, disintegrateChance) {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 
 		monster.HitPoints = 0

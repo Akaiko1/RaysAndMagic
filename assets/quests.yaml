@@ -73,7 +73,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 900
-      experience: 800
+      experience: 600
 
   culverts_valves:
     name: "Stem the Flow"
@@ -97,7 +97,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2500
-      experience: 1600
+      experience: 1400
 
   # --- Sakura Garden (eastern island, L18-24) ---
   # Four local errands: three ward quests in any order, then Hina's capstone
@@ -114,7 +114,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1000
-      experience: 1000
+      experience: 750
       item_pool:
         - "flame_ward_draught"
         - "storm_ward_draught"
@@ -131,7 +131,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1200
-      experience: 1100
+      experience: 850
       item_pool:
         - "health_potion"
         - "mana_potion"
@@ -147,7 +147,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1600
-      experience: 1500
+      experience: 1100
       item_pool:
         - "tengu_feather"
 
@@ -161,7 +161,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 3000
-      experience: 3000
+      experience: 2300
       item_pool:
         - "spider_lily_obi"
         - "fivefold_ceremonial_ribbon"
@@ -196,7 +196,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1200
-      experience: 1200
+      experience: 900
 
   # The dragon hunt: a rewarded quest that also unseals the reaper
   # (victory itself now belongs to endgame_triad).
@@ -234,7 +234,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2000
-      experience: 2000
+      experience: 1500
 
   shrine_lamps:
     name: "The Shrine's Lamps"
@@ -246,11 +246,11 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2000
-      experience: 2200
+      experience: 1800
 
   pit_standing:
     name: "Standing in the Pit"
-    description: "Blademaster Nadira wants proof that we can fight before she agrees to train us. Win 3 duels in the Grand Arena at any stakes, then report to her in Dunehold."
+    description: "Nadira has heard enough boasts from passing caravans. Win 3 duels in the Grand Arena at any stakes, then return to her in Dunehold. She offers Grandmaster lessons to those who already hold Master rank."
     type: "interact"
     target_monster: "arena_duel"   # bumped when a challenged champion falls (arenaDuelQuestTag)
     target_count: 3
@@ -258,7 +258,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2500
-      experience: 2500
+      experience: 1500
 
   # ============ ENDGAME TRIAD GATES ============
   # Starting quests so they are active on every run AND on loaded old saves
@@ -277,7 +277,7 @@ quests:
     is_starting_quest: true
     rewards:
       gold: 3000
-      experience: 3000
+      experience: 2300
     on_complete_spawns:
       - { id: brood_mother_crater, map: dragon_cliffs, x: 39, y: 12, monster: dragon_brood_mother }
 
@@ -295,7 +295,7 @@ quests:
     is_starting_quest: true
     rewards:
       gold: 3000
-      experience: 3500
+      experience: 1800
     on_complete_spawns:
       - { id: enforcer_depths, map: water, x: 28, y: 43, monster: alien_enforcer, on_entry: true }
 

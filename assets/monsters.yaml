@@ -127,7 +127,7 @@ monsters:
     level: 3
     max_hit_points: 86
     armor_class: 20
-    experience: 45
+    experience: 64
     damage_min: 7
     damage_max: 12
     alert_radius: 4  # Minimum aggro range
@@ -153,7 +153,7 @@ monsters:
     level: 5
     max_hit_points: 180
     armor_class: 30
-    experience: 180
+    experience: 220
     damage_min: 17
     damage_max: 25
     poison_chance: 0.20
@@ -183,7 +183,7 @@ monsters:
     level: 8
     max_hit_points: 360
     armor_class: 33
-    experience: 620
+    experience: 532
     damage_min: 24
     damage_max: 38
     attacks_per_round: 2
@@ -210,7 +210,7 @@ monsters:
     max_hit_points: 460
     armor_class: 40
     perfect_dodge: 10
-    experience: 950
+    experience: 920
     damage_min: 20
     damage_max: 32
     projectile_spell: "lightning"
@@ -590,7 +590,7 @@ monsters:
     level: 5
     max_hit_points: 500
     armor_class: 38
-    experience: 550
+    experience: 660
     damage_min: 25
     damage_max: 35
     alert_radius: 6
@@ -727,7 +727,7 @@ monsters:
     level: 6
     max_hit_points: 360
     armor_class: 38
-    experience: 260
+    experience: 300
     damage_min: 15
     damage_max: 23
     alert_radius: 5
@@ -757,7 +757,7 @@ monsters:
     level: 5
     max_hit_points: 330
     armor_class: 20
-    experience: 240
+    experience: 280
     damage_min: 17
     damage_max: 23
     attacks_per_round: 4
@@ -875,7 +875,7 @@ monsters:
     level: 10
     max_hit_points: 480
     armor_class: 34
-    experience: 720
+    experience: 480
     damage_min: 28
     damage_max: 44
     alert_radius: 4
@@ -900,7 +900,7 @@ monsters:
     level: 11
     max_hit_points: 360
     armor_class: 24
-    experience: 880
+    experience: 700
     damage_min: 16
     damage_max: 26
     projectile_spell: "fireball"
@@ -963,7 +963,7 @@ monsters:
     level: 10
     max_hit_points: 420
     armor_class: 32
-    experience: 760
+    experience: 840
     damage_min: 24
     damage_max: 38
     alert_radius: 6
@@ -1175,7 +1175,7 @@ monsters:
     level: 12
     max_hit_points: 420
     armor_class: 18
-    experience: 900
+    experience: 760
     damage_min: 26
     damage_max: 40
     piercing_shot_chance: 0.50
@@ -1206,7 +1206,7 @@ monsters:
     max_hit_points: 640
     armor_class: 20
     perfect_dodge: 5
-    experience: 1400
+    experience: 1200
     damage_min: 30
     damage_max: 46
     piercing_shot_chance: 0.25
@@ -1238,7 +1238,7 @@ monsters:
     max_hit_points: 500
     armor_class: 20
     perfect_dodge: 15
-    experience: 1000
+    experience: 880
     damage_min: 26
     damage_max: 40
     attacks_per_round: 2
@@ -1270,7 +1270,7 @@ monsters:
     max_hit_points: 740
     armor_class: 32
     perfect_dodge: 20
-    experience: 1500
+    experience: 1280
     damage_min: 32
     damage_max: 48
     attacks_per_round: 2          # elite inherits the base ningyo's double strike
@@ -1370,7 +1370,7 @@ monsters:
     max_hit_points: 660
     armor_class: 30
     perfect_dodge: 30
-    experience: 1000
+    experience: 960
     damage_min: 30
     damage_max: 48
     attacks_per_round: 2          # a hopping flurry of tongue and rib strikes
@@ -1398,7 +1398,7 @@ monsters:
     max_hit_points: 780
     armor_class: 26
     perfect_dodge: 20
-    experience: 1200
+    experience: 1120
     damage_min: 36
     damage_max: 52
     attacks_per_round: 2
@@ -1427,7 +1427,7 @@ monsters:
     max_hit_points: 760
     armor_class: 24
     perfect_dodge: 10
-    experience: 1600
+    experience: 1440
     damage_min: 28
     damage_max: 44
     projectile_spell: "firebolt"  # foxfire
@@ -1502,7 +1502,7 @@ monsters:
     max_hit_points: 640
     armor_class: 20
     perfect_dodge: 15
-    experience: 700
+    experience: 880
     damage_min: 32
     damage_max: 48
     attacks_per_round: 2          # fast predator: rapid claw swipes (tier L18-24 cadence)
@@ -1528,7 +1528,7 @@ monsters:
     level: 18
     max_hit_points: 760
     armor_class: 15
-    experience: 800
+    experience: 1000
     damage_min: 40
     damage_max: 60
     attack_radius: 1
@@ -1553,7 +1553,7 @@ monsters:
     max_hit_points: 800
     armor_class: 20
     perfect_dodge: 10
-    experience: 1100
+    experience: 1400
     damage_min: 36
     damage_max: 54
     true_damage: 10  # typed physical true damage: bypasses armor/flat/dodge, not resistance
@@ -1584,7 +1584,7 @@ monsters:
     max_hit_points: 720
     armor_class: 38
     perfect_dodge: 25
-    experience: 1300
+    experience: 1640
     damage_min: 30
     damage_max: 46
     attacks_per_round: 2          # whirling blades
@@ -1613,7 +1613,7 @@ monsters:
     max_hit_points: 780
     armor_class: 26
     perfect_dodge: 10
-    experience: 1700
+    experience: 2120
     damage_min: 30
     damage_max: 46
     dispel_chance: 0.10           # 10% to strip a random active party buff on hit
@@ -1727,7 +1727,7 @@ monsters:
     level: 20
     max_hit_points: 500
     armor_class: 45
-    experience: 300
+    experience: 360
     damage_min: 0
     damage_max: 0
     attack_radius: 0
@@ -1859,7 +1859,7 @@ monsters:
     level: 22
     max_hit_points: 950
     armor_class: 26
-    experience: 1000
+    experience: 680
     damage_min: 42
     damage_max: 58
     alert_radius: 4
@@ -1885,7 +1885,7 @@ monsters:
     level: 25
     max_hit_points: 880
     armor_class: 30
-    experience: 1300
+    experience: 760
     damage_min: 48
     damage_max: 66
     alert_radius: 5
@@ -1912,7 +1912,7 @@ monsters:
     level: 28
     max_hit_points: 1150
     armor_class: 38
-    experience: 1700
+    experience: 1000
     damage_min: 50
     damage_max: 68
     alert_radius: 7
@@ -1941,7 +1941,7 @@ monsters:
     level: 30
     max_hit_points: 1900
     armor_class: 52
-    experience: 2400
+    experience: 960
     damage_min: 62
     damage_max: 84
     alert_radius: 4

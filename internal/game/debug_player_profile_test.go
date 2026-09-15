@@ -50,7 +50,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 		}
 	}
 	for i, e := range []struct{ key, name string }{{"golden_idol", "Golden Idol"}, {"health_potion", "Health Potion"}, {"mana_potion", "Mana Potion"}, {"red_dragon_statuette", "Red Dragon Statuette"}, {"gold_dragon_statuette", "Gold Dragon Statuette"}} {
-		d.Rank("loot", e.key, e.name, "icon_item_"+e.key, []int64{300, 243, 186, 142, 100}[i])
+		d.RankValued("loot", e.key, e.name, "icon_item_"+e.key, []int64{300, 243, 186, 142, 100}[i], []int64{300, 50, 75, 1200, 2400}[i])
 	}
 
 	for i, e := range []struct{ group, key, name, icon string }{
@@ -133,10 +133,14 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 				defer f.Close()
 				drawErr = png.Encode(f, dst)
 			})
-			if (page == 0 || page == 3) && size[0] <= 1024 {
+			if (page == 0 || page == 2 || page == 3) && size[0] <= 1024 {
 				runOnDrawFrame(func(_ *ebiten.Image) {
 					l := makeProfileStatsLayout(size[0], size[1], profilePages[g.statisticsTab])
 					g.statisticsScroll = max(0, l.contentH-l.body.h)
+					if page == 2 {
+						lastRankRow := (len(profilePages[page].rankings) - 1) / l.columns
+						g.statisticsScroll = min(g.statisticsScroll, l.rankY+lastRankRow*(l.rankH+14))
+					}
 					dst := ebiten.NewImage(size[0], size[1])
 					defer dst.Deallocate()
 					h.loop.Draw(dst)

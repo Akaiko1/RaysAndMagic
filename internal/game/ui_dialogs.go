@@ -949,9 +949,9 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	drawCenteredDebugText(screen, header, px, py+10, pw, 18)
 	drawDebugText(screen, fmt.Sprintf("Gold: %d", ui.game.party.Gold), px+12, py+30)
 
-	options := trainerOptions(member)
+	options := trainerOptions(member, ui.game.dialogNPC)
 	if len(options) == 0 {
-		drawCenteredDebugText(screen, "All known masteries are already maxed.", px, py+ph/2-8, pw, 16)
+		drawCenteredDebugText(screen, "No eligible training at this trainer.", px, py+ph/2-8, pw, 16)
 	} else {
 		mouseX, mouseY := ebiten.CursorPosition()
 		pageSize := skillTrainerPageSize(ph)

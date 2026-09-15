@@ -230,7 +230,7 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 	}
 
 	goldBefore := g.party.Gold
-	xpBefore := g.party.Members[0].Experience
+	xpBefore := earnedExperienceForCharacter(g.party.Members[0].Level, g.party.Members[0].Experience)
 
 	ih := NewInputHandler(g)
 	g.dialogNPC = npc
@@ -239,8 +239,8 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 	if g.party.Gold <= goldBefore {
 		t.Errorf("turn-in should pay gold (%d -> %d)", goldBefore, g.party.Gold)
 	}
-	if g.party.Members[0].Experience <= xpBefore {
-		t.Errorf("turn-in should grant XP (%d -> %d)", xpBefore, g.party.Members[0].Experience)
+	if earnedExperienceForCharacter(g.party.Members[0].Level, g.party.Members[0].Experience) <= xpBefore {
+		t.Errorf("turn-in should grant XP (%d -> %d)", xpBefore, earnedExperienceForCharacter(g.party.Members[0].Level, g.party.Members[0].Experience))
 	}
 	if q := g.questManager.GetQuest(qid); q == nil || !q.RewardsClaimed {
 		t.Errorf("quest reward should be marked claimed")

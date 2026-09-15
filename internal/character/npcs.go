@@ -27,10 +27,11 @@ type NPC struct {
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool
-	NightOnly        bool   // present only at night (see NPCData.NightOnly)
-	RejectsLich      bool   // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
-	TownPortal       bool   // makes this NPC's map a Town Portal destination, and the arrival point on it
-	RequiresQuest    string // service gate: no shop/training until this quest is turned in (see NPCData.RequiresQuest)
+	NightOnly        bool           // present only at night (see NPCData.NightOnly)
+	RejectsLich      bool           // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
+	TownPortal       bool           // makes this NPC's map a Town Portal destination, and the arrival point on it
+	RequiresQuest    string         // service gate: no shop/training until this quest is turned in (see NPCData.RequiresQuest)
+	Training         map[string]int // Target mastery -> gold cost, sourced from NPC YAML.
 	SpellData        map[string]*NPCSpell
 	DialogueData     *NPCDialogue
 	EncounterData    *NPCEncounter
@@ -184,20 +185,5 @@ func (m *MerchantStockItem) InStock() bool { return m.Quantity != 0 }
 func (m *MerchantStockItem) Take() {
 	if m.Quantity > 0 {
 		m.Quantity--
-	}
-}
-
-func TrainingCostForMastery(mastery SkillMastery) int {
-	switch mastery {
-	case MasteryNovice:
-		return 100
-	case MasteryExpert:
-		return 500
-	case MasteryMaster:
-		return 2000
-	case MasteryGrandMaster:
-		return 10000
-	default:
-		return 100
 	}
 }

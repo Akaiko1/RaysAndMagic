@@ -62,6 +62,10 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 		QuestID:           save.QuestID,
 		TreasureChest:     treasureChestRewardFromSave(save.TreasureChest),
 	}
+	if encounter := character.NPCConfigInstance.EncounterByQuestID(save.QuestID); encounter != nil && encounter.Rewards != nil {
+		rewards.Gold = encounter.Rewards.Gold
+		rewards.Experience = encounter.Rewards.Experience
+	}
 	for _, chestSave := range save.TreasureChests {
 		if chest := treasureChestRewardFromSave(&chestSave); chest != nil {
 			rewards.TreasureChests = append(rewards.TreasureChests, *chest)
@@ -458,9 +462,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		PlayedTimeNs:               playedTime.Nanoseconds(),
 		DayNightFrames:             g.dayNightFrames,
 		DayNightDay:                g.dayNightDay,
-		CalendarDay:                g.calendarDay,
+		CalendarDay:                g.currentCalendarDay(),
 		CalendarWeek:               g.calendarWeek,
 		CalendarMonth:              g.calendarMonth,
+		RespawnDayVersion:          respawnDaySaveVersion,
 		ArenaTierFoughtDay:         g.arenaTierFoughtDay,
 		ArenaRunID:                 g.playthroughID,
 		TotalGoldEarned:            g.totalGoldEarned,

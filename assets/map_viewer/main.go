@@ -652,6 +652,10 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 					lines = append(lines, "")
 					lines = append(lines, wrapTooltipLines(def.Description, 64)...)
 				}
+				lines = append(lines, character.TrainingOfferLines(def.Training)...)
+				if len(def.Training) > 0 && def.RequiresQuest != "" {
+					lines = append(lines, "Requires claimed quest: "+def.RequiresQuest)
+				}
 			}
 		}
 		drawTooltipBox(screen, lines, mouseX, mouseY)

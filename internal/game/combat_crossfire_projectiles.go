@@ -186,7 +186,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 
 	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
-	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(target) && rand.Float64() < disintegrateChance {
+	if rollMonsterDisintegrate(target, disintegrateChance) {
 		target.HitPoints = 0
 		target.HitTintFrames = MonsterHitFlashFrames
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt disintegrates %s!", sourceName, target.Name))

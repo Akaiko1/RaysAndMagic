@@ -183,7 +183,7 @@ type profilePageSpec struct {
 var profilePages = []profilePageSpec{
 	{"Overview", []profileCounterSpec{{"Adventures", "adventures", "icon_achievement_first_steps", false}, {"Victories", "victories", "icon_achievement_victory", false}, {"Active play time", "play_ns", "icon_achievement_full_roster", true}}, []profileRankingSpec{{"Favorite classes", "classes", "hero time", true}, {"Favorite spells", "spells", "casts", false}, {"Favorite regions", "regions", "time spent", true}}},
 	{"Combat", []profileCounterSpec{{"Monsters defeated", "kills", "icon_achievement_first_blood", false}, {"HP lost to attacks", "monster_damage", "icon_achievement_warlord", false}, {"Heroes knocked out", "knockouts", "icon_achievement_lich", false}}, []profileRankingSpec{{"Most hunted", "kills", "defeated", false}, {"Most dangerous", "danger", "HP lost", false}, {"Most knockouts caused", "knockouts", "knockouts", false}}},
-	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Quest rewards claimed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Classes played", "classes", "hero time", true}}},
+	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Quest rewards claimed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Most valuable finds", "valuable_loot", "highest base gold per item", false}}},
 	{"Trophies", []profileCounterSpec{{"Bosses defeated", "bosses", "icon_achievement_warlord", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}, {"Items traded", "items_traded", "icon_item_clock_hand", false}, {"Cards found", "cards_found", "icon_item_goblin_card", false}}, []profileRankingSpec{{"Bosses defeated", "bosses", "kills by boss", false}, {"Legendary loot", "legendary_loot", "units found", false}, {"Trade offerings", "items_traded", "item units paid to merchants", false}, {"Cards found", "cards_found", "units found, all rarities", false}}},
 }
 
@@ -331,7 +331,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		detail = "Damage: net HP lost to direct attacks, including AoE. Ongoing poison/burn is excluded."
 	}
 	if g.statisticsTab == 2 {
-		detail = "Loot: drops/chests/crates. Exploration: unique occupied tiles / full region area."
+		detail = "Loot: drops/chests/crates. Old finds had no price recorded; values start with new drops."
 	}
 	if g.statisticsTab == 3 {
 		detail = "Cards count separately from legendary loot. Trades count item units paid. Older item and boss detail was not recorded."
@@ -372,7 +372,7 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRanking
 		drawDebugTextColored(screen, "No records yet.", r.x+16, r.y+90, profileMuted)
 		return
 	}
-	maxValue := max(int64(1), entries[0].Count)
+	maxValue := max(int64(1), spec.score(entries[0]))
 	if spec.group == "exploration" {
 		maxValue = 1000
 	}
@@ -398,18 +398,28 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRanking
 				}
 				drawDebugTextColored(screen, line, tx, iy+18+i*14, profileGold)
 			}
-			drawDebugTextColored(screen, spec.value(e.Count), tx, iy+size-15, profileGreen)
+			drawDebugTextColored(screen, spec.entryValue(e), tx, iy+size-15, profileGreen)
+			if spec.group == "valuable_loot" {
+				drawDebugTextColored(screen, "Found: "+profileValue(e.Count, false), tx, iy+size+2, profileMuted)
+			}
 			continue
 		}
 		cy := r.y + 144 + (row-1)*50
 		ui.profileIcon(screen, e.Icon, e.Name, r.x+12, cy, 38)
 		tx, tw := r.x+60, r.w-72
-		val := spec.value(e.Count)
+		val := spec.entryValue(e)
 		drawDebugTextColored(screen, profileText(e.Name, tw-debugTextWidth(val)-12), tx, cy+1, profileMuted)
 		drawDebugTextColored(screen, val, r.x+r.w-12-debugTextWidth(val), cy+1, profileGold)
-		bw := int(float64(e.Count) / float64(maxValue) * float64(tw))
-		drawFilledRect(screen, tx, cy+23, tw, 5, color.RGBA{43, 34, 45, 255})
-		drawFilledRect(screen, tx, cy+23, bw, 5, color.RGBA{128, 104, 62, 255})
+		if spec.group == "valuable_loot" {
+			drawDebugTextColored(screen, "Found: "+profileValue(e.Count, false), tx, cy+14, profileMuted)
+		}
+		bw := int(float64(spec.score(e)) / float64(maxValue) * float64(tw))
+		barY := cy + 23
+		if spec.group == "valuable_loot" {
+			barY = cy + 32
+		}
+		drawFilledRect(screen, tx, barY, tw, 5, color.RGBA{43, 34, 45, 255})
+		drawFilledRect(screen, tx, barY, bw, 5, color.RGBA{128, 104, 62, 255})
 	}
 	if total > 0 || spec.group == "exploration" {
 		drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+12, r.y+r.h-17, profileMuted)
@@ -434,7 +444,24 @@ func (spec profileRankingSpec) value(n int64) string {
 	return profileValue(n, spec.duration)
 }
 
+func (spec profileRankingSpec) score(e playerprofile.Entry) int64 {
+	if spec.group == "valuable_loot" {
+		return e.BaseValue
+	}
+	return e.Count
+}
+
+func (spec profileRankingSpec) entryValue(e playerprofile.Entry) string {
+	if spec.group == "valuable_loot" {
+		return profileValue(e.BaseValue, false) + "g"
+	}
+	return spec.value(e.Count)
+}
+
 func (ui *UISystem) profileRankingEntries(spec profileRankingSpec, d *playerprofile.Data) []playerprofile.Entry {
+	if spec.group == "valuable_loot" {
+		return d.MostValuableLoot()
+	}
 	if spec.group != "exploration" {
 		return d.Top(spec.group)
 	}

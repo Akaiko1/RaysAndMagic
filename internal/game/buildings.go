@@ -319,7 +319,7 @@ func (g *MMGame) rallyAggroedAlarms() {
 }
 
 // maybeRespawnMapMonsters rewinds a respawn_days map's roster on arrival: if
-// enough day/night phases passed since the last spawn, the authored monsters
+// enough calendar days passed since the last spawn, the authored monsters
 // return in full (the clock tower is a farming zone). Runs BEFORE the new
 // world's monsters register with collision.
 func (g *MMGame) maybeRespawnMapMonsters() {
@@ -336,14 +336,14 @@ func (g *MMGame) maybeRespawnMapMonsters() {
 		// roster now (a fresh map rebuilds its identical spawn list - harmless),
 		// so old saves pick up re-authored maps on first entry, silently.
 		g.world.RespawnAuthoredMonsters()
-		g.world.LastRespawnDay = g.dayNightDay + 1 // +1 keeps 0 as the "never stamped" sentinel
+		g.world.LastRespawnDay = g.currentCalendarDay()
 		return
 	}
-	if g.dayNightDay+1-g.world.LastRespawnDay < mc.RespawnDays {
+	if g.currentCalendarDay()-g.world.LastRespawnDay < mc.RespawnDays {
 		return
 	}
 	g.world.RespawnAuthoredMonsters()
-	g.world.LastRespawnDay = g.dayNightDay + 1
+	g.world.LastRespawnDay = g.currentCalendarDay()
 	g.AddCombatMessage("The tower mechanism grinds - its horrors are wound anew.")
 }
 

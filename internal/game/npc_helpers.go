@@ -272,7 +272,7 @@ func npcSpellKeys(npc *character.NPC) []string {
 	return keys
 }
 
-func trainerOptions(char *character.MMCharacter) []trainerOption {
+func trainerOptions(char *character.MMCharacter, npc *character.NPC) []trainerOption {
 	if char == nil {
 		return nil
 	}
@@ -282,11 +282,15 @@ func trainerOptions(char *character.MMCharacter) []trainerOption {
 			continue
 		}
 		next := skill.Mastery + 1
+		cost, offered := npc.TrainingCost(skill.Mastery)
+		if !offered {
+			continue
+		}
 		options = append(options, trainerOption{
 			Label:     skillType.String(),
 			Current:   skill.Mastery,
 			Next:      next,
-			Cost:      character.TrainingCostForMastery(next),
+			Cost:      cost,
 			SkillType: skillType,
 		})
 	}
@@ -295,11 +299,15 @@ func trainerOptions(char *character.MMCharacter) []trainerOption {
 			continue
 		}
 		next := skill.Mastery + 1
+		cost, offered := npc.TrainingCost(skill.Mastery)
+		if !offered {
+			continue
+		}
 		options = append(options, trainerOption{
 			Label:   school.DisplayName() + " Magic",
 			Current: skill.Mastery,
 			Next:    next,
-			Cost:    character.TrainingCostForMastery(next),
+			Cost:    cost,
 			IsMagic: true,
 			School:  school,
 		})

@@ -51,6 +51,7 @@ type NPCData struct {
 	// the per-choice requires_quest. Validated: the quest must exist and the NPC
 	// must actually own a service to withhold.
 	RequiresQuest string               `yaml:"requires_quest,omitempty"`
+	Training      map[string]int       `yaml:"training,omitempty"` // Target mastery -> gold cost; omitted tiers are unavailable.
 	Dialogue      *NPCDialogue         `yaml:"dialogue"`
 	Spells        map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory     []*NPCItem           `yaml:"inventory,omitempty"`
@@ -252,6 +253,20 @@ type EncounterMonster struct {
 	CountMax int    `yaml:"count_max"`
 }
 
+// EncounterByQuestID resolves the authored reward/definition when a saved
+// encounter resumes. Unknown legacy or unlinked encounters keep their snapshot.
+func (nc *NPCConfig) EncounterByQuestID(id string) *NPCEncounter {
+	if nc == nil || id == "" {
+		return nil
+	}
+	for _, npc := range nc.NPCs {
+		if npc != nil && npc.Encounter != nil && npc.Encounter.QuestID == id {
+			return npc.Encounter
+		}
+	}
+	return nil
+}
+
 // NPCPropCopy is a quest prop's authored behaviour and wording: which interact
 // tag it credits and what the player reads. Content, so it lives in npcs.yaml
 // beside the prop's own greeting and choice text.
@@ -333,6 +348,9 @@ func LoadNPCConfig(filename string) error {
 		}
 	}
 	if err := validateNPCTypes(&config); err != nil {
+		return err
+	}
+	if err := validateNPCTraining(&config); err != nil {
 		return err
 	}
 	if err := validateCratesAndLecterns(&config); err != nil {
@@ -524,6 +542,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		RejectsLich:      data.RejectsLich,
 		TownPortal:       data.TownPortal,
 		RequiresQuest:    data.RequiresQuest,
+		Training:         data.Training,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 		Lectern:          data.Lectern,

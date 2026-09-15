@@ -407,9 +407,9 @@ type MMGame struct {
 	// current map (doors_locked.go).
 	lockedDoorEntityIDs map[string]bool
 
-	// dayNightDay counts day/night phase changes (the arena's refresh clock).
-	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
-	// a tier unlocks again when the day advances. Both persisted in saves.
+	// dayNightDay counts phase changes for arena refresh, rumors and old saves.
+	// arenaTierFoughtDay: difficulty tier -> phase last challenged;
+	// a tier unlocks at either dusk or dawn. Both persisted in saves.
 	dayNightDay        int
 	arenaTierFoughtDay map[string]int
 	// Calendar advances only at dawn. Unlike dayNightDay it represents real

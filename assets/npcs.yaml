@@ -175,7 +175,7 @@ npcs:
           count_max: 5
       rewards:
         gold: 2000
-        experience: 500
+        experience: 250
         completion_message: "The bandits are defeated. You collect the bounty."
       first_visit_only: true
 
@@ -477,7 +477,7 @@ npcs:
           count_max: 1
       rewards:
         gold: 1500
-        experience: 1500
+        experience: 750
         completion_message: "The Bone-Maw Lair is cleared."
 
   dragon_cliffs_ember_lair:
@@ -511,7 +511,7 @@ npcs:
           count_max: 1
       rewards:
         gold: 2000
-        experience: 1500
+        experience: 750
         completion_message: "The Ember-Heart Lair is cleared."
 
   abandoned_church:
@@ -1407,8 +1407,9 @@ npcs:
     sprite: "city_skill_trainer"
     render_category: npc
     size_class: person
+    training: { expert: 1000, master: 4000 }
     dialogue:
-      greeting: "Feet apart. Shoulders back. Better. I am Ilyra. Choose a student and a skill or magic school they already know; we will work from there."
+      greeting: "Feet apart. Yes, even you with the spellbook. I can teach you as far as Master; beyond that, seek Nadira in Dunehold."
 
   # --- Silverbough (elf_city), the elven town in the Misty Highlands ---
   # The elves live in the highland pinewood - elf_archer and elf_swordsman are
@@ -1592,16 +1593,17 @@ npcs:
     # trainer dialog has no quest tab, so the errand is the whole conversation
     # while the gate is shut and the mastery grid replaces it once it is paid.
     requires_quest: "pit_standing"
+    training: { grandmaster: 10000 }
     dialogue:
-      greeting: "Ready to work? Choose a student and a skill or magic school they already know. I'll see how much of it needs correcting."
-      quest_greeting: "I am Nadira. Before I take you as students, win 3 duels in the Grand Arena. Any stakes will do. Go out the gate and south along the sand road, then return here with three victories."
-      active_message: "I need 3 arena wins. The duel master allows each stake once a day, so try a different wager if you have already fought at one."
-      completed_message: "Three wins. Good. Now we can find out which habits kept you alive and which ones need breaking. Choose a student and a skill."
+      greeting: "Back again? Good. Leave your pack by the wall. You will want both hands free."
+      quest_greeting: "Half the caravans bring me a champion. Most have never had sand kicked in their teeth. Win three arena bouts, then we will talk."
+      active_message: "Still a few bruises short? The arena takes fresh wagers at dawn and dusk. I will be here."
+      completed_message: "Three victories! The bookkeeper looked quite sour when I asked. Here, take your purse. We can begin whenever you are ready."
       choice_prompt: "Nadira rests a practice blade across her shoulder."
       choices:
         - text: "Why the arena?"
           action: "info"
-          response: "In practice, people stop when they think they've won. In the arena, the opponent has a say. Win 3 bouts, return to me, and we will have something to build on."
+          response: "Anyone can swing at a post. A living opponent has objections. Three wins, at any stakes, will do. After that, bring me a Master of a skill or school of magic, and I can teach Grandmaster. For earlier lessons, try Ilyra in Seabright."
           choices:
             - text: "We will win three bouts."
               action: "give_quest"

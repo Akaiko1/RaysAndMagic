@@ -101,9 +101,8 @@ func (g *MMGame) advanceSkyFadeFrame() bool {
 	return true
 }
 
-// applyDayNightPhase performs one real dusk/dawn boundary. The arena refreshes
-// at either boundary; weekly merchant stock converts those phase ticks to full
-// calendar days in refreshScheduledMerchantStocks.
+// applyDayNightPhase performs one real dusk/dawn boundary. Day-based timers
+// advance only at dawn; arena, packs, rumors and night quests retain phase cadence.
 func (g *MMGame) applyDayNightPhase(night bool) {
 	g.dayNightIsNight = night
 	g.applySkyForPhase(true)

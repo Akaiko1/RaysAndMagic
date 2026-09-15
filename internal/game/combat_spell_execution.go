@@ -151,7 +151,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
 			disintegrateChance = spellDefConfig.DisintegrateChance
 		}
-		disintegrateChance += float64(cs.game.cardDisintegratePct()) / 100
+		disintegrateChance = cs.game.partyDisintegrateChance(disintegrateChance)
 
 		// Luck-based spell crit doubles the normal and typed-true components
 		// together. Elemental GM converts only the regular mastery bonus.

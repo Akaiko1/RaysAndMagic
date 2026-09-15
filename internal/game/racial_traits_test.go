@@ -47,7 +47,7 @@ func TestOnlyOrcishFuryEntersMasteryUpgradePools(t *testing.T) {
 	if len(options) != 1 || options[0].skillType != character.SkillOrcishFury || !options[0].hasMastery {
 		t.Fatalf("level-up racial options = %+v, want only trainable Orcish Fury", options)
 	}
-	trainers := trainerOptions(member)
+	trainers := trainerOptions(member, &character.NPC{Type: character.NPCTypeSkillTrainer, Training: map[string]int{"expert": 1000, "master": 4000, "grandmaster": 10000}})
 	if len(trainers) != 1 || trainers[0].SkillType != character.SkillOrcishFury {
 		t.Fatalf("trainer racial options = %+v, want only trainable Orcish Fury", trainers)
 	}

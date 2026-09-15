@@ -162,7 +162,8 @@ func TestGatedTrainerHasNoLiveMasteryClickTargets(t *testing.T) {
 	g.party.Gold = 1_000_000
 	g.selectedCharIdx = 0
 	g.dialogSelectedSpell = 0
-	before := trainerOptions(member)
+	member.Skills = map[character.SkillType]*character.Skill{character.SkillSword: {Mastery: character.MasteryMaster}}
+	before := trainerOptions(member, npc)
 	if len(before) == 0 {
 		t.Fatal("fixture character has no trainable mastery")
 	}
