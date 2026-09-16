@@ -27,13 +27,6 @@ build_target() {
     go build -trimpath -ldflags "${ldflags}" -o "${out_dir}/${out_name}" "${package_path}"
 }
 
-bundle_runtime_files() {
-  local out_dir="$1"
-  cp -R assets "${out_dir}/assets"
-  rm -rf "${out_dir}/assets/map_viewer"
-  cp config.yaml "${out_dir}/config.yaml"
-}
-
 # macOS (Intel + Apple Silicon) - Ebiten needs cgo on macOS
 build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 1 .
 build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer

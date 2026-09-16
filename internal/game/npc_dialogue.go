@@ -164,6 +164,15 @@ func (g *MMGame) currentDialogNode() *character.NPCDialogueChoice {
 	return nil
 }
 
+// backConversation serves authored choices and persistent navigation alike.
+func (g *MMGame) backConversation() {
+	if n := len(g.dialogNodePath); n > 0 {
+		g.dialogNodePath = g.dialogNodePath[:n-1]
+	}
+	g.selectedChoice = 0
+	g.resetDialogClickTracker()
+}
+
 // npcDialogueText is the body text for the NPC's current state, falling back to
 // the greeting when a state-specific message is unset. When the player has
 // branched into an "info" choice, its Response is shown instead.
@@ -237,9 +246,10 @@ type dialogueContentLayout struct {
 	bodyWidth     int
 	promptY       int
 	choiceY       int
-	exitY         int
 	firstChoice   int
 	choiceCount   int
+	backButton    layoutRect
+	leaveButton   layoutRect
 }
 
 // bodyClipped reports whether the rendered body is a truncated view of the
@@ -252,6 +262,11 @@ func (l dialogueContentLayout) bodyClipped() bool {
 // choice rows, and their hitboxes. It caps the body to the space left by the
 // current choices so authored or generated copy cannot escape the dialog.
 func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight int) dialogueContentLayout {
+	// Navigation has a fixed footer, outside the scrollable choice list.
+	const navigationHeight = 40
+	backButton := layoutRect{20, dialogHeight - 36, 84, 24}
+	leaveButton := layoutRect{dialogWidth - 104, dialogHeight - 36, 84, 24}
+	dialogHeight -= navigationHeight
 	innerWidth := dialogWidth - 40
 	textWidth := min(innerWidth, dialogueWrapColumns*debugTextCharWidth)
 	choices := g.visibleNPCChoices(npc)
@@ -265,7 +280,7 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 	}
 	visibleChoices := min(len(choices), maxVisibleChoices)
 
-	footerHeight := 20 + debugTextCharHeight // gap + "Press ESC"
+	footerHeight := 0
 	if len(choices) > 0 {
 		footerHeight = 20 + visibleChoices*dialogueChoiceRowH + promptHeight
 	}
@@ -279,13 +294,13 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 
 	cursorY := dialogueBodyTextY + len(bodyLines)*dialogueLineHeight + 20
 	layout := dialogueContentLayout{
+		backButton: backButton, leaveButton: leaveButton,
 		bodyLines: bodyLines,
 		// The full copy travels with the layout so the renderer can offer it on
 		// hover: long greetings are clipped to fit, never silently lost.
 		bodyFullLines: fullLines,
 		bodyWidth:     textWidth,
 		promptY:       -1,
-		exitY:         cursorY,
 		choiceCount:   visibleChoices,
 	}
 	if len(choices) == 0 {
@@ -326,6 +341,7 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 // It also invalidates input queued against the previous tab.
 func (g *MMGame) switchDialogTab(tab int) {
 	g.dialogTab = tab
+	g.dialogNodePath = nil
 	g.selectedChoice = 0
 	g.merchantBuyPage = 0
 	g.pendingBuffService = nil
@@ -455,11 +471,7 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.game.selectedChoice = 0
 	},
 	"back": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
-		// Pop one conversation level (back toward the greeting).
-		if n := len(ih.game.dialogNodePath); n > 0 {
-			ih.game.dialogNodePath = ih.game.dialogNodePath[:n-1]
-		}
-		ih.game.selectedChoice = 0
+		ih.game.backConversation()
 	},
 	"leave": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.game.closeConversation()

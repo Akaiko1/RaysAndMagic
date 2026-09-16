@@ -83,6 +83,8 @@ type viewer struct {
 	legendLines     []legendEntry
 	legendScroll    int
 	legendCollapsed map[string]bool
+	brushPalette    []legendEntry // Uncollapsed palette; presentation never changes eligibility.
+	brushBiome      string
 	sidebarTab      int
 	tileDataByKey   map[string]*config.TileData
 	tileManager     *world.TileManager
@@ -1024,6 +1026,8 @@ func (v *viewer) resetMapView() {
 	v.zoom = 1
 	v.panX = 0
 	v.panY = 0
+	// A gesture belongs to its source map, even when the mouse stays held.
+	v.grab, v.pendingGrab, v.dragPainted = dragState{}, dragState{}, nil
 }
 
 func (v *viewer) handleMouseClick() {
@@ -1800,6 +1804,16 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 	if m == nil || m.Data == nil || v.tileManager == nil {
 		return
 	}
+	if ty < 0 || ty >= len(m.Data.Tiles) || tx < 0 || tx >= len(m.Data.Tiles[ty]) {
+		return
+	}
+	biome := ""
+	if m.Config != nil {
+		biome = m.Config.Biome
+	}
+	if !v.brushAvailable(v.brush, biome) {
+		return
+	}
 
 	clearMapCellSpawns(m, tx, ty)
 
@@ -2247,7 +2261,7 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 	return maps, nil
 }
 
-// matchesBiome reports whether a tile/monster (with the given biome scope) is
+// matchesBiome reports whether an authored resource (with the given biome scope) is
 // usable in the given biome. Empty scope = universal (every biome).
 func matchesBiome(scope []string, biome string) bool {
 	if len(scope) == 0 {
@@ -2272,7 +2286,28 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
+	// Rebuild eligibility from content, independently of collapsed sections.
+	v.brushPalette = nil
+	if !v.brushAvailable(v.brush, v.currentBiome()) {
+		v.brush = brush{}
+	}
 	v.rebuildLegend(true)
+}
+
+// brushAvailable shares all palette rules, including biome scope, champion
+// exclusion and letter overrides. Cache the uncollapsed rows so a held paint
+// stroke does not rebuild and sort the content catalog for every cell.
+func (v *viewer) brushAvailable(b brush, biome string) bool {
+	if v.brushPalette == nil || v.brushBiome != biome {
+		v.brushPalette = buildLegendEntries(v.tileManager, v.monsterCfg, biome, nil)
+		v.brushBiome = biome
+	}
+	for _, entry := range v.brushPalette {
+		if brushMatchesEntry(b, entry) {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *viewer) rebuildLegend(resetScroll bool) {
@@ -2585,11 +2620,14 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		entries = appendLegendScope(entries, "General: All Biomes", "scope:general", generalGroups, collapsed)
 	}
 
-	// NPCs are universal placement tools. Their authored behavior type remains a
-	// useful editor category, and each category can be collapsed independently.
+	// NPCs default to universal placement; authored biome scopes use the same
+	// filtering as tiles and monsters. Each behavior category is collapsible.
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
+			if data != nil && !matchesBiome(data.Biomes, biome) {
+				continue
+			}
 			npcType := ""
 			if data != nil {
 				npcType = data.Type

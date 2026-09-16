@@ -1,0 +1,13 @@
+# Interface presentation; ASCII only.
+ui.control_tips: "Control Tips"
+ui.quest_journal: "Quest Journal"
+ui.party_effects: "Party effects"
+ui.no_active_effects: "No active effects."
+ui.quest_in_progress: "[>] IN PROGRESS"
+ui.quest_concluded: "[x] CONCLUDED"
+ui.quest_reward_ready: "[!] REWARD READY"
+ui.defeat_all_enemies: "Defeat all enemies"
+ui.all_enemies_defeated: "All enemies defeated"
+ui.claim_reward: "Claim Reward"
+ui.reward: "Reward: %s"
+ui.scroll_details: "Scroll for details"

@@ -2302,6 +2302,12 @@ func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCh
 // callers supply their own flavor line, hostility, and any extra VFX (e.g.
 // party flame).
 func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool) int {
+	return cs.damagePartyMemberPartsFromSource(idx, member, parts, school, hostileSpell, nil)
+}
+
+// damagePartyMemberPartsFromSource retains ownership for undodgeable monster
+// hits. Environmental damage and friendly splash have no hostile source.
+func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool, source *monsterPkg.Monster3D) int {
 	if cs.tryAbsorbSpellHit(member, parts, hostileSpell, "") {
 		return 0
 	}
@@ -2316,6 +2322,7 @@ func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMChar
 	}
 	cs.game.TriggerDamageHit(idx, dealt)
 	growScaleStacks(member, dealt) // Drakehide: specials grow scales too
+	cs.reflectMonsterDamage(source, member, dealt, false)
 	return dealt
 }
 
@@ -2414,12 +2421,13 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 			raw = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
 		parts := monster.OutgoingDamage(damagecalc.Parts{Normal: raw, True: monster.TrueDamage})
-		dealt := cs.damagePartyMemberParts(
+		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
 			true, // Fireburst is a cast - absorbable
+			monster,
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))

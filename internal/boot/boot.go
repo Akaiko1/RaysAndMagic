@@ -6,6 +6,7 @@ package boot
 
 import (
 	"log"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
@@ -21,6 +22,9 @@ import (
 // maps) stay with their binary's main.
 func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	storage.EnsureRuntimeCWD()
+	if err := uitext.LoadDirectory("assets/text"); err != nil {
+		log.Fatalf("UI text: %v", err)
+	}
 
 	cfg := config.MustLoadConfig("config.yaml")
 	config.MustLoadSpellConfig("assets/spells.yaml")

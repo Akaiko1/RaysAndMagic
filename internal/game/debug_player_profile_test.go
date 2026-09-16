@@ -131,7 +131,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 					return
 				}
 				defer f.Close()
-				drawErr = png.Encode(f, dst)
+				drawErr = png.Encode(f, snapshotUIImage(dst))
 			})
 			if (page == 0 || page == 2 || page == 3) && size[0] <= 1024 {
 				runOnDrawFrame(func(_ *ebiten.Image) {
@@ -150,7 +150,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 						return
 					}
 					defer f.Close()
-					drawErr = png.Encode(f, dst)
+					drawErr = png.Encode(f, snapshotUIImage(dst))
 				})
 			}
 
@@ -185,17 +185,8 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 						dst := ebiten.NewImage(size[0], size[1])
 						defer dst.Deallocate()
 						h.loop.Draw(dst)
-						check := func(kind string, r layoutRect, want color.RGBA) {
-							points := [][2]int{{r.x + r.w/2, r.y}, {r.x + r.w/2, r.y + r.h - 1}, {r.x, r.y + r.h/2}, {r.x + r.w - 1, r.y + r.h/2}}
-							for edge, p := range points {
-								if p[1] < l.body.y || p[1] >= l.body.y+l.body.h {
-									continue
-								}
-								got := color.RGBAModel.Convert(dst.At(p[0], p[1])).(color.RGBA)
-								if got != want {
-									problems = append(problems, fmt.Sprintf("%s edge %d at %v clipped: got %v want %v", kind, edge, p, got, want))
-								}
-							}
+						check := func(kind string, r layoutRect, _ color.RGBA) {
+							problems = append(problems, checkThemeCardEdges(h.ui, dst, r, l.body, kind)...)
 						}
 						for i := range profilePages[tab].counters {
 							cx := l.body.x + (i%l.columns)*(l.columnW+14)
@@ -210,19 +201,76 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 			}
 		}
 		t.Run(fmt.Sprintf("%dx%d/achievements", size[0], size[1]), func(t *testing.T) {
-			var got color.RGBA
+			var problems []string
 			runOnDrawFrame(func(_ *ebiten.Image) {
 				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = size[0], size[1]
 				g.entryMenuMode = EntryMenuAchievements
 				dst := ebiten.NewImage(size[0], size[1])
 				defer dst.Deallocate()
 				h.loop.Draw(dst)
-				r := profilePanelRect(size[0], size[1])
-				got = color.RGBAModel.Convert(dst.At(r.x+menuFrameInset+100, r.y+menuFrameInset+60)).(color.RGBA)
+				panel := profilePanelRect(size[0], size[1])
+				// Check the first card's top rail, without depending on its old flat color.
+				r := layoutRect{panel.x + menuFrameInset, panel.y + menuFrameInset + 60, 200, 86}
+				found := false
+				for inset := 0; inset < 8; inset++ {
+					c := color.RGBAModel.Convert(dst.At(r.x+100, r.y+inset)).(color.RGBA)
+					found = found || (max(c.R, c.G, c.B) > 70)
+				}
+				if !found {
+					problems = append(problems, "achievement top rail is missing or clipped")
+				}
 			})
-			if got != (color.RGBA{93, 82, 66, 255}) {
-				t.Fatalf("achievement top edge clipped: %v", got)
+			for _, problem := range problems {
+				t.Error(problem)
 			}
 		})
 	}
+}
+
+// Find each rendered master rail inside its safe margin, then compare it with
+// the clipped production card. The invariant is intact rails, not old RGBs.
+func checkThemeCardEdges(ui *UISystem, dst *ebiten.Image, r, clip layoutRect, kind string) []string {
+	reference := ebiten.NewImage(r.w, r.h)
+	defer reference.Deallocate()
+	ui.drawProfileCard(reference, layoutRect{0, 0, r.w, r.h}, false)
+	var problems []string
+	for edge := 0; edge < 4; edge++ {
+		visible, checked := false, false
+		for inset := 0; inset < 8; inset++ {
+			x, y := r.w/2, inset
+			switch edge {
+			case 1:
+				y = r.h - 1 - inset
+			case 2:
+				x, y = inset, r.h/2
+			case 3:
+				x, y = r.w-1-inset, r.h/2
+			}
+			px, py := r.x+x, r.y+y
+			if px < clip.x || px >= clip.right() || py < clip.y || py >= clip.bottom() {
+				continue
+			}
+			visible = true
+			want := color.RGBAModel.Convert(reference.At(x, y)).(color.RGBA)
+			if want.A < 250 || max(want.R, want.G, want.B) < 70 {
+				continue
+			}
+			got := color.RGBAModel.Convert(dst.At(px, py)).(color.RGBA)
+			delta := func(a, b uint8) int {
+				if a > b {
+					return int(a) - int(b)
+				}
+				return int(b) - int(a)
+			}
+			if delta(got.R, want.R) > 4 || delta(got.G, want.G) > 4 || delta(got.B, want.B) > 4 {
+				problems = append(problems, fmt.Sprintf("%s edge %d at %d,%d clipped: got %v want %v", kind, edge, px, py, got, want))
+			}
+			checked = true
+			break
+		}
+		if visible && !checked {
+			problems = append(problems, fmt.Sprintf("%s edge %d has no opaque reference rail", kind, edge))
+		}
+	}
+	return problems
 }

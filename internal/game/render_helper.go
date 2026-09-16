@@ -767,54 +767,35 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	}
 
 	if atlasIndex >= 0.0 && atlasIndex < TexCount && TexCount > 0.5 {
-		lx := fract(floorX / TileSize)
-		ly := fract(floorY / TileSize)
-		if lx < 0.0 {
-			lx += 1.0
-		}
-		if ly < 0.0 {
-			ly += 1.0
-		}
-
 		// Texel footprint of one screen pixel. Horizontal grows linearly with
 		// rowDist; VERTICAL grows with rowDist^2 (one screen row near the
 		// horizon spans rowDist^2/RowDistFactor world units) and dominates
 		// there. Point/bilinear sampling of a footprint many texels wide is
 		// the ripple-while-moving: each step lands on different texels. The
 		// mip level pre-averages exactly that footprint.
-		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
-		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
-		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
-		vertTexels := rowDist * rowDist / RowDistFactor * TexTileSize.y / TileSize
+		// One shared tap count defines both the filter footprint and sample
+		// spacing. Three taps can cover three mip footprints, not nine.
+		const tapCount = 3
+		ray := vec2(DirCos, DirSin) + vec2(PlaneCos, PlaneSin)*s
+		texelScale := TexTileSize / TileSize
+		horizontal := vec2(PlaneCos, PlaneSin) * (rowDist*2.0/ScreenSize.x) * texelScale
+		vertical := ray * (rowDist*rowDist/RowDistFactor) * texelScale
+		texelsPerPixel := length(horizontal)
+		// Include the off-axis ray length and both texture dimensions. The
+		// screen-edge footprint is wider than the forward ray's footprint.
+		foot := max(texelsPerPixel, length(vertical)/float(tapCount))
+		mip := clamp(log2(max(foot, 1.0)), 0.0, MaxMip)
 
-		// Anisotropic-lite mip selection. The honest vertical footprint grows
-		// with rowDist^2, so an isotropic max-axis mip turns the texture flat
-		// within a few tiles. Bias the vertical term 9x down - detail carries
-		// ~3x farther on the quadratic term - and cover the undersampling gap
-		// with 3 taps spread along the column's world step so the
-		// ripple-while-moving stays gone. Raise the 9.0 for sharper/farther,
-		// lower for calmer.
-		foot := max(texelsPerPixel, vertTexels/9.0)
-		mip := 0.0
-		if foot > 1.0 {
-			mip = min(log2(foot), MaxMip)
+		// Integrate this screen row at evenly spaced subpixel positions.
+		// Reuse the pixel's material across a tile boundary, as before.
+		texColor := vec4(0.0)
+		for tap := 0; tap < tapCount; tap++ {
+			offset := (float(tap)+0.5)/float(tapCount) - 0.5
+			tapDist := RowDistFactor / (p + offset)
+			local := fract((CamPos + tapDist*ray) / TileSize)
+			texColor += sampleFloorTrilinear(atlasIndex, local.x, local.y, mip, texelsPerPixel)
 		}
-
-		// Tap positions: this pixel's ray plus +/- a third of a screen row
-		// along the same column - together they span the pixel's true
-		// vertical footprint. Tile-local coords wrap; the tap keeps this
-		// pixel's texture even if a neighbour tile differs (subpixel blur).
-		rowDistB := RowDistFactor / (p + 0.33)
-		rowDistC := RowDistFactor / (p - 0.33)
-		rayX := DirCos + PlaneCos*s
-		rayY := DirSin + PlaneSin*s
-		lxB := fract((CamPos.x + rowDistB*rayX) / TileSize)
-		lyB := fract((CamPos.y + rowDistB*rayY) / TileSize)
-		lxC := fract((CamPos.x + rowDistC*rayX) / TileSize)
-		lyC := fract((CamPos.y + rowDistC*rayY) / TileSize)
-		texColor := (sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel) +
-			sampleFloorTrilinear(atlasIndex, lxB, lyB, mip, texelsPerPixel) +
-			sampleFloorTrilinear(atlasIndex, lxC, lyC, mip, texelsPerPixel)) / 3.0
+		texColor /= float(tapCount)
 
 		// Keep the floor material visible across the whole view. The old
 		// footprint fade replaced it with the flat tile colour in the distance,

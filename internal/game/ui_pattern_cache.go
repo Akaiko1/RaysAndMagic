@@ -64,7 +64,7 @@ func (c *patternPlanCache) get(name string, src *ebiten.Image, pf *patternFrame,
 		// Thousands of repeated tiles share only a handful of source rectangles.
 		views := make(map[image.Rectangle]*ebiten.Image)
 		for i, op := range ops {
-			rect := image.Rect(op.sx, op.sy, op.sx+op.sw, op.sy+op.sh)
+			rect := image.Rect(op.sx, op.sy, op.sx+op.sw, op.sy+op.sh).Add(src.Bounds().Min)
 			part := views[rect]
 			if part == nil {
 				part = src.SubImage(rect).(*ebiten.Image)

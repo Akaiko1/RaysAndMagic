@@ -203,6 +203,8 @@
   "npc/clock_tower_exit@640": 76,
   "npc/clockmaker@384": 76,
   "npc/clockmaker@640": 46,
+  "npc/culvert_gate@384": 128,
+  "npc/culvert_gate@640": 76,
   "npc/culvert_valve_1@384": 64,
   "npc/culvert_valve_1@640": 38,
   "npc/culvert_valve_2@384": 64,

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -1908,7 +1909,7 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	if selectedChar.KnowsSpell(spells.SpellID(ih.game.selectedSpellKey)) {
 		ih.game.AddCombatMessage(ih.npcShopLine(
 			func(d *character.NPCDialogue) string { return d.AlreadyKnown }, vars,
-			fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)))
+			uitext.Text("dialog.already_knows", selectedChar.Name, spellData.Name)))
 		return
 	}
 
@@ -1916,27 +1917,27 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	if ih.game.party.Gold < spellData.Cost {
 		ih.game.AddCombatMessage(ih.npcShopLine(
 			func(d *character.NPCDialogue) string { return d.InsufficientGold }, vars,
-			fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)))
+			uitext.Text("dialog.need_gold_to_learn", spellData.Cost, spellData.Name)))
 		return
 	}
 
 	// The matching magic school must already be open.
 	if !canCharacterLearnNPCSpell(selectedChar, ih.game.selectedSpellKey) {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (matching magic school is not open)", selectedChar.Name, spellData.Name))
+		ih.game.AddCombatMessage(uitext.Text("dialog.cannot_learn_matching_magic_school_is_not", selectedChar.Name, spellData.Name))
 		return
 	}
 
 	// Teach FIRST, charge after: a spell that fails to resolve must not eat
 	// the gold (and must not leave an empty school behind).
 	if !ih.addSpellToCharacter(selectedChar, ih.game.selectedSpellKey) {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot be taught right now.", spellData.Name))
+		ih.game.AddCombatMessage(uitext.Text("dialog.cannot_be_taught_right_now", spellData.Name))
 		return
 	}
 	ih.game.party.Gold -= spellData.Cost
 
 	ih.game.AddCombatMessage(ih.npcShopLine(
 		func(d *character.NPCDialogue) string { return d.Success }, vars,
-		fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)))
+		uitext.Text("dialog.learned", selectedChar.Name, spellData.Name)))
 }
 
 // addSpellToCharacter teaches the row by its catalog KEY (the spell id), the same
@@ -2565,7 +2566,7 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 	}
 	option := options[ih.game.dialogSelectedSpell]
 	if ih.game.party.Gold < option.Cost {
-		ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to train %s.", option.Cost, option.Label))
+		ih.game.AddCombatMessage(uitext.Text("dialog.need_gold_to_train", option.Cost, option.Label))
 		return
 	}
 
@@ -2579,12 +2580,12 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 		trained = ih.game.trainSkill(selectedChar, option.SkillType)
 	}
 	if !trained {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s is already at maximum mastery.", option.Label))
+		ih.game.AddCombatMessage(uitext.Text("dialog.is_already_at_maximum_mastery", option.Label))
 		return
 	}
 
 	ih.game.party.Gold -= option.Cost
-	ih.game.AddCombatMessage(fmt.Sprintf("%s trained %s to %s for %d gold.", selectedChar.Name, option.Label, option.Next.String(), option.Cost))
+	ih.game.AddCombatMessage(uitext.Text("dialog.trained_to_for_gold", selectedChar.Name, option.Label, option.Next.String(), option.Cost))
 }
 
 // handleEncounterInput handles input for encounter NPCs
@@ -2705,31 +2706,31 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	// kill quests), which just activate generically.
 	if questID == "archmage_trial" {
 		if g.party.HasLich() {
-			g.AddCombatMessage("The tower's wards reject the undead.")
+			g.AddCombatMessage(uitext.Text("dialog.the_tower_s_wards_reject_the_undead"))
 			return
 		}
 		if len(g.eligibleArchmageIndices()) == 0 {
-			g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
 			return
 		}
 		if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-			g.AddCombatMessage("The trial is already underway - return when the Lich King is slain.")
+			g.AddCombatMessage(uitext.Text("dialog.the_trial_is_already_underway_return_when"))
 			return
 		}
-		g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
+		g.AddCombatMessage(uitext.Text("dialog.trial_accepted_slay_the_lich_king_then"))
 		return
 	}
 
 	// Generic quest activation.
 	if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-		g.AddCombatMessage("You are already on that quest.")
+		g.AddCombatMessage(uitext.Text("dialog.you_are_already_on_that_quest"))
 		return
 	}
 	name := questID
 	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
 		name = q.Definition.Name
 	}
-	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
+	g.AddCombatMessage(uitext.Text("dialog.quest_accepted", name))
 
 	// Targets already wiped out before the quest was taken? Credit it on the
 	// spot (and apply any world changes) instead of showing 0/N until the next
@@ -2753,16 +2754,16 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 
 	if questID == "archmage_trial" {
 		if g.party.HasLich() {
-			g.AddCombatMessage("The tower's wards reject the undead.")
+			g.AddCombatMessage(uitext.Text("dialog.the_tower_s_wards_reject_the_undead"))
 			return
 		}
 		quest := g.questManager.GetQuest(questID)
 		if quest == nil || !quest.Completed {
-			g.AddCombatMessage("The Lich King still draws breath. Return when the deed is done.")
+			g.AddCombatMessage(uitext.Text("dialog.the_lich_king_still_draws_breath_return"))
 			return
 		}
 		if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
-			g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
 			return
 		}
 		g.questManager.RemoveQuest(questID) // can't be turned in twice
@@ -2775,7 +2776,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	// Generic turn-in: must be done, then pay out and conclude the NPC.
 	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
-		g.AddCombatMessage("That task isn't finished yet - return when it's done.")
+		g.AddCombatMessage(uitext.Text("dialog.that_task_isn_t_finished_yet_return"))
 		return
 	}
 	if g.claimQuestReward(questID) && npc != nil && !g.npcHasPendingChainStep(npc, questID) {
@@ -2852,13 +2853,13 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	g := ih.game
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(fmt.Sprintf("A night here costs %d gold - you cannot afford it.", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.a_night_here_costs_gold_you_cannot", choice.Cost))
 		return
 	}
 	g.party.Gold -= choice.Cost
 	g.restParty()
 	g.closeConversation()
-	g.AddCombatMessage(fmt.Sprintf("The party sleeps soundly (-%d gold). HP and spell points restored.", choice.Cost))
+	g.AddCombatMessage(uitext.Text("dialog.the_party_sleeps_soundly_gold_hp_and", choice.Cost))
 }
 
 // handleArenaWait dozes on the arena bones until the next nightfall or dawn
@@ -2867,20 +2868,20 @@ func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, night bool) {
 	g := ih.game
 	if g.dayNightSkipActive {
-		g.AddCombatMessage("Time is already passing.")
+		g.AddCombatMessage(uitext.Text("dialog.time_is_already_passing"))
 		return
 	}
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(fmt.Sprintf("The pit crew charges %d gold for an undisturbed doze - you cannot afford it.", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.the_pit_crew_charges_gold_for_an", choice.Cost))
 		return
 	}
 	g.party.Gold -= choice.Cost
 	g.advanceDayNightToPhase(night)
 	g.closeConversation()
 	if night {
-		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until the stars come out (-%d gold).", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.you_doze_among_the_old_bones_until", choice.Cost))
 	} else {
-		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until first light (-%d gold).", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.you_doze_among_the_old_bones_until_2", choice.Cost))
 	}
 }
 
@@ -2889,12 +2890,12 @@ func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, nig
 func (ih *InputHandler) handleBuyFood(choice *character.NPCDialogueChoice) {
 	g := ih.game
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(fmt.Sprintf("Rations cost %d gold - you cannot afford them.", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.rations_cost_gold_you_cannot_afford_them", choice.Cost))
 		return
 	}
 	g.party.Gold -= choice.Cost
 	g.party.Food += choice.Amount
-	g.AddCombatMessage(fmt.Sprintf("Bought %d rations for %d gold (food: %d).", choice.Amount, choice.Cost, g.party.Food))
+	g.AddCombatMessage(uitext.Text("dialog.bought_rations_for_gold_food", choice.Amount, choice.Cost, g.party.Food))
 }
 
 // handleBuffServiceInput drives the paid-cast dialog: Tab flips between the
@@ -2930,30 +2931,30 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 	// A chant already woven over the party - of ANY remaining span - refuses
 	// the sale outright: a misclick must never re-buy a running blessing.
 	if g.serviceBuffAlreadyCovered(spells.SpellID(choice.Buff)) {
-		g.AddCombatMessage(fmt.Sprintf("%s is already woven over the party - no gold was spent.",
+		g.AddCombatMessage(uitext.Text("dialog.is_already_woven_over_the_party_no",
 			buffServiceLabel(choice.Buff)))
 		return
 	}
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(fmt.Sprintf("That casting costs %d gold - your purse is too light.", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.that_casting_costs_gold_your_purse_is", choice.Cost))
 		return
 	}
 	switch g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) {
 	case timedBuffNotHandled:
-		g.AddCombatMessage("Nothing happens.") // unknown buff: validated at load
+		g.AddCombatMessage(uitext.Text("dialog.nothing_happens")) // unknown buff: validated at load
 		return
 	case timedBuffUnchanged:
-		g.AddCombatMessage(fmt.Sprintf("%s already lasts at least %s - no gold was spent.",
+		g.AddCombatMessage(uitext.Text("dialog.already_lasts_at_least_no_gold_was",
 			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds)))
 		return
 	}
-	casterName := "The caster"
+	casterName := uitext.Text("dialog.the_caster")
 	if g.dialogNPC != nil && g.dialogNPC.Name != "" {
 		casterName = g.dialogNPC.Name
 	}
 	g.party.Gold -= choice.Cost
 	g.closeConversation()
-	g.AddCombatMessage(fmt.Sprintf("%s casts %s over the party for %s (-%d gold).",
+	g.AddCombatMessage(uitext.Text("dialog.casts_over_the_party_for_gold",
 		casterName, buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost))
 }
 
@@ -2972,7 +2973,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 			// explains why - the statue only refuses.
 			if !ih.game.partyHoldsQuest(s.QuestID) {
 				choices = append(choices, &character.NPCDialogueChoice{
-					Text:     fmt.Sprintf("Study the runes around the %s seal", s.Label),
+					Text:     uitext.Text("dialog.study_the_runes_around_the_seal", s.Label),
 					Action:   "info",
 					Response: s.LockedResponse,
 				})
@@ -2981,7 +2982,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 			for _, it := range ih.game.party.Inventory {
 				if it.Name == s.Statuette {
 					choices = append(choices, &character.NPCDialogueChoice{
-						Text:               fmt.Sprintf("Offer the %s Dragon Statuette", s.Label),
+						Text:               uitext.Text("dialog.offer_the_dragon_statuette", s.Label),
 						Action:             "summon_dragon",
 						RuntimeOptionIndex: i,
 					})
@@ -2990,7 +2991,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 			}
 		}
 	}
-	choices = append(choices, &character.NPCDialogueChoice{Text: "Leave", Action: "leave"})
+	choices = append(choices, &character.NPCDialogueChoice{Text: uitext.Text("dialog.leave"), Action: "leave"})
 	npc.DialogueData.Choices = choices
 }
 
@@ -3032,7 +3033,7 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	// We keep the NPC in the world so its Visited=true is saved and the statue
 	// stays spent across reloads - dropping it from the world would lose that.
 	npc.Visited = true
-	g.AddCombatMessage(fmt.Sprintf("The %s Dragon erupts from the shattering statue!", s.Label))
+	g.AddCombatMessage(uitext.Text("dialog.the_dragon_erupts_from_the_shattering_statue", s.Label))
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
@@ -3073,7 +3074,7 @@ func (ih *InputHandler) startEncounter() {
 			gold,
 			exp,
 		)
-		ih.game.AddCombatMessage(fmt.Sprintf("Quest Started: %s", npc.EncounterData.QuestName))
+		ih.game.AddCombatMessage(uitext.Text("dialog.quest_started", npc.EncounterData.QuestName))
 	}
 
 	// Spawn monsters near the encounter location

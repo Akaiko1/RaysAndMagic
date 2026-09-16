@@ -19,12 +19,14 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name          string `yaml:"name"`
-	Type          string `yaml:"type"`
-	Description   string `yaml:"description"`
-	Sprite        string `yaml:"sprite"`
-	VisitedSprite string `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin        bool   `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	// Empty biome scope keeps the NPC available in every editor palette.
+	Biomes        []string `yaml:"biomes,omitempty"`
+	Name          string   `yaml:"name"`
+	Type          string   `yaml:"type"`
+	Description   string   `yaml:"description"`
+	Sprite        string   `yaml:"sprite"`
+	VisitedSprite string   `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool     `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.

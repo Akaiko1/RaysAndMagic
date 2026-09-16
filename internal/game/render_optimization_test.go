@@ -14,11 +14,7 @@ import (
 // All caches here are transient: save/load must rebuild them, never persist
 // camera projections, visibility candidates, source views or texture ownership.
 func TestPatternPlanCachePreservesGeometryAndBounds(t *testing.T) {
-	t.Chdir("../..")
-	pf := analyzePatternFrame("menu_panel_frame", generatedPatternFrameSlice)
-	if pf == nil {
-		t.Fatal("missing pattern")
-	}
+	pf := testPeriodicFrame()
 	src := ebiten.NewImage(512, 512)
 	defer src.Deallocate()
 	var cache patternPlanCache

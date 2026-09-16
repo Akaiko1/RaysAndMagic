@@ -215,7 +215,7 @@ func isStyleDivergent(line string) bool {
 		strings.HasPrefix(line, "Current reduction:") ||
 		strings.HasPrefix(line, "Current resistance:") ||
 		strings.HasPrefix(line, "Current stat bonus:") ||
-		strings.HasPrefix(line, "Current total:") || // armor: the WEARER's mitigation total
+		strings.HasPrefix(line, "Equipped mitigation:") || // armor: the WEARER's mitigation total
 		strings.HasPrefix(line, "Mastery:") || // editor "Mastery: +20% duration per tier"
 		strings.Contains(line, " Mastery - ") // game "<School> Mastery - Tier: +N%"
 }

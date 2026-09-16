@@ -368,14 +368,8 @@ func (ui *UISystem) beginPickedUpStackSplit(item items.Item) {
 	}
 }
 
-func drawStackSplitButton(screen *ebiten.Image, r image.Rectangle, label string, hovered bool) {
-	bg := color.RGBA{70, 50, 30, 230}
-	if hovered {
-		bg = color.RGBA{120, 90, 50, 240}
-	}
-	drawFilledRect(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), bg)
-	drawRectBorder(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), 1, color.RGBA{170, 130, 70, 235})
-	drawCenteredDebugText(screen, label, r.Min.X, r.Min.Y+2, r.Dx(), r.Dy()-2)
+func (ui *UISystem) drawStackSplitButton(screen *ebiten.Image, r image.Rectangle, label string, hovered bool) {
+	ui.drawMenuButton(screen, label, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), hovered)
 }
 
 func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
@@ -388,8 +382,7 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	screenW, screenH := screen.Bounds().Dx(), screen.Bounds().Dy()
 	r := stackSplitPickerRect(screenW, screenH)
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 125})
-	drawFilledRect(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), color.RGBA{30, 30, 60, 248})
-	drawRectBorder(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), 2, color.RGBA{170, 130, 70, 235})
+	ui.drawThemeFrame(screen, frameSilver, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
 	title := "Split "
 	switch ui.stackSplitPicker.source {
 	case stackSplitPickerMerchantSell:
@@ -418,11 +411,11 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		quantityText = fmt.Sprintf("x%d/%d", ui.stackSplitPicker.quantity, ui.stackSplitMaxQuantity(item))
 		priceLine = merchantTotalPriceLabel(g, ui.stackSplitStockEntry(), ui.stackSplitPicker.quantity)
 	}
-	drawStackSplitButton(screen, minus, "-", ptInRect(mouseX, mouseY, minus))
-	drawStackSplitButton(screen, half, "1/2", ptInRect(mouseX, mouseY, half))
-	drawStackSplitButton(screen, plus, "+", ptInRect(mouseX, mouseY, plus))
-	drawStackSplitButton(screen, take, confirmLabel, ptInRect(mouseX, mouseY, take))
-	drawStackSplitButton(screen, cancel, "Cancel", ptInRect(mouseX, mouseY, cancel))
+	ui.drawStackSplitButton(screen, minus, "-", ptInRect(mouseX, mouseY, minus))
+	ui.drawStackSplitButton(screen, half, "1/2", ptInRect(mouseX, mouseY, half))
+	ui.drawStackSplitButton(screen, plus, "+", ptInRect(mouseX, mouseY, plus))
+	ui.drawStackSplitButton(screen, take, confirmLabel, ptInRect(mouseX, mouseY, take))
+	ui.drawStackSplitButton(screen, cancel, "Cancel", ptInRect(mouseX, mouseY, cancel))
 	drawCenteredDebugText(screen, quantityText, L.quantity.Min.X, L.quantity.Min.Y, L.quantity.Dx(), L.quantity.Dy())
 	if priceLine != "" {
 		// Own line, full panel width, clipped: a long item-currency price must

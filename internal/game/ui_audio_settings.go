@@ -55,7 +55,7 @@ func makeAudioSettingsPanelLayout(screenW, screenH int, ornate bool) audioSettin
 func audioSettingsPanelLayoutAt(px, py, panelW, panelH int, ornate bool) audioSettingsPanelLayout {
 	inset := audioMenuContentInset
 	if ornate {
-		inset = menuFrameInset
+		inset = audioSettingsInset
 	}
 	return audioSettingsPanelLayout{
 		px:           px,
@@ -121,7 +121,7 @@ func audioSliderRect(px, py, panelW, row int) pagerRect {
 
 func audioSelectionRect(px, py, panelW, contentInset, row int) pagerRect {
 	r := audioSliderRect(px, py, panelW, row)
-	inset := max(audioSettingsInset, contentInset)
+	inset := contentInset
 	return pagerRect{px + inset, r.y1 - 6, px + panelW - inset, r.y2 + 6}
 }
 

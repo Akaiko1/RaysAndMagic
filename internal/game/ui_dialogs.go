@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math/rand"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -43,15 +44,10 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, value in
 	atMax := value >= MaxStatValue
 	canActuallyAdd := canAdd && !atMax
 
-	var plusColor color.RGBA
-	if canActuallyAdd && isHover {
-		plusColor = color.RGBA{80, 200, 80, 220}
-	} else if atMax {
-		plusColor = color.RGBA{100, 100, 100, 180} // Gray out if at max
-	} else {
-		plusColor = color.RGBA{60, 120, 60, 180}
+	ui.drawButtonFrame(screen, plusX, plusY, btnW, btnH, canActuallyAdd && isHover)
+	if atMax {
+		drawFilledRect(screen, plusX+3, plusY+3, btnW-6, btnH-6, color.RGBA{0, 0, 0, 100})
 	}
-	vector.FillRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
 }
 
@@ -76,12 +72,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	popupY := (screenH - popupH) / 2
 
 	// Draw background
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
-
-	// Draw border (replace deprecated DrawRect)
-	borderCol := color.RGBA{120, 120, 180, 255}
-	borderThickness := 2
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, borderThickness, borderCol)
+	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
 
 	// Title
 	drawDebugText(screen, "Distribute Stat Points", popupX+16, popupY+16)
@@ -173,8 +164,7 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
 
 	// Panel
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
 
 	drawDebugText(screen, title, popupX+16, popupY+16)
 	drawDebugText(screen, prompt, popupX+16, popupY+36)
@@ -278,8 +268,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	popupY := (screenH - popupH) / 2
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
+	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
 	drawDebugText(screen, "Tavern - Manage Roster", popupX+16, popupY+14)
 	interactive := ui.topModalLayer() == modalLayerRoster
 	ui.drawRosterManager(screen, layoutRect{popupX + 16, popupY + 34, popupW - 32, popupH - 54}, interactive)
@@ -410,8 +399,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
 
 	// Panel
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
 
 	title := req.title
 	if title == "" {
@@ -504,16 +492,23 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	dlg := npcDialogLayout(ui.game)
 	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
 
+	// Draw above service contents, but never dismiss an underlying conversation
+	// while a trainer, picker or transaction confirmation owns input.
+	defer func() {
+		if ui.topModalLayer() != modalLayerDialog {
+			return
+		}
+		close := npcDialogCloseRect(dlg)
+		ui.drawPopupCloseButton(screen, close.x, close.y, close.w, true, ui.game.closeConversation)
+	}()
+
 	// Draw semi-transparent overlay
 	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
 
 	// Draw dialog background
-	drawFilledRect(screen, dialogX, dialogY, dialogWidth, dialogHeight, color.RGBA{40, 40, 60, 255})
-
-	// Draw border
-	borderColor := color.RGBA{100, 100, 120, 255}
-	borderThickness := 3
-	drawRectBorder(screen, dialogX, dialogY, dialogWidth, dialogHeight, borderThickness, borderColor)
+	ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
+	ui.drawCornerDecor(screen, frameGold, dialogX-8, dialogY-8, dialogWidth+16, dialogHeight+16, decorBottomCorners)
+	ui.drawPanelInlay(screen, frameGold, dialogX+dialogWidth-78, dialogY)
 
 	// Handle different NPC capabilities (data-driven)
 	switch ui.game.npcDialogKindFor(ui.game.dialogNPC) {
@@ -559,6 +554,7 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	ui.registerDisplayedModalMouse((*InputHandler).handleEncounterMouseInput, modalLayerDialog)
 	dialogY := textY - dialogueBodyTextY
 	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	ui.drawDialogueNavigation(screen, layout, dialogX, dialogY)
 	for i, line := range layout.bodyLines {
 		drawDebugText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
 	}
@@ -568,7 +564,6 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 
 	choices := ui.game.visibleNPCChoices(npc)
 	if len(choices) == 0 {
-		drawDebugText(screen, "Press ESC to leave.", dialogX+20, dialogY+layout.exitY)
 		return
 	}
 	if layout.promptY >= 0 {
@@ -678,7 +673,7 @@ const (
 
 func dialogFolderTabRect(dialogX, dialogY, index int) (x, y, w, h int) {
 	return dialogX + 16 + index*(dialogFolderTabW+dialogFolderTabGap),
-		dialogY - dialogFolderTabH + 4,
+		dialogY - dialogFolderTabH + 1,
 		dialogFolderTabW,
 		dialogFolderTabH
 }
@@ -694,12 +689,7 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 	interactive := enabled && ui.topModalLayer() == modalLayerDialog
 	for i, label := range labels {
 		tabX, tabY, tabW, tabH := dialogFolderTabRect(dialogX, dialogY, i)
-		fill := color.RGBA{30, 30, 45, 255}
-		if ui.game.dialogTab == i {
-			fill = color.RGBA{70, 70, 100, 255}
-		}
-		drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
-		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
+		ui.drawDialogTab(screen, layoutRect{tabX, tabY, tabW, tabH}, ui.game.dialogTab == i)
 		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
 			if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
@@ -723,7 +713,7 @@ func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMC
 	}
 	lines := strings.Split(GetSpellTooltip(spells.SpellID(spellKey), char, ui.game.combat, tooltipDetailHeld()), "\n")
 	if npcSpell != nil {
-		lines = append(lines, "", fmt.Sprintf("Price: %d gold", npcSpell.Cost))
+		lines = append(lines, "", uitext.Text("dialog.price_gold", npcSpell.Cost))
 	}
 	return lines
 }
@@ -732,7 +722,7 @@ func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMC
 // portrait strip at top, icon grid for spells below, tooltip on hover.
 func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
+	titleText := uitext.Text("dialog.spell_trader", ui.game.dialogNPC.Name)
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
 	// Quest-giving traders carry a second tab: clickable folder tabs along the
@@ -746,10 +736,10 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Welcome! I can teach you powerful spells for gold.")
+	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.welcome_i_can_teach_you_powerful_spells"))
 	ui.drawWrappedTextWithOverflow(screen, greetingText, layout.greeting, 2, dialogueLineHeight)
 
-	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
+	goldText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
 	drawDebugText(screen, clipDebugText(goldText, layout.balance.w), layout.balance.x, layout.balance.y)
 
 	// Portrait strip - click to switch active character.
@@ -762,7 +752,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 160, 200})
 		}
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
-		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
+		label := uitext.Text("dialog.member_level_short", member.Name, member.Level)
 		// +6 (not +2) so the label clears the selection frame's bottom edge (y+h+3).
 		drawCenteredDebugText(screen, clipDebugText(label, w+16), x-8, y+h+6, w+16, debugTextCharHeight)
 	}
@@ -817,7 +807,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 		// Cost under the icon, in its own line of the cell.
 		costX, costY, costW, costH := spellTraderPriceRect(x, y)
-		drawCenteredTextWithShadow(screen, clipDebugText(fmt.Sprintf("%d g", npcSpell.Cost), costW), costX, costY, costW, costH,
+		drawCenteredTextWithShadow(screen, clipDebugText(uitext.Text("dialog.gold_price_short", npcSpell.Cost), costW), costX, costY, costW, costH,
 			purchasePriceColor(canLearn && !alreadyKnows && ui.game.party.Gold >= npcSpell.Cost))
 
 		// Dim overlay if known.
@@ -855,8 +845,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	})
 
 	// Instructions (two condensed lines).
-	drawDebugText(screen, clipDebugText("Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
-	drawDebugText(screen, clipDebugText("Gold=selected   Green=learnable   Red=cannot   Gray=known   |   Hover: details", layout.footer[1].w), layout.footer[1].x, layout.footer[1].y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.click_portrait_spell_to_select_double_click"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.gold_selected_green_learnable_red_cannot_gray"), layout.footer[1].w), layout.footer[1].x, layout.footer[1].y)
 }
 
 // Skill-trainer layout.
@@ -901,12 +891,12 @@ func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, 
 
 func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	titleText := fmt.Sprintf("Mastery Trainer - %s", ui.game.dialogNPC.Name)
+	titleText := uitext.Text("dialog.mastery_trainer", ui.game.dialogNPC.Name)
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
-	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Choose a character to view trainable masteries.")
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.choose_a_character_to_view_trainable_masteries"))
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
-	drawDebugText(screen, clipDebugText(fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), layout.balance.w), layout.balance.x, layout.balance.y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.party_gold", ui.game.party.Gold), layout.balance.w), layout.balance.x, layout.balance.y)
 
 	// Portrait row.
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -919,10 +909,10 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		// +8/+24 keep both labels clear of the hover/selection frame (y+h+3).
 		drawCenteredDebugText(screen, clipDebugText(member.Name, w+16), x-8, y+h+8, w+16, debugTextCharHeight)
-		drawCenteredDebugText(screen, clipDebugText(fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), w+16), x-8, y+h+24, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, clipDebugText(uitext.Text("dialog.level", member.Level, member.ClassDisplayName()), w+16), x-8, y+h+24, w+16, debugTextCharHeight)
 	}
 
-	drawDebugText(screen, clipDebugText("Click a portrait to view trainable masteries  |  ESC: close", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.click_a_portrait_to_view_trainable_masteries"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
 	// Modal popup on top when character was clicked.
 	if ui.game.skillTrainerPopup &&
@@ -941,17 +931,16 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	}
 	defer func() { ui.displayedInput.suspended = suspended }()
 	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
-	drawFilledRect(screen, px, py, pw, ph, color.RGBA{30, 30, 50, 245})
-	drawRectBorder(screen, px, py, pw, ph, 3, color.RGBA{180, 150, 80, 240})
+	drawPortraitFrame(screen, px, py, pw, ph)
 
 	member := ui.game.party.Members[ui.game.selectedCharIdx]
-	header := fmt.Sprintf("%s - Trainable Masteries", member.Name)
+	header := uitext.Text("dialog.trainable_masteries", member.Name)
 	drawCenteredDebugText(screen, header, px, py+10, pw, 18)
-	drawDebugText(screen, fmt.Sprintf("Gold: %d", ui.game.party.Gold), px+12, py+30)
+	drawDebugText(screen, uitext.Text("dialog.gold", ui.game.party.Gold), px+12, py+30)
 
 	options := trainerOptions(member, ui.game.dialogNPC)
 	if len(options) == 0 {
-		drawCenteredDebugText(screen, "No eligible training at this trainer.", px, py+ph/2-8, pw, 16)
+		drawCenteredDebugText(screen, uitext.Text("dialog.no_eligible_training_at_this_trainer"), px, py+ph/2-8, pw, 16)
 	} else {
 		mouseX, mouseY := ebiten.CursorPosition()
 		pageSize := skillTrainerPageSize(ph)
@@ -971,9 +960,9 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 			} else if hover {
 				ui.drawUIBackground(screen, x, y-2, w, h+4, color.RGBA{60, 70, 100, 160})
 			}
-			label := fmt.Sprintf("%s:  %s -> %s   %d gold", option.Label, option.Current.String(), option.Next.String(), option.Cost)
+			label := uitext.Text("dialog.training_option", option.Label, option.Current.String(), option.Next.String(), option.Cost)
 			if option.Cost > ui.game.party.Gold {
-				label += "  (Need Gold)"
+				label += uitext.Text("dialog.need_gold")
 			}
 			drawDebugText(screen, label, x+6, y)
 		}
@@ -986,7 +975,7 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 		})
 	}
 
-	drawDebugText(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
+	drawDebugText(screen, uitext.Text("dialog.click_to_select_double_click_train_esc"), px+12, py+ph-22)
 }
 
 // partyMerchantTier returns the best Merchant mastery tier among active members.
@@ -1033,21 +1022,21 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// layer - under the quantity picker the grids are decoration.
 	merchantInteractive := ui.topModalLayer() == modalLayerDialog
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
+	titleText := uitext.Text("dialog.merchant", ui.game.dialogNPC.Name)
 	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
 	if ui.game.npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
-		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Bring your wares. I pay fair coin.")
+		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.bring_your_wares_i_pay_fair_coin"))
 		greetingArea := layout.greeting
 		greetingArea.y += 2
 		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
 	}
-	balanceText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
+	balanceText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
 	if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
-		balanceText = fmt.Sprintf("Arena Points: %d", ui.game.party.ArenaPoints)
+		balanceText = uitext.Text("dialog.arena_points", ui.game.party.ArenaPoints)
 	} else if name, ok := currencyItemName(ui.game.dialogNPC.Currency); ok {
-		balanceText = fmt.Sprintf("%ss: %d", name, ui.game.party.CountItemsByName(name))
+		balanceText = uitext.Text("dialog.item_currency_balance", name, ui.game.party.CountItemsByName(name))
 	}
 	drawDebugText(screen, clipDebugText(balanceText, layout.balance.w), layout.balance.x, layout.balance.y)
 
@@ -1056,7 +1045,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 
 	// Headers + faint divider between the two halves. Headers sit at gridTop-24
 	// so they clear the two-line greeting above and the icon frames below.
-	drawDebugText(screen, "For Sale", leftX, gridTop-24)
+	drawDebugText(screen, uitext.Text("dialog.for_sale"), leftX, gridTop-24)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
 	drawDebugText(screen, clipDebugText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-24)
@@ -1077,7 +1066,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	buyPages := pageCount(len(stock), merchantPageSize)
 	clampPage(&ui.game.merchantBuyPage, buyPages)
 	if len(stock) == 0 {
-		drawDebugText(screen, "(No stock for sale)", leftX, gridTop)
+		drawDebugText(screen, uitext.Text("dialog.no_stock_for_sale"), leftX, gridTop)
 	} else {
 		start := ui.game.merchantBuyPage * merchantPageSize
 		for slot := 0; slot < merchantPageSize; slot++ {
@@ -1097,19 +1086,19 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				tooltipHasItem = true
 			}
 			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
-			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
+			priceText := uitext.Text("dialog.gold_price_short", ui.game.merchantBuyPrice(entry.Cost))
 			entryCurrency := entry.EffectiveCurrency(ui.game.dialogNPC.Currency)
 			if _, ok := character.CurrencyItemKey(entryCurrency); ok {
 				priceText = fmt.Sprintf("x%d", entry.Cost)
 				if entry.GoldCost > 0 {
 					// Two currencies on one narrow line: compact the coins.
-					priceText = fmt.Sprintf("x%d +%s", entry.Cost, compactCoinAmount(entry.GoldCost))
+					priceText = uitext.Text("dialog.stack_additional_cost", entry.Cost, compactCoinAmount(entry.GoldCost))
 				}
 			} else if entryCurrency == character.CurrencyArenaPoints {
-				priceText = fmt.Sprintf("%d ap", entry.Cost) // flat price, victory currency
+				priceText = uitext.Text("dialog.arena_price_short", entry.Cost) // flat price, victory currency
 			}
 			if soldOut {
-				priceText = "sold out"
+				priceText = uitext.Text("dialog.sold_out")
 			}
 			px, py, pw, ph := merchantPriceRect(x, y, w, h)
 			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph,
@@ -1148,9 +1137,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
 			if buysGoods {
-				priceText := "no value"
+				priceText := uitext.Text("dialog.no_value")
 				if value > 0 {
-					priceText = fmt.Sprintf("%d g", ui.game.merchantSellPrice(value))
+					priceText = uitext.Text("dialog.gold_price_short", ui.game.merchantSellPrice(value))
 				}
 				px, py, pw, ph := merchantPriceRect(x, y, w, h)
 				drawCenteredDebugText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
@@ -1203,8 +1192,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		}
 	}
 
-	drawDebugText(screen, clipDebugText("Hover: details  |  Double-click: buy (left) / sell (right)", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
-	drawDebugText(screen, "ESC: Close", layout.footer[1].x, layout.footer[1].y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.hover_details_double_click_buy_left_sell"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, uitext.Text("dialog.esc_close"), layout.footer[1].x, layout.footer[1].y)
 }
 
 // Card-collector layout. The 8 collection slots sit in one compact row; the
@@ -1244,15 +1233,24 @@ func cardCollectorInvRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 // Shared by the collector dialog and the Cards menu tab so the cell looks and
 // hit-tests identically in both.
 func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size int, emptyLabel string) bool {
+	drawPortraitFrame(screen, x, y, size, size)
 	if key == "" {
-		drawFilledRect(screen, x, y, size, size, color.RGBA{30, 30, 44, 255})
-		drawRectBorder(screen, x, y, size, size, 1, color.RGBA{80, 80, 100, 200})
 		if emptyLabel != "" {
 			drawCenteredDebugText(screen, emptyLabel, x, y, size, size)
 		}
 		return false
 	}
-	ui.drawInventoryItemIcon(screen, items.CreateItemFromYAML(key), x, y, size, size, 3, true)
+	if sprite, ok := ui.game.cardFullArtSprite(key); ok {
+		img := ui.game.sprites.GetSprite(sprite)
+		if img != nil {
+			b := img.Bounds()
+			scale := float64(size-8) / float64(max(b.Dx(), b.Dy()))
+			w, h := int(float64(b.Dx())*scale), int(float64(b.Dy())*scale)
+			drawImageScaled(screen, img, x+(size-w)/2, y+(size-h)/2, w, h)
+		}
+	} else {
+		ui.drawInventoryItemIcon(screen, items.CreateItemFromYAML(key), x, y, size, size, 4, true)
+	}
 	mx, my := ebiten.CursorPosition()
 	hovered := isMouseHoveringBox(mx, my, x, y, x+size, y+size)
 	if hovered {
@@ -1264,7 +1262,7 @@ func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size in
 // appendCardArtHint adds the SHIFT hint to a card tooltip when full art exists.
 func (ui *UISystem) appendCardArtHint(lines []string, key string) []string {
 	if _, ok := ui.game.cardFullArtSprite(key); ok {
-		return append(lines, "Hold SHIFT to view the art")
+		return append(lines, uitext.Text("dialog.hold_shift_to_view_the_art"))
 	}
 	return lines
 }
@@ -1294,22 +1292,22 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 // it, double-click a slotted card to take it back. Art-based with hover tooltips.
 func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, dialogHeight}, false)
-	drawDebugText(screen, clipDebugText(fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
-	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, "Cards, is it? Hand them here and I'll pin them to your collection.")
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.card_collector", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.cards_is_it_hand_them_here_and"))
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hoverLines []string
 
 	// Active collection (8 slots).
-	drawDebugText(screen, "Collection (active effects)", dialogX+20, dialogY+96)
+	drawDebugText(screen, uitext.Text("dialog.collection_active_effects"), dialogX+20, dialogY+96)
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
 		key := ui.game.cardCollectionKey(slot)
 		if ui.drawCardCell(screen, key, x, y, w, "+") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to remove"}, key)
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", uitext.Text("dialog.double_click_to_remove")}, key)
 			}
 		}
 	}
@@ -1317,9 +1315,9 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	// Loose cards in the party inventory (paginated - the pack can hold more than
 	// one page of cards).
 	cardIdx := ui.game.inventoryCardIndices()
-	drawDebugText(screen, "Your cards (double-click to add)", dialogX+20, dialogY+176)
+	drawDebugText(screen, uitext.Text("dialog.your_cards_double_click_to_add"), dialogX+20, dialogY+176)
 	if len(cardIdx) == 0 {
-		drawDebugText(screen, "(No loose cards to add)", dialogX+20, dialogY+200)
+		drawDebugText(screen, uitext.Text("dialog.no_loose_cards_to_add"), dialogX+20, dialogY+200)
 	}
 	invPages := pageCount(len(cardIdx), cardInvMaxShown)
 	clampPage(&ui.game.cardCollectorInvPage, invPages)
@@ -1334,14 +1332,14 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to add to collection"}, key)
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", uitext.Text("dialog.double_click_to_add_to_collection")}, key)
 			}
 		}
 	}
 	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
 	ui.drawPager(screen, dialogX+(npcDialogWidth-invGridW)/2, dialogY+cardInvTop+2*cardInvRowPitch-4, invGridW, &ui.game.cardCollectorInvPage, invPages, true)
 
-	drawDebugText(screen, clipDebugText("Double-click a card to slot it  |  Double-click a slotted card to take it back", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.double_click_a_card_to_slot_it"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
 	if hoverLines != nil {
 		ui.queueTooltip(hoverLines, mouseX+16, mouseY+8)
@@ -1363,7 +1361,7 @@ func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, _ 
 		ui.drawWrappedTextWithOverflow(screen, npc.DialogueData.Greeting, layout.greeting, maxLines, dialogueLineHeight)
 	}
 
-	drawDebugText(screen, "Press ESC to close", layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, uitext.Text("dialog.press_esc_to_close"), layout.footer[0].x, layout.footer[0].y)
 }
 
 // drawGameOverOverlay draws a simple game over screen with options
@@ -1396,7 +1394,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 	for i, b := range btns {
 		by := startY + i*(btnH+gap)
 		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
-		ui.drawMenuButton(screen, "", b.label, bx, by, btnW, btnH, hover)
+		ui.drawMenuButton(screen, b.label, bx, by, btnW, btnH, hover)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, (bx + btnW) - (bx), (by + btnH) - (by)}, func() {
 			if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
 				b.action()
@@ -1442,9 +1440,7 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	const panelW, panelH = 460, 250
 	panelX := centerX - panelW/2
 	panelY := titleY + 116
-	drawFilledRect(screen, panelX, panelY, panelW, panelH, color.RGBA{8, 7, 3, 225})
-	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{126, 91, 22, 255})
-	drawRectBorder(screen, panelX+5, panelY+5, panelW-10, panelH-10, 1, color.RGBA{63, 49, 20, 255})
+	ui.drawThemeFrame(screen, frameSilver, panelX, panelY, panelW, panelH)
 	drawMetalPlate(screen, panelX+14, panelY+14, panelW-28, 24, metalPlateBase(rarityGold))
 	drawCenteredTextWithShadow(screen, "RUN RECORD", panelX+14, panelY+14, panelW-28, 24, rarityGold)
 	drawCenteredTextWithShadow(screen, "FINAL SCORE", panelX, panelY+51, panelW, 18, color.RGBA{205, 198, 175, 255})
@@ -1464,8 +1460,7 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 		const fieldW, fieldH = 420, 42
 		fieldX := centerX - fieldW/2
 		fieldY := controlsY + 27
-		drawFilledRect(screen, fieldX, fieldY, fieldW, fieldH, color.RGBA{5, 5, 3, 235})
-		drawRectBorder(screen, fieldX, fieldY, fieldW, fieldH, 2, color.RGBA{155, 113, 27, 255})
+		ui.drawThemeFrame(screen, frameSilver, fieldX, fieldY, fieldW, fieldH)
 		drawDebugTextColored(screen, fmt.Sprintf("> %s_", g.victoryNameInput), fieldX+14, fieldY+15, color.RGBA{244, 236, 210, 255})
 		drawCenteredTextWithShadow(screen, "ENTER - save score", centerX-180, fieldY+53, 360, 18, color.RGBA{205, 198, 175, 255})
 		drawCenteredTextWithShadow(screen, "ESC - continue in free mode", centerX-200, fieldY+74, 400, 18, color.RGBA{205, 198, 175, 255})
@@ -1543,8 +1538,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	layout := computeMapOverlayLayout(screenW, screenH)
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
-	drawFilledRect(screen, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, color.RGBA{20, 20, 40, 230})
-	drawRectBorder(screen, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, 2, color.RGBA{100, 100, 160, 255})
+	ui.drawThemeFrame(screen, frameSilver, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h)
 
 	title := "World Map"
 	if world.GlobalWorldManager != nil {
@@ -1741,7 +1735,10 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeQuestContentLayout(content, nil, 0)
-	drawCenteredDebugText(screen, "ACTIVE QUESTS", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
+	drawScaledMetalCenteredText(screen, uitext.Text("ui.quest_journal"), layout.title.x+layout.title.w/2, layout.title.y+8, 2, rarityGold)
+	if ui.game.sprites.HasSprite("theme_quest_seal") {
+		drawImageScaled(screen, ui.game.sprites.GetSprite("theme_quest_seal"), layout.title.x+layout.title.w/2-144, layout.title.y-10, 36, 36)
+	}
 	listTop, _, _ := questCardListAvailable(content)
 	emptyX := layout.pager.x
 
@@ -1760,7 +1757,6 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 	// Ready to hand in first, then in progress, then closed (sortQuestJournal).
 	sortQuestJournal(allQuests)
 
-	mouseX, mouseY := ebiten.CursorPosition()
 	// Each card is sized to its own copy, then pages are packed by height - so a
 	// page shows as many quests as actually fit, not a fixed count.
 	copies := make([]questCardCopy, len(allQuests))
@@ -1781,121 +1777,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 	for rowIndex, quest := range allQuests[pageStart:pageEnd] {
 		row := layout.rows[rowIndex]
 		copy := copies[pageStart+rowIndex]
-		questY, questWidth := row.y, row.w
-		// Draw quest background
-		// Different colors based on quest status
-		var bgColor color.RGBA
-		if quest.Completed && !quest.RewardsClaimed {
-			bgColor = color.RGBA{40, 80, 40, 200} // Green for completed, reward available
-		} else if quest.Completed {
-			bgColor = color.RGBA{40, 40, 40, 150} // Gray for completed and claimed
-		} else {
-			bgColor = color.RGBA{30, 30, 60, 200} // Blue for active
-		}
-		drawFilledRect(screen, row.x, row.y, row.w, row.h, bgColor)
-
-		// Draw quest border
-		borderColor := color.RGBA{80, 80, 120, 255}
-		if quest.Completed && !quest.RewardsClaimed {
-			borderColor = color.RGBA{100, 200, 100, 255} // Green border for claimable
-		}
-		vector.StrokeRect(screen, float32(row.x), float32(row.y), float32(row.w), float32(row.h), 2, borderColor, false)
-
-		// Quest name
-		namePrefix := ""
-		if quest.Completed {
-			namePrefix = "[DONE] "
-		}
-		drawDebugText(screen, clipDebugText(namePrefix+quest.Definition.Name, questWidth-20), row.x+10, questY+6)
-
-		// The card grew to fit its own description (questCardCopyFor); anything
-		// past the row cap is offered on hover instead of being lost.
-		for i, line := range copy.descLines {
-			drawDebugText(screen, line, row.x+10, questY+questCardDescTop+i*debugTextCharHeight)
-		}
-		ui.offerClippedTextTooltip(copy.fullLines, copy.descClipped(),
-			row.x+10, questY+questCardDescTop, questWidth-20, len(copy.descLines)*debugTextCharHeight)
-
-		// Bottom row: Progress on left, Rewards on right - anchored under the
-		// description, so a taller card pushes them down instead of overlapping.
-		bottomY := questY + questCardDescTop + len(copy.descLines)*debugTextCharHeight
-
-		// Progress for counted quests (kill / interact) - both advance a
-		// CurrentCount toward TargetCount, so they share the bar.
-		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
-			progressText := quest.GetProgressString()
-			drawDebugText(screen, progressText, row.x+10, bottomY)
-
-			// Draw progress bar below text
-			barX := row.x + 10
-			barY := bottomY + questCardProgressGap
-			barWidth := 180
-			barHeight := questCardBarH
-
-			// Background bar
-			drawFilledRect(screen, barX, barY, barWidth, barHeight, color.RGBA{20, 20, 20, 255})
-
-			// Progress fill
-			progress := 0.0
-			if target := quest.Target(); target > 0 {
-				progress = float64(quest.CurrentCount) / float64(target)
-			}
-			if progress > 1 {
-				progress = 1
-			}
-			fillWidth := int(float64(barWidth) * progress)
-			if fillWidth > 0 {
-				var fillColor color.RGBA
-				if quest.Completed {
-					fillColor = color.RGBA{80, 200, 80, 255} // Green when complete
-				} else {
-					fillColor = color.RGBA{80, 150, 200, 255} // Blue while in progress
-				}
-				drawFilledRect(screen, barX, barY, fillWidth, barHeight, fillColor)
-			}
-
-			// Progress bar border
-			vector.StrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{100, 100, 100, 255}, false)
-		} else if quest.Definition.Type == "encounter" {
-			// Encounter quests show objective text instead of progress bar
-			var objectiveText string
-			if quest.Completed {
-				objectiveText = "All enemies defeated!"
-			} else {
-				objectiveText = "Defeat all enemies"
-			}
-			drawDebugText(screen, objectiveText, row.x+10, bottomY)
-		}
-
-		// Rewards section (right side)
-		rewardsX := row.x + row.w/2 + 10
-		rewardsText := "Reward: " + questRewardSummary(quest.Definition.Rewards.Gold, quest.Definition.Rewards.ArenaPoints, quest.Definition.Rewards.Experience)
-		drawDebugText(screen, clipDebugText(rewardsText, row.right()-rewardsX-10), rewardsX, bottomY)
-
-		// Claim button for completed quests with unclaimed rewards
-		if quest.Completed && !quest.RewardsClaimed {
-			buttonX := rewardsX
-			buttonY := bottomY + questCardProgressGap
-			buttonWidth := 110
-			buttonHeight := 16
-
-			isHovering := isMouseHoveringBox(mouseX, mouseY, buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight)
-
-			if isHovering {
-				drawFilledRect(screen, buttonX, buttonY, buttonWidth, buttonHeight, color.RGBA{100, 200, 100, 255}) // Bright green on hover
-			} else {
-				drawFilledRect(screen, buttonX, buttonY, buttonWidth, buttonHeight, color.RGBA{60, 150, 60, 255}) // Green
-			}
-			drawCenteredDebugText(screen, "Claim Reward", buttonX, buttonY, buttonWidth, buttonHeight)
-
-			// Handle click on claim button
-			ui.onDisplayedInput(uiCommandClick, layoutRect{buttonX, buttonY, (buttonX + buttonWidth) - (buttonX), (buttonY + buttonHeight) - (buttonY)}, func() {
-				if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
-					ui.claimQuestReward(quest.ID)
-				}
-			})
-		}
-
+		ui.drawJournalEntry(screen, quest, row, copy)
 	}
 
 	ui.drawQuestPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, layout.totalPages)

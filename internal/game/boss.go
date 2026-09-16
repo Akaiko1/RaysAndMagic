@@ -395,12 +395,13 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
-		dealt := cs.damagePartyMemberParts(
+		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
 			true, // boss Inferno is a cast - absorbable
+			m,
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))

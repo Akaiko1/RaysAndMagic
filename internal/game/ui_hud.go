@@ -1736,18 +1736,11 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	drawCenteredDebugText(screen, "GAME LOG", x, y+18, w, 20)
 
 	closeX, closeY := x+w-30, y+8
-	mouseX, mouseY := ebiten.CursorPosition()
-	closeColor := color.RGBA{100, 100, 100, 180}
-	if isMouseHoveringBox(mouseX, mouseY, closeX, closeY, closeX+20, closeY+20) {
-		closeColor = color.RGBA{170, 60, 60, 220}
-	}
-	drawFilledRect(screen, closeX, closeY, 20, 20, closeColor)
-	ui.drawInterfaceIcon(screen, "icon_close", closeX, closeY, 20, 20)
+	ui.drawCloseButtonVisual(screen, closeX, closeY, 20, 20)
 
 	contentX, contentY := x+28, y+54
 	contentW, contentH := w-72, h-88
-	drawFilledRect(screen, contentX, contentY, contentW, contentH, color.RGBA{8, 8, 18, 210})
-	drawRectBorder(screen, contentX, contentY, contentW, contentH, 1, color.RGBA{100, 100, 145, 220})
+	ui.drawThemeFrame(screen, frameGold, contentX, contentY, contentW, contentH)
 
 	maxChars := (contentW - 24) / debugTextCharWidth
 	rowY := contentY + contentH - 22
@@ -1771,7 +1764,7 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 		{contentY + 8, "^"},
 		{contentY + contentH - 30, "v"},
 	} {
-		drawFilledRect(screen, buttonX, btn.y, 22, 22, color.RGBA{65, 65, 95, 220})
+		ui.drawButtonFrame(screen, buttonX, btn.y, 22, 22, false)
 		drawCenteredDebugText(screen, btn.label, buttonX, btn.y+2, 22, 18)
 	}
 	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})

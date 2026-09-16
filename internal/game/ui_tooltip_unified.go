@@ -162,10 +162,8 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	}
 	// This is an intrinsic weapon property, so the shop/base card shows it even
 	// without a bearer. The editor renders the same shared line.
-	for _, ln := range character.WeaponCombatLines(def) {
-		if strings.HasPrefix(ln, "Attack cooldown") {
-			attack.AddDetail("%s", ln)
-		}
+	if line := character.WeaponAttackCooldownLine(def); line != "" {
+		attack.AddDetail("%s", line)
 	}
 	if char != nil && cs.game != nil {
 		cooldown := cs.weaponCooldownBreakdown(char, item.Name)
@@ -295,11 +293,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	effects := ttSection{Title: "EFFECTS"}
 	effects.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
 	// Config-computable specials minus the lines this template renders itself.
-	for _, ln := range def.EffectLines() {
-		if strings.HasPrefix(ln, "Damage Type:") || strings.HasPrefix(ln, "AoE radius:") ||
-			strings.HasPrefix(ln, "Max Airborne:") {
-			continue
-		}
+	for _, ln := range def.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
 
@@ -357,7 +351,7 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 		phys := cs.armorMitigationPct(char, true)
 		elem := cs.armorMitigationPct(char, false)
 		effects.AddDetail("Armor reduces normal hit damage: physical up to %d%%, non-physical up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
-		effects.Add("Current total: -%d%% physical (-%d%% non-physical)", phys, elem)
+		effects.Add("Equipped mitigation: -%d%% physical (-%d%% non-physical)", phys, elem)
 	}
 
 	rules := ttSection{Title: "RULES"}
@@ -784,25 +778,21 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 
 // -------------------------------------------------- misc item categories ----
 
-func buildSimpleItemTooltipUnified(item items.Item, title string, defaultUsage []string, full bool) string {
+func buildSimpleItemTooltipUnified(item items.Item, full bool) string {
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
 		subtitle += " - " + config.TitleWords(def.Rarity)
 	}
-	effect := ttSection{Title: title}
+	effect := ttSection{Title: "EFFECTS"}
+	use := ttSection{Title: "USAGE"}
 	if ok && def != nil {
 		for _, ln := range def.EffectLines() {
 			effect.Add("%s", ln)
 		}
-	}
-	usage := defaultUsage
-	if ok && def != nil && len(def.TooltipUsage) > 0 {
-		usage = def.TooltipUsageLines()
-	}
-	use := ttSection{Title: "USAGE"}
-	for _, u := range usage {
-		use.Add("%s", u)
+		for _, ln := range def.TooltipUsageLines() {
+			use.Add("%s", ln)
+		}
 	}
 	return renderTooltip(item.Name, subtitle, []ttSection{effect, use}, full)
 }

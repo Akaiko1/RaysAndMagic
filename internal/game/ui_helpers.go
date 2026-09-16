@@ -480,62 +480,55 @@ func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, c
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
 // reads as "already pressed" (the map overlay used to paint the hover colour
 // permanently), and three hand-rolled variants had drifted apart.
-var (
-	closeButtonRestColor  = color.RGBA{100, 100, 100, 150}
-	closeButtonHoverColor = color.RGBA{150, 50, 50, 200}
-)
-
-// drawCloseButtonVisual paints the shared close button WITHOUT touching the
-// click queue, for layers whose input is claimed in an earlier pass.
 func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) {
 	mouseX, mouseY := ebiten.CursorPosition()
-	col := closeButtonRestColor
-	if mouseX >= x && mouseX < x+w && mouseY >= y && mouseY < y+h {
-		col = closeButtonHoverColor
+	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+	col := color.RGBA{193, 161, 99, 255}
+	if hover {
+		col = color.RGBA{255, 226, 160, 255}
+		drawFilledRect(screen, x+2, y+2, w-4, h-4, color.RGBA{80, 49, 26, 170})
 	}
-	drawFilledRect(screen, x, y, w, h, col)
-	ui.drawInterfaceIcon(screen, "icon_close", x, y, w, h)
+	inset := max(5, min(w, h)/4)
+	vector.StrokeLine(screen, float32(x+inset), float32(y+inset), float32(x+w-inset), float32(y+h-inset), 2, col, true)
+	vector.StrokeLine(screen, float32(x+w-inset), float32(y+inset), float32(x+inset), float32(y+h-inset), 2, col, true)
 }
 
-// drawNineSlice: corners 1:1, edges and centre STRETCHED. Right for painted
-// panels drawn near their native size (menu_panel_wide and kin); pattern
-// frames go through drawPatternFrame instead.
-func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
-	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
-		return
+// Nine-slice preserves square corners even when a destination is smaller than
+// two corners. Shrink all corners uniformly; never stretch the whole frame.
+func planNineSlice(srcW, srcH, w, h, slice, corner int) []frameOp {
+	if srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 || slice <= 0 || corner <= 0 {
+		return nil
 	}
-	bounds := src.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= slice*2 || srcH <= slice*2 || w <= slice*2 || h <= slice*2 {
-		drawImageScaled(dst, src, x, y, w, h)
-		return
+	slice = min(slice, (min(srcW, srcH)-1)/2)
+	if slice <= 0 {
+		return []frameOp{{0, 0, srcW, srcH, 0, 0, w, h}}
 	}
-
-	drawPart := func(srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH int) {
-		if dstW <= 0 || dstH <= 0 {
-			return
+	corner = min(corner, min(w, h)/2)
+	sx := [4]int{0, slice, srcW - slice, srcW}
+	sy := [4]int{0, slice, srcH - slice, srcH}
+	dx := [4]int{0, corner, w - corner, w}
+	dy := [4]int{0, corner, h - corner, h}
+	ops := make([]frameOp, 0, 9)
+	for row := range 3 {
+		for col := range 3 {
+			if dx[col+1] == dx[col] || dy[row+1] == dy[row] {
+				continue
+			}
+			ops = append(ops, frameOp{sx[col], sy[row], sx[col+1] - sx[col], sy[row+1] - sy[row], dx[col], dy[row], dx[col+1] - dx[col], dy[row+1] - dy[row]})
 		}
-		part := src.SubImage(image.Rect(srcX, srcY, srcX+srcW, srcY+srcH)).(*ebiten.Image)
-		drawImageScaled(dst, part, dstX, dstY, dstW, dstH)
 	}
+	return ops
+}
 
-	centerSrcW := srcW - slice*2
-	centerSrcH := srcH - slice*2
-	centerDstW := w - slice*2
-	centerDstH := h - slice*2
-
-	drawPart(0, 0, slice, slice, x, y, slice, slice)
-	drawPart(srcW-slice, 0, slice, slice, x+w-slice, y, slice, slice)
-	drawPart(0, srcH-slice, slice, slice, x, y+h-slice, slice, slice)
-	drawPart(srcW-slice, srcH-slice, slice, slice, x+w-slice, y+h-slice, slice, slice)
-
-	drawPart(slice, 0, centerSrcW, slice, x+slice, y, centerDstW, slice)
-	drawPart(slice, srcH-slice, centerSrcW, slice, x+slice, y+h-slice, centerDstW, slice)
-	drawPart(0, slice, slice, centerSrcH, x, y+slice, slice, centerDstH)
-	drawPart(srcW-slice, slice, slice, centerSrcH, x+w-slice, y+slice, slice, centerDstH)
-
-	drawPart(slice, slice, centerSrcW, centerSrcH, x+slice, y+slice, centerDstW, centerDstH)
+func drawNineSliceScaled(dst, src *ebiten.Image, x, y, w, h, slice, corner int) {
+	if dst == nil || src == nil {
+		return
+	}
+	b := src.Bounds()
+	for _, op := range planNineSlice(b.Dx(), b.Dy(), w, h, slice, corner) {
+		part := src.SubImage(image.Rect(b.Min.X+op.sx, b.Min.Y+op.sy, b.Min.X+op.sx+op.sw, b.Min.Y+op.sy+op.sh)).(*ebiten.Image)
+		drawImageScaled(dst, part, x+op.dx, y+op.dy, op.dw, op.dh)
+	}
 }
 
 // SOFT GLOW - the halo that bleeds outward from a box with a quadratic falloff,

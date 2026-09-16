@@ -86,11 +86,8 @@ func (g *MMGame) npcDataHasGatedService(npcKey string) (bool, error) {
 
 // npcDialogHasTalkTab reports whether a tabbed dialog carries its conversation
 // tab RIGHT NOW - "Quests" on a spell trader, "Talk" on a buff service. ONE
-// predicate for both: the question is the same (does the root row list still
-// draw anything), and it asks the list the tab would draw rather than the raw
-// authoring. A giver whose chain is concluded has no rows left, and the tab
-// strip, the Tab key and the click router must agree - a strip that opens a
-// blank panel for the rest of the run is worse than no strip.
+// predicate for the strip, Tab key and click router. It uses filtered root
+// rows, while retaining a live branch until the player returns from it.
 func (g *MMGame) npcDialogHasTalkTab(npc *character.NPC) bool {
 	// From the ROOT rows, not from whatever info branch the player stands in: a
 	// node whose rows all filter out would make the strip - and the Tab key gated
@@ -99,7 +96,10 @@ func (g *MMGame) npcDialogHasTalkTab(npc *character.NPC) bool {
 	if npc == nil || npc.DialogueData == nil {
 		return false
 	}
-	return len(g.npcChoiceRows(npc, npc.DialogueData.Choices, true)) > 0
+	// A branch already on screen retains its route back even if quest state
+	// changes and filters out the last root topic. It retires on return to root.
+	return (g.dialogNPC == npc && g.currentDialogNode() != nil) ||
+		len(g.npcChoiceRows(npc, npc.DialogueData.Choices, true)) > 0
 }
 
 // validateSpellShopsAreReachable fails the boot when an NPC carries spell rows

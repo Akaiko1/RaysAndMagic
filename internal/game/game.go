@@ -724,6 +724,7 @@ const (
 	MenuSaveSelect
 	MenuLoadSelect
 	MenuSettings
+	MenuControlTips
 )
 
 // MenuTab represents the different tabs in the main menu
@@ -912,6 +913,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// index is ready by now).
 	game.validateBuffFxSprites()
 	game.validatePartyCardPanelAsset()
+	game.validateInterfaceArt()
 	validateWeaponFxStyles()
 	validateProjectileFxStyles()
 	validateTrapFxStyles()

@@ -21,6 +21,23 @@ func tooltipDetailHeld() bool {
 }
 
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+	// A bag/shop item's own card uses the same post-equip context as the
+	// comparison. Equipped items retain their actual slot (especially rings).
+	if char != nil && combatSystem != nil && combatSystem.game != nil &&
+		(item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory) {
+		alreadyEquipped := false
+		for _, equipped := range char.Equipment {
+			if item.InstanceID != 0 && equipped.InstanceID == item.InstanceID {
+				alreadyEquipped = true
+				break
+			}
+		}
+		if !alreadyEquipped {
+			if slot, ok := char.EquipDestination(item); ok {
+				char, combatSystem = previewEquippedItem(combatSystem, char, item, slot)
+			}
+		}
+	}
 	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
 		return buildSpellItemTooltipFromDefinition(item, char, combatSystem, full)
 	}
@@ -39,20 +56,8 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = buildWeaponTooltipUnified(item, char, combatSystem, full)
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnified(item, char, combatSystem, full)
-	case items.ItemConsumable:
-		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Double-click to use", "Single use"}, full)
-	case items.ItemQuest:
-		// Only ACTIVATABLE quest items get a usage hint - plain story tokens
-		// (statuettes etc.) just sit in the inventory.
-		usage := []string{"Cannot be sold or dropped"}
-		if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && def != nil && (def.OpensMap || def.PromotesLich) {
-			usage = append([]string{"Double-click to use"}, usage...)
-		}
-		core = buildSimpleItemTooltipUnified(item, "EFFECTS", usage, full)
-	case items.ItemTrinket, items.ItemCard:
-		// Cards (split out of trinkets) share the simple path so their
-		// "Collection: ..." effect lines surface as loose inventory items too.
-		core = buildSimpleItemTooltipUnified(item, "EFFECTS", []string{"Collectible; sell to merchants"}, full)
+	case items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
+		core = buildSimpleItemTooltipUnified(item, full)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
@@ -72,30 +77,25 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 }
 
 // GetItemComparisonTooltip returns a comparison block against the currently equipped item
-// for the same slot/type (weapons, spells, armor). Returns empty string if no comparison applies.
+// for the default equip destination, including empty slots and mixed wearable types.
 func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
 		return ""
 	}
 
-	slot, ok := getEquipSlotForItem(item)
+	slot, ok := char.EquipDestination(item)
 	if !ok {
 		return ""
 	}
 	equipped, hasEquipped := char.Equipment[slot]
+	if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
+		return joinTooltipLines(buildEquipmentComparisonLines(item, char, combatSystem, slot))
+	}
 	if !hasEquipped {
 		return ""
 	}
 
 	switch item.Type {
-	case items.ItemWeapon:
-		if equipped.Type != items.ItemWeapon {
-			return ""
-		}
-		if item.Name == equipped.Name {
-			return ""
-		}
-		return joinTooltipLines(buildWeaponComparisonLines(item, equipped, char, combatSystem))
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
 			return ""
@@ -112,14 +112,6 @@ func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, comb
 			return ""
 		}
 		return joinTooltipLines(buildSpellComparisonLines(item, equipped, char, combatSystem))
-	case items.ItemArmor:
-		if equipped.Type != items.ItemArmor {
-			return ""
-		}
-		if item.Name == equipped.Name {
-			return ""
-		}
-		return joinTooltipLines(buildArmorComparisonLines(item, equipped, char, combatSystem))
 	default:
 		return ""
 	}
@@ -220,25 +212,6 @@ func joinTooltipLines(lines []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// armorBonusParts lists flat stat bonuses + resistances via the config-level
-// formatter (ItemDefinitionConfig.StatBonusLines/ResistLines) - one source
-// with the map editor; a hand-rolled attribute walk here drifted twice.
-func armorBonusParts(item items.Item) []string {
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
-	if !ok || def == nil {
-		return nil
-	}
-	var parts []string
-	for _, ln := range def.StatBonusLines() {
-		// Divisor lines are accessory-summary territory (getAccessorySummary).
-		if strings.Contains(ln, "+base/") {
-			continue
-		}
-		parts = append(parts, ln)
-	}
-	return append(parts, def.ResistLines()...)
-}
-
 // itemKindLabel names the item for the player: wearable pieces are labeled by
 // their SLOT (Belt / Amulet / Cloak / Ring ...) instead of the internal type -
 // "Accessory" told you nothing about where it goes.
@@ -254,35 +227,29 @@ func itemKindLabel(item items.Item) string {
 	return item.Type.String()
 }
 
-func getEquipSlotForItem(item items.Item) (items.EquipSlot, bool) {
-	switch item.Type {
-	case items.ItemWeapon:
-		return items.SlotMainHand, true
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		return items.SlotSpell, true
-	case items.ItemArmor:
-		if slotCode, ok := item.Attributes["equip_slot"]; ok {
-			return items.EquipSlot(slotCode), true
-		}
-		return items.SlotArmor, true
-	case items.ItemAccessory:
-		if slotCode, ok := item.Attributes["equip_slot"]; ok {
-			return items.EquipSlot(slotCode), true
-		}
-		return items.SlotRing1, true
-	default:
-		return 0, false
-	}
-}
+func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem, after *character.MMCharacter, afterCombat *CombatSystem) []string {
+	var lines []string
 
-func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	lines := []string{
-		fmt.Sprintf("Equipped: %s", equipped.Name),
+	nextDamage := afterCombat.calculateWeaponDamagePreview(item, after)
+	oldDamage := combatSystem.calculateWeaponDamagePreview(equipped, char)
+	lines = append(lines, fmt.Sprintf("Damage / hit: %d -> %d (%+d)", oldDamage.Total, nextDamage.Total, nextDamage.Total-oldDamage.Total))
+	lines = append(lines, fmt.Sprintf("Critical damage: %d -> %d (%+d)", oldDamage.CriticalTotal, nextDamage.CriticalTotal, nextDamage.CriticalTotal-oldDamage.CriticalTotal))
+	if nextDamage.True != oldDamage.True {
+		lines = append(lines, fmt.Sprintf("True damage / hit: %d -> %d (%+d)", oldDamage.True, nextDamage.True, nextDamage.True-oldDamage.True))
 	}
-
-	total := combatSystem.calculateWeaponDamagePreview(item, char).Total
-	eqTotal := combatSystem.calculateWeaponDamagePreview(equipped, char).Total
-	lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", total, eqTotal, total-eqTotal))
+	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped.Name), afterCombat.WeaponCooldownFramesFor(after, item.Name)
+	lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", cooldownSeconds(combatSystem, oldFrames), cooldownSeconds(afterCombat, nextFrames)))
+	oldDef, _, _ := config.GetWeaponDefinitionByName(equipped.Name)
+	nextDef, _, _ := config.GetWeaponDefinitionByName(item.Name)
+	if oldDef != nil && nextDef != nil {
+		oldCount, nextCount := character.WeaponStrikeCount(oldDef), character.WeaponStrikeCount(nextDef)
+		if oldCount != nextCount {
+			lines = append(lines, fmt.Sprintf("Strikes / attack: %d -> %d", oldCount, nextCount))
+		}
+		if oldDef.Volley != nextDef.Volley {
+			lines = append(lines, fmt.Sprintf("Projectiles / shot: %d -> %d", max(1, oldDef.Volley), max(1, nextDef.Volley)))
+		}
+	}
 
 	itemRange, eqRange := 0, 0
 	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil {
@@ -291,8 +258,8 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok && def != nil {
 		eqRange = def.Range
 	}
-	if itemRange > 0 || eqRange > 0 {
-		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", itemRange, eqRange, itemRange-eqRange))
+	if itemRange != eqRange {
+		lines = append(lines, fmt.Sprintf("Range: %d -> %d (%+d) tiles", eqRange, itemRange, itemRange-eqRange))
 	}
 
 	itemArc, eqArc := "", ""
@@ -302,23 +269,14 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok {
 		eqArc = character.MeleeArcShortLabel(def)
 	}
-	if itemArc != "" || eqArc != "" {
-		lines = append(lines, fmt.Sprintf("Swing: %s vs %s", effectOrNone(itemArc), effectOrNone(eqArc)))
+	if itemArc != eqArc {
+		lines = append(lines, fmt.Sprintf("Swing: %s -> %s", effectOrNone(eqArc), effectOrNone(itemArc)))
 	}
 
-	itemCrit := combatSystem.CalculateWeaponCritChance(item, char)
+	itemCrit := afterCombat.CalculateWeaponCritChance(item, after)
 	eqCrit := combatSystem.CalculateWeaponCritChance(equipped, char)
 	if itemCrit > 0 || eqCrit > 0 {
-		lines = append(lines, fmt.Sprintf("Critical Chance: %d%% vs %d%% (%+d%%)", itemCrit, eqCrit, itemCrit-eqCrit))
-	}
-
-	itemEffects := weaponEffectsSummary(item)
-	eqEffects := weaponEffectsSummary(equipped)
-	if itemEffects != "" || eqEffects != "" {
-		// Two lines, not one "X vs Y": the effect summaries are verbose, and a single
-		// combined line ran 200+ chars wide (it spanned the screen and buried the card).
-		lines = append(lines, fmt.Sprintf("Effects (this): %s", effectOrNone(itemEffects)))
-		lines = append(lines, fmt.Sprintf("Effects (equipped): %s", effectOrNone(eqEffects)))
+		lines = append(lines, fmt.Sprintf("Critical Chance: %d%% -> %d%% (%+d%%)", eqCrit, itemCrit, itemCrit-eqCrit))
 	}
 
 	return lines
@@ -400,23 +358,6 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 	return lines
 }
 
-func buildArmorComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	lines := []string{
-		fmt.Sprintf("Equipped: %s", equipped.Name),
-	}
-
-	itemAC := combatSystem.CalculateArmorClassContribution(item, char)
-	eqAC := combatSystem.CalculateArmorClassContribution(equipped, char)
-	lines = append(lines, fmt.Sprintf("Armor Class: %d vs %d (%+d)", itemAC, eqAC, itemAC-eqAC))
-
-	itemEffects := armorEffectsSummary(item)
-	eqEffects := armorEffectsSummary(equipped)
-	if itemEffects != "" || eqEffects != "" {
-		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
-	}
-	return lines
-}
-
 func effectOrNone(s string) string {
 	if s == "" {
 		return "None"
@@ -432,23 +373,6 @@ func weaponEffectLines(def *config.WeaponDefinitionConfig) []string {
 	// Config-computable lines + the game-side combat traits (attack speed,
 	// ranged armor pierce) from the shared character helper.
 	return append(def.EffectLines(), character.WeaponCombatLines(def)...)
-}
-
-func weaponEffectsSummary(item items.Item) string {
-	def, _, ok := config.GetWeaponDefinitionByName(item.Name)
-	if !ok || def == nil {
-		return ""
-	}
-	// EffectLines already includes BonusVs entries.
-	return strings.Join(weaponEffectLines(def), ", ")
-}
-
-func armorEffectsSummary(item items.Item) string {
-	parts := armorBonusParts(item)
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, ", ")
 }
 
 // spellEffectsSummary compresses the spell's mechanics into one comparison

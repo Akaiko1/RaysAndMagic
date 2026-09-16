@@ -3,6 +3,7 @@ package spells
 import (
 	"fmt"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -235,184 +236,189 @@ func (d SpellDefinition) IsOffensive() bool {
 // summaries for values the live tooltip already renders with the current
 // caster; both views come from effectLines, so wording cannot drift.
 func (d SpellDefinition) EffectLines() []string {
-	return d.effectLines(true)
+	return d.effectLines(true, true)
 }
 
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(false)
+	return d.effectLines(false, true)
 }
 
-func (d SpellDefinition) effectLines(includeStructured bool) []string {
+// CardEffectLines keeps base values but omits rows the editor renders separately.
+func (d SpellDefinition) CardEffectLines() []string {
+	return d.effectLines(true, false)
+}
+
+func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool) []string {
 	var out []string
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
 	if d.SummonMonster != "" {
-		line := fmt.Sprintf("Summons an ally (up to %d at a time) that fights for the party and yields no XP or loot", d.SummonMax)
+		line := uitext.Text("spell.summons_an_ally_up_to_at_a", d.SummonMax)
 		if len(d.SummonHPByMastery) == 4 && len(d.SummonDamageByMastery) == 4 {
-			line += fmt.Sprintf("; by mastery %d-%d HP and %d-%d damage",
+			line += uitext.Text("spell.by_mastery_hp_and_damage",
 				d.SummonHPByMastery[0], d.SummonHPByMastery[3],
 				d.SummonDamageByMastery[0], d.SummonDamageByMastery[3])
 		}
 		out = append(out, line)
 	}
 	if d.JumpTiles > 0 {
-		out = append(out, fmt.Sprintf("Teleports the party %.0f tiles straight ahead (refused if the landing is blocked)", d.JumpTiles))
+		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
 	}
-	if d.SparesParty {
-		out = append(out, "The party is not caught in the blast")
+	if includeCardDetails && d.SparesParty {
+		out = append(out, uitext.Text("spell.the_party_is_not_caught_in_the"))
 	}
-	if d.StandeeDestroyChance > 0 {
-		out = append(out, fmt.Sprintf("%.0f%% chance to topple each tree, dune or rock it shakes", d.StandeeDestroyChance*100))
+	if includeCardDetails && d.StandeeDestroyChance > 0 {
+		out = append(out, uitext.Text("spell.chance_to_topple_each_tree_dune_or", d.StandeeDestroyChance*100))
 	}
-	if includeStructured && d.AoeRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("AoE radius: %.1f tiles (splashes nearby monsters)", d.AoeRadiusTiles))
+	if includeStructured && includeCardDetails && d.AoeRadiusTiles > 0 {
+		out = append(out, uitext.Text("spell.aoe_radius_tiles_splashes_nearby_monsters", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit (undead and dragons immune)", d.DisintegrateChance*100))
+		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100))
 	}
 	if d.StunChance > 0 {
-		line := fmt.Sprintf("Stun chance: %.0f%% on hit", d.StunChance*100)
+		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)
 		if d.StunDurationSeconds > 0 {
-			line += fmt.Sprintf(" (%ds / %d TB turns)", d.StunDurationSeconds, d.StunDurationTurns)
+			line += uitext.Text("spell.stun_duration", d.StunDurationSeconds, d.StunDurationTurns)
 		}
 		out = append(out, line)
 	}
 	if d.StunRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds / %d TB turns", d.StunRadiusTiles, d.StunDurationSeconds, d.StunDurationTurns))
+		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, d.StunDurationSeconds, d.StunDurationTurns))
 	}
 	if d.StunChance > 0 || d.StunRadiusTiles > 0 {
-		out = append(out, "Repeated stuns wear off (diminishing returns), then the target is briefly immune")
+		out = append(out, uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
 	}
 	if d.BindUndead {
-		out = append(out, fmt.Sprintf("Binds an undead target for %ds (it fights other monsters for you)", d.BindDurationSeconds))
+		out = append(out, uitext.Text("spell.binds_an_undead_target_for_s_it", d.BindDurationSeconds))
 	}
 	if d.Pacify {
-		out = append(out, fmt.Sprintf("Pacifies a living target for %ds (stops attacking; breaks if hit)", d.PacifyDurationSeconds))
+		out = append(out, uitext.Text("spell.pacifies_a_living_target_for_s_stops", d.PacifyDurationSeconds))
 	}
 	if includeStructured && d.PartyAoeRadiusTiles > 0 {
 		minDamage := d.DamageForMastery(0)
 		maxDamage := d.DamageForMastery(3)
-		caught := " - your party too"
+		caught := uitext.Text("spell.your_party_too")
 		if d.SparesParty {
-			caught = " - the party is spared"
+			caught = uitext.Text("spell.the_party_is_spared")
 		}
 		if maxDamage > minDamage {
-			out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d-%d damage by mastery%s", d.PartyAoeRadiusTiles, minDamage, maxDamage, caught))
+			out = append(out, uitext.Text("spell.engulfs_everything_within_tiles_for_damage_by", d.PartyAoeRadiusTiles, minDamage, maxDamage, caught))
 		} else {
-			out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage%s", d.PartyAoeRadiusTiles, minDamage, caught))
+			out = append(out, uitext.Text("spell.engulfs_everything_within_tiles_for_damage", d.PartyAoeRadiusTiles, minDamage, caught))
 		}
 	}
 	if includeStructured && d.MapWide {
 		minDamage := d.DamageForMastery(0)
 		maxDamage := d.DamageForMastery(3)
-		caught := " - your party too"
+		caught := uitext.Text("spell.your_party_too")
 		if d.SparesParty {
-			caught = " - the party is spared"
+			caught = uitext.Text("spell.the_party_is_spared")
 		}
 		if maxDamage > minDamage {
-			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d-%d damage by mastery%s", minDamage, maxDamage, caught))
+			out = append(out, uitext.Text("spell.burns_every_monster_on_the_map_for", minDamage, maxDamage, caught))
 		} else {
-			out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage%s", minDamage, caught))
+			out = append(out, uitext.Text("spell.map_damage_fixed", minDamage, caught))
 		}
 	}
 	if d.MortarRangeTiles > 0 {
-		out = append(out, fmt.Sprintf("Arcs over everything and blooms exactly %.0f tiles out", d.MortarRangeTiles))
+		out = append(out, uitext.Text("spell.arcs_over_everything_and_blooms_exactly_tiles", d.MortarRangeTiles))
 	}
 	if d.Fly {
-		out = append(out, "The party crosses terrain and walls, but not doors or the map's edge")
+		out = append(out, uitext.Text("spell.the_party_crosses_terrain_and_walls_but"))
 	}
 	if d.OutdoorOnly {
-		out = append(out, "Only under an open sky (never in dungeons)")
+		out = append(out, uitext.Text("spell.only_under_an_open_sky_never_in"))
 	}
 	if d.TownPortal {
-		out = append(out, "Opens a portal to visited taverns, towns, and major landmarks")
+		out = append(out, uitext.Text("spell.opens_a_portal_to_visited_taverns_towns"))
 	}
 	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
-		out = append(out, fmt.Sprintf("Party resists %s +%d%% for the duration",
+		out = append(out, uitext.Text("spell.party_resists_for_the_duration",
 			strings.ToUpper(d.ResistBuffSchool[:1])+d.ResistBuffSchool[1:], d.ResistBuffSchoolPct))
 	}
 	if d.ZoneRadiusTiles > 0 {
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
 		// section (and filtered out of EFFECTS), so this summary line states only
 		// who it hits - monsters, never the party.
-		out = append(out, "Leaves a lingering zone that scalds any monster inside (your party is unharmed)")
+		out = append(out, uitext.Text("spell.leaves_a_lingering_zone_that_scalds_any"))
 	}
 	switch {
 	case d.HealParty:
-		out = append(out, "Heals the entire party")
+		out = append(out, uitext.Text("spell.heals_the_entire_party"))
 	case d.HealAmount > 0 && d.TargetSelf:
-		out = append(out, "Self-target only")
+		out = append(out, uitext.Text("spell.self_target_only"))
 	case d.HealAmount > 0:
-		out = append(out, "Can target any party member")
+		out = append(out, uitext.Text("spell.can_target_any_party_member"))
 	}
 	if d.Revive {
 		if d.FullHeal {
-			out = append(out, "Revives a fallen ally to full HP (even if eradicated)")
+			out = append(out, uitext.Text("spell.revives_a_fallen_ally_to_full_hp"))
 		} else {
-			out = append(out, "Revives a fallen ally")
+			out = append(out, uitext.Text("item.revives_a_fallen_ally"))
 		}
 	}
 	if d.ReviveHpPct > 0 {
-		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
+		out = append(out, uitext.Text("spell.revives_a_fallen_ally_to_hp", d.ReviveHpPct))
 	}
 	if includeStructured && d.ResistBuffPct > 0 {
 		if d.ResistBuffPctGrandmaster > d.ResistBuffPct {
-			out = append(out, fmt.Sprintf("Party takes %d%% to %d%% less damage by mastery", d.ResistBuffPct, d.ResistBuffPctGrandmaster))
+			out = append(out, uitext.Text("spell.party_takes_to_less_damage_by_mastery", d.ResistBuffPct, d.ResistBuffPctGrandmaster))
 		} else {
-			out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
+			out = append(out, uitext.Text("spell.party_takes_less_damage", d.ResistBuffPct))
 		}
 	}
 	if includeStructured && d.OutgoingDamageBonus > 0 {
-		target := "attacks"
+		target := uitext.Text("spell.attacks")
 		if damageType, err := damagecalc.ParseType(d.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
-			target = "physical attacks"
+			target = uitext.Text("spell.physical_attacks")
 		}
 		if d.OutgoingDamageBonusGrandmaster > d.OutgoingDamageBonus {
-			out = append(out, fmt.Sprintf("Party %s deal +%d to +%d damage by mastery", target, d.OutgoingDamageBonus, d.OutgoingDamageBonusGrandmaster))
+			out = append(out, uitext.Text("spell.party_deal_to_damage_by_mastery", target, d.OutgoingDamageBonus, d.OutgoingDamageBonusGrandmaster))
 		} else {
-			out = append(out, fmt.Sprintf("Party %s deal +%d damage", target, d.OutgoingDamageBonus))
+			out = append(out, uitext.Text("spell.party_deal_damage", target, d.OutgoingDamageBonus))
 		}
 	}
 	if includeStructured && d.IncomingDamageReduction > 0 {
 		if d.IncomingDamageReductionGrandmaster > d.IncomingDamageReduction {
-			out = append(out, fmt.Sprintf("Party takes -%d to -%d damage per hit by mastery", d.IncomingDamageReduction, d.IncomingDamageReductionGrandmaster))
+			out = append(out, uitext.Text("spell.party_takes_to_damage_per_hit_by", d.IncomingDamageReduction, d.IncomingDamageReductionGrandmaster))
 		} else {
-			out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
+			out = append(out, uitext.Text("spell.party_takes_damage_per_hit", d.IncomingDamageReduction))
 		}
 	}
 	if d.VisionRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Sight/radar radius: %.0f tiles", d.VisionRadiusTiles))
+		out = append(out, uitext.Text("spell.sight_radar_radius_tiles", d.VisionRadiusTiles))
 	}
 	if d.WaterWalk {
-		out = append(out, "Allows the party to walk on water")
+		out = append(out, uitext.Text("spell.allows_the_party_to_walk_on_water"))
 	}
 	if d.WaterBreathing {
-		out = append(out, "Allows underwater travel through deep water")
+		out = append(out, uitext.Text("spell.allows_underwater_travel_through_deep_water"))
 	}
 	if d.Awaken {
-		out = append(out, "Wakes all unconscious allies (back to 1 HP)")
+		out = append(out, uitext.Text("spell.wakes_all_unconscious_allies_back_to_hp"))
 	}
 
 	// Scaling source - character-INDEPENDENT (which stat & mastery the effect
 	// grows with), so the map-editor card and the in-game tooltip both surface
 	// what a spell scales from. The numeric bonus itself is caster-dependent and
 	// shown only by the in-game tooltip.
-	if includeStructured {
+	if includeStructured && includeCardDetails {
 		switch {
 		case d.IsProjectile && !d.DealsNoDamage:
-			out = append(out, fmt.Sprintf("Damage scales with %s & %s mastery", d.DamageScalingStat(), d.School))
+			out = append(out, uitext.Text("spell.damage_scales_with_mastery", d.DamageScalingStat(), d.School))
 		case d.ZoneRadiusTiles > 0:
-			out = append(out, fmt.Sprintf("Tick damage scales with Intellect & %s mastery", d.School))
+			out = append(out, uitext.Text("spell.tick_damage_scales_with_intellect_mastery", d.School))
 		}
 		if d.HealAmount > 0 {
-			out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
+			out = append(out, uitext.Text("spell.healing_scales_with_personality_mastery", d.School))
 		}
 	}
 	if includeStructured && d.StatBonus > 0 {
 		if d.StatBonusGrandmaster > d.StatBonus {
-			out = append(out, fmt.Sprintf("+%d to +%d to all stats by mastery (whole party)", d.StatBonus, d.StatBonusGrandmaster))
+			out = append(out, uitext.Text("spell.to_to_all_stats_by_mastery_whole", d.StatBonus, d.StatBonusGrandmaster))
 		} else {
-			out = append(out, fmt.Sprintf("+%d to all stats (whole party)", d.StatBonus))
+			out = append(out, uitext.Text("spell.to_all_stats_whole_party", d.StatBonus))
 		}
 	}
 	if len(d.StatBonuses) > 0 {
@@ -420,7 +426,7 @@ func (d SpellDefinition) effectLines(includeStructured bool) []string {
 		// numbers are character-independent, so they belong in this shared SSoT.
 		for _, key := range config.StatNames {
 			if v, ok := d.StatBonuses[key]; ok && v != 0 {
-				out = append(out, fmt.Sprintf("%+d %s (whole party)", v, strings.ToUpper(key[:1])+key[1:]))
+				out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
 			}
 		}
 	}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
+	uitext "ugataima/assets/text"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -11,6 +13,7 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // ---------------------------------------------------------------------------
@@ -46,10 +49,13 @@ func (r rect) contains(px, py int) bool {
 
 // partyCreateState holds the transient state of the party-creation screen.
 type partyCreateState struct {
-	pool       []*pcHero  // available heroes (drag source/target)
-	slots      [4]*pcHero // chosen active party (nil = empty)
-	detail     *pcHero    // hero shown in the detail panel
-	jailTarget int        // how many leftovers go to jail (= configured captive count)
+	pool             []*pcHero  // available heroes (drag source/target)
+	slots            [4]*pcHero // chosen active party (nil = empty)
+	detailScroll     int
+	detailMaxScroll  int
+	detailScrollHero *pcHero
+	detail           *pcHero // hero shown in the detail panel
+	jailTarget       int     // how many leftovers go to jail (= configured captive count)
 
 	// Drag state. drag is the hero following the cursor; its origin is recorded
 	// so a drop can swap/return it. The hero is NOT removed from pool/slots
@@ -152,11 +158,12 @@ func (pc *partyCreateState) filledSlots() int {
 // partyCreateLayout computes all hit/draw rectangles for the given screen size.
 func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	const margin = 20
-	detailW := 320
+	detailW := min(320, max(180, w/4))
 	detailX := margin
 	detailY := 44
 
-	slotW, slotH, slotGap := 160, 190, 16
+	slotH := min(210, h*28/100)
+	slotW, slotGap := slotH*2/3, 16
 	slotsTotalW := 4*slotW + 3*slotGap
 	slotsX := (w - slotsTotalW) / 2
 	slotsY := h - slotH - 78
@@ -170,11 +177,18 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	poolX := detailX + detailW + 20
 	poolY := detailY
 	poolW := w - margin - poolX
-	cardW, cardH, cardGap := 120, 140, 14
-	cols := poolW / (cardW + cardGap)
-	if cols < 1 {
-		cols = 1
+	const cardGap = 12
+	poolH := slotsY - poolY - 16
+	cols, cardW := 1, 0
+	for n := 1; n <= max(1, len(pc.pool)); n++ {
+		rows := (len(pc.pool) + n - 1) / n
+		width := min(144, (poolW-(n-1)*cardGap)/n, ((poolH-(rows-1)*cardGap)/max(1, rows))*2/3)
+		if width >= cardW {
+			cols, cardW = n, width
+		}
 	}
+	cardW = max(1, cardW)
+	cardH := cardW * 3 / 2
 	lay.pool = make([]rect, len(pc.pool))
 	for i := range pc.pool {
 		col := i % cols
@@ -203,6 +217,11 @@ func (g *MMGame) updatePartyCreate() {
 		g.partyCreate = pc
 	}
 
+	mx, my := pointerPosition()
+	if pc.drag == nil && partyCreateLayout(pc, g.config.GetScreenWidth(), g.config.GetScreenHeight()).detail.contains(mx, my) {
+		_, wheel := ebiten.Wheel()
+		pc.detailScroll = min(pc.detailMaxScroll, max(0, pc.detailScroll-int(wheel*32)))
+	}
 	if pointerCancelJustPress() {
 		if pc.drag != nil {
 			pc.clearDrag()
@@ -373,7 +392,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 		if hero != nil && hero != pc.drag {
 			ui.drawHeroCard(screen, hero, r, hero == pc.detail) // card draws its own frame
 		} else {
-			ui.drawPanel(screen, "menu_panel_slot", r.x, r.y, r.w, r.h)
+			drawPortraitFrame(screen, r.x, r.y, r.w, r.h)
 			drawCenteredDebugText(screen, fmt.Sprintf("Slot %d", i+1), r.x, r.y+r.h/2-8, r.w, 16)
 		}
 		if pc.drag != nil && r.contains(mouseX, mouseY) {
@@ -393,17 +412,17 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	// Begin / Back buttons.
 	if pc.filledSlots() == 4 {
 		hover := lay.begin.contains(mouseX, mouseY)
-		ui.drawMenuButton(screen, "begin", "Begin Adventure", lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, hover)
+		ui.drawMenuButton(screen, "Begin Adventure", lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, hover)
 	} else {
-		drawFilledRect(screen, lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, color.RGBA{40, 40, 50, 200})
-		drawRectBorder(screen, lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, 2, color.RGBA{80, 80, 90, 255})
+		ui.drawButtonFrame(screen, lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, false)
+		drawFilledRect(screen, lay.begin.x+3, lay.begin.y+3, lay.begin.w-6, lay.begin.h-6, color.RGBA{0, 0, 0, 100})
 		drawCenteredDebugText(screen, "Pick 4 heroes", lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h)
 	}
-	ui.drawMenuButton(screen, "back", "Back (Esc)", lay.back.x, lay.back.y, lay.back.w, lay.back.h, lay.back.contains(mouseX, mouseY))
+	ui.drawMenuButton(screen, "Back (Esc)", lay.back.x, lay.back.y, lay.back.w, lay.back.h, lay.back.contains(mouseX, mouseY))
 
 	// Dragged card on top, following the cursor.
 	if pc.drag != nil {
-		ui.drawHeroCard(screen, pc.drag, rect{mouseX - 60, mouseY - 70, 120, 140}, true)
+		ui.drawHeroCard(screen, pc.drag, rect{mouseX - 60, mouseY - 90, 120, 180}, true)
 	}
 }
 
@@ -430,7 +449,6 @@ func (ui *UISystem) drawPortraitCover(screen *ebiten.Image, name string, x, y, w
 }
 
 const (
-	partyHeroCardPortraitInset   = 14
 	partyHeroDetailPortraitInset = 22
 )
 
@@ -442,22 +460,44 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 	if selected {
 		drawHeroCardSelectionGlow(screen, r)
 	}
-	ui.drawPanel(screen, "menu_panel_slot", r.x, r.y, r.w, r.h)
-
-	// Portrait inset so the ornate frame border stays visible around it.
-	portH := r.h - 40
-	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char),
-		r.x+partyHeroCardPortraitInset, r.y+partyHeroCardPortraitInset,
-		r.w-2*partyHeroCardPortraitInset, portH-10)
-
-	// Names sit over the portrait art - draw with a dark outline so they stay
-	// readable regardless of the portrait behind them.
-	drawCenteredTextWithShadow(screen, hero.char.Name, r.x, r.y+portH-8, r.w, 14, color.RGBA{240, 240, 250, 255})
-	sub := hero.char.Class.String()
-	if hero.entry.Race != "" {
-		sub = humanizeKey(hero.entry.Race) + " " + sub
+	rarity := hero.cardRarity(ui.game.config)
+	tint := rarityRGBA(rarity)
+	// Hero cards use bronze for common; higher tiers share the item palette.
+	if rarity == "common" {
+		tint = color.RGBA{190, 130, 72, 255}
 	}
-	drawCenteredTextWithShadow(screen, sub, r.x, r.y+portH+6, r.w, 14, color.RGBA{205, 205, 220, 255})
+	// Source: 320x496. Keep the picture inside the clipped corners;
+	// the lower quarter is the name/class area. Tint only the card stock.
+	if ui.game.sprites.HasSprite("theme_hero_card") {
+		op := &ebiten.DrawImageOptions{}
+		op.ColorScale.Scale(float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255, 1)
+		graphics.DrawImageScaled(screen, ui.game.sprites.GetSprite("theme_hero_card"), float64(r.x), float64(r.y), float64(r.w), float64(r.h), op)
+	} else {
+		drawPortraitFrame(screen, r.x, r.y, r.w, r.h)
+	}
+	// Repaint the existing outer rail with the item rarity color. Multiplying
+	// the shaded silver source alone turns gold olive and legendary red brown.
+	cut := max(3, r.w*17/320)
+	points := [][2]int{{r.x + cut, r.y + 1}, {r.x + r.w - cut, r.y + 1},
+		{r.x + r.w - 2, r.y + cut}, {r.x + r.w - 2, r.y + r.h - cut},
+		{r.x + r.w - cut, r.y + r.h - 2}, {r.x + cut, r.y + r.h - 2},
+		{r.x + 1, r.y + r.h - cut}, {r.x + 1, r.y + cut}}
+	for i, p := range points {
+		next := points[(i+1)%len(points)]
+		vector.StrokeLine(screen, float32(p[0]), float32(p[1]), float32(next[0]), float32(next[1]), 2, tint, false)
+	}
+	picture := heroCardPortraitRect(r)
+	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char), picture.x, picture.y, picture.w, picture.h)
+	textY := r.y + r.h*75/100 + 1
+	drawCenteredTextWithShadow(screen, clipDebugText(hero.char.Name, r.w-8), r.x+4, textY, r.w-8, 12, color.RGBA{242, 232, 210, 255})
+	drawCenteredTextWithShadow(screen, clipDebugText(hero.char.Class.String(), r.w-8), r.x+4, textY+12, r.w-8, 12, color.RGBA{201, 199, 194, 255})
+	symbol := "theme_rarity_" + rarity
+	if rarity == "legendary" {
+		symbol = "theme_rarity_gem"
+	}
+	if ui.game.sprites.HasSprite(symbol) {
+		drawImageScaled(screen, ui.game.sprites.GetSprite(symbol), r.x+r.w-28, r.y+6, 24, 36)
+	}
 
 }
 
@@ -478,40 +518,43 @@ func drawHeroCardSelectionGlow(screen *ebiten.Image, r rect) {
 
 // drawHeroDetailPanel renders the full stat/skill/equipment sheet for one hero.
 func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, panel rect) {
-	ui.drawPanel(screen, "menu_panel_tall", panel.x, panel.y, panel.w, panel.h)
+	ui.drawThemeFrame(screen, frameSilver, panel.x, panel.y, panel.w, panel.h)
+	ui.drawCornerDecor(screen, frameSilver, panel.x-8, panel.y-8, panel.w+16, panel.h+16, decorAllCorners)
+	ui.drawPanelInlay(screen, frameSilver, panel.x+panel.w/2, panel.y)
 	if hero == nil {
 		drawCenteredDebugText(screen, "Select a hero", panel.x, panel.y+panel.h/2-8, panel.w, 16)
 		return
 	}
 	c := hero.char
 
-	// Large portrait (cover-fit, no distortion). Portrait-shaped box (4:5) so the
-	// tall hero art crops minimally; inset to clear the ornate frame border.
+	// Keep a readable portrait above the scrollable details at every size.
 	portW := panel.w - 2*partyHeroDetailPortraitInset
-	portH := portW * 5 / 4
-	// Cap the portrait low so the stat/skill/magic sheet below always has room;
-	// skill-heavy heroes (clerics, paladins) otherwise overflow the panel.
-	if max := panel.h - 320; portH > max && max > 0 {
-		portH = max
-	}
+	portH := min(portW*5/4, max(80, panel.h/3))
 	ui.drawPortraitCover(screen, ui.game.bigPortraitName(c),
 		panel.x+partyHeroDetailPortraitInset, panel.y+partyHeroDetailPortraitInset,
 		portW, portH)
 
-	tx := panel.x + 24
-	ty := panel.y + portH + 30
-	contentBottom := panel.y + panel.h - 12
-	line := func(s string, col color.Color) {
-		if ty+debugTextCharHeight > contentBottom {
-			return // never draw past the panel - clip instead of overflowing
-		}
-		drawDebugTextColored(screen, s, tx, ty, col)
-		ty += 16
+	pc := ui.game.partyCreate
+	if pc.detailScrollHero != hero {
+		pc.detailScrollHero = hero
+		pc.detailScroll = 0
 	}
-	// Text right edge mirrors the left inset (tx = panel.x+24). wrapTokens packs
+	tx := panel.x + 16
+	textTop := panel.y + portH + 30
+	contentBottom := panel.y + panel.h - 24
+	ty := textTop - pc.detailScroll
+	line := func(s string, col color.Color) {
+		for _, text := range wrapDebugText(s, panel.w-32) {
+			if ty >= textTop && ty+debugTextCharHeight <= contentBottom {
+				drawDebugTextColored(screen, text, tx, ty, col)
+			}
+			ty += 16
+		}
+	}
+	// Text right edge mirrors the left inset. wrapTokens packs
 	// tokens so the DRAWN string (prefix + content) fits, measuring the prefix the
 	// caller adds - otherwise lists run past the frame's right border.
-	maxLineW := panel.w - 48
+	maxLineW := panel.w - 32
 	wrapTokens := func(prefix, cont string, tokens []string, col color.Color) {
 		budget := maxLineW - debugTextWidth(cont)
 		if pb := maxLineW - debugTextWidth(prefix); pb < budget {
@@ -591,6 +634,12 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 			wrapTokens("  "+label+": ", "      ", spellNames, grey)
 		}
 	}
+	pc.detailMaxScroll = max(0, ty+pc.detailScroll-contentBottom)
+	pc.detailScroll = min(pc.detailScroll, pc.detailMaxScroll)
+	if pc.detailMaxScroll > 0 {
+		drawCenteredDebugText(screen, uitext.Text("ui.scroll_details"), panel.x+8, panel.y+panel.h-20, panel.w-16, 14)
+	}
+
 }
 
 // wrapToWidth packs comma-joined tokens into lines that fit maxPx in the debug
@@ -614,4 +663,21 @@ func wrapToWidth(tokens []string, maxPx int) []string {
 		lines = append(lines, cur)
 	}
 	return lines
+}
+
+// Class overrides live beside the class definition. Standard classes derive
+// their display rarity from race; gameplay progression never reads this value.
+func (hero *pcHero) cardRarity(cfg *config.Config) string {
+	if rarity := cfg.Characters.Classes[hero.entry.Class].CardRarity; rarity != "" {
+		return rarity
+	}
+	if hero.entry.Race != "" && hero.entry.Race != "human" {
+		return "uncommon"
+	}
+	return "common"
+}
+
+func heroCardPortraitRect(r rect) rect {
+	pad := max(6, r.w*20/320)
+	return rect{r.x + pad, r.y + pad, r.w - 2*pad, r.h*73/100 - pad}
 }

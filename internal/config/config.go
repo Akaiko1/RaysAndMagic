@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
@@ -48,16 +49,25 @@ func WeaponStatusTurns(seconds int) int {
 }
 
 func weaponStatusDurationLabel(seconds int) string {
-	return fmt.Sprintf("%ds RT / %d turns TB", seconds, WeaponStatusTurns(seconds))
+	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
 }
 
 func (w *WeaponDefinitionConfig) EffectLines() []string {
+	return w.effectLines(true)
+}
+
+// CoreEffectLines omits rows rendered in the structured attack/damage sections.
+func (w *WeaponDefinitionConfig) CoreEffectLines() []string {
+	return w.effectLines(false)
+}
+
+func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w == nil {
 		return nil
 	}
 	var lines []string
-	if damageType, err := damagecalc.ParseType(w.DamageType); err == nil && damageType != damagecalc.Physical {
-		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(damageType.String())))
+	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
+		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
 		turns := w.StunTurns
@@ -65,22 +75,22 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 			turns = 1
 		}
 		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns x TPS frames).
-		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", w.StunChance*100, turns, turns))
+		lines = append(lines, uitext.Text("weapon.stun_chance_s_rt_turns_tb", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", w.DisintegrateChance*100))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100))
 	}
-	if w.AoeRadiusTiles > 0 {
-		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", w.AoeRadiusTiles))
+	if includeStructured && w.AoeRadiusTiles > 0 {
+		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
 	}
-	if w.MaxProjectiles > 0 {
-		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
+	if includeStructured && w.MaxProjectiles > 0 {
+		lines = append(lines, uitext.Text("weapon.max_airborne", w.MaxProjectiles))
 	}
 	// Attack-speed lines live in character.WeaponCombatLines (the category->
 	// skill mapping needed for the default multiplier lives there); only the
 	// spell-cooldown perk is computable at this layer.
-	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
-		lines = append(lines, line+" (main hand only)")
+	if line := cooldownMultLine(uitext.Text("weapon.spell_cooldown"), w.SpellCooldownMultiplier); line != "" {
+		lines = append(lines, line+uitext.Text("weapon.main_hand_only"))
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -89,95 +99,95 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			lines = append(lines, fmt.Sprintf("Bonus vs %s: x%.1f", titleCaseLower(k), w.BonusVs[k]))
+			lines = append(lines, uitext.Text("weapon.bonus_vs_x", titleCaseLower(k), w.BonusVs[k]))
 		}
 	}
 	// Arena unique-tier signature riders.
 	if w.BonusVsStunned > 0 && w.BonusVsStunned != 1.0 {
-		lines = append(lines, fmt.Sprintf("Bonus vs stunned targets: x%.1f", w.BonusVsStunned))
+		lines = append(lines, uitext.Text("weapon.bonus_vs_stunned_targets_x", w.BonusVsStunned))
 	}
 	if w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Sunder: hits strip %d%% of the target's armor for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.sunder_hits_strip_of_the_target_s",
 			w.ArmorShredPct,
 			weaponStatusDurationLabel(w.ArmorShredSeconds),
 		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Root Chance: %.0f%% (pins in place %s - not a stun)",
+		lines = append(lines, uitext.Text(
+			"weapon.root_chance_pins_in_place_not_a",
 			w.RootChance*100,
 			weaponStatusDurationLabel(w.RootSeconds),
 		))
 	}
 	if w.ArmorClassBonus > 0 {
-		lines = append(lines, fmt.Sprintf("Armor Class %+d while wielded", w.ArmorClassBonus))
+		lines = append(lines, uitext.Text("weapon.armor_class_while_wielded", w.ArmorClassBonus))
 	}
 	if w.ThornsPct > 0 {
-		lines = append(lines, fmt.Sprintf("Riposte: attackers take %d%% of the melee damage they deal you", w.ThornsPct))
+		lines = append(lines, uitext.Text("weapon.riposte_attackers_take_of_the_melee_damage", w.ThornsPct))
 	}
 	if w.ArmorPiercePct > 0 {
-		lines = append(lines, fmt.Sprintf("Ignores %d%% of the target's armor", w.ArmorPiercePct))
+		lines = append(lines, uitext.Text("weapon.ignores_of_the_target_s_armor", w.ArmorPiercePct))
 	}
 	if w.PierceCount > 0 {
-		lines = append(lines, fmt.Sprintf("Pierces through %d target(s) and flies on", w.PierceCount))
+		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
 	if w.DoubleStrike {
-		lines = append(lines, "Pair: every swing strikes twice at half damage")
+		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
 	}
 	if w.EquipPersonalityMin > 0 {
-		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
+		lines = append(lines, uitext.Text("weapon.wieldable_by_anyone_with_personality_no_skill", w.EquipPersonalityMin))
 	}
 	// Drakeforged tier signature riders.
 	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Ignite Chance: %.0f%% (burns %ds)", w.IgniteChance*100, w.IgniteSeconds))
+		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, w.IgniteSeconds))
 	}
 	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Brood Venom: %.0f%% chance to poison (%ds)", w.PoisonChance*100, w.PoisonSeconds))
+		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, w.PoisonSeconds))
 	}
 	if w.ExecuteBelowPct > 0 {
-		lines = append(lines, fmt.Sprintf("The Maw: targets left under %d%% HP are devoured outright", w.ExecuteBelowPct))
+		lines = append(lines, uitext.Text("weapon.the_maw_targets_left_under_hp_are", w.ExecuteBelowPct))
 	}
 	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
-		lines = append(lines, fmt.Sprintf("Clutchburst: kills explode for %d fire within %.0f tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+		lines = append(lines, uitext.Text("weapon.clutchburst_kills_explode_for_fire_within_tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
 	}
 	if w.TrueDamage > 0 {
-		lines = append(lines, fmt.Sprintf("True Damage: +%d (ignores armor and dodge)", w.TrueDamage))
+		lines = append(lines, uitext.Text("weapon.true_damage_ignores_armor_and_dodge", w.TrueDamage))
 	}
 	if w.SlowPct > 0 && w.SlowSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Silt: hits slow the target %d%% for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.silt_hits_slow_the_target_for",
 			w.SlowPct,
 			weaponStatusDurationLabel(w.SlowSeconds),
 		))
 	}
 	if w.WeakenPct > 0 && w.WeakenSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Sundering Roar: the target deals %d%% less damage for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.sundering_roar_the_target_deals_less_damage",
 			w.WeakenPct,
 			weaponStatusDurationLabel(w.WeakenSeconds),
 		))
 	}
 	if w.RicochetTargets > 0 {
-		targetLabel := "enemies"
+		targetLabel := uitext.Text("weapon.enemies")
 		if w.RicochetTargets == 1 {
-			targetLabel = "enemy"
+			targetLabel = uitext.Text("weapon.enemy")
 		}
-		lines = append(lines, fmt.Sprintf(
-			"Ricochet: the bolt leaps to %d further %s within %.0f tiles",
+		lines = append(lines, uitext.Text(
+			"weapon.ricochet_the_bolt_leaps_to_further_within",
 			w.RicochetTargets,
 			targetLabel,
 			w.RicochetRangeTiles,
 		))
 	}
 	if w.SpellEchoPct > 0 {
-		lines = append(lines, fmt.Sprintf("Echo: %d%% chance your offensive spell repeats itself, free", w.SpellEchoPct))
+		lines = append(lines, uitext.Text("weapon.echo_chance_your_offensive_spell_repeats_itself", w.SpellEchoPct))
 	}
 	if w.PartyFireWhileRunning {
-		lines = append(lines, "On the Wing: the whole party may attack while running")
+		lines = append(lines, uitext.Text("weapon.on_the_wing_the_whole_party_may"))
 	}
 	if w.TBActionsPerRound > 0 {
-		lines = append(lines, fmt.Sprintf("Autofire: at least %d actions per turn-based round for the wielder", w.TBActionsPerRound))
+		lines = append(lines, uitext.Text("weapon.autofire_at_least_actions_per_turn_based", w.TBActionsPerRound))
 	}
 	lines = append(lines, w.SetLines()...)
 	return lines
@@ -494,13 +504,14 @@ type ClassMagicEntry struct {
 }
 
 type ClassStats struct {
-	Might       int `yaml:"might"`
-	Intellect   int `yaml:"intellect"`
-	Personality int `yaml:"personality"`
-	Endurance   int `yaml:"endurance"`
-	Accuracy    int `yaml:"accuracy"`
-	Speed       int `yaml:"speed"`
-	Luck        int `yaml:"luck"`
+	CardRarity  string `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
+	Might       int    `yaml:"might"`
+	Intellect   int    `yaml:"intellect"`
+	Personality int    `yaml:"personality"`
+	Endurance   int    `yaml:"endurance"`
+	Accuracy    int    `yaml:"accuracy"`
+	Speed       int    `yaml:"speed"`
+	Luck        int    `yaml:"luck"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -1490,6 +1501,13 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	for key, class := range config.Characters.Classes {
+		switch class.CardRarity {
+		case "", "common", "uncommon", "rare", "legendary":
+		default:
+			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
+		}
+	}
 	if config.World.TileSize <= 0 {
 		return nil, fmt.Errorf("world.tile_size must be > 0")
 	}
@@ -1961,7 +1979,8 @@ func MustLoadWeaponConfig(filename string) *WeaponSystemConfig {
 // ---------------- Items (non-weapon, non-spell) ----------------
 
 type ItemSystemConfig struct {
-	Items map[string]*ItemDefinitionConfig `yaml:"items"`
+	Items                map[string]*ItemDefinitionConfig `yaml:"items"`
+	TooltipUsageDefaults ItemTooltipUsageConfig           `yaml:"tooltip_usage_defaults"`
 	// Sets: armor-set bonus definitions (items opt in via their `set:` key).
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
@@ -2022,13 +2041,15 @@ type ItemDefinitionConfig struct {
 	// the same wording without item-key-specific presentation code.
 	TooltipEffects []string `yaml:"tooltip_effects,omitempty"`
 	TooltipUsage   []string `yaml:"tooltip_usage,omitempty"`
-	EquipSlot      string   `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value          int      `yaml:"value,omitempty"`      // Gold value
-	Rarity         string   `yaml:"rarity,omitempty"`
-	OpensMap       bool     `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
-	PromotesLich   bool     `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
-	Discardable    bool     `yaml:"discardable,omitempty"`   // quest item the player may still throw away
-	Set            string   `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
+	// Shared by definitions from the same catalog; not part of item/save data.
+	usageDefaults *ItemTooltipUsageConfig
+	EquipSlot     string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value         int    `yaml:"value,omitempty"`      // Gold value
+	Rarity        string `yaml:"rarity,omitempty"`
+	OpensMap      bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich  bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Discardable   bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
+	Set           string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -2065,7 +2086,7 @@ type ItemDefinitionConfig struct {
 	CardSummonCDSeconds   int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
 	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
 	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
-	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee hit strikes again immediately
+	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
 	CardSpellProcPct      int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
 	CardDodgeBonusPct     int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
 	CardArmorBonus        int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
@@ -2080,7 +2101,7 @@ type ItemDefinitionConfig struct {
 	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
 	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
 	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
-	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
+	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
 	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
 	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
 	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
@@ -2154,6 +2175,9 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	if err := validateEquipmentSetReferences(&itemCfg, GlobalWeapons); err != nil {
 		return nil, err
 	}
+	if err := itemCfg.TooltipUsageDefaults.validate(); err != nil {
+		return nil, err
+	}
 	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
 	// called per-hit and per-frame via the card collection (cardCollectionKey),
 	// where a linear scan of every item showed up as a hot-path cost.
@@ -2163,6 +2187,7 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
 	itemKeysByName := make(map[string]string, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
+		def.usageDefaults = &itemCfg.TooltipUsageDefaults
 		if prev, dup := itemKeysByName[def.Name]; dup {
 			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
 		}

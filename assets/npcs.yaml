@@ -1992,7 +1992,7 @@ npcs:
       choice_prompt: "How do you open it?"
       choices: []
 
-  reinforced_door:
+  reinforced_door: &reinforced_door
     name: "Reinforced Door"
     type: "door"
     door_behavior: "locked"
@@ -2010,6 +2010,17 @@ npcs:
         value: 70
     dialogue:
       greeting: "The reinforced door barely rattles in its frame. Brute force or a clever mind might work it - or the inlaid key."
+      choice_prompt: "How do you open it?"
+      choices: []
+
+  culvert_gate:
+    <<: *reinforced_door
+    name: "Culvert Gate"
+    description: "An iron gate stained by years of runoff, its lock still stubbornly sound"
+    sprite: "culvert_gate"
+    biomes: ["culverts"]
+    dialogue:
+      greeting: "Rust flakes from the bars, but the lock holds firm. There is room for an inlaid key - or a less patient solution."
       choice_prompt: "How do you open it?"
       choices: []
 

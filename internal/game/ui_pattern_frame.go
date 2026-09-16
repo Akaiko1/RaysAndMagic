@@ -22,6 +22,7 @@ type stripPattern struct{ capA, capB, period int }
 
 type patternFrame struct {
 	w, h, slice int
+	stretch     bool // Plain rails stretch; fixed corner ornaments retain their scale.
 	top, bottom stripPattern
 	left, right stripPattern
 	centreH     stripPattern // margins/period across the centre patch (X axis)
@@ -241,6 +242,10 @@ func planCappedRun(ops []frameOp, sp stripPattern, srcX, srcY, srcLen, thick int
 func planPatternFrame(pf *patternFrame, w, h, sourceScale int) ([]frameOp, bool) {
 	s := pf.slice
 	ds := scaledFrameLength(s, sourceScale)
+	if pf.stretch {
+		ops := planNineSlice(pf.w, pf.h, w, h, s, ds)
+		return ops, len(ops) > 0
+	}
 	if w <= ds*2 || h <= ds*2 {
 		return nil, false
 	}
@@ -319,24 +324,20 @@ func planPatternFrame(pf *patternFrame, w, h, sourceScale int) ([]frameOp, bool)
 // drawPatternFrame renders a nine-slice panel, tiling pattern art without
 // smearing or repeating its ornaments; non-periodic art stretches as before.
 func (ui *UISystem) drawPatternFrame(screen *ebiten.Image, name string, x, y, w, h, slice int) {
+	if style, ok := interfaceFrameStyle(name); ok {
+		ui.drawThemeFrame(screen, style, x, y, w, h)
+		return
+	}
 	src := ui.game.sprites.GetSprite(name)
 	slice, sourceScale := patternFrameGeometry(name, src, slice)
 	pf := ui.loadingPatternFrame(name, slice)
 	if pf == nil {
-		if sourceScale == 1 {
-			drawNineSlice(screen, src, x, y, w, h, slice)
-		} else {
-			drawImageScaled(screen, src, x, y, w, h)
-		}
+		drawNineSliceScaled(screen, src, x, y, w, h, slice, scaledFrameLength(slice, sourceScale))
 		return
 	}
 	plan := ui.patternPlans.get(name, src, pf, w, h, sourceScale)
 	if !plan.ok {
-		if sourceScale == 1 {
-			drawNineSlice(screen, src, x, y, w, h, slice)
-		} else {
-			drawImageScaled(screen, src, x, y, w, h)
-		}
+		drawNineSliceScaled(screen, src, x, y, w, h, slice, scaledFrameLength(slice, sourceScale))
 		return
 	}
 	for _, op := range plan.ops {

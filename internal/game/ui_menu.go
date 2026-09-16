@@ -3,8 +3,8 @@ package game
 import (
 	"fmt"
 	"image/color"
-	"strings"
 	"time"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -54,25 +54,34 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	panelW, panelH := menuPanelSize(ui.game.mainMenuMode)
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
-	drawFilledRect(screen, px, py, panelW, panelH, color.RGBA{20, 20, 40, 230})
-	drawRectBorder(screen, px, py, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
+	style := frameGold
+	if ui.game.mainMenuMode == MenuControlTips {
+		style = frameBronze
+	}
+	ui.drawThemeFrame(screen, style, px, py, panelW, panelH)
+	if ui.game.mainMenuMode == MenuMain || ui.game.mainMenuMode == MenuControlTips {
+		ui.drawCornerDecor(screen, style, px-8, py-8, panelW+16, panelH+16, decorTopCorners)
+	}
+	if ui.game.mainMenuMode == MenuControlTips {
+		ui.drawPanelInlay(screen, frameBronze, px+panelW/2, py)
+	}
 
 	switch ui.game.mainMenuMode {
 	case MenuMain:
 		// Title
-		drawDebugText(screen, "Main Menu", px+16, py+14)
+		drawCenteredDebugText(screen, "Main Menu", px+32, py+16, panelW-64, 20)
 		// Options
 		for i, option := range mainMenuOptions {
-			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
-			if i == ui.game.mainMenuSelection {
-				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
-			}
-			drawDebugText(screen, option.label, tx, ty)
+			box, _, _ := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
+			ui.drawMenuButton(screen, option.label, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, i == ui.game.mainMenuSelection)
 		}
-		tipsY := py + mainMenuTipsTopY()
+	case MenuControlTips:
+		drawScaledMetalCenteredText(screen, uitext.Text("ui.control_tips"), w/2, py+28, 2, rarityGold)
 		for i, tip := range mainMenuControlTips {
-			drawDebugText(screen, tip, px+16, tipsY+i*debugTextCharHeight)
+			drawDebugText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
 		}
+		ui.drawBackButton(screen, px+24, py+panelH-46, func() { ui.game.mainMenuMode = MenuMain })
+
 	case MenuSaveSelect:
 		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
 		drawDebugText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
@@ -206,8 +215,7 @@ func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []str
 	if y < 0 {
 		y = 0
 	}
-	drawFilledRect(screen, x, y, boxW, boxH, color.RGBA{12, 12, 28, 240})
-	drawRectBorder(screen, x, y, boxW, boxH, 1, color.RGBA{120, 120, 180, 230})
+	ui.drawThemeFrame(screen, frameSilver, x, y, boxW, boxH)
 	for i, l := range lines {
 		drawDebugText(screen, l, x+8, y+6+i*16)
 	}
@@ -221,17 +229,11 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 	prev, next := savePagerButtonRects(px, py, panelW, panelH)
 	stripY := prev.y1
 	stripH := prev.y2 - prev.y1
-	drawFilledRect(screen, px, stripY, panelW, stripH, color.RGBA{18, 18, 34, 235})
-	drawRectBorder(screen, px, stripY, panelW, stripH, 1, color.RGBA{100, 100, 160, 220})
+	ui.drawThemeFrame(screen, frameSilver, px, stripY, panelW, stripH)
 
 	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
-		fill := color.RGBA{60, 60, 100, 230}
-		if !enabled {
-			fill = color.RGBA{35, 35, 55, 200}
-		}
-		drawFilledRect(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, fill)
-		drawRectBorder(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, 1, color.RGBA{120, 120, 180, 230})
-		drawCenteredDebugText(screen, label, r.x1, r.y1+(stripH-12)/2, r.x2-r.x1, 12)
+		ui.drawButtonFrame(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, false)
+		drawCenteredDebugText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
 	}
 	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
 	drawPagerBtn(next, "Next >", true)
@@ -248,8 +250,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	dialogW, dialogH := 420, 140
 	x := (w - dialogW) / 2
 	y := (h - dialogH) / 2
-	drawFilledRect(screen, x, y, dialogW, dialogH, color.RGBA{15, 15, 35, 235})
-	drawRectBorder(screen, x, y, dialogW, dialogH, 2, color.RGBA{120, 120, 180, 255})
+	ui.drawThemeFrame(screen, frameSilver, x, y, dialogW, dialogH)
 
 	title := fmt.Sprintf("Rename %s", saveRowLabel(ui.game.saveRenameSlot))
 	drawCenteredDebugText(screen, title, x, y+10, dialogW, 20)
@@ -258,8 +259,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	inputBoxY := y + 48
 	inputBoxW := dialogW - 48
 	inputBoxH := 28
-	drawFilledRect(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, color.RGBA{30, 30, 60, 240})
-	drawRectBorder(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, 1, color.RGBA{140, 140, 200, 255})
+	ui.drawThemeFrame(screen, frameSilver, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
 
 	input := ui.game.saveRenameInput
 	if input == "" {
@@ -279,16 +279,13 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	// stays fully visible and remains the one mouse selector for characters.
 	drawFilledRect(screen, 0, 0, screen.Bounds().Dx(), viewportBottom, color.RGBA{5, 7, 12, 205})
 	ui.drawPatternFrame(screen, "menu_panel_frame", layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
+	ui.drawCornerDecor(screen, frameGold, layout.panel.x-8, layout.panel.y-8, layout.panel.w+16, layout.panel.h+16, decorBottomCorners)
 
 	for i, tabInfo := range tabbedMenuTabs {
 		tabRect := layout.tabs[i]
 
 		isActive := ui.game.currentTab == tabInfo.tab
-		tabSpriteName := "menu_tab_inactive"
-		if isActive {
-			tabSpriteName = "menu_tab_active"
-		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabRect.x, tabRect.y, tabRect.w, tabRect.h)
+		ui.drawButtonFrame(screen, tabRect.x, tabRect.y, tabRect.w, tabRect.h, isActive)
 
 		// One line leaves the decorative top/bottom rails clear at every scale.
 		drawCenteredDebugText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
@@ -346,23 +343,14 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			labelW := layout.labelW
 			labelX := x - (labelW-icon)/2
 			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
-			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+2+debugTextCharHeight, labelW, 14)
+
 			if hovered {
 				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
 			}
 		}
 	}
 
-	// Combined totals: additive effects fold together, while summon cards stay
-	// separate because each owns an independent roll, creature pool and cooldown.
-	summary := "No active card effects."
-	if parts := ui.game.cardCollectionEffectLines(); len(parts) > 0 {
-		summary = "Active: " + strings.Join(parts, ", ")
-	}
-	// Wrap to the panel width so a full 8-card list doesn't run off the edge.
-	for i, line := range wrapDebugText(summary, layout.summary.w) {
-		drawDebugText(screen, line, layout.summary.x, layout.summary.y+i*debugTextCharHeight)
-	}
+	ui.drawCardEffectsList(screen, layout.summary)
 
 	if hover != nil {
 		ui.queueTooltip(hover, mouseX+16, mouseY+8)

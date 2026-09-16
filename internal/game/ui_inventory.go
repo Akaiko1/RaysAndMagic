@@ -19,7 +19,7 @@ import (
 // drawInventoryContent draws the inventory tab content
 func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRect) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := pointerPosition()
 
 	layout := computeInventoryContentLayout(content)
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
@@ -177,6 +177,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			if titleText != nil {
 				compareBody = ui.rarityBodyColors(tooltipItem, len(compareLines))
 			}
+			if tooltipItem.Type == items.ItemWeapon || tooltipItem.Type == items.ItemArmor || tooltipItem.Type == items.ItemAccessory {
+				compareBody = equipmentComparisonColors(compareLines, compareBody)
+			}
 			ui.queueTitledTooltipComparison(compareLines, compareBody, plate, titleText)
 		}
 	}
@@ -211,15 +214,10 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	drawBtn := func(bx int, label string, enabled bool, step int) {
-		bg := color.RGBA{70, 50, 30, 210}
-		switch {
-		case !enabled:
-			bg = color.RGBA{45, 40, 38, 160}
-		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
-			bg = color.RGBA{120, 90, 50, 230}
+		ui.drawButtonFrame(screen, bx, y, btnW, btnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH))
+		if !enabled {
+			drawFilledRect(screen, bx+2, y+2, btnW-4, btnH-4, color.RGBA{0, 0, 0, 100})
 		}
-		drawFilledRect(screen, bx, y, btnW, btnH, bg)
-		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
 		ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, btnW, btnH}, func() {
 			if enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH) {
@@ -399,8 +397,7 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	}
 	x := ui.inventoryContextX
 	y := ui.inventoryContextY
-	drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
-	drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
+	ui.drawThemeFrame(screen, frameSilver, x, y, menuW, menuH)
 	drawCenteredDebugText(screen, "Discard", x, y, menuW, 24)
 	if canSplit {
 		drawCenteredDebugText(screen, "Split...", x, y+24, menuW, 24)
@@ -473,7 +470,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	drawSection(layout.combat, "COMBAT AND RESISTANCES")
 
 	portraitName := ui.game.fullPortraitSpriteName(member)
-	ui.drawPatternFrame(screen, "menu_panel_frame", layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
+	drawPortraitFrame(screen, layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h)
 	drawImageScaled(screen, ui.game.sprites.GetSprite(portraitName), layout.portrait.x, layout.portrait.y, layout.portrait.w, layout.portrait.h)
 	profileX := layout.profile.x + sectionTextInset
 	profileW := layout.profile.w - 2*sectionTextInset
@@ -518,9 +515,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		{"Speed", member.Speed, effSpeed},
 		{"Luck", member.Luck, effLuck},
 	}
+	attributeRowH := min(sectionRowH, (layout.attributes.h-sectionBodyY-8)/len(stats))
 	for i, stat := range stats {
 		x := layout.attributes.x + sectionTextInset
-		y := layout.attributes.y + sectionBodyY + i*sectionRowH
+		y := layout.attributes.y + sectionBodyY + i*attributeRowH
 		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
 		drawDebugTextShadowed(screen, clipDebugText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
 		if delta := stat.eff - stat.base; delta != 0 {
@@ -665,15 +663,10 @@ const pagerBtnW, pagerBtnH = 30, 18
 // Shared by the quest and character list pagers.
 func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool, onClick func()) {
 	mouseX, mouseY := ebiten.CursorPosition()
-	bg := color.RGBA{70, 50, 30, 210}
-	switch {
-	case !enabled:
-		bg = color.RGBA{45, 40, 38, 160}
-	case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH):
-		bg = color.RGBA{120, 90, 50, 230}
+	ui.drawButtonFrame(screen, bx, y, pagerBtnW, pagerBtnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH))
+	if !enabled {
+		drawFilledRect(screen, bx+2, y+2, pagerBtnW-4, pagerBtnH-4, color.RGBA{0, 0, 0, 100})
 	}
-	drawFilledRect(screen, bx, y, pagerBtnW, pagerBtnH, bg)
-	drawRectBorder(screen, bx, y, pagerBtnW, pagerBtnH, 1, color.RGBA{150, 110, 52, 220})
 	drawCenteredDebugText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
 	ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, pagerBtnW, pagerBtnH}, func() {
 		if enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH) {
@@ -824,18 +817,6 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{218, 170, 72, 255})
 		drawCenteredDebugText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
-	if selected {
-		// Keep selection wholly on the icon. The school-colored nested strokes
-		// read as an edge glow without covering the parchment or neighboring card.
-		glow := color.RGBAModel.Convert(SchoolColor(school.String())).(color.RGBA)
-		outer := glow
-		outer.A = 80
-		middle := glow
-		middle.A = 150
-		drawRectBorder(screen, iconX-4, iconY-4, iconSize+8, iconSize+8, 1, outer)
-		drawRectBorder(screen, iconX-2, iconY-2, iconSize+4, iconSize+4, 1, middle)
-		drawRectBorder(screen, iconX-1, iconY-1, iconSize+2, iconSize+2, 1, glow)
-	}
 
 	name := truncateName(def.Name, 12)
 	nameY := y + iconSize + 8
@@ -848,10 +829,9 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	}
 	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
 	drawCenteredDebugText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, debugTextCharHeight)
-	if currentChar.SpellPoints < cost {
-		// Red icon outline signals "not enough SP".
-		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
-	}
+	quick, equipped := currentChar.Equipment[items.SlotSpell]
+	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
+		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
 }
 
 func spellInitials(name string) string {
@@ -1014,12 +994,7 @@ func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
 	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y,
 		btnX+inventoryCampButtonW, y+inventoryCampButtonH)
 
-	fill := color.RGBA{30, 45, 30, 255}
-	if hover {
-		fill = color.RGBA{50, 75, 50, 255}
-	}
-	drawFilledRect(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, fill)
-	drawRectBorder(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, 2, color.RGBA{100, 120, 100, 255})
+	ui.drawButtonFrame(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, hover)
 	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost),
 		btnX, y, inventoryCampButtonW, inventoryCampButtonH)
 

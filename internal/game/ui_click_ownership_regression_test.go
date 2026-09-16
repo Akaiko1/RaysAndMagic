@@ -27,9 +27,24 @@ func claimOwnershipHarness(t *testing.T, gold int) *displayedModalHarness {
 func claimButtons(h *displayedModalHarness) []layoutRect {
 	h.ui.Draw(h.screen)
 	var buttons []layoutRect
+	content := computeTabbedMenuLayout(h.g.config.GetScreenWidth(), gameplayViewportBottom(h.g)).content
+	all := h.g.questManager.GetAllQuests()
+	sortQuestJournal(all)
+	layout := computeQuestContentLayout(content, nil, 0)
+	copies := make([]questCardCopy, len(all))
+	for i, q := range all {
+		copies[i] = questCardCopyFor(q.Definition.Description, layout.cardW, layout.maxDescRows)
+	}
+	layout = computeQuestContentLayout(content, copies, h.ui.questPage)
 	for _, cmd := range h.ui.displayedInput.commands {
-		if cmd.kind == uiCommandClick && cmd.bounds.w == 110 && cmd.bounds.h == 16 {
-			buttons = append(buttons, cmd.bounds)
+		if cmd.kind != uiCommandClick {
+			continue
+		}
+		for _, row := range layout.rows {
+			if cmd.bounds.x >= row.x && cmd.bounds.right() <= row.right() && cmd.bounds.y >= row.y && cmd.bounds.bottom() <= row.bottom() {
+				buttons = append(buttons, cmd.bounds)
+				break
+			}
 		}
 	}
 	return buttons
@@ -67,7 +82,7 @@ func TestJournalPhysicalClickClaimsExactlyOnce(t *testing.T) {
 				}
 				buttons = claimButtons(h)
 				if len(buttons) != 1 {
-					t.Fatalf("remaining buttons=%d", len(buttons))
+					t.Fatalf("remaining buttons=%d: %+v", len(buttons), buttons)
 				}
 				fp.moveTo(buttons[0].x+2, buttons[0].y+2)
 				fp.press()

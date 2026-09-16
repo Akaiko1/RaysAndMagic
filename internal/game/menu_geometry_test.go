@@ -51,13 +51,13 @@ func TestMainMenuOptionsOwnTheirActions(t *testing.T) {
 }
 
 func TestMainMenuControlTipsFitPanel(t *testing.T) {
-	bottom := mainMenuTipsTopY() + len(mainMenuControlTips)*debugTextCharHeight
-	if bottom > mainMenuPanelH-2 {
-		t.Fatalf("control tips end at y=%d, panel content ends at y=%d", bottom, mainMenuPanelH-2)
+	w, h := menuPanelSize(MenuControlTips)
+	if bottom := mainMenuTipsTopY() + len(mainMenuControlTips)*24; bottom > h-50 {
+		t.Fatal("tips overlap Back button")
 	}
 	for _, tip := range mainMenuControlTips {
-		if width := debugTextWidth(tip); width > mainMenuPanelW-32 {
-			t.Errorf("control tip width = %d, content width = %d: %q", width, mainMenuPanelW-32, tip)
+		if debugTextWidth(tip) > w-48 {
+			t.Fatalf("tip leaves its panel: %q", tip)
 		}
 	}
 }
@@ -69,7 +69,7 @@ func TestAudioSettingsGeometryFollowsPanelWidth(t *testing.T) {
 		if r.x2 != px+panelW-audioSliderRightPad {
 			t.Errorf("panel width %d: slider right = %d, want %d", panelW, r.x2, px+panelW-audioSliderRightPad)
 		}
-		for _, contentInset := range []int{menuFrameInset, audioMenuContentInset} {
+		for _, contentInset := range []int{audioSettingsInset, audioMenuContentInset} {
 			columnRight := -1
 			for _, label := range []string{"0%", "50%", "100%"} {
 				percentX := audioPercentX(px, panelW, contentInset, label)
@@ -91,18 +91,18 @@ func TestAudioSettingsGeometryFollowsPanelWidth(t *testing.T) {
 
 func TestAudioSettingsOrnateContentClearsFrame(t *testing.T) {
 	const px, py = 100, 50
-	selection := audioSelectionRect(px, py, settingsMenuPanelW, menuFrameInset, 0)
-	if selection.x1 < px+menuFrameInset || selection.x2 > px+settingsMenuPanelW-menuFrameInset {
-		t.Fatalf("selection bounds [%d,%d] enter ornate frame content band [%d,%d]", selection.x1, selection.x2, px+menuFrameInset, px+settingsMenuPanelW-menuFrameInset)
+	selection := audioSelectionRect(px, py, settingsMenuPanelW, audioSettingsInset, 0)
+	if selection.x1 < px+audioSettingsInset || selection.x2 > px+settingsMenuPanelW-audioSettingsInset {
+		t.Fatalf("selection bounds [%d,%d] enter ornate frame content band [%d,%d]", selection.x1, selection.x2, px+audioSettingsInset, px+settingsMenuPanelW-audioSettingsInset)
 	}
-	back := audioBackRect(px, py, settingsMenuPanelH, menuFrameInset)
+	back := audioBackRect(px, py, settingsMenuPanelH, audioSettingsInset)
 	if back.x2-back.x1 != menuBackButtonW || back.y2-back.y1 != menuBackButtonH {
 		t.Fatalf("back rect = %dx%d, want shared button size %dx%d", back.x2-back.x1, back.y2-back.y1, menuBackButtonW, menuBackButtonH)
 	}
-	_, _, hintY := audioHintPosition(px, py, settingsMenuPanelW, settingsMenuPanelH, menuFrameInset)
-	contentBottom := py + settingsMenuPanelH - menuFrameInset
-	if hintY < py+menuFrameInset || hintY+debugTextCharHeight > contentBottom {
-		t.Fatalf("hint y-range [%d,%d] leaves ornate content range [%d,%d]", hintY, hintY+debugTextCharHeight, py+menuFrameInset, contentBottom)
+	_, _, hintY := audioHintPosition(px, py, settingsMenuPanelW, settingsMenuPanelH, audioSettingsInset)
+	contentBottom := py + settingsMenuPanelH - audioSettingsInset
+	if hintY < py+audioSettingsInset || hintY+debugTextCharHeight > contentBottom {
+		t.Fatalf("hint y-range [%d,%d] leaves ornate content range [%d,%d]", hintY, hintY+debugTextCharHeight, py+audioSettingsInset, contentBottom)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestAudioSettingsPanelLayoutVariants(t *testing.T) {
 		ornate    bool
 		wantInset int
 	}{
-		{name: "entry ornate", ornate: true, wantInset: menuFrameInset},
+		{name: "entry ornate", ornate: true, wantInset: audioSettingsInset},
 		{name: "ESC plain", ornate: false, wantInset: audioMenuContentInset},
 	} {
 		t.Run(test.name, func(t *testing.T) {

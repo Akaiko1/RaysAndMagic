@@ -184,6 +184,7 @@ characters:
       quick_trap: cleave_trap
 
     arms_master:
+      card_rarity: rare
       might: 15
       intellect: 8
       personality: 8
@@ -196,6 +197,7 @@ characters:
       main_hand: iron_sword
 
     monk:
+      card_rarity: rare
       might: 13
       intellect: 8
       personality: 12
@@ -216,6 +218,7 @@ characters:
     # spell hit can be eaten for HP+SP) and Strong Magic (offensive casts burn
     # extra HP for proportionally harder hits) - numbers in character/catalog.go.
     battle_mage:
+      card_rarity: legendary
       might: 13
       intellect: 13
       personality: 8

@@ -1164,8 +1164,10 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*items.WeaponDefinitionFro
 	return items.GlobalWeaponAccessor(weaponKey)
 }
 
-// EquipItem attempts to equip an item from inventory, returns (previousItem, hadPreviousItem, success)
-func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
+// EquipDestination resolves the default destination used by inventory equip and
+// comparison. Eligibility remains in ItemFitsSlot; an untrained hero can still
+// inspect the hypothetical result before learning the required skill.
+func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) {
 	var slot items.EquipSlot
 	switch item.Type {
 	case items.ItemWeapon:
@@ -1184,7 +1186,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	case items.ItemAccessory:
 		slot = item.PreferredSlot(items.SlotRing1)
 	default:
-		return items.Item{}, false, false
+		return 0, false
 	}
 
 	// Rings share two interchangeable slots, but equip_slot resolves every ring
@@ -1198,7 +1200,15 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		}
 	}
 
-	// EquipItemToSlot enforces the class/armor gates and places the item.
+	return slot, true
+}
+
+// EquipItem attempts to equip an item from inventory.
+func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
+	slot, ok := c.EquipDestination(item)
+	if !ok {
+		return items.Item{}, false, false
+	}
 	return c.EquipItemToSlot(item, slot)
 }
 
@@ -1448,6 +1458,21 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 			fn(set)
 		}
 	}
+}
+
+// HasCompletedEquipmentSet exposes the same completion rule used by combat bonuses.
+func (c *MMCharacter) HasCompletedEquipmentSet(key string) bool {
+	set := config.GetItemSet(key)
+	if set == nil {
+		return false
+	}
+	count := 0
+	for _, item := range c.Equipment {
+		if item.Set == key {
+			count++
+		}
+	}
+	return c.hasCompletedSet(key, set, count)
 }
 
 func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {

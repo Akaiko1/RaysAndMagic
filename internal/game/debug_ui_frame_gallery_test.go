@@ -66,6 +66,16 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if q := g.questManager.GetQuest("lake_spiders"); q != nil {
+		q.Completed = true
+		q.CurrentCount = q.Target()
+	}
+	if q := g.questManager.GetQuest("archmage_trial"); q != nil {
+		q.Completed, q.RewardsClaimed = true, true
+	}
+	if q := g.questManager.GetQuest("goblin_hunt"); q != nil {
+		q.CurrentCount = 2
+	}
 	for slot, key := range []string{"medusa_card", "puma_card", "archmage_card", "lich_card", "ocelot_card", "gorilla_titan_card"} {
 		if !g.setCardCollectionSlot(slot, items.CreateItemFromYAML(key)) {
 			t.Fatalf("seed card %q", key)
@@ -75,9 +85,9 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 	g.gameLoop.ui.campNotice = "The party rests. HP and spell points fully restored."
 	g.gameLoop.ui.campNoticeOK = true
 
-	out := filepath.Join(os.Getenv("HOME"), "Downloads", "RaysAndMagic_character_hub")
-	if err := os.RemoveAll(out); err != nil {
-		t.Fatal(err)
+	out := os.Getenv("RAM_UI_QA_DIR")
+	if out == "" {
+		out = filepath.Join(os.Getenv("HOME"), "Downloads", "RaysAndMagic_character_hub")
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		t.Fatal(err)
@@ -87,6 +97,7 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 		w, h int
 	}
 	resolutions := []resolution{
+		{800, 680},
 		{1024, 768},
 		{1280, 720},
 		{1280, 800},
@@ -106,6 +117,8 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 		logicalW, logicalH := g.gameLoop.Layout(physical.w, physical.h)
 		logical := ebiten.NewImage(logicalW, logicalH)
 		output := ebiten.NewImage(physical.w, physical.h)
+		defer logical.Deallocate()
+		defer output.Deallocate()
 		// Draw twice: the first frame populates lazy UI sprite caches, while the
 		// second is the same steady-state frame a player actually sees.
 		for range 2 {
@@ -123,7 +136,7 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := png.Encode(f, output); err != nil {
+		if err := png.Encode(f, snapshotUIImage(output)); err != nil {
 			f.Close()
 			t.Fatal(err)
 		}

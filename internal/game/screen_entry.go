@@ -3,25 +3,13 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// ---------------------------------------------------------------------------
-// Entry / title menu (AppScreenMainMenu)
-//
-// Graphics-ready by design: every drawable element first checks for a named
-// sprite via sprites.HasSprite and only falls back to a procedural rectangle +
-// text when the art is absent. Drop a correctly-named PNG into assets/sprites/
-// and it replaces the placeholder with no code change. The sprite keys are:
-//
-//   screen_title_bg            full-screen background
-//   title_logo                 game logo near the top
-//   menu_btn_<key>             a button face (label baked in); else procedural
-//   menu_btn_<key>_hover       optional hovered button face
-//
-// where <key> is one of: start, load, scores, achievements, settings, quit.
-// ---------------------------------------------------------------------------
+// Entry menu composition shares its frame masters with in-game menus. Labels
+// and hitboxes stay independent of art, and backdrops preserve their aspect.
 
 // entryButton is one root-menu choice. Action runs on click/Enter.
 type entryButton struct {
@@ -269,12 +257,16 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 		ui.drawBigCenteredText(screen, "RAYS AND MAGIC", w/2, layout.logoY+layout.logoH/2-14, color.RGBA{230, 220, 180, 255})
 	}
 
+	stackH := len(entryButtons())*layout.buttonH + (len(entryButtons())-1)*layout.buttonGap
+	ui.drawThemeFrame(screen, frameGold, layout.buttonX-20, layout.buttonStartY-20, layout.buttonW+40, stackH+40)
+	ui.drawCornerDecor(screen, frameGold, layout.buttonX-28, layout.buttonStartY-28, layout.buttonW+56, stackH+56, decorAllCorners)
+
 	// Vertical stack of buttons, centered.
 	mouseX, mouseY := ebiten.CursorPosition()
 	for i, b := range entryButtons() {
 		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
 		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH)
-		ui.drawMenuButton(screen, b.key, b.label, layout.buttonX, by, layout.buttonW, layout.buttonH, hover)
+		ui.drawMenuButton(screen, b.label, layout.buttonX, by, layout.buttonW, layout.buttonH, hover)
 	}
 }
 
@@ -299,14 +291,10 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		y := startY + i*rowH
 		sum := GetSaveRowSummary(row)
 		hover := isMouseHoveringBox(mouseX, mouseY, rowX, y, rowX+rowW, y+rowH-8)
-		bg := color.RGBA{40, 40, 70, 220}
+		ui.drawButtonFrame(screen, rowX, y, rowW, rowH-8, sum.Exists && hover)
 		if !sum.Exists {
-			bg = color.RGBA{30, 30, 45, 180}
-		} else if hover {
-			bg = color.RGBA{70, 110, 160, 230}
+			drawFilledRect(screen, rowX+3, y+3, rowW-6, rowH-14, color.RGBA{0, 0, 0, 80})
 		}
-		drawFilledRect(screen, rowX, y, rowW, rowH-8, bg)
-		drawRectBorder(screen, rowX, y, rowW, rowH-8, 1, color.RGBA{90, 90, 130, 200})
 
 		label := fmt.Sprintf("%s - (empty)", saveRowLabel(row))
 		if sum.Exists {
@@ -344,12 +332,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	pagerY := startY + saveRowsPerPage*rowH + 6
 	const pbW, pbH = 96, 26
 	drawEntryPagerBtn := func(bx int, label string, enabled bool, onClick func()) {
-		fill := color.RGBA{60, 60, 100, 230}
-		if !enabled {
-			fill = color.RGBA{35, 35, 55, 200}
-		}
-		drawFilledRect(screen, bx, pagerY, pbW, pbH, fill)
-		drawRectBorder(screen, bx, pagerY, pbW, pbH, 1, color.RGBA{120, 120, 180, 230})
+		ui.drawButtonFrame(screen, bx, pagerY, pbW, pbH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, pagerY, bx+pbW, pagerY+pbH))
 		drawCenteredDebugText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, pagerY, (bx + pbW) - (bx), (pagerY + pbH) - (pagerY)}, func() {
 			if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
@@ -371,8 +354,18 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 // drawScreenBackdrop fills the screen with a named background sprite when one
 // exists, otherwise a dark vertical-ish gradient placeholder.
 func (ui *UISystem) drawScreenBackdrop(screen *ebiten.Image, w, h int, spriteKey string) {
+	switch spriteKey {
+	case "screen_title_bg":
+		spriteKey = "theme_background_world"
+	case "screen_party_create_bg":
+		spriteKey = "theme_background_hall"
+	}
 	if spriteKey != "" && ui.game.sprites.HasSprite(spriteKey) {
-		drawImageScaled(screen, ui.game.sprites.GetSprite(spriteKey), 0, 0, w, h)
+		src := ui.game.sprites.GetSprite(spriteKey)
+		b := src.Bounds()
+		scale := math.Max(float64(w)/float64(b.Dx()), float64(h)/float64(b.Dy()))
+		dw, dh := int(math.Ceil(float64(b.Dx())*scale)), int(math.Ceil(float64(b.Dy())*scale))
+		drawImageScaled(screen, src, (w-dw)/2, (h-dh)/2, dw, dh)
 		return
 	}
 	// Placeholder gradient: a few horizontal bands from deep blue to near-black.
@@ -393,6 +386,10 @@ func (ui *UISystem) drawScreenBackdrop(screen *ebiten.Image, w, h int, spriteKey
 // (corners kept crisp; periodic pattern art tiles, painted art stretches), else
 // a procedural dark rect + border. frameKey "" forces the procedural look.
 func (ui *UISystem) drawPanel(screen *ebiten.Image, frameKey string, x, y, w, h int) {
+	if _, themed := interfaceFrameStyle(frameKey); themed {
+		ui.drawPatternFrame(screen, frameKey, x, y, w, h, menuFrameSlice)
+		return
+	}
 	if frameKey != "" && ui.game.sprites.HasSprite(frameKey) {
 		ui.drawPatternFrame(screen, frameKey, x, y, w, h, menuFrameSlice)
 		return
@@ -412,61 +409,9 @@ const (
 )
 
 // drawButtonHoverGlow draws a soft warm halo just OUTSIDE the button edge - a
-// light highlight around it, not a wash over the face. Two fading gold rings.
-func drawButtonHoverGlow(screen *ebiten.Image, x, y, w, h int) {
-	drawRectBorder(screen, x-2, y-2, w+4, h+4, 1, color.RGBA{255, 226, 150, 90})
-	drawRectBorder(screen, x-1, y-1, w+2, h+2, 1, color.RGBA{255, 236, 175, 170})
-}
-
-// drawMenuButton draws a button face. Resolution order: per-key art
-// (menu_btn_<key>[_hover], label assumed baked in) -> generic frame (menu_btn,
-// label drawn on top) -> procedural panel. Hover gets a highlight overlay when
-// the art has no dedicated _hover variant.
-func (ui *UISystem) drawMenuButton(screen *ebiten.Image, key, label string, x, y, w, h int, hover bool) {
-	s := ui.game.sprites
-	draw := func(name string) bool {
-		if !s.HasSprite(name) {
-			return false
-		}
-		drawImageScaled(screen, s.GetSprite(name), x, y, w, h)
-		return true
-	}
-
-	// Per-key art: the label is baked into the image.
-	if hover && draw("menu_btn_"+key+"_hover") {
-		return
-	}
-	if draw("menu_btn_" + key) {
-		if hover {
-			drawButtonHoverGlow(screen, x, y, w, h)
-		}
-		return
-	}
-
-	// Generic frame: draw the label centered on top.
-	used := false
-	if hover && draw("menu_btn_hover") {
-		used = true
-	} else if draw("menu_btn") {
-		used = true
-		if hover {
-			drawButtonHoverGlow(screen, x, y, w, h)
-		}
-	}
-	if used {
-		drawCenteredDebugText(screen, label, x, y, w, h)
-		return
-	}
-
-	// Procedural fallback.
-	bg := color.RGBA{45, 45, 78, 235}
-	border := color.RGBA{110, 110, 170, 255}
-	if hover {
-		bg = color.RGBA{70, 110, 165, 245}
-		border = color.RGBA{170, 200, 240, 255}
-	}
-	drawFilledRect(screen, x, y, w, h, bg)
-	drawRectBorder(screen, x, y, w, h, 2, border)
+// drawMenuButton uses one resizable face; labels and hitboxes stay in code.
+func (ui *UISystem) drawMenuButton(screen *ebiten.Image, label string, x, y, w, h int, hover bool) {
+	ui.drawButtonFrame(screen, x, y, w, h, hover)
 	drawCenteredDebugText(screen, label, x, y, w, h)
 }
 
@@ -482,7 +427,7 @@ func (ui *UISystem) drawBigCenteredText(screen *ebiten.Image, text string, cx, y
 func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func()) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuBackButtonW, y+menuBackButtonH)
-	ui.drawMenuButton(screen, "back", "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
+	ui.drawMenuButton(screen, "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + menuBackButtonW) - (x), (y + menuBackButtonH) - (y)}, func() {
 		if ui.game.consumeLeftClickIn(x, y, x+menuBackButtonW, y+menuBackButtonH) {
 			onClick()

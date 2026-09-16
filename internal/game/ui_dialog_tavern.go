@@ -1,8 +1,8 @@
 package game
 
 import (
-	"fmt"
 	"image/color"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 
@@ -117,8 +117,8 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	ui.drawDialogFolderTabsEnabled(screen, dialogX, dialogY, labels, tabsEnabled)
 
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	drawDebugText(screen, clipDebugText("Tavern - "+npc.Name, layout.title.w), layout.title.x, layout.title.y)
-	drawDebugText(screen, clipDebugText(fmt.Sprintf("Party Gold: %d", g.party.Gold), layout.balance.w),
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.tavern")+npc.Name, layout.title.w), layout.title.x, layout.title.y)
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.party_gold", g.party.Gold), layout.balance.w),
 		layout.balance.x, layout.balance.y)
 
 	greeting := ""
@@ -128,8 +128,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	area := tavernContentRect(dialogX, dialogY, dialogWidth, dialogHeight)
-	drawFilledRect(screen, area.x, area.y, area.w, area.h, color.RGBA{30, 30, 50, 220})
-	drawRectBorder(screen, area.x, area.y, area.w, area.h, 2, color.RGBA{100, 100, 130, 255})
+	drawPortraitFrame(screen, area.x, area.y, area.w, area.h)
 
 	tab := tabs[g.dialogTab]
 	switch tab.action {
@@ -143,16 +142,16 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 		ui.drawTavernRumor(screen, npc, area)
 	}
 
-	footer := "Tab or 1-4 switches sections. ESC leaves."
+	footer := uitext.Text("dialog.tab_or_switches_sections_esc_leaves")
 	switch tab.action {
 	case tavernRosterAction:
-		footer = "Select an active hero, then click a reserve hero to swap. ESC leaves."
+		footer = uitext.Text("dialog.select_an_active_hero_then_click_a")
 	case tavernStashAction:
-		footer = "Drag items between the chest and your bag. Right-click splits stacks."
+		footer = uitext.Text("dialog.drag_items_between_the_chest_and_your")
 	case tavernServicesAction:
-		footer = "Select a service, then confirm it. Up/Down selects; Enter confirms."
+		footer = uitext.Text("dialog.select_a_service_then_confirm_it_up")
 	case tavernRumorsAction:
-		footer = "Rumors follow the story. Tab or 1-4 switches sections. ESC leaves."
+		footer = uitext.Text("dialog.rumors_follow_the_story_tab_or_switches")
 	}
 	drawDebugText(screen, clipDebugText(footer, layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 }
@@ -179,39 +178,29 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 		card := tavernServiceCardRect(area, i)
 		hovered := isMouseHoveringBox(mouseX, mouseY, card.x, card.y, card.right(), card.bottom())
 		affordable := g.party.Gold >= choice.Cost
-		fill := color.RGBA{44, 44, 68, 255}
-		border := color.RGBA{105, 105, 145, 255}
+		ui.drawButtonFrame(screen, card.x, card.y, card.w, card.h, hovered || g.selectedChoice == i)
 		if !affordable {
-			fill = color.RGBA{58, 34, 38, 255}
-			border = color.RGBA{145, 75, 75, 255}
-		} else if hovered || g.selectedChoice == i {
-			fill = color.RGBA{65, 69, 100, 255}
-			border = color.RGBA{220, 180, 90, 255}
+			drawFilledRect(screen, card.x+4, card.y+4, card.w-8, card.h-8, color.RGBA{25, 3, 3, 55})
 		}
-		if g.selectedChoice == i {
-			border = color.RGBA{235, 195, 95, 255}
-		}
-		drawFilledRect(screen, card.x, card.y, card.w, card.h, fill)
-		drawRectBorder(screen, card.x, card.y, card.w, card.h, 2, border)
 
-		title := "Rest the Night"
-		detail := "Restore HP and spell points for every living party member."
-		effect := "Dead party members remain dead."
+		title := uitext.Text("dialog.rest_the_night")
+		detail := uitext.Text("dialog.restore_hp_and_spell_points_for_every")
+		effect := uitext.Text("dialog.dead_party_members_remain_dead")
 		if choice.Action == "buy_food" {
-			title = "Buy Rations"
-			detail = fmt.Sprintf("Add %d food to the party supplies.", choice.Amount)
-			effect = fmt.Sprintf("Current food: %d", g.party.Food)
+			title = uitext.Text("dialog.buy_rations")
+			detail = uitext.Text("dialog.add_food_to_the_party_supplies", choice.Amount)
+			effect = uitext.Text("dialog.current_food", g.party.Food)
 		}
 		drawDebugTextColored(screen, title, card.x+14, card.y+16, color.RGBA{230, 205, 135, 255})
 		ui.drawWrappedTextWithOverflow(screen, detail, layoutRect{card.x + 14, card.y + 50, card.w - 28, 40}, 2, dialogueLineHeight)
 		drawDebugText(screen, effect, card.x+14, card.y+104)
-		drawDebugText(screen, fmt.Sprintf("Cost: %d gold", choice.Cost), card.x+14, card.y+132)
+		drawDebugText(screen, uitext.Text("dialog.cost_gold", choice.Cost), card.x+14, card.y+132)
 		if !affordable {
-			drawDebugTextColored(screen, "Not enough gold", card.x+14, card.y+152, color.RGBA{225, 105, 105, 255})
+			drawDebugTextColored(screen, uitext.Text("dialog.not_enough_gold"), card.x+14, card.y+152, color.RGBA{225, 105, 105, 255})
 		} else if g.selectedChoice == i {
 			drawDebugTextColored(screen, "Selected", card.x+14, card.y+152, color.RGBA{235, 195, 95, 255})
 		} else {
-			drawDebugTextColored(screen, "Click to select", card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
+			drawDebugTextColored(screen, uitext.Text("dialog.click_to_select"), card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
 		}
 		ui.onDisplayedInput(uiCommandClick, layoutRect{card.x, card.y, (card.right()) - (card.x), (card.bottom()) - (card.y)}, func() {
 			if g.consumeLeftClickIn(card.x, card.y, card.right(), card.bottom()) {
@@ -224,20 +213,13 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 	confirm := tavernServiceConfirmRect(area)
 	affordable := g.party.Gold >= selected.Cost
 	hovered := isMouseHoveringBox(mouseX, mouseY, confirm.x, confirm.y, confirm.right(), confirm.bottom())
-	fill := color.RGBA{50, 52, 76, 255}
-	border := color.RGBA{115, 115, 150, 255}
+	ui.drawButtonFrame(screen, confirm.x, confirm.y, confirm.w, confirm.h, affordable && hovered)
 	if !affordable {
-		fill = color.RGBA{58, 34, 38, 255}
-		border = color.RGBA{145, 75, 75, 255}
-	} else if hovered {
-		fill = color.RGBA{72, 76, 108, 255}
-		border = color.RGBA{235, 195, 95, 255}
+		drawFilledRect(screen, confirm.x+4, confirm.y+4, confirm.w-8, confirm.h-8, color.RGBA{25, 3, 3, 55})
 	}
-	drawFilledRect(screen, confirm.x, confirm.y, confirm.w, confirm.h, fill)
-	drawRectBorder(screen, confirm.x, confirm.y, confirm.w, confirm.h, 2, border)
-	label := fmt.Sprintf("Confirm Rest - %d gold", selected.Cost)
+	label := uitext.Text("dialog.confirm_rest_gold", selected.Cost)
 	if selected.Action == "buy_food" {
-		label = fmt.Sprintf("Confirm Rations - %d gold", selected.Cost)
+		label = uitext.Text("dialog.confirm_rations_gold", selected.Cost)
 	}
 	drawCenteredDebugText(screen, clipDebugText(label, confirm.w-20), confirm.x, confirm.y, confirm.w, confirm.h)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{confirm.x, confirm.y, (confirm.right()) - (confirm.x), (confirm.bottom()) - (confirm.y)}, func() {
@@ -248,7 +230,7 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 }
 
 func (ui *UISystem) drawTavernRumor(screen *ebiten.Image, npc *character.NPC, area layoutRect) {
-	drawDebugTextColored(screen, "Latest Rumor", area.x+18, area.y+18, color.RGBA{220, 180, 90, 255})
+	drawDebugTextColored(screen, uitext.Text("dialog.latest_rumor"), area.x+18, area.y+18, color.RGBA{220, 180, 90, 255})
 	rumor := ui.game.currentRumorText(tavernRumorSeed(npc, ui.game.tavernRegionKey(npc)))
 	lines := wrapDebugText(rumor, area.w-36)
 	for i, line := range lines {

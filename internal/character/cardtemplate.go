@@ -207,35 +207,15 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 // renders STRUCTURED elsewhere (the composed "X Damage - AoE" line and the
 // decomposed DAMAGE/HEALING sections), so they don't appear twice.
 func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
-	var out []string
-	for _, ln := range sd.EffectLines() {
-		if strings.HasPrefix(ln, "The party is not caught") ||
-			strings.Contains(ln, "chance to topple each") ||
-			strings.HasPrefix(ln, "AoE radius:") ||
-			strings.HasPrefix(ln, "Damage scales with") ||
-			strings.HasPrefix(ln, "Tick damage scales with") ||
-			strings.HasPrefix(ln, "Healing scales with") {
-			continue
-		}
-		out = append(out, ln)
-	}
-	return out
+	return sd.CardEffectLines()
 }
 
-// FilteredItemEffectLines returns the shared item mechanics list minus armor
-// values already decomposed into the DEFENSE section by item card renderers.
+// FilteredItemEffectLines omits values rendered in the DEFENSE section.
 func FilteredItemEffectLines(def *config.ItemDefinitionConfig) []string {
 	if def == nil {
 		return nil
 	}
-	var out []string
-	for _, ln := range def.EffectLines() {
-		if strings.HasPrefix(ln, "Armor class") || strings.HasPrefix(ln, "AC +Endurance") {
-			continue
-		}
-		out = append(out, ln)
-	}
-	return out
+	return def.CoreEffectLines()
 }
 
 // --------------------- character-independent card builders (map editor) -----
@@ -307,10 +287,8 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	if def.Volley > 1 {
 		attack.Add("Volley: %d per shot", def.Volley)
 	}
-	for _, ln := range WeaponCombatLines(def) {
-		if strings.HasPrefix(ln, "Attack cooldown") {
-			attack.Add("%s", ln)
-		}
+	if line := WeaponAttackCooldownLine(def); line != "" {
+		attack.Add("%s", line)
 	}
 
 	dmg := CardSection{Title: "DAMAGE"}
@@ -342,11 +320,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 
 	effects := CardSection{Title: "EFFECTS"}
 	effects.Add("%s", DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
-	for _, ln := range def.EffectLines() {
-		if strings.HasPrefix(ln, "Damage Type:") || strings.HasPrefix(ln, "AoE radius:") ||
-			strings.HasPrefix(ln, "Max Airborne:") {
-			continue
-		}
+	for _, ln := range def.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
 

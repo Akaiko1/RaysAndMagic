@@ -82,7 +82,8 @@ type UISystem struct {
 	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
 	tooltipCompareTitle   color.Color // nameplate base for the comparison card
 	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
-	fullArtCardKey        string      // card under the cursor this frame; SHIFT shows its full art
+	cardEffectsPage       int
+	fullArtCardKey        string // card under the cursor this frame; SHIFT shows its full art
 	// Cached radar dot images for wizard eye (avoid vector.FillCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance

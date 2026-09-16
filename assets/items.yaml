@@ -1,3 +1,16 @@
+# Shared usage wording. Per-item tooltip_usage overrides these defaults.
+# Eligibility and usage conditions are derived from item properties in code.
+tooltip_usage_defaults:
+  card:
+    - "Bring to a Card Collector to add to the active collection"
+    - "Party bonuses apply only while the card is in the collection"
+  trinket: "Trade goods; sell to merchants"
+  activate_inventory: "Double-click in inventory to use"
+  consumed_on_use: "Consumed on use"
+  consumed_after_promotion: "Consumed after promotion"
+  cannot_sell: "Cannot be sold"
+  cannot_drop: "Cannot be dropped"
+
 # Equipment sets: pieces carrying the same `set:` key power a wearer bonus once
 # pieces_required of them are equipped on ONE character. required_pieces names
 # exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
@@ -1728,6 +1741,8 @@ items:
     type: "trinket"
     description: "A filigreed hand pried from a tower mechanism - the Clockmaker pays for these"
     flavor: "Time, broken off at the wrist."
+    tooltip_usage:
+      - "Exchange with the Clockmaker for weapons and armor"
     rarity: "uncommon"
     value: 320
 
@@ -2121,6 +2136,8 @@ items:
     type: "trinket"
     description: "A palm-wide scale of the Brood Mother, still warm"
     flavor: "Bolt holes along one edge, where it was fastened to something bigger. The Scalewright pays and does not discuss it."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "legendary"
     value: 1200
 
@@ -2129,6 +2146,8 @@ items:
     type: "trinket"
     description: "A red scale edged in gold, shed by desert fire"
     flavor: "Smells faintly of a very bad afternoon."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 350
 
@@ -2137,6 +2156,8 @@ items:
     type: "trinket"
     description: "A green scale slick as riverglass"
     flavor: "The venom wiped off. Probably."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 350
 
@@ -2145,6 +2166,8 @@ items:
     type: "trinket"
     description: "A gold scale that sparks faintly in a storm"
     flavor: "Worth its weight, and it throws sparks at steel indoors too."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 600
 

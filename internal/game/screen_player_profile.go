@@ -26,14 +26,17 @@ func profilePanelRect(w, h int) layoutRect {
 // Profile card rectangles include their frame, unlike drawRectBorder's
 // content rectangles. Inset the content once so every card edge stays inside
 // the viewport when its own rectangle touches the clip boundary.
-func drawProfileCard(dst *ebiten.Image, r layoutRect, fill, border color.Color) {
-	drawFilledRect(dst, r.x, r.y, r.w, r.h, fill)
-	drawRectBorder(dst, r.x+1, r.y+1, r.w-2, r.h-2, 1, border)
+func (ui *UISystem) drawProfileCard(dst *ebiten.Image, r layoutRect, highlighted bool) {
+	style := frameSilver
+	if highlighted {
+		style = frameGold
+	}
+	ui.drawThemeFrame(dst, style, r.x, r.y, r.w, r.h)
 }
 
 func (ui *UISystem) profileButton(screen *ebiten.Image, label string, r layoutRect, enabled bool, action func()) {
 	mx, my := pointerPosition()
-	ui.drawMenuButton(screen, "", label, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mx, my, r.x, r.y, r.x+r.w, r.y+r.h))
+	ui.drawMenuButton(screen, label, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mx, my, r.x, r.y, r.x+r.w, r.y+r.h))
 	if !enabled {
 		drawFilledRect(screen, r.x, r.y, r.w, r.h, color.RGBA{0, 0, 0, 100})
 		return
@@ -95,6 +98,8 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	g := ui.game
 	r := profilePanelRect(w, h)
 	ui.drawPanel(screen, "menu_panel_wide", r.x, r.y, r.w, r.h)
+	ui.drawPanelInlay(screen, frameGold, r.x+r.w/2, r.y)
+	ui.drawCornerDecor(screen, frameGold, r.x-8, r.y-8, r.w+16, r.h+16, decorAllCorners)
 	x, y, innerW := r.x+menuFrameInset, r.y+menuFrameInset, r.w-2*menuFrameInset
 	defs := config.GetAchievements()
 	unlocked := 0
@@ -133,11 +138,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 				progress = g.playerProfile.Data.AchievementProgress(def.AnyOf)
 			}
 			unlocked := !stamp.IsZero()
-			border := color.RGBA{93, 82, 66, 255}
-			if unlocked {
-				border = profileGold
-			}
-			drawProfileCard(screen, layoutRect{cx, cy, cw, rowH - 12}, color.RGBA{25, 20, 30, 240}, border)
+			ui.drawProfileCard(screen, layoutRect{cx, cy, cw, rowH - 12}, unlocked)
 			ui.profileIcon(screen, def.Icon, def.Name, cx+8, cy+10, 64)
 			if !unlocked {
 				drawFilledRect(screen, cx+8, cy+10, 64, 64, color.RGBA{0, 0, 0, 130})
@@ -157,7 +158,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 				status = "Earned " + stamp.Local().Format("02 Jan 2006")
 				clr = profileGreen
 			}
-			drawDebugTextColored(screen, status, tx, cy+67, clr)
+			drawDebugTextColored(screen, status, tx, cy+62, clr)
 		}
 	}
 	ui.drawBackButton(screen, x, bottom, func() { g.entryMenuMode = EntryMenuRoot })
@@ -272,7 +273,9 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	spec := profilePages[g.statisticsTab]
 	l := makeProfileStatsLayout(w, h, spec)
 	r := l.panel
-	ui.drawPanel(screen, "menu_panel_wide", r.x, r.y, r.w, r.h)
+	ui.drawThemeFrame(screen, frameSilver, r.x, r.y, r.w, r.h)
+	ui.drawCornerDecor(screen, frameSilver, r.x-8, r.y-8, r.w+16, r.h+16, decorAllCorners)
+	ui.drawPanelInlay(screen, frameSilver, r.x+r.w/2, r.y)
 	x, y, iw := r.x+menuFrameInset, r.y+menuFrameInset, r.w-2*menuFrameInset
 	drawScaledMetalCenteredTextAlpha(screen, "PLAYER STATISTICS", r.x+r.w/2, y+10, 2, profileGold, 1)
 	for i, page := range profilePages {
@@ -306,7 +309,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	offset := -g.statisticsScroll
 	for i, c := range spec.counters {
 		cx, cy := (i%l.columns)*(l.columnW+14), offset+(i/l.columns)*100
-		drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 86}, color.RGBA{30, 21, 31, 235}, profileGold)
+		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 86}, false)
 		ui.profileIcon(dst, c.icon, c.title, cx+12, cy+13, 60)
 		drawDebugTextColored(dst, profileText(c.title, l.columnW-92), cx+84, cy+14, profileMuted)
 		val := profileValue(d.Counters[c.key], c.duration)
@@ -365,7 +368,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 }
 
 func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, start, limit int) {
-	drawProfileCard(screen, r, color.RGBA{17, 16, 24, 235}, color.RGBA{109, 91, 63, 255})
+	ui.drawProfileCard(screen, r, false)
 	drawDebugTextColored(screen, profileText(spec.title, r.w-24), r.x+12, r.y+12, profileGold)
 	drawDebugTextColored(screen, spec.unit, r.x+12, r.y+30, profileMuted)
 	if start >= len(entries) {
@@ -422,7 +425,7 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRanking
 		drawFilledRect(screen, tx, barY, bw, 5, color.RGBA{128, 104, 62, 255})
 	}
 	if total > 0 || spec.group == "exploration" {
-		drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+12, r.y+r.h-17, profileMuted)
+		drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+16, r.y+r.h-24, profileMuted)
 	}
 }
 

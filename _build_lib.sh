@@ -6,6 +6,18 @@
 #
 # Not executable on its own.
 
+# Runtime packages contain authored assets, never Go packages or editor sources.
+# Refresh the owned asset directory so repeated builds cannot retain old files.
+bundle_runtime_files() {
+  local out_dir="$1"
+  mkdir -p "${out_dir}"
+  rm -rf "${out_dir}/assets"
+  cp -R assets "${out_dir}/assets"
+  rm -rf "${out_dir}/assets/map_viewer"
+  find "${out_dir}/assets" -type f -name '*.go' -delete
+  cp config.yaml "${out_dir}/config.yaml"
+}
+
 # build_macos_app_bundle assembles a .app directory: copies the binary,
 # bundles assets + config.yaml, drops the .icns into Resources, writes a
 # minimal Info.plist, and re-signs ad-hoc so Gatekeeper doesn't reject the
@@ -29,9 +41,7 @@ build_macos_app_bundle() {
   mkdir -p "${macos_dir}" "${resources_dir}"
 
   cp "${bin_path}" "${macos_dir}/${executable_name}"
-  cp -R assets "${resources_dir}/assets"
-  rm -rf "${resources_dir}/assets/map_viewer"
-  cp config.yaml "${resources_dir}/config.yaml"
+  bundle_runtime_files "${resources_dir}"
   cp "${icon_path}" "${resources_dir}/${icon_name}"
 
   cat > "${contents_dir}/Info.plist" <<EOF
