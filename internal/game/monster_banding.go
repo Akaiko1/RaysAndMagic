@@ -2,6 +2,7 @@ package game
 
 import (
 	"math"
+	"slices"
 	"sort"
 
 	"ugataima/internal/monster"
@@ -306,7 +307,21 @@ func (gl *GameLoop) soloBandClusters(singles []*monster.Monster3D, bindDistSq fl
 }
 
 func (gl *GameLoop) stackMonsterBand(id int, band []*monster.Monster3D) {
+	var storage [maxBandStackCount]*monster.Monster3D
+	mobile := storage[:0]
+	for _, m := range band {
+		// A slowed follower must walk at its own speed, not ride the leader.
+		if gl.game.monsterMovementHeld(m) || m.ActiveSlowPct() > 0 {
+			leaveBand(m)
+			continue
+		}
+		mobile = append(mobile, m)
+	}
+	band = mobile
 	if len(band) < 2 {
+		for _, m := range band {
+			leaveBand(m)
+		}
 		return
 	}
 	leader := band[0]
@@ -353,11 +368,21 @@ func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float6
 	ctx, cty := TileIndex(cx, tile), TileIndex(cy, tile)
 
 	used := map[[2]int]bool{}
+	// Reserve every living member that stays in place before placing any
+	// mobile member. Death scatter also leaves already-fighting survivors alone.
+	for _, m := range group {
+		if m.IsAlive() && (gl.game.monsterMovementHeld(m) || !slices.Contains(members, m)) {
+			used[[2]int{TileIndex(m.X, tile), TileIndex(m.Y, tile)}] = true
+		}
+	}
 	ri := 0
 	for _, m := range members {
 		gl.game.releaseMonsterAttackPost(m)
 		engageBandMemberOnScatter(m, wasHit, gl.bandMemberSeesParty(m))
 		leaveBand(m)
+		if gl.game.monsterMovementHeld(m) {
+			continue
+		}
 		for ri < len(bandScatterRing) {
 			d := bandScatterRing[ri]
 			ri++

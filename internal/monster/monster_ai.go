@@ -163,6 +163,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY flo
 // game.MonsterWrapper.Update, not on its own. Tests that need RT fidelity (not
 // just AI/position behavior) should do the same.
 func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
+	m.movementHeldThisFrame = m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
@@ -197,6 +198,8 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// monster fights from where it stands without being stunned.
 	if m.RootFramesRemaining > 0 {
 		status.TickFrameRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate)
+	}
+	if m.MovementHeld(false) {
 		px, py := m.X, m.Y
 		defer func() { m.X, m.Y = px, py }()
 	}

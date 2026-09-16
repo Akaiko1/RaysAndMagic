@@ -231,6 +231,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
 			}
+			saveEntry.SpawnPosition = &[2]float64{mon.SpawnX, mon.SpawnY}
 			if isPurePartySummon(mon) {
 				saveEntry.RuntimeStats = &MonsterRuntimeStatsSave{
 					MaxHitPoints: mon.MaxHitPoints,
@@ -298,6 +299,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				entry := saves[i]
 				entry.X, entry.Y = lx, ly
+				sx, sy := wm.LocalizeRegionWorldPos(key, mon.SpawnX, mon.SpawnY)
+				entry.SpawnPosition = &[2]float64{sx, sy}
 				if entry.LootGuardTargetTileX != 0 || entry.LootGuardTargetTileY != 0 {
 					entry.LootGuardTargetTileX, entry.LootGuardTargetTileY =
 						wm.LocalizeTile(key, entry.LootGuardTargetTileX, entry.LootGuardTargetTileY)

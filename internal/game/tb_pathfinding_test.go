@@ -63,7 +63,7 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 
 	mx, my := center(1, 2) // mob on the LEFT
 	mob := &monsterPkg.Monster3D{
-		ID: "ford_mob", Name: "Gorilla Titan", X: mx, Y: my,
+		Speed: 1, ID: "ford_mob", Name: "Gorilla Titan", X: mx, Y: my,
 		HitPoints: 100, MaxHitPoints: 100, AlertRadius: 8 * tile,
 	}
 	w.Monsters = append(w.Monsters, mob)
@@ -145,7 +145,7 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 
 	mx, my := center(2, 5)
 	mob := &monsterPkg.Monster3D{
-		ID: "pocket_mob", Name: "Gorilla Titan", X: mx, Y: my,
+		Speed: 1, ID: "pocket_mob", Name: "Gorilla Titan", X: mx, Y: my,
 		HitPoints: 100, MaxHitPoints: 100, AlertRadius: 12 * tile,
 	}
 	w.Monsters = append(w.Monsters, mob)

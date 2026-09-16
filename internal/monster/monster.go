@@ -307,16 +307,19 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
 	FaceAccY            float64
-	StunTurnsRemaining  int  // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining int  // Real-time stun duration in frames
-	StunRate            int  // Persisted frames-per-turn exchange rate keeping mode switches proportional
-	StunDRStacks        int  // Stun diminishing-returns chain length (0=fresh; caps -> immune)
-	StunDRMemoryTurns   int  // TB: stun-free turns left before the DR chain resets
-	StunDRMemoryFrames  int  // RT: stun-free frames left before the DR chain resets
-	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
-	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
-	RootRate            int  // Persisted frames-per-turn rate for the root clocks
-	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
+	StunTurnsRemaining  int // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int // Real-time stun duration in frames
+	StunRate            int // Persisted frames-per-turn exchange rate keeping mode switches proportional
+	StunDRStacks        int // Stun diminishing-returns chain length (0=fresh; caps -> immune)
+	StunDRMemoryTurns   int // TB: stun-free turns left before the DR chain resets
+	StunDRMemoryFrames  int // RT: stun-free frames left before the DR chain resets
+	RootTurnsRemaining  int // TB root (bear trap): can't move, CAN attack
+	RootFramesRemaining int // RT root in frames: position pinned, attacks work
+	RootRate            int // Persisted frames-per-turn rate for the root clocks
+
+	movementHeldThisFrame bool // RT: retain the final stun/root frame through social reconciliation
+	rootHeldThisTurn      bool // TB: rooted at the start of the current turn (runtime-only)
+
 	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
 	// ArmorShredPct percent. Refreshes on hit, never stacks.
 	ArmorShredPct             int
@@ -1301,4 +1304,16 @@ func (m *Monster3D) GetDirectionToSpawn() float64 {
 // CanMoveWithinTether checks if moving in a direction would keep monster within tether
 func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 	return distance(newX, newY, m.SpawnX, m.SpawnY) <= m.TetherRadius
+}
+
+// MovementHeld is the shared non-random movement gate. Slow percentages below
+// 100 are applied by RT speed or one TB roll per attempted movement action.
+func (m *Monster3D) MovementHeld(turnBased bool) bool {
+	if m == nil || !m.IsAlive() || m.Speed <= 0 {
+		return true
+	}
+	if turnBased {
+		return m.StunTurnsRemaining > 0 || m.RootTurnsRemaining > 0 || m.RootHeld() || m.ActiveSlowPct() >= 100
+	}
+	return m.movementHeldThisFrame || m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
 }

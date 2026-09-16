@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
@@ -72,13 +71,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.IsInertSetPiece() {
+			if m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.IsInertSetPiece() {
+			if i == owner || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
@@ -226,7 +225,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			if tickTurnStatuses {
 				elapsedFrames = gl.game.config.GetTPS()
 			}
-			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && !m.RootHeld() {
+			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && gl.monsterCanStepTB(m) {
 				wx, wy := TileCenterFromTile(nx, ny, tileSize)
 				gl.commitMonsterMoveTB(m, wx, wy)
 			}
@@ -454,7 +453,7 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 // habitat-aware collision check passes, updating its collision entity and turn
 // stamp. Returns whether the monster moved.
 func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
-	if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
@@ -495,16 +494,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// method from an old held position. Physical overlap remains allowed; only
 	// its attack claim is released.
 	gl.game.releaseMonsterAttackPost(monster)
-	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
-	// lives in TickRootTurn (root != stun - attacks still happen).
-	if monster.RootHeld() {
-		return
-	}
-	// Slowed (Tarn Trident silt): TB movement is tile-stepped, so the RT speed
-	// drag converts to skipping this turn's step SlowPct% of the time - the
-	// same average ground lost per turn, attacks unaffected. ActiveSlowPct
-	// keeps the latched value for the turn that consumed the final tick.
-	if pct := monster.ActiveSlowPct(); pct > 0 && rand.Intn(100) < pct {
+	if !gl.monsterCanStepTB(monster) {
 		return
 	}
 	tileSize := float64(gl.game.config.GetTileSize())

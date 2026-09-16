@@ -74,6 +74,11 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
+				// Legacy saves had no home: adopt their position once. A sealed boss
+				// retains its authored throne instead of an obsolete saved anchor.
+				if _, sealed := sealedSpawn[key]; !sealed && ms.SpawnPosition != nil {
+					m.SpawnX, m.SpawnY = ms.SpawnPosition[0], ms.SpawnPosition[1]
+				}
 				adoptSavedMonsterID(m, ms.ID)
 				// Seal a dormant boss immediately. refreshMonsterAIState recomputes
 				// BossDormant every frame, but that runs AFTER input - so without this a
@@ -290,7 +295,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					}
 					restoredRegions[region.MapKey] = true
 					for _, msave := range monsters {
-						msave.X, msave.Y = wm.ProjectWorldPos(region.MapKey, msave.X, msave.Y)
+						msave = projectMonsterSave(wm, region.MapKey, msave)
 						if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 							msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 								wm.ProjectTile(region.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -322,7 +327,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// authored monsters instead of being wiped.
 				projected := make([]MonsterSave, 0, len(save.Monsters))
 				for _, msave := range save.Monsters {
-					msave.X, msave.Y = wm.ProjectWorldPos(save.MapKey, msave.X, msave.Y)
+					msave = projectMonsterSave(wm, save.MapKey, msave)
 					if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 						msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 							wm.ProjectTile(save.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -463,4 +468,14 @@ func findMonsterKeyByName(name string) string {
 		}
 	}
 	return ""
+}
+
+// Copy optional coordinates so restoring never mutates the caller's snapshot.
+func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) MonsterSave {
+	ms.X, ms.Y = wm.ProjectWorldPos(mapKey, ms.X, ms.Y)
+	if ms.SpawnPosition != nil {
+		x, y := wm.ProjectWorldPos(mapKey, ms.SpawnPosition[0], ms.SpawnPosition[1])
+		ms.SpawnPosition = &[2]float64{x, y}
+	}
+	return ms
 }

@@ -127,9 +127,18 @@ func (cs *CombatSystem) deliverMonsterAttack(m *monster.Monster3D, target monste
 		cs.performMonsterAttackAgainstParty(m)
 		return
 	}
+	_, _, owner := cs.monsterAttackAim(m, target)
+	cs.performMonsterAttackAgainstMonster(m, target.foe, owner)
+}
+
+func (cs *CombatSystem) monsterAttackAim(m *monster.Monster3D, target monsterAttackDestination) (float64, float64, ProjectileOwner) {
+	if target.foe == nil {
+		x, y := cs.logicalCameraXY()
+		return x, y, ProjectileOwnerMonster
+	}
 	owner := ProjectileOwnerMonsterAtBound
 	if m.Bound {
 		owner = ProjectileOwnerBoundUndead
 	}
-	cs.performMonsterAttackAgainstMonster(m, target.foe, owner)
+	return target.foe.X, target.foe.Y, owner
 }

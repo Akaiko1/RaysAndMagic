@@ -1728,6 +1728,9 @@ func (cs *CombatSystem) performMonsterAttackAgainstMonster(attacker, target *mon
 	if attacker == nil || target == nil || !target.IsAlive() {
 		return
 	}
+	if cs.tryMonsterAttackSpecial(attacker, monsterAttackDestination{foe: target}) {
+		return
+	}
 	if cs.monsterUsesMeleeAgainstPoint(attacker, target.X, target.Y) {
 		if attacker.IsChampion() {
 			cs.championAlternatingCrossfireStrike(attacker, target)
@@ -1766,7 +1769,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if monster == nil || !cs.attackLineClear(monster.X, monster.Y, camX, camY) {
 		return
 	}
-	if cs.tryMonsterSpecialAbility(monster) {
+	if cs.tryMonsterAttackSpecial(monster, monsterAttackDestination{}) {
 		return
 	}
 	if cs.tryMonsterAoeAttack(monster) {
@@ -2438,13 +2441,7 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
-	// Champion spellcasting claims the attack before anything else: the
-	// opening spell always takes the duel's first action, then each attack
-	// rolls spell_cast_chance. Shared by RT ticks and every TB swing.
-	if cs.championTryCastSpell(monster) {
-		return
-	}
-	if cs.tryMonsterSpecialAbility(monster) {
+	if cs.tryMonsterAttackSpecial(monster, monsterAttackDestination{}) {
 		return
 	}
 	cs.spawnMonsterRangedAttackNormal(monster)
@@ -2488,14 +2485,17 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	return true
 }
 
-func (cs *CombatSystem) tryMonsterSpecialAbility(monster *monsterPkg.Monster3D) bool {
+// tryMonsterAttackSpecial selects one replacement action regardless of target.
+// Piercing Shot and the separate breath/fireburst actions are authored whole-
+// party attacks; they do not redirect their victim list to a single summon.
+func (cs *CombatSystem) tryMonsterAttackSpecial(monster *monsterPkg.Monster3D, target monsterAttackDestination) bool {
 	if monster == nil || !monster.IsAlive() {
 		return false
 	}
-	if cs.tryMonsterAllyHeal(monster) {
+	if cs.championTryCastSpell(monster, target) || cs.tryMonsterAllyHeal(monster) {
 		return true
 	}
-	if cs.tryMonsterPiercingShot(monster) {
+	if target.foe == nil && cs.tryMonsterPiercingShot(monster) {
 		return true
 	}
 	return false

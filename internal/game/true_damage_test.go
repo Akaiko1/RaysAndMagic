@@ -220,7 +220,7 @@ func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 		t.Fatalf("champion crit chance = %d%%, want 0 so the rider assertion is deterministic", total)
 	}
 	before := len(cs.game.magicProjectiles)
-	cs.championCastSpell(champion, &caster, spells.SpellID("fireball"))
+	cs.championCastSpell(champion, &caster, spells.SpellID("fireball"), monsterAttackDestination{})
 	if len(cs.game.magicProjectiles) != before+1 {
 		t.Fatal("champion spell did not spawn a projectile")
 	}

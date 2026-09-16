@@ -395,6 +395,17 @@ func (wm *WorldManager) LocalizeTile(mapKey string, tx, ty int) (int, int) {
 	return tx, ty
 }
 
+// LocalizeRegionWorldPos converts a point into a specified region's local
+// space without clamping. Patrol anchors can lie outside the current region.
+func (wm *WorldManager) LocalizeRegionWorldPos(mapKey string, x, y float64) (float64, float64) {
+	if r := wm.OpenWorldRegionByKey(mapKey); r != nil {
+		ts := wm.config.GetTileSize()
+		return owXformWorldInv(r.Orient, float64(r.LocalWidth)*ts, float64(r.LocalHeight)*ts,
+			x-float64(r.OffsetX)*ts, y-float64(r.OffsetY)*ts)
+	}
+	return x, y
+}
+
 // LocalizeWorldPos converts a unified-world position to (regionKey, local
 // position). Positions on a region's border ring or in a corridor snap to the
 // nearest interior tile, so the result is always valid inside the source map
@@ -412,8 +423,7 @@ func (wm *WorldManager) LocalizeWorldPos(x, y float64) (string, float64, float64
 			return "", x, y, false
 		}
 	}
-	lx, ly := owXformWorldInv(r.Orient, float64(r.LocalWidth)*ts, float64(r.LocalHeight)*ts,
-		x-float64(r.OffsetX)*ts, y-float64(r.OffsetY)*ts)
+	lx, ly := wm.LocalizeRegionWorldPos(r.MapKey, x, y)
 	// Clamp to the map's LOCAL interior (inside the border ring): a corridor
 	// or carved-border position must localize to a tile that exists and is
 	// inside the source map's walls.

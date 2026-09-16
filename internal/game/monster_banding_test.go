@@ -138,6 +138,7 @@ func addBandingTestMonster(game *MMGame, id, key string, x, y float64, bandID in
 		X:         x,
 		Y:         y,
 		HitPoints: 1,
+		Speed:     1,
 		State:     monsterPkg.StatePatrolling,
 		Banding:   true,
 		BandID:    bandID,
