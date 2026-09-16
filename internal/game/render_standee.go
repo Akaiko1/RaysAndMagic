@@ -542,85 +542,17 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 // level, and image 0 is the full-size coordinate reference. In pixel mode Kage
 // adjusts only atlas origins for imageSrcNAt, so these helpers explicitly map
 // full-size coordinates into each level before sampling.
-const standeeTrilinearShaderSrc = `//kage:unit pixels
-
-package main
-
-func sampleLinear1(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc1Size()
-	scale := size / size0
-	// In pixel mode imageSrc1At preserves image-0 pixel coordinates and only
-	// adjusts the backing-atlas origin; it does not scale differently-sized
-	// source images. Work in level-local pixels, then pass those coordinates
-	// relative to image 0 so the built-in origin adjustment remains correct.
-	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
-	c0 := imageSrc1UnsafeAt(p0)
-	c1 := imageSrc1UnsafeAt(vec2(p1.x, p0.y))
-	c2 := imageSrc1UnsafeAt(vec2(p0.x, p1.y))
-	c3 := imageSrc1UnsafeAt(p1)
-	rate := fract(q1)
-	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
-}
-
-func sampleLinear2(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc2Size()
-	scale := size / size0
-	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
-	c0 := imageSrc2UnsafeAt(p0)
-	c1 := imageSrc2UnsafeAt(vec2(p1.x, p0.y))
-	c2 := imageSrc2UnsafeAt(vec2(p0.x, p1.y))
-	c3 := imageSrc2UnsafeAt(p1)
-	rate := fract(q1)
-	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
-}
-
-func sampleNearest1(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc1Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc1UnsafeAt(q + origin0)
-}
-
-func sampleNearest3(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc3Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc3UnsafeAt(q + origin0)
-}
-
-func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
-	// custom.y: 0 = visible near sticker, 1 = core, 2 = mostly hidden far
-	// sticker. Core/far layers use one tap from an already reduced mip; paying
-	// full trilinear cost through every overdrawn shell erased batching's GPU
-	// win. custom.z marks minification for the visible sticker.
+const standeeTrilinearShaderSrc = standeeSamplingShaderSrc + `func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	// custom.y selects near sticker, core, or far sticker. custom.w carries
+	// the major-axis footprint (negative for vertical minification).
 	if custom.y > 1.5 {
-		return sampleNearest1(srcPos) * color
+		return stickerAt(srcPos, custom.x) * color
 	}
 	if custom.y > 0.5 {
-		return sampleNearest3(srcPos) * color
+		return sampleLinear3(srcPos) * color
 	}
-	if custom.z <= 0.0 {
-		return imageSrc0UnsafeAt(srcPos) * color
-	}
-	lo := sampleLinear1(srcPos)
-	if custom.x <= 0.0 {
-		return lo * color
-	}
-	return mix(lo, sampleLinear2(srcPos), clamp(custom.x, 0, 1)) * color
+	footprint := vec2(max(custom.w, 0.0), max(-custom.w, 0.0))
+	return nearStickerAt(srcPos, custom.z > 0.0, custom.x, footprint) * color
 }
 `
 
@@ -648,72 +580,7 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 // Geometry covers the projected union of both outer faces. Every virtual
 // layer reconstructs the same perspective height, source coordinate, wall
 // clipping, shade, and front-to-back alpha blend as the physical shell path.
-const standeeVolumeShaderSrc = `//kage:unit pixels
-
-package main
-
-func sampleLinear1(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc1Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
-	c0 := imageSrc1UnsafeAt(p0)
-	c1 := imageSrc1UnsafeAt(vec2(p1.x, p0.y))
-	c2 := imageSrc1UnsafeAt(vec2(p0.x, p1.y))
-	c3 := imageSrc1UnsafeAt(p1)
-	rate := fract(q1)
-	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
-}
-
-func sampleLinear2(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc2Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
-	c0 := imageSrc2UnsafeAt(p0)
-	c1 := imageSrc2UnsafeAt(vec2(p1.x, p0.y))
-	c2 := imageSrc2UnsafeAt(vec2(p0.x, p1.y))
-	c3 := imageSrc2UnsafeAt(p1)
-	rate := fract(q1)
-	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
-}
-
-func sampleNearest1(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc1Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc1UnsafeAt(q + origin0)
-}
-
-func sampleNearest3(p vec2) vec4 {
-	origin0 := imageSrc0Origin()
-	size0 := imageSrc0Size()
-	size := imageSrc3Size()
-	q := clamp((p-origin0)*(size/size0), vec2(0.5), size-vec2(0.5))
-	return imageSrc3UnsafeAt(q + origin0)
-}
-
-func nearStickerAt(p vec2, filtered bool, mipBlend float) vec4 {
-	if !filtered {
-		return imageSrc0UnsafeAt(p)
-	}
-	lo := sampleLinear1(p)
-	if mipBlend <= 0.0 {
-		return lo
-	}
-	return mix(lo, sampleLinear2(p), mipBlend)
-}
-
-func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
+const standeeVolumeShaderSrc = standeeSamplingShaderSrc + `func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
 	if depth <= 0.0 || u < 0.0 || u > 1.0 {
 		return vec2(0), false
 	}
@@ -751,10 +618,16 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	filtered := filterData >= 0.125
 	mipBlend := clamp((filterData-0.25)/0.5, 0.0, 1.0)
 	acc := vec4(0)
+	// Evaluate the derivative before any coverage-dependent branch.
+	footprint := vec2(abs(dfdx(nearU))*imageSrc0Size().x, 0)
+	vertical := nearDepth / projection.x * imageSrc0Size().y
+	if vertical > footprint.x {
+		footprint = vec2(0, vertical)
+	}
 
-	if (nearDepth < wallDepth || dstY < wallTop) {
+	if nearDepth < wallDepth || dstY < wallTop {
 		if p, ok := sourcePosition(dstY, nearDepth, nearU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(nearStickerAt(p, filtered, mipBlend), color.r, 1.0))
+			acc = addFront(acc, tinted(nearStickerAt(p, filtered, mipBlend, footprint), color.r, 1.0))
 		}
 	}
 	if acc.a >= 0.999 {
@@ -763,13 +636,13 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 
 	for i := 0; i < 16; i++ {
 		if float(i) < shellCount && acc.a < 0.999 {
-			f := (shellCount-float(i))/(shellCount+1.0)
+			f := (shellCount - float(i)) / (shellCount + 1.0)
 			depth := mix(farDepth, nearDepth, f)
 			u := mix(farU, nearU, f)
-			if (depth < wallDepth || dstY < wallTop) {
+			if depth < wallDepth || dstY < wallTop {
 				if p, ok := sourcePosition(dstY, depth, u, projection.x, projection.y); ok {
 					shade := 0.75 + (0.92-0.75)*f
-					acc = addFront(acc, tinted(sampleNearest3(p), color.r, shade))
+					acc = addFront(acc, tinted(sampleLinear3(p), color.r, shade))
 				}
 			}
 		}
@@ -778,9 +651,9 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		return acc
 	}
 
-	if (farDepth < wallDepth || dstY < wallTop) {
+	if farDepth < wallDepth || dstY < wallTop {
 		if p, ok := sourcePosition(dstY, farDepth, farU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(sampleNearest1(p), color.r, 0.75))
+			acc = addFront(acc, tinted(stickerAt(p, mipBlend), color.r, 0.75))
 		}
 	}
 	return acc
@@ -907,8 +780,9 @@ func standeeColumnOccluded(tokenDepth, wallDepth, wallAllowance float64) bool {
 // tree reuses one slab across its two arms instead of re-preparing per arm.
 type standeeSlab struct {
 	surfaces     []standeeSurface
-	firstSurface int // draw from here (face-on fast path collapses to the near sticker)
-	minX, maxX   int // unclipped screen span
+	firstSurface int     // draw from here (zero side opacity skips hidden layers)
+	sideFade     float32 // 0 = full thickness, 1 = only the front face
+	minX, maxX   int     // unclipped screen span
 	// volumeComposite is set only for crossed trees. Their close, high-shell
 	// slabs use the exact one-pass volume compositor; other standees keep the
 	// general material path, including trilinear minification and wall mounts.
@@ -1118,10 +992,14 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	// and an endpoint behind the camera plane just widens the span to the full
 	// screen.
 	far, near := surfaces[0], surfaces[len(surfaces)-1]
-	fx0, _, fok0 := r.game.renderHelper.projectToScreenX(far.p0x, far.p0y)
-	fx1, _, fok1 := r.game.renderHelper.projectToScreenX(far.p0x+far.dx, far.p0y+far.dy)
-	nx0, _, nok0 := r.game.renderHelper.projectToScreenX(near.p0x, near.p0y)
-	nx1, _, nok1 := r.game.renderHelper.projectToScreenX(near.p0x+near.dx, near.p0y+near.dy)
+	fx0f, _, fok0 := r.game.renderHelper.projectToScreenXF(far.p0x, far.p0y)
+	fx0 := int(fx0f)
+	fx1f, _, fok1 := r.game.renderHelper.projectToScreenXF(far.p0x+far.dx, far.p0y+far.dy)
+	fx1 := int(fx1f)
+	nx0f, _, nok0 := r.game.renderHelper.projectToScreenXF(near.p0x, near.p0y)
+	nx0 := int(nx0f)
+	nx1f, _, nok1 := r.game.renderHelper.projectToScreenXF(near.p0x+near.dx, near.p0y+near.dy)
+	nx1 := int(nx1f)
 	minX, maxX := screenW, -1
 	anyBehind := false
 	for _, e := range [4]struct {
@@ -1151,17 +1029,23 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 		maxX = screenW - 1
 	}
 
-	// Face-on fast path: when the slab's parallax is under a pixel, the near
-	// sticker covers everything (all layers share the silhouette) - draw only it,
-	// skipping the wood shells and the far face.
+	// Use unrounded endpoints: integer differences oscillate as the camera
+	// moves even when the actual parallax changes smoothly. Mip alpha makes
+	// hidden layers affect the crown, so fade them instead of dropping them.
+	sideFade := float32(0)
+	if fok0 && fok1 && nok0 && nok1 {
+		parallax := math.Max(math.Abs(fx0f-nx0f), math.Abs(fx1f-nx1f))
+		sideFade = standeeSideFade(parallax)
+	}
 	first := 0
-	if fok0 && fok1 && nok0 && nok1 && absInt(fx0-nx0) <= 1 && absInt(fx1-nx1) <= 1 {
+	if sideFade == 1 {
 		first = len(surfaces) - 1
 	}
 
 	return standeeSlab{
 		surfaces:     surfaces,
 		firstSurface: first,
+		sideFade:     sideFade,
 		minX:         minX,
 		maxX:         maxX,
 		centerSize:   centerSize,
@@ -1173,28 +1057,34 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	}, true
 }
 
+// standeeSideFade removes subpixel thickness continuously, independently of
+// the projected pixel grid. Full thickness is retained above two pixels.
+func standeeSideFade(parallax float64) float32 {
+	t := max(0.0, min(1.0, (parallax-0.5)/1.5))
+	return float32(1 - t*t*(3-2*t))
+}
+
 // standeeProjectedFootprint selects one conservative texture footprint for a
-// slab. Ebitengine makes the same one-LOD-per-DrawTriangles choice: the least
-// minified axis wins so an edge-on but still tall face does not become a blur.
+// slab. Preserve detail along the less compressed axis, but bound anisotropy
+// to the four taps used by the shared sticker sampler.
 func standeeProjectedFootprint(projectedWidth, projectedHeight, textureWidth, textureHeight float64) float32 {
-	footprintX := math.Inf(1)
-	if projectedWidth > 1e-6 {
-		footprintX = textureWidth / projectedWidth
-	}
-	footprintY := math.Inf(1)
-	if projectedHeight > 1e-6 {
-		footprintY = textureHeight / projectedHeight
-	}
-	footprint := math.Min(footprintX, footprintY)
+	footprintX, footprintY := standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textureHeight)
+	footprint := math.Max(math.Min(footprintX, footprintY), math.Max(footprintX, footprintY)/4)
 	if footprint < 1 {
 		return 1
 	}
 	return float32(footprint)
 }
 
+func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textureHeight float64) (float64, float64) {
+	// An exactly edge-on face must select the coarsest mip, not feed infinity
+	// into integer LOD selection. Use the same finite footprint in the shader.
+	return textureWidth / math.Max(projectedWidth, 1e-6), textureHeight / math.Max(projectedHeight, 1e-6)
+}
+
 func canUseStandeeVolume(slab standeeSlab) bool {
 	return slab.volumeComposite &&
-		slab.firstSurface == 0 &&
+		slab.firstSurface == 0 && slab.sideFade == 0 &&
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
@@ -1424,6 +1314,11 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if coreMipLevel >= len(coreMips.levels) {
 		coreMipLevel = len(coreMips.levels) - 1
 	}
+	footprintX, footprintY := standeeAxisFootprints(projectedWidth, projectedHeight, texW, texH)
+	majorFootprint := float32(footprintX)
+	if footprintY > footprintX {
+		majorFootprint = -float32(footprintY)
+	}
 	filteredFlag := float32(0)
 	if filtered {
 		filteredFlag = 1
@@ -1460,9 +1355,13 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		if sf.img == nil {
 			continue
 		}
-		cr := slab.rr * sf.shade
-		cg := slab.gg * sf.shade
-		cb := slab.bb * sf.shade
+		opacity := float32(1)
+		if surfaceIndex != len(slab.surfaces)-1 {
+			opacity -= slab.sideFade
+		}
+		cr := slab.rr * sf.shade * opacity
+		cg := slab.gg * sf.shade * opacity
+		cb := slab.bb * sf.shade * opacity
 		textureX := func(u float64) float32 {
 			if u < 0 {
 				u = 0
@@ -1545,10 +1444,10 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 			base := uint32(len(verts))
 			verts = append(verts,
-				ebiten.Vertex{DstX: x0, DstY: top0, SrcX: srcX0, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag},
-				ebiten.Vertex{DstX: x1, DstY: top1, SrcX: srcX1, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag},
-				ebiten.Vertex{DstX: x0, DstY: drawBottom0, SrcX: srcX0, SrcY: srcYbot0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag},
-				ebiten.Vertex{DstX: x1, DstY: drawBottom1, SrcX: srcX1, SrcY: srcYbot1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag},
+				ebiten.Vertex{DstX: x0, DstY: top0, SrcX: srcX0, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x1, DstY: top1, SrcX: srcX1, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x0, DstY: drawBottom0, SrcX: srcX0, SrcY: srcYbot0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x1, DstY: drawBottom1, SrcX: srcX1, SrcY: srcYbot1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
 			)
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 		}
