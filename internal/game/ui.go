@@ -30,6 +30,7 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
+	patternPlans              patternPlanCache
 	profileViewport           *ebiten.Image
 	profileArt                *profileArt
 	profileExplorationReady   bool

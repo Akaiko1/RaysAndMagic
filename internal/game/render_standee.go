@@ -150,7 +150,7 @@ func (r *Renderer) boundedStandeeRenderSource(key standeeCoreKey, src *ebiten.Im
 		}
 	}
 	pixels := make([]byte, 4*w*h)
-	src.ReadPixels(pixels)
+	r.readRenderPixels(src, pixels)
 	cpuLevel := &image.RGBA{
 		Pix:    pixels,
 		Stride: 4 * w,
@@ -164,7 +164,7 @@ func (r *Renderer) boundedStandeeRenderSource(key standeeCoreKey, src *ebiten.Im
 			return src
 		}
 	}
-	bounded := ebiten.NewImageFromImage(cpuLevel)
+	bounded := newStandeeTextureFromPixels(cpuLevel)
 	if r.standeeRenderSourceCache == nil {
 		r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
@@ -196,7 +196,7 @@ func (r *Renderer) boundedStandeeRenderSourceFromCPU(key standeeCoreKey, src *eb
 			return src, cpu
 		}
 	}
-	bounded := ebiten.NewImageFromImage(cpuLevel)
+	bounded := newStandeeTextureFromPixels(cpuLevel)
 	if r.standeeRenderSourceCache == nil {
 		r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
@@ -236,7 +236,7 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 		return nil
 	}
 	buf := make([]byte, 4*w*h)
-	src.ReadPixels(buf)
+	r.readRenderPixels(src, buf)
 	cpu := &image.RGBA{Pix: buf, Stride: 4 * w, Rect: image.Rect(0, 0, w, h)}
 	return r.standeeCoreSilhouetteFromCPU(key, src, cpu)
 }
@@ -393,13 +393,13 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 	}
 	sticker := src
 	if src.Bounds().Size() != prepared.sticker.Bounds().Size() {
-		sticker = ebiten.NewImageFromImage(prepared.sticker)
+		sticker = newStandeeTextureFromPixels(prepared.sticker)
 		if r.standeeRenderSourceCache == nil {
 			r.standeeRenderSourceCache = make(map[standeeCoreKey]*ebiten.Image)
 		}
 		r.standeeRenderSourceCache[key] = sticker
 	}
-	img := ebiten.NewImageFromImage(prepared.core)
+	img := newStandeeTextureFromPixels(prepared.core)
 	if r.standeeCoreCache == nil {
 		r.standeeCoreCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
@@ -497,12 +497,12 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 		// images already start at (0,0) and can be reused directly; only sheet
 		// SubImages need this managed-source copy. Avoiding a duplicate level 0
 		// for standalone images cuts the mip cache's dominant allocation.
-		base = ebiten.NewImageFromImage(cpuLevels[0])
+		base = newStandeeTextureFromPixels(cpuLevels[0])
 		chain.owned = append(chain.owned, base)
 	}
 	chain.levels = append(chain.levels, base)
 	for _, cpuLevel := range cpuLevels[1:] {
-		level := ebiten.NewImageFromImage(cpuLevel)
+		level := newStandeeTextureFromPixels(cpuLevel)
 		chain.levels = append(chain.levels, level)
 		chain.owned = append(chain.owned, level)
 	}
@@ -526,7 +526,7 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 	}
 	bounds := src.Bounds()
 	pixels := make([]byte, 4*bounds.Dx()*bounds.Dy())
-	src.ReadPixels(pixels)
+	r.readRenderPixels(src, pixels)
 	cpuLevel := &image.RGBA{
 		Pix:    pixels,
 		Stride: 4 * bounds.Dx(),
@@ -927,7 +927,7 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	}
 	screenW := r.game.config.GetScreenWidth()
 	cam := r.game.camera
-	halfFovTan := math.Tan(cam.FOV / 2)
+	halfFovTan := r.cameraBasis().halfFovTan
 
 	// World length of the token chosen so that, seen face-on at the entity's
 	// current depth, it spans exactly the billboard's pixel width.
@@ -1107,10 +1107,9 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	if viewDistance <= standeeMinDepth {
 		return false
 	}
-	halfFovTan := math.Tan(cam.FOV / 2)
-	dirX, dirY := math.Cos(cam.Angle), math.Sin(cam.Angle)
-	planeX := math.Cos(cam.Angle+math.Pi/2) * halfFovTan
-	planeY := math.Sin(cam.Angle+math.Pi/2) * halfFovTan
+	basis := r.cameraBasis()
+	dirX, dirY := basis.dirX, basis.dirY
+	planeX, planeY := basis.planeX, basis.planeY
 	far := slab.surfaces[0]
 	near := slab.surfaces[len(slab.surfaces)-1]
 	if far.mirrored != near.mirrored {
@@ -1247,11 +1246,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	screenW := r.game.config.GetScreenWidth()
 	horizon := float64(r.game.config.GetScreenHeight()) / 2
 	cam := r.game.camera
-	halfFovTan := math.Tan(cam.FOV / 2)
-	camDirX := math.Cos(cam.Angle)
-	camDirY := math.Sin(cam.Angle)
-	planeX := math.Cos(cam.Angle+math.Pi/2) * halfFovTan
-	planeY := math.Sin(cam.Angle+math.Pi/2) * halfFovTan
+	basis := r.cameraBasis()
+	camDirX, camDirY := basis.dirX, basis.dirY
+	planeX, planeY := basis.planeX, basis.planeY
 
 	depthBuf := r.game.depthBuffer
 	wallTopBuf := r.game.wallTopBuffer
@@ -1373,6 +1370,19 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 			return float32(math.Min(u*texW, texW-1)) + 0.5
 		}
+		// Adjacent columns share an exact boundary intersection. Keep its raw
+		// validity so a failed edge still falls back to each column's centre.
+		lastEdge := minX - 1
+		var edgeDepth, edgeU float64
+		var edgeOK bool
+		edgeAt := func(x int) (float64, float64, bool) {
+			if x != lastEdge {
+				rx, ry := rayAt(float64(x))
+				edgeDepth, edgeU, edgeOK = standeeColumnIntersection(cam.X, cam.Y, rx, ry, sf.p0x, sf.p0y, sf.dx, sf.dy)
+				lastEdge = x
+			}
+			return edgeDepth, edgeU, edgeOK
+		}
 		for x := minX; x <= maxX; x++ {
 			rcx, rcy := rayAt(float64(x) + 0.5)
 			t, u, ok := standeeColumnHit(cam.X, cam.Y, rcx, rcy, sf.p0x, sf.p0y, sf.dx, sf.dy)
@@ -1389,13 +1399,11 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				// copying the centre texel to both vertices. The old zero-width
 				// source mapping hid the horizontal texel footprint from the
 				// mip filter, producing temporal shimmer at range.
-				r0x, r0y := rayAt(float64(x))
-				t0, edgeU0, ok0 := standeeColumnIntersection(cam.X, cam.Y, r0x, r0y, sf.p0x, sf.p0y, sf.dx, sf.dy)
+				t0, edgeU0, ok0 := edgeAt(x)
 				if !ok0 {
 					t0, edgeU0 = t, u
 				}
-				r1x, r1y := rayAt(float64(x + 1))
-				t1, edgeU1, ok1 := standeeColumnIntersection(cam.X, cam.Y, r1x, r1y, sf.p0x, sf.p0y, sf.dx, sf.dy)
+				t1, edgeU1, ok1 := edgeAt(x + 1)
 				if !ok1 {
 					t1, edgeU1 = t, u
 				}
@@ -1569,6 +1577,17 @@ func (r *Renderer) reserveStandeeBuffers() {
 }
 
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	if s.treeArmOnly {
+		if s.treeArmLo > s.treeArmHi {
+			return
+		}
+		if slab, ok, found := r.crossedGeometry.lookup(s); found {
+			if ok {
+				r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
+			}
+			return
+		}
+	}
 	spriteName := s.spriteName
 	if spriteName == "" {
 		spriteName = treeStandeeSpriteName(s.tileType)
@@ -1614,10 +1633,8 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// stretch that was masking it).
 	footprint := r.spriteFootprintWorld(widthF, centerDepth)
 
-	// Most crosses remain one unified painter entry and prepare both slabs once.
-	// When another nearby standee overlaps this cross's depth interval, the
-	// collector emits one entry per arm so that object can render between the
-	// cross's far and near halves. Prepare only the selected slab here.
+	// The collector globally sorts all four arms. Cache a prepared plane until
+	// its other arm draws, even when other objects render between the arms.
 	if s.treeArmOnly {
 		// Point-blank, an arm fully behind the camera carries an empty span;
 		// skip before paying the slab preparation.
@@ -1628,15 +1645,26 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		if s.treeArmSlab == 1 {
 			yaw = yawB
 		}
+		cache := &r.crossedGeometry
+		cacheable := cache.active && cache.used < maxFrameCrossSlabs
+		surfaces := r.standeeSurfaces[:0]
+		if cacheable {
+			surfaces = cache.buffer()
+		}
 		slab, ok := r.prepareStandeeSlab(
 			sprite, key, worldX, worldY, yaw, centerDepth, heightF, bottomF,
-			b, b, b, true, false, footprint, r.standeeSurfaces[:0],
+			b, b, b, true, false, footprint, surfaces,
 		)
 		slab.volumeComposite = true
+		if cacheable {
+			cache.store(s, slab, ok)
+		}
 		if ok {
 			r.drawStandeeSlabColumns(screen, slab, s.treeArmLo, s.treeArmHi)
 		}
-		r.standeeSurfaces = slab.surfaces[:0]
+		if !cacheable {
+			r.standeeSurfaces = slab.surfaces[:0]
+		}
 		return
 	}
 

@@ -19,9 +19,8 @@ type ParallelRenderer struct {
 
 // RaycastResult holds the result of a raycast operation
 type RaycastResult struct {
-	Distance  float64
-	TileType  interface{} // Will be world.TileType3D from game package
-	WallSlice []byte      // Pre-rendered wall slice data
+	Distance float64
+	TileType interface{} // Will be world.TileType3D from game package
 }
 
 // NewParallelRenderer creates a new parallel renderer

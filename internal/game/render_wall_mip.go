@@ -107,7 +107,7 @@ func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *
 	if prepared != nil && prepared.Bounds().Dx() == width && prepared.Bounds().Dy() == height {
 		draw.Draw(b.cpuRow, b.cpuRow.Bounds(), prepared, prepared.Bounds().Min, draw.Src)
 	} else {
-		sprite.ReadPixels(b.cpuRow.Pix)
+		r.readRenderPixels(sprite, b.cpuRow.Pix)
 	}
 	b.sizes = wallRipmapSizes(width, height)
 	b.ripmap = &wallRipmap{
@@ -354,7 +354,7 @@ func (r *Renderer) wallRipmapForCPU(sprite *ebiten.Image, prepared *image.RGBA) 
 	if prepared != nil && prepared.Bounds().Dx() == width && prepared.Bounds().Dy() == height {
 		draw.Draw(cpuRow, cpuRow.Bounds(), prepared, prepared.Bounds().Min, draw.Src)
 	} else {
-		sprite.ReadPixels(cpuRow.Pix)
+		r.readRenderPixels(sprite, cpuRow.Pix)
 	}
 
 	sizes := wallRipmapSizes(width, height)

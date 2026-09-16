@@ -330,8 +330,8 @@ func (ui *UISystem) drawPatternFrame(screen *ebiten.Image, name string, x, y, w,
 		}
 		return
 	}
-	ops, ok := planPatternFrame(pf, w, h, sourceScale)
-	if !ok {
+	plan := ui.patternPlans.get(name, src, pf, w, h, sourceScale)
+	if !plan.ok {
 		if sourceScale == 1 {
 			drawNineSlice(screen, src, x, y, w, h, slice)
 		} else {
@@ -339,8 +339,7 @@ func (ui *UISystem) drawPatternFrame(screen *ebiten.Image, name string, x, y, w,
 		}
 		return
 	}
-	for _, op := range ops {
-		part := src.SubImage(image.Rect(op.sx, op.sy, op.sx+op.sw, op.sy+op.sh)).(*ebiten.Image)
-		drawImageScaled(screen, part, x+op.dx, y+op.dy, op.dw, op.dh)
+	for _, op := range plan.ops {
+		drawImageScaled(screen, op.part, x+op.dx, y+op.dy, op.dw, op.dh)
 	}
 }

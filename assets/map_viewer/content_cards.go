@@ -13,13 +13,11 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 // contentCard is a single entry on the Items & Spells page.
@@ -564,18 +562,8 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 	if sprite == "" {
 		return nil
 	}
-	cacheKey := "tilesprite:" + sprite
-	if img, ok := v.iconCache[cacheKey]; ok {
-		return img // may be nil - already checked, no file
-	}
-	if path, ok := graphics.ResolveSpritePath(sprite); ok {
-		if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
-			v.iconCache[cacheKey] = img
-			return img
-		}
-	}
-	v.iconCache[cacheKey] = nil
-	return nil
+	img, _ := v.iconImages.Get(sprite)
+	return img
 }
 
 // iconForCard loads the per-card sprite by naming convention
@@ -600,20 +588,6 @@ func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	if c.icon != "" {
 		fileBase = c.icon // explicit sprite name (traps)
 	}
-	cacheKey := prefix + ":" + c.key
-	if img, ok := v.iconCache[cacheKey]; ok {
-		return img // may be nil - "we already checked, no file"
-	}
-	path, ok := graphics.ResolveSpritePath(fileBase)
-	if !ok {
-		v.iconCache[cacheKey] = nil
-		return nil
-	}
-	img, _, err := ebitenutil.NewImageFromFile(path)
-	if err != nil {
-		v.iconCache[cacheKey] = nil
-		return nil
-	}
-	v.iconCache[cacheKey] = img
+	img, _ := v.iconImages.Get(fileBase)
 	return img
 }

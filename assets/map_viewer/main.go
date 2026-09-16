@@ -119,8 +119,8 @@ type viewer struct {
 	// Content page state: per-page card lists and independent scroll offsets.
 	pageCards   map[int][]contentCard
 	pageScroll  map[int]int
-	charDetails []charDetail             // Characters page (custom full-detail renderer)
-	iconCache   map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
+	charDetails []charDetail // Characters page (custom full-detail renderer)
+	iconImages  *graphics.AsyncImageCache
 }
 
 // contentCard, contentKind, and the cardX constants live in content_cards.go.
@@ -267,10 +267,11 @@ func main() {
 		},
 		pageScroll:  map[int]int{},
 		charDetails: buildCharacterDetails(cfg),
-		iconCache:   make(map[string]*ebiten.Image),
+		iconImages:  graphics.NewAsyncImageCache(64 << 20),
 		gameSprites: graphics.NewSpriteManager(),
 	}
 	game.ApplySpriteColorKey(v.gameSprites, cfg)
+	defer v.iconImages.Close()
 	// Legend is biome-scoped to the current map (universal tiles/monsters
 	// plus the map biome's own); rebuilt whenever the map changes.
 	v.refreshLegend()
@@ -290,6 +291,7 @@ func main() {
 }
 
 func (v *viewer) Update() error {
+	v.iconImages.Advance(256 << 10)
 	if v.saveDialogOpen {
 		v.handleSaveDialogInput()
 		return nil

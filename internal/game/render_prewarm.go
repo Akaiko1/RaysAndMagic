@@ -151,7 +151,7 @@ func newMapRenderStandeeCommit(prepared mapRenderPreparedStandee) *mapRenderStan
 		if cpu == nil || cpu.Bounds().Dx() <= 0 || cpu.Bounds().Dy() <= 0 {
 			return nil
 		}
-		img := ebiten.NewImage(cpu.Bounds().Dx(), cpu.Bounds().Dy())
+		img := newStandeeTexture(cpu.Bounds())
 		c.writes = append(c.writes, mapRenderImageWrite{image: img, cpu: cpu})
 		c.owned = append(c.owned, img)
 		return img
@@ -1474,6 +1474,9 @@ func (r *Renderer) evictMapRenderResidencyOutside(keep map[string]struct{}) {
 	}
 	clear(residentKeys[len(retainedKeys):])
 	r.mapRenderResidentMapKeys = retainedKeys
+	if len(evictedResources) == 0 {
+		return
+	}
 	retainedResources := r.retainedMapRenderResources()
 	for _, resources := range evictedResources {
 		r.deallocateMapRenderRegion(resources, retainedResources)
@@ -1515,7 +1518,7 @@ func (r *Renderer) syncVisibleMapRenderResidency() {
 		r.scheduleMapRenderResourcePrewarm(mapKey)
 	}
 	r.prioritizeMapRenderPrewarmQueue(loadKeys, moveX, moveY, tileSize)
-	r.deallocateUnusedSkyPanoramas(r.retainedMapRenderResources().skies)
+	r.deallocateUnusedSkyPanoramas(nil)
 }
 
 func (r *Renderer) commitMapRenderResidency(mapKey string, resources *mapRenderRegionResources) {
@@ -1525,7 +1528,23 @@ func (r *Renderer) commitMapRenderResidency(mapKey string, resources *mapRenderR
 	r.mapRenderResourcesByMap[mapKey] = resources
 	r.mapRenderResidentMapKeys = append(r.mapRenderResidentMapKeys, mapKey)
 	r.refreshRenderResourceRegistry()
-	r.deallocateUnusedSkyPanoramas(r.retainedMapRenderResources().skies)
+	r.deallocateUnusedSkyPanoramas(nil)
+}
+
+// Sky retention needs only membership, not a copy of every resident texture.
+func (r *Renderer) retainsMapRenderSky(name string) bool {
+	for _, key := range r.mapRenderResidentMapKeys {
+		if resources := r.mapRenderResourcesByMap[key]; resources != nil {
+			if _, ok := resources.skies[name]; ok {
+				return true
+			}
+		}
+	}
+	if task := r.mapRenderResourcePrewarmActive; r.mapRenderTaskCurrent(task) && task.prewarmer != nil && task.prewarmer.resources != nil {
+		_, ok := task.prewarmer.resources.skies[name]
+		return ok
+	}
+	return false
 }
 
 func (r *Renderer) deallocateUnusedSkyPanoramas(keep map[string]struct{}) {
@@ -1534,7 +1553,7 @@ func (r *Renderer) deallocateUnusedSkyPanoramas(keep map[string]struct{}) {
 	}
 	candidates := make(map[renderResourceID]struct{})
 	for name, img := range r.game.skyPanoramaCache {
-		if _, retained := keep[name]; retained || img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
+		if _, retained := keep[name]; retained || r.retainsMapRenderSky(name) || img == r.game.skyPanorama || img == r.game.skyPanoramaPrev {
 			continue
 		}
 		candidates[renderResourceID{kind: renderResourceSky, name: name}] = struct{}{}
@@ -2182,6 +2201,7 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 	if task == nil {
 		return mapRenderPrewarmStats{}
 	}
+	defer r.recordRenderLoadStep(time.Now(), task)
 	if !r.mapRenderTaskCurrent(task) {
 		r.cancelMapRenderPrewarmTask(task)
 		r.mapRenderResourcePrewarmActive = nil

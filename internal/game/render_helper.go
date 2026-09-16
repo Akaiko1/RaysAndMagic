@@ -726,10 +726,12 @@ func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
 func sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel float) vec4 {
 	k0 := floor(mip)
 	k1 := min(k0+1.0, MaxMip)
-	return mix(
-		sampleFloorMip(atlasIndex, lx, ly, k0, texelsPerPixel),
-		sampleFloorMip(atlasIndex, lx, ly, k1, texelsPerPixel),
-		fract(mip))
+	lo := sampleFloorMip(atlasIndex, lx, ly, k0, texelsPerPixel)
+	blend := fract(mip)
+	if blend == 0.0 || k0 == k1 {
+		return lo
+	}
+	return mix(lo, sampleFloorMip(atlasIndex, lx, ly, k1, texelsPerPixel), blend)
 }
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {

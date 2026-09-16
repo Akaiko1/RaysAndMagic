@@ -12,7 +12,6 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -325,23 +324,16 @@ func (v *viewer) iconKindKey(kind contentKind, key string) *ebiten.Image {
 // like paladin/druid ship art under the class key) - the same resolution the
 // game uses (basePortraitSpriteName). Cached.
 func (v *viewer) charPortrait(name, fallbackKey string) *ebiten.Image {
-	cacheKey := "portrait:" + name + "|" + fallbackKey
-	if img, ok := v.iconCache[cacheKey]; ok {
-		return img
-	}
 	for _, base := range []string{name, fallbackKey} {
 		if base == "" {
 			continue
 		}
 		for _, suffix := range []string{"_full", ""} {
-			if path, ok := graphics.ResolveSpritePath(base + suffix); ok {
-				if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
-					v.iconCache[cacheKey] = img
-					return img
-				}
+			img, ready := v.iconImages.Get(base + suffix)
+			if img != nil || !ready {
+				return img
 			}
 		}
 	}
-	v.iconCache[cacheKey] = nil
 	return nil
 }

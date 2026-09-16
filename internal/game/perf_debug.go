@@ -45,6 +45,13 @@ func (gl *GameLoop) maybeLogPerfDrop() {
 }
 
 func (gl *GameLoop) logPerfSnapshot(fps float64) {
+	var gpu ebiten.DebugInfo
+	ebiten.ReadDebugInfo(&gpu)
+	if r := gl.renderer; r != nil {
+		d := &r.loadDiagnostics
+		fmt.Printf("[PERF] gpu_images_approx=%dMB loading_last=%s loading_peak=%s resource=%q readbacks=%d readback_bytes=%d\n",
+			gpu.TotalGPUImageMemoryUsageInBytes/(1<<20), d.last, d.peak, d.peakResource, d.readbacks, d.readbackBytes)
+	}
 	tps := ebiten.ActualTPS()
 	stats := gl.game.threading.PerformanceMonitor.GetDetailedStats()
 	lastFrameMs := getPerfFloat(stats, "last_frame_time_ms")

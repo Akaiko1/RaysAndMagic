@@ -127,6 +127,11 @@ type Renderer struct {
 	// the interleaved arm draw).
 	standeeSurfaces  []standeeSurface
 	standeeSurfacesB []standeeSurface
+	renderBasis      renderCameraBasis
+	crossedGeometry  crossedFrameGeometry
+	treeSpatial      renderSpatialIndex
+	propSpatial      renderSpatialIndex
+	loadDiagnostics  renderLoadDiagnostics
 
 	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
 	statTreesDrawn   int
@@ -325,6 +330,8 @@ func (r *Renderer) handleResize(screenWidth, screenHeight int) {
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
+	r.treeSpatial = renderSpatialIndex{}
+	r.propSpatial = renderSpatialIndex{}
 	// A physical world switch is a real render-resource boundary. Generated
 	// standee cores/mips from the old world cannot become visible again until a
 	// later map load, so release that residency before inventorying the new map.
@@ -420,6 +427,8 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	r.transparentSpritesCache = cache
 	r.treeTilesCache = treeCache
+	r.treeSpatial.rebuild(treeCache, tileSize)
+	r.propSpatial.rebuild(cache, tileSize)
 	r.mapRenderTileTypes = tileTypes
 	r.tileLightCache = lights
 	r.resetNightMotes()
@@ -3440,6 +3449,8 @@ func compareUnifiedSprites(a, b UnifiedSpriteRenderData) int {
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
 // and renders them sorted by depth for proper transparency and occlusion.
 func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
+	r.crossedGeometry.begin()
+	defer r.crossedGeometry.end()
 	// Reuse pre-allocated buffer
 	sprites := r.unifiedSprites[:0]
 
@@ -3460,7 +3471,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// 1. Collect transparent environment sprites (ferns, mushrooms)
 	if world.GlobalTileManager != nil {
-		for i := range r.transparentSpritesCache {
+		for _, i := range r.propSpatial.query(r.transparentSpritesCache, camX, camY, r.game.camera.ViewDist, tileSize) {
 			spriteData := &r.transparentSpritesCache[i]
 
 			// Wall-mounted decorations render on the ADJACENT wall, so the party
@@ -3564,7 +3575,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// skipped tree tiles, so treeHits is empty; trees are drawn as two crossed
 	// standees, depth-sorted with everything else.
 	crossedTreeStart := len(sprites)
-	for i := range r.treeTilesCache {
+	for _, i := range r.treeSpatial.query(r.treeTilesCache, camX, camY, r.game.camera.ViewDist, tileSize) {
 		td := &r.treeTilesCache[i]
 		// The per-tile test must match the DDA's skip, or a tile skipped there
 		// and rejected here vanishes.
