@@ -154,11 +154,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			}
 		}
 	}
-	// Below the grid: pager, then the Camp button + its rest-result notice
-	// vertically centred in the gap between the grid box and the quick-slot bar,
-	// then the compact quick-slot bar (kept off the paperdoll on the left).
+	// The pager and quick slots remain below the grid; camping lives on the HUD.
 	ui.drawInventoryPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, totalPages)
-	ui.drawCampButton(screen, layout.camp.x, layout.camp.y, layout.camp.w)
 
 	ui.quickInvDropZone(gridX, gridY, gridSize, gridSize)
 	ui.drawTabQuickSlotBar(screen, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w)
@@ -974,44 +971,4 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
-}
-
-const (
-	inventoryCampButtonW           = 120
-	inventoryCampButtonH           = 26
-	inventoryCampNoticeGap         = 6
-	inventoryCampToQuickLabelGap   = 8
-	inventoryCampButtonNoticeBlock = inventoryCampButtonH + inventoryCampNoticeGap + debugTextCharHeight
-)
-
-// drawCampButton renders the Camp button under the inventory grid: spend
-// CampFoodCost food to fully restore the party in the field - unless enemies
-// are within CampEnemyRadiusTiles (TryCamp refuses). The result line stays
-// visible under the button.
-func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
-	btnX := gridX + (gridW-inventoryCampButtonW)/2
-	mouseX, mouseY := ebiten.CursorPosition()
-	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y,
-		btnX+inventoryCampButtonW, y+inventoryCampButtonH)
-
-	ui.drawButtonFrame(screen, btnX, y, inventoryCampButtonW, inventoryCampButtonH, hover)
-	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost),
-		btnX, y, inventoryCampButtonW, inventoryCampButtonH)
-
-	ui.onDisplayedInput(uiCommandClick, layoutRect{btnX, y, (btnX + inventoryCampButtonW) - (btnX), (y + inventoryCampButtonH) - (y)}, func() {
-		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
-			ui.game.consumeLeftClickIn(btnX, y, btnX+inventoryCampButtonW, y+inventoryCampButtonH) {
-			ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
-		}
-	})
-
-	if ui.campNotice != "" {
-		clr := color.RGBA{210, 90, 80, 255}
-		if ui.campNoticeOK {
-			clr = color.RGBA{120, 210, 120, 255}
-		}
-		noticeX := gridX + (gridW-debugTextWidth(ui.campNotice))/2
-		drawDebugTextColored(screen, ui.campNotice, noticeX,
-			y+inventoryCampButtonH+inventoryCampNoticeGap, clr)
-	}
 }

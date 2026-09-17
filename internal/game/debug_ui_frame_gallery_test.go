@@ -82,8 +82,6 @@ func TestDebugSim_UIFrameGallery(t *testing.T) {
 		}
 	}
 	g.menuOpen = true
-	g.gameLoop.ui.campNotice = "The party rests. HP and spell points fully restored."
-	g.gameLoop.ui.campNoticeOK = true
 
 	out := os.Getenv("RAM_UI_QA_DIR")
 	if out == "" {

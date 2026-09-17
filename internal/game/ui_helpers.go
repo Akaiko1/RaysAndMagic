@@ -208,6 +208,7 @@ const (
 	modalLayerRoster
 	modalLayerStash
 	modalLayerStackSplit
+	modalLayerCamp
 	modalLayerLevelChoice
 	modalLayerCount
 )
@@ -241,6 +242,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 	switch {
 	case g.currentLevelUpChoice() != nil:
 		return modalLayerLevelChoice
+	case g.campConfirmOpen:
+		return modalLayerCamp
 	case stackSplitOpen:
 		return modalLayerStackSplit
 	case g.stashScreenOpen:
@@ -648,6 +651,7 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 }
 
 const tooltipCompareGap = 8
+const tooltipScreenMargin = 8
 const tooltipIconSize = 64
 const tooltipIconGap = 8
 
@@ -682,13 +686,10 @@ func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 // too. The caller resolves this ONCE for side-by-side cards (main + compare)
 // so they share a top edge instead of flipping independently.
 func flipTooltipY(y, bgHeight, screenH int) int {
-	if y+bgHeight > screenH {
+	if y+bgHeight > screenH-tooltipScreenMargin {
 		y = y - bgHeight - 16 // y-8 = cursor, then an 8px gap above it
-		if y < 0 {
-			y = 0
-		}
 	}
-	return y
+	return tooltipAxisPosition(y, bgHeight, screenH)
 }
 
 // maxRight bounds word-wrapping: lines wrap to fit between x and maxRight. Callers
@@ -815,19 +816,34 @@ func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool,
 	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
 }
 
+// Measure before positioning, as for comparison cards. Wrapping at the cursor
+// first can force the minimum text column beyond the right edge.
+func singleTooltipLayout(lines []string, colors []color.Color, hasIcon bool, x, y, screenW, screenH int) layoutRect {
+	w, h := tooltipBoxSizeForScreen(lines, colors, hasIcon, 0, tooltipColumnWidth(screenW, 1))
+	return positionTooltipBox(x, y, w, h, screenW, screenH)
+}
+
+func tooltipColumnWidth(screenW, columns int) int {
+	return (screenW - 2*tooltipScreenMargin - (columns-1)*tooltipCompareGap) / columns
+}
+
+func positionTooltipBox(x, y, w, h, screenW, screenH int) layoutRect {
+	x = tooltipAxisPosition(x, w, screenW)
+	y = flipTooltipY(y, h, screenH)
+	return layoutRect{x, y, w, h}
+}
+
+func tooltipAxisPosition(position, span, screenSpan int) int {
+	return max(tooltipScreenMargin, min(position, screenSpan-tooltipScreenMargin-span))
+}
+
 // tooltipPairX positions two side-by-side hover cards (main + comparison) near
 // cursorX, shifting the pair left so it stays within screenW. The comparison sits
 // flush to the right of the main (compareX = mainX + mainW + gap), so the two
 // columns can never overlap - unlike the old "place compare by its unwrapped width
 // then clamp to the screen edge", which buried the main under a very wide compare.
 func tooltipPairX(cursorX, mainW, compareW, gap, screenW int) (mainX, compareX int) {
-	mainX = cursorX
-	if mainX+mainW+gap+compareW > screenW {
-		mainX = screenW - (mainW + gap + compareW)
-	}
-	if mainX < 0 {
-		mainX = 0
-	}
+	mainX = tooltipAxisPosition(cursorX, mainW+gap+compareW, screenW)
 	return mainX, mainX + mainW + gap
 }
 

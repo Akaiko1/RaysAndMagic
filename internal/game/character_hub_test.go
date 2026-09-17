@@ -185,11 +185,11 @@ func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
 			t.Fatalf("%dx%d quick slots bottom=%d, paperdoll bottom=%d",
 				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom())
 		}
-		noticeBottom := inventory.camp.bottom()
+		pagerBottom := inventory.pager.bottom()
 		quickLabelTop := inventory.quickSlots.y - quickSlotTabLabelSpace
-		if gap := quickLabelTop - noticeBottom; gap < inventoryCampToQuickLabelGap {
-			t.Fatalf("%dx%d camp notice to quick-slot label gap=%d, want >=%d",
-				res[0], res[1], gap, inventoryCampToQuickLabelGap)
+		if gap := quickLabelTop - pagerBottom; gap < inventoryPagerToQuickGap {
+			t.Fatalf("%dx%d pager to quick-slot label gap=%d, want >=%d",
+				res[0], res[1], gap, inventoryPagerToQuickGap)
 		}
 	}
 }

@@ -942,6 +942,7 @@ crates:
     bonus_chance_pct: 50
 
   chest_wooden:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -968,6 +969,7 @@ crates:
         amount: 1000
         chance_pct: 5
   chest_iron:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -996,6 +998,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 10
   chest_golden:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -1014,6 +1017,7 @@ crates:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
   # Clock tower chests: hands + parts below, the regal box hides real gear.
   chest_gearwood:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
@@ -1027,6 +1031,7 @@ crates:
         item_type: "consumable"
         weight: 15
   chest_chrono:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
@@ -1047,6 +1052,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 8
   chest_regal:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:

@@ -2449,6 +2449,7 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
+	TreasureChest    bool              `yaml:"treasure_chest,omitempty"` // Chest loot provenance, independent of sprite or name.
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
 	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`

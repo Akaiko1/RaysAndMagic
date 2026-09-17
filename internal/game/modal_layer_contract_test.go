@@ -55,6 +55,7 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 			g.levelUpChoiceOpen = true
 		}, pauses: true},
+		{name: "camp", want: modalLayerCamp, set: func(g *MMGame, _ *UISystem) { g.campConfirmOpen = true }, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))
@@ -74,6 +75,9 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.gameLoop = &GameLoop{game: g, ui: ui}
 			if got := g.gameplayPausedByOverlay(); got != tt.pauses {
 				t.Fatalf("%s: gameplayPausedByOverlay = %v, want %v", tt.name, got, tt.pauses)
+			}
+			if got := g.worldClickAllowed(); got != (tt.want == modalLayerNone) {
+				t.Fatalf("world click ownership disagrees with layer %s", tt.name)
 			}
 		})
 		if seen[tt.want] {
@@ -106,6 +110,7 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 	g.rosterScreenOpen = true
 	g.stashScreenOpen = true
 	ui.stackSplitPicker.open = true
+	g.campConfirmOpen = true
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 	g.levelUpChoiceOpen = true
 
@@ -113,6 +118,10 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 		t.Fatalf("top modal = %d, want last-drawn level choice %d", got, modalLayerLevelChoice)
 	}
 	g.levelUpChoiceOpen = false
+	if got := ui.topModalLayer(); got != modalLayerCamp {
+		t.Fatalf("top modal after level choice = %d, want camp %d", got, modalLayerCamp)
+	}
+	g.campConfirmOpen = false
 	if got := ui.topModalLayer(); got != modalLayerStackSplit {
 		t.Fatalf("top modal after level choice = %d, want stack split %d", got, modalLayerStackSplit)
 	}
@@ -420,6 +429,7 @@ func TestPickerEscapeIsConsumedInUpdate(t *testing.T) {
 		{"revival", func(g *MMGame) { g.revivalPickerOpen = true }, func(g *MMGame) bool { return !g.revivalPickerOpen }},
 		{"heal", func(g *MMGame) { g.healPickerOpen = true }, func(g *MMGame) bool { return !g.healPickerOpen }},
 		{"town portal", func(g *MMGame) { g.townPortalPickerOpen = true }, func(g *MMGame) bool { return !g.townPortalPickerOpen }},
+		{"camp", func(g *MMGame) { g.campConfirmOpen = true }, func(g *MMGame) bool { return !g.campConfirmOpen }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

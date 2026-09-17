@@ -165,7 +165,7 @@ const (
 	// real-time pounce cooldown. Both clocks are armed together across Tab.
 	TurnBasedPounceCooldownTurns = 2
 
-	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
+	// Camping (the Camp icon beside the HUD quick slots): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
 	CampFoodCost         = 1
 	CampEnemyRadiusTiles = 5.0

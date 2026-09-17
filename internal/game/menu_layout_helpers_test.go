@@ -94,7 +94,6 @@ func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		namedLayoutBox("paperdoll", l.paper),
 		namedLayoutBox("inventory-grid", l.grid),
 		namedLayoutBox("pager", l.pager),
-		namedLayoutBox("camp", l.camp),
 		namedLayoutBox("quick-slots", l.quickSlots),
 		namedLayoutBox("instructions-1", l.instructions[0]),
 		namedLayoutBox("instructions-2", l.instructions[1]),

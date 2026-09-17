@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/playerprofile"
+	"ugataima/internal/quests"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -197,6 +198,11 @@ func (g *MMGame) recordProfileKill(m *monster.Monster3D) {
 }
 
 func (g *MMGame) recordProfileLoot(loot []items.Item) {
+	g.recordProfileLootSource(loot, false)
+}
+
+// Both placed chests and encounter chests use the same item-unit accounting.
+func (g *MMGame) recordProfileLootSource(loot []items.Item, chest bool) {
 	if g.playerProfile == nil {
 		return
 	}
@@ -205,6 +211,10 @@ func (g *MMGame) recordProfileLoot(loot []items.Item) {
 		key, icon := fmt.Sprintf("%d:%s", it.Type, it.Name), itemTooltipIconName(it)
 		g.playerProfile.Data.Add("loot", n)
 		g.playerProfile.Data.RankValued("loot", key, it.Name, icon, n, int64(it.Attributes["value"]))
+		if chest {
+			g.playerProfile.Data.Add("chest_loot", n)
+			g.playerProfile.Data.Rank("chest_loot", key, it.Name, icon, n)
+		}
 		group := ""
 		if it.Type == items.ItemCard {
 			group = "cards_found"
@@ -216,6 +226,23 @@ func (g *MMGame) recordProfileLoot(loot []items.Item) {
 			g.playerProfile.Data.Rank(group, key, it.Name, icon, n)
 		}
 	}
+}
+
+// Count only committed turn-ins; the journal and NPC share this boundary.
+// Keep the historical total even when older records lack per-quest details.
+func (g *MMGame) recordProfileQuestReward(questID string, rewards *quests.QuestRewards) {
+	if g.playerProfile == nil || rewards == nil {
+		return
+	}
+	d := &g.playerProfile.Data
+	d.Add("quest_rewards", 1)
+	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		d.Rank("quest_rewards", questID, quest.Definition.Name, "icon_achievement_archmage", 1)
+	}
+	d.Add("quest_gold", int64(rewards.Gold))
+	d.Add("quest_xp", int64(rewards.Experience))
+	d.Add("quest_arena_points", int64(rewards.ArenaPoints))
+	g.evaluateAchievements()
 }
 
 // Record the committed payment, not the number of goods received. Shop-wide

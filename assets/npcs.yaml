@@ -322,9 +322,9 @@ npcs:
         - text: "Rest the night (25 gold)"
           action: "tavern_rest"
           cost: 25
-        - text: "Buy rations (+5 food, 1000 gold)"
+        - text: "Buy rations"
           action: "buy_food"
-          cost: 1000
+          cost: 250
           amount: 5
         - text: "Leave"
           action: "leave"

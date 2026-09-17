@@ -257,6 +257,10 @@ func (ih *InputHandler) handleTopModalInput() bool {
 				}
 			}
 		}
+	case modalLayerCamp:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.resolveCampConfirmation(false)
+		}
 	case modalLayerLevelChoice:
 		ih.handleLevelUpChoiceInput()
 	}
@@ -273,6 +277,7 @@ func (ih *InputHandler) restartNewGame() {
 // drops the player into gameplay with the given party. Shared by restartNewGame
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	g.resolveCampConfirmation(false)
 	// A fresh run inherits no UI gesture from the replaced timeline. This also
 	// closes the UI-owned quantity picker through its existing SSoT.
 	g.cancelStackSplitInteraction()
@@ -1493,8 +1498,11 @@ func (g *MMGame) worldClickAllowed() bool {
 	if g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame {
 		return false
 	}
-	return !g.menuOpen && !g.mainMenuOpen && !g.showHighScores && !g.mapOverlayOpen &&
-		!g.dialogActive && !g.statPopupOpen && g.currentLevelUpChoice() == nil
+	stackSplitOpen := false
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		stackSplitOpen = g.gameLoop.ui.stackSplitPicker.open
+	}
+	return !g.menuOpen && topModalLayerFor(g, stackSplitOpen) == modalLayerNone
 }
 
 // getPartyMemberUnderMouse returns the index of the party member under the mouse cursor

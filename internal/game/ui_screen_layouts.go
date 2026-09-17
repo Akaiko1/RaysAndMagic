@@ -67,17 +67,17 @@ func computeTabbedMenuLayout(screenW, viewportBottom int) tabbedMenuLayout {
 }
 
 const (
-	inventoryPaperW   = inventoryPaperdollLayoutW
-	inventoryPaperH   = inventoryPaperdollLayoutH
-	inventoryGridSize = inventoryGridLayoutSize
-	inventoryPanelGap = 52
+	inventoryPaperW          = inventoryPaperdollLayoutW
+	inventoryPaperH          = inventoryPaperdollLayoutH
+	inventoryGridSize        = inventoryGridLayoutSize
+	inventoryPanelGap        = 52
+	inventoryPagerToQuickGap = 8
 )
 
 type inventoryContentLayout struct {
 	paper        layoutRect
 	grid         layoutRect
 	pager        layoutRect
-	camp         layoutRect
 	quickSlots   layoutRect
 	instructions [2]layoutRect
 }
@@ -107,14 +107,9 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 	// scale. Category tabs sit in the reserved space immediately above the grid.
 	grid := layoutRect{paper.right() + gap, paper.y, gridSize, gridSize}
 	pager := layoutRect{grid.x, grid.bottom() + 6, grid.w, pagerBtnH}
-	campY := pager.bottom() + 7
 	instructionY := content.bottom() - 2*debugTextCharHeight
-	// Quick slots share the paperdoll's bottom rail. Their maximum height is the
-	// remaining space after the Camp result and the quick-slot label; reserving
-	// the result line even while empty prevents a successful rest from moving or
-	// overlapping anything.
-	quickTopMin := campY + inventoryCampButtonNoticeBlock +
-		inventoryCampToQuickLabelGap + quickSlotTabLabelSpace
+	// Quick slots share the paperdoll's bottom rail and clear the pager label.
+	quickTopMin := pager.bottom() + inventoryPagerToQuickGap + quickSlotTabLabelSpace
 	maxQuickH := max(1, paper.bottom()-quickTopMin)
 	maxQuickW := max(1, int(float64(maxQuickH)*quickSlotBarAspect))
 	quickW := min(grid.w, min(maxQuickW, max(160, int(260*scale))))
@@ -124,7 +119,6 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 		paper:      paper,
 		grid:       grid,
 		pager:      pager,
-		camp:       layoutRect{grid.x, campY, grid.w, inventoryCampButtonNoticeBlock},
 		quickSlots: quickSlots,
 		instructions: [2]layoutRect{
 			{paper.x, instructionY, content.right() - paper.x, debugTextCharHeight},

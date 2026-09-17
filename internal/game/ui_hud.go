@@ -594,6 +594,7 @@ func (ui *UISystem) hudClicksBlocked() bool {
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
 	ui.drawInGameQuickSlots(screen)
+	ui.drawCampHUD(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
@@ -1234,8 +1235,8 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	iconPitch := iconSize + iconGap
 	barX := 10
 	rightEdge := ui.game.config.GetScreenWidth() - 10
-	if quickBar, visible := inGameQuickSlotBarLayout(ui.game); visible {
-		rightEdge = quickBar.x - 10
+	if actions, visible := inGameActionBarLayout(ui.game); visible {
+		rightEdge = actions.bounds.x - 10
 	}
 	if lines := ui.game.hudMessageLines(); len(lines) > 0 {
 		messageX, _, _, _ := ui.game.hudMessageBlockRect(len(lines))

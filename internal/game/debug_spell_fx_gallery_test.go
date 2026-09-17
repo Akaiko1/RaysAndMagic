@@ -21,10 +21,12 @@ import (
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -33,6 +35,17 @@ import (
 // bootFxGalleryGame boots the real game on the arena map - the gallery draws
 // through the live renderer, not a stub.
 func bootFxGalleryGame(t *testing.T) (*MMGame, *Renderer) {
+	return bootRenderPreviewGame(t, false)
+}
+
+// Gameplay previews use the shipped world mode and visual config. The arena
+// option is reserved for isolated effect diagnostics, not gameplay screenshots.
+func bootGameplayPreviewGame(t *testing.T) *MMGame {
+	g, _ := bootRenderPreviewGame(t, true)
+	return g
+}
+
+func bootRenderPreviewGame(t *testing.T, gameplay bool) (*MMGame, *Renderer) {
 	t.Helper()
 	t.Chdir("../..")
 
@@ -45,9 +58,11 @@ func bootFxGalleryGame(t *testing.T) (*MMGame, *Renderer) {
 		path string
 		load func(string) error
 	}{
+		{"assets/text", uitext.LoadDirectory},
 		{"assets/spells.yaml", func(p string) error { _, e := config.LoadSpellConfig(p); return e }},
 		{"assets/weapons.yaml", func(p string) error { _, e := config.LoadWeaponConfig(p); return e }},
 		{"assets/items.yaml", func(p string) error { _, e := config.LoadItemConfig(p); return e }},
+		{"assets/loots.yaml", func(p string) error { _, e := config.LoadLootTables(p); return e }},
 		{"assets/traps.yaml", func(p string) error { _, e := config.LoadTrapConfig(p); return e }},
 		{"assets/npcs.yaml", character.LoadNPCConfig},
 	} {
@@ -60,7 +75,7 @@ func bootFxGalleryGame(t *testing.T) (*MMGame, *Renderer) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	t.Cleanup(func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM })
-	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+	world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -75,14 +90,36 @@ func bootFxGalleryGame(t *testing.T) (*MMGame, *Renderer) {
 	if err := PrimeChampions(cfg); err != nil {
 		t.Fatalf("prime champions: %v", err)
 	}
+	if gameplay {
+		config.MustLoadLevelUpConfig("assets/level_up.yaml")
+		monster.MustLoadHatesConfig("assets/hates.yaml")
+		qc, err := quests.LoadQuestConfig("assets/quests.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		prevQM := quests.GlobalQuestManager
+		t.Cleanup(func() { quests.GlobalQuestManager = prevQM })
+		quests.GlobalQuestManager = quests.NewQuestManager(qc)
+		quests.GlobalQuestManager.InitializeStartingQuests()
+		if err := LoadRumorConfig("assets/rumors.yaml", quests.GlobalQuestManager); err != nil {
+			t.Fatal(err)
+		}
+	}
 	wm := world.NewWorldManager(cfg)
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("map configs: %v", err)
 	}
+	if gameplay && cfg.OpenWorldEnabled() {
+		wm.SetOpenWorldConfig(config.MustLoadOpenWorldConfig("assets/open_world.yaml"))
+	}
 	if err := wm.LoadAllMaps(); err != nil {
 		t.Fatalf("maps: %v", err)
 	}
-	if err := wm.SwitchToMap("arena"); err != nil {
+	startMap := "arena"
+	if gameplay {
+		startMap = "forest"
+	}
+	if err := wm.SwitchToMap(startMap); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
 	world.GlobalWorldManager = wm

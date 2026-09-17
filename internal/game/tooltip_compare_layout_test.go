@@ -33,7 +33,7 @@ func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 
 	// Same sizing the renderer uses: each card capped to ~half the screen.
 	gap := tooltipCompareGap
-	cardCap := screenW/2 - gap
+	cardCap := tooltipColumnWidth(screenW, 2)
 	mainW, _ := tooltipBoxSizeForScreen(main, nil, true, 0, cardCap)
 	compareW, _ := tooltipBoxSizeForScreen(cmp, nil, false, 0, cardCap)
 	if mainW > cardCap || compareW > cardCap {
@@ -49,7 +49,7 @@ func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 		}
 		// The pair fits the screen (it's <= screenW by construction), so both cards
 		// must land fully on screen.
-		if mainX < 0 || compareX+compareW > screenW {
+		if mainX < tooltipScreenMargin || compareX+compareW > screenW-tooltipScreenMargin {
 			t.Fatalf("pair off-screen at cursorX=%d: mainX=%d compareRight=%d screenW=%d",
 				cursorX, mainX, compareX+compareW, screenW)
 		}
@@ -67,7 +67,7 @@ func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 	t.Logf("screenH=%d mainH=%d compareH=%d", screenH, mainH, compareH)
 	for _, cursorY := range []int{0, screenH / 2, screenH - 8} {
 		y := flipTooltipY(cursorY+8, h, screenH)
-		if y < 0 || y+h > screenH {
+		if y < tooltipScreenMargin || y+h > screenH-tooltipScreenMargin {
 			t.Fatalf("card off-screen vertically: cursorY=%d -> y=%d h=%d screenH=%d", cursorY, y, h, screenH)
 		}
 	}

@@ -19,6 +19,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 			return err
 		}
 	}
+	g.resolveCampConfirmation(false)
 	g.profileKilled = nil
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)

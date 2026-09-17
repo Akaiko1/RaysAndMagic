@@ -2,6 +2,17 @@ package uitext
 
 // Argument contracts for presentation templates; wording lives only in YAML.
 var signatures = map[string]string{
+	"ui.camp":                         "",
+	"ui.camp_food":                    "d",
+	"ui.camp_use":                     "d",
+	"ui.camp_confirm":                 "d",
+	"ui.yes":                          "",
+	"ui.no":                           "",
+	"ui.camp_effect":                  "",
+	"ui.camp_no_food":                 "",
+	"ui.camp_in_combat":               "",
+	"ui.camp_enemies_near":            "",
+	"ui.camp_rested":                  "",
 	"combat.overwatch_fires":          "ss",
 	"combat.overwatch_source":         "s",
 	"ui.overwatch_ready":              "",

@@ -46,19 +46,44 @@ func profileRegionPresentation(key string) (name, icon string) {
 	return
 }
 
+type profileExplorationSummary struct {
+	entries       []playerprofile.Entry
+	visited, area int64
+}
+
+func (s profileExplorationSummary) percentTenths() int64 {
+	if s.area <= 0 {
+		return 0
+	}
+	return 1000 * s.visited / s.area
+}
+
 // Built once per statistics visit; never scan visited coordinates every Draw.
 // Ranking compares exact ratios before formatting tenths of a percent.
-func (g *MMGame) profileExplorationRankings() []playerprofile.Entry {
+func (g *MMGame) profileExplorationStats() profileExplorationSummary {
+	var result profileExplorationSummary
 	wm := world.GlobalWorldManager
 	if wm == nil || g.playerProfile == nil {
-		return nil
+		return result
 	}
 	type regionScore struct {
 		entry         playerprofile.Entry
 		visited, area int64
 	}
 	var scores []regionScore
-	for key := range g.playerProfile.Data.VisitedTiles {
+	// All loaded authored maps contribute area, including unvisited ones. A
+	// stitched world's bounding rectangle includes padding/corridors and must
+	// never replace or double-count its individual region rectangles.
+	keys := make(map[string]bool, len(wm.LoadedMaps)+len(wm.OpenWorldRegions))
+	for key := range wm.LoadedMaps {
+		if key != world.OpenWorldKey {
+			keys[key] = true
+		}
+	}
+	for _, region := range wm.OpenWorldRegions {
+		keys[region.MapKey] = true
+	}
+	for key := range keys {
 		w, h := 0, 0
 		if region := wm.OpenWorldRegionByKey(key); region != nil {
 			w, h = region.LocalWidth, region.LocalHeight
@@ -67,7 +92,12 @@ func (g *MMGame) profileExplorationRankings() []playerprofile.Entry {
 		}
 		area := int64(w) * int64(h)
 		visited := g.playerProfile.Data.VisitedTileCount(key, w, h)
-		if area <= 0 || visited == 0 {
+		if area <= 0 {
+			continue
+		}
+		result.visited += visited
+		result.area += area
+		if visited == 0 {
 			continue
 		}
 		name, icon := profileRegionPresentation(key)
@@ -84,5 +114,6 @@ func (g *MMGame) profileExplorationRankings() []playerprofile.Entry {
 	for i, score := range scores {
 		entries[i] = score.entry
 	}
-	return entries
+	result.entries = entries
+	return result
 }

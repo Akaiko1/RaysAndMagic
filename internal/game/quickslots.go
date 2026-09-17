@@ -574,40 +574,11 @@ func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW i
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
 }
 
-// inGameQuickSlotBarLayout returns the gameplay quick-bar rectangle exactly
-// when it is visible. The HUD chat shares this layout to reserve the bar's
-// space instead of drawing over it at narrow standard resolutions.
+// inGameQuickSlotBarLayout uses the shared gameplay action rail so item hit
+// regions, camping and the other HUD overlays agree on their occupied space.
 func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
-	if g == nil || g.config == nil || g.menuOpen || g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
-		return layoutRect{}, false
-	}
-	ch := g.party.Members[g.selectedChar]
-	if ch == nil {
-		return layoutRect{}, false
-	}
-	any := false
-	for _, it := range ch.QuickSlots {
-		if it != nil {
-			any = true
-			break
-		}
-	}
-	if !any {
-		return layoutRect{}, false
-	}
-
-	pw, _, baseLeft, startY := partyPortraitLayout(g)
-	barW := pw * 2
-	if barW > 240 {
-		barW = 240
-	}
-	barH := int(float64(barW) / quickSlotBarAspect)
-	barX := baseLeft + pw*4 - barW // right edge aligned to the rightmost card
-	barY := startY - barH - 18
-	if barY < 0 {
-		barY = 0
-	}
-	return layoutRect{x: barX, y: barY, w: barW, h: barH}, true
+	layout, visible := inGameActionBarLayout(g)
+	return layout.quick, visible && layout.hasQuick
 }
 
 // drawInGameQuickSlots floats the bar above the party cards, right-aligned to the

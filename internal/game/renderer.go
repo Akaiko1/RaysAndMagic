@@ -4629,13 +4629,11 @@ func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, drawLeft, dr
 	if off < 2 {
 		off = 2
 	}
-	for _, d := range [8][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
-		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft+d[0]*off), float64(drawTop+d[1]*off))
-		opts.ColorScale.Scale(1.0, 0.85, 0.45, 0.10)
-		opts.Blend = additiveGlowBlend
-		screen.DrawImage(sprite, opts)
-	}
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
+	opts.GeoM.Translate(float64(drawLeft), float64(drawTop))
+	opts.ColorScale.Scale(1.0, 0.85, 0.45, 0.10)
+	opts.Blend = additiveGlowBlend
+	graphics.DrawImageEdgeGlow(screen, sprite, opts, float64(off))
 }
 
 // animationFrames returns the cached per-frame SubImages of a w==h*4 sheet;

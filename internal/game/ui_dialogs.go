@@ -1872,7 +1872,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
 		return false
 	}
-	g.profileAdd("quest_rewards", 1)
+	g.recordProfileQuestReward(questID, rewards)
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}

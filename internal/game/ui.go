@@ -6,7 +6,6 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
-	"ugataima/internal/playerprofile"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -30,14 +29,14 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	patternPlans              patternPlanCache
-	profileViewport           *ebiten.Image
-	profileArt                *profileArt
-	profileExplorationReady   bool
-	profileExplorationEntries []playerprofile.Entry
-	game                      *MMGame
-	displayedInput            uiDisplayedInput
-	justOpenedStatPopup       bool
+	patternPlans            patternPlanCache
+	profileViewport         *ebiten.Image
+	profileArt              *profileArt
+	profileExplorationReady bool
+	profileExploration      profileExplorationSummary
+	game                    *MMGame
+	displayedInput          uiDisplayedInput
+	justOpenedStatPopup     bool
 	// renderedModalSnapshot is the complete top-modal state in the last completed
 	// Draw. Comparing it with topModalSnapshot catches layer changes and visible
 	// content replacement while Ebiten runs Updates before the new frame lands.
@@ -60,12 +59,10 @@ type UISystem struct {
 	inventoryContextY     int
 	inventoryContextIndex int
 	stackSplitPicker      stackSplitPickerState
-	inventoryPage         int    // current inventory grid page (0-based)
-	inventoryTab          int    // active inventory category filter (index into inventoryTabs)
-	questPage             int    // current quest log page (0-based)
-	spellPage             int    // current spell/trap book spread (0-based)
-	campNotice            string // result line under the Camp button
-	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
+	inventoryPage         int // current inventory grid page (0-based)
+	inventoryTab          int // active inventory category filter (index into inventoryTabs)
+	questPage             int // current quest log page (0-based)
+	spellPage             int // current spell/trap book spread (0-based)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	hubInteractionOpen    bool
@@ -151,7 +148,7 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
 		ui.profileExplorationReady = false
-		ui.profileExplorationEntries = nil
+		ui.profileExploration = profileExplorationSummary{}
 	}
 	defer ui.drawScreenBanner(screen)
 	ui.beginDisplayedInput()
@@ -237,6 +234,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.stackSplitPicker.open {
 		ui.drawStackSplitPicker(screen)
 	}
+	if ui.game.campConfirmOpen {
+		ui.drawCampConfirmation(screen)
+	}
 
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
@@ -253,19 +253,22 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	ui.drawQueuedTooltips(screen)
+}
+
+func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
 		hasIcon := ui.tooltipIcon != ""
 
 		if ui.tooltipCompareLines == nil {
-			_, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, screenW)
-			y := flipTooltipY(ui.tooltipY, mainH, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
+			r := singleTooltipLayout(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, ui.tooltipY, screenW, screenH)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, r.x, r.y, r.right(), ui.game.sprites)
 		} else {
 			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
 			// the pair always fits, then place the comparison flush to the right of
@@ -274,7 +277,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 			// match; the flip is resolved once against the taller card so they share
 			// a top edge.
 			gap := tooltipCompareGap
-			cardCap := screenW/2 - gap
+			cardCap := tooltipColumnWidth(screenW, 2)
 			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap)
 			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap)
 			h := mainH

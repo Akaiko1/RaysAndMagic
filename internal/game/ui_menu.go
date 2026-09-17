@@ -193,6 +193,9 @@ func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW
 // drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
 // the screen so it never spills off the edge.
 func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	// This framed variant has 8px padding rather than the ordinary 6px.
+	lines, _ = wrapTooltipLines(lines, nil, 0, tooltipColumnWidth(sw, 1), 4)
 	boxW := 0
 	for _, l := range lines {
 		if lw := debugTextWidth(l); lw > boxW {
@@ -201,20 +204,8 @@ func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []str
 	}
 	boxW += 16
 	boxH := len(lines)*16 + 10
-	sw := ui.game.config.GetScreenWidth()
-	sh := ui.game.config.GetScreenHeight()
-	if x+boxW > sw {
-		x = sw - boxW
-	}
-	if y+boxH > sh {
-		y = sh - boxH
-	}
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
+	r := positionTooltipBox(x, y, boxW, boxH, sw, sh)
+	x, y = r.x, r.y
 	ui.drawThemeFrame(screen, frameSilver, x, y, boxW, boxH)
 	for i, l := range lines {
 		drawDebugText(screen, l, x+8, y+6+i*16)

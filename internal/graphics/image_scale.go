@@ -15,6 +15,12 @@ func DrawImageScaled(dst, src *ebiten.Image, x, y, w, h float64, style *ebiten.D
 	if b.Dx() <= 0 || b.Dy() <= 0 {
 		return
 	}
+	opts := scaledImageOptions(src, x, y, w, h, style)
+	dst.DrawImage(src, &opts)
+}
+
+func scaledImageOptions(src *ebiten.Image, x, y, w, h float64, style *ebiten.DrawImageOptions) ebiten.DrawImageOptions {
+	b := src.Bounds()
 	var opts ebiten.DrawImageOptions
 	if style != nil {
 		opts = *style
@@ -27,5 +33,32 @@ func DrawImageScaled(dst, src *ebiten.Image, x, y, w, h float64, style *ebiten.D
 	if w < float64(b.Dx()) || h < float64(b.Dy()) {
 		opts.Filter = ebiten.FilterLinear
 	}
-	dst.DrawImage(src, &opts)
+	return opts
+}
+
+// DrawImageScaledEdgeGlow uses the same geometry and filtering as the UI image
+// it outlines. Call before drawing the original image over its interior.
+func DrawImageScaledEdgeGlow(dst, src *ebiten.Image, x, y, w, h, offset float64, style *ebiten.DrawImageOptions) {
+	if dst == nil || src == nil || w <= 0 || h <= 0 || src.Bounds().Empty() {
+		return
+	}
+	opts := scaledImageOptions(src, x, y, w, h, style)
+	DrawImageEdgeGlow(dst, src, &opts, offset)
+}
+
+// DrawImageEdgeGlow follows the source alpha silhouette, never its rectangular
+// bounds. World and UI callers retain their own transform, tint and blend.
+func DrawImageEdgeGlow(dst, src *ebiten.Image, style *ebiten.DrawImageOptions, offset float64) {
+	if dst == nil || src == nil || offset <= 0 {
+		return
+	}
+	var base ebiten.DrawImageOptions
+	if style != nil {
+		base = *style
+	}
+	for _, d := range [8][2]float64{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+		opts := base
+		opts.GeoM.Translate(d[0]*offset, d[1]*offset)
+		dst.DrawImage(src, &opts)
+	}
 }

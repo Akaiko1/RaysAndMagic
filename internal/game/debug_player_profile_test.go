@@ -68,6 +68,13 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 			d.Add(e.group, n)
 		}
 	}
+	d.Add("chest_loot", 35)
+	d.Rank("chest_loot", "health_potion", "Health Potion", "icon_item_health_potion", 24)
+	d.Rank("chest_loot", "emerald", "Emerald", "icon_item_emerald", 11)
+	d.Rank("quest_rewards", "goblin_hunt", "Goblin Hunt", "icon_achievement_archmage", 5)
+	d.Rank("quest_rewards", "lake_spiders", "Lake Spiders", "icon_achievement_archmage", 3)
+	d.Add("quest_gold", 12000)
+	d.Add("quest_xp", 24000)
 	for i, def := range config.GetAchievements() {
 		if i == 0 || i == 1 || i == 4 || i == 7 {
 			d.Unlocked[def.Key] = time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
@@ -102,7 +109,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 	}
 	for _, size := range sizes {
 		for page := 0; page <= len(profilePages); page++ {
-			name := fmt.Sprintf("%dx%d-%s.png", size[0], size[1], []string{"overview", "combat", "discoveries", "trophies", "achievements"}[page])
+			name := fmt.Sprintf("%dx%d-%s.png", size[0], size[1], []string{"overview", "combat", "discoveries", "trophies", "collecting", "achievements"}[page])
 			var drawErr error
 			runOnDrawFrame(func(_ *ebiten.Image) {
 				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = size[0], size[1]
@@ -110,13 +117,13 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 				g.statisticsTab = page
 				if page == 2 {
 					h.ui.profileExplorationReady = true
-					h.ui.profileExplorationEntries = []playerprofile.Entry{
+					h.ui.profileExploration = profileExplorationSummary{visited: 2531, area: 5000, entries: []playerprofile.Entry{
 						{Name: "Seabright", Icon: "sky:city_panorama", Count: 923},
 						{Name: "Elvish Forest", Icon: "sky:forest_panorama", Count: 682},
 						{Name: "Misty Highlands", Icon: "sky:highlands_panorama", Count: 427},
 						{Name: "Scorching Desert", Icon: "sky:desert_panorama", Count: 314},
 						{Name: "Deep Jungle", Icon: "sky:deep_jungle_panorama", Count: 185},
-					}
+					}}
 				}
 				g.statisticsScroll = 0
 				if page == len(profilePages) {
@@ -133,7 +140,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 				defer f.Close()
 				drawErr = png.Encode(f, snapshotUIImage(dst))
 			})
-			if (page == 0 || page == 2 || page == 3) && size[0] <= 1024 {
+			if (page == 0 || page == 2 || page == 3 || page == 4) && size[0] <= 1024 {
 				runOnDrawFrame(func(_ *ebiten.Image) {
 					l := makeProfileStatsLayout(size[0], size[1], profilePages[g.statisticsTab])
 					g.statisticsScroll = max(0, l.contentH-l.body.h)
@@ -232,7 +239,7 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 func checkThemeCardEdges(ui *UISystem, dst *ebiten.Image, r, clip layoutRect, kind string) []string {
 	reference := ebiten.NewImage(r.w, r.h)
 	defer reference.Deallocate()
-	ui.drawProfileCard(reference, layoutRect{0, 0, r.w, r.h}, false)
+	ui.drawProfileCard(reference, layoutRect{0, 0, r.w, r.h}, true)
 	var problems []string
 	for edge := 0; edge < 4; edge++ {
 		visible, checked := false, false

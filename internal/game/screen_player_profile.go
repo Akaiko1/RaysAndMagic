@@ -184,8 +184,9 @@ type profilePageSpec struct {
 var profilePages = []profilePageSpec{
 	{"Overview", []profileCounterSpec{{"Adventures", "adventures", "icon_achievement_first_steps", false}, {"Victories", "victories", "icon_achievement_victory", false}, {"Active play time", "play_ns", "icon_achievement_full_roster", true}}, []profileRankingSpec{{"Favorite classes", "classes", "hero time", true}, {"Favorite spells", "spells", "casts", false}, {"Favorite regions", "regions", "time spent", true}}},
 	{"Combat", []profileCounterSpec{{"Monsters defeated", "kills", "icon_achievement_first_blood", false}, {"HP lost to attacks", "monster_damage", "icon_achievement_warlord", false}, {"Heroes knocked out", "knockouts", "icon_achievement_lich", false}}, []profileRankingSpec{{"Most hunted", "kills", "defeated", false}, {"Most dangerous", "danger", "HP lost", false}, {"Most knockouts caused", "knockouts", "knockouts", false}}},
-	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Quest rewards claimed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Most valuable finds", "valuable_loot", "highest base gold per item", false}}},
-	{"Trophies", []profileCounterSpec{{"Bosses defeated", "bosses", "icon_achievement_warlord", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}, {"Items traded", "items_traded", "icon_item_clock_hand", false}, {"Cards found", "cards_found", "icon_item_goblin_card", false}}, []profileRankingSpec{{"Bosses defeated", "bosses", "kills by boss", false}, {"Legendary loot", "legendary_loot", "units found", false}, {"Trade offerings", "items_traded", "item units paid to merchants", false}, {"Cards found", "cards_found", "units found, all rarities", false}}},
+	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Regions explored", "exploration", "icon_item_world_map", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Most valuable finds", "valuable_loot", "highest base gold per item", false}}},
+	{"Trophies", []profileCounterSpec{{"Bosses defeated", "bosses", "icon_achievement_warlord", false}, {"Items traded", "items_traded", "icon_item_clock_hand", false}, {"Quests completed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Bosses defeated", "bosses", "kills by boss", false}, {"Trade offerings", "items_traded", "item units paid to merchants", false}, {"Quests completed", "quest_rewards", "successful turn-ins by quest", false}}},
+	{"Collecting", []profileCounterSpec{{"Cards found", "cards_found", "icon_item_goblin_card", false}, {"Chest loot", "chest_loot", "chest_golden", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}}, []profileRankingSpec{{"Cards found", "cards_found", "units found, all rarities", false}, {"Loot from chests", "chest_loot", "item units, excludes gold", false}, {"Legendary loot", "legendary_loot", "units found, excludes cards", false}}},
 }
 
 func profileTabRect(x, y, width, index int) layoutRect {
@@ -224,7 +225,7 @@ func makeProfileStatsLayout(w, h int, page profilePageSpec) profileStatsLayout {
 	x, iw := r.x+menuFrameInset, r.w-2*menuFrameInset
 	columns := 1
 	if iw >= 1040 {
-		columns = min(4, len(page.rankings))
+		columns = min(3, len(page.rankings))
 	} else if iw >= 640 {
 		columns = 2
 	}
@@ -273,9 +274,9 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	spec := profilePages[g.statisticsTab]
 	l := makeProfileStatsLayout(w, h, spec)
 	r := l.panel
-	ui.drawThemeFrame(screen, frameSilver, r.x, r.y, r.w, r.h)
-	ui.drawCornerDecor(screen, frameSilver, r.x-8, r.y-8, r.w+16, r.h+16, decorAllCorners)
-	ui.drawPanelInlay(screen, frameSilver, r.x+r.w/2, r.y)
+	ui.drawThemeFrame(screen, frameGold, r.x, r.y, r.w, r.h)
+	ui.drawCornerDecor(screen, frameGold, r.x-8, r.y-8, r.w+16, r.h+16, decorAllCorners)
+	ui.drawPanelInlay(screen, frameGold, r.x+r.w/2, r.y)
 	x, y, iw := r.x+menuFrameInset, r.y+menuFrameInset, r.w-2*menuFrameInset
 	drawScaledMetalCenteredTextAlpha(screen, "PLAYER STATISTICS", r.x+r.w/2, y+10, 2, profileGold, 1)
 	for i, page := range profilePages {
@@ -309,10 +310,10 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	offset := -g.statisticsScroll
 	for i, c := range spec.counters {
 		cx, cy := (i%l.columns)*(l.columnW+14), offset+(i/l.columns)*100
-		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 86}, false)
+		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 86}, true)
 		ui.profileIcon(dst, c.icon, c.title, cx+12, cy+13, 60)
 		drawDebugTextColored(dst, profileText(c.title, l.columnW-92), cx+84, cy+14, profileMuted)
-		val := profileValue(d.Counters[c.key], c.duration)
+		val := ui.profileCounterValue(c, &d)
 		drawScaledMetalCenteredTextAlpha(dst, val, cx+84+(l.columnW-92)/2, cy+52, 2, profileGold, 1)
 	}
 	for i, rs := range spec.rankings {
@@ -337,7 +338,11 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		detail = "Loot: drops/chests/crates. Old finds had no price recorded; values start with new drops."
 	}
 	if g.statisticsTab == 3 {
-		detail = "Cards count separately from legendary loot. Trades count item units paid. Older item and boss detail was not recorded."
+		detail = "Quests count successful reward turn-ins. Older totals remain; quest breakdown and reward totals start with new turn-ins."
+		detail += " Rewards: " + questRewardSummary(int(d.Counters["quest_gold"]), int(d.Counters["quest_arena_points"]), int(d.Counters["quest_xp"])) + "."
+	}
+	if g.statisticsTab == 4 {
+		detail = "Cards are separate from legendary loot. Chest item counts exclude gold and roadside boxes. Chest detail starts with new finds."
 	}
 	for _, text := range []string{note, detail} {
 		sy += 5
@@ -372,7 +377,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 }
 
 func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, start, limit int) {
-	ui.drawProfileCard(screen, r, false)
+	ui.drawProfileCard(screen, r, true)
 	drawDebugTextColored(screen, profileText(spec.title, r.w-24), r.x+12, r.y+12, profileGold)
 	drawDebugTextColored(screen, spec.unit, r.x+12, r.y+30, profileMuted)
 	if start >= len(entries) {
@@ -472,9 +477,21 @@ func (ui *UISystem) profileRankingEntries(spec profileRankingSpec, d *playerprof
 	if spec.group != "exploration" {
 		return d.Top(spec.group)
 	}
+	ui.ensureProfileExploration()
+	return ui.profileExploration.entries
+}
+
+func (ui *UISystem) ensureProfileExploration() {
 	if !ui.profileExplorationReady {
-		ui.profileExplorationEntries = ui.game.profileExplorationRankings()
+		ui.profileExploration = ui.game.profileExplorationStats()
 		ui.profileExplorationReady = true
 	}
-	return ui.profileExplorationEntries
+}
+
+func (ui *UISystem) profileCounterValue(spec profileCounterSpec, d *playerprofile.Data) string {
+	if spec.key == "exploration" {
+		ui.ensureProfileExploration()
+		return (profileRankingSpec{group: "exploration"}).value(ui.profileExploration.percentTenths())
+	}
+	return profileValue(d.Counters[spec.key], spec.duration)
 }

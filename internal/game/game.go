@@ -556,6 +556,7 @@ type MMGame struct {
 	// Stat distribution popup UI state
 	statPopupOpen    bool // Is the stat distribution popup open?
 	statPopupCharIdx int  // Which character is being edited in the popup?
+	campConfirmOpen  bool // Transient; supplies are spent only after confirmation.
 	// Level-up choice queue
 	levelUpChoiceQueue []levelUpChoiceRequest
 	levelUpChoiceOpen  bool
@@ -1931,7 +1932,7 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 
 // hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
 // given wrapped-line count. It grows upward above the party UI and, when its
-// right-side span meets the visible quick bar, clears that bar as well. Shared by
+// right-side span meets the action rail, clears camping and quick slots as well. Shared by
 // the renderer and the click hit-region.
 func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	h = lineCount*hudMessageSpacing + 10
@@ -1939,9 +1940,9 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	x = g.config.GetScreenWidth() - w - 15
 	_, _, _, partyStartY := partyPortraitLayout(g)
 	bottom := partyStartY - hudMessageBottomGap
-	if quickBar, visible := inGameQuickSlotBarLayout(g); visible &&
-		x < quickBar.right() && quickBar.x < x+w {
-		if clearBottom := quickBar.y - hudMessageBottomGap; clearBottom < bottom {
+	if actions, visible := inGameActionBarLayout(g); visible &&
+		x < actions.bounds.right() && actions.bounds.x < x+w {
+		if clearBottom := actions.bounds.y - hudMessageBottomGap; clearBottom < bottom {
 			bottom = clearBottom
 		}
 	}

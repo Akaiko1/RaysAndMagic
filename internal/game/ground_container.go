@@ -427,7 +427,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	// sight names them now that the party has walked to it.
 	if c.Kind == ContainerKindTreasureChest {
 		g.announceLegendaryDrops(c.Items)
-		g.recordProfileLoot(c.Items)
+		g.recordProfileLootSource(c.Items, true)
 	}
 
 	for _, it := range c.Items {

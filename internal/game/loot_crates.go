@@ -438,7 +438,8 @@ func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, are
 		g.AddCombatMessage(fmt.Sprintf("The %s holds nothing but dust.", npc.Name))
 		return
 	}
-	g.recordProfileLoot(loot)
+	crate := config.GetCrateConfig(npc.Key)
+	g.recordProfileLootSource(loot, crate != nil && crate.TreasureChest)
 	for _, it := range loot {
 		g.party.AddItem(it)
 		g.AddColoredCombatMessage(fmt.Sprintf("Found %s!", it.Name), lootMessageColor([]items.Item{it}))
