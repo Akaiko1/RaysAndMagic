@@ -2773,6 +2773,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
 			return
 		}
+		g.recordProfileQuestResolution(quest)
 		g.questManager.RemoveQuest(questID) // can't be turned in twice
 		if npc != nil {
 			npc.Visited = true

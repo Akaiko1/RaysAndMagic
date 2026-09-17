@@ -431,6 +431,12 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	if q == nil || q.Definition == nil {
 		return
 	}
+	// This hook runs only on completion transitions, not journal rendering
+	// or restoration of completed quests. Automatic objectives and payouts resolve
+	// here; ordinary quests are counted later at their committed turn-in.
+	if q.RewardsClaimed {
+		g.recordProfileQuestResolution(q)
+	}
 	g.playSound(soundQuestComplete)
 	if message != "" {
 		g.AddCombatMessage(message)

@@ -228,17 +228,17 @@ func (g *MMGame) recordProfileLootSource(loot []items.Item, chest bool) {
 	}
 }
 
-// Count only committed turn-ins; the journal and NPC share this boundary.
+// Count committed quest resolutions: claims, promotions and automatic rewards.
+// Callers own the one-shot transition; restoring resolved quests never calls this.
 // Keep the historical total even when older records lack per-quest details.
-func (g *MMGame) recordProfileQuestReward(questID string, rewards *quests.QuestRewards) {
-	if g.playerProfile == nil || rewards == nil {
+func (g *MMGame) recordProfileQuestResolution(quest *quests.Quest) {
+	if g.playerProfile == nil || quest == nil || quest.Definition == nil || !quest.Completed {
 		return
 	}
+	rewards := quest.Definition.Rewards
 	d := &g.playerProfile.Data
 	d.Add("quest_rewards", 1)
-	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
-		d.Rank("quest_rewards", questID, quest.Definition.Name, "icon_achievement_archmage", 1)
-	}
+	d.Rank("quest_rewards", quest.ID, quest.Definition.Name, "icon_achievement_archmage", 1)
 	d.Add("quest_gold", int64(rewards.Gold))
 	d.Add("quest_xp", int64(rewards.Experience))
 	d.Add("quest_arena_points", int64(rewards.ArenaPoints))
