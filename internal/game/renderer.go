@@ -3197,6 +3197,7 @@ const (
 	SpriteTypeNPC
 	SpriteTypeGroundContainer
 	SpriteTypeWallTorch
+	SpriteTypeMonsterCorpse
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -3253,6 +3254,7 @@ type UnifiedSpriteRenderData struct {
 	buildingSegment int
 	// Ground container (loot bag / treasure chest) specific
 	groundContainer *GroundContainer
+	corpse          *monsterCorpse
 }
 
 // Near-tree LOD. A tree is collected once PER screen column it covers (treeHits),
@@ -3291,7 +3293,7 @@ func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float
 		return r.game.combat.monsterVisualPos(mon)
 	}
 	if r != nil && r.game != nil && r.game.config != nil {
-		ox, oy := monsterStackFanOffset(mon, float64(r.game.config.GetTileSize()))
+		ox, oy := r.game.monsterVisualStackOffset(mon, mon.X, mon.Y)
 		return mon.X + ox, mon.Y + oy
 	}
 	return mon.X, mon.Y
@@ -3614,7 +3616,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 		if mon.Flying {
 			// Centered on the horizon: bottom = mid-screen + half height.
-			bottomF = float64(r.game.config.GetScreenHeight())/2 + sizeF/2
+			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), sizeF)
 		}
 
 		var sprite *ebiten.Image
@@ -3643,6 +3645,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			monsterRenderY:      renderY,
 		})
 	}
+
+	sprites = r.collectMonsterCorpses(sprites, camX, camY, camDirX, camDirY, viewDistSq)
 
 	// 4. Collect NPCs
 	for _, npc := range r.game.GetCurrentWorld().NPCs {
@@ -3750,6 +3754,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// 5. Collect ground containers (loot bags + treasure chests)
 	for i := range r.game.groundContainers {
 		c := &r.game.groundContainers[i]
+		if c.hop.waiting(r.game.frameCount) {
+			continue
+		}
 		if !c.onCurrentWorld() {
 			continue
 		}
@@ -3844,6 +3851,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			}
 		case SpriteTypeGroundContainer:
 			r.drawUnifiedGroundContainerSprite(screen, s)
+		case SpriteTypeMonsterCorpse:
+			r.drawMonsterCorpse(screen, s)
 		}
 	}
 }
@@ -3956,7 +3965,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
-	if s.distance <= pickupRange {
+	if s.distance <= pickupRange && !c.hop.active(r.game.frameCount) {
 		mouseX, mouseY := ebiten.CursorPosition()
 		info := GroundContainerRenderInfo{
 			ScreenX:    s.screenX,
@@ -4138,10 +4147,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 		drawLeftF += dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize)
 	}
-	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
-	// otherwise sink its lower body behind the bar. If its feet would cross the
-	// bar's top edge, raise the whole sprite so its bottom rests on the bar.
-	screenYF := clampMonsterSpriteTopToGameplayViewport(r.game, s.bottomF-s.sizeF, s.sizeF)
+	screenYF := s.bottomF - s.sizeF
 	screenY := int(screenYF)
 
 	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
@@ -4276,17 +4282,6 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		screen.DrawImage(billboardSprite, opts)
 	}
 	r.drawMonsterStatusFX(screen, s, screenY)
-}
-
-func clampMonsterSpriteTopToGameplayViewport(g *MMGame, spriteTop, spriteHeight float64) float64 {
-	if g == nil || !g.showPartyStats {
-		return spriteTop
-	}
-	viewBottom := float64(gameplayViewportBottom(g))
-	if spriteTop+spriteHeight > viewBottom {
-		return viewBottom - spriteHeight
-	}
-	return spriteTop
 }
 
 // drawMonsterStatusFX overlays a monster's status indicators (stun stars,

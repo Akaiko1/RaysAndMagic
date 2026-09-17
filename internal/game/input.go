@@ -391,7 +391,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.registerVisitedTownPortalDestination() // the fresh run's start map may be a Town Portal destination
 	// Anchor starting exterminate quests to the fresh rosters (they never pass
 	// through handleGiveQuest, the only other DynamicTarget assigner).
-	g.reconcileExterminationQuests()
+	g.reconcileKillQuests()
 	// Only NOW take the banner baseline - after reconciliation has moved whatever
 	// counters it is going to move, exactly like the load path. Baselining first
 	// would make the fresh run's first frame announce its own bookkeeping. This
@@ -2684,11 +2684,7 @@ func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
 	if npc == nil || npc.DialogueData == nil || g.questManager == nil {
 		return
 	}
-	for _, c := range npc.DialogueData.Choices {
-		if c == nil || c.QuestID == "" ||
-			(c.Action != "give_quest" && c.Action != "turn_in_quest") {
-			continue
-		}
+	for _, c := range questChoicesOf(npc) {
 		g.creditQuestIfCleared(c.QuestID)
 	}
 }
@@ -2718,6 +2714,9 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 			return
 		}
 		g.AddCombatMessage(uitext.Text("dialog.trial_accepted_slay_the_lich_king_then"))
+		if g.creditQuestIfCleared(questID) {
+			g.applyCompletedQuestTiles()
+		}
 		return
 	}
 

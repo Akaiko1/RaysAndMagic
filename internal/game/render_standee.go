@@ -782,6 +782,7 @@ type standeeSlab struct {
 	surfaces     []standeeSurface
 	firstSurface int     // draw from here (zero side opacity skips hidden layers)
 	sideFade     float32 // 0 = full thickness, 1 = only the front face
+	fade         float32 // transient opacity loss; zero preserves the ordinary material
 	minX, maxX   int     // unclipped screen span
 	// volumeComposite is set only for crossed trees. Their close, high-shell
 	// slabs use the exact one-pass volume compositor; other standees keep the
@@ -1356,6 +1357,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		if surfaceIndex != len(slab.surfaces)-1 {
 			opacity -= slab.sideFade
 		}
+		opacity *= 1 - slab.fade
 		cr := slab.rr * sf.shade * opacity
 		cg := slab.gg * sf.shade * opacity
 		cb := slab.bb * sf.shade * opacity

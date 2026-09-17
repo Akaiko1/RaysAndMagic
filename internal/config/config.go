@@ -895,7 +895,29 @@ type SpriteConfig struct {
 	TreeWidthMultiplier  float64 `yaml:"tree_width_multiplier"`
 }
 
+type MonsterDeathRenderConfig struct {
+	FPS                int     `yaml:"fps"`
+	FallSeconds        float64 `yaml:"fall_seconds"`
+	FadeSeconds        float64 `yaml:"fade_seconds"`
+	LootHopSeconds     float64 `yaml:"loot_hop_seconds"`
+	LootHopHeightTiles float64 `yaml:"loot_hop_height_tiles"`
+}
+
+func DefaultMonsterDeathRenderConfig() MonsterDeathRenderConfig {
+	return MonsterDeathRenderConfig{FPS: 6, FallSeconds: 1, FadeSeconds: 5, LootHopSeconds: 0.45, LootHopHeightTiles: 0.25}
+}
+
+func (c MonsterDeathRenderConfig) Validate() error {
+	if c.FPS <= 0 || c.FPS > 120 || !(c.FadeSeconds > 0 && c.FadeSeconds <= 60) ||
+		!(c.FallSeconds > 0 && c.FallSeconds <= 5) ||
+		!(c.LootHopSeconds > 0 && c.LootHopSeconds <= 5) || !(c.LootHopHeightTiles > 0 && c.LootHopHeightTiles <= 2) {
+		return fmt.Errorf("graphics.monster.death: invalid FPS, fall, fade or loot hop settings")
+	}
+	return nil
+}
+
 type MonsterRenderConfig struct {
+	Death MonsterDeathRenderConfig `yaml:"death"`
 	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
 	// (projectile hits); rendering is uncapped - a render-side pixel cap makes
 	// sprites sink at close range as the floor anchor outgrows the capped size.
@@ -1486,6 +1508,7 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	var config Config
+	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
@@ -1528,6 +1551,9 @@ func LoadConfig(filename string) (*Config, error) {
 		if _, ok := ResolveSizeClassTiles(config.Graphics.SizeClasses, class); !ok {
 			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
 		}
+	}
+	if err := config.Graphics.Monster.Death.Validate(); err != nil {
+		return nil, err
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err

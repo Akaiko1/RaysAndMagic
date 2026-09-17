@@ -387,6 +387,12 @@ graphics:
     max_sprite_size: 60
     min_sprite_size: 8
     size_distance_multiplier: 75
+    death:
+      fps: 6
+      fall_seconds: 1
+      fade_seconds: 5
+      loot_hop_seconds: 0.45
+      loot_hop_height_tiles: 0.25
 
   # NPC rendering (larger than monsters for better visibility)
   npc:
@@ -459,6 +465,8 @@ graphics:
       - lich_king_walking_r
       - forest_spider
       - forest_spider_walking_r
+      - forest_spider_attacking_r
+      - forest_spider_dying_r
       # Ice crystal highlights read as violet
       - frost_elemental
       - frost_elemental_walking_r

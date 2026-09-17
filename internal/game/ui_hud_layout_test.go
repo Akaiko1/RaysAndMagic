@@ -180,26 +180,6 @@ func TestGameplayViewportBottomUsesPartyLayoutAtEveryResolution(t *testing.T) {
 	}
 }
 
-func TestMonsterSpriteClampUsesResponsiveGameplayViewport(t *testing.T) {
-	g, _ := newThiefTestGame(t)
-	g.config.Display.ScreenWidth = 1920
-	g.config.Display.ScreenHeight = 1080
-	g.showPartyStats = true
-	const spriteHeight = 180.0
-	partyTop := float64(gameplayViewportBottom(g))
-	if got := clampMonsterSpriteTopToGameplayViewport(g, partyTop-100, spriteHeight); got != partyTop-spriteHeight {
-		t.Fatalf("clamped monster top=%.1f, want %.1f", got, partyTop-spriteHeight)
-	}
-	const safeTop = 500.0
-	if got := clampMonsterSpriteTopToGameplayViewport(g, safeTop, spriteHeight); got != safeTop {
-		t.Fatalf("safe monster moved from %.1f to %.1f", safeTop, got)
-	}
-	g.showPartyStats = false
-	if got := clampMonsterSpriteTopToGameplayViewport(g, partyTop-100, spriteHeight); got != partyTop-100 {
-		t.Fatalf("hidden party HUD still clamped monster to %.1f", got)
-	}
-}
-
 func TestCompassRadiusRespondsToViewportWithinReadableBounds(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	ui := NewUISystem(g)

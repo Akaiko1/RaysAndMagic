@@ -126,7 +126,7 @@ func (r *Renderer) drawElementalAttackFX(screen *ebiten.Image) {
 				if sprite.monster != fx.MonsterTarget || !r.spriteDepthBufferVisible(sprite) {
 					continue
 				}
-				top := clampMonsterSpriteTopToGameplayViewport(r.game, sprite.bottomF-sprite.sizeF, sprite.sizeF)
+				top := sprite.bottomF - sprite.sizeF
 				radius := r.elementalAttackScreenRadius(fx, sprite.depthPerp, screen.Bounds().Dy())
 				drawElementalAttackGlyph(screen, fx, sprite.screenXF, top+sprite.sizeF*.45, radius)
 				break

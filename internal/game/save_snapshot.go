@@ -352,11 +352,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if g.questManager != nil {
 		for _, quest := range g.questManager.GetAllQuests() {
 			questSaves = append(questSaves, QuestSave{
-				ID:             quest.ID,
-				Status:         string(quest.Status),
-				CurrentCount:   quest.CurrentCount,
-				DynamicTarget:  quest.DynamicTarget,
-				RewardsClaimed: quest.RewardsClaimed,
+				ID:               quest.ID,
+				Status:           string(quest.Status),
+				CurrentCount:     quest.CurrentCount,
+				DynamicTarget:    quest.DynamicTarget,
+				DynamicTargetSet: quest.DynamicTargetSet,
+				RewardsClaimed:   quest.RewardsClaimed,
 			})
 		}
 	}

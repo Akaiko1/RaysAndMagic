@@ -1225,7 +1225,16 @@ func (cs *CombatSystem) logicalCameraXY() (float64, float64) {
 // ok=false when no front slot applies (not TB, not a melee delivery, not
 // adjacent, off-axis, behind, or the pulled spot has no line of sight).
 func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x, y float64, pulled, ok bool) {
-	if cs == nil || cs.game == nil || mon == nil || !cs.game.turnBasedMode || !mon.IsAlive() {
+	if mon == nil || !mon.IsAlive() {
+		return 0, 0, 0, false, false
+	}
+	return cs.monsterFrontSlotGeometry(mon)
+}
+
+// Geometry also serves the just-killed actor's corpse and impact effects.
+// Target selection keeps its separate alive gate in pulledFrontSlot.
+func (cs *CombatSystem) monsterFrontSlotGeometry(mon *monsterPkg.Monster3D) (side int, x, y float64, pulled, ok bool) {
+	if cs == nil || cs.game == nil || mon == nil || !cs.game.turnBasedMode {
 		return 0, 0, 0, false, false
 	}
 	tileSize := float64(cs.game.config.GetTileSize())
@@ -1281,11 +1290,11 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 		return 0, 0
 	}
 	x, y := mon.X, mon.Y
-	if _, px, py, pulled, ok := cs.pulledFrontSlot(mon); ok && pulled {
+	if _, px, py, pulled, ok := cs.monsterFrontSlotGeometry(mon); ok && pulled {
 		x, y = px, py
 	}
 	if cs.game != nil && cs.game.config != nil {
-		ox, oy := monsterStackFanOffset(mon, float64(cs.game.config.GetTileSize()))
+		ox, oy := cs.game.monsterVisualStackOffset(mon, x, y)
 		x, y = x+ox, y+oy
 	}
 	return x, y
@@ -2913,7 +2922,16 @@ func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 // (removeDeadMonstersByID, which also unregisters its collision entity) and
 // awards the kill's XP/gold. Returns the XP awarded, for the kill message.
 func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
+	if m == nil {
+		return 0
+	}
+	for _, id := range cs.game.deadMonsterIDs {
+		if id == m.ID {
+			return 0
+		}
+	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	cs.game.beginMonsterDeath(m)
 	if !isPurePartySummon(m) {
 		cs.game.playMonsterSound(soundEnemyDeath, m)
 	}
@@ -3012,7 +3030,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 		if pct := cs.game.cardGoldFindPct(); pct != 0 && gold > 0 {
 			gold = gold * (100 + pct) / 100 // Jungle Goblin Card
 		}
-		cs.game.addLootBagDrop(monster.X, monster.Y, drops, gold)
+		cs.game.addMonsterLootDrop(monster, drops, gold)
 	}
 
 	return xpAwarded
@@ -3069,10 +3087,10 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 		cs.game.announceQuestCompletion(quest)
 	}
 
-	// Map-scoped kill quests also complete the moment the map is cleared of
-	// targets (counter notwithstanding), and completions may change the world
+	// Kill quests also complete when their eligible roster is cleared
+	// (counter notwithstanding), and completions may change the world
 	// (e.g. the wolf-cull bridge).
-	cs.game.completeClearedKillQuestsForTarget(monsterType)
+	cs.game.completeClearedKillQuestsForTarget(monsterType, true)
 	cs.game.applyCompletedQuestTiles()
 }
 

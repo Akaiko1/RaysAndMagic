@@ -169,7 +169,7 @@ func TestDebugSim_JournalRarityAndTabPresentation(t *testing.T) {
 				defer dst.Deallocate()
 				ui.displayedInput.commands = nil
 				ui.displayedInput.building = true
-				copy := questCardCopyFor(q.Definition.Description, 600, 2)
+				copy := questCardCopyFor(q.Description(), 600, 2)
 				ui.drawJournalEntry(dst, q, layoutRect{10, 10, 600, copy.height}, copy)
 				p := snapshotUIImage(dst)
 				rim = p.RGBAAt(11, 40)

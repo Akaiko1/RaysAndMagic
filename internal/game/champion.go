@@ -615,7 +615,7 @@ func (cs *CombatSystem) rollChampionSetDrops(m *monster.Monster3D) {
 			continue
 		}
 		cs.game.AddColoredCombatMessage(fmt.Sprintf("%s's %s drops on the sand!", m.Name, it.Name), combatMessageGold)
-		cs.game.addLootBagDrop(m.X, m.Y, []items.Item{it}, 0)
+		cs.game.addMonsterLootDrop(m, []items.Item{it}, 0)
 		return // first successful set ends the rolling: one piece max per kill
 	}
 }

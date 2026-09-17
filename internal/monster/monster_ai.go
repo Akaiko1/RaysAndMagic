@@ -727,6 +727,15 @@ func (m *Monster3D) entersTargetTile(x, y, targetX, targetY float64) bool {
 	return sameTile && (m.usesAttackPosts() || !m.HasRangedAttack())
 }
 
+// blockedAttackTargetTile shares the direct-step occupancy rule with A* and
+// interpolation. The start may be overlapped (old save); exits remain legal.
+func (m *Monster3D) blockedAttackTargetTile(x, y float64) *TileCoord {
+	if !m.entersTargetTile(x, y, x, y) {
+		return nil
+	}
+	return &TileCoord{X: m.worldToTile(x), Y: m.worldToTile(y)}
+}
+
 // canClaimAttackPost gates only the transition into StateAttacking. A claimed
 // post remains walkable - the collision system deliberately does not block a
 // transit mob there - but it is not available for a second attacker to use.
@@ -975,7 +984,7 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 
 	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
 		func() []TileCoord { return m.findPathToTarget(collisionChecker, targetX, targetY) },
-		m.speedPerTick(), false, true)
+		m.speedPerTick(), false, true, m.blockedAttackTargetTile(targetX, targetY))
 }
 
 // followPathToTile computes (or reuses) an A* path to a tile and moves toward it.
@@ -992,7 +1001,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 
 	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
 		func() []TileCoord { return m.findPathToTile(collisionChecker, targetTileX, targetTileY) },
-		m.movementSpeed(m.State), true, false)
+		m.movementSpeed(m.State), true, false, nil)
 }
 
 // followPathStep advances one tick along m.PathTiles toward (targetTileX,
@@ -1000,7 +1009,11 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 // onto the next tile centre when within one step, else moves straight toward it.
 // haltOnZeroSpeed returns early on speed <= 0 (tile variant); cornerSlide enables
 // the axis-slide fallback (target variant only).
-func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool) bool {
+func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool, blocked *TileCoord) bool {
+	leavingBlocked := blocked != nil && m.worldToTile(m.X) == blocked.X && m.worldToTile(m.Y) == blocked.Y
+	canMove := func(x, y float64) bool {
+		return (leavingBlocked || blocked == nil || m.worldToTile(x) != blocked.X || m.worldToTile(y) != blocked.Y) && collisionChecker.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying)
+	}
 	if shouldRepath {
 		m.PathTiles = computePath()
 		m.PathIndex = 0
@@ -1037,7 +1050,7 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 	}
 
 	if dist <= step {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs, m.Flying) {
+		if canMove(targetCenterX, targetCenterY) {
 			m.X = targetCenterX
 			m.Y = targetCenterY
 			m.PathIndex++
@@ -1050,7 +1063,7 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if canMove(newX, newY) {
 		m.X = newX
 		m.Y = newY
 		return true
@@ -1061,11 +1074,11 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 		// while rounding it). Instead of giving up and freezing, slide along
 		// whichever axis is still clear so the monster rounds the corner; only
 		// if BOTH axes are blocked do we repath.
-		if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		if dx != 0 && canMove(newX, m.Y) {
 			m.X = newX
 			return true
 		}
-		if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		if dy != 0 && canMove(m.X, newY) {
 			m.Y = newY
 			return true
 		}
@@ -1125,7 +1138,7 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 	minY := mathutil.IntMin(start.Y, targetTileY) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, targetTileY) + rangeTiles
 
-	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, m.blockedAttackTargetTile(targetX, targetY))
 }
 
 // NextPathStepTile returns the next cardinal tile this monster should step to en
@@ -1145,7 +1158,7 @@ func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX,
 // goal tiles. It is used by callers with mode-specific goals, e.g. turn-based
 // ranged monsters that need a row/column firing lane rather than any tile inside
 // their circular projectile range.
-func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord) (tileX, tileY int, ok bool) {
+func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord, blocked *TileCoord) (tileX, tileY int, ok bool) {
 	if collisionChecker == nil || len(goals) == 0 {
 		return 0, 0, false
 	}
@@ -1182,7 +1195,7 @@ func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goa
 	minY := mathutil.IntMin(start.Y, minGoalY) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, maxGoalY) + rangeTiles
 
-	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, blocked)
 	if len(path) < 2 {
 		return 0, 0, false
 	}
@@ -1209,7 +1222,7 @@ func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTile
 	minY := mathutil.IntMin(start.Y, goal.Y) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, goal.Y) + rangeTiles
 
-	return m.findPathAStar(collisionChecker, start, []TileCoord{goal}, minX, maxX, minY, maxY)
+	return m.findPathAStar(collisionChecker, start, []TileCoord{goal}, minX, maxX, minY, maxY, nil)
 }
 
 // HasPathToTile reports whether this monster can reach an exact tile using the
@@ -1226,7 +1239,7 @@ func (m *Monster3D) HasPathToTile(collisionChecker CollisionChecker, targetTileX
 	return len(m.findPathToTile(collisionChecker, targetTileX, targetTileY)) > 1
 }
 
-func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int) []TileCoord {
+func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int, blocked *TileCoord) []TileCoord {
 	m.PathSearchCount++
 	if maxX < minX || maxY < minY {
 		return nil
@@ -1308,6 +1321,9 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 		coord := ps.coord(current.idx)
 		for _, dir := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
 			neighbor := TileCoord{X: coord.X + dir[0], Y: coord.Y + dir[1]}
+			if blocked != nil && neighbor == *blocked {
+				continue
+			}
 			nidx := ps.index(neighbor)
 			if nidx < 0 {
 				continue

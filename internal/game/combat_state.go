@@ -8,6 +8,10 @@ import ()
 // new map and can hit monsters there.
 func (g *MMGame) clearTransientCombatState() {
 	g.resetOverwatch()
+	g.monsterCorpses = nil
+	for i := range g.groundContainers {
+		g.groundContainers[i].hop = lootHop{}
+	}
 	// Door state is per-map: entities unregister and closed-ness resets, so the
 	// "portcullises rise" transition can't fire on the destination map.
 	// NOTE: per-card summon cooldowns deliberately survive here - they are

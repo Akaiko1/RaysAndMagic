@@ -378,7 +378,7 @@ func TestReconcileExterminationQuests(t *testing.T) {
 	// Two living targets: census becomes the dynamic goal, quest stays open.
 	a, b := mkTestMonster("Target", 10), mkTestMonster("Target", 10)
 	g.world.Monsters = []*monsterPkg.Monster3D{a, b}
-	g.reconcileExterminationQuests()
+	g.reconcileKillQuests()
 	q := g.questManager.GetQuest("purge_test")
 	if q.Completed || q.Target() != 2 {
 		t.Fatalf("populated reconcile: completed=%v target=%d, want open with target 2", q.Completed, q.Target())
@@ -386,7 +386,7 @@ func TestReconcileExterminationQuests(t *testing.T) {
 
 	// Targets all dead (an old save's state): reconcile completes on the spot.
 	a.HitPoints, b.HitPoints = 0, 0
-	g.reconcileExterminationQuests()
+	g.reconcileKillQuests()
 	if !g.questManager.GetQuest("purge_test").Completed {
 		t.Fatal("empty-map reconcile did not complete the quest")
 	}

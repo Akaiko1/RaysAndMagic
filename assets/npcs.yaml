@@ -379,8 +379,8 @@ npcs:
     size_class: person
     dialogue:
       greeting: "Keep below the ridge. The wind can throw a grown troll off these cliffs, and I doubt you weigh as much. Maera Cliffwatch. Have you come up from the bridges?"
-      active_message: "My offer stands: kill 3 Mountain Trolls here on the Dragon Cliffs, then report to me. Watch the bridge approaches."
-      completed_message: "Three trolls down. Good work. I can send the caravans through again. Here is your pay."
+      active_message: "My offer stands: kill the Mountain Trolls here on the Dragon Cliffs, then report to me. Watch the bridge approaches."
+      completed_message: "The bridges are clear. Good work. I can send the caravans through again. Here is your pay."
       visited_message: "Glad to see you on your feet. Keep an eye on the mist when you cross."
       choice_prompt: "Maera studies the ridgeline."
       choices:
@@ -390,7 +390,7 @@ npcs:
           choices:
             - text: "Why are they suddenly so bold?"
               action: "info"
-              response: "Varric blames the mages and their rites. Ask him if you want the theory. I need 3 Mountain Trolls killed on these cliffs so I can get the caravans moving."
+              response: "Varric blames the mages and their rites. Ask him if you want the theory. I need the Mountain Trolls driven off on these cliffs so I can get the caravans moving."
               choices:
                 - text: "We'll thin the ridge for you."
                   action: "give_quest"
@@ -417,7 +417,7 @@ npcs:
     size_class: person
     dialogue:
       greeting: "Stand still a moment. Feel that through your boots? Thirty years I've lived among these dragon bones. They've only just started knocking. Two mountain mages are meddling with them."
-      active_message: "The rite is still going. Kill the 2 Archmages on these cliffs and come back. I would rather spend my remaining years above ground."
+      active_message: "The rite is still going. Kill the Archmages on these cliffs and come back. I would rather spend my remaining years above ground."
       completed_message: "Put your ear to the rock. Nothing! Best thing I've heard all week. You stopped the rite. Here, take your pay."
       visited_message: "No more knocking. I slept so well I missed sunrise. Stay a while if you like."
       choice_prompt: "Varric taps his dragon-bone staff against the stone."
@@ -428,7 +428,7 @@ npcs:
           choices:
             - text: "What happens if the rite is finished?"
               action: "info"
-              response: "If they finish, we'll have dragon fire coming up through the ground. The trolls feel it already; that's why they're climbing toward Maera's bridges. Kill the 2 Archmages conducting the rite. I'll pay you when you return."
+              response: "If they finish, we'll have dragon fire coming up through the ground. The trolls feel it already; that's why they're climbing toward Maera's bridges. Kill the Archmages conducting the rite. I'll pay you when you return."
               choices:
                 - text: "We'll silence the mages and end the rite."
                   action: "give_quest"
@@ -1056,16 +1056,16 @@ npcs:
     size_class: person
     dialogue:
       greeting: "Welcome to the shrine. I am Shiori; the priests left me in charge. Please forgive the bells. I have tied up every clapper, and still they ring."
-      active_message: "Kill 5 Kasa Obake on the Sakura Garden's bamboo paths. The broken chime pieces are caught in their ribs. That should stop the bells."
+      active_message: "Hunt the Kasa Obake on the Sakura Garden's bamboo paths. The broken chime pieces are caught in their ribs. That should stop the bells."
       completed_message: "The bells have stopped! I can finally hear the broom on the steps. Thank you. Take this from the shrine."
       visited_message: "It is a pleasure to welcome guests without shouting over the bells."
       choice_prompt: "Shiori rests her broom."
       choices:
         - text: "Why do the bells ring wrong?"
           action: "info"
-          response: "Our ward chimes were cast from one piece of bronze. When the castle's curse broke them, the Kasa Obake picked up the fragments. Now those umbrellas hop through the bamboo with bronze in their ribs, ringing all night. Please kill 5 of them."
+          response: "Our ward chimes were cast from one piece of bronze. When the castle's curse broke them, the Kasa Obake picked up the fragments. Now those umbrellas hop through the bamboo with bronze in their ribs, ringing all night. Please hunt them down."
           choices:
-            - text: "We will kill five Kasa Obake."
+            - text: "We will silence those Kasa Obake."
               action: "give_quest"
               quest_id: "silent_bells"
             - text: "Back."
@@ -1087,17 +1087,17 @@ npcs:
     render_category: npc
     size_class: person
     dialogue:
-      greeting: "Careful of the mud. That was a flower bed yesterday. I'm Ayame, keeper of the Moon Pond. Four kappa have taken an interest in my waterworks."
-      active_message: "Kill 4 Kappa at the Moon Pond, then come back. They took the seals that control my channels."
+      greeting: "Careful of the mud. That was a flower bed yesterday. I'm Ayame, keeper of the Moon Pond. The kappa have taken an interest in my waterworks."
+      active_message: "Hunt the Kappa at the Moon Pond, then come back. They took the seals that control my channels."
       completed_message: "The water is flowing where it should, and the koi have come back to the bridge. Here is your reward. I have some flowers to replant."
       visited_message: "There you are. The bridge is dry if you'd like to sit and watch the fish."
       choice_prompt: "Ayame leans on her ladle."
       choices:
         - text: "What did the kappa take?"
           action: "info"
-          response: "Four stone seals, one for each channel gate. Fit a seal in its slot and the gate adjusts to the water level by itself. The kappa pulled them out when the wards failed. Now half my beds are flooded and the other half are drying out. Kill 4 Kappa and come back to me."
+          response: "Four stone seals, one for each channel gate. Fit a seal in its slot and the gate adjusts to the water level by itself. The kappa pulled them out when the wards failed. Now half my beds are flooded and the other half are drying out. Hunt the Kappa and come back to me."
           choices:
-            - text: "We will deal with the four Kappa."
+            - text: "We will deal with the Kappa."
               action: "give_quest"
               quest_id: "stolen_water_seal"
             - text: "Back."
@@ -1120,16 +1120,16 @@ npcs:
     size_class: person
     dialogue:
       greeting: "Keep your sword lowered. If I meant to kill you, I would have stayed in the trees. I am Kuroha. The flock on that ridge has cast me out."
-      active_message: "Kill 4 Karasu Tengu on the garden ridge. They dive without calling now. Watch the maples above you."
-      completed_message: "Four of the oath-sworn are dead. I knew their voices before the oath took them. Take this feather as payment; my people will know it."
+      active_message: "Hunt the Karasu Tengu on the garden ridge. They dive without calling now. Watch the maples above you."
+      completed_message: "The oath-sworn have paid. I knew their voices before the oath took them. Take this feather as payment; my people will know it."
       visited_message: "I will stay here until the flock is free of that oath. I would like to fly home."
       choice_prompt: "Kuroha's wings settle."
       choices:
         - text: "What oath did you refuse?"
           action: "info"
-          response: "We swore to guard the mountain. The flock has given a new oath to the power in the castle, the thing that moves the dead warlord's hands. I heard it answer them: steady knocking beneath the earth. They knelt to it. I left. Kill 4 of its Karasu Tengu on the ridge."
+          response: "We swore to guard the mountain. The flock has given a new oath to the power in the castle, the thing that moves the dead warlord's hands. I heard it answer them: steady knocking beneath the earth. They knelt to it. I left. Hunt its Karasu Tengu on the ridge."
           choices:
-            - text: "Four Tengu. We will break the oath."
+            - text: "We will break their oath."
               action: "give_quest"
               quest_id: "feathers_false_oath"
             - text: "Back."
@@ -1493,21 +1493,21 @@ npcs:
       already_known: "%s has that page already. I will not sell it twice."
       success: "Copied out for %s. Read it before you need it, not after."
       quest_greeting: "Keeper Ilthaea, Starlight Archive. I am attending to three overdue loans. Help me settle them, and you may buy from the restricted shelves."
-      active_message: "Destroy 3 Possessed Tomes in the Clock Tower's Gearworks and return here. Take care when they open their covers."
-      completed_message: "Three volumes destroyed. I dislike writing that in the ledger, but it closes the account. Your reward is ready, and you may now buy from the restricted shelves."
+      active_message: "Destroy the Possessed Tomes in the Clock Tower's Gearworks and return here. Take care when they open their covers."
+      completed_message: "The missing volumes are accounted for. I dislike writing that in the ledger, but it closes the account. Your reward is ready, and you may now buy from the restricted shelves."
       visited_message: "Your assistance is recorded in the ledger. The restricted shelves remain open to you."
       choice_prompt: "Ilthaea keeps one hand flat on the shelf."
       choices:
         - text: "Why will you not sell to us?"
           action: "info"
-          response: "A clockmaker's apprentice borrowed three volumes. They are still in the Gearworks, walking about and attacking people. Destroy those 3 Possessed Tomes, then report to me. The Archive will pay, and you may buy our advanced spells."
+          response: "A clockmaker's apprentice borrowed three volumes. They are still in the Gearworks, walking about and attacking people. Destroy those Possessed Tomes, then report to me. The Archive will pay, and you may buy our advanced spells."
           choices:
-            - text: "We will put the three books down."
+            - text: "We will put those books down."
               action: "give_quest"
               quest_id: "archive_missing_volumes"
             - text: "Back."
               action: "back"
-        - text: "We will put the three books down."
+        - text: "We will put those books down."
           action: "give_quest"
           quest_id: "archive_missing_volumes"
         - text: "Report the three books destroyed"
@@ -2423,24 +2423,24 @@ npcs:
     size_class: person
     dialogue:
       greeting: "You've brought swords. Good. I was about to try a broom. Goblins have taken over my herb paths south of the clearing, and I could use your help."
-      active_message: "Kill 5 Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
+      active_message: "Hunt the Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
       completed_message: "That takes care of the goblins. Here is your pay. I can gather herbs to the south again, but there is trouble on the north road too."
       visited_message: "Both herb paths open again! My thanks to you. Take care of yourselves out there."
       quest_messages:
         goblin_hunt:
           offer: "You've brought swords. Good. I was about to try a broom. Goblins have taken over my herb paths south of the clearing, and I could use your help."
-          active: "Kill 5 Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
+          active: "Hunt the Goblins south of the clearing, then come back for your pay. Keep an eye on the thicket."
           completed: "That takes care of the goblins. Here is your pay. I can gather herbs to the south again, but there is trouble on the north road too."
         wolf_pack:
           offer: "Now for the north road. The carters have stopped using it, and I cannot reach the meadow. Have you time for another job?"
-          active: "Kill 3 Wolves on the north forest road, then return to me. They've frightened off every carter who uses it."
+          active: "Hunt the Wolves on the north forest road, then return to me. They've frightened off every carter who uses it."
           completed: "The carters can use the north road again. Here's your pay. With both paths open, I can get back to gathering herbs."
       choice_prompt: "Wenna shifts her basket."
       choices:
         - text: "Tell us about the goblins."
           action: "info"
           quest_step: "goblin_hunt"
-          response: "Goblins in the thicket south of the clearing. One stole my basket; the next tried to take the hand holding it. Kill 5 Goblins and come back. I can pay for the work."
+          response: "Goblins in the thicket south of the clearing. One stole my basket; the next tried to take the hand holding it. Hunt the Goblins and come back. I can pay for the work."
           choices:
             - text: "We will kill them."
               action: "give_quest"
@@ -2457,9 +2457,9 @@ npcs:
           action: "info"
           requires_quest: "goblin_hunt"
           quest_step: "wolf_pack"
-          response: "Wolves on the north road. The carters won't go through, and the meadow I need is beyond them. Kill 3 Wolves there and return to me for another payment."
+          response: "Wolves on the north road. The carters won't go through, and the meadow I need is beyond them. Hunt the Wolves there and return to me for another payment."
           choices:
-            - text: "We will kill the three Wolves."
+            - text: "We will hunt the Wolves."
               action: "give_quest"
               quest_id: "wolf_pack"
               requires_quest: "goblin_hunt"
@@ -2480,16 +2480,16 @@ npcs:
     night_only: true
     dialogue:
       greeting: "Stay there, please. The spiders have already had a good enough look. I came for a bath, and now I cannot reach my clothes. Would you clear the bank?"
-      active_message: "Kill 5 Forest Spiders here by the lake, then come back. I can wait in the water a little longer."
+      active_message: "Clear the Forest Spiders here by the lake, then come back. I can wait in the water a little longer."
       completed_message: "At last! Turn around while I get my things. There is gold and a potion in my bundle for you."
       visited_message: "Much better. I should like to finish my bath now."
       choice_prompt: "Ilsa watches the reeds."
       choices:
         - text: "Tell us about the spiders."
           action: "info"
-          response: "Big pale Forest Spiders. They come down from the trees every night, and they won't cross the open water. Kill 5 here at the lake and I'll pay you. If they come back another night, so will the offer."
+          response: "Big pale Forest Spiders. They come down from the trees every night, and they won't cross the open water. Clear the bank and I'll pay you. If they come back another night, so will the offer."
           choices:
-            - text: "We will kill five of them."
+            - text: "We will clear the bank."
               action: "give_quest"
               quest_id: "lake_spiders"
             - text: "Back."
@@ -2510,29 +2510,29 @@ npcs:
     size_class: person
     dialogue:
       greeting: "Trying the statue? Three parties have pressed statuettes to those runes while I watched. None knew the oath. I am Sylwen. I have kept these four seals for two years."
-      active_message: "Hunt all 4 Elder Dragons, then return to me. Each desert seal takes a statuette of its own color. The Pyramid Sanctum's reliquaries hold them. Be ready when the seal opens."
-      completed_message: "Four Elder Dragons destroyed. After two years watching these stones, I had begun to think I would grow old here. You have earned the pilgrimage's reward."
+      active_message: "Hunt the Elder Dragons, then return to me. Each desert seal takes a statuette of its own color. The Pyramid Sanctum's reliquaries hold them. Be ready when the seal opens."
+      completed_message: "The Elder Dragons are destroyed. After two years watching these stones, I had begun to think I would grow old here. You have earned the pilgrimage's reward."
       visited_message: "My watch is over. I keep looking at the road east, wondering how far I could walk before sundown."
       choice_prompt: "Sylwen keeps a hand on the warm stone."
       choices:
         - text: "Why do the runes do nothing?"
           action: "info"
-          response: "First swear here to hunt all 4 Elder Dragons. Then take the colored dragon statuettes from the Pyramid Sanctum's reliquaries to their matching desert seals. A statuette will open its seal only after you have taken the oath."
+          response: "First swear here to hunt the Elder Dragons. Then take the colored dragon statuettes from the Pyramid Sanctum's reliquaries to their matching desert seals. A statuette will open its seal only after you have taken the oath."
           choices:
             - text: "What sleeps in the stone?"
               action: "info"
-              response: "Four Elder Dragons. Through a crack in one seal I touched a hide of scorched, riveted plates. It was warm. A blade struck against it threw sparks. Whatever the ancients built them for, they have become dangerous. We must destroy all four."
+              response: "Elder Dragons. Through a crack in one seal I touched a hide of scorched, riveted plates. It was warm. A blade struck against it threw sparks. Whatever the ancients built them for, they have become dangerous. We must destroy them."
               choices:
-                - text: "We swear the hunt. All four."
+                - text: "We swear the hunt."
                   action: "give_quest"
                   quest_id: "dragon_slayer"
                 - text: "Back."
                   action: "back"
             - text: "Back."
               action: "back"
-        - text: "We swear the hunt. All four."
+        - text: "We swear the hunt."
           action: "give_quest"
           quest_id: "dragon_slayer"
-        - text: "Report the fourth seal empty"
+        - text: "Report the seals empty"
           action: "turn_in_quest"
           quest_id: "dragon_slayer"

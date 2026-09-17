@@ -718,6 +718,15 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 		}
 	}
 
+	// Corpses outlive world.Monsters and must retain their animation resources.
+	for _, corpse := range r.game.monsterCorpses {
+		if scope.containsWorld(corpse.x, corpse.y) {
+			resource := mapMonsterPrewarmResource{key: corpse.key, spriteName: corpse.spriteName}
+			monsterDecode[resource] = struct{}{}
+			monsterSprites[resource] = struct{}{}
+			priorities.observe(corpse.spriteName, streamScoreAt(corpse.x, corpse.y))
+		}
+	}
 	// Seed exact live sprite overrides first, then resolve every key through the
 	// YAML definition below so its potential summons are included recursively.
 	for _, mon := range currentWorld.Monsters {
@@ -1732,7 +1741,7 @@ func mapRenderSourceRequests(plan mapRenderPrewarmPlan) []graphics.SpriteResourc
 			return
 		}
 		addSprite(resource.spriteName)
-		for _, animationType := range []string{"walking_r", "walking_l", "attacking_r", "attacking_l"} {
+		for _, animationType := range []string{"walking_r", "walking_l", "attacking_r", "attacking_l", "dying_r", "dying_l"} {
 			requests[graphics.SpriteResourceRequest{Name: resource.spriteName, AnimationType: animationType}] = struct{}{}
 		}
 	}
@@ -1977,11 +1986,18 @@ func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResou
 			attack = p.animationFrames(resource.spriteName, "attacking_l")
 		}
 		appendFrames(attack)
+		death := p.animationFrames(resource.spriteName, "dying_r")
+		if len(death) == 0 {
+			death = p.animationFrames(resource.spriteName, "dying_l")
+		}
+		appendFrames(death)
 	} else {
 		hasWalk = appendFrames(p.animationFrames(resource.spriteName, "walking_r"))
 		hasWalk = appendFrames(p.animationFrames(resource.spriteName, "walking_l")) || hasWalk
 		appendFrames(p.animationFrames(resource.spriteName, "attacking_r"))
 		appendFrames(p.animationFrames(resource.spriteName, "attacking_l"))
+		appendFrames(p.animationFrames(resource.spriteName, "dying_r"))
+		appendFrames(p.animationFrames(resource.spriteName, "dying_l"))
 	}
 	if !hasWalk {
 		if base := p.sprite(resource.spriteName); base != nil {

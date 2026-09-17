@@ -236,8 +236,8 @@ func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {
 	if !q.Completed {
 		t.Fatal("quest taken after the wipe must complete immediately")
 	}
-	if q.CurrentCount != q.Definition.TargetCount {
-		t.Errorf("journal shows %d/%d, want full count", q.CurrentCount, q.Definition.TargetCount)
+	if q.CurrentCount != 0 || q.Target() != 0 {
+		t.Errorf("already-cleared journal shows %d/%d, want 0/0", q.CurrentCount, q.Target())
 	}
 	tc := q.Definition.OnCompleteTiles[0]
 	bridgeType, _ := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
@@ -292,7 +292,7 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 
 	// Killing the runtime-summoned (ignored) wolf must not advance or complete it.
 	extra.HitPoints = 0
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	if q.CurrentCount != 0 {
 		t.Fatalf("ignored wolf changed progress to %d/%d, want 0/2", q.CurrentCount, q.Target())
 	}
@@ -301,7 +301,7 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 	}
 
 	first.HitPoints = 0
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	if q.CurrentCount != 1 {
 		t.Fatalf("one real wolf left progress = %d/%d, want 1/2", q.CurrentCount, q.Target())
 	}
@@ -310,14 +310,14 @@ func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
 	}
 
 	second.HitPoints = 0
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	if !q.Completed {
 		t.Fatal("quest should complete after the last real wolf dies")
 	}
 	if q.CurrentCount != q.Target() {
 		t.Fatalf("completed progress = %d/%d, want full", q.CurrentCount, q.Target())
 	}
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	if got := countCombatLog(g, "completed!"); got != 1 {
 		t.Fatalf("completion announcements after repeated sync = %d, want exactly 1", got)
 	}
@@ -344,7 +344,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 	}
 
 	// Wolf alive -> no completion, no bridge.
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	g.applyCompletedQuestTiles()
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest completed while a wolf lives")
@@ -355,7 +355,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 
 	// Last wolf dies -> quest completes and the bridge appears.
 	wolf.HitPoints = 0
-	g.completeClearedKillQuestsForTarget("wolf")
+	g.completeClearedKillQuestsForTarget("wolf", false)
 	g.applyCompletedQuestTiles()
 	if !g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest should complete once the map is cleared")

@@ -24,11 +24,12 @@ type SpriteManager struct {
 	deferResource   func(SpriteResourceRequest) bool
 	failedResources map[SpriteResourceRequest]bool
 
-	imageResources   map[*ebiten.Image]SpriteResourceRequest
-	sprites          map[string]*ebiten.Image
-	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
-	animations       map[animationCacheKey]*SpriteAnimation
-	animationMissing map[animationCacheKey]bool
+	imageResources       map[*ebiten.Image]SpriteResourceRequest
+	sprites              map[string]*ebiten.Image
+	spriteTypeCache      map[string]string // Cache sprite types to avoid repeated file checks
+	animations           map[animationCacheKey]*SpriteAnimation
+	animationMissing     map[animationCacheKey]bool
+	animationFrameCounts map[animationCacheKey]int
 	// CPU alpha masks for the rare pixel-perfect hit tests. Reading an
 	// *ebiten.Image with At/ReadPixels flushes the GPU command queue, and At
 	// reads the WHOLE image back - a stall per interaction probe.
@@ -1050,6 +1051,38 @@ func (sm *SpriteManager) spriteExists(name string) bool {
 	sm.ensureIndex()
 	_, ok := sm.spritePaths[name]
 	return ok
+}
+
+// AnimationFrameCount reads only the PNG header for a cold sheet. Death
+// presentation can select a sheet without uploading an off-screen GPU texture.
+// Counts share the loader's frame-layout rule and survive resource eviction.
+func (sm *SpriteManager) AnimationFrameCount(name, animType string) int {
+	if sm == nil {
+		return 0
+	}
+	key := animationKey(name, animType)
+	if animation := sm.animations[key]; animation != nil {
+		return len(animation.Frames)
+	}
+	if count, ok := sm.animationFrameCounts[key]; ok {
+		return count
+	}
+	sm.ensureIndex()
+	count := 0
+	if path := sm.spritePaths[name+"_"+animType]; path != "" {
+		if f, err := os.Open(path); err == nil {
+			metadata, _, err := image.DecodeConfig(f)
+			f.Close()
+			if err == nil {
+				count = len(animationFrameRects(image.Rect(0, 0, metadata.Width, metadata.Height)))
+			}
+		}
+	}
+	if sm.animationFrameCounts == nil {
+		sm.animationFrameCounts = make(map[animationCacheKey]int)
+	}
+	sm.animationFrameCounts[key] = count
+	return count
 }
 
 func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {

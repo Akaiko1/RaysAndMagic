@@ -8,10 +8,11 @@ quests:
   # errand at a time instead of a full journal on turn one.
   goblin_hunt:
     name: "Goblin Hunt"
-    description: "Goblins have driven Wenna the Herb-Picker off the southern herb paths. Kill 5 Goblins south of the forest clearing, then return to Wenna for payment."
+    description: "Goblins have driven Wenna the Herb-Picker off the southern herb paths. Kill {target_count} Goblins south of the forest clearing, then return to Wenna for payment."
     type: "kill"
     target_monster: "goblin"
     target_count: 5
+    target_map: "forest"
     is_starting_quest: false
     rewards:
       gold: 50
@@ -19,10 +20,11 @@ quests:
 
   wolf_pack:
     name: "Wolf Pack"
-    description: "Wenna can gather herbs to the south again, but wolves have stopped the carts on the north forest road. Kill 3 Wolves there and report back to her."
+    description: "Wenna can gather herbs to the south again, but wolves have stopped the carts on the north forest road. Kill {target_count} Wolves there and report back to her."
     type: "kill"
     target_monster: "wolf"
     target_count: 3
+    target_map: "forest"
     is_starting_quest: false
     rewards:
       gold: 75
@@ -33,7 +35,7 @@ quests:
   # and paid in whatever draught she has on her.
   lake_spiders:
     name: "The Lake at Night"
-    description: "Ilsa wants a bath without Forest Spiders gathering on the bank. Kill 5 at the forest lake and return to her for a reward. More arrive each night; she will pay for another clearing."
+    description: "Ilsa wants a bath without Forest Spiders gathering on the bank. Kill {target_count} at the forest lake and return to her for a reward. More arrive each night; she will pay for another clearing."
     type: "kill"
     target_monster: "forest_spider"
     target_count: 5
@@ -65,7 +67,7 @@ quests:
 
   dragon_cliffs_troll_cull:
     name: "Cliffwatch Troll Cull"
-    description: "Mountain Trolls are blocking the bridges on the Dragon Cliffs. Maera Cliffwatch needs 3 killed before the caravans can pass. Return to her when the work is done."
+    description: "Mountain Trolls are blocking the bridges on the Dragon Cliffs. Maera Cliffwatch needs {target_count} killed before the caravans can pass. Return to her when the work is done."
     type: "kill"
     target_monster: "mountain_troll"
     target_count: 3
@@ -106,7 +108,7 @@ quests:
   # level - the quest definitions themselves stay flat.
   silent_bells:
     name: "The Silent Bells"
-    description: "The Kasa Obake in the Sakura Garden have lodged fragments of the broken ward chimes in their umbrella ribs. Shiori needs 5 of these creatures killed to stop the bells. Return to her at the shrine."
+    description: "The Kasa Obake in the Sakura Garden have lodged fragments of the broken ward chimes in their umbrella ribs. Shiori needs {target_count} of these creatures killed to stop the bells. Return to her at the shrine."
     type: "kill"
     target_monster: "kasa_obake"
     target_count: 5
@@ -123,7 +125,7 @@ quests:
 
   stolen_water_seal:
     name: "The Stolen Water Seals"
-    description: "Four Kappa stole the carved seals that control the koi channels. Kill 4 Kappa at the Moon Pond in the Sakura Garden, then report to Ayame the pond keeper so she can put the waterworks right."
+    description: "Kappa stole the carved seals that control the koi channels. Kill {target_count} Kappa at the Moon Pond in the Sakura Garden, then report to Ayame the pond keeper so she can put the waterworks right."
     type: "kill"
     target_monster: "kappa"
     target_count: 4
@@ -139,7 +141,7 @@ quests:
 
   feathers_false_oath:
     name: "Feathers of the False Oath"
-    description: "Kuroha's flock has sworn itself to the power that possesses the castle's dead warlord. Kill 4 Karasu Tengu on the Sakura Garden ridge and return to the exile Kuroha."
+    description: "Kuroha's flock has sworn itself to the power that possesses the castle's dead warlord. Kill {target_count} Karasu Tengu on the Sakura Garden ridge and return to the exile Kuroha."
     type: "kill"
     target_monster: "karasu_tengu"
     target_count: 4
@@ -188,7 +190,7 @@ quests:
 
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
-    description: "Old Varric has seen lights flashing inside the Dragon Cliffs in answer to a rite over the dragon bones. Kill the 2 Archmages conducting it before they wake the buried fire. Return to Varric for payment."
+    description: "Old Varric has seen lights flashing inside the Dragon Cliffs in answer to a rite over the dragon bones. Kill {target_count} Archmages conducting it before they wake the buried fire. Return to Varric for payment."
     type: "kill"
     target_monster: "archmage"
     target_count: 2
@@ -202,7 +204,7 @@ quests:
   # (victory itself now belongs to endgame_triad).
   dragon_slayer:
     name: "Dragon Slayer"
-    description: "Swear Sylwen the Pilgrim's hunt, then slay all 4 Elder Dragons at the desert seals and return to her. Each seal needs a matching colored statuette from the Pyramid Sanctum's reliquaries. Beneath the dragons' scorched hides lie riveted plates; sword cuts throw sparks."
+    description: "Swear Sylwen the Pilgrim's hunt, then slay {target_count} Elder Dragons at the desert seals and return to her. Each seal needs a matching colored statuette from the Pyramid Sanctum's reliquaries. Beneath the dragons' scorched hides lie riveted plates; sword cuts throw sparks."
     type: "kill"
     target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
     target_count: 4
@@ -226,7 +228,7 @@ quests:
 
   archive_missing_volumes:
     name: "The Archive's Missing Volumes"
-    description: "The Starlight Archive's three missing books have grown legs and teeth. Destroy 3 Possessed Tomes in the Clock Tower's Gearworks and report to Keeper Ilthaea. She will then sell us the Archive's advanced spells."
+    description: "The Starlight Archive's missing books have grown legs and teeth. Destroy {target_count} Possessed Tomes in the Clock Tower's Gearworks and report to Keeper Ilthaea. She will then sell us the Archive's advanced spells."
     type: "kill"
     target_monster: "possessed_tome"
     target_count: 3

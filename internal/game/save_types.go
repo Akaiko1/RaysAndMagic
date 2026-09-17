@@ -97,11 +97,12 @@ type GameSave struct {
 
 // QuestSave captures quest progress for save/load
 type QuestSave struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"`
-	CurrentCount   int    `json:"current_count"`
-	DynamicTarget  int    `json:"dynamic_target,omitempty"`
-	RewardsClaimed bool   `json:"rewards_claimed"`
+	ID               string `json:"id"`
+	Status           string `json:"status"`
+	CurrentCount     int    `json:"current_count"`
+	DynamicTarget    int    `json:"dynamic_target,omitempty"`
+	DynamicTargetSet bool   `json:"dynamic_target_set,omitempty"`
+	RewardsClaimed   bool   `json:"rewards_claimed"`
 }
 
 type PartySave struct {

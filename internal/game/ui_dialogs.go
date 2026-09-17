@@ -1789,7 +1789,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 	// page shows as many quests as actually fit, not a fixed count.
 	copies := make([]questCardCopy, len(allQuests))
 	for i, quest := range allQuests {
-		copies[i] = questCardCopyFor(quest.Definition.Description, layout.cardW, layout.maxDescRows)
+		copies[i] = questCardCopyFor(quest.Description(), layout.cardW, layout.maxDescRows)
 	}
 	layout = computeQuestContentLayout(content, copies, ui.questPage)
 	// Clamp every frame so the page stays valid when quests are added/removed.

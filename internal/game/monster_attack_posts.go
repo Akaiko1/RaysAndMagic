@@ -233,3 +233,20 @@ func monsterStackFanOffset(m *monster.Monster3D, tileSize float64) (float64, flo
 	// Let a dissolved transit stack ease back to the monster's real position.
 	return m.TransitStackOffsetX, m.TransitStackOffsetY
 }
+
+// monsterVisualStackOffset preserves lateral separation without moving the
+// stack toward the camera. Corpse capture and render fallbacks share this rule.
+func (g *MMGame) monsterVisualStackOffset(m *monster.Monster3D, x, y float64) (float64, float64) {
+	ox, oy := monsterStackFanOffset(m, g.config.GetTileSize())
+	camX, camY := g.camera.X, g.camera.Y
+	if g.combat != nil {
+		camX, camY = g.combat.logicalCameraXY()
+	}
+	dx, dy := x-camX, y-camY
+	if lengthSq := dx*dx + dy*dy; lengthSq > 0 {
+		if inward := (ox*dx + oy*dy) / lengthSq; inward < 0 {
+			ox, oy = ox-inward*dx, oy-inward*dy
+		}
+	}
+	return ox, oy
+}

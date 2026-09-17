@@ -304,7 +304,8 @@ type MMGame struct {
 	// Combat effects
 	magicProjectiles []MagicProjectile
 	arrows           []Arrow
-	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
+	groundContainers []GroundContainer
+	monsterCorpses   []monsterCorpse // unified loot bags + treasure chests on the ground
 	// containerFanOffsets caches each container's render-only fan offset for the
 	// current frame (see groundContainerRenderOffset): rebuilt in one O(n) tile
 	// grouping pass, then O(1) per lookup - the render + hit-test paths query
@@ -2977,7 +2978,17 @@ const partyAttackTargetID = "player"
 // attack target; a normal hostile targets either its closer AIFoe or the party.
 func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
 	frame := g.monsterFrameContext()
-	return monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+	id, x, y, ok = monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+	// This wrapper runs serially. Foes may have moved or died since the AI
+	// snapshot, especially earlier in the same TB pass. Workers call the
+	// snapshot-only helper directly and must never read another actor's state.
+	if ok && m.AIFoe != nil {
+		if !m.AIFoe.IsAlive() {
+			return "", 0, 0, false
+		}
+		x, y = m.AIFoe.X, m.AIFoe.Y
+	}
+	return
 }
 
 func monsterAttackTargetAt(m *monster.Monster3D, partyX, partyY float64, hasParty bool) (id string, x, y float64, ok bool) {

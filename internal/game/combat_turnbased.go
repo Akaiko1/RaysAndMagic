@@ -453,6 +453,11 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 // habitat-aware collision check passes, updating its collision entity and turn
 // stamp. Returns whether the monster moved.
 func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
+	if blocked := gl.attackTargetTile(m); blocked != nil &&
+		TileIndex(wx, gl.game.config.GetTileSize()) == blocked.X &&
+		TileIndex(wy, gl.game.config.GetTileSize()) == blocked.Y {
+		return false
+	}
 	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
 		return false
 	}
@@ -561,7 +566,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		// against a monster foe there is no alignment rule - plain approach.
 		if monster.AIFoe == nil && !monster.Bound && gl.game.collisionSystem != nil {
 			if goals := gl.turnBasedRangedGoalTiles(monster); len(goals) > 0 {
-				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(monster)); ok {
 					wx, wy := TileCenterFromTile(nx, ny, tileSize)
 					if gl.commitMonsterMoveTB(monster, wx, wy) {
 						return
@@ -591,7 +596,7 @@ func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monste
 	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
 		return false
 	}
-	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(m)); ok {
 		wx, wy := TileCenterFromTile(nx, ny, tileSize)
 		if gl.commitMonsterMoveTB(m, wx, wy) {
 			return true
@@ -733,4 +738,14 @@ func (gl *GameLoop) endMonsterTurn() {
 	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages
+}
+
+// attackTargetTile uses the same resolved target as movement and combat.
+func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
+	_, x, y, ok := gl.game.monsterAttackTarget(m)
+	if !ok {
+		return nil
+	}
+	ts := gl.game.config.GetTileSize()
+	return &monster.TileCoord{X: TileIndex(x, ts), Y: TileIndex(y, ts)}
 }

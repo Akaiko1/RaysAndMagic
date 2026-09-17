@@ -154,13 +154,12 @@ type Quest struct {
 	Definition   *QuestDefinition
 	Status       QuestStatus
 	CurrentCount int // Current progress towards target
-	// DynamicTarget snapshots a per-instance goal count at accept time (0 = unset,
-	// fall back to the static Definition.TargetCount). Exterminate quests capture
-	// the live target census when accepted, so the journal counts the map's real
-	// population instead of a hand-maintained number.
-	DynamicTarget  int
-	Completed      bool
-	RewardsClaimed bool
+	// DynamicTarget is the effective per-run quota. DynamicTargetSet also
+	// represents a resolved zero; legacy positive snapshots remain valid.
+	DynamicTarget    int
+	DynamicTargetSet bool
+	Completed        bool
+	RewardsClaimed   bool
 }
 
 func (q *Quest) complete(autoClaim bool) {
@@ -174,7 +173,7 @@ func (q *Quest) complete(autoClaim bool) {
 // Target is the effective goal count: the per-instance DynamicTarget snapshot
 // when set, else the static definition count.
 func (q *Quest) Target() int {
-	if q.DynamicTarget > 0 {
+	if q.DynamicTargetSet || q.DynamicTarget > 0 {
 		return q.DynamicTarget
 	}
 	return q.Definition.TargetCount
@@ -404,13 +403,14 @@ func (qm *QuestManager) MarkCompleted(questID string) {
 	}
 }
 
-// SetDynamicTarget snapshots a per-instance goal count (exterminate quests
-// capture the live target census at accept). No-op if not active.
+// SetDynamicTarget sets the resolved per-instance quota, including zero.
+// No-op if the quest has not been activated.
 func (qm *QuestManager) SetDynamicTarget(questID string, target int) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	if quest, ok := qm.activeQuests[questID]; ok {
-		quest.DynamicTarget = target
+		quest.DynamicTarget = max(0, target)
+		quest.DynamicTargetSet = true
 	}
 }
 
@@ -427,7 +427,7 @@ func (qm *QuestManager) SetCurrentCount(questID string, count int) {
 	if count < 0 {
 		count = 0
 	}
-	if max := quest.Target(); max > 0 && count > max {
+	if max := quest.Target(); count > max {
 		count = max
 	}
 	quest.CurrentCount = count
@@ -745,6 +745,13 @@ func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus,
 	quest.Status = status
 	quest.CurrentCount = currentCount
 	quest.DynamicTarget = dynamicTarget
+	quest.DynamicTargetSet = dynamicTarget > 0
 	quest.Completed = (status == QuestStatusCompleted)
 	quest.RewardsClaimed = rewardsClaimed || (quest.Completed && quest.Definition.AutoClaim)
+}
+
+// Description resolves authored count placeholders from the same quota as
+// progress, completion and rewards. Definitions remain immutable.
+func (q *Quest) Description() string {
+	return strings.ReplaceAll(q.Definition.Description, "{target_count}", fmt.Sprint(q.Target()))
 }

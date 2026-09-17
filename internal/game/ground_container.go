@@ -59,6 +59,7 @@ func (g *MMGame) containerDefaultSizeTiles(kind ContainerKind) float64 {
 // the loot bag (monster drop) and treasure chest (encounter reward) systems
 // that previously had near-identical parallel implementations.
 type GroundContainer struct {
+	hop       lootHop // visual only; saves store the final landing coordinates
 	Kind      ContainerKind
 	ID        string // optional dedup key; "" disables dedup
 	MapKey    string // "" -> current map only; set for cross-map containers
@@ -378,7 +379,7 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 	bestDistSq := 0.0
 	for i := range g.groundContainers {
 		c := &g.groundContainers[i]
-		if !c.onCurrentWorld() {
+		if !c.onCurrentWorld() || c.hop.active(g.frameCount) {
 			continue
 		}
 		dx := c.X - playerX
@@ -406,6 +407,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		return
 	}
 	c := g.groundContainers[index]
+	if c.hop.active(g.frameCount) {
+		return
+	}
 	defaults := groundContainerDefaults[c.Kind]
 
 	if len(c.Items) == 0 && c.Gold <= 0 {
@@ -474,6 +478,7 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
 	info.ScreenXF, info.BottomF, info.SizeF, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetricsF(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.BottomF -= g.lootHopHeight(c) * info.SizeF / g.containerRenderSizeTiles(c)
 	info.ScreenX = int(info.ScreenXF)
 	info.SpriteSize = int(info.SizeF)
 	info.ScreenY = int(info.BottomF) - info.SpriteSize
@@ -489,10 +494,12 @@ func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float
 		return 0, 0
 	}
 	g.ensureContainerFanOffsets()
-	if off, ok := g.containerFanOffsets[c]; ok {
-		return off[0], off[1]
+	off := g.containerFanOffsets[c]
+	if c.hop.active(g.frameCount) {
+		t := c.hop.progress(g.frameCount)
+		return (c.hop.fromX-c.X)*(1-t) + off[0]*t, (c.hop.fromY-c.Y)*(1-t) + off[1]*t
 	}
-	return 0, 0 // solo container (absent from the cache) or stale pointer
+	return off[0], off[1]
 }
 
 // invalidateContainerFanCache marks the fan-offset cache stale after the

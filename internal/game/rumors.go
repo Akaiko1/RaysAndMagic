@@ -113,38 +113,13 @@ func (g *MMGame) questCompleted(id string) bool {
 	return q != nil && q.Completed
 }
 
-// rumorSpawnFired recognizes current stable spawn keys plus both legacy save
-// forms used before spawn IDs became authoritative.
-func (g *MMGame) rumorSpawnFired(ref string) bool {
-	if g.questSpawnsDone[ref] {
-		return true
-	}
-	questID, spawnID, ok := strings.Cut(ref, "#")
-	if !ok || g.questManager == nil {
-		return false
-	}
-	if g.questSpawnsDone[questID] {
-		return true
-	}
-	def := g.questManager.Definitions()[questID]
-	if def == nil {
-		return false
-	}
-	for i, spawn := range def.OnCompleteSpawns {
-		if spawn.ID == spawnID {
-			return g.questSpawnsDone[fmt.Sprintf("%s#%d", questID, i)]
-		}
-	}
-	return false
-}
-
 func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {
 	if r.UntilMonster == "" {
 		return false
 	}
 	// A deferred boss is absent before its first arrival too. Only treat
 	// absence as death after its authored spawn event has actually fired.
-	if r.Spawn != "" && !g.rumorSpawnFired(r.Spawn) {
+	if r.Spawn != "" && !g.questSpawnFired(r.Spawn) {
 		return false
 	}
 	def := &quests.QuestDefinition{

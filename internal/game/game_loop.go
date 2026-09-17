@@ -197,6 +197,7 @@ func (gl *GameLoop) updateExploration() {
 	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
 	// is what makes a paused overlay a still picture.
 	gl.game.frameCount++
+	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
 	gl.game.updateAutomaticConsumables()
 
