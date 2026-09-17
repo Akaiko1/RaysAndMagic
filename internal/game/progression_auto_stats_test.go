@@ -19,6 +19,7 @@ func TestAutoEnduranceTargets(t *testing.T) {
 		{character.ClassCleric, 22},
 		{character.ClassDruid, 20},
 		{character.ClassArcher, 18},
+		{character.ClassSniper, 18},
 		{character.ClassThief, 18},
 		{character.ClassSorcerer, 16},
 	}
@@ -40,6 +41,7 @@ func TestAutoSpeedTargets(t *testing.T) {
 		{character.ClassKnight, 16},
 		{character.ClassPaladin, 16},
 		{character.ClassArcher, 16},
+		{character.ClassSniper, 16},
 		{character.ClassCleric, 16},
 		{character.ClassSorcerer, 16},
 		{character.ClassDruid, 16},
@@ -70,6 +72,7 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 		{character.ClassKnight, "might", "", 6, 0},
 		{character.ClassPaladin, "might", "personality", 4, 2},
 		{character.ClassArcher, "accuracy", "intellect", 4, 2},
+		{character.ClassSniper, "accuracy", "", 6, 0},
 		{character.ClassCleric, "personality", "", 6, 0},
 		{character.ClassSorcerer, "intellect", "", 6, 0},
 		{character.ClassDruid, "intellect", "personality", 4, 2},

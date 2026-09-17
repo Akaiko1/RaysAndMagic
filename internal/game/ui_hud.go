@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
@@ -845,6 +846,13 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			selectionX, selectionY, selectionW, selectionH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, selectionGap)
 			drawPartySolidFrame(screen, selectionX, selectionY, selectionW, selectionH, 1.5, color.RGBA{232, 190, 86, 245})
 		}
+		if ui.game.overwatchReady(member) {
+			cx, cy := float32(px+pw-11), float32(py+11)
+			drawTacticalReticle(screen, cx, cy, 9)
+			if isMouseHoveringBox(mouseX, mouseY, int(cx)-9, int(cy)-9, int(cx)+9, int(cy)+9) {
+				ui.queueTooltip([]string{uitext.Text("ui.overwatch_ready"), character.SkillOverwatch.Description()}, mouseX+12, mouseY+8)
+			}
+		}
 		if ui.game.partyMemberFocused(i) {
 			// Focus belongs to the portrait, not to the whole party slot. Its tip
 			// deliberately overlaps the authored top rim so the marker reads as
@@ -1392,6 +1400,9 @@ func (ui *UISystem) drawCompassAt(screen *ebiten.Image, compassX, compassY int) 
 	// A single north-up map and a rotating player pointer avoid the ambiguity of
 	// the old red line, which looked like either a heading or a target marker.
 	angle := ui.game.camera.Angle
+	if ui.game.viewTurnFramesLeft > 0 {
+		angle = ui.game.viewAngleRender
+	}
 	tipRadius := float64(compassRadius - 9)
 	tipX := float64(compassX) + math.Cos(angle)*tipRadius
 	tipY := float64(compassY) + math.Sin(angle)*tipRadius

@@ -57,6 +57,7 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	restoreRoster(&g.party.Members, save.Party.Members)
 	restoreRoster(&g.party.Reserve, save.Party.Reserve)
 	restoreRoster(&g.party.Captive, save.Party.Captive)
+	g.ensureAdditionalRecruits()
 	if save.TotalExperienceEarned > 0 {
 		g.totalExperienceEarned = save.TotalExperienceEarned
 	} else {
@@ -90,5 +91,38 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	}
 	for _, m := range g.party.Captive {
 		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
+}
+
+// Authored opt-in brings newly released recruits into older saves once.
+func (g *MMGame) ensureAdditionalRecruits() {
+	for _, entry := range g.config.Characters.TavernRecruits {
+		if !entry.AvailableInExistingSaves {
+			continue
+		}
+		found := false
+		experience := 0
+		for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+			for _, ch := range roster {
+				if ch.Name == entry.Name {
+					found = true
+				}
+				if xp := earnedExperienceForCharacter(ch.Level, ch.Experience); xp > experience {
+					experience = xp
+				}
+			}
+		}
+		if found {
+			continue
+		}
+		ch := character.CreateRosterCharacter(entry, g.config)
+		if ch == nil {
+			continue
+		}
+		g.party.Recruit(ch)
+		ch.Experience = experience
+		NewCombatSystem(g).checkLevelUp(ch, false)
+		ch.HitPoints, ch.SpellPoints = ch.MaxHitPoints, ch.MaxSpellPoints
+		g.loadNeedsResave = true
 	}
 }

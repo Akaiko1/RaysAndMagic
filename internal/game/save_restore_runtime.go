@@ -10,6 +10,7 @@ import (
 func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	// Restore mode
 	g.turnBasedMode = save.TurnBased
+	g.resetOverwatch()
 	g.turnBasedTurnSuspended = save.TurnBasedTurnSuspended
 	g.currentTurn = save.CurrentTurn
 	g.partyActionsUsed = save.PartyActionsUsed

@@ -100,10 +100,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 	if cannotReceiveOrdinaryHealing(ch) {
 		return
 	}
-	heal := base
-	if div > 0 {
-		heal += ch.GetEffectiveEndurance() / div
-	}
+	heal := character.ConsumableRestore(ch, base, div, false)
 	before := ch.HitPoints
 	ch.HitPoints += heal
 	if ch.HitPoints > ch.MaxHitPoints {
@@ -321,7 +318,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			g.AddCombatMessage(fmt.Sprintf("%s is already brimming with mana.", ch.Name))
 			return false
 		}
-		restore := base + ch.GetEffectivePersonality()/div
+		restore := character.ConsumableRestore(ch, base, div, true)
 		before := ch.SpellPoints
 		ch.SpellPoints += restore
 		if ch.SpellPoints > ch.MaxSpellPoints {

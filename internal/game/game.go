@@ -99,6 +99,9 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	Overwatch          bool // Reaction provenance; never changes weapon or proc classification.
+	CritChance         int
+	WorldAim           bool
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -173,6 +176,7 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	tactics tacticalState
 	menuState
 	dialogState
 	world     *world.World3D
@@ -596,6 +600,7 @@ type MMGame struct {
 	// rosterSelectedActive is the active slot the player picked first (-1 = none).
 	rosterScreenOpen     bool
 	rosterSelectedActive int
+	rosterScroll         int
 
 	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
 	// chest is lazy-loaded on first open and persisted on every transfer.
@@ -1647,6 +1652,30 @@ func (g *MMGame) beginViewAngleSwap() (restore func()) {
 	}
 }
 
+// beginScreenShakeSwap confines cosmetic displacement to the scene pass.
+// Restore the original coordinates exactly, not by subtracting rounded offsets.
+func (g *MMGame) beginScreenShakeSwap() func() {
+	if g.camera == nil || g.screenShake <= 0 {
+		return func() {}
+	}
+	camera := g.camera
+	x, y := camera.X, camera.Y
+	ox := -math.Sin(camera.Angle) * g.screenShake
+	oy := math.Cos(camera.Angle) * g.screenShake
+	if g.frameCount%2 == 0 {
+		ox, oy = -ox, -oy
+	}
+	camera.X, camera.Y = x+ox, y+oy
+	shakenX, shakenY := camera.X, camera.Y
+	g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
+	return func() {
+		if g.camera == camera && camera.X == shakenX && camera.Y == shakenY {
+			camera.X, camera.Y = x, y
+		}
+		g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
+	}
+}
+
 // advanceViewTurn eases the rendered view angle toward the logical camera angle.
 // During a TB turn (viewTurnFramesLeft > 0) it moves at most one step per frame so
 // the scene glides; otherwise it tracks the angle exactly - real-time rotation,
@@ -2492,7 +2521,14 @@ func (g *MMGame) sweepLethalDoTVictims() {
 }
 
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
-func (g *MMGame) startPartyTurn() {
+func (g *MMGame) startPartyTurn(initial ...bool) {
+	g.tactics.movedTB = false
+	if len(initial) == 0 || !initial[0] {
+		for _, ch := range g.party.Members {
+			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+		}
+	}
 	g.parkSelection = false // a new round clears any manual park
 	tps := g.config.GetTPS()
 	// Poison/ignite consume the seconds this round represents and deal that many
@@ -2806,6 +2842,7 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 }
 
 func (g *MMGame) ToggleTurnBasedMode() {
+	defer g.resetOverwatch()
 	if g.turnBasedMode {
 		// Keep both action economies intact. RT cooldowns already pause while
 		// TB is active; clearing them here made Tab an attack/cast reset.
@@ -2838,7 +2875,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.monsterTurnState.resetPasses()
-		g.startPartyTurn()
+		g.startPartyTurn(true)
 	}
 	g.turnBasedTurnSuspended = false
 	g.AddCombatMessage("Turn-based mode activated!")

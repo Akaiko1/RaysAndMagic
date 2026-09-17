@@ -461,6 +461,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 	if movedTile {
 		gl.game.releaseMonsterAttackPost(m)
 	}
+	oldX, oldY := m.X, m.Y
 	m.X = wx
 	m.Y = wy
 	if movedTile {
@@ -470,6 +471,9 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
 	m.LastMoveTick = gl.game.frameCount
+	if movedTile {
+		gl.game.observeOverwatchMovement(m, oldX, oldY)
+	}
 	return true
 }
 

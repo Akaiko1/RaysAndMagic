@@ -162,7 +162,7 @@ func extractSkeleton(card string) mechanicSkeleton {
 }
 
 func isBearerWeaponCooldownLine(line string) bool {
-	for _, prefix := range []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"} {
+	for _, prefix := range []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:", "Current Range:", "Current Projectile Speed:"} {
 		if strings.HasPrefix(line, prefix) {
 			return true
 		}
@@ -208,7 +208,8 @@ func isSectionHeader(ln string) bool {
 // isStyleDivergent flags the EFFECTS lines that the two builders render
 // differently BY DESIGN (value vs formula) - duration decomposition.
 func isStyleDivergent(line string) bool {
-	return strings.HasPrefix(line, "Base Duration:") ||
+	return strings.HasPrefix(line, "Current recovery:") ||
+		strings.HasPrefix(line, "Base Duration:") ||
 		strings.HasPrefix(line, "Current Duration:") ||
 		strings.HasPrefix(line, "Current damage bonus:") ||
 		strings.HasPrefix(line, "Current physical damage bonus:") ||

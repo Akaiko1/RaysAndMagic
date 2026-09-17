@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -55,7 +56,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		reflected := proj.owner == ProjectileOwnerReflected
 		continuation := false
 		if ar, ok := proj.data.(*Arrow); ok {
-			continuation = ar.SkipMonster != nil
+			continuation = ar.SkipMonster != nil || ar.WorldAim
 		}
 		worldSpace := crossfire || reflected || continuation
 		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
@@ -478,6 +479,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
+	if ar, ok := projectile.(*Arrow); ok && weaponDef != nil && ar.Owner == ProjectileOwnerPlayer {
+		damage, isCrit = cs.designatedCritical(monster, damage, isCrit, ar.CritChance)
+	}
+
 	// Party buffs: flat bonus to party outgoing damage, filtered by damage type.
 	// Spell packets use the same post-modifier step as zones, mortars, novas,
 	// and tooltips; weapon arrows keep their existing direct path.
@@ -502,6 +507,11 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	attackerName := "The party"
 	if attacker != nil {
 		attackerName = attacker.Name
+	}
+
+	if ar, ok := projectile.(*Arrow); ok && ar.Overwatch {
+		weaponName = uitext.Text("combat.overwatch_source", weaponName)
+		attackerName = uitext.Text("combat.overwatch_source", attackerName)
 	}
 
 	// Impact FX anchor: the projectile bursts where the monster is DRAWN. For a
@@ -562,6 +572,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// target absorbs the projectile and Perfect Dodge avoids it, so neither can
 	// seed a second bolt.
 	cs.trySpawnArrowRicochet(ricochetArrow, monster, weaponDef)
+	if isRanged && weaponDef != nil {
+		cs.game.designateTarget(attacker, monster)
+	}
 
 	// Control spells deal no damage - Bind Undead takes control, Charm pacifies.
 	if isBindSpell {

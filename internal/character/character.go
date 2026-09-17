@@ -124,7 +124,12 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
-	// Poison status timer and tick accumulator (frames)
+	// Tactical timers use simulation frames in both RT and TB.
+	AutoDrinkCooldown  int
+	DesignatedTargetID string
+	DesignationFrames  int
+
+	// Poison status timer and tick accumulator (frames).
 	PoisonFramesRemaining int
 	poisonTickTimer       int
 	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
@@ -301,6 +306,7 @@ const (
 	ClassArmsMaster
 	ClassMonk
 	ClassBattleMage
+	ClassSniper
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -818,6 +824,9 @@ func (c *MMCharacter) ApplyCardRegenTick() {
 
 // ApplyPoison applies or refreshes a poison effect for the given duration in frames.
 func (c *MMCharacter) ApplyPoison(frames int) {
+	if c.HasSkill(SkillFieldMedicine) && frames > 0 {
+		frames = max(1, frames*(100-c.TacticalSkillValue(SkillFieldMedicine, config.TacticalSkills().MedicinePoisonReductionPct))/100)
+	}
 	if frames <= 0 {
 		return
 	}
@@ -914,6 +923,8 @@ func (c CharacterClass) String() string {
 		return "Monk"
 	case ClassBattleMage:
 		return "Battle Mage"
+	case ClassSniper:
+		return "Sniper"
 	default:
 		return "Unknown"
 	}
@@ -948,6 +959,8 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassMonk, true
 	case "battle_mage":
 		return ClassBattleMage, true
+	case "sniper":
+		return ClassSniper, true
 	default:
 		return 0, false
 	}

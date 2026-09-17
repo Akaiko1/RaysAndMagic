@@ -197,6 +197,8 @@ func (gl *GameLoop) updateExploration() {
 	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
 	// is what makes a paused overlay a still picture.
 	gl.game.frameCount++
+	gl.game.updateTacticalClocks()
+	gl.game.updateAutomaticConsumables()
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
@@ -352,6 +354,12 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 }
 
 func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
+	gl.drawExplorationScene(screen)
+	// All cosmetic camera swaps have ended before HUD predicates run.
+	gl.ui.Draw(screen)
+}
+
+func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
 	// the scene goes through a horizontal motion-blur shader (camera blur - the
 	// view pans sideways) whose length tracks the turn speed; otherwise it's a
@@ -366,30 +374,7 @@ func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 		defer g.beginViewAngleSwap()()
 	}
 
-	// Screen shake: nudge the camera sideways (perpendicular to the view) for
-	// this frame only - the whole raycast scene shifts coherently, and the
-	// camera is restored before any game logic can observe it.
-	if g.screenShake > 0 && g.camera != nil {
-		ox := -math.Sin(g.camera.Angle) * g.screenShake
-		oy := math.Cos(g.camera.Angle) * g.screenShake
-		if g.frameCount%2 == 0 {
-			ox, oy = -ox, -oy
-		}
-		g.camera.X += ox
-		g.camera.Y += oy
-		// Record the displacement so render-time geometry that must IGNORE the
-		// cosmetic shake (the TB front-diagonal pull - see pulledFrontSlot) can
-		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
-		// pull's LOS near walls and the pulled monster blinks when struck.
-		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
-		// Same only-undo-our-own-write rule as the angle swap above.
-		defer func(shakenX, shakenY, x, y float64) {
-			if g.camera.X == shakenX && g.camera.Y == shakenY {
-				g.camera.X, g.camera.Y = x, y
-			}
-			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
-		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
-	}
+	defer g.beginScreenShakeSwap()()
 	screenBounds := screen.Bounds()
 	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
 	if blurPx >= 0.75 {
@@ -425,9 +410,6 @@ func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 	} else {
 		gl.renderer.RenderFirstPersonView(screen)
 	}
-
-	// Draw UI elements (straight to the screen - never blurred)
-	gl.ui.Draw(screen)
 }
 
 const maxLogicalScreenHeight = 1080

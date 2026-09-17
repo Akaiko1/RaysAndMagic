@@ -536,9 +536,9 @@ func (cs *CombatSystem) attackSlotFor(attacker *character.MMCharacter) items.Equ
 // solid without Fly (a wall). Fighting and casting from there are refused:
 // monsters can neither reach nor see the party, so it would be a free-hit
 // exploit. Emits a throttled explanation so the refusal reads as a rule.
-func (cs *CombatSystem) partyEntombed() bool {
+func (cs *CombatSystem) partyInsideSolidTerrain() bool {
 	g := cs.game
-	if !g.flyActive {
+	if !g.flyActive || g.camera == nil {
 		return false
 	}
 	w := g.GetCurrentWorld()
@@ -546,9 +546,15 @@ func (cs *CombatSystem) partyEntombed() bool {
 		return false
 	}
 	ts := g.config.GetTileSize()
-	if !w.IsTileBlockingTerrainAt(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)) {
+	x, y := cs.logicalCameraXY()
+	return w.IsTileBlockingTerrainAt(TileIndex(x, ts), TileIndex(y, ts))
+}
+
+func (cs *CombatSystem) partyEntombed() bool {
+	if !cs.partyInsideSolidTerrain() {
 		return false
 	}
+	g := cs.game
 	if g.frameCount-g.entombedMsgFrame > int64(g.config.GetTPS()) {
 		g.entombedMsgFrame = g.frameCount
 		g.AddCombatMessage("Buried inside solid terrain, the party cannot fight - fly clear first!")
@@ -561,6 +567,10 @@ func (cs *CombatSystem) partyEntombed() bool {
 // actually happened (no weapon / incapacitated -> false, so turn-based action
 // slots aren't burned on a no-op).
 func (cs *CombatSystem) EquipmentMeleeAttack() bool {
+	return cs.equipmentAttackAtAngle(cs.game.camera.Angle, false)
+}
+
+func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) bool {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 
 	// Stunned characters cannot attack either.
@@ -576,6 +586,9 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	// Check if character has a weapon equipped - main hand, or (Dual Wielding)
 	// whichever hand attackSlotFor picked for this swing.
 	slot := cs.attackSlotFor(attacker)
+	if worldAim {
+		slot = items.SlotMainHand
+	}
 	weapon, hasWeapon := attacker.Equipment[slot]
 	if !hasWeapon {
 		return false // No weapon equipped
@@ -600,7 +613,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		totalDamage = cs.weaponRangedDamageAtLaunch(totalDamage, true)
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action - and no card procs either.
-		acted = cs.createArrowAttack(totalDamage, slot, "")
+		acted = cs.createArrowAttackAimed(totalDamage, slot, "", angle, worldAim)
 	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
 		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
 		// castResolvedSpell already rolled the summon-card checks for this
@@ -648,7 +661,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		// The card itself stays silent; the bolt's chat identity is the authored
 		// label of whichever card granted the bonus.
 		if pct := cs.game.cardBonusBoltPct(); pct > 0 && rand.Intn(100) < pct {
-			cs.createArrowAttack(attacker.GetEffectiveAccuracy()/3, items.SlotMainHand, cs.game.cardBonusBoltLabel())
+			cs.createArrowAttackAimed(attacker.GetEffectiveAccuracy()/3, items.SlotMainHand, cs.game.cardBonusBoltLabel(), angle, worldAim)
 		}
 	}
 	return acted
@@ -665,6 +678,10 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 // the weapon (card-proc bolts on melee wielders would otherwise report the
 // hunting-bow physics fallback).
 func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, label string) bool {
+	return cs.createArrowAttackAimed(damage, slot, label, cs.game.camera.Angle, false)
+}
+
+func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, worldAim bool) bool {
 	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
 	// (matches the dispatch gate in EquipmentMeleeAttack).
 	attacker := cs.game.party.Members[cs.game.selectedChar]
@@ -704,6 +721,13 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 	tileSize := cs.game.config.GetTileSize()
 	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
 	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
+	if !bonusBolt && character.BallisticsWeapon(equippedDef) {
+		rangeTiles, speedTiles := character.EffectiveWeaponFlight(equippedDef, attacker)
+		arrowSpeed = speedTiles * float64(tileSize) / float64(cs.game.config.GetTPS())
+		if speedTiles > 0 {
+			arrowLifetime = int(rangeTiles/speedTiles*float64(cs.game.config.GetTPS()) + 0.5)
+		}
+	}
 	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	// Determine damage type from weapon
@@ -741,14 +765,13 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 		pierceLeft = equippedDef.PierceCount
 		ricochetLeft = equippedDef.RicochetTargets
 	}
-	ang := cs.game.camera.Angle
-	dirX, dirY := math.Cos(ang), math.Sin(ang)
+	dirX, dirY := math.Cos(angle), math.Sin(angle)
 	spacing := volleySpacingFrac * float64(tileSize)
 	for i := 0; i < volley; i++ {
 		back := spacing * float64(i) // trail later darts behind the first
-		isCrit := false
+		isCrit, critChance := false, 0
 		if !bonusBolt {
-			isCrit, _ = cs.RollWeaponCriticalChance(weapon, attacker)
+			isCrit, critChance = cs.RollWeaponCriticalChance(weapon, attacker)
 		}
 		dmg := damage
 		dmg = weaponCriticalDamage(dmg, isCrit)
@@ -768,6 +791,8 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 			Label:              label,
 			DamageType:         damageType,
 			Crit:               isCrit,
+			CritChance:         critChance,
+			WorldAim:           worldAim,
 			DisintegrateChance: disintegrateChance,
 			PierceLeft:         pierceLeft,
 			RicochetLeft:       ricochetLeft,
@@ -1303,6 +1328,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
+	if weaponDef != nil && cs.activeAttacker() != nil {
+		weapon, _ := cs.activeAttacker().Equipment[cs.attackSlotFor(cs.activeAttacker())]
+		damage, isCrit = cs.designatedCritical(monster, damage, isCrit, cs.CalculateWeaponCritChance(weapon, cs.activeAttacker()))
+	}
 
 	// Party buffs boost melee exactly like projectiles, filtered by damage type
 	// (Heroism applies only to physical; Hour of Power applies to all).

@@ -57,7 +57,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnified(item, char, combatSystem, full)
 	case items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
-		core = buildSimpleItemTooltipUnified(item, full)
+		core = buildSimpleItemTooltipUnified(item, full, char)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))

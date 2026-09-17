@@ -223,7 +223,7 @@ func TrapperTurnBonus(tier int) int {
 // PlayableClasses is every playable class in canonical (enum) order.
 var PlayableClasses = []CharacterClass{
 	ClassKnight, ClassPaladin, ClassArcher, ClassCleric, ClassSorcerer, ClassDruid, ClassThief,
-	ClassArmsMaster, ClassMonk, ClassBattleMage,
+	ClassArmsMaster, ClassMonk, ClassBattleMage, ClassSniper,
 }
 
 // Key returns the lowercase class key (knight/paladin/...).
@@ -249,6 +249,8 @@ func (c CharacterClass) Key() string {
 		return "monk"
 	case ClassBattleMage:
 		return "battle_mage"
+	case ClassSniper:
+		return "sniper"
 	default:
 		return "unknown"
 	}
@@ -275,6 +277,8 @@ func (c CharacterClass) Blurb() string {
 		return "Master of every weapon - dual-wields for two independent attacks, expert from level 1."
 	case ClassMonk:
 		return "Unarmed fighter and self-magic adept - no weapons or armor, fists scale with Might and Speed."
+	case ClassSniper:
+		return "Legendary marksman - covers the party from a fixed position and designates priority targets."
 	case ClassBattleMage:
 		return "Spellblade in plate - drinks hostile magic, and pays in blood to make its own hit harder."
 	default:
@@ -402,6 +406,7 @@ var AllSkills = []SkillType{
 	SkillImpenetrableDefense, SkillLockpicking, SkillNaturalHealer,
 	SkillCelestialProvidence, SkillOrcishFury, SkillHalflingGuile, SkillDarkElfBinding,
 	SkillSpellAbsorption, SkillStrongMagic,
+	SkillBallistics, SkillFieldMedicine, SkillDesignateTarget, SkillOverwatch,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
@@ -421,6 +426,9 @@ func (s SkillType) Category() string {
 // the map editor can never drift. Mastery tiers: Novice 0 / Expert 1 / Master 2
 // / Grandmaster 3 (bonuses scale per tier above Novice unless noted).
 func (s SkillType) Description() string {
+	if text, ok := tacticalSkillDescription(s); ok {
+		return text
+	}
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster:
 		// A skill-optional category (blaster) needs no training to fire; its

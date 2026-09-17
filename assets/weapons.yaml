@@ -147,6 +147,28 @@ weapons:
       base_size: 12
       color: [180, 140, 100]
 
+  surveyors_rifle:
+    name: "Surveyor's Rifle"
+    description: "A long rifle with a brass sight, built for careful shots"
+    category: "blaster"
+    damage: 8
+    range: 9
+    bonus_stat: "Accuracy"
+    crit_chance: 10
+    cooldown_multiplier: 1.6
+    rarity: "uncommon"
+    value: 180
+    no_loot: true
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 9.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 26
+      min_size: 2
+      base_size: 10
+      color: [225, 185, 110]
+
   alien_blaster:
     name: "Alien Blaster"
     description: "A humming alien weapon that fires mysterious energy"

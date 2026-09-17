@@ -94,7 +94,8 @@ func TestHeroRosterUsesAvailableWidth(t *testing.T) {
 		w, h := logicalScreenSize(physical[0], physical[1])
 		l := partyCreateLayout(pc, w, h)
 		for i, r := range l.pool {
-			if i == 0 || r.y == l.pool[i-1].y {
+			// Scrolled-out cards have no displayed rectangle.
+			if i == 0 || r.w == 0 || l.pool[i-1].w == 0 || r.y == l.pool[i-1].y {
 				continue
 			}
 			prev := l.pool[i-1]

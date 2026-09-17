@@ -451,6 +451,7 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
+	Tactics      TacticalSkillsConfig  `yaml:"tactics"`
 	StartingGold int                   `yaml:"starting_gold"`
 	StartingFood int                   `yaml:"starting_food"`
 	HitPoints    HitPointsConfig       `yaml:"hit_points"`
@@ -472,9 +473,10 @@ type CharacterConfig struct {
 // class sprite); Race (optional) keys characters.races stat modifiers - empty
 // means human/baseline.
 type RosterEntry struct {
-	Name  string `yaml:"name"`
-	Class string `yaml:"class"`
-	Race  string `yaml:"race,omitempty"`
+	AvailableInExistingSaves bool   `yaml:"available_in_existing_saves,omitempty"`
+	Name                     string `yaml:"name"`
+	Class                    string `yaml:"class"`
+	Race                     string `yaml:"race,omitempty"`
 }
 
 // RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
@@ -1541,6 +1543,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	// Set global config for easy access
+	if err := config.Characters.Tactics.Validate(); err != nil {
+		return nil, err
+	}
 	GlobalConfig = &config
 
 	return &config, nil

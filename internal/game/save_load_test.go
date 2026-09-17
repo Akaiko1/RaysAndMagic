@@ -1308,6 +1308,8 @@ func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
 // ID-twins - the vanished-warlord bug), so the loader must self-heal them.
 func TestApplySaveEnforcesMonsterIDUniqueness(t *testing.T) {
 	cfg := loadTestConfig(t)
+	// This test isolates monster-ID migrations from new content recruitment.
+	cfg.Characters.TavernRecruits = nil
 	type savedMob struct {
 		mapKey string
 		id     string

@@ -78,6 +78,10 @@ const (
 	// HP (a per-tier percent of the spell's SP cost) and boosts the spell's
 	// damage by the same percent. See catalog.go for the numbers.
 	SkillStrongMagic
+	SkillBallistics
+	SkillFieldMedicine
+	SkillDesignateTarget
+	SkillOverwatch
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -159,6 +163,14 @@ func (s SkillType) String() string {
 		return "Spell Absorption"
 	case SkillStrongMagic:
 		return "Strong Magic"
+	case SkillBallistics:
+		return "Ballistics"
+	case SkillFieldMedicine:
+		return "Field Medicine"
+	case SkillDesignateTarget:
+		return "Designate Target"
+	case SkillOverwatch:
+		return "Overwatch"
 	default:
 		return "Unknown"
 	}
@@ -289,6 +301,10 @@ var skillTypeByKey = map[string]SkillType{
 	"dark_elf_binding":     SkillDarkElfBinding,
 	"spell_absorption":     SkillSpellAbsorption,
 	"strong_magic":         SkillStrongMagic,
+	"ballistics":           SkillBallistics,
+	"field_medicine":       SkillFieldMedicine,
+	"designate_target":     SkillDesignateTarget,
+	"overwatch":            SkillOverwatch,
 }
 
 // UsesMastery reports whether the skill can be trained through the four

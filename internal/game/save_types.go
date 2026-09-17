@@ -117,24 +117,27 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	Name           string `json:"name"`
-	Class          int    `json:"class"`
-	Race           string `json:"race,omitempty"`
-	Promotion      int    `json:"promotion,omitempty"`
-	Level          int    `json:"level"`
-	Experience     int    `json:"experience"`
-	HitPoints      int    `json:"hit_points"`
-	MaxHitPoints   int    `json:"max_hit_points"`
-	SpellPoints    int    `json:"spell_points"`
-	MaxSpellPoints int    `json:"max_spell_points"`
-	Might          int    `json:"might"`
-	Intellect      int    `json:"intellect"`
-	Personality    int    `json:"personality"`
-	Endurance      int    `json:"endurance"`
-	Accuracy       int    `json:"accuracy"`
-	Speed          int    `json:"speed"`
-	Luck           int    `json:"luck"`
-	FreeStatPoints int    `json:"free_stat_points"`
+	AutoDrinkCooldown  int    `json:"auto_drink_cooldown,omitempty"`
+	DesignatedTargetID string `json:"designated_target_id,omitempty"`
+	DesignationFrames  int    `json:"designation_frames,omitempty"`
+	Name               string `json:"name"`
+	Class              int    `json:"class"`
+	Race               string `json:"race,omitempty"`
+	Promotion          int    `json:"promotion,omitempty"`
+	Level              int    `json:"level"`
+	Experience         int    `json:"experience"`
+	HitPoints          int    `json:"hit_points"`
+	MaxHitPoints       int    `json:"max_hit_points"`
+	SpellPoints        int    `json:"spell_points"`
+	MaxSpellPoints     int    `json:"max_spell_points"`
+	Might              int    `json:"might"`
+	Intellect          int    `json:"intellect"`
+	Personality        int    `json:"personality"`
+	Endurance          int    `json:"endurance"`
+	Accuracy           int    `json:"accuracy"`
+	Speed              int    `json:"speed"`
+	Luck               int    `json:"luck"`
+	FreeStatPoints     int    `json:"free_stat_points"`
 	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
 	// effective-stat layer, kept apart from the base stats above.
 	PermanentBonuses      map[string]int     `json:"permanent_bonuses,omitempty"`

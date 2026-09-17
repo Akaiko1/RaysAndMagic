@@ -362,8 +362,12 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	if iw >= 690 {
 		drawDebugTextColored(screen, fmt.Sprintf("Page %d/%d", g.statisticsPage+1, maxPages), x+iw-280, bottom+9, profileMuted)
 	}
-	ui.profileButton(screen, "< Prev", layoutRect{x + iw - 184, bottom, 86, 30}, g.statisticsPage > 0, func() { g.statisticsPage--; g.statisticsScroll = 0 })
-	ui.profileButton(screen, "Next >", layoutRect{x + iw - 90, bottom, 90, 30}, g.statisticsPage+1 < maxPages, func() { g.statisticsPage++; g.statisticsScroll = 0 })
+	changePage := func(delta int) {
+		g.statisticsPage = (g.statisticsPage + delta + maxPages) % maxPages
+		g.statisticsScroll = 0
+	}
+	ui.profileButton(screen, "< Prev", layoutRect{x + iw - 184, bottom, 86, 30}, maxPages > 1, func() { changePage(-1) })
+	ui.profileButton(screen, "Next >", layoutRect{x + iw - 90, bottom, 90, 30}, maxPages > 1, func() { changePage(1) })
 	ui.drawProfileError(screen, x, y-16, iw)
 }
 

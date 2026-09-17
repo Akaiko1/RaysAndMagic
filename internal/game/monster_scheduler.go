@@ -11,6 +11,11 @@ func (gl *GameLoop) runMonsterFrame() {
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.simulateMonsterFrame()
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+	if !gl.game.turnBasedMode {
+		for _, pos := range monsterFrameStart {
+			gl.game.observeOverwatchMovement(pos.monster, pos.x, pos.y)
+		}
+	}
 	// Parallel RT updates can nominate the same logical post from one frozen
 	// snapshot. Serial arbitration runs before combat so only one can strike.
 	gl.reconcileMonsterAttackPosts()

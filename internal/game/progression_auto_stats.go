@@ -44,7 +44,7 @@ func autoEnduranceTarget(class character.CharacterClass) int {
 		return 22
 	case character.ClassDruid:
 		return 20
-	case character.ClassArcher, character.ClassThief:
+	case character.ClassArcher, character.ClassThief, character.ClassSniper:
 		return 18
 	case character.ClassSorcerer:
 		return 16
@@ -62,7 +62,7 @@ func primaryDamageStat(member *character.MMCharacter) *int {
 		return &member.Intellect
 	case character.ClassCleric:
 		return &member.Personality
-	case character.ClassArcher, character.ClassThief:
+	case character.ClassArcher, character.ClassThief, character.ClassSniper:
 		return &member.Accuracy
 	default:
 		// Knight, Paladin, Arms Master, Monk: Might drives their weapon damage

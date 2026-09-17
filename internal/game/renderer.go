@@ -4297,6 +4297,7 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	if s.monster == nil {
 		return
 	}
+	r.drawDesignationMarker(screen, s, screenY)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}

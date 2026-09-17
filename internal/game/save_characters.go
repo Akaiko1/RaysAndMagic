@@ -133,6 +133,8 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.QuickSlots[qs.Slot] = &item
 	}
+	m.AutoDrinkCooldown = max(0, cs.AutoDrinkCooldown)
+	m.DesignatedTargetID, m.DesignationFrames = cs.DesignatedTargetID, max(0, cs.DesignationFrames)
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
@@ -205,6 +207,8 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
 		}
 	}
+	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
+	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()

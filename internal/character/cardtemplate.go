@@ -269,6 +269,9 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	if def.Range > 0 {
 		attack.Add("Range: %d tiles", def.Range)
 	}
+	if BallisticsWeapon(def) {
+		attack.AddDetail("%s", SkillBallistics.Description())
+	}
 	if arc := MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
 	}
@@ -692,6 +695,9 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 		effects.Add("Armor reduces normal hit damage: physical up to %d%%, non-physical up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
 	}
 
+	for _, ln := range ConsumableRuleLines(def, nil) {
+		effects.Add("%s", ln)
+	}
 	usage := CardSection{Title: "USAGE"}
 	for _, ln := range def.TooltipUsageLines() {
 		usage.Add("%s", ln)

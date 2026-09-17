@@ -166,6 +166,10 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 			mix(uint64(entry.GoldCost))
 		}
 	}
+	mix(uint64(g.rosterScroll))
+	if g.partyCreate != nil {
+		mix(uint64(g.partyCreate.poolScroll))
+	}
 	id.items = hash
 	// Quest progress changes card order, claim buttons and NPC branches without
 	// necessarily changing inventory or gold (including zero-reward quests).

@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -156,6 +157,14 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	attack := ttSection{Title: "ATTACK"}
 	if def.Range > 0 {
 		attack.Add("Range: %d tiles", def.Range)
+	}
+	if character.BallisticsWeapon(def) {
+		attack.AddDetail("%s", character.SkillBallistics.Description())
+		if char != nil && char.HasSkill(character.SkillBallistics) {
+			rangeTiles, speedTiles := character.EffectiveWeaponFlight(def, char)
+			attack.Add("%s", uitext.Text("weapon.current_range", rangeTiles))
+			attack.Add("%s", uitext.Text("weapon.current_projectile_speed", speedTiles))
+		}
 	}
 	if arc := character.MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
@@ -778,7 +787,11 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 
 // -------------------------------------------------- misc item categories ----
 
-func buildSimpleItemTooltipUnified(item items.Item, full bool) string {
+func buildSimpleItemTooltipUnified(item items.Item, full bool, bearers ...*character.MMCharacter) string {
+	var bearer *character.MMCharacter
+	if len(bearers) > 0 {
+		bearer = bearers[0]
+	}
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
@@ -788,6 +801,9 @@ func buildSimpleItemTooltipUnified(item items.Item, full bool) string {
 	use := ttSection{Title: "USAGE"}
 	if ok && def != nil {
 		for _, ln := range def.EffectLines() {
+			effect.Add("%s", ln)
+		}
+		for _, ln := range character.ConsumableRuleLines(def, bearer) {
 			effect.Add("%s", ln)
 		}
 		for _, ln := range def.TooltipUsageLines() {

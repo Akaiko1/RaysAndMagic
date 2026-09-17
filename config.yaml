@@ -78,6 +78,23 @@ characters:
   spell_points:
     level_multiplier: 2
 
+  tactics:
+    overwatch_chance: [20, 30, 40, 50]
+    overwatch_ready_seconds: 1
+    ballistics_speed_pct: [15, 25, 35, 50]
+    ballistics_range_tiles: [0, 0, 1, 2]
+    medicine_restore_pct: [15, 25, 40, 60]
+    medicine_poison_reduction_pct: [10, 20, 30, 40]
+    designation_crit_pct: [5, 8, 12, 15]
+    designation_seconds: [6, 9, 12, 15]
+    auto_drink_threshold_pct: 35
+    auto_drink_seconds: 1
+    descriptions:
+      overwatch: "While the party holds position, each tile an enemy advances toward it in weapon range and clear sight has a %d/%d/%d/%d%% chance to trigger a normal bow/blaster shot. Full weapon damage and effects; ignores attack cooldowns and spends no action. Ready after %.1fs stationary in RT; a TB step disables it until the next round. Turning is allowed."
+      ballistics: "Bow/blaster projectile speed +%d/%d/%d/%d%%; range +%d/%d/%d/%d tiles."
+      field_medicine: "Consumables restore +%d/%d/%d/%d%% HP and SP to this character, manually or automatically. Poison duration -%d/%d/%d/%d%%."
+      designate_target: "Successful ranged weapon hits mark one target for %d/%d/%d/%ds. Party weapon attacks gain +%d/%d/%d/%d percentage points of critical chance against it. A new target replaces the old mark; marks do not stack."
+
   # Class base attributes
   classes:
     knight:
@@ -236,6 +253,20 @@ characters:
       equipment: [iron_armor, magic_ring]
       quick_spell: rock_blast
 
+    sniper:
+      card_rarity: legendary
+      might: 9
+      intellect: 12
+      personality: 8
+      endurance: 9
+      accuracy: 18
+      speed: 13
+      luck: 10
+      skills: [blaster, bow, leather, disarm_trap, ballistics, field_medicine, designate_target, overwatch]
+      skill_start_mastery: { blaster: expert }
+      main_hand: surveyors_rifle
+      equipment: [leather_armor, leather_helmet]
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -267,6 +298,7 @@ characters:
     - { name: Gwen,    class: arms_master }
     - { name: Sora,    class: monk }
     - { name: Isolde,  class: battle_mage }
+    - { name: Mara,    class: sniper, available_in_existing_saves: true }
 
 
 # Monster stats and AI
@@ -482,6 +514,7 @@ day_night:
   panorama_fade_seconds: 3
   days_per_week: 7
   days_per_month: 28
+  # Counts are caps: packs use vacant authored monster spawn points only.
   packs:
     - map: forest
       day_monster: wolf

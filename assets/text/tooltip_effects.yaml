@@ -146,3 +146,11 @@ weapon.sundering_roar_the_target_deals_less_damage: "Sundering Roar: the target 
 weapon.the_maw_targets_left_under_hp_are: "The Maw: targets left under %d%% HP are devoured outright"
 weapon.true_damage_ignores_armor_and_dodge: "True Damage: +%d (ignores armor and dodge)"
 weapon.wieldable_by_anyone_with_personality_no_skill: "Wieldable by anyone with Personality %d+ (no skill needed)"
+
+item.current_recovery: "Current recovery: %d HP / %d SP"
+item.field_medicine_bonus: "Field Medicine: +%d/%d/%d/%d%% HP and SP from consumables"
+item.auto_drink_rule: "Auto-use below %d%% HP/SP: own quick slots, then shared bag; once per %.1fs in RT or round in TB"
+
+weapon.current_range: "Current Range: %.0f tiles"
+weapon.current_projectile_speed: "Current Projectile Speed: %.1f tiles/s"
+item.auto_drink_when_poisoned: "While poisoned: %s"

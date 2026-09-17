@@ -51,6 +51,7 @@ func (r rect) contains(px, py int) bool {
 type partyCreateState struct {
 	pool             []*pcHero  // available heroes (drag source/target)
 	slots            [4]*pcHero // chosen active party (nil = empty)
+	poolScroll       int
 	detailScroll     int
 	detailMaxScroll  int
 	detailScrollHero *pcHero
@@ -81,11 +82,14 @@ const pcDragThreshold = 6
 
 // pcLayout is the computed geometry of the screen, shared by update and draw.
 type pcLayout struct {
-	slots  [4]rect
-	pool   []rect
-	detail rect
-	begin  rect
-	back   rect
+	slots            [4]rect
+	pool             []rect
+	poolArea         rect
+	poolUp, poolDown rect
+	poolMaxScroll    int
+	detail           rect
+	begin            rect
+	back             rect
 }
 
 // newPartyCreateState builds the full hero pool from config and pre-fills the
@@ -179,21 +183,23 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	poolW := w - margin - poolX
 	const cardGap = 12
 	poolH := slotsY - poolY - 16
-	cols, cardW := 1, 0
-	for n := 1; n <= max(1, len(pc.pool)); n++ {
-		rows := (len(pc.pool) + n - 1) / n
-		width := min(144, (poolW-(n-1)*cardGap)/n, ((poolH-(rows-1)*cardGap)/max(1, rows))*2/3)
-		if width >= cardW {
-			cols, cardW = n, width
-		}
-	}
-	cardW = max(1, cardW)
+	// Keep cards readable; overflow uses complete rows instead of shrinking art.
+	cols := max(1, (poolW+cardGap)/(144+cardGap))
+	cardW := min(144, (poolW-(cols-1)*cardGap)/cols)
 	cardH := cardW * 3 / 2
+	visibleRows := max(1, (poolH+cardGap)/(cardH+cardGap))
+	rows := (len(pc.pool) + cols - 1) / cols
+	lay.poolMaxScroll = max(0, rows-visibleRows)
+	start := min(max(0, pc.poolScroll), lay.poolMaxScroll)
+	lay.poolArea = rect{poolX, poolY, poolW, poolH}
+	lay.poolUp = rect{poolX + poolW - 64, poolY - 28, 28, 24}
+	lay.poolDown = rect{poolX + poolW - 30, poolY - 28, 28, 24}
 	lay.pool = make([]rect, len(pc.pool))
 	for i := range pc.pool {
-		col := i % cols
-		row := i / cols
-		lay.pool[i] = rect{poolX + col*(cardW+cardGap), poolY + row*(cardH+cardGap), cardW, cardH}
+		row := i/cols - start
+		if row >= 0 && row < visibleRows {
+			lay.pool[i] = rect{poolX + (i%cols)*(cardW+cardGap), poolY + row*(cardH+cardGap), cardW, cardH}
+		}
 	}
 
 	beginW, beginH := 220, 44
@@ -218,9 +224,14 @@ func (g *MMGame) updatePartyCreate() {
 	}
 
 	mx, my := pointerPosition()
-	if pc.drag == nil && partyCreateLayout(pc, g.config.GetScreenWidth(), g.config.GetScreenHeight()).detail.contains(mx, my) {
-		_, wheel := ebiten.Wheel()
-		pc.detailScroll = min(pc.detailMaxScroll, max(0, pc.detailScroll-int(wheel*32)))
+	lay := partyCreateLayout(pc, g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	if pc.drag == nil && pc.pending == nil {
+		_, wheel := pointerWheel()
+		if lay.detail.contains(mx, my) {
+			pc.detailScroll = min(pc.detailMaxScroll, max(0, pc.detailScroll-int(wheel*32)))
+		} else if lay.poolArea.contains(mx, my) {
+			pc.poolScroll = rosterScrollAfterWheel(pc.poolScroll, lay.poolMaxScroll, wheel)
+		}
 	}
 	if pointerCancelJustPress() {
 		if pc.drag != nil {
@@ -290,6 +301,17 @@ func (g *MMGame) updatePartyCreatePointer() {
 	if lay.back.contains(mouseX, mouseY) {
 		g.leavePartyCreate()
 		return
+	}
+
+	if lay.poolMaxScroll > 0 {
+		if lay.poolUp.contains(mouseX, mouseY) {
+			pc.poolScroll = max(0, min(pc.poolScroll, lay.poolMaxScroll)-1)
+			return
+		}
+		if lay.poolDown.contains(mouseX, mouseY) {
+			pc.poolScroll = min(lay.poolMaxScroll, max(0, pc.poolScroll)+1)
+			return
+		}
 	}
 
 	// Press on a slot/pool hero: select it and arm a possible drag.
@@ -381,7 +403,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	ui.drawScreenBackdrop(screen, w, h, "screen_party_create_bg")
-	drawDebugText(screen, "To pick a hero, drag it into a party slot below", 24, 16)
+	drawDebugText(screen, "To pick a hero, drag it into a party slot below", 24, 8)
 
 	ui.drawHeroDetailPanel(screen, pc.detail, lay.detail)
 
@@ -402,12 +424,17 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 
 	// Pool cards.
 	for i, hero := range pc.pool {
-		if hero == pc.drag {
-			continue // following the cursor
+		if hero == pc.drag || lay.pool[i].w == 0 {
+			continue // following the cursor or outside the visible rows
 		}
 		ui.drawHeroCard(screen, hero, lay.pool[i], hero == pc.detail)
 	}
 	drawDebugText(screen, "Available heroes", lay.detail.x+lay.detail.w+20, lay.detail.y-18)
+
+	if lay.poolMaxScroll > 0 {
+		ui.drawScrollArrowButton(screen, lay.poolUp.x, lay.poolUp.y, lay.poolUp.w, lay.poolUp.h, true, lay.poolUp.contains(mouseX, mouseY), pc.poolScroll > 0)
+		ui.drawScrollArrowButton(screen, lay.poolDown.x, lay.poolDown.y, lay.poolDown.w, lay.poolDown.h, false, lay.poolDown.contains(mouseX, mouseY), pc.poolScroll < lay.poolMaxScroll)
+	}
 
 	// Begin / Back buttons.
 	if pc.filledSlots() == 4 {

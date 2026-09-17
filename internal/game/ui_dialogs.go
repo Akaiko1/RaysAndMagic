@@ -323,9 +323,37 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 		})
 	}
 
+	// Shared by the tavern tab and standalone roster: every recruit is reachable.
+	visible := max(1, (area.bottom()-listY)/rowH)
+	maxScroll := max(0, len(g.party.Reserve)-visible)
+	start := min(max(0, g.rosterScroll), maxScroll)
+	if maxScroll > 0 {
+		up := layoutRect{rightX + colW - 60, listY - 28, 26, 24}
+		down := layoutRect{rightX + colW - 28, listY - 28, 26, 24}
+		ui.drawScrollArrowButton(screen, up.x, up.y, up.w, up.h, true, isMouseHoveringBox(mouseX, mouseY, up.x, up.y, up.right(), up.bottom()), start > 0)
+		ui.drawScrollArrowButton(screen, down.x, down.y, down.w, down.h, false, isMouseHoveringBox(mouseX, mouseY, down.x, down.y, down.right(), down.bottom()), start < maxScroll)
+		ui.onDisplayedInput(uiCommandPointer, area, func() {
+			mx, my := pointerPosition()
+			if interactive && isMouseHoveringBox(mx, my, area.x, area.y, area.right(), area.bottom()) {
+				_, wheel := pointerWheel()
+				g.rosterScroll = rosterScrollAfterWheel(start, maxScroll, wheel)
+			}
+		})
+		for _, button := range []struct {
+			r     layoutRect
+			delta int
+		}{{up, -1}, {down, 1}} {
+			ui.onDisplayedInput(uiCommandClick, button.r, func() {
+				if interactive && g.consumeLeftClickIn(button.r.x, button.r.y, button.r.right(), button.r.bottom()) {
+					g.rosterScroll = min(maxScroll, max(0, start+button.delta))
+				}
+			})
+		}
+	}
 	// Reserve column
-	for j, m := range g.party.Reserve {
-		y := listY + j*rowH
+	for j := start; j < min(len(g.party.Reserve), start+visible); j++ {
+		m := g.party.Reserve[j]
+		y := listY + (j-start)*rowH
 		if y+rowH > area.bottom() {
 			break
 		}

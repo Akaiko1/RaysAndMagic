@@ -11,3 +11,8 @@ ui.all_enemies_defeated: "All enemies defeated"
 ui.claim_reward: "Claim Reward"
 ui.reward: "Reward: %s"
 ui.scroll_details: "Scroll for details"
+
+ui.overwatch_ready: "Overwatch ready"
+
+combat.overwatch_fires: "%s fires Overwatch at %s!"
+combat.overwatch_source: "%s (Overwatch)"

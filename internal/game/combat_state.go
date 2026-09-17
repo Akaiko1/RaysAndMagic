@@ -7,6 +7,7 @@ import ()
 // world swap (map switch, save load) or leftovers keep updating against the
 // new map and can hit monsters there.
 func (g *MMGame) clearTransientCombatState() {
+	g.resetOverwatch()
 	// Door state is per-map: entities unregister and closed-ness resets, so the
 	// "portcullises rise" transition can't fire on the destination map.
 	// NOTE: per-card summon cooldowns deliberately survive here - they are
