@@ -228,6 +228,22 @@ type Config struct {
 	Graphics      GraphicsConfig      `yaml:"graphics"`
 	Tiles         TileConfig          `yaml:"tiles"`
 	DayNight      DayNightConfig      `yaml:"day_night"`
+	Camping       CampingConfig       `yaml:"camping"`
+}
+
+type CampingConfig struct {
+	DissolveClustersMin int     `yaml:"dissolve_clusters_min"`
+	DissolveClustersMax int     `yaml:"dissolve_clusters_max"`
+	MaxTopCropFraction  float64 `yaml:"max_top_crop_fraction"`
+	DissolvePixelSize   int     `yaml:"dissolve_pixel_size"`
+	DefaultScene        string  `yaml:"default_scene"`
+	FadeInSeconds       float64 `yaml:"fade_in_seconds"`
+	HoldSeconds         float64 `yaml:"hold_seconds"`
+	FadeOutSeconds      float64 `yaml:"fade_out_seconds"`
+}
+
+func DefaultCampingConfig() CampingConfig {
+	return CampingConfig{DissolveClustersMin: 5, DissolveClustersMax: 6, MaxTopCropFraction: 0.08, DissolvePixelSize: 4, DefaultScene: "camp_dungeon", FadeInSeconds: 0.65, HoldSeconds: 2.5, FadeOutSeconds: 0.8}
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -1193,6 +1209,7 @@ type MapCanopyShadeConfig struct {
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
+	CampScene             string              `yaml:"camp_scene,omitempty"`
 	ElementalAttackSchool string              `yaml:"elemental_attack_school"`
 	FloorTextureGroups    map[string][]string `yaml:"floor_texture_groups,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
@@ -1508,6 +1525,7 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	var config Config
+	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).

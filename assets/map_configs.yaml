@@ -16,6 +16,7 @@ shared_floor_texture_groups:
 
 biomes:
   forest:
+    camp_scene: camp_forest
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -41,6 +42,7 @@ biomes:
         - "highlands_stream_1"
 
   desert:
+    camp_scene: camp_desert
     elemental_attack_school: fire
     floor_texture_groups:
       default:
@@ -53,6 +55,7 @@ biomes:
         - "beach_sand_1"
 
   water:
+    camp_scene: camp_water
     elemental_attack_school: water
     floor_texture_groups:
       default:
@@ -113,6 +116,7 @@ biomes:
         - "clocktower_grate_0"
 
   arena:
+    camp_scene: camp_desert
     elemental_attack_school: light
     floor_texture_groups:
       default:
@@ -150,6 +154,7 @@ biomes:
   # deliberately by tile letter (cobble courtyard / wood halls / tatami rooms /
   # blossom garden), not the random-from-group variety the other biomes use.
   japanese_castle:
+    camp_scene: camp_japanese_castle
     elemental_attack_school: spirit
     floor_texture_groups:
       # "default" is what stitched open-world corridor cells (tile: empty)
@@ -171,6 +176,7 @@ biomes:
   # subregions by letter (moss garden / blossom earth / granite paving / koi
   # shallows), plus the four transition accents (digits 1-4 in tiles.yaml).
   sakura_garden:
+    camp_scene: camp_sakura_garden
     elemental_attack_school: mind
     floor_texture_groups:
       # "default" is what stitched open-world corridor cells (tile: empty)
@@ -202,6 +208,7 @@ biomes:
         - "sakura_garden_floor_6"
 
   city:
+    camp_scene: camp_forest
     elemental_attack_school: water
     floor_texture_groups:
       default:
@@ -214,6 +221,7 @@ biomes:
   # group, so the plaza around the landmark reads as a deliberate paved circle
   # instead of more street. Same split, same letters (. and ,) in each.
   elf_city:
+    camp_scene: camp_highlands
     elemental_attack_school: air
     floor_texture_groups:
       default:
@@ -224,6 +232,7 @@ biomes:
         - "elf_city_floor_3"
 
   nomad_city:
+    camp_scene: camp_desert
     elemental_attack_school: fire
     floor_texture_groups:
       default:
@@ -234,6 +243,7 @@ biomes:
         - "nomad_city_floor_2"
 
   highlands:
+    camp_scene: camp_highlands
     elemental_attack_school: air
     floor_texture_groups:
       default:
@@ -246,6 +256,7 @@ biomes:
         - "highlands_stream_1"
 
   dragon_cliffs:
+    camp_scene: camp_dragon_cliffs
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -279,6 +290,7 @@ biomes:
   # the forest_stream texture, and the renderer auto-selects "beach" for the
   # sandy banks bordering water.
   jungle:
+    camp_scene: camp_jungle
     elemental_attack_school: body
     # Off-map backdrop: dense jungle foliage wall instead of the global seaview.
     out_of_bounds_tile: "jungle_wall_foliage"

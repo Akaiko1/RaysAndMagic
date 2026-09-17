@@ -6,6 +6,8 @@ import (
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -151,7 +153,15 @@ func (g *MMGame) resolveCampConfirmation(confirmed bool) {
 	}
 	g.campConfirmOpen = false
 	if confirmed {
-		message, _ := g.TryCamp()
+		message, rested := g.TryCamp()
 		g.AddCombatMessage(message)
+		if rested {
+			g.beginCampRest()
+			// One cue per accepted rest, using the actual healing spell's
+			// YAML school routing; never once per party member or draw frame.
+			if heal, err := spells.GetSpellDefinitionByID(spells.SpellID(items.SpellEffectHealOther)); err == nil {
+				g.playSpellSound(heal)
+			}
+		}
 	}
 }

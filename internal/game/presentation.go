@@ -5,6 +5,7 @@ package game
 // clock its drawing code reads; render-only frames never call this method.
 func (g *MMGame) updateInterfacePresentation() {
 	g.uiFrameCount++
+	g.tickCampRest()
 	if g.gameplayPausedByOverlay() {
 		g.tickPausedAchievementBanner()
 	}

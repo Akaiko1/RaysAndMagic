@@ -164,31 +164,43 @@ func TestAuthoredRationPrice(t *testing.T) {
 	}
 }
 
-func TestCampConfirmationRetiresWithTimeline(t *testing.T) {
+// Case table: confirmation open / rest animation active x load / new game /
+// title. Every transition must retire the transient state and reject a stale
+// confirmation without spending food or starting another rest.
+func TestCampPresentationRetiresWithTimeline(t *testing.T) {
 	t.Chdir("../..")
-	g, wm, cfg := bootOpenWorldGame(t, false)
-	save := g.buildSave(wm)
-	for _, action := range []string{"load", "new game", "title"} {
-		t.Run(action, func(t *testing.T) {
-			g.campConfirmOpen = true
-			switch action {
-			case "load":
-				if err := g.applySave(wm, &save); err != nil {
-					t.Fatal(err)
+	for _, state := range []string{"confirmation", "animation"} {
+		for _, action := range []string{"load", "new game", "title"} {
+			t.Run(state+"/"+action, func(t *testing.T) {
+				g, wm, cfg := bootOpenWorldGame(t, false)
+				save := g.buildSave(wm)
+				if state == "confirmation" {
+					g.campConfirmOpen = true
+				} else {
+					g.beginCampRest()
 				}
-			case "new game":
-				g.startNewGameWithParty(character.NewParty(cfg))
-			case "title":
-				g.returnToMainMenu()
-			}
-			if g.campConfirmOpen {
-				t.Fatal("pending camp carried into another timeline/screen")
-			}
-			food := g.party.Food
-			g.resolveCampConfirmation(true)
-			if g.party.Food != food {
-				t.Fatal("stale confirmation spent food")
-			}
-		})
+				if g.campConfirmOpen != (state == "confirmation") || (g.campRest != nil) != (state == "animation") {
+					t.Fatal("fixture did not establish the requested camp state")
+				}
+				switch action {
+				case "load":
+					if err := g.applySave(wm, &save); err != nil {
+						t.Fatal(err)
+					}
+				case "new game":
+					g.startNewGameWithParty(character.NewParty(cfg))
+				case "title":
+					g.returnToMainMenu()
+				}
+				if g.campConfirmOpen || g.campRest != nil {
+					t.Fatal("pending camp carried into another timeline/screen")
+				}
+				food := g.party.Food
+				g.resolveCampConfirmation(true)
+				if g.party.Food != food || g.campRest != nil || g.campConfirmOpen {
+					t.Fatal("stale confirmation spent food or restarted camping")
+				}
+			})
+		}
 	}
 }

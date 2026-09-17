@@ -7,7 +7,7 @@ import (
 	"ugataima/internal/character"
 )
 
-// restParty fully restores every living member's HP/SP and wakes the
+// restParty cures afflictions, fully restores every living member's HP/SP and wakes the
 // unconscious. The dead and eradicated stay down - revival is a separate rite.
 func (g *MMGame) restParty() {
 	for i, m := range g.party.Members {
@@ -17,7 +17,7 @@ func (g *MMGame) restParty() {
 		healed := m.HitPoints < m.MaxHitPoints
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
-		m.RemoveCondition(character.ConditionUnconscious)
+		m.CureRestConditions()
 		if healed {
 			g.TriggerPartyHeal(i) // same rising green "+" the heal spells show
 		}

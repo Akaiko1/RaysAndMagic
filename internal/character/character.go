@@ -845,6 +845,18 @@ func (c *MMCharacter) CurePoison() {
 	c.RemoveCondition(ConditionPoisoned)
 }
 
+// CureRestConditions clears living heroes' afflictions and their simulation
+// timers together. Death and eradication require a separate revival action.
+func (c *MMCharacter) CureRestConditions() {
+	if c.HasCondition(ConditionDead) || c.HasCondition(ConditionEradicated) {
+		return
+	}
+	c.CurePoison()
+	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
+	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.Conditions = nil
+}
+
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
 // both can run at once. The tick is desynced (starts half a second in) so burn
 // and poison ticks don't land on the same frame. The banked half second is

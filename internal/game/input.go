@@ -277,7 +277,7 @@ func (ih *InputHandler) restartNewGame() {
 // drops the player into gameplay with the given party. Shared by restartNewGame
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
-	g.resolveCampConfirmation(false)
+	g.cancelCampPresentation()
 	// A fresh run inherits no UI gesture from the replaced timeline. This also
 	// closes the UI-owned quantity picker through its existing SSoT.
 	g.cancelStackSplitInteraction()

@@ -205,7 +205,7 @@ func (g *MMGame) updateEntryMenuPointer() {
 // screen's own "Quit" does). The world/party stay in memory but aren't drawn
 // while on the title; Start/Load from the title replaces them.
 func (g *MMGame) returnToMainMenu() {
-	g.resolveCampConfirmation(false)
+	g.cancelCampPresentation()
 	if g.mainMenuMode == MenuSettings || g.entryMenuMode == EntryMenuSettings {
 		g.closeAudioSettings()
 	}

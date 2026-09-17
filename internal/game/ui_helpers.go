@@ -209,6 +209,7 @@ const (
 	modalLayerStash
 	modalLayerStackSplit
 	modalLayerCamp
+	modalLayerCampRest
 	modalLayerLevelChoice
 	modalLayerCount
 )
@@ -242,6 +243,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 	switch {
 	case g.currentLevelUpChoice() != nil:
 		return modalLayerLevelChoice
+	case g.campRest != nil:
+		return modalLayerCampRest
 	case g.campConfirmOpen:
 		return modalLayerCamp
 	case stackSplitOpen:

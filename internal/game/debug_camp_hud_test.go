@@ -3,8 +3,10 @@
 package game
 
 import (
+	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 	"os"
@@ -70,6 +72,57 @@ func TestDebugSim_CampHUDGallery(t *testing.T) {
 			closeErr := f.Close()
 			if err != nil || closeErr != nil {
 				t.Fatalf("capture write: %v %v", err, closeErr)
+			}
+		}
+	}
+}
+
+// Export through the production world renderer at the native layout size.
+// Only the interlude phase is selected; no scenery or rendering overrides.
+func TestDebugSim_CampScenesGallery(t *testing.T) {
+	requireStandeeGPU(t)
+	g := bootGameplayPreviewGame(t)
+	defer g.threading.Shutdown()
+	g.menuOpen = false
+	out := os.Getenv("RAM_CAMP_QA_DIR")
+	if out == "" {
+		out = t.TempDir()
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	save := func(name string, w, h int) {
+		t.Helper()
+		shot := captureGameplayPreviewFrame(t, g, w, h)
+		f, err := os.Create(filepath.Join(out, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, shot)
+		closeErr := f.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("write preview: %v %v", err, closeErr)
+		}
+	}
+	scenes := []string{"forest", "desert", "highlands", "dragon_cliffs", "jungle", "japanese_castle", "sakura_garden", "dungeon", "water"}
+	for _, res := range [][2]int{{800, 600}, {1920, 1080}, {3440, 1440}, {3840, 2160}} {
+		w, h := g.gameLoop.Layout(res[0], res[1])
+		for _, scene := range scenes {
+			if scene != "forest" && res[0] != 1920 {
+				continue
+			}
+			g.beginCampRest()
+			g.campRest.sprite = "camp_" + scene
+			if !g.sprites.HasSprite(g.campRest.sprite) {
+				t.Fatalf("missing authored camp scene %s", scene)
+			}
+			g.campRest.elapsed = g.campRest.fadeIn + g.campRest.hold/2
+			save(fmt.Sprintf("scene_%s_window_%dx%d_native_%dx%d.png", scene, res[0], res[1], w, h), w, h)
+			if scene == "forest" && res[0] == 800 {
+				g.campRest.elapsed = g.campRest.fadeIn / 2
+				save(fmt.Sprintf("scene_forest_fade_in_native_%dx%d.png", w, h), w, h)
+				g.campRest.elapsed = g.campRest.fadeIn + g.campRest.hold + g.campRest.fadeOut/2
+				save(fmt.Sprintf("scene_forest_fade_out_native_%dx%d.png", w, h), w, h)
 			}
 		}
 	}
@@ -219,5 +272,101 @@ func TestDebugSim_WorldSpriteGlowParity(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Case table: common viewport sizes x visible/hidden party HUD x reveal/hold/
+// dissolve. Every phase uses the real compositor. Repeat Draw must be stable;
+// resizing must replace its bounded surface, and cancellation must discard it.
+func TestDebugSim_CampViewportDissolve(t *testing.T) {
+	requireStandeeGPU(t)
+	g, _ := bootFxGalleryGame(t)
+	defer g.Shutdown()
+	g.beginCampRest()
+	g.campRest.sprite = "camp_forest"
+	for _, res := range campHUDResolutions {
+		for _, hud := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%dx%d/HUD=%v", res[0], res[1], hud), func(t *testing.T) {
+				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = res[0], res[1]
+				g.showPartyStats = hud
+				s := g.campRest
+				w, h, bottom := res[0], res[1], gameplayViewportBottom(g)
+				capture := func(elapsed int) []byte {
+					s.elapsed = elapsed
+					pixels := make([]byte, w*h*4)
+					runOnDrawFrame(func(_ *ebiten.Image) {
+						screen := ebiten.NewImage(w, h)
+						defer screen.Deallocate()
+						screen.Fill(color.RGBA{19, 29, 41, 255})
+						g.gameLoop.ui.drawCampRest(screen)
+						screen.ReadPixels(pixels)
+					})
+					return pixels
+				}
+				base, full := capture(0), capture(s.fadeIn)
+				if s.surface.Bounds().Size() != image.Pt(w, bottom) {
+					t.Fatal("camp surface did not follow the resized HUD boundary")
+				}
+				for _, elapsed := range []int{s.fadeIn / 2, s.fadeIn + s.hold + s.fadeOut/2, s.fadeIn + s.hold + s.fadeOut} {
+					part, again := capture(elapsed), capture(elapsed)
+					if !bytes.Equal(part, again) {
+						t.Fatal("pixel mask changes without Update")
+					}
+					if !bytes.Equal(part[bottom*w*4:], base[bottom*w*4:]) {
+						t.Fatal("camp altered the party HUD")
+					}
+					if elapsed == s.fadeIn+s.hold+s.fadeOut {
+						if !bytes.Equal(part, base) {
+							t.Fatal("dissolve did not return to the unchanged world")
+						}
+						continue
+					}
+					visible, hidden := 0, 0
+					for y := 4; y < bottom; y += 8 {
+						for x := 4; x < w; x += 8 {
+							i := (y*w + x) * 4
+							if bytes.Equal(part[i:i+4], base[i:i+4]) {
+								hidden++
+							}
+							if bytes.Equal(part[i:i+4], full[i:i+4]) {
+								visible++
+							}
+						}
+					}
+					if visible < 10 || hidden < 10 {
+						t.Fatal("transition is a flat fade, not a pixel dissolve")
+					}
+					// A cluster interior is locally coherent. Independent random
+					// pixel noise would change state along about half these edges.
+					changes, edges := 0, 0
+					for y := 4; y < bottom; y += 8 {
+						for x := 4; x+8 < w; x += 8 {
+							a, b := (y*w+x)*4, (y*w+x+8)*4
+							left := bytes.Equal(part[a:a+4], base[a:a+4])
+							right := bytes.Equal(part[b:b+4], base[b:b+4])
+							edges++
+							if left != right {
+								changes++
+							}
+						}
+					}
+					if changes*5 > edges {
+						t.Fatal("dissolve scatters pixels instead of spreading in clusters")
+					}
+
+				}
+				// No letterbox or dimmed strips may remain along any viewport edge.
+				for _, p := range []image.Point{{0, 0}, {w - 1, 0}, {0, bottom - 1}, {w - 1, bottom - 1}, {w / 2, 0}, {0, bottom / 2}} {
+					i := (p.Y*w + p.X) * 4
+					if bytes.Equal(full[i:i+4], base[i:i+4]) {
+						t.Fatalf("uncovered viewport edge at %v", p)
+					}
+				}
+			})
+		}
+	}
+	g.cancelCampPresentation()
+	if g.campRest != nil {
+		t.Fatal("cancel retained a camp render surface")
 	}
 }

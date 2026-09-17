@@ -237,6 +237,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.campConfirmOpen {
 		ui.drawCampConfirmation(screen)
 	}
+	if ui.game.campRest != nil {
+		ui.drawCampRest(screen)
+	}
 
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
@@ -261,7 +264,7 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
 		hasIcon := ui.tooltipIcon != ""

@@ -554,9 +554,10 @@ type MMGame struct {
 	// Dead monster IDs to remove - populated when monster dies, processed once per frame
 	deadMonsterIDs []string
 	// Stat distribution popup UI state
-	statPopupOpen    bool // Is the stat distribution popup open?
-	statPopupCharIdx int  // Which character is being edited in the popup?
-	campConfirmOpen  bool // Transient; supplies are spent only after confirmation.
+	statPopupOpen    bool                  // Is the stat distribution popup open?
+	statPopupCharIdx int                   // Which character is being edited in the popup?
+	campConfirmOpen  bool                  // Transient; supplies are spent only after confirmation.
+	campRest         *campRestPresentation // Transient presentation, never saved.
 	// Level-up choice queue
 	levelUpChoiceQueue []levelUpChoiceRequest
 	levelUpChoiceOpen  bool
@@ -1763,6 +1764,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
+	g.cancelCampPresentation()
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
 		g.gameLoop.ui.profileViewport.Deallocate()
 		g.gameLoop.ui.profileViewport = nil

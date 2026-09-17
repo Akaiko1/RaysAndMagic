@@ -56,6 +56,7 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.levelUpChoiceOpen = true
 		}, pauses: true},
 		{name: "camp", want: modalLayerCamp, set: func(g *MMGame, _ *UISystem) { g.campConfirmOpen = true }, pauses: true},
+		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest() }, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))

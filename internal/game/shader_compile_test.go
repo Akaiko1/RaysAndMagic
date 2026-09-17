@@ -15,6 +15,7 @@ import (
 func TestKageShadersCompile(t *testing.T) {
 	for name, src := range map[string]string{
 		"floor":            floorShaderSrc,
+		"campDissolve":     campDissolveShaderSrc,
 		"sky":              skyShaderSrc,
 		"standeeTrilinear": standeeTrilinearShaderSrc,
 		"standeeVolume":    standeeVolumeShaderSrc,

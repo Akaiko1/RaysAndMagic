@@ -22,6 +22,17 @@ display:
 engine:
   tps: 120
 
+camping:
+  # Keep all four heads below the crop, including on ultrawide displays.
+  max_top_crop_fraction: 0.08
+  dissolve_pixel_size: 4
+  dissolve_clusters_min: 5
+  dissolve_clusters_max: 6
+  default_scene: camp_dungeon
+  fade_in_seconds: 0.65
+  hold_seconds: 2.5
+  fade_out_seconds: 0.8
+
 # Game world settings
 world:
   tile_size: 64
