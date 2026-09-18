@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -26,7 +27,7 @@ func sortedKeys[T any](m map[string]T) []string {
 // the quest-giving spell trader's; the Tab key also cycles (see
 // handleArenaGladiatorInput).
 func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
-	ui.drawDialogFolderTabs(screen, dialogX, dialogY, []string{"Talk", "Shop", "Board"})
+	ui.drawDialogFolderTabs(screen, dialogX, dialogY, ui.game.merchantServiceTabs())
 	switch ui.game.dialogTab {
 	case 1:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
@@ -238,4 +239,11 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY
 	if maxScroll > 0 {
 		drawDebugText(screen, fmt.Sprintf("(%d-%d of %d)", start+1, min(start+visible, len(lines)), len(lines)), x, contentMaxY)
 	}
+}
+
+func (g *MMGame) merchantServiceTabs() []string {
+	if g.dialogNPC != nil && g.dialogNPC.FreeGoods {
+		return []string{"Talk", uitext.Text("caravan.goods_tab")}
+	}
+	return []string{"Talk", "Shop", "Board"}
 }

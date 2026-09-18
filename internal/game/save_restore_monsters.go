@@ -189,6 +189,8 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.LootGuardAlerted = ms.LootGuardAlerted
 				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
+				m.Population = ms.Population
+				m.AmbientMoveCredit = ms.AmbientMoveCredit
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a

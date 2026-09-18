@@ -597,7 +597,7 @@ func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 		return dialogKindSpellTrader
 	case npcHasSkillTraining(npc):
 		return dialogKindSkillTrainer
-	case npc.ArenaBoard && npcHasChoiceDialog(npc) && npcHasMerchant(npc):
+	case (npc.ArenaBoard || npc.FreeGoods) && npcHasChoiceDialog(npc) && npcHasMerchant(npc):
 		// Arena gladiators (authored arena_board: true): dialogue choices + a
 		// points shop + the champions' board in one tabbed dialog. The explicit
 		// flag keeps the board off future shop+choices NPCs.

@@ -39,7 +39,7 @@ func (g *MMGame) TryCamp() (string, bool) {
 		// Bound covers every summon plus Bind Undead - real allies. NOT
 		// IsPartyControlled: that adds Charm, a countdown that breaks on any hit,
 		// so resting through it banks a full heal before the monster turns.
-		if m.Bound {
+		if m.Bound || m.IsAmbient() {
 			continue
 		}
 		// No resting mid-combat: a pursuer kited beyond the radius (or a

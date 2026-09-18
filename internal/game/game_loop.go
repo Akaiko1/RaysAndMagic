@@ -218,6 +218,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
+	gl.game.updateEcology()
 
 	// Each summon card's proc cooldown ticks independently in real time in both
 	// modes; these timers silence only their own proc.
@@ -229,6 +230,7 @@ func (gl *GameLoop) updateExploration() {
 	gl.runMonsterFrame()
 
 	gl.updateProjectilesAndImpacts()
+	gl.game.advanceRemoteEcologyProjectiles()
 
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {

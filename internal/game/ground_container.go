@@ -155,9 +155,10 @@ func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
 	if g == nil || (len(drops) == 0 && gold <= 0) {
 		return
 	}
-	g.recordProfileLoot(drops)
+	recipient := g.rewardOwner()
+	recipient.recordProfileLoot(drops)
 	ts := g.config.GetTileSize()
-	g.addGroundContainer(GroundContainer{
+	recipient.addGroundContainer(GroundContainer{
 		Kind: ContainerKindLootBag,
 		// The region the bag FELL in, resolved from the drop tile - the same rule
 		// kills credit to a region (questKillMapKey). currentMapKey() is the

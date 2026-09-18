@@ -70,6 +70,13 @@ func (g *MMGame) mapKeyAtTile(tx, ty int) string {
 			return r.MapKey
 		}
 	}
+	if wm := world.GlobalWorldManager; wm != nil && g.world != nil {
+		for key, w := range wm.LoadedMaps {
+			if w == g.world {
+				return key
+			}
+		}
+	}
 	return currentMapKey()
 }
 

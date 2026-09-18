@@ -2,6 +2,17 @@ package uitext
 
 // Argument contracts for presentation templates; wording lives only in YAML.
 var signatures = map[string]string{
+	"caravan.empty":                   "",
+	"caravan.bag_header":              "",
+	"caravan.collect_hint":            "",
+	"caravan.free":                    "",
+	"caravan.goods_tab":               "",
+	"caravan.goods_header":            "",
+	"caravan.take":                    "",
+	"caravan.collected":               "s",
+	"caravan.outbound":                "",
+	"caravan.returning":               "",
+	"caravan.lost":                    "",
 	"combat.party_uses_timed_buff":    "ss",
 	"npc.unlock_party_level":          "d",
 	"ui.camp":                         "",

@@ -116,7 +116,7 @@ func (g *MMGame) biomeAtTile(tileX, tileY int) string {
 			return ""
 		}
 	}
-	if mc := wm.GetCurrentMapConfig(); mc != nil {
+	if mc := wm.MapConfigs[g.mapKeyAtTile(tileX, tileY)]; mc != nil {
 		return mc.Biome
 	}
 	return ""

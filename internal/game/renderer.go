@@ -3615,8 +3615,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 		if mon.Flying {
-			// Centered on the horizon: bottom = mid-screen + half height.
-			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), sizeF)
+			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), bottomF, sizeF)
 		}
 
 		var sprite *ebiten.Image

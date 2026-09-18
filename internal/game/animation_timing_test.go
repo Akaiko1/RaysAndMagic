@@ -38,8 +38,15 @@ func TestMonsterAttackTimingOnlySlowsAuthoredSheets(t *testing.T) {
 	}
 
 	fallback := &monster.Monster3D{Key: "dire_wolf"}
+	def, err := monster.MonsterConfig.GetMonsterByKey(fallback.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutArt := *def
+	withoutArt.Sprite = "test_missing_attack_animation"
+	fallback.SetupMonsterFromConfig(&withoutArt)
 	if got := g.authoredMonsterAttackFrameCount(fallback); got != 0 {
-		t.Fatalf("dire wolf unexpectedly has %d authored attack frames", got)
+		t.Fatalf("missing-art fixture unexpectedly has %d authored attack frames", got)
 	}
 	g.armMonsterAttackAnimation(fallback)
 	if got, want := fallback.AttackAnimFrames, MonsterAttackAnimFrames; got != want {

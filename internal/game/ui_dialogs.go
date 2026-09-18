@@ -1061,6 +1061,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
 	}
 	balanceText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
+	if ui.game.dialogNPC.FreeGoods {
+		balanceText = ui.game.caravanStatusText()
+	}
 	if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
 		balanceText = uitext.Text("dialog.arena_points", ui.game.party.ArenaPoints)
 	} else if name, ok := currencyItemName(ui.game.dialogNPC.Currency); ok {
@@ -1073,7 +1076,11 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 
 	// Headers + faint divider between the two halves. Headers sit at gridTop-24
 	// so they clear the two-line greeting above and the icon frames below.
-	drawDebugText(screen, uitext.Text("dialog.for_sale"), leftX, gridTop-24)
+	header := uitext.Text("dialog.for_sale")
+	if ui.game.dialogNPC.FreeGoods {
+		header = uitext.Text("caravan.goods_header")
+	}
+	drawDebugText(screen, header, leftX, gridTop-24)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
 	drawDebugText(screen, clipDebugText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-24)
@@ -1094,7 +1101,11 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	buyPages := pageCount(len(stock), merchantPageSize)
 	clampPage(&ui.game.merchantBuyPage, buyPages)
 	if len(stock) == 0 {
-		drawDebugText(screen, uitext.Text("dialog.no_stock_for_sale"), leftX, gridTop)
+		emptyText := uitext.Text("dialog.no_stock_for_sale")
+		if ui.game.dialogNPC.FreeGoods {
+			emptyText = uitext.Text("caravan.empty")
+		}
+		ui.drawWrappedTextWithOverflow(screen, emptyText, layoutRect{leftX, gridTop, merchantGridW, dialogueLineHeight * 3}, 3, dialogueLineHeight)
 	} else {
 		start := ui.game.merchantBuyPage * merchantPageSize
 		for slot := 0; slot < merchantPageSize; slot++ {
@@ -1113,7 +1124,11 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				tooltipItem = entry.Item
 				tooltipHasItem = true
 			}
-			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
+			displayItem := entry.Item
+			if entry.RewardKey != "" {
+				displayItem.Quantity = entry.Quantity
+			}
+			ui.drawInventoryItemIcon(screen, displayItem, x, y, w, h, 4, !soldOut)
 			priceText := uitext.Text("dialog.gold_price_short", ui.game.merchantBuyPrice(entry.Cost))
 			entryCurrency := entry.EffectiveCurrency(ui.game.dialogNPC.Currency)
 			if _, ok := character.CurrencyItemKey(entryCurrency); ok {
@@ -1129,6 +1144,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				priceText = uitext.Text("dialog.sold_out")
 			}
 			px, py, pw, ph := merchantPriceRect(x, y, w, h)
+			if ui.game.dialogNPC.FreeGoods {
+				priceText = uitext.Text("caravan.take")
+			}
 			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph,
 				purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0))
 		}
@@ -1220,7 +1238,11 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		}
 	}
 
-	drawDebugText(screen, clipDebugText(uitext.Text("dialog.hover_details_double_click_buy_left_sell"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	hint := uitext.Text("dialog.hover_details_double_click_buy_left_sell")
+	if ui.game.dialogNPC.FreeGoods {
+		hint = uitext.Text("caravan.collect_hint")
+	}
+	drawDebugText(screen, clipDebugText(hint, layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 	drawDebugText(screen, uitext.Text("dialog.esc_close"), layout.footer[1].x, layout.footer[1].y)
 }
 
@@ -1873,6 +1895,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		return false
 	}
 	g.recordProfileQuestResolution(g.questManager.GetQuest(questID))
+	g.unlockCaravan()
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}

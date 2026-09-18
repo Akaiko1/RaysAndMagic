@@ -221,6 +221,11 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 		}
 	}
 
+	if m.CurrentAIBehavior() == AIBehaviorAmbient {
+		m.UpdateAmbient(collisionChecker, targetX, targetY, false)
+		return
+	}
+
 	// Party detection always uses the actual party position. The pursuit target
 	// may be a bound ally, a charmed monster's foe, or the monster itself.
 	m.updatePlayerEngagementWithVision(collisionChecker, partyX, partyY, targetX, targetY)
@@ -1459,6 +1464,9 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 }
 
 func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
+	if b := m.AmbientBounds; b != nil && (tile.X < b[0] || tile.Y < b[1] || tile.X >= b[2] || tile.Y >= b[3]) {
+		return false
+	}
 	centerX, centerY := m.tileToWorldCenter(tile.X, tile.Y)
 	return collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying)
 }
@@ -1497,6 +1505,9 @@ type movementSpeedMultipliers struct {
 // movementSpeed returns the per-tick speed for the given state (search: move-speed).
 func (m *Monster3D) movementSpeed(state MonsterState) float64 {
 	base := m.speedPerTick()
+	if m.IsAmbient() && (state == StateFleeing || m.Disposition == "caravan") {
+		return base
+	}
 	mults := m.movementSpeedMultipliers()
 	switch state {
 	case StatePatrolling:

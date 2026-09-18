@@ -29,6 +29,9 @@ func (gl *GameLoop) runMonsterFrame() {
 	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
 	// (steam zones and traps already self-finish via finishIndirectKill).
 	gl.finalizeIndirectKills()
+	if !gl.game.turnBasedMode {
+		gl.game.simulateRemoteEcology(false, false)
+	}
 
 }
 

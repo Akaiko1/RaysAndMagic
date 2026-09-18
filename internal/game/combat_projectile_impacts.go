@@ -86,7 +86,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			if proj.owner == ProjectileOwnerBoundUndead && !cs.boundAllyCanDamageMonster(monster) {
 				continue
 			}
-			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
+			if proj.owner == ProjectileOwnerMonsterAtBound && !projectileSourceMonster(proj.data).CanAttackActor(monster) {
 				continue
 			}
 			if worldSpace {

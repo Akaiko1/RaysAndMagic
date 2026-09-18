@@ -2241,3 +2241,19 @@ items:
     status_icon: "stoneskin_draught"
     rarity: "rare"
     value: 350
+
+  rabbit_pelt:
+    name: "Rabbit Pelt"
+    type: "trinket"
+    description: "A soft sand-colored rabbit pelt"
+    flavor: "Enough for one mitten, if the tailor has small hands."
+    rarity: "common"
+    value: 30
+
+  fennec_pelt:
+    name: "Fennec Pelt"
+    type: "trinket"
+    description: "A pale desert fox pelt with a fine winter lining"
+    flavor: "The desert keeps its warmest coat for the coldest hours."
+    rarity: "common"
+    value: 90

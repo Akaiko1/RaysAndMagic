@@ -14,6 +14,9 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
+	Disposition  string   `yaml:"disposition,omitempty"`
+	Prey         []string `yaml:"prey,omitempty"`
+	PreyRadius   float64  `yaml:"prey_radius,omitempty"`
 	Name         string   `yaml:"name"`
 	Type         string   `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
 	Level        int      `yaml:"level"`
@@ -158,6 +161,17 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	var conflicts []string
 
 	for key, monster := range config.Monsters {
+		if monster.Disposition != "" && monster.Disposition != "wildlife" && monster.Disposition != "caravan" {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid disposition", key))
+		}
+		if len(monster.Prey) > 0 && (monster.Disposition != "wildlife" || monster.PreyRadius <= 0) {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid prey rules", key))
+		}
+		for _, prey := range monster.Prey {
+			if _, ok := config.Monsters[prey]; !ok {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q has unknown prey %q", key, prey))
+			}
+		}
 		if monster.DeprecatedHabitatPreferences.Kind != 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed habitat_preferences - use walkable_tile_overrides for blocked tile exceptions", key))
 		}
@@ -464,6 +478,7 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 // SetupMonsterFromConfig configures a monster from YAML definition
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
+	m.Disposition, m.Prey, m.PreyRadius = def.Disposition, def.Prey, def.PreyRadius*m.tileSize()
 	m.MonsterType = def.Type
 	// Render/collision identity never changes after setup; cache it so hot
 	// frame/tick callers do not copy or scan the YAML definition.

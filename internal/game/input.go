@@ -277,6 +277,8 @@ func (ih *InputHandler) restartNewGame() {
 // drops the player into gameplay with the given party. Shared by restartNewGame
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	g.ecology = EcologyState{}
+	g.ecologyViews = nil
 	g.cancelCampPresentation()
 	// A fresh run inherits no UI gesture from the replaced timeline. This also
 	// closes the UI-owned quantity picker through its existing SSoT.
@@ -2467,7 +2469,7 @@ func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) 
 // tab only reads (Shift detail at draw time).
 func (ih *InputHandler) handleArenaGladiatorInput() {
 	if ih.keys.Consume(ebiten.KeyTab) {
-		ih.game.switchDialogTab((ih.game.dialogTab + 1) % 3)
+		ih.game.switchDialogTab((ih.game.dialogTab + 1) % len(ih.game.merchantServiceTabs()))
 	}
 	switch ih.game.dialogTab {
 	case 0:

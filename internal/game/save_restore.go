@@ -35,6 +35,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	}
 	g.restoreSavedEffectPresentation(wm, save)
 	g.restoreSavedQuests(save)
+	g.ecology = cloneEcologyState(save.Ecology)
+	g.ecologyViews = nil
+	g.syncCaravanStock()
 	// A restored journal is not news, and the loaded run must not inherit the old
 	// one's heading or focus identity (loading does NOT reload maps, so NPC
 	// pointers survive). One reset, after the journal has settled.

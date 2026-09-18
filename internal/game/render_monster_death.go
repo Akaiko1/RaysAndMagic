@@ -8,8 +8,11 @@ import (
 
 // The live flying anchor and corpse use the same projection. Gravity moves the
 // anchor down to the ground over FallSeconds; fading only starts after landing.
-func monsterFlyingBottom(screenHeight int, size float64) float64 {
-	return float64(screenHeight)/2 + size/2
+func monsterFlyingBottom(screenHeight int, groundBottom, size float64) float64 {
+	horizon := float64(screenHeight) / 2
+	// Keep small flyers centered on the horizon, but never let a large
+	// sprite's lower edge sink beneath its projected ground contact.
+	return math.Min(horizon+size/2, (horizon+groundBottom)/2)
 }
 
 func (g *MMGame) corpseBottom(c *monsterCorpse, groundBottom, size float64) float64 {
@@ -18,7 +21,7 @@ func (g *MMGame) corpseBottom(c *monsterCorpse, groundBottom, size float64) floa
 	}
 	age := float64(g.frameCount-c.started) / float64(g.config.GetTPS())
 	t := math.Max(0, math.Min(1, age/g.monsterDeathSettings().FallSeconds))
-	airBottom := monsterFlyingBottom(g.config.GetScreenHeight(), size)
+	airBottom := monsterFlyingBottom(g.config.GetScreenHeight(), groundBottom, size)
 	return airBottom + (groundBottom-airBottom)*t*t
 }
 

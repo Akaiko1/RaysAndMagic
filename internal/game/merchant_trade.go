@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -21,7 +22,7 @@ func merchantBuysForGold(npc *character.NPC) bool {
 // merchantEntryPrice is the party-facing unit price of a stock entry in its own
 // currency, with the Merchant-skill discount applied to gold shops only.
 func (g *MMGame) merchantEntryPrice(entry *character.MerchantStockItem) int {
-	if entry == nil {
+	if entry == nil || (entry.RewardKey != "" && g.dialogNPC != nil && g.dialogNPC.FreeGoods) {
 		return 0
 	}
 	if entry.EffectiveCurrency(g.dialogNPC.Currency) == "" {
@@ -35,6 +36,9 @@ func (g *MMGame) merchantEntryPrice(entry *character.MerchantStockItem) int {
 func (g *MMGame) merchantMaxUnits(entry *character.MerchantStockItem) int {
 	if entry == nil || !entry.InStock() {
 		return 0
+	}
+	if entry.RewardKey != "" && g.dialogNPC != nil && g.dialogNPC.FreeGoods {
+		return max(0, min(entry.Quantity, g.ecology.Stock[entry.RewardKey]))
 	}
 	affordable := 0
 	switch currency := entry.EffectiveCurrency(g.dialogNPC.Currency); {
@@ -94,6 +98,19 @@ func (g *MMGame) buyMerchantUnits(entry *character.MerchantStockItem, n int) boo
 	// Arena-points merchants trade at flat prices in the victory currency; gold
 	// merchants keep the Merchant-skill discount. A per-entry currency_item
 	// (Scalewright) overrides the shop currency and may add a gold surcharge.
+	if entry.RewardKey != "" {
+		if !g.dialogNPC.FreeGoods || n > g.ecology.Stock[entry.RewardKey] {
+			return false
+		}
+		g.takeMerchantUnits(entry, n)
+		g.ecology.Stock[entry.RewardKey] -= n
+		if g.ecology.Stock[entry.RewardKey] == 0 {
+			delete(g.ecology.Stock, entry.RewardKey)
+		}
+		g.syncCaravanStock()
+		g.AddCombatMessage(uitext.Text("caravan.collected", merchantUnitsLabel(entry, n)))
+		return true
+	}
 	currency := entry.EffectiveCurrency(g.dialogNPC.Currency)
 	if name, ok := currencyItemName(currency); ok {
 		goldCost := entry.GoldCost * n
@@ -206,6 +223,9 @@ func (g *MMGame) merchantDragOpen() bool {
 // second line would paint over the first row of icons, and a clipped one loses
 // exactly the part that explains the action.
 func merchantBagHeaderLabel(npc *character.NPC) string {
+	if npc != nil && npc.FreeGoods {
+		return uitext.Text("caravan.bag_header")
+	}
 	if merchantBuysForGold(npc) {
 		return "Your Items"
 	}
@@ -217,6 +237,9 @@ func merchantBagHeaderLabel(npc *character.NPC) string {
 func merchantTotalPriceLabel(g *MMGame, entry *character.MerchantStockItem, n int) string {
 	if entry == nil || n < 1 {
 		return "-"
+	}
+	if entry.RewardKey != "" && g.dialogNPC.FreeGoods {
+		return uitext.Text("caravan.free")
 	}
 	currency := entry.EffectiveCurrency(g.dialogNPC.Currency)
 	if name, ok := currencyItemName(currency); ok {

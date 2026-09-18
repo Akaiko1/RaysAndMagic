@@ -2090,3 +2090,60 @@ monsters:
     box_h: 48
     size_class: huge
     resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
+
+  desert_rabbit:
+    name: "Desert Rabbit"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 18
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.8
+    sprite: "desert_rabbit"
+    box_w: 18
+    box_h: 18
+    size_class: small
+    biomes: [desert]
+
+  fennec:
+    name: "Fennec"
+    type: "beast"
+    disposition: wildlife
+    prey: [desert_rabbit]
+    prey_radius: 7
+    level: 2
+    max_hit_points: 35
+    armor_class: 2
+    experience: 0
+    damage_min: 6
+    damage_max: 9
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.07
+    sprite: "fennec"
+    box_w: 22
+    box_h: 22
+    size_class: small
+    biomes: [desert]
+
+  desert_caravan:
+    name: "Dunehold Caravan"
+    disposition: caravan
+    level: 20
+    max_hit_points: 2400
+    armor_class: 35
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 1
+    speed: 0.7
+    sprite: "desert_caravan"
+    box_w: 36
+    box_h: 36
+    size_class: large

@@ -3,6 +3,8 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
+	FreeGoods bool
+
 	X, Y          float64
 	Key           string // npcs.yaml key this NPC was created from
 	Name          string
@@ -124,6 +126,8 @@ type NPCLectern struct {
 }
 
 type MerchantStockItem struct {
+	RewardKey string
+
 	Item     items.Item
 	Cost     int
 	Quantity int    // UnlimitedStock (negative) = never sells out

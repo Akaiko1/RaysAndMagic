@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"ugataima/internal/collision"
@@ -31,16 +32,25 @@ func deathTestGame(t *testing.T) *MMGame {
 func TestMonsterDeathLifecycle(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, path := range []string{"direct", "immediate", "indirect"} {
-			for _, kind := range []string{"bandit", "dire_wolf", "summon"} {
+			for _, kind := range []string{"bandit", "no_animation", "summon"} {
 				t.Run(fmt.Sprintf("tb=%v/%s/%s", tb, path, kind), func(t *testing.T) {
 					g := deathTestGame(t)
 					g.turnBasedMode = tb
 					key := kind
-					if kind == "summon" {
+					if kind == "summon" || kind == "no_animation" {
 						key = "bandit"
 					}
 					ts := g.config.GetTileSize()
 					m := monster.NewMonster3DFromConfig(3.5*ts, 3.5*ts, key, g.config)
+					if kind == "no_animation" {
+						def, err := monster.MonsterConfig.GetMonsterByKey(key)
+						if err != nil {
+							t.Fatal(err)
+						}
+						withoutArt := *def
+						withoutArt.Sprite = "test_missing_death_animation"
+						m.SetupMonsterFromConfig(&withoutArt)
+					}
 					m.HitPoints = 0
 					m.Gold = 11
 					if kind == "summon" {
@@ -67,7 +77,7 @@ func TestMonsterDeathLifecycle(t *testing.T) {
 						t.Fatal("dead actor still active/colliding")
 					}
 					wantCorpses := 1
-					if kind == "dire_wolf" {
+					if kind == "no_animation" {
 						wantCorpses = 0
 					}
 					if corpses != wantCorpses {
@@ -214,7 +224,7 @@ func TestMonsterDeathFlight(t *testing.T) {
 				}
 				cfg, tps := g.monsterDeathSettings(), float64(g.config.GetTPS())
 				const ground, size = 600.0, 120.0
-				air := monsterFlyingBottom(g.config.GetScreenHeight(), size)
+				air := monsterFlyingBottom(g.config.GetScreenHeight(), ground, size)
 				for _, part := range []float64{0, 0.5, 1} {
 					g.frameCount = int64(part * cfg.FallSeconds * tps)
 					want := ground
@@ -296,26 +306,52 @@ func TestMonsterDeathAssetsAndPrewarm(t *testing.T) {
 	}
 }
 
-func TestBaseMonsterAnimationAssets(t *testing.T) {
+// Every configured definition, including aliases, must resolve its authored
+// animations through the runtime sprite manager and source prewarm plan.
+func TestMonsterAnimationAssets(t *testing.T) {
 	g := deathTestGame(t)
-	for _, key := range []string{"desert_dervish", "pixie", "goblin", "forest_orc", "troll", "treant", "spider", "forest_spider", "wolf", "bear", "mummy", "deathbound_mummy"} {
+	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	slices.Sort(keys)
+	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
 			m := monster.NewMonster3DFromConfig(224, 224, key, g.config)
 			name := m.GetSpriteType()
-			for _, kind := range []string{"walking_r", "attacking_r", "dying_r"} {
-				a := g.sprites.GetAnimation(name, kind)
+			kinds := []string{"walking", "attacking", "dying"}
+			// These actors have no attack action: a fleeing herbivore, a
+			// transport and the warlord's passive support idol.
+			passive := name == "desert_rabbit" || name == "desert_caravan" || name == "deep_jungle_idol"
+			if passive {
+				kinds = []string{"walking", "dying"}
+			}
+			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
+			for _, kind := range kinds {
+				resolved := kind + "_r"
+				a := g.sprites.GetAnimation(name, resolved)
+				if a == nil {
+					resolved = kind + "_l"
+					a = g.sprites.GetAnimation(name, resolved)
+				}
 				if a == nil || len(a.Frames) != 4 {
 					t.Fatalf("%s/%s: missing four-frame animation", key, kind)
 				}
 				for _, frame := range a.Frames {
 					if frame.Bounds().Dx() != 512 || frame.Bounds().Dy() != 512 {
-						t.Fatalf("%s/%s: changed logical frame size", key, kind)
+						t.Fatalf("%s/%s: changed logical frame size", key, resolved)
 					}
 				}
+				found := false
+				for _, req := range requests {
+					found = found || (req.Name == name && req.AnimationType == resolved)
+				}
+				if !found {
+					t.Fatalf("%s missing from source prewarm", resolved)
+				}
 			}
-			g.armMonsterAttackAnimation(m)
-			if m.AttackAnimFrames != animationDurationFrames(g.config.GetTPS(), AuthoredMonsterAttackFPS, 4) {
-				t.Fatal("authored attack did not receive the full animation window")
+			if !passive {
+				g.armMonsterAttackAnimation(m)
+				if m.AttackAnimFrames != animationDurationFrames(g.config.GetTPS(), AuthoredMonsterAttackFPS, 4) {
+					t.Fatal("authored attack did not receive the full animation window")
+				}
 			}
 			m.HitPoints = 0
 			before := len(g.monsterCorpses)
@@ -323,23 +359,7 @@ func TestBaseMonsterAnimationAssets(t *testing.T) {
 			if len(g.monsterCorpses) != before+1 || g.monsterCorpses[before].spriteName != name {
 				t.Fatal("death animation not wired to this monster definition")
 			}
-			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
-			for _, kind := range []string{"attacking_r", "dying_r"} {
-				found := false
-				for _, req := range requests {
-					found = found || (req.Name == name && req.AnimationType == kind)
-				}
-				if !found {
-					t.Fatalf("%s missing from source prewarm", kind)
-				}
-			}
 		})
-	}
-	for _, key := range []string{"jungle_goblin", "mountain_troll", "dire_wolf"} {
-		m := monster.NewMonster3DFromConfig(224, 224, key, g.config)
-		if name, _ := g.monsterDeathAnimation(m); name != "" {
-			t.Fatalf("excluded variant %s was changed", key)
-		}
 	}
 }
 

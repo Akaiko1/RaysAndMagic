@@ -110,6 +110,7 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 	g.applySkyForPhase(true)
 	g.syncDayNightPacks(night)
 	g.dayNightDay++
+	g.replenishWildlife()
 	g.refreshCelestialProvidence()
 	if night {
 		g.refreshRepeatableQuests("night")
@@ -483,7 +484,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 		return false
 	}
 	for _, m := range w.Monsters {
-		if m == nil || !m.IsAlive() {
+		if m == nil || !m.IsAlive() || m.IsAmbient() {
 			continue
 		}
 		tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
@@ -554,8 +555,8 @@ func (g *MMGame) availablePackSpawnTiles(w *world.World3D, minPlayerDistTiles fl
 		}
 		home := [2]int{TileIndex(m.SpawnX, tile), TileIndex(m.SpawnY, tile)}
 		occupied[[2]int{TileIndex(m.X, tile), TileIndex(m.Y, tile)}] = true
-		baseSurvivor := m.PackKey == "" && m.SummonedBy == "" && !isPurePartySummon(m)
-		if key, exists := authored[home]; exists && !reserved[home] && (!baseSurvivor || key == m.Key) {
+		baseSurvivor := !m.IsAmbient() && m.PackKey == "" && m.SummonedBy == "" && !isPurePartySummon(m)
+		if key, exists := authored[home]; !m.IsAmbient() && exists && !reserved[home] && (!baseSurvivor || key == m.Key) {
 			reserved[home] = true
 		} else if inRegion(home[0], home[1]) && baseSurvivor {
 			unanchored = append(unanchored, m)

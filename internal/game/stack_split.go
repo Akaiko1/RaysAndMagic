@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -389,6 +390,9 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		title = "Sell "
 	case stackSplitPickerMerchantBuy:
 		title = "Buy "
+		if entry := ui.stackSplitStockEntry(); entry != nil && entry.RewardKey != "" {
+			title = uitext.Text("caravan.take") + " "
+		}
 	}
 	drawCenteredDebugText(screen, title+truncateRunes(item.Name, 28, "..."), r.Min.X+12, r.Min.Y+12, r.Dx()-24, 16)
 
@@ -408,6 +412,9 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		priceLine = fmt.Sprintf("%d gold", g.merchantSellPrice(item.Attributes["value"])*ui.stackSplitPicker.quantity)
 	case stackSplitPickerMerchantBuy:
 		confirmLabel = "Buy"
+		if entry := ui.stackSplitStockEntry(); entry != nil && entry.RewardKey != "" {
+			confirmLabel = uitext.Text("caravan.take")
+		}
 		quantityText = fmt.Sprintf("x%d/%d", ui.stackSplitPicker.quantity, ui.stackSplitMaxQuantity(item))
 		priceLine = merchantTotalPriceLabel(g, ui.stackSplitStockEntry(), ui.stackSplitPicker.quantity)
 	}

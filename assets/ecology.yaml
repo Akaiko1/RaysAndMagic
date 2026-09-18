@@ -1,0 +1,108 @@
+# Survivors persist; only deficits are replenished at the named phase.
+turn_step_speed: 2.07
+populations:
+  - {map: desert, monster: desert_rabbit, count: 7, phase: day}
+  - {map: desert, monster: fennec, count: 2, phase: night}
+caravan:
+  monster: desert_caravan
+  unlock_quest: toll_of_blades
+  merchant: nomad_city_safiya
+  stop_seconds: 15
+  reward_units: 3
+  stock_slots: 12
+  # Equal route weights: three bypasses, two hostile-cluster crossings.
+  # Different-map consecutive points are paired map entrance anchors.
+  routes:
+    - id: oasis_north
+      points:
+        - {map: nomad_city, x: 10, y: 18}
+        - {map: nomad_city, x: 14, y: 21}
+        - {map: desert, x: 45, y: 11}
+        - {map: desert, x: 34, y: 12}
+        - {map: desert, x: 22, y: 12}
+        - {map: desert, x: 17, y: 17}
+        - {map: desert, x: 7, y: 19}
+        - {map: desert, x: 1, y: 19}
+        - {map: forest, x: 48, y: 15}
+        - {map: forest, x: 46, y: 12}
+        - {map: forest, x: 46, y: 7}
+        - {map: city, x: 14, y: 21}
+        - {map: city, x: 14, y: 18}
+    - id: central_sands
+      points:
+        - {map: nomad_city, x: 10, y: 18}
+        - {map: nomad_city, x: 14, y: 21}
+        - {map: desert, x: 45, y: 11}
+        - {map: desert, x: 43, y: 18}
+        - {map: desert, x: 29, y: 18}
+        - {map: desert, x: 17, y: 18}
+        - {map: desert, x: 7, y: 19}
+        - {map: desert, x: 1, y: 19}
+        - {map: forest, x: 48, y: 15}
+        - {map: forest, x: 43, y: 14}
+        - {map: forest, x: 44, y: 10}
+        - {map: forest, x: 44, y: 7}
+        - {map: forest, x: 46, y: 7}
+        - {map: city, x: 14, y: 21}
+        - {map: city, x: 14, y: 18}
+    - id: southern_bypass
+      points:
+        - {map: nomad_city, x: 10, y: 18}
+        - {map: nomad_city, x: 14, y: 21}
+        - {map: desert, x: 45, y: 11}
+        - {map: desert, x: 44, y: 21}
+        - {map: desert, x: 34, y: 30}
+        - {map: desert, x: 20, y: 31}
+        - {map: desert, x: 7, y: 30}
+        - {map: desert, x: 7, y: 19}
+        - {map: desert, x: 1, y: 19}
+        - {map: forest, x: 48, y: 15}
+        - {map: forest, x: 43, y: 17}
+        - {map: forest, x: 40, y: 12}
+        - {map: forest, x: 42, y: 7}
+        - {map: forest, x: 46, y: 7}
+        - {map: city, x: 14, y: 21}
+        - {map: city, x: 14, y: 18}
+    - id: bandit_wells
+      points:
+        - {map: nomad_city, x: 10, y: 18}
+        - {map: nomad_city, x: 14, y: 21}
+        - {map: desert, x: 45, y: 11}
+        - {map: desert, x: 31, y: 6}
+        - {map: desert, x: 17, y: 6}
+        - {map: desert, x: 10, y: 6}
+        - {map: desert, x: 6, y: 8}
+        - {map: desert, x: 6, y: 19}
+        - {map: desert, x: 1, y: 19}
+        - {map: forest, x: 48, y: 15}
+        - {map: forest, x: 39, y: 14}
+        - {map: forest, x: 29, y: 14}
+        - {map: forest, x: 18, y: 14}
+        - {map: forest, x: 18, y: 8}
+        - {map: forest, x: 29, y: 7}
+        - {map: forest, x: 41, y: 7}
+        - {map: forest, x: 46, y: 7}
+        - {map: city, x: 14, y: 21}
+        - {map: city, x: 14, y: 18}
+    - id: southern_raiders
+      points:
+        - {map: nomad_city, x: 10, y: 18}
+        - {map: nomad_city, x: 14, y: 21}
+        - {map: desert, x: 45, y: 11}
+        - {map: desert, x: 44, y: 24}
+        - {map: desert, x: 43, y: 38}
+        - {map: desert, x: 36, y: 39}
+        - {map: desert, x: 30, y: 41}
+        - {map: desert, x: 16, y: 39}
+        - {map: desert, x: 7, y: 30}
+        - {map: desert, x: 7, y: 19}
+        - {map: desert, x: 1, y: 19}
+        - {map: forest, x: 48, y: 15}
+        - {map: forest, x: 42, y: 22}
+        - {map: forest, x: 34, y: 24}
+        - {map: forest, x: 29, y: 24}
+        - {map: forest, x: 29, y: 13}
+        - {map: forest, x: 40, y: 12}
+        - {map: forest, x: 46, y: 7}
+        - {map: city, x: 14, y: 21}
+        - {map: city, x: 14, y: 18}

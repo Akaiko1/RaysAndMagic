@@ -346,7 +346,7 @@ func isPurePartySummon(m *monsterPkg.Monster3D) bool {
 // effects such as movement bursts and ricochets. They may choose enemies only,
 // never a bound summon or a pacified monster whose Charm they would break.
 func isExcludedFromPartyAutoTarget(m *monsterPkg.Monster3D) bool {
-	return m == nil || m.IsPartyControlled()
+	return m == nil || m.IsPartyControlled() || m.Disposition == "caravan"
 }
 
 // crumbleBoundAlliesOnDeparture removes the party's bound allies from the world
@@ -1499,115 +1499,120 @@ func weaponTBActionsPerRound(member *character.MMCharacter) int {
 
 // HandleMonsterInteractions handles combat between monsters and the player
 func (cs *CombatSystem) HandleMonsterInteractions() {
-	// Check for monsters that are very close and attack the player
-	for _, monster := range cs.game.world.Monsters {
-		if !monster.IsAlive() {
-			continue
-		}
-		behavior := monster.CurrentAIBehavior()
-		// Movement AI and TB already hold scripted inactive encounter pieces.
-		// RT crossfire is a separate action path, so it must enforce the same gate
-		// before a precomputed bound-ally foe can trigger an attack.
-		if behavior == monsterPkg.AIBehaviorInert {
-			continue
-		}
-		// Stunned monsters take no action (the TB path already skips them; the
-		// real-time path must too, or a stun frozen at StateTimer==1 would let a
-		// monster pounce/strike every frame for the whole stun). Update() decrements
-		// the stun counter; here we just suppress the action.
-		if monster.StunFramesRemaining > 0 {
-			continue
-		}
+	for _, m := range cs.game.world.Monsters {
+		cs.handleMonsterInteraction(m)
+	}
+}
 
-		// Tick the persistent attack cooldown every frame, BEFORE any state checks,
-		// so it counts down even while the monster is pursuing/alert. This is what
-		// stops a kiting player (stepping in and out of range) from resetting the
-		// attack cadence: the AI state can churn, but the cooldown can't be skipped.
-		if monster.AttackCDFrames > 0 {
-			monster.AttackCDFrames--
-		}
-		if monster.OffHandCDFrames > 0 {
-			monster.OffHandCDFrames--
-		}
+// Foreground and off-screen encounters share cooldowns, boss actions and strikes.
+func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) {
 
-		// These behavior modes own no RT attack action. Keep this explicit here:
-		// stale StateAttacking, pounce data, or an attack-post claim must never
-		// bypass the mode-independent behavior policy.
-		if behavior == monsterPkg.AIBehaviorPacified ||
-			behavior == monsterPkg.AIBehaviorFleeing ||
-			behavior == monsterPkg.AIBehaviorPassive {
-			continue
+	if !monster.IsAlive() {
+		return
+	}
+	behavior := monster.CurrentAIBehavior()
+	// Movement AI and TB already hold scripted inactive encounter pieces.
+	// RT crossfire is a separate action path, so it must enforce the same gate
+	// before a precomputed bound-ally foe can trigger an attack.
+	if behavior == monsterPkg.AIBehaviorInert {
+		return
+	}
+	// Stunned monsters take no action (the TB path already skips them; the
+	// real-time path must too, or a stun frozen at StateTimer==1 would let a
+	// monster pounce/strike every frame for the whole stun). Update() decrements
+	// the stun counter; here we just suppress the action.
+	if monster.StunFramesRemaining > 0 {
+		return
+	}
+
+	// Tick the persistent attack cooldown every frame, BEFORE any state checks,
+	// so it counts down even while the monster is pursuing/alert. This is what
+	// stops a kiting player (stepping in and out of range) from resetting the
+	// attack cadence: the AI state can churn, but the cooldown can't be skipped.
+	if monster.AttackCDFrames > 0 {
+		monster.AttackCDFrames--
+	}
+	if monster.OffHandCDFrames > 0 {
+		monster.OffHandCDFrames--
+	}
+
+	// These behavior modes own no RT attack action. Keep this explicit here:
+	// stale StateAttacking, pounce data, or an attack-post claim must never
+	// bypass the mode-independent behavior policy.
+	if behavior == monsterPkg.AIBehaviorAmbient || behavior == monsterPkg.AIBehaviorPacified ||
+		behavior == monsterPkg.AIBehaviorFleeing ||
+		behavior == monsterPkg.AIBehaviorPassive {
+		return
+	}
+	// Bound (Bind Undead): hunts the nearest enemy monster using its normal
+	// per-monster attack cooldown, never the party.
+	if behavior == monsterPkg.AIBehaviorBoundAlly {
+		if monster.AttackCDFrames == 0 {
+			cs.boundAttackNearest(monster)
 		}
-		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
-		// per-monster attack cooldown, never the party.
-		if behavior == monsterPkg.AIBehaviorBoundAlly {
-			if monster.AttackCDFrames == 0 {
-				cs.boundAttackNearest(monster)
+		return
+	}
+	// The frame's crossfire target can die when an earlier actor resolves.
+	// Reject it before the boss rider too: otherwise a boss can spend that
+	// stale frame casting a party special before the crossfire branch gets a
+	// chance to wait for the next shared retarget.
+	if behavior == monsterPkg.AIBehaviorFightFoe &&
+		(monster.AIFoe == nil || !monster.AIFoe.IsAlive()) {
+		cs.game.releaseMonsterAttackPost(monster)
+		return
+	}
+	// Boss specials ride EVERY fight - party or a summon that out-competed it
+	// for aggro. After the stun/charm/bind and bound-ally gates (they still
+	// suppress boss actions), BEFORE the crossfire branch that used to swallow
+	// the kit. Evasive quest bosses resolve here too: updateBoss owns their
+	// blink and always consumes the action.
+	if monster.IsBoss() {
+		attackTick := cs.bossActionTick(monster)
+		if cs.runBossSpecials(monster, attackTick, false) {
+			if attackTick && !cs.bossEvasive(monster) {
+				cs.armMonsterRTAttackCooldowns(monster)
 			}
-			continue
+			return
 		}
-		// The frame's crossfire target can die when an earlier actor resolves.
-		// Reject it before the boss rider too: otherwise a boss can spend that
-		// stale frame casting a party special before the crossfire branch gets a
-		// chance to wait for the next shared retarget.
-		if behavior == monsterPkg.AIBehaviorFightFoe &&
-			(monster.AIFoe == nil || !monster.AIFoe.IsAlive()) {
+	}
+
+	// Lured at a bound undead instead of the party: attack it on the monster's
+	// normal individual cooldown whenever within reach. The frame snapshot can
+	// outlive that foe when an earlier monster kills it; in that case this actor
+	// waits for the next shared retarget instead of falling into party combat.
+	if behavior == monsterPkg.AIBehaviorFightFoe {
+		if !cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) && monsterInAttackTransit(monster) {
 			cs.game.releaseMonsterAttackPost(monster)
-			continue
 		}
-		// Boss specials ride EVERY fight - party or a summon that out-competed it
-		// for aggro. After the stun/charm/bind and bound-ally gates (they still
-		// suppress boss actions), BEFORE the crossfire branch that used to swallow
-		// the kit. Evasive quest bosses resolve here too: updateBoss owns their
-		// blink and always consumes the action.
-		if monster.IsBoss() {
-			attackTick := cs.bossActionTick(monster)
-			if cs.runBossSpecials(monster, attackTick, false) {
-				if attackTick && !cs.bossEvasive(monster) {
-					cs.armMonsterRTAttackCooldowns(monster)
-				}
-				continue
+		return
+	}
+
+	attackRange := monster.GetAttackRangePixels()
+
+	dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
+
+	// Pounce (real-time): from within pounce range but beyond melee, leap
+	// to melee contact and strike immediately, then go on cooldown.
+	if monster.CanPounce() {
+		monster.TickPounceCooldownFrame()
+		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
+			cs.monsterCanPounceParty(monster) {
+			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
+				cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
+				cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
+				monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+				return
 			}
 		}
+	}
 
-		// Lured at a bound undead instead of the party: attack it on the monster's
-		// normal individual cooldown whenever within reach. The frame snapshot can
-		// outlive that foe when an earlier monster kills it; in that case this actor
-		// waits for the next shared retarget instead of falling into party combat.
-		if behavior == monsterPkg.AIBehaviorFightFoe {
-			if !cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) && monsterInAttackTransit(monster) {
-				cs.game.releaseMonsterAttackPost(monster)
-			}
-			continue
-		}
-
-		attackRange := monster.GetAttackRangePixels()
-
-		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
-
-		// Pounce (real-time): from within pounce range but beyond melee, leap
-		// to melee contact and strike immediately, then go on cooldown.
-		if monster.CanPounce() {
-			monster.TickPounceCooldownFrame()
-			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
-				cs.monsterCanPounceParty(monster) {
-				if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
-					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
-					cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
-					monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
-					continue
-				}
-			}
-		}
-
-		// If monster is in attacking state and within attack range, perform attack.
-		// Inclusive (<=) so a mob sitting exactly one tile away (e.g. a puma that
-		// just pounced onto an adjacent tile) still lands its hit. Melee monsters
-		// also count diagonally-adjacent tiles as point-blank so they can surround
-		// the party instead of queueing only on N/S/E/W.
-		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
-			cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackRealtime)
-		}
+	// If monster is in attacking state and within attack range, perform attack.
+	// Inclusive (<=) so a mob sitting exactly one tile away (e.g. a puma that
+	// just pounced onto an adjacent tile) still lands its hit. Melee monsters
+	// also count diagonally-adjacent tiles as point-blank so they can surround
+	// the party instead of queueing only on N/S/E/W.
+	if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
+		cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackRealtime)
 	}
 }
 
@@ -2623,7 +2628,7 @@ func (cs *CombatSystem) pickMonsterAllyHealTarget(healer *monsterPkg.Monster3D) 
 		if candidate == nil || !candidate.IsAlive() || candidate.HitPoints >= candidate.MaxHitPoints {
 			continue
 		}
-		if candidate.Bound != healer.Bound {
+		if candidate.Bound != healer.Bound || candidate.Disposition != healer.Disposition {
 			continue
 		}
 		if candidate != healer && Distance(healer.X, healer.Y, candidate.X, candidate.Y) > radius {
@@ -2931,6 +2936,9 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		}
 	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	if m.Disposition == "caravan" && cs.game.ecology.ActorID == m.ID && cs.game.ecology.RespawnDay == 0 {
+		cs.game.ecology.RespawnDay = cs.game.currentCalendarDay() + 1
+	}
 	cs.game.beginMonsterDeath(m)
 	if !isPurePartySummon(m) {
 		cs.game.playMonsterSound(soundEnemyDeath, m)
@@ -2992,17 +3000,18 @@ func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
 // Boss summons keep their regular drops/gold/quest behavior, but grant no XP unless
 // the party previously charmed them.
 func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) int {
-	if monster == nil || cs.game.party == nil || len(cs.game.party.Members) == 0 {
+	recipient := cs.game.rewardOwner()
+	if monster == nil || recipient.party == nil || len(recipient.party.Members) == 0 {
 		return 0
 	}
 	// A pure party summon was never an enemy: its death credits the party
 	// with nothing (no XP, gold, or loot). THE single gate for that rule, so
 	// every death path (melee, projectile, splash) honours it automatically.
-	if isPurePartySummon(monster) {
+	if isPurePartySummon(monster) || monster.NoKillRewards || monster.Disposition == "caravan" {
 		return 0
 	}
 
-	cs.game.recordProfileKill(monster)
+	recipient.recordProfileKill(monster)
 	xpAwarded := monster.Experience
 	if monster.SummonedBy != "" && !monster.CharmedByParty {
 		xpAwarded = 0
@@ -3010,7 +3019,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 
 	// Each living hero - active, reserve, or captive - gets the per-member share.
 	if xpAwarded > 0 {
-		cs.game.grantSharedXP(xpAwarded / len(cs.game.party.Members))
+		recipient.grantSharedXP(xpAwarded / len(recipient.party.Members))
 	}
 
 	// Check for loot drops
@@ -3027,7 +3036,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	// scaled by the monster).
 	if monster.Gold > 0 || len(drops) > 0 {
 		gold := monster.Gold
-		if pct := cs.game.cardGoldFindPct(); pct != 0 && gold > 0 {
+		if pct := recipient.cardGoldFindPct(); pct != 0 && gold > 0 {
 			gold = gold * (100 + pct) / 100 // Jungle Goblin Card
 		}
 		cs.game.addMonsterLootDrop(monster, drops, gold)
@@ -3062,7 +3071,8 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 
 // updateQuestProgress updates quest progress when a monster is killed
 func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
-	if cs.game.questManager == nil {
+	recipient := cs.game.rewardOwner()
+	if recipient.questManager == nil {
 		return
 	}
 	if monster.QuestProgressIgnored {
@@ -3075,7 +3085,7 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 		sourceQuestID = monster.EncounterRewards.QuestID
 	}
 
-	completedQuests := cs.game.questManager.OnMonsterKilledFromSource(
+	completedQuests := recipient.questManager.OnMonsterKilledFromSource(
 		monsterType,
 		cs.game.questKillMapKey(monster),
 		sourceQuestID,
@@ -3084,14 +3094,14 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	// Notify player of quest completions. Auto-claimed objective quests do not
 	// advertise a journal reward action.
 	for _, quest := range completedQuests {
-		cs.game.announceQuestCompletion(quest)
+		recipient.announceQuestCompletion(quest)
 	}
 
 	// Kill quests also complete when their eligible roster is cleared
 	// (counter notwithstanding), and completions may change the world
 	// (e.g. the wolf-cull bridge).
-	cs.game.completeClearedKillQuestsForTarget(monsterType, true)
-	cs.game.applyCompletedQuestTiles()
+	recipient.completeClearedKillQuestsForTarget(monsterType, true)
+	recipient.applyCompletedQuestTiles()
 }
 
 // checkLevelUp checks if a character should level up and applies level up benefits.
@@ -3525,7 +3535,7 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 // provoking a passive creature that the summon's AI deliberately ignored.
 func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3D) bool {
 	return cs != nil && candidate != nil && candidate.IsAlive() &&
-		!candidate.IsPartyControlled() &&
+		!candidate.IsPartyControlled() && candidate.Disposition != "caravan" &&
 		!candidate.IsDamageInvulnerable() &&
 		!candidate.IsPassiveUntilProvoked() &&
 		!cs.bossEvasive(candidate)
@@ -3574,6 +3584,9 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 	if m == nil {
 		return nil
 	}
+	if foe := cs.game.caravanFoe(m); foe != nil {
+		return foe
+	}
 	switch m.CurrentAIBehavior() {
 	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified,
 		monsterPkg.AIBehaviorEvasive, monsterPkg.AIBehaviorPassive:
@@ -3615,6 +3628,9 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 // belongs to a different foe.
 func (cs *CombatSystem) refreshMonsterAITarget(m *monsterPkg.Monster3D) {
 	if cs == nil || m == nil {
+		return
+	}
+	if cs.game.prepareAmbientTarget(m) {
 		return
 	}
 	m.AIFoe = cs.monsterAIFoeMonster(m)
@@ -3695,7 +3711,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, attacker.Name, actual))
 			if !target.IsAlive() {
 				cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
-				cs.finishMonsterKillImmediately(target)
+				cs.finishActorKill(attacker, target)
 			}
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", target.Name, attacker.Name))
@@ -3720,7 +3736,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		return actual > 0
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
-	cs.finishMonsterKillImmediately(target)
+	cs.finishActorKill(attacker, target)
 	return actual > 0
 }
 

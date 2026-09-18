@@ -136,6 +136,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
+	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
+
 	// Process each monster's turn (only those in vision range).
 	for _, m := range gl.game.world.Monsters {
 		if !m.IsAlive() {
@@ -145,41 +147,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
-		if tickTurnStatuses {
-			m.TickPoisonTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
-			m.TickBurnTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))   // Drakefang ignite; stacks with poison
-			m.TickArmorShredTurn()                                                   // Pit Labrys shred decays regardless of stun
-			m.TickSlowTurn()                                                         // Tarn Trident silt decays regardless of stun
-			m.TickWeakenTurn()                                                       // Scalebreaker roar decays regardless of stun
-			m.TickSoakTurn()                                                         // Champion Stone Skin rated dual clock
-			if !m.IsAlive() {
-				// Matches RT: HandleMonsterInteractions skips a monster the parallel
-				// Update's TickPoison just killed. finalizeIndirectKills (end of
-				// frame) does the actual XP/loot/collision cleanup for both modes.
-				continue
-			}
-		}
-		if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
-			// Stun-free this turn: count toward clearing the diminishing-returns chain.
-			m.StunDRMemoryTurns--
-			if m.StunDRMemoryTurns == 0 {
-				m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
-			}
-		}
-		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
-			// Expiry clears the RT clock too, or the stun-star overlay and
-			// bossDisabled keep reading the monster as stunned.
-			status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
+		if gl.game.tickMonsterTurnStatuses(m, tickTurnStatuses) {
 			gl.game.turnBasedMonsterStunned[m] = true
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
-		// Root (bear trap) burns one turn per monster TURN - whether it moves
-		// or stands adjacent and attacks (root pins movement, not actions).
-		// MUST tick before the Pacified/Bound branches: a bound undead still
-		// moves through monsterMoveTurnBased and its root must hold and decay.
-		if tickTurnStatuses {
-			m.TickRootTurn()
+		if !m.IsAlive() {
+			continue
 		}
 
 		// CurrentAIBehavior is the mode-independent owner of high-level precedence.
@@ -187,6 +161,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// branch must not silently fall through into ordinary party combat.
 		behavior := m.CurrentAIBehavior()
 		switch behavior {
+		case monster.AIBehaviorAmbient:
+			m.UpdateAmbient(gl.game.collisionSystem, m.AITargetX, m.AITargetY, true)
+			gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+			gl.game.refreshMonsterCollisionState(m)
+			continue
 		case monster.AIBehaviorInert:
 			// Sealed bosses, warded warlords, and ward idols hold their placed tile.
 			gl.game.refreshMonsterCollisionState(m)
@@ -499,6 +478,9 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 // attacker kind (melee: adjacent tile; ranged vs party: firing lane; ranged vs
 // a monster foe: plain approach).
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
+	if !monster.SpendAmbientTurnMove() {
+		return
+	}
 	// A mob that is searching for a post is transit even if it reached this
 	// method from an old held position. Physical overlap remains allowed; only
 	// its attack claim is released.
@@ -748,4 +730,45 @@ func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
 	}
 	ts := gl.game.config.GetTileSize()
 	return &monster.TileCoord{X: TileIndex(x, ts), Y: TileIndex(y, ts)}
+}
+
+// tickMonsterTurnStatuses owns the status clock for visible and remote turns.
+// It returns whether stun consumed this actor's action.
+func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses bool) bool {
+	if tickTurnStatuses {
+		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
+		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
+		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun
+		m.TickSlowTurn()                                                   // Tarn Trident silt decays regardless of stun
+		m.TickWeakenTurn()                                                 // Scalebreaker roar decays regardless of stun
+		m.TickSoakTurn()                                                   // Champion Stone Skin rated dual clock
+		if !m.IsAlive() {
+			// Matches RT: HandleMonsterInteractions skips a monster the parallel
+			// Update's TickPoison just killed. finalizeIndirectKills (end of
+			// frame) does the actual XP/loot/collision cleanup for both modes.
+			return false
+		}
+	}
+	if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
+		// Stun-free this turn: count toward clearing the diminishing-returns chain.
+		m.StunDRMemoryTurns--
+		if m.StunDRMemoryTurns == 0 {
+			m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
+		}
+	}
+	if tickTurnStatuses && m.StunTurnsRemaining > 0 {
+		// Expiry clears the RT clock too, or the stun-star overlay and
+		// bossDisabled keep reading the monster as stunned.
+		status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
+		return true
+	}
+	// Root (bear trap) burns one turn per monster TURN - whether it moves
+	// or stands adjacent and attacks (root pins movement, not actions).
+	// MUST tick before the Pacified/Bound branches: a bound undead still
+	// moves through monsterMoveTurnBased and its root must hold and decay.
+	if tickTurnStatuses {
+		m.TickRootTurn()
+	}
+
+	return false
 }

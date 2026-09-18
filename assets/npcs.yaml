@@ -1573,6 +1573,9 @@ npcs:
       visited_message: "The wagons are moving again. Give me time to balance the books before you offer to unbalance anyone else."
       choice_prompt: "Safiya holds her place with one ink-stained finger."
       choices:
+        - text: "What would an open road mean to you?"
+          action: "info"
+          response: "Finish one hunt and I can send a laden camel to Seabright. For every journey there and back, three pieces of the cargo are yours. Look under Trade Goods. If the road takes the caravan, I will send another at dawn. Keep the roads clear and we may both grow old with full purses."
         - text: "Who is robbing the caravans?"
           action: "info"
           response: "Desert dervishes. They collect tolls where there is no road, and offer receipts with the point of a knife. Five fewer collectors should improve trade. I can pay for another hunt three full days after you collect this one's reward."

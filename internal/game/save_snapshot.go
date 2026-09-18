@@ -167,7 +167,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
-				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				Population:        mon.Population,
+				AmbientMoveCredit: mon.AmbientMoveCredit,
+				ID:                mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				CharmedByParty:          mon.CharmedByParty,
@@ -468,6 +470,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		MaxPartyLevel:              g.unlockedPartyLevel(),
 		DayNightFrames:             g.dayNightFrames,
 		DayNightDay:                g.dayNightDay,
+		Ecology:                    cloneEcologyState(g.ecology),
 		CalendarDay:                g.currentCalendarDay(),
 		CalendarWeek:               g.calendarWeek,
 		CalendarMonth:              g.calendarMonth,

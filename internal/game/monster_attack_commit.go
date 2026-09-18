@@ -21,7 +21,7 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 	behavior := m.CurrentAIBehavior()
 	switch behavior {
 	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive,
-		monster.AIBehaviorFleeing, monster.AIBehaviorPassive:
+		monster.AIBehaviorFleeing, monster.AIBehaviorPassive, monster.AIBehaviorAmbient:
 		return false
 	}
 	if cadence == monsterAttackTurn {
@@ -39,7 +39,7 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 			if !cs.boundAllyCanDamageMonster(target.foe) {
 				return false
 			}
-		} else if !target.foe.IsPartyControlled() {
+		} else if !m.CanAttackActor(target.foe) {
 			return false
 		}
 		return cs.monsterCanAttackMonster(m, target.foe)

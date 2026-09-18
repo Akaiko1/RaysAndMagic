@@ -6,6 +6,8 @@ import (
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
+	Ecology EcologyState `json:"ecology,omitempty"`
+
 	MapKey             string                   `json:"map_key"`
 	PlayerX            float64                  `json:"player_x"`
 	PlayerY            float64                  `json:"player_y"`
@@ -230,6 +232,9 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	Population        string  `json:"population,omitempty"`
+	AmbientMoveCredit float64 `json:"ambient_move_credit,omitempty"`
+
 	ID        string  `json:"id,omitempty"`
 	Key       string  `json:"key"`
 	Name      string  `json:"name"`

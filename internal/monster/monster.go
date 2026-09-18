@@ -37,6 +37,7 @@ const (
 	AIBehaviorFleeing
 	AIBehaviorPassive
 	AIBehaviorSeekParty
+	AIBehaviorAmbient
 )
 
 // EncounterRewards represents rewards for completing an encounter
@@ -115,11 +116,14 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.BossEvasive {
 		return AIBehaviorEvasive
 	}
+	if m.Disposition == "caravan" || (m.Disposition == "wildlife" && (m.AmbientFlee || m.AIFoe == nil)) {
+		return AIBehaviorAmbient
+	}
 	if m.AIFoe != nil {
 		// A stale crossfire target must not wake a passive creature. Normal
 		// selection clears it too, but keeping the policy here makes every AI
 		// consumer obey the same passive-until-hit contract.
-		if m.IsPassiveUntilProvoked() {
+		if m.IsPassiveUntilProvoked() && m.AIFoe.Disposition != "caravan" {
 			return AIBehaviorPassive
 		}
 		return AIBehaviorFightFoe
@@ -154,7 +158,7 @@ func (m *Monster3D) TargetsParty() bool {
 	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorBoundAlly,
-		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive:
+		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive, AIBehaviorAmbient:
 		return false
 	case AIBehaviorRelentlessParty:
 		return true
@@ -172,7 +176,7 @@ func (m *Monster3D) IsInCombat() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive, AIBehaviorAmbient:
 		return false
 	case AIBehaviorBoundAlly:
 		return m.AIFoe != nil
@@ -193,7 +197,7 @@ func (m *Monster3D) IsCalmForSocialBehavior() bool {
 	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
-		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
+		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing, AIBehaviorAmbient:
 		return false
 	}
 	return m.State == StateIdle || m.State == StatePatrolling
@@ -235,6 +239,15 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Disposition       string
+	Prey              []string
+	PreyRadius        float64
+	AmbientBounds     *[4]int
+	AmbientMoveCredit float64
+	Population        string
+	AmbientFlee       bool
+	NoKillRewards     bool
+
 	X, Y         float64
 	Name         string
 	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements

@@ -31,6 +31,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	config.MustLoadItemConfig("assets/items.yaml")
 	config.MustLoadLootTables("assets/loots.yaml")
+	if err := config.LoadEcology("assets/ecology.yaml"); err != nil {
+		log.Fatalf("Ecology: %v", err)
+	}
 
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()

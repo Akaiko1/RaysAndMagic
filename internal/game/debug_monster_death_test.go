@@ -22,17 +22,26 @@ import (
 // are diagnostic captures, not reconstructed art or a simulated renderer.
 func TestMonsterDeathGPU(t *testing.T) {
 	requireStandeeGPU(t)
-	for _, key := range []string{"bandit", "pixie"} {
-		t.Run(key, func(t *testing.T) { testMonsterDeathGPU(t, key) })
+	// Ground/flying x small/large x near/far x RT/TB x both renderers.
+	// Live and newly dead anchors agree; airborne bodies descend to ground.
+	for _, key := range []string{"bandit", "pixie", "skeleton", "dust_slime", "dragon", "fennec"} {
+		for _, distance := range []float64{0.75, 2, 12} {
+			for _, tb := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/distance=%g/tb=%v", key, distance, tb), func(t *testing.T) {
+					testMonsterDeathGPU(t, key, distance, tb)
+				})
+			}
+		}
 	}
 }
 
-func testMonsterDeathGPU(t *testing.T, key string) {
+func testMonsterDeathGPU(t *testing.T, key string, distance float64, tb bool) {
 	g := deathTestGame(t)
+	g.turnBasedMode = tb
 	const width, height = 960, 600
 	g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = width, height
 	g.camera.FOV = squareProjectionFOV(width, height)
-	g.camera.X, g.camera.Y, g.camera.Angle = 1.5*g.config.GetTileSize(), 3.5*g.config.GetTileSize(), 0
+	g.camera.X, g.camera.Y, g.camera.Angle = (3.5-distance)*g.config.GetTileSize(), 3.5*g.config.GetTileSize(), 0
 	g.camera.ViewDist = 40 * g.config.GetTileSize()
 	g.renderHelper = NewRenderingHelper(g)
 	g.depthBuffer = make([]float64, width)
@@ -48,6 +57,23 @@ func testMonsterDeathGPU(t *testing.T, key string) {
 	m := monster.NewMonster3DFromConfig(3.5*ts, 3.5*ts, key, g.config)
 	m.StandeeYaw = math.Pi / 2
 	m.StandeeYawTick = 1
+	_, ground, _, _ := g.renderHelper.CalculateMonsterSpriteMetricsF(m.X, m.Y, distance*ts, m.GetSizeGameMultiplier())
+	liveBottom := make(map[bool]float64)
+	g.world.Monsters = []*monster.Monster3D{m}
+	for _, standee := range []bool{false, true} {
+		g.config.Graphics.Standee.Enabled = standee
+		runOnDrawFrame(func(_ *ebiten.Image) { target.Clear(); r.drawAllSpritesSorted(target) })
+		for _, sprite := range r.unifiedSprites {
+			if sprite.spriteType == SpriteTypeMonster {
+				liveBottom[standee] = sprite.bottomF
+			}
+		}
+		bottom, found := liveBottom[standee]
+		if !found || (m.Flying && bottom >= ground) || (!m.Flying && math.Abs(bottom-ground) > 0.01) {
+			t.Fatalf("standee=%v flying=%v live bottom=%v ground=%v found=%v", standee, m.Flying, bottom, ground, found)
+		}
+	}
+	g.world.Monsters = nil
 	m.HitPoints = 0
 	g.beginMonsterDeath(m)
 	// Force an open, lateral landing for the capture.
@@ -63,6 +89,12 @@ func testMonsterDeathGPU(t *testing.T, key string) {
 	}
 	for _, standee := range []bool{false, true} {
 		g.config.Graphics.Standee.Enabled = standee
+		// At point-blank range the landed body can be below the viewport.
+		// Anchor continuity is checked at every distance below; pixel fading
+		// requires a fully visible body.
+		if distance < 2 {
+			continue
+		}
 		sums := []int64{}
 		for _, age := range []float64{fadeStart, fadeStart + 2.5, fadeStart + 5} {
 			g.frameCount = int64(age * float64(g.config.GetTPS()))
@@ -97,6 +129,12 @@ func testMonsterDeathGPU(t *testing.T, key string) {
 					bags++
 				case SpriteTypeMonsterCorpse:
 					bodies++
+					if age == 0 && math.Abs(sprite.bottomF-liveBottom[standee]) > 0.01 {
+						t.Fatal("death changed the live anchor before falling")
+					}
+					if age == 1 && math.Abs(sprite.bottomF-ground) > 0.01 {
+						t.Fatal("corpse did not land at its projected ground contact")
+					}
 					if m.Flying && previous >= 0 && sprite.bottomF <= previous {
 						t.Fatal("flying corpse did not descend in production renderer")
 					}
@@ -107,7 +145,8 @@ func testMonsterDeathGPU(t *testing.T, key string) {
 			if m.Flying && age < 1 {
 				wantBags = 0
 			}
-			if bags != wantBags || bodies != 1 {
+			// The lateral loot landing is outside the near camera's FOV.
+			if (distance >= 2 && bags != wantBags) || bodies != 1 {
 				t.Fatalf("standee=%v age=%v bags=%d want=%d bodies=%d", standee, age, bags, wantBags, bodies)
 			}
 		}
@@ -116,7 +155,7 @@ func testMonsterDeathGPU(t *testing.T, key string) {
 	if out == "" {
 		return
 	}
-	out = filepath.Join(out, key)
+	out = filepath.Join(out, fmt.Sprintf("%s_distance%g_tb%v", key, distance, tb))
 	if err := os.MkdirAll(out, 0755); err != nil {
 		t.Fatal(err)
 	}

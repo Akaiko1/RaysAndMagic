@@ -156,7 +156,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// a party hit, so a bound summon can earn champion rewards for the party too.
 	kill := func() {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
-		cs.finishMonsterKillImmediately(target)
+		cs.finishActorKill(srcMonster, target)
 	}
 
 	// The projectile already snapshotted source-side modifiers when fired.
@@ -262,7 +262,7 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 			if !cs.boundAllyCanDamageMonster(candidate) {
 				continue
 			}
-		} else if !candidate.Bound {
+		} else if !source.CanAttackActor(candidate) {
 			continue
 		}
 		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius {

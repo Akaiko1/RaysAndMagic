@@ -31,7 +31,7 @@ func npcHasSpellTrading(npc *character.NPC) bool {
 }
 
 func npcHasMerchant(npc *character.NPC) bool {
-	return npc != nil && (npc.SellAvailable || len(npc.MerchantStock) > 0)
+	return npc != nil && (npc.FreeGoods || npc.SellAvailable || len(npc.MerchantStock) > 0)
 }
 
 func npcHasSkillTraining(npc *character.NPC) bool {

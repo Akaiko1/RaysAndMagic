@@ -1,4 +1,12 @@
 loots:
+  desert_rabbit:
+    - type: "item"
+      key: "rabbit_pelt"
+      chance: 0.70
+  fennec:
+    - type: "item"
+      key: "fennec_pelt"
+      chance: 0.70
   pixie:
     - type: "item"
       key: "magic_ring"

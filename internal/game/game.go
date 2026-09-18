@@ -176,6 +176,12 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	ecology          EcologyState
+	ecologyOwner     *MMGame
+	ecologyCaravan   *monster.Monster3D
+	ecologyViews     map[*world.World3D]*MMGame
+	ecologyRosterIDs map[string]bool
+
 	tactics tacticalState
 	menuState
 	dialogState
@@ -914,6 +920,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// every boot path is covered - the headless sim, the map viewer and the test
 	// fixtures all build a game, and only the shipped binary called it before.
 	// It stands down on a world with no props (a blank fixture) and warns instead.
+	if err := ValidateEcologyContent(cfg, quests.GlobalQuestManager); err != nil {
+		panic(err)
+	}
 	if err := ValidateInteractTagProducers(quests.GlobalQuestManager); err != nil {
 		panic(err)
 	}
@@ -2101,7 +2110,11 @@ func (g *MMGame) refreshMonsterAIState() {
 	// single warded boss, which is all the content has. Recomputed per frame => no
 	// save state, self-heals on reload.
 	liveIdols := 0
+	g.ecologyCaravan = nil
 	for _, m := range g.world.Monsters {
+		if m != nil && m.IsAlive() && m.Disposition == "caravan" {
+			g.ecologyCaravan = m
+		}
 		if m != nil && m.WarlordIdol && m.IsAlive() {
 			liveIdols++
 		}
