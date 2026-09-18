@@ -358,6 +358,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				DynamicTarget:    quest.DynamicTarget,
 				DynamicTargetSet: quest.DynamicTargetSet,
 				RewardsClaimed:   quest.RewardsClaimed,
+				ClaimedAtDay:     quest.ClaimedAtDay,
 			})
 		}
 	}
@@ -464,6 +465,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:           groundContainerSaves,
 		PendingLevelUpChoices:      pendingChoices,
 		PlayedTimeNs:               playedTime.Nanoseconds(),
+		MaxPartyLevel:              g.unlockedPartyLevel(),
 		DayNightFrames:             g.dayNightFrames,
 		DayNightDay:                g.dayNightDay,
 		CalendarDay:                g.currentCalendarDay(),

@@ -298,7 +298,7 @@ func TestMonsterDeathAssetsAndPrewarm(t *testing.T) {
 
 func TestBaseMonsterAnimationAssets(t *testing.T) {
 	g := deathTestGame(t)
-	for _, key := range []string{"pixie", "goblin", "forest_orc", "troll", "treant", "spider", "forest_spider", "wolf", "bear", "mummy", "deathbound_mummy"} {
+	for _, key := range []string{"desert_dervish", "pixie", "goblin", "forest_orc", "troll", "treant", "spider", "forest_spider", "wolf", "bear", "mummy", "deathbound_mummy"} {
 		t.Run(key, func(t *testing.T) {
 			m := monster.NewMonster3DFromConfig(224, 224, key, g.config)
 			name := m.GetSpriteType()

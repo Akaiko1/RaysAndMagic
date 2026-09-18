@@ -282,6 +282,7 @@ type PackMemberConfig struct {
 	Monster       string `yaml:"monster"`
 	Count         int    `yaml:"count"`
 	QuestProgress bool   `yaml:"quest_progress,omitempty"`
+	MinPartyLevel int    `yaml:"min_party_level,omitempty"`
 }
 
 // PhaseMembers resolves the monster kinds this pack spawns for the given phase:
@@ -1544,6 +1545,15 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, pack := range config.DayNight.Packs {
+		for _, night := range []bool{false, true} {
+			for _, member := range pack.PhaseMembers(night) {
+				if member.MinPartyLevel < 0 {
+					return nil, fmt.Errorf("day_night pack %q: min_party_level must not be negative", pack.Map)
+				}
+			}
+		}
+	}
 	for key, class := range config.Characters.Classes {
 		switch class.CardRarity {
 		case "", "common", "uncommon", "rare", "legendary":
@@ -2189,6 +2199,7 @@ type ItemDefinitionConfig struct {
 	// of letting yaml.v3 ignore it and silently create a draught with no ward.
 	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
 	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
+	BuffDodgePct            int    `yaml:"buff_dodge_pct,omitempty"`
 	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
 	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
 	StatusIcon              string `yaml:"status_icon,omitempty"`
@@ -2205,7 +2216,7 @@ const MinHostileStatusDurationPct = -90
 func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 	return d != nil &&
 		d.BuffDurationSeconds > 0 &&
-		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0)
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -2318,11 +2329,14 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if (def.ResistBuffSchool == "") != (def.ResistBuffSchoolPct == 0) {
 			return fmt.Errorf("item '%s': resist_buff_school and resist_buff_school_pct must be set together", key)
 		}
+		if def.BuffDodgePct < 0 || def.BuffDodgePct > 100 {
+			return fmt.Errorf("item %q: buff_dodge_pct must be in [0,100]", key)
+		}
 		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
 			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
 		}
 		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
-		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0
 		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
 		if hasBuffEffect && def.Type != "consumable" {
 			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
@@ -2331,7 +2345,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
 		}
 		if hasBuffMetadata && !hasBuffEffect {
-			return fmt.Errorf("item '%s': buff metadata has no resist or armor effect", key)
+			return fmt.Errorf("item '%s': buff metadata has no resist, armor, or dodge effect", key)
 		}
 		switch def.Type {
 		case "consumable":

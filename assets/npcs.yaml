@@ -1557,6 +1557,38 @@ npcs:
         - text: "Stay in Dunehold"
           action: "leave"
 
+  nomad_city_safiya:
+    name: "Safiya, Keeper of the Caravan Ledger"
+    type: "quest_giver"
+    description: "A caravan clerk with an ink-stained ledger and a sharp eye for missing cargo"
+    sprite: "nomad_city_safiya"
+    render_category: npc
+    size_class: person
+    biomes: ["nomad_city"]
+    min_party_level: 20
+    dialogue:
+      greeting: "Another wagon late. Another driver with a knife cut and no purse. I keep the caravan accounts; lately I spend more ink on losses than on trade."
+      active_message: "The dervishes travel in daylight. If one band escapes you, keep your count for the next. My ledger can wait longer than their luck."
+      completed_message: "Five crossed out. Here is your pay, and some mirage salt from the oasis caravans. May their next knife find only hot air."
+      visited_message: "The wagons are moving again. Give me time to balance the books before you offer to unbalance anyone else."
+      choice_prompt: "Safiya holds her place with one ink-stained finger."
+      choices:
+        - text: "Who is robbing the caravans?"
+          action: "info"
+          response: "Desert dervishes. They collect tolls where there is no road, and offer receipts with the point of a knife. Five fewer collectors should improve trade. I can pay for another hunt three full days after you collect this one's reward."
+          choices:
+            - text: "We will deal with the dervishes."
+              action: "give_quest"
+              quest_id: "toll_of_blades"
+            - text: "Back."
+              action: "back"
+        - text: "We will hunt the dervishes."
+          action: "give_quest"
+          quest_id: "toll_of_blades"
+        - text: "Report the dervishes slain."
+          action: "turn_in_quest"
+          quest_id: "toll_of_blades"
+
   nomad_city_caravan:
     name: "Zaira of the Long Road"
     type: "merchant"

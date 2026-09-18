@@ -129,29 +129,29 @@ func (cs *CollisionSnapshot) CanMoveTo(entityID string, newX, newY float64) bool
 	return cs.canMoveToEntityPosition(entityID, entity.CollisionType, tempBox)
 }
 
-// CanMoveToWithHabitat mirrors CollisionSystem.CanMoveToWithHabitat, reading
+// CanMoveToWithTileOverrides mirrors CollisionSystem.CanMoveToWithTileOverrides, reading
 // only the frozen view.
-func (cs *CollisionSnapshot) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string, flying bool) bool {
+func (cs *CollisionSnapshot) CanMoveToWithTileOverrides(entityID string, newX, newY float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
 	}
 	tempBox := NewBoundingBox(newX, newY, entity.Box.Width, entity.Box.Height)
-	if !tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, tempBox, habitatPrefs, flying) {
+	if !tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, tempBox, walkableTileOverrides, flying) {
 		return false
 	}
 	return cs.canMoveToEntityPosition(entityID, entity.CollisionType, tempBox)
 }
 
-// CanOccupyTilesWithHabitat mirrors CollisionSystem.CanOccupyTilesWithHabitat
+// CanOccupyTilesWithTileOverrides mirrors CollisionSystem.CanOccupyTilesWithTileOverrides
 // (tiles only, no entity check) - see that method's doc for why.
-func (cs *CollisionSnapshot) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+func (cs *CollisionSnapshot) CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
 	}
 	tempBox := NewBoundingBox(x, y, entity.Box.Width, entity.Box.Height)
-	return tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, tempBox, habitatPrefs, flying)
+	return tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, tempBox, walkableTileOverrides, flying)
 }
 
 // CheckLineOfSight mirrors CollisionSystem.CheckLineOfSight against the frozen

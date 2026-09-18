@@ -475,8 +475,8 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	if len(def.Biomes) > 0 {
 		add("Biomes: %s", strings.Join(def.Biomes, ", "))
 	}
-	if len(def.HabitatPrefs) > 0 {
-		add("Habitat: %s", strings.Join(def.HabitatPrefs, ", "))
+	if len(def.WalkableTileOverrides) > 0 {
+		add("Walkable tile overrides: %s", strings.Join(def.WalkableTileOverrides, ", "))
 	}
 	add("Letter '%s'   sprite %s   size %.1f", def.Letter, def.Sprite, def.GetSizeGameMultiplier())
 

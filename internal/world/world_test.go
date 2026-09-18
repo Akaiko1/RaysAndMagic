@@ -252,7 +252,7 @@ func TestWorldMonsters(t *testing.T) {
 	})
 }
 
-func TestIsTileBlockingForHabitat(t *testing.T) {
+func TestIsTileBlockingForMonster(t *testing.T) {
 	prevTileManager := GlobalTileManager
 	t.Cleanup(func() {
 		GlobalTileManager = prevTileManager
@@ -289,16 +289,16 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		Tiles:  [][]TileType3D{{blockedType}},
 	}
 
-	if !world.IsTileBlockingForHabitat(0, 0, nil, false) {
-		t.Fatalf("Expected tile %q to block without habitat prefs", blockedKey)
+	if !world.IsTileBlockingForMonster(0, 0, nil, false) {
+		t.Fatalf("Expected tile %q to block without tile overrides", blockedKey)
 	}
 
-	if !world.IsTileBlockingForHabitat(0, 0, []string{"__non_habitat__"}, false) {
-		t.Fatalf("Expected tile %q to block for non-habitat prefs", blockedKey)
+	if !world.IsTileBlockingForMonster(0, 0, []string{"__unmatched_tile__"}, false) {
+		t.Fatalf("Expected tile %q to block for unmatched tile overrides", blockedKey)
 	}
 
-	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}, false) {
-		t.Fatalf("Expected tile %q to be walkable for matching habitat prefs", blockedKey)
+	if world.IsTileBlockingForMonster(0, 0, []string{blockedKey}, false) {
+		t.Fatalf("Expected tile %q to be walkable for matching tile overrides", blockedKey)
 	}
 
 	chasmType, ok := GlobalTileManager.GetTileTypeFromKey("dragon_cliffs_chasm_floor")
@@ -306,10 +306,10 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		t.Fatal("dragon_cliffs_chasm_floor is missing")
 	}
 	world.Tiles[0][0] = chasmType
-	if !world.IsTileBlockingForHabitat(0, 0, nil, false) {
+	if !world.IsTileBlockingForMonster(0, 0, nil, false) {
 		t.Fatal("chasm must block a ground monster")
 	}
-	if world.IsTileBlockingForHabitat(0, 0, nil, true) {
+	if world.IsTileBlockingForMonster(0, 0, nil, true) {
 		t.Fatal("authored fly_over chasm must admit a flying monster")
 	}
 
@@ -318,7 +318,7 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		t.Fatal("wall tile is missing")
 	}
 	world.Tiles[0][0] = wallType
-	if !world.IsTileBlockingForHabitat(0, 0, nil, true) {
+	if !world.IsTileBlockingForMonster(0, 0, nil, true) {
 		t.Fatal("flying monster must not pass through an opaque wall")
 	}
 }

@@ -20,14 +20,14 @@ func TestMovementBoundsUseFloorCoordinates(t *testing.T) {
 			snap := cs.Snapshot()
 			gotDebug, _ := cs.DebugCanMoveTo("actor", tc.x, tc.y)
 			for name, got := range map[string]bool{
-				"ordinary":           cs.CanMoveTo("actor", tc.x, tc.y),
-				"habitat":            cs.CanMoveToWithHabitat("actor", tc.x, tc.y, nil, false),
-				"flying":             cs.CanMoveToWithHabitat("actor", tc.x, tc.y, nil, true),
-				"occupancy":          cs.CanOccupyTilesWithHabitat("actor", tc.x, tc.y, nil, false),
-				"debug":              gotDebug,
-				"snapshot":           snap.CanMoveTo("actor", tc.x, tc.y),
-				"snapshot_habitat":   snap.CanMoveToWithHabitat("actor", tc.x, tc.y, nil, false),
-				"snapshot_occupancy": snap.CanOccupyTilesWithHabitat("actor", tc.x, tc.y, nil, false),
+				"ordinary":                cs.CanMoveTo("actor", tc.x, tc.y),
+				"tile_overrides":          cs.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, false),
+				"flying":                  cs.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, true),
+				"occupancy":               cs.CanOccupyTilesWithTileOverrides("actor", tc.x, tc.y, nil, false),
+				"debug":                   gotDebug,
+				"snapshot":                snap.CanMoveTo("actor", tc.x, tc.y),
+				"snapshot_tile_overrides": snap.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, false),
+				"snapshot_occupancy":      snap.CanOccupyTilesWithTileOverrides("actor", tc.x, tc.y, nil, false),
 			} {
 				if got != tc.want {
 					t.Errorf("%s accepted=%v, want %v", name, got, tc.want)

@@ -164,7 +164,7 @@ func TestRegressionMeleeCrossfireThroughWall(t *testing.T) {
 		t.Fatal("fixture has LOS")
 	}
 	for _, m := range g.world.Monsters {
-		if !g.collisionSystem.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs, m.Flying) {
+		if !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
 			t.Fatalf("fixture stands in obstacle: %s", m.Key)
 		}
 	}

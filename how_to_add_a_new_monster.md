@@ -34,8 +34,6 @@ monsters:
     box_h: 40
     size_class: large       # small | medium | person | large | huge
     resistances: {}
-    habitat_preferences:
-      - "empty"
 ```
 
 Key requirements:
@@ -118,10 +116,10 @@ In any `.map` file, place the monster letter in the ASCII grid:
 ```
 %..v.....%   # v spawns ice_troll
 ```
-Map placement overrides habitat rules for that tile.
+Map placement chooses the spawn point; normal movement rules still apply afterward.
 
-## Habitat rules
-`habitat_preferences` and `habitat_near` use tile keys defined in the `tile_types` section at the bottom of `assets/monsters.yaml`. If you add new tile keys, update `tile_types` accordingly.
+## Terrain movement overrides
+`walkable_tile_overrides` lists normally blocked tile keys from `assets/tiles.yaml` that this monster may traverse. It grants movement permission; it does not choose spawn locations or preferred terrain. Omit it when no exception is needed. Do not list already walkable tiles or tiles covered by the monster's flight rules. For example, a ground monster that may cross dunes can list `desert_dune`.
 
 ## Testing checklist
 - YAML loads without errors.

@@ -22,7 +22,7 @@ func (t *testTileChecker) IsTileBlocking(tileX, tileY int) bool {
 	return false
 }
 
-func (t *testTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
+func (t *testTileChecker) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	return false
 }
 

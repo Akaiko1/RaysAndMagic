@@ -30,6 +30,26 @@ loots:
       key: "dragon_card"
       chance: 0.01
 
+  desert_dervish:
+    - type: "item"
+      key: "health_potion"
+      chance: 0.10
+    - type: "item"
+      key: "mana_potion"
+      chance: 0.10
+    - type: "item"
+      key: "flame_ward_draught"
+      chance: 0.08
+    - type: "item"
+      key: "ordinary_key"
+      chance: 0.04
+    - type: "item"
+      key: "sun_bleached_silk"
+      chance: 0.25
+    - type: "item"
+      key: "bandit_card"
+      chance: 0.01
+
   bandit:
     - type: "item"
       key: "leather_helmet"

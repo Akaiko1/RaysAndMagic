@@ -61,7 +61,7 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 		t.Fatal("generic item reward used giver-specific wording")
 	}
 
-	game.refreshRepeatableQuests()
+	game.refreshRepeatableQuests("night")
 	if questManager.GetQuest("lake_spiders") != nil {
 		t.Fatal("claimed repeatable quest was not cleared for the next night")
 	}

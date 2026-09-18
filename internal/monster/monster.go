@@ -422,8 +422,8 @@ type Monster3D struct {
 	// Resistances and immunities
 	Resistances map[DamageType]int
 
-	// Habitat preferences - tiles this monster can walk on even if normally blocked
-	HabitatPrefs []string
+	// Walkable tile overrides - blocked terrain this monster may traverse
+	WalkableTileOverrides []string
 
 	// Ranged attack configuration
 	ProjectileSpell  string

@@ -1867,7 +1867,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 			poolItem = &item
 		}
 	}
-	rewards, err := g.questManager.ClaimRewards(questID)
+	rewards, err := g.questManager.ClaimRewards(questID, g.currentQuestDay())
 	if err != nil {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
 		return false

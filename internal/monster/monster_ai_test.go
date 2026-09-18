@@ -65,11 +65,11 @@ func (m *MockCollisionChecker) CanMoveTo(entityID string, x, y float64) bool {
 	return true
 }
 
-func (m *MockCollisionChecker) CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+func (m *MockCollisionChecker) CanMoveToWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool {
 	return m.CanMoveTo(entityID, x, y)
 }
 
-func (m *MockCollisionChecker) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+func (m *MockCollisionChecker) CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool {
 	return m.CanMoveTo(entityID, x, y) // the mock has no entities, tiles only
 }
 
@@ -85,7 +85,7 @@ func TestHasPathToTileRejectsWalkablePocket(t *testing.T) {
 	startX, startY := tileToWorldCenter(1, 1)
 	m := &Monster3D{ID: "m", X: startX, Y: startY, Speed: 1.5}
 	goalX, goalY := tileToWorldCenter(4, 1)
-	if !checker.CanMoveToWithHabitat(m.ID, goalX, goalY, nil, false) {
+	if !checker.CanMoveToWithTileOverrides(m.ID, goalX, goalY, nil, false) {
 		t.Fatal("setup: isolated goal must itself be walkable")
 	}
 	if m.HasPathToTile(checker, 4, 1) {
@@ -138,7 +138,7 @@ func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
 			t.Fatalf("step %d: non-cardinal step from (%d,%d) to (%d,%d)", steps, curTX, curTY, nx, ny)
 		}
 		wx, wy := tileToWorldCenter(nx, ny)
-		if !checker.CanMoveToWithHabitat("m", wx, wy, nil, false) {
+		if !checker.CanMoveToWithTileOverrides("m", wx, wy, nil, false) {
 			t.Fatalf("step %d: routed into a blocked tile (%d,%d)", steps, nx, ny)
 		}
 		m.X, m.Y = wx, wy

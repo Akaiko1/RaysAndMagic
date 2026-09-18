@@ -391,7 +391,7 @@ func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float6
 				continue
 			}
 			nx, ny := TileCenterFromTile(key[0], key[1], tile)
-			if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+			if gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
 				used[key] = true
 				m.X, m.Y = nx, ny
 				gl.game.collisionSystem.UpdateEntity(m.ID, nx, ny)

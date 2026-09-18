@@ -23,6 +23,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.profileKilled = nil
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
+	g.updatePartyLevelUnlocks()
 	legacyRewards := g.restoreSavedMonsters(wm, save)
 	g.restoreSavedNPCs(wm, save)
 	g.restoreSavedTurnState(save)
@@ -86,6 +87,7 @@ func (g *MMGame) restoreSavedTimeline(wm *world.WorldManager, save *GameSave, ta
 	// Restore the day/night clock BEFORE the sky refresh below so the panorama
 	// resolves to the saved phase. Recomputed silently (no flip side effects):
 	// the save's pack monsters are restored as part of MapMonsters.
+	g.maxPartyLevel = save.MaxPartyLevel
 	g.dayNightFrames = save.DayNightFrames
 	g.dayNightDay = save.DayNightDay
 	g.calendarDay, g.calendarWeek, g.calendarMonth = calendarFromSave(save.CalendarDay, save.CalendarWeek, save.CalendarMonth, save.DayNightDay, g.config.DayNight)

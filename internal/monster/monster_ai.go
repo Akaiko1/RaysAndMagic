@@ -11,11 +11,11 @@ import (
 // CollisionChecker interface for checking movement validity
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
-	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
-	// CanOccupyTilesWithHabitat is the tile-only variant: terrain rules apply,
+	CanMoveToWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool
+	// CanOccupyTilesWithTileOverrides is the tile-only variant: terrain rules apply,
 	// entity bodies are ignored. Used where an entity veto would be wrong
 	// (e.g. the A* start tile the monster is already standing in).
-	CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
+	CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -216,7 +216,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
 	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-		if !collisionChecker.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs, m.Flying) {
+		if !collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
 			m.unstuckFromObstacles(collisionChecker)
 		}
 	}
@@ -776,15 +776,15 @@ func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64
 	}
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
-	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, newX, newY, m.WalkableTileOverrides, m.Flying) {
 		m.X, m.Y = newX, newY
 		return true
 	}
-	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, newX, m.Y, m.WalkableTileOverrides, m.Flying) {
 		m.X = newX
 		return true
 	}
-	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, newY, m.WalkableTileOverrides, m.Flying) {
 		m.Y = newY
 		return true
 	}
@@ -815,7 +815,7 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 		{x: m.X, y: m.Y + float64(mathutil.IntSign(dyTile))*step},
 	}
 	for _, c := range candidates {
-		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
+		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithTileOverrides(m.ID, c.x, c.y, m.WalkableTileOverrides, m.Flying) {
 			m.X, m.Y = c.x, c.y
 			m.ResetPathfinding()
 			return true
@@ -1012,7 +1012,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool, blocked *TileCoord) bool {
 	leavingBlocked := blocked != nil && m.worldToTile(m.X) == blocked.X && m.worldToTile(m.Y) == blocked.Y
 	canMove := func(x, y float64) bool {
-		return (leavingBlocked || blocked == nil || m.worldToTile(x) != blocked.X || m.worldToTile(y) != blocked.Y) && collisionChecker.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying)
+		return (leavingBlocked || blocked == nil || m.worldToTile(x) != blocked.X || m.worldToTile(y) != blocked.Y) && collisionChecker.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
 	}
 	if shouldRepath {
 		m.PathTiles = computePath()
@@ -1270,7 +1270,7 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 	// every path attempt, freezing both in place.
 	if !ps.goal[startIdx] {
 		startCX, startCY := m.tileToWorldCenter(start.X, start.Y)
-		if !collisionChecker.CanOccupyTilesWithHabitat(m.ID, startCX, startCY, m.HabitatPrefs, m.Flying) {
+		if !collisionChecker.CanOccupyTilesWithTileOverrides(m.ID, startCX, startCY, m.WalkableTileOverrides, m.Flying) {
 			return nil
 		}
 	}
@@ -1397,7 +1397,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 				}
 			}
 			if (attackPosts && m.attackPostReserved(collisionChecker, centerX, centerY)) ||
-				!collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+				!collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying) {
 				continue
 			}
 			if !melee && adjacent {
@@ -1449,7 +1449,7 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 			if hasReservations && reservations.IsMonsterAttackPostReserved(m.ID, centerX, centerY) {
 				continue
 			}
-			if !collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+			if !collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying) {
 				continue
 			}
 			goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1460,7 +1460,7 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 
 func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
 	centerX, centerY := m.tileToWorldCenter(tile.X, tile.Y)
-	return collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying)
+	return collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying)
 }
 
 func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
@@ -1777,7 +1777,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+			if collisionChecker.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
 				m.X = nx
 				m.Y = ny
 				return
@@ -1785,7 +1785,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
+	if collisionChecker.CanMoveToWithTileOverrides(m.ID, m.SpawnX, m.SpawnY, m.WalkableTileOverrides, m.Flying) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
 	}

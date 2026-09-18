@@ -28,3 +28,6 @@ ui.camp_no_food: "Not enough food to make camp."
 ui.camp_in_combat: "Enemies are upon you - you cannot rest mid-fight."
 ui.camp_enemies_near: "Enemies are near - you cannot rest here."
 ui.camp_rested: "The party rests. HP and SP restored; conditions cured."
+
+combat.party_uses_timed_buff: "The party uses %s - %s"
+npc.unlock_party_level: "Permanently available at average party level %d"

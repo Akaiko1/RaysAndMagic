@@ -161,9 +161,9 @@ func TestDebugSim_SaveFile(t *testing.T) {
 			t.Logf("PROBE %s: NO COLLISION ENTITY", m.Name)
 			continue
 		}
-		ownOK := g.collisionSystem.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs, m.Flying)
-		eastOK := g.collisionSystem.CanMoveToWithHabitat(m.ID, m.X+2, m.Y, m.HabitatPrefs, m.Flying)
-		toPlayerOK := g.collisionSystem.CanMoveToWithHabitat(m.ID, m.X+(camX-m.X)*0.01, m.Y+(camY-m.Y)*0.01, m.HabitatPrefs, m.Flying)
+		ownOK := g.collisionSystem.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying)
+		eastOK := g.collisionSystem.CanMoveToWithTileOverrides(m.ID, m.X+2, m.Y, m.WalkableTileOverrides, m.Flying)
+		toPlayerOK := g.collisionSystem.CanMoveToWithTileOverrides(m.ID, m.X+(camX-m.X)*0.01, m.Y+(camY-m.Y)*0.01, m.WalkableTileOverrides, m.Flying)
 		t.Logf("PROBE %s box=%+v type=%v ownPos=%v east2px=%v towardPlayer1%%=%v",
 			m.Name, ent.BoundingBox, ent.CollisionType, ownOK, eastOK, toPlayerOK)
 	}

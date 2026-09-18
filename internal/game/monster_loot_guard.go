@@ -274,7 +274,7 @@ func (gl *GameLoop) lootGuardTileFits(members []*monster.Monster3D, tileX, tileY
 	tile := float64(gl.game.config.GetTileSize())
 	x, y := TileCenterFromTile(tileX, tileY, tile)
 	for _, m := range members {
-		if m == nil || !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying) {
+		if m == nil || !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) {
 			return false
 		}
 	}

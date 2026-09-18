@@ -25,6 +25,7 @@ type TimedCombatBuff struct {
 	ResistSchoolPct int
 	// ArmorBonus: flat party AC while active (stoneskin draught).
 	ArmorBonus int
+	DodgePct   int
 }
 
 func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
@@ -42,6 +43,7 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		ResistSchool:    def.ResistBuffSchool,
 		ResistSchoolPct: def.ResistBuffSchoolPct,
 		ArmorBonus:      def.BuffArmorClass,
+		DodgePct:        def.BuffDodgePct,
 	}, true
 }
 
@@ -224,6 +226,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.ResistSchool = itemBuff.ResistSchool
 				b.ResistSchoolPct = itemBuff.ResistSchoolPct
 				b.ArmorBonus = itemBuff.ArmorBonus
+				b.DodgePct = itemBuff.DodgePct
 			}
 		}
 		out[i] = b
@@ -244,4 +247,12 @@ func (g *MMGame) combatBuffArmorBonus() int {
 // drops the expired ones. Called once per frame from updateSpecialEffects.
 func (g *MMGame) tickCombatBuffs() {
 	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, func(b *TimedCombatBuff) *int { return &b.Frames })
+}
+
+func (g *MMGame) combatBuffDodgePct() int {
+	total := 0
+	for _, b := range g.combatBuffs {
+		total += b.DodgePct
+	}
+	return total
 }

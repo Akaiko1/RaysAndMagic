@@ -411,9 +411,9 @@ func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	}
 }
 
-// IsTileBlockingForHabitat checks if a tile blocks movement for a monster with given habitat preferences
-// Monsters can walk on tiles that are in their habitat preferences even if normally blocked
-func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
+// IsTileBlockingForMonster applies ordinary walkability, flight, then explicit
+// permissions for otherwise blocked tile keys. Overrides do not select habitat.
+func (w *World3D) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
@@ -435,17 +435,17 @@ func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []stri
 			return false
 		}
 
-		// Check if this tile type is in the monster's habitat preferences
-		if len(habitatPrefs) > 0 {
+		// Check if this tile type is in the monster's walkable tile overrides
+		if len(walkableTileOverrides) > 0 {
 			tileKey := GlobalTileManager.GetTileKey(tile)
-			for _, habitat := range habitatPrefs {
-				if tileKey == habitat {
-					return false // Monster can walk on its habitat tiles
+			for _, override := range walkableTileOverrides {
+				if tileKey == override {
+					return false // Explicit permission for this otherwise blocked tile.
 				}
 			}
 		}
 
-		return true // Tile is not walkable and not in habitat preferences
+		return true // Tile is not walkable and not in walkable tile overrides
 	}
 
 	// Fallback to standard blocking check if tile manager not available

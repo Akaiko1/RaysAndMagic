@@ -74,6 +74,9 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	if hasTimedBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
 		lines = append(lines, uitext.Text("item.party_ward_resistance_for_s", TitleWords(d.ResistBuffSchool), d.ResistBuffSchoolPct, d.BuffDurationSeconds))
 	}
+	if hasTimedBuff && d.BuffDodgePct > 0 {
+		lines = append(lines, uitext.Text("item.party_dodge_for_s", d.BuffDodgePct, d.BuffDurationSeconds))
+	}
 	if hasTimedBuff && d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin_armor_class_for_s", d.BuffArmorClass, d.BuffDurationSeconds))
 	}

@@ -72,7 +72,7 @@ func (cs *CollisionSystem) GetAllEntities() []*Entity {
 // TileChecker interface for checking if tiles block movement and sight
 type TileChecker interface {
 	IsTileBlocking(tileX, tileY int) bool
-	IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool
+	IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool
 	IsTileOpaque(tileX, tileY int) bool
 	GetWorldBounds() (width, height int)
 }
@@ -94,7 +94,7 @@ type TileChecker interface {
 //
 // The parallel MONSTER updater does NOT qualify for the above: a monster's
 // movement/AI decision reads OTHER entities' bounding boxes and collision types
-// (CanMoveToWithHabitat -> canMoveToEntityPosition scans the whole map), which
+// (CanMoveToWithTileOverrides -> canMoveToEntityPosition scans the whole map), which
 // violates (2) - those other entities are concurrently being written by their
 // OWN workers. It instead uses Snapshot(): each worker reads an immutable,
 // frozen CollisionSnapshot (taken once, single-threaded, before the parallel
@@ -221,8 +221,8 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 	return true
 }
 
-// CanMoveToWithHabitat checks if an entity can move to a position, allowing habitat tiles for monsters.
-func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string, flying bool) bool {
+// CanMoveToWithTileOverrides checks if an entity can move to a position, applying explicit tile overrides and flight rules.
+func (cs *CollisionSystem) CanMoveToWithTileOverrides(entityID string, newX, newY float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
@@ -231,8 +231,8 @@ func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY floa
 	// Create a temporary bounding box at the new position
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
 
-	// Check collision with world tiles (habitat-aware)
-	if !cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying) {
+	// Check collision with world tiles (monster-terrain-aware)
+	if !cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying) {
 		return false
 	}
 
@@ -283,14 +283,14 @@ func tilesAllowPosition(tileChecker TileChecker, tileSize float64, boundingBox *
 	return true
 }
 
-// canMoveToWorldPositionWithHabitat checks collision with world tiles using habitat preferences.
-func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
-	return tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, boundingBox, habitatPrefs, flying)
+// canMoveToWorldPositionWithTileOverrides checks collision with world tiles using walkable tile overrides.
+func (cs *CollisionSystem) canMoveToWorldPositionWithTileOverrides(boundingBox *BoundingBox, walkableTileOverrides []string, flying bool) bool {
+	return tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, boundingBox, walkableTileOverrides, flying)
 }
 
-// tilesAllowPositionWithHabitat is the habitat-aware counterpart of
+// tilesAllowPositionWithTileOverrides is the monster-terrain-aware counterpart of
 // tilesAllowPosition - same sharing rationale (see its doc comment).
-func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
+func tilesAllowPositionWithTileOverrides(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, walkableTileOverrides []string, flying bool) bool {
 	width, height := tileChecker.GetWorldBounds()
 
 	// Get the tile range that the bounding box covers
@@ -310,8 +310,8 @@ func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, bo
 				return false
 			}
 
-			// Check if any overlapping tile blocks movement (habitat-aware)
-			if tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs, flying) {
+			// Check if any overlapping tile blocks movement (monster-terrain-aware)
+			if tileChecker.IsTileBlockingForMonster(tileX, tileY, walkableTileOverrides, flying) {
 				return false
 			}
 		}
@@ -400,16 +400,16 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 	return shouldIgnoreCollisionTypes(moving.CollisionType, other.CollisionType)
 }
 
-// CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
+// CanOccupyTilesWithTileOverrides checks only world tiles (no entity collision).
 // Recovery and path-start checks use it when the actor already occupies an
 // entity-blocked position and must validate terrain without vetoing itself.
-func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+func (cs *CollisionSystem) CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
 	}
 	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
-	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
+	return cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying)
 }
 
 // RaycastHit represents the result of a raycast operation

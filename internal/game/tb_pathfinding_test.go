@@ -178,7 +178,7 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 
 // A* is the only TB movement authority. When no route exists, a greedy fallback
 // must not step into the one open dead-end tile toward the party; that separate
-// rule was the source of visible wall jitter and could disagree with habitat
+// rule was the source of visible wall jitter and could disagree with terrain override
 // pathing. The monster waits for a later turn to replan instead.
 func TestMonsterMoveTurnBased_HoldsWhenNoPathExists(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -348,7 +348,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 			{ptx + 1, pty + 1}, {ptx + 1, pty - 1}, {ptx - 1, pty + 1}, {ptx - 1, pty - 1},
 		} {
 			cx, cy := TileCenterFromTile(c[0], c[1], tile)
-			if g.collisionSystem.CanMoveToWithHabitat(gorilla.ID, cx, cy, gorilla.HabitatPrefs, gorilla.Flying) {
+			if g.collisionSystem.CanMoveToWithTileOverrides(gorilla.ID, cx, cy, gorilla.WalkableTileOverrides, gorilla.Flying) {
 				return true
 			}
 		}
@@ -756,7 +756,7 @@ func gorillaReadyToAttackOrPounceTB(g *MMGame, gorilla *monsterPkg.Monster3D, ti
 		{ptx + 1, pty + 1}, {ptx + 1, pty - 1}, {ptx - 1, pty + 1}, {ptx - 1, pty - 1},
 	} {
 		cx, cy := TileCenterFromTile(c[0], c[1], tile)
-		if g.collisionSystem.CanMoveToWithHabitat(gorilla.ID, cx, cy, gorilla.HabitatPrefs, gorilla.Flying) {
+		if g.collisionSystem.CanMoveToWithTileOverrides(gorilla.ID, cx, cy, gorilla.WalkableTileOverrides, gorilla.Flying) {
 			return true
 		}
 	}

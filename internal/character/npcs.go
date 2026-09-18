@@ -27,6 +27,7 @@ type NPC struct {
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool
+	MinPartyLevel    int
 	NightOnly        bool           // present only at night (see NPCData.NightOnly)
 	RejectsLich      bool           // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
 	TownPortal       bool           // makes this NPC's map a Town Portal destination, and the arrival point on it

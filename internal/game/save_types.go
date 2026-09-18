@@ -27,6 +27,7 @@ type GameSave struct {
 	// need to remember which character is owed a choice at which level.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	MaxPartyLevel         int                        `json:"max_party_level,omitempty"`
 	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
 	DayNightDay           int                        `json:"day_night_day,omitempty"`
 	CalendarDay           int                        `json:"calendar_day,omitempty"`
@@ -97,12 +98,13 @@ type GameSave struct {
 
 // QuestSave captures quest progress for save/load
 type QuestSave struct {
-	ID               string `json:"id"`
-	Status           string `json:"status"`
-	CurrentCount     int    `json:"current_count"`
-	DynamicTarget    int    `json:"dynamic_target,omitempty"`
-	DynamicTargetSet bool   `json:"dynamic_target_set,omitempty"`
-	RewardsClaimed   bool   `json:"rewards_claimed"`
+	ID               string  `json:"id"`
+	Status           string  `json:"status"`
+	CurrentCount     int     `json:"current_count"`
+	DynamicTarget    int     `json:"dynamic_target,omitempty"`
+	DynamicTargetSet bool    `json:"dynamic_target_set,omitempty"`
+	RewardsClaimed   bool    `json:"rewards_claimed"`
+	ClaimedAtDay     float64 `json:"claimed_at_day,omitempty"`
 }
 
 type PartySave struct {

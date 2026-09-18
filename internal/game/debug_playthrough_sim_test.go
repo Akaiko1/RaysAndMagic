@@ -476,13 +476,13 @@ func TestDebugSim_Playthrough(t *testing.T) {
 
 		bot := &playBot{g: g, cs: g.combat, ih: &InputHandler{game: g}}
 		// The nav scout is a Relentless ground walker: same A*, map-wide window,
-		// no habitat restriction - a stand-in for the party's own legs.
+		// no terrain overrides - a stand-in for the party's own legs.
 		bot.scout = monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "goblin", cfg)
 		bot.scout.Relentless = true // map-wide A* window
-		bot.scout.HabitatPrefs = nil
+		bot.scout.WalkableTileOverrides = nil
 		bot.scout.Flying = false
 		// The A* neighbor checks run under the scout's entity ID - an UNREGISTERED
-		// id fails CanMoveToWithHabitat outright (no path, ever). Walk as the
+		// id fails CanMoveToWithTileOverrides outright (no path, ever). Walk as the
 		// party itself: the registered "player" entity's own collision box.
 		bot.scout.ID = "player"
 		bot.initial = make(map[*monster.Monster3D]bool, len(g.world.Monsters))

@@ -155,6 +155,12 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 				g.questManager.CreateEncounterQuest(qs.ID, encounter.QuestName, encounter.QuestDescription, gold, xp)
 			}
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
+			if q := g.questManager.GetQuest(qs.ID); q != nil {
+				q.ClaimedAtDay = qs.ClaimedAtDay
+				if q.RewardsClaimed && q.ClaimedAtDay <= 0 {
+					q.ClaimedAtDay = g.currentQuestDay()
+				}
+			}
 			if qs.DynamicTargetSet {
 				g.questManager.SetDynamicTarget(qs.ID, qs.DynamicTarget)
 			}

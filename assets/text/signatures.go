@@ -2,6 +2,8 @@ package uitext
 
 // Argument contracts for presentation templates; wording lives only in YAML.
 var signatures = map[string]string{
+	"combat.party_uses_timed_buff":    "ss",
+	"npc.unlock_party_level":          "d",
 	"ui.camp":                         "",
 	"ui.camp_food":                    "d",
 	"ui.camp_use":                     "d",
@@ -177,6 +179,7 @@ var signatures = map[string]string{
 	"item.on_weapon_attack_fire_a_bonus_bolt":                "d",
 	"item.opens_the_world_map_overlay":                       "",
 	"item.party_action_turn":                                 "d",
+	"item.party_dodge_for_s":                                 "dd",
 	"item.party_stoneskin_armor_class_for_s":                 "dd",
 	"item.party_ward_resistance_for_s":                       "sdd",
 	"item.perfect_dodge":                                     "d",

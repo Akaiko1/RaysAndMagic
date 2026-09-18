@@ -41,8 +41,9 @@ type NPCData struct {
 	SellAvailable    bool     `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool     `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool     `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
-	NightOnly        bool     `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
-	RejectsLich      bool     `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	MinPartyLevel    int      `yaml:"min_party_level,omitempty"`
+	NightOnly        bool     `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
+	RejectsLich      bool     `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	// TownPortal makes this NPC's map a Town Portal destination and the party's
 	// arrival point on it. Authored, not inferred from renting rooms: an inn is
 	// the usual anchor, but the flag is what counts.
@@ -370,6 +371,9 @@ func LoadNPCConfig(filename string) error {
 // ValidNPCTypes set - both behavior dispatch and the editor palette read it.
 func validateNPCTypes(cfg *NPCConfig) error {
 	for key, npc := range cfg.NPCs {
+		if npc != nil && npc.MinPartyLevel < 0 {
+			return fmt.Errorf("NPC %q: min_party_level must not be negative", key)
+		}
 		if npc == nil || !ValidNPCTypes[npc.Type] {
 			got := ""
 			if npc != nil {
@@ -537,6 +541,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
 		NightOnly:        data.NightOnly,
+		MinPartyLevel:    data.MinPartyLevel,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
 		GridSpanTiles:    data.GridSpanTiles,

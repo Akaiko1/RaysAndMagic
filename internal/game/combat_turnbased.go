@@ -97,7 +97,7 @@ func (g *MMGame) scatterMonsterToFreeTile(m *monster.Monster3D, ctx, cty int, ti
 			continue
 		}
 		nx, ny := TileCenterFromTile(key[0], key[1], tile)
-		if g.collisionSystem.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+		if g.collisionSystem.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
 			used[key] = true
 			m.X, m.Y = nx, ny
 			g.collisionSystem.UpdateEntity(m.ID, nx, ny)
@@ -450,7 +450,7 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 }
 
 // commitMonsterMoveTB moves the monster to the tile-center (wx, wy) when the
-// habitat-aware collision check passes, updating its collision entity and turn
+// monster-terrain-aware collision check passes, updating its collision entity and turn
 // stamp. Returns whether the monster moved.
 func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
 	if blocked := gl.attackTargetTile(m); blocked != nil &&
@@ -458,7 +458,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 		TileIndex(wy, gl.game.config.GetTileSize()) == blocked.Y {
 		return false
 	}
-	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
@@ -618,7 +618,7 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		if gl.game.monsterHasAttackTarget(m) && gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
 		if requireLOS && !gl.game.collisionSystem.CheckLineOfSight(wx, wy, targetX, targetY) {
@@ -642,7 +642,7 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 // turnBasedBlockedMeleeApproachGoalTiles supplies a second A* goal ring only
 // when no adjacent attack post is currently free. These are never attack posts:
 // they let a pouncer advance after its landing ring is occupied without using a
-// separate greedy step that could disagree with terrain/habitat pathing.
+// separate greedy step that could disagree with terrain override pathing.
 // The ring itself is shared with RT pursuit (MeleeApproachRingGoals).
 func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
 	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
@@ -711,7 +711,7 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
 		if !gl.game.collisionSystem.CheckLineOfSight(wx, wy, playerX, playerY) {

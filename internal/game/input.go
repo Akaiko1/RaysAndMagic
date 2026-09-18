@@ -301,6 +301,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 	// Fresh run starts the day/night clock at noon; the first pack spawns at
 	// the first phase flip, never at game start.
+	g.maxPartyLevel = 0
 	g.dayNightFrames = 0
 	g.dayNightIsNight = false
 	g.dayNightDay = 0

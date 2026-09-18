@@ -331,7 +331,7 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 	cs := g.combat
 
 	wantOwners := map[string]map[string]bool{
-		"ordinary_key": {"bandit": true, "forest_orc": true, "thief_bug": true},
+		"ordinary_key": {"bandit": true, "desert_dervish": true, "forest_orc": true, "thief_bug": true},
 		"inlaid_key": {
 			"ashigaru_firelock": true, "ronin_marksman": true, "possessed_tome": true, "alarm_clock": true, "grandfather_clock": true,
 			"elf_archer": true, "elf_swordsman": true, "archmage": true, "lich": true, "lich_king": true,

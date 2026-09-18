@@ -102,6 +102,7 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 // unspent). The living-only rule is uniform, so a downed hero (even benched)
 // gains nothing. Single source for all XP-award sites. No-op without combat.
 func (g *MMGame) grantSharedXP(amount int) {
+	defer g.updatePartyLevelUnlocks()
 	if amount <= 0 || g.combat == nil {
 		return
 	}

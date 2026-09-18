@@ -63,6 +63,8 @@ func (g *MMGame) dayNightLightScaleNow() float64 {
 // updateDayNight advances the clock one tick and fires the phase flip
 // (panorama crossfade + pack swap) when day turns to night or back.
 func (g *MMGame) updateDayNight() {
+	g.updatePartyLevelUnlocks()
+	defer g.refreshRepeatableQuests("")
 	if g.dayNightSkipActive {
 		if g.advanceSkyFadeFrame() {
 			return
@@ -110,13 +112,14 @@ func (g *MMGame) applyDayNightPhase(night bool) {
 	g.dayNightDay++
 	g.refreshCelestialProvidence()
 	if night {
-		g.refreshRepeatableQuests()
+		g.refreshRepeatableQuests("night")
 		g.AddCombatMessage("Night falls.")
 		return
 	}
 	if weekChanged, _ := g.advanceCalendarAtDawn(); weekChanged {
 		g.refreshScheduledMerchantStocks()
 	}
+	g.refreshRepeatableQuests("day")
 	g.AddCombatMessage("The sun rises.")
 }
 
@@ -317,6 +320,7 @@ func (g *MMGame) finishDayNightSkipImmediately() {
 	g.dayNightFrames = g.dayNightSkipTargetFrame
 	g.dayNightSkipActive = false
 	g.dayNightSkipTargetFrame = 0
+	g.refreshRepeatableQuests("")
 }
 
 // --- Sky panorama phase variants -------------------------------------------
@@ -434,6 +438,7 @@ func dayNightPackTag(mapKey string, night bool) string {
 // syncDayNightPacks despawns the outgoing phase's packs and spawns the
 // incoming ones on every configured map (loaded maps only).
 func (g *MMGame) syncDayNightPacks(night bool) {
+	g.updatePartyLevelUnlocks()
 	wm := world.GlobalWorldManager
 	if wm == nil {
 		return
@@ -463,7 +468,7 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 		// One tag covers every member of the phase, so a mixed pack (e.g. grunts
 		// + an elite) shares one slot pool and never self-clears mid-spawn.
 		for _, mem := range pack.PhaseMembers(night) {
-			if mem.Monster == "" || mem.Count <= 0 {
+			if mem.Monster == "" || mem.Count <= 0 || !g.partyLevelUnlocked(mem.MinPartyLevel) {
 				continue
 			}
 			slots = g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress, slots)

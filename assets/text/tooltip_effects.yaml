@@ -37,6 +37,7 @@ item.on_ranged_weapon_attack_fire_an_extra: "%d%% on ranged weapon attack: fire 
 item.on_weapon_attack_fire_a_bonus_bolt: "%d%% on weapon attack: fire a bonus bolt"
 item.opens_the_world_map_overlay: "Opens the world map overlay"
 item.party_action_turn: "+%d party action/turn"
+item.party_dodge_for_s: "Party perfect dodge: +%d%% for %ds"
 item.party_stoneskin_armor_class_for_s: "Party stoneskin: armor class +%d for %ds"
 item.party_ward_resistance_for_s: "Party ward: %s resistance +%d%% for %ds"
 item.perfect_dodge: "+%d%% Perfect Dodge"

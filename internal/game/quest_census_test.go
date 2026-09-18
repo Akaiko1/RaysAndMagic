@@ -101,7 +101,7 @@ func TestRepeatableKillQuotaStartsFresh(t *testing.T) {
 	if _, err := g.questManager.ClaimRewards(q.ID); err != nil {
 		t.Fatal(err)
 	}
-	g.refreshRepeatableQuests()
+	g.refreshRepeatableQuests("night")
 	add(8)
 	ih.handleGiveQuest(q.ID)
 	q = g.questManager.GetQuest(q.ID)

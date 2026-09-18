@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"strings"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -281,23 +283,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		}
 		g.addCombatBuff(buff)
 		g.party.ConsumeOneAt(itemIndex)
-		switch {
-		case buff.ResistSchoolPct > 0 && buff.ArmorBonus > 0:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - %s ward +%d%% and armor +%d for %ds.",
-				item.Name, buff.ResistSchool, buff.ResistSchoolPct, buff.ArmorBonus, def.BuffDurationSeconds,
-			))
-		case buff.ResistSchoolPct > 0:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - %s ward +%d%% for %ds.",
-				item.Name, buff.ResistSchool, buff.ResistSchoolPct, def.BuffDurationSeconds,
-			))
-		default:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - armor +%d for %ds.",
-				item.Name, buff.ArmorBonus, def.BuffDurationSeconds,
-			))
-		}
+		g.AddCombatMessage(uitext.Text("combat.party_uses_timed_buff", item.Name, strings.Join(def.ItemMechanicLines(), "; ")))
 		return true
 	}
 

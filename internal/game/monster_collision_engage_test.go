@@ -135,7 +135,7 @@ func TestMonsterCollisionMarkerFollowsAttackPurpose(t *testing.T) {
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
 		t.Fatal("peaceful monster must be walkable for the party")
 	}
-	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+	if !game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(calm.ID, game.camera.X, game.camera.Y, calm.WalkableTileOverrides, calm.Flying) {
 		t.Fatal("peaceful monster must be able to move through the party")
 	}
 
@@ -145,7 +145,7 @@ func TestMonsterCollisionMarkerFollowsAttackPurpose(t *testing.T) {
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid || entity.CollisionType != collision.CollisionTypeMonster {
 		t.Fatal("a party-targeting transit mob must remain physically walkable and hold no post")
 	}
-	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+	if !game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(calm.ID, game.camera.X, game.camera.Y, calm.WalkableTileOverrides, calm.Flying) {
 		t.Fatal("a party-targeting transit mob must move through the party")
 	}
 
@@ -174,7 +174,7 @@ func TestMonsterCollisionMarkerFollowsAttackPurpose(t *testing.T) {
 	if !calm.AttackPost || calm.AttackPostTargetID != ally.ID {
 		t.Fatalf("summon-targeting attack post = (%v, %q), want (%v, %q)", calm.AttackPost, calm.AttackPostTargetID, true, ally.ID)
 	}
-	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+	if !game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(calm.ID, game.camera.X, game.camera.Y, calm.WalkableTileOverrides, calm.Flying) {
 		t.Fatal("monster fighting a summon must be able to route through the party")
 	}
 }
@@ -217,7 +217,7 @@ func TestHitFleeingMonsterCanPathThroughParty(t *testing.T) {
 	if player := game.collisionSystem.GetEntityByID("player"); player == nil || !player.Solid {
 		t.Fatal("the player collision entity must remain solid for non-monster actors")
 	}
-	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(m.ID, game.camera.X, game.camera.Y, m.HabitatPrefs, m.Flying) {
+	if !game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(m.ID, game.camera.X, game.camera.Y, m.WalkableTileOverrides, m.Flying) {
 		t.Fatal("a fleeing monster must be able to path through the party")
 	}
 }

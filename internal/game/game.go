@@ -291,6 +291,7 @@ type MMGame struct {
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
 	// during the phase-flip crossfade.
+	maxPartyLevel           int
 	dayNightFrames          int
 	dayNightIsNight         bool
 	dayNightSkipActive      bool
@@ -1076,7 +1077,7 @@ func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc.HideWhenVisited && npc.Visited {
 		return true
 	}
-	return npc.NightOnly && !g.dayNightIsNight
+	return !g.partyLevelUnlocked(npc.MinPartyLevel) || (npc.NightOnly && !g.dayNightIsNight)
 }
 
 func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
@@ -1621,7 +1622,7 @@ func (g *MMGame) turnViewFrames() int {
 
 // setPartyPosition is the single point for placing the party: it moves the
 // camera AND the party's collision entity together. Writing the camera alone
-// leaves projectiles, monster reach and habitat checks resolving against the old
+// leaves projectiles, monster reach and terrain override checks resolving against the old
 // spot until the next ordinary step.
 func (g *MMGame) setPartyPosition(x, y float64) {
 	g.camera.X, g.camera.Y = x, y
@@ -2188,7 +2189,7 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 			candidate := collision.NewBoundingBox(x, y, mw, mh)
 			if candidate.Intersects(player.BoundingBox) ||
 				g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) ||
-				!g.collisionSystem.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying) {
+				!g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) {
 				return false
 			}
 			m.X, m.Y = x, y

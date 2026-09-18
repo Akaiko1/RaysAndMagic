@@ -2174,6 +2174,27 @@ items:
   # ================= ELEMENTAL DRAUGHTS =================
   # Counterplay potions for the endgame triad: each wards one school for a
   # minute, party-wide. Dropped by dragons and the clock tower's works.
+  sun_bleached_silk:
+    name: "Sun-Bleached Silk"
+    type: "trinket"
+    description: "Fine caravan silk, faded by years of hard desert sun"
+    flavor: "The knife holes lower its price. The blood washes out."
+    rarity: "uncommon"
+    value: 160
+
+  mirage_salt:
+    name: "Mirage Salt"
+    type: "consumable"
+    description: "Pale salt from an oasis that appears on no honest map"
+    flavor: "A pinch on the tongue, and the desert loses track of you."
+    resist_buff_school: "fire"
+    resist_buff_school_pct: 30
+    buff_dodge_pct: 15
+    buff_duration_seconds: 120
+    status_icon: "mirage_salt"
+    rarity: "rare"
+    value: 500
+
   flame_ward_draught:
     name: "Flame Ward Draught"
     type: "consumable"

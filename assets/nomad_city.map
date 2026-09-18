@@ -24,7 +24,7 @@
 %.............,@,.............%  >[npc:nomad_city_spells]
 %..........Z.......Z..........%
 %.CCCCCC..............BBBBBBB.%
-%.CCCCCC..............BBBBBBB.%
+%.CCCCCC.@............BBBBBBB.%  >[npc:nomad_city_safiya]
 %.CCCCCC.Y............BBBBBBB.%
 %............I...I............%
 %.............+@..............%  >[npc:nomad_city_exit]

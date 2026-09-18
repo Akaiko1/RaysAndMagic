@@ -542,6 +542,8 @@ day_night:
         - { monster: forest_spider, count: 8, quest_progress: true }
       min_player_dist_tiles: 8
     - map: desert
+      day_monsters:
+        - { monster: desert_dervish, count: 5, min_party_level: 20, quest_progress: true }
       night_monster: mummy
       count: 5
     - map: deep_jungle

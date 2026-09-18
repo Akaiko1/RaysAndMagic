@@ -376,7 +376,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
 			continue
 		}
-		if cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+		if cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
 			cs.game.releaseMonsterAttackPost(m)
 			m.X, m.Y = cx, cy
 			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)

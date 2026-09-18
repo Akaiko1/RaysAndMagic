@@ -14,23 +14,26 @@ import (
 	"ugataima/internal/world"
 )
 
-// refreshRepeatableQuests clears every finished repeatable errand at nightfall
+// refreshRepeatableQuests clears claimed errands when their schedule is due
 // so its giver offers the same task again. The quest is dropped rather than
 // rewound: an absent quest is exactly the "never taken" state the NPC dialogue
 // machine already reads as an offer. The giver's Visited flag is cleared with
 // it - turn-in sets Visited to conclude a giver, and a nightly errand must not
 // stay concluded.
-func (g *MMGame) refreshRepeatableQuests() {
+func (g *MMGame) refreshRepeatableQuests(event quests.RepeatSchedule) {
 	if g.questManager == nil {
 		return
 	}
 	refreshed := make(map[string]bool)
 	for id, def := range g.questManager.Definitions() {
-		if def == nil || !def.Repeatable {
+		if def == nil || def.Repeatable == "" {
 			continue
 		}
 		q := g.questManager.GetQuest(id)
 		if q == nil || !q.Completed || !q.RewardsClaimed {
+			continue
+		}
+		if !def.Repeatable.Due(q.ClaimedAtDay, g.currentQuestDay(), event) {
 			continue
 		}
 		g.questManager.RemoveQuest(id)
@@ -196,7 +199,7 @@ func (g *MMGame) countQuestTargetsFromSource(def *quests.QuestDefinition, questI
 // counters remain anchored to their initial census.
 func (g *MMGame) syncKillQuestCensus(q *quests.Quest, includePendingDeaths bool) (int, bool) {
 	if g.questManager == nil || q == nil || q.Completed || q.Definition == nil ||
-		q.Definition.Type != quests.QuestTypeKill ||
+		q.Definition.Type != quests.QuestTypeKill || q.Definition.FixedQuota ||
 		(q.Definition.TargetMonster == "" && len(q.Definition.TargetMonsters) == 0) {
 		return 0, false
 	}

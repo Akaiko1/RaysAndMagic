@@ -33,6 +33,21 @@ quests:
   # The bather's nightly errand: the lake spiders come with the dark, so this one
   # is repeatable - cleared again at every nightfall (see refreshRepeatableQuests)
   # and paid in whatever draught she has on her.
+  toll_of_blades:
+    name: "The Toll of Blades"
+    description: "Safiya's caravan guards have paid enough unlawful tolls. Kill {target_count} Desert Dervishes in the desert and collect your payment. Their bands travel by day; unfinished work carries over to the next band."
+    type: kill
+    target_monster: desert_dervish
+    progress_text: "desert dervishes killed"
+    target_map: desert
+    target_count: 5
+    fixed_quota: true
+    repeatable: 3d
+    rewards:
+      gold: 600
+      experience: 600
+      item_pool: [mirage_salt]
+
   lake_spiders:
     name: "The Lake at Night"
     description: "Ilsa wants a bath without Forest Spiders gathering on the bank. Kill {target_count} at the forest lake and return to her for a reward. More arrive each night; she will pay for another clearing."
@@ -41,7 +56,7 @@ quests:
     target_count: 5
     target_map: "forest"
     is_starting_quest: false
-    repeatable: true
+    repeatable: night
     rewards:
       gold: 60
       experience: 120

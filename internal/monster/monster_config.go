@@ -48,7 +48,7 @@ type MonsterDefinition struct {
 	DeprecatedSizeGame        float64        `yaml:"size_game,omitempty"`
 	DeprecatedSizeMultiplier  float64        `yaml:"size_multiplier,omitempty"`
 	Resistances               map[string]int `yaml:"resistances"`
-	HabitatPrefs              []string       `yaml:"habitat_preferences"`
+	WalkableTileOverrides     []string       `yaml:"walkable_tile_overrides,omitempty"`
 	ProjectileSpell           string         `yaml:"projectile_spell"`
 	ProjectileWeapon          string         `yaml:"projectile_weapon"`
 	Flying                    bool           `yaml:"flying"`
@@ -128,6 +128,9 @@ type MonsterDefinition struct {
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
+
+	// Reject the former misleading key rather than silently losing terrain permissions.
+	DeprecatedHabitatPreferences yaml.Node `yaml:"habitat_preferences,omitempty"`
 }
 
 type MonsterLightConfig struct {
@@ -155,6 +158,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	var conflicts []string
 
 	for key, monster := range config.Monsters {
+		if monster.DeprecatedHabitatPreferences.Kind != 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed habitat_preferences - use walkable_tile_overrides for blocked tile exceptions", key))
+		}
 		letter := monster.Letter
 		if letter == "" {
 			continue
@@ -493,8 +499,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		}
 	}
 
-	// Set habitat preferences - tiles this monster can walk on even if normally blocked
-	m.HabitatPrefs = def.HabitatPrefs
+	// Set walkable tile overrides - tiles this monster can walk on even if normally blocked
+	m.WalkableTileOverrides = def.WalkableTileOverrides
 
 	// Set ranged attack configuration
 	m.ProjectileSpell = def.ProjectileSpell

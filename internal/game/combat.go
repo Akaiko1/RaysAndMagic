@@ -1667,7 +1667,7 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 		if cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
 			continue
 		}
-		if !cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+		if !cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
 			continue
 		}
 		if d := (cx-m.X)*(cx-m.X) + (cy-m.Y)*(cy-m.Y); d < bestD {
@@ -3790,7 +3790,7 @@ func (cs *CombatSystem) PerfectDodgeChance(chr *character.MMCharacter) int {
 	// Use effective stats so Bless and equipment affect dodge
 	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
 	if cs != nil && cs.game != nil && cs.game.isPartyMember(chr) {
-		chance += cs.game.cardDodgeBonusPct()
+		chance += cs.game.cardDodgeBonusPct() + cs.game.combatBuffDodgePct()
 	}
 	if chance < 0 {
 		return 0

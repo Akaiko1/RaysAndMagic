@@ -13,7 +13,7 @@ type bandingTileChecker struct{}
 
 func (bandingTileChecker) IsTileBlocking(tileX, tileY int) bool { return false }
 
-func (bandingTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
+func (bandingTileChecker) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	return false
 }
 
