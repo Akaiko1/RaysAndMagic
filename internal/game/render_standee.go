@@ -28,9 +28,9 @@ const (
 	// layer count as 1080p instead of double.
 	standeeShellRefWidth  = 1920
 	standeeShellSpacingPx = 1.5
-	// At high shell counts the exact same stack is composited in one fragment
-	// pass. This is a render optimization, not a visual LOD.
-	standeeVolumeMinShells = 6
+	// Composite every full-opacity cross stack in one fragment pass. Even the
+	// minimum two shells otherwise duplicate the column mesh four times.
+	standeeVolumeMinShells = 2
 	standeeMinDepth        = 4.0           // near clip for token columns (world units)
 	standeeStaticYaw       = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
 	standeeTurnDefault     = 270.0         // deg/sec token swivel when config omits it
@@ -566,7 +566,7 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 	return shader, nil
 }
 
-// The close-tree volume shader composites the exact shell stack in one
+// The crossed-standee volume shader composites the exact shell stack in one
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
 //
@@ -782,8 +782,8 @@ type standeeSlab struct {
 	sideFade     float32 // 0 = full thickness, 1 = only the front face
 	fade         float32 // transient opacity loss; zero preserves the ordinary material
 	minX, maxX   int     // unclipped screen span
-	// volumeComposite is set only for crossed trees. Their close, high-shell
-	// slabs use the exact one-pass volume compositor; other standees keep the
+	// volumeComposite is set only for crosses. Their full-opacity
+	// slabs use the one-pass volume compositor; other standees keep the
 	// general material path, including trilinear minification and wall mounts.
 	volumeComposite bool
 	// Float billboard metrics: the per-column scaling multiplies them by
@@ -1084,7 +1084,7 @@ func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textur
 
 func canUseStandeeVolume(slab standeeSlab) bool {
 	return slab.volumeComposite &&
-		slab.firstSurface == 0 && slab.sideFade == 0 &&
+		slab.firstSurface == 0 && slab.sideFade == 0 && slab.fade == 0 &&
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
@@ -1220,6 +1220,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	opts.Images[3] = coreMips.levels[coreMipLevel]
 	screen.DrawTrianglesShader32(vertices, indices, shader, opts)
 	r.statStandeeCalls++
+	r.statStandeeVertices += len(vertices)
 	r.standeeVerts = vertices[:0]
 	r.standeeMaterialIdx = indices[:0]
 	return true
@@ -1430,6 +1431,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if len(idx) > 0 {
 		screen.DrawTrianglesShader32(verts, idx, shader, opts)
 		r.statStandeeCalls++
+		r.statStandeeVertices += len(verts)
 	}
 	r.standeeVerts = verts[:0]
 	r.standeeMaterialIdx = idx[:0]
@@ -1525,7 +1527,9 @@ func spriteWidthForHeight(height float64, textureWidth, textureHeight int) float
 // map load instead of repeatedly growing it as the party approaches a token.
 func (r *Renderer) reserveStandeeBuffers() {
 	screenW := r.game.config.GetScreenWidth()
-	maxFallbackSurfaces := standeeVolumeMinShells + 1
+	// Fading and grazing slabs retain the material path regardless of shell
+	// count. Keep its existing warm capacity independent of volume eligibility.
+	const maxFallbackSurfaces = 7
 	vertexCapacity := 4 * screenW * maxFallbackSurfaces
 	indexCapacity := 6 * screenW * maxFallbackSurfaces
 	if cap(r.standeeVerts) < vertexCapacity {

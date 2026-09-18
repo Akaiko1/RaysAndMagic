@@ -279,6 +279,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
+	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 	// NPC config AFTER spells (loader validation order) - with it loaded the
 	// river NPCs (traders, gates, shipwreck) exist and render like in the game.
@@ -288,7 +289,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+	world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}

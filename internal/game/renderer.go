@@ -134,9 +134,10 @@ type Renderer struct {
 	loadDiagnostics  renderLoadDiagnostics
 
 	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
-	statTreesDrawn   int
-	statStandeeCalls int
-	statAuraTiles    int
+	statTreesDrawn      int
+	statStandeeCalls    int
+	statStandeeVertices int
+	statAuraTiles       int
 	// Per-frame sprite-pass sub-phase timings (ms) for the perf overlay.
 	statFloorMs   float64
 	statWallsMs   float64
@@ -1442,6 +1443,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 	// Draw simple floor and ceiling before walls/trees so trees are visible above floor
 	r.statTreesDrawn, r.statStandeeCalls, r.statAuraTiles = 0, 0, 0
+	r.statStandeeVertices = 0
 	r.game.threading.PerformanceMonitor.ProfiledFunction("sprite_render", func() {
 		tf := time.Now()
 		r.drawSimpleFloorCeiling(screen)
