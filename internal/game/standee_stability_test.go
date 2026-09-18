@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 )
 
@@ -40,8 +41,8 @@ func TestStandeeFootprintBoundsDirectionalSampling(t *testing.T) {
 		{"native", 512, 512, 1},
 		{"magnified", 1024, 1024, 1},
 		{"square", 64, 64, 8},
-		{"horizontal compression", 16, 128, 8},
-		{"vertical compression", 128, 16, 8},
+		{"horizontal compression", 16, 128, 4},
+		{"vertical compression", 128, 16, 4},
 		{"moderate angle", 64, 128, 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,11 +53,25 @@ func TestStandeeFootprintBoundsDirectionalSampling(t *testing.T) {
 	}
 }
 
-func TestStandeeEdgeOnFootprintSelectsCoarsestMip(t *testing.T) {
-	for _, size := range [][2]float64{{0, 100}, {100, 0}, {0, 0}} {
-		footprint := standeeProjectedFootprint(size[0], size[1], 512, 512)
-		if level, _ := mipLevelBlend(footprint, maxMipLevel); level != maxMipLevel {
-			t.Fatalf("edge-on footprint %v selected level %d, want %d", size, level, maxMipLevel)
+// Horizontal collapse must not select a vertically blurred silhouette.
+func TestStandeeEdgeOnFootprintPreservesVisibleAxis(t *testing.T) {
+	for _, tc := range []struct {
+		width, height float64
+		level         int
+	}{{0, 100, 2}, {100, 0, 2}, {0, 0, maxMipLevel}} {
+		footprint := standeeProjectedFootprint(tc.width, tc.height, 512, 512)
+		if level, _ := mipLevelBlend(footprint, maxMipLevel); level != tc.level {
+			t.Fatalf("footprint at %gx%g selected level %d, want %d", tc.width, tc.height, level, tc.level)
+		}
+	}
+}
+
+func TestGrazingStandeeMipPreservesUncompressedAxis(t *testing.T) {
+	for _, dims := range [][4]float64{{0.01, 300, 512, 1024}, {1, 300, 512, 1024}, {300, 1, 1024, 512}, {100, 200, 512, 1024}, {1024, 1024, 512, 512}} {
+		footprint := standeeProjectedFootprint(dims[0], dims[1], dims[2], dims[3])
+		minor := max(1, math.Min(dims[2]/dims[0], dims[3]/dims[1]))
+		if float64(footprint) > minor+1e-5 {
+			t.Fatalf("grazing width blurred the uncompressed silhouette: footprint=%g bound=%g", footprint, minor)
 		}
 	}
 }

@@ -355,7 +355,9 @@ func (g *MMGame) findGroundContainerIndexAtScreen(clickX, clickY int, maxDist fl
 		return -1
 	}
 	return g.findGroundContainerIndex(maxDist, func(c *GroundContainer, distance float64) bool {
-		info := g.groundContainerRenderInfo(c, distance)
+		defer g.beginPresentedCameraSwap()()
+		info := g.groundContainerRenderInfo(c, -1)
+		info.Distance = distance // Logical reach, displayed projection.
 		return g.groundContainerHitTestFromInfo(info, c.effectiveSprite(), clickX, clickY, maxDist)
 	})
 }

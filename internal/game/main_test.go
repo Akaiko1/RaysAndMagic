@@ -73,6 +73,7 @@ func TestMain(m *testing.M) {
 	g := &testMainGame{m: m, code: 1, done: make(chan struct{})}
 	ebiten.SetWindowSize(320, 240)
 	ebiten.SetWindowTitle("RaysAndMagic debug sims")
+	ebiten.SetRunnableOnUnfocused(true)
 	ebiten.SetVsyncEnabled(false) // measurement frames, not display frames
 	ebiten.SetTPS(ebiten.SyncWithFPS)
 	if err := ebiten.RunGame(g); err != nil {

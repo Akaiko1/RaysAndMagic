@@ -336,6 +336,8 @@ type MMGame struct {
 	screenShakeOffsetY     float64
 	hitEffectsMu           sync.Mutex
 
+	cameraPresentation cameraPresentation
+
 	// Smooth turn-based rotation: logic snaps camera.Angle 90deg instantly (no
 	// gameplay change), but the RENDER uses viewAngleRender, which eases toward it
 	// over viewTurnFramesLeft frames so a TB turn glides instead of popping. While
@@ -1062,7 +1064,9 @@ func (g *MMGame) updateFocusedNPC() {
 		if dist > bestDist {
 			continue
 		}
+		restore := g.beginPresentedCameraSwap()
 		screenX, _, ok := g.renderHelper.projectToScreenX(ex, ey)
+		restore()
 		if !ok || math.Abs(float64(screenX)-halfW) > band {
 			continue
 		}
@@ -1110,7 +1114,7 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 		if dist >= bestDist {
 			continue
 		}
-		if !g.npcScreenHitTest(n, ex, ey, dist, clickX, clickY) {
+		if !g.npcScreenHitTest(n, ex, ey, clickX, clickY) {
 			continue
 		}
 		npc = n
@@ -1124,7 +1128,9 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 // mostly-transparent sprite margins don't catch clicks). ex/ey is the NPC's
 // effective (rendered) position - see npcEffectivePos. Occlusion is checked
 // against the wall depth buffer at the sprite's centre column.
-func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, x, y int) bool {
+func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) bool {
+	defer g.beginPresentedCameraSwap()()
+	distance := Distance(g.camera.X, g.camera.Y, ex, ey)
 	screenX, screenY, spriteSize, visible := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 	if !visible || spriteSize <= 0 {
 		return false
@@ -1634,6 +1640,7 @@ func (g *MMGame) turnViewFrames() int {
 // leaves projectiles, monster reach and terrain override checks resolving against the old
 // spot until the next ordinary step.
 func (g *MMGame) setPartyPosition(x, y float64) {
+	g.resetCameraPresentation()
 	g.camera.X, g.camera.Y = x, y
 	if g.collisionSystem != nil {
 		g.collisionSystem.UpdateEntity("player", x, y)
@@ -1645,6 +1652,7 @@ func (g *MMGame) setPartyPosition(x, y float64) {
 // the rendered view together and cancels any in-flight turn glide, so the view
 // can never ease from a stale heading. Gliding turns go through rotateTurnBased.
 func (g *MMGame) snapFacing(angle float64) {
+	g.resetCameraPresentation()
 	g.camera.Angle = angle
 	g.viewAngleRender = angle
 	g.viewTurnFramesLeft = 0
@@ -1754,6 +1762,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 		len(g.wallTopBuffer) == screenWidth {
 		return
 	}
+	g.resetCameraPresentation()
 	g.config.Display.ScreenWidth = screenWidth
 	g.config.Display.ScreenHeight = screenHeight
 

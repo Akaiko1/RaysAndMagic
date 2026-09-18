@@ -422,10 +422,8 @@ func clampByte(v float64) byte {
 
 // standeeColumnIntersection intersects one screen ray (origin cam, direction
 // R, both in world space) with the infinite line P0 + u*(P1-P0). It preserves
-// u outside [0,1] so the rasterizer can map the two SCREEN-PIXEL BOUNDARIES to
-// two distinct texture coordinates at a segment edge. That non-zero source
-// footprint is what lets the standee minification shader filter the actual
-// texel area covered by this pixel instead of sampling a phase-dependent point.
+// u outside [0,1] for volume-shell interpolation. Visibility and the material
+// path use finite pixel-centre hits; explicit mip footprints handle filtering.
 //
 // t is the perpendicular depth when R is built as dir + plane*s with |dir|=1.
 func standeeColumnIntersection(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float64, ok bool) {
@@ -444,8 +442,8 @@ func standeeColumnIntersection(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t,
 }
 
 // standeeColumnHit is standeeColumnIntersection clipped to the actual finite
-// surface segment. Use it for the pixel-centre visibility decision; the draw
-// path uses the unbounded helper only for that visible column's two edges.
+// surface segment. The material draw derives geometry and UV from this same
+// pixel-centre hit, including when a face projects to less than one pixel.
 func standeeColumnHit(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float64, ok bool) {
 	t, u, ok = standeeColumnIntersection(camX, camY, rx, ry, p0x, p0y, dx, dy)
 	if !ok || u < 0 || u > 1 {
@@ -1065,12 +1063,13 @@ func standeeSideFade(parallax float64) float32 {
 	return float32(1 - t*t*(3-2*t))
 }
 
-// standeeProjectedFootprint selects one conservative texture footprint for a
-// slab. Preserve detail along the less compressed axis, but bound anisotropy
-// to the four taps used by the shared sticker sampler.
+// standeeProjectedFootprint keeps the isotropic mip no coarser than the less
+// compressed axis. A grazing face may be subpixel-wide but hundreds of pixels
+// tall: using its width to reduce both axes smears the wood above the crown.
+// The shared sticker sampler handles the remaining major-axis footprint.
 func standeeProjectedFootprint(projectedWidth, projectedHeight, textureWidth, textureHeight float64) float32 {
 	footprintX, footprintY := standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textureHeight)
-	footprint := math.Max(math.Min(footprintX, footprintY), math.Max(footprintX, footprintY)/4)
+	footprint := math.Min(footprintX, footprintY)
 	if footprint < 1 {
 		return 1
 	}
@@ -1078,8 +1077,8 @@ func standeeProjectedFootprint(projectedWidth, projectedHeight, textureWidth, te
 }
 
 func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textureHeight float64) (float64, float64) {
-	// An exactly edge-on face must select the coarsest mip, not feed infinity
-	// into integer LOD selection. Use the same finite footprint in the shader.
+	// A collapsed axis still needs a finite footprint for shader sampling.
+	// The other axis determines how much isotropic reduction is appropriate.
 	return textureWidth / math.Max(projectedWidth, 1e-6), textureHeight / math.Max(projectedHeight, 1e-6)
 }
 
@@ -1321,7 +1320,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if filtered {
 		filteredFlag = 1
 	}
-	if canUseStandeeVolume(slab) &&
+	// A subpixel face cannot support the volume shader's interpolation of
+	// boundary depths/UVs. Use exact pixel-centre intersections in that case.
+	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
 		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered) {
 		return
 	}
@@ -1372,19 +1373,6 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 			return float32(math.Min(u*texW, texW-1)) + 0.5
 		}
-		// Adjacent columns share an exact boundary intersection. Keep its raw
-		// validity so a failed edge still falls back to each column's centre.
-		lastEdge := minX - 1
-		var edgeDepth, edgeU float64
-		var edgeOK bool
-		edgeAt := func(x int) (float64, float64, bool) {
-			if x != lastEdge {
-				rx, ry := rayAt(float64(x))
-				edgeDepth, edgeU, edgeOK = standeeColumnIntersection(cam.X, cam.Y, rx, ry, sf.p0x, sf.p0y, sf.dx, sf.dy)
-				lastEdge = x
-			}
-			return edgeDepth, edgeU, edgeOK
-		}
 		for x := minX; x <= maxX; x++ {
 			rcx, rcy := rayAt(float64(x) + 0.5)
 			t, u, ok := standeeColumnHit(cam.X, cam.Y, rcx, rcy, sf.p0x, sf.p0y, sf.dx, sf.dy)
@@ -1393,32 +1381,16 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 
 			top, bottom, height := geometryAt(t)
-			top0, bottom0, height0 := top, bottom, height
-			top1, bottom1, height1 := top, bottom, height
-			u0, u1 := u, u
-			if filtered {
-				// Use each pixel boundary's true line intersection instead of
-				// copying the centre texel to both vertices. The old zero-width
-				// source mapping hid the horizontal texel footprint from the
-				// mip filter, producing temporal shimmer at range.
-				t0, edgeU0, ok0 := edgeAt(x)
-				if !ok0 {
-					t0, edgeU0 = t, u
-				}
-				t1, edgeU1, ok1 := edgeAt(x + 1)
-				if !ok1 {
-					t1, edgeU1 = t, u
-				}
-				top0, bottom0, height0 = geometryAt(t0)
-				top1, bottom1, height1 = geometryAt(t1)
-				u0, u1 = edgeU0, edgeU1
-			}
+			// Geometry and source U describe the same pixel-centre ray. At a
+			// grazing angle, averaging the two boundary intersections can map
+			// this pixel to a different depth (or beyond the finite surface).
+			// Filtering already uses explicit mip levels and a footprint below;
+			// it does not require distorted boundary UVs for automatic mip choice.
 			// Source coordinates name texel centres, matching textureX. This
 			// keeps vertical filtering stable at the texture's top/bottom edges.
 			srcY0 := float32(0.5)
 			srcY1 := float32(texH) - 0.5
-			drawBottom0, srcYbot0 := bottom0, srcY1
-			drawBottom1, srcYbot1 := bottom1, srcY1
+			drawBottom, srcYbot := bottom, srcY1
 			occluded := x < len(depthBuf) && standeeColumnOccluded(t, depthBuf[x], occlusion.depthAllowance)
 			if occluded && occlusion.matchesBackingWall(cam.X, cam.Y, rcx, rcy, depthBuf[x]) {
 				occluded = false
@@ -1432,20 +1404,13 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				if wt <= top {
 					continue // wall covers this entire slice
 				}
-				clipBottom := func(top, bottom, height float32) (float32, float32) {
-					if wt <= top {
-						return top, srcY0
-					}
-					if wt < bottom {
-						return wt, srcY0 + (srcY1-srcY0)*((wt-top)/height)
-					}
-					return bottom, srcY1
+				if wt < bottom {
+					drawBottom = wt
+					srcYbot = srcY0 + (srcY1-srcY0)*((wt-top)/height)
 				}
-				drawBottom0, srcYbot0 = clipBottom(top0, bottom0, height0)
-				drawBottom1, srcYbot1 = clipBottom(top1, bottom1, height1)
 			}
 			x0, x1 := float32(x), float32(x+1)
-			srcX0, srcX1 := textureX(u0), textureX(u1)
+			srcX := textureX(u)
 			layerMode := float32(0)
 			if sf.mipKey.layer == standeeMipCore {
 				layerMode = 1
@@ -1454,10 +1419,10 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 			base := uint32(len(verts))
 			verts = append(verts,
-				ebiten.Vertex{DstX: x0, DstY: top0, SrcX: srcX0, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x1, DstY: top1, SrcX: srcX1, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x0, DstY: drawBottom0, SrcX: srcX0, SrcY: srcYbot0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
-				ebiten.Vertex{DstX: x1, DstY: drawBottom1, SrcX: srcX1, SrcY: srcYbot1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x0, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x1, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x0, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
+				ebiten.Vertex{DstX: x1, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},
 			)
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 		}

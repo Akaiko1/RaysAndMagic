@@ -59,6 +59,8 @@ func NewGameLoop(game *MMGame) *GameLoop {
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
 	updateStart := time.Now()
+	beforeCamera, cameraEpoch := gl.game.cameraPose(), gl.game.cameraPresentation.epoch
+	defer func() { gl.game.finishCameraTick(beforeCamera, cameraEpoch, updateStart) }()
 	defer func() { gl.game.updatePlayerProfile(time.Now()) }()
 	defer func() {
 		gl.lastUpdateDuration = time.Since(updateStart)
@@ -369,12 +371,10 @@ func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	// straight blit. Either way the UI is drawn last, directly to the screen, so it
 	// never blurs.
 	g := gl.game
-	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
-	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
-	// observes the display angle. In real time viewAngleRender == camera.Angle, so
-	// this is a no-op.
+	// Interpolate only the world pass. The loading preflight and UI retain
+	// logical coordinates; TB uses the existing eased angle.
 	if g.camera != nil {
-		defer g.beginViewAngleSwap()()
+		defer g.beginRenderCameraSwap(time.Now())()
 	}
 
 	defer g.beginScreenShakeSwap()()
