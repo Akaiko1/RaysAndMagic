@@ -37,7 +37,18 @@ func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
 // UpdateAmbient uses the same terrain/path policy as hostile movement. TB
 // chooses one grid step; RT follows that path at the authored movement speed.
 func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn bool) {
+	if m.AmbientFlee && m.Arbor.Phase == "" {
+		x, y := m.X, m.Y
+		defer func() {
+			if m.X == x && m.Y == y && m.Arbor.Phase == "" {
+				m.State = StateIdle
+			}
+		}()
+	}
 	if m.MovementHeld(turn) || checker == nil {
+		return
+	}
+	if m.advanceAmbientThreat(turn) {
 		return
 	}
 	if turn && !m.SpendAmbientTurnMove() {
@@ -49,13 +60,10 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 		return
 	}
 	if m.AmbientFlee {
-		m.State = StateFleeing
-		goal, ok := m.pickFleeTarget(checker, tx, ty)
-		if !ok {
-			return
-		}
-		tx, ty = float64(goal.X)*m.tileSize()+m.tileSize()/2, float64(goal.Y)*m.tileSize()+m.tileSize()/2
-	} else if m.Disposition == "wildlife" {
+		m.updateAmbientThreatMovement(checker, tx, ty, turn)
+		return
+	}
+	if m.Disposition == "wildlife" {
 		m.State = StatePatrolling
 		if !turn {
 			m.updatePatrolling(checker)
@@ -65,21 +73,28 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 		if !ok {
 			return
 		}
+		m.setMoveTarget(StatePatrolling, goal.X, goal.Y)
 		tx, ty = float64(goal.X)*m.tileSize()+m.tileSize()/2, float64(goal.Y)*m.tileSize()+m.tileSize()/2
 	} else {
 		m.State = StatePatrolling
 	}
-	if turn {
-		x, y, ok := m.NextPathStepTileToAny(checker, []TileCoord{{X: int(tx / m.tileSize()), Y: int(ty / m.tileSize())}}, nil)
-		if ok {
-			nx, ny := (float64(x)+.5)*m.tileSize(), (float64(y)+.5)*m.tileSize()
-			if checker.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
-				m.X, m.Y = nx, ny
-			}
-		}
-	} else {
-		m.followPathToTile(checker, int(tx/m.tileSize()), int(ty/m.tileSize()))
+	m.stepAmbientPath(checker, TileCoord{X: int(tx / m.tileSize()), Y: int(ty / m.tileSize())}, turn)
+}
+
+func (m *Monster3D) stepAmbientPath(checker CollisionChecker, goal TileCoord, turn bool) bool {
+	if !turn {
+		return m.followPathToTile(checker, goal.X, goal.Y)
 	}
+	x, y, ok := m.NextPathStepTileToAny(checker, []TileCoord{goal}, nil)
+	if !ok {
+		return false
+	}
+	nx, ny := m.tileToWorldCenter(x, y)
+	if !checker.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
+		return false
+	}
+	m.X, m.Y = nx, ny
+	return true
 }
 
 // SpendAmbientTurnMove preserves relative walking speeds in tile-based combat.

@@ -248,6 +248,7 @@ type Monster3D struct {
 	AmbientMoveCredit float64
 	Population        string
 	AmbientFlee       bool
+	Threat            AmbientThreat
 	NoKillRewards     bool
 
 	X, Y         float64

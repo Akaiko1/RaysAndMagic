@@ -191,6 +191,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
 				m.AmbientMoveCredit = ms.AmbientMoveCredit
+				if m.Disposition == "wildlife" {
+					m.Threat = ms.AmbientThreat
+					m.AmbientFlee = m.Threat.Seconds > 0
+				}
 				if m.Arboreal != nil {
 					m.Arbor = ms.Arbor
 				}
@@ -478,6 +482,9 @@ func findMonsterKeyByName(name string) string {
 // Copy optional coordinates so restoring never mutates the caller's snapshot.
 func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) MonsterSave {
 	ms.X, ms.Y = wm.ProjectWorldPos(mapKey, ms.X, ms.Y)
+	ms.AmbientThreat = ms.AmbientThreat.MapPosition(func(x, y float64) (float64, float64) {
+		return wm.ProjectWorldPos(mapKey, x, y)
+	})
 	ms.Arbor = ms.Arbor.MapPositions(func(x, y float64) (float64, float64) {
 		return wm.ProjectWorldPos(mapKey, x, y)
 	})

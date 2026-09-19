@@ -188,7 +188,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 		return true
 	}
 	tx, ty := m.X, m.Y
-	best := m.AlertRadius
+	best := m.AmbientAwarenessRadius()
 	if g.camera != nil && Distance(m.X, m.Y, g.camera.X, g.camera.Y) < best && (m.Arbor.Height > 0 || g.collisionSystem.CheckLineOfSight(m.X, m.Y, g.camera.X, g.camera.Y)) {
 		tx, ty = g.camera.X, g.camera.Y
 		best = Distance(m.X, m.Y, tx, ty)
@@ -203,6 +203,12 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 			best, tx, ty = d, other.X, other.Y
 			m.AmbientFlee = true
 		}
+	}
+	if m.AmbientFlee {
+		m.RememberAmbientThreat(tx, ty)
+	} else if m.Threat.Seconds > 0 {
+		m.AmbientFlee = true
+		tx, ty = m.Threat.X, m.Threat.Y
 	}
 	if !m.AmbientFlee {
 		best = m.PreyRadius

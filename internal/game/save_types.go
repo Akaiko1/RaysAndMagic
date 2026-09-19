@@ -233,6 +233,7 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	AmbientThreat     monster.AmbientThreat `json:"ambient_threat,omitzero"`
 	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
 	Population        string                `json:"population,omitempty"`
 	AmbientMoveCredit float64               `json:"ambient_move_credit,omitempty"`
