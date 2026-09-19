@@ -309,7 +309,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	rules := ttSection{Title: "RULES"}
 	armorInteractionRules(&rules, def.DamageType, def.Physics != nil, preview.True > 0)
 	if def.AoeRadiusTiles > 0 {
-		rules.AddDetail("%s", character.SplashCritRule)
+		rules.AddDetail("%s", character.WeaponSplashCritRule)
 	}
 	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {

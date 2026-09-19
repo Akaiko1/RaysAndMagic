@@ -158,22 +158,34 @@ func (g *MMGame) designationBonus(target *monster.Monster3D) int {
 	}
 	bonus := 0
 	for _, ch := range g.party.Members {
-		if ch != nil && ch.CanUseCombatAction() && ch.DesignationFrames > 0 && ch.DesignatedTargetID == target.ID {
-			bonus = max(bonus, ch.TacticalSkillValue(character.SkillDesignateTarget, config.TacticalSkills().DesignationCritPct))
+		if ch != nil && ch.DesignatedTargetID == target.ID {
+			bonus = max(bonus, activeDesignationBonus(ch))
 		}
 	}
 	return bonus
 }
 
-// A second conditional roll adds percentage points to a launch-time crit roll
-// without re-rolling it or granting marks to spells and secondary proc bolts.
-func (cs *CombatSystem) designatedCritical(target *monster.Monster3D, damage int, crit bool, baseChance int) (int, bool) {
-	if crit {
-		return damage, crit
+func activeDesignationBonus(ch *character.MMCharacter) int {
+	if ch == nil || !ch.CanUseCombatAction() || ch.DesignationFrames <= 0 || ch.DesignatedTargetID == "" {
+		return 0
 	}
-	bonus := cs.game.designationBonus(target)
-	if bonus > 0 && rand.Intn(max(1, 100-baseChance)) < bonus {
-		return weaponCriticalDamage(damage, true), true
+	return ch.TacticalSkillValue(character.SkillDesignateTarget, config.TacticalSkills().DesignationCritPct)
+}
+
+// Snapshot once per impact: a ranged hit can replace its owner's mark before
+// splash resolves, but that new mark must only benefit subsequent attacks.
+func (g *MMGame) designationBonuses() map[string]int {
+	var bonuses map[string]int
+	if g.party == nil {
+		return nil
 	}
-	return damage, false
+	for _, ch := range g.party.Members {
+		if bonus := activeDesignationBonus(ch); bonus > 0 {
+			if bonuses == nil {
+				bonuses = make(map[string]int)
+			}
+			bonuses[ch.DesignatedTargetID] = max(bonuses[ch.DesignatedTargetID], bonus)
+		}
+	}
+	return bonuses
 }

@@ -1337,31 +1337,27 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
-	if weaponDef != nil && cs.activeAttacker() != nil {
-		weapon, _ := cs.activeAttacker().Equipment[cs.attackSlotFor(cs.activeAttacker())]
-		damage, isCrit = cs.designatedCritical(monster, damage, isCrit, cs.CalculateWeaponCritChance(weapon, cs.activeAttacker()))
-	}
-
-	// Party buffs boost melee exactly like projectiles, filtered by damage type
-	// (Heroism applies only to physical; Hour of Power applies to all).
-	damage = weaponDamageWithBuff(damage, cs.game.combatBuffOutBonusForDamageType(damageTypeStr))
 	attacker := cs.activeAttacker() // melee resolves the same frame it swings
+	critChance := 0
+	if weaponDef != nil && attacker != nil {
+		weapon := attacker.Equipment[cs.attackSlotFor(attacker)]
+		critChance = cs.CalculateWeaponCritChance(weapon, attacker)
+	}
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
 	trueDmg += cs.game.cardMeleeTrueDmg()
 	attackerName := "The party"
 	if attacker != nil {
 		attackerName = attacker.Name
 	}
-	attack := cs.newPartyMonsterAttack(
+	attack := cs.newPartyWeaponAttack(
 		damage,
 		trueDmg,
 		damageTypeStr,
-		0,
 		weaponDef,
 		weaponName,
 		false,
-		false,
-		true,
+		isCrit,
+		critChance,
 	)
 	attack.Attacker = attacker
 	attack.IgnoreDodge = ignoreDodge
@@ -1397,7 +1393,8 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// The immutable packet is reused by every AoE victim. Each target resolves
 	// its own armor, bonus-vs and resistances; the packet pays flat soak once.
-	finalDamage := cs.applyPartyMonsterAttack(monster, attack).Total()
+	hit := cs.applyPartyMonsterAttack(monster, attack)
+	finalDamage, isCrit := hit.Total(), hit.Critical
 	cs.markMonsterHit(monster)
 	cs.trySleightOfHand(attacker, monster)
 	cs.spawnWeaponHitImpactFX(monster, finalDamage)

@@ -471,11 +471,9 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 			damagecalc.Parts{Normal: z.TickDamage, True: z.TrueTickDamage},
 			damageTypeStr,
 		)
-		actual := cs.applyMonsterDamagePacket(
-			m,
-			singleMonsterDamagePacket(parts, damageTypeStr, z.ResistPierce),
-			monsterDamageOptions{IgnoreArmor: true},
-		).Total()
+		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
+		attack.IgnoreArmor = true
+		actual := cs.applyPartyMonsterAttack(m, attack).Total()
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
 		if damageTypeStr == damagecalc.Water.String() {
 			cs.game.spawnSteamPuff(m.X, m.Y) // scalding steam keeps its own puff

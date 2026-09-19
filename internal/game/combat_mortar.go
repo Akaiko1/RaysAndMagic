@@ -132,6 +132,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 	)
 	radius := m.RadiusTiles * float64(cs.game.config.GetTileSize())
 	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
+	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, resistPierce, nil, name, false, true, false)
 
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
@@ -145,11 +146,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		if cs.tryDarkElfBindInstead(m.Caster, target) {
 			continue
 		}
-		actual := cs.applyMonsterDamagePacket(
-			target,
-			singleMonsterDamagePacket(parts, damageTypeStr, resistPierce),
-			monsterDamageOptions{},
-		).Total()
+		actual := cs.applyPartyMonsterAttack(target, attack).Total()
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
 		if !target.IsAlive() {

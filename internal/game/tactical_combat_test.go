@@ -295,12 +295,12 @@ func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 	}
 	other := spawnMonsterAtTile(g, "wolf", 11, 10, tile)
 	g.designateTarget(ch, other)
-	if damage, crit := g.combat.designatedCritical(m, 10, false, 0); damage != 10 || crit {
+	if g.designationBonus(m) != 0 {
 		t.Fatal("old target retained mark")
 	}
 	ch.DesignationFrames = 1
 	g.updateTacticalClocks()
-	if _, crit := g.combat.designatedCritical(other, 10, false, 0); crit {
+	if g.designationBonus(other) != 0 {
 		t.Fatal("expired mark still active")
 	}
 }

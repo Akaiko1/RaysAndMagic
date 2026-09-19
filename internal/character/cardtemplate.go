@@ -167,10 +167,11 @@ func ProjectileHitboxLine(physics *config.ProjectilePhysicsConfig) string {
 	return fmt.Sprintf("Hitbox: %.1f tiles", size)
 }
 
-// SplashCritRule is the universal AoE caveat: the splash deals the PRIMARY hit's
-// damage, so when the primary crits the whole splash is crit-boosted too (it
-// rolls no separate crit/disintegrate/stun of its own).
-const SplashCritRule = "A critical hit on the primary target boosts the splash damage too"
+// SplashCritRule describes the shared source roll. Target-specific bonuses
+// such as Designate Target are resolved separately for each victim.
+const SplashCritRule = "One base critical roll applies to the primary hit and its splash"
+
+const WeaponSplashCritRule = SplashCritRule + "; Designate Target's critical bonus applies separately to each marked victim"
 
 // CooldownLine formats a real-time cooldown, noting that turn-based combat
 // ignores the seconds and spends the actor's single action for the turn instead.
@@ -330,7 +331,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	rules := CardSection{Title: "RULES"}
 	ArmorInteractionLines(&rules, def.DamageType, def.Physics != nil, hasWeaponSkill || def.TrueDamage > 0)
 	if def.AoeRadiusTiles > 0 {
-		rules.Add("%s", SplashCritRule)
+		rules.Add("%s", WeaponSplashCritRule)
 	}
 	if hasWeaponSkill {
 		rules.Add("Grandmaster: strikes ignore Perfect Dodge")

@@ -121,6 +121,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	monsterParts := cs.spellDamageParts(def.ID, caster, dmg)
 	monsterParts, _ = cs.spellPartsWithOutgoingBuff(monsterParts, damageTypeStr)
 	resistPierce := cs.spellResistPierce(caster, string(def.ID))
+	attack := cs.newPartyMonsterAttack(monsterParts.Normal, monsterParts.True, damageTypeStr, resistPierce, nil, def.Name, false, true, false)
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
 
@@ -139,11 +140,7 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		if cs.tryDarkElfBindInstead(caster, m) {
 			continue
 		}
-		dealt := cs.applyMonsterDamagePacket(
-			m,
-			singleMonsterDamagePacket(monsterParts, damageTypeStr, resistPierce),
-			monsterDamageOptions{},
-		)
+		dealt := cs.applyPartyMonsterAttack(m, attack)
 		cs.markMonsterHit(m)
 		cs.spawnMonsterHitBurst(m, damageTypeStr)
 		if !m.IsAlive() {

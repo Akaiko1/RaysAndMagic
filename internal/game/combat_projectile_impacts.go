@@ -479,20 +479,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	if ar, ok := projectile.(*Arrow); ok && weaponDef != nil && ar.Owner == ProjectileOwnerPlayer {
-		damage, isCrit = cs.designatedCritical(monster, damage, isCrit, ar.CritChance)
-	}
-
 	// Party buffs: flat bonus to party outgoing damage, filtered by damage type.
 	// Spell packets use the same post-modifier step as zones, mortars, novas,
-	// and tooltips; weapon arrows keep their existing direct path.
-	if damage > 0 {
-		if isSpell {
-			parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: damage}, damageTypeStr)
-			damage = parts.Normal
-		} else {
-			damage = weaponDamageWithBuff(damage, cs.game.combatBuffOutBonusForDamageType(damageTypeStr))
-		}
+	// and tooltips; weapon arrows apply buffs in the shared weapon builder.
+	if damage > 0 && isSpell {
+		parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: damage}, damageTypeStr)
+		damage = parts.Normal
 	}
 
 	// Resolve the attacker the projectile was fired by (stamped at spawn) -
@@ -536,17 +528,13 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			resistPierce = cs.spellResistPierce(attacker, mp.SpellType)
 		}
 	}
-	attack := cs.newPartyMonsterAttack(
-		damage,
-		trueDmg,
-		damageTypeStr,
-		resistPierce,
-		weaponDef,
-		weaponName,
-		isRanged,
-		isSpell,
-		false,
-	)
+	var attack partyMonsterAttack
+	if ar, ok := projectile.(*Arrow); ok {
+		attack = cs.newPartyWeaponAttack(damage, trueDmg, damageTypeStr, weaponDef, weaponName, true, isCrit, ar.CritChance)
+	} else {
+		attack = cs.newPartyMonsterAttack(damage, trueDmg, damageTypeStr, resistPierce, nil, weaponName, false, true, false)
+		attack.Critical = isCrit
+	}
 	attack.Attacker = attacker
 	attack.IgnoreDodge = ignoreDodge
 
@@ -589,7 +577,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 
 	if rollMonsterDisintegrate(monster, disintegrateChance) {
-		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
+		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, attack.Packet.normalDamage())
 
 		monster.HitPoints = 0
 		cs.markMonsterHit(monster)
@@ -621,10 +609,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
-	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
-
-	actualDamage := cs.applyPartyMonsterAttack(monster, attack).Total()
+	hit := cs.applyPartyMonsterAttack(monster, attack)
+	actualDamage, isCrit := hit.Total(), hit.Critical
+	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)
 	executed := false
 	if monster.IsAlive() {
@@ -680,7 +667,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 }
 
 // applyAoeSplash deals one already-rolled party attack to every OTHER alive
-// monster in radius. Crit/true/conversion are source-side and therefore shared;
+// monster in radius. The launch crit and true damage are shared; designation,
 // armor, target bonuses, resistance and soak resolve independently per victim.
 // Splash itself cannot disintegrate, stun or trigger weapon/card on-hit riders.
 func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack partyMonsterAttack, radiusTiles float64) {
