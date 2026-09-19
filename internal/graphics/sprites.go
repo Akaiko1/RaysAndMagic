@@ -645,7 +645,7 @@ func (c *PreparedSpriteCommit) Advance(maxBytes int) (map[*ebiten.Image]*image.R
 		start := target.cpu.PixOffset(bounds.Min.X, bounds.Min.Y+target.row)
 		end := start + rows*target.cpu.Stride
 		region := image.Rect(0, target.row, width, target.row+rows)
-		target.image.SubImage(region).(*ebiten.Image).WritePixels(target.cpu.Pix[start:end])
+		WritePixelsRegion(target.image, region, target.cpu.Pix[start:end])
 		target.row += rows
 		if maxBytes > 0 {
 			budget -= rows * rowBytes
@@ -941,12 +941,12 @@ func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds
 		frameWidth = height
 	}
 	const visibleAlphaThreshold = uint8(24)
+	alphaAt := spriteAlphaReader(img)
 	minX, minY := frameWidth, height
 	maxX, maxY := -1, -1
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			_, _, _, alpha := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			if uint8(alpha>>8) < visibleAlphaThreshold {
+			if alphaAt(bounds.Min.X+x, bounds.Min.Y+y) < visibleAlphaThreshold {
 				continue
 			}
 			frameX := x % frameWidth
@@ -999,13 +999,32 @@ func spriteAlphaMaskFromImage(img image.Image) *spriteAlphaMask {
 		height: height,
 		alpha:  make([]uint8, width*height),
 	}
+	alphaAt := spriteAlphaReader(img)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			_, _, _, a := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			mask.alpha[y*width+x] = uint8(a >> 8)
+			mask.alpha[y*width+x] = alphaAt(bounds.Min.X+x, bounds.Min.Y+y)
 		}
 	}
 	return mask
+}
+
+// Avoid boxing a color through image.Image.At for every decoded pixel. Both
+// metadata consumers share the exact alpha rule, including subimage origins
+// and row strides. Uncommon image types retain the image.Image contract.
+func spriteAlphaReader(img image.Image) func(int, int) uint8 {
+	switch src := img.(type) {
+	case *image.RGBA:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+	case *image.NRGBA:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+	case *image.Alpha:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)] }
+	default:
+		return func(x, y int) uint8 {
+			_, _, _, a := img.At(x, y).RGBA()
+			return uint8(a >> 8)
+		}
+	}
 }
 
 func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {

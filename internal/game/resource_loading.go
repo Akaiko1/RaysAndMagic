@@ -242,23 +242,27 @@ func (gl *GameLoop) advanceResourceLoading() {
 	}
 	gl.ensureResourceLoading()
 	l := gl.loading
-	gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitFrameBytes)
-	request, images := l.stream.Advance(mapRenderSpriteCommitFrameBytes)
-	if len(images) != 0 {
-		if l.worldRequests[request] {
-			gl.renderer.observeLazySpriteLoad(request, images)
+	// Paused loading can fill idle time with small commits. Keep the same
+	// chunk size and memory ownership as background streaming; never wait
+	// for a worker or drain a region in one Update.
+	steps, duration := loadingPreparationBudget(l.awaitingFrame)
+	deadline := time.Now().Add(duration)
+	for step := 0; step < steps; step++ {
+		gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitFrameBytes)
+		request, images := l.stream.Advance(mapRenderSpriteCommitFrameBytes)
+		if len(images) != 0 {
+			if l.worldRequests[request] {
+				gl.renderer.observeLazySpriteLoad(request, images)
+			}
+			for img := range images {
+				l.uploads = append(l.uploads, img)
+			}
 		}
-		for img := range images {
-			l.uploads = append(l.uploads, img)
+		delete(l.worldRequests, request)
+		if gl.renderer.floorPreparation == nil {
+			gl.renderer.prewarmPendingMapRenderResources()
 		}
-	}
-	delete(l.worldRequests, request)
-	// A loading pause can spend a little more of the frame on preparation, but
-	// never drains the whole region or waits for a worker result.
-	deadline := time.Now().Add(2 * time.Millisecond)
-	for step := 0; step < 8 && gl.renderer.floorPreparation == nil; step++ {
-		gl.renderer.prewarmPendingMapRenderResources()
-		if !l.awaitingFrame || time.Now().After(deadline) {
+		if time.Now().After(deadline) {
 			break
 		}
 	}
@@ -311,16 +315,10 @@ func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 	if l.front != nil {
 		drawImageScaled(screen, l.front, 0, 0, screen.Bounds().Dx(), screen.Bounds().Dy())
 	}
-	// Demand uploads also get a draw submission before the loading gate opens.
-	if len(l.uploads) > 0 {
-		img := l.uploads[0]
-		opts := &ebiten.DrawImageOptions{}
-		opts.ColorScale.ScaleAlpha(0)
-		opts.GeoM.Scale(1/float64(img.Bounds().Dx()), 1/float64(img.Bounds().Dy()))
-		screen.DrawImage(img, opts)
-		l.uploads[0] = nil
-		l.uploads = l.uploads[1:]
-	}
+	// Small demand images share the prewarmer's byte/count policy instead
+	// of making every icon wait for its own presentation frame.
+	l.submitDemandUploads(screen)
+
 	now := time.Now()
 	alpha := l.bannerAlpha(now)
 	if alpha > 0 {
@@ -458,4 +456,31 @@ func (r *Renderer) prioritizeLoadingRegions(required []string) {
 		}
 	}
 	r.mapRenderResourcePrewarmMapKeys = next
+}
+
+// loadingPreparationBudget changes scheduling only. Neither mode changes
+// resident regions, pixel chunk size, or the resource-readiness barrier.
+func loadingPreparationBudget(paused bool) (int, time.Duration) {
+	if paused {
+		return 32, 4 * time.Millisecond
+	}
+	return 1, mapRenderDerivedFrameBudget
+}
+
+func (l *gameLoadingState) submitDemandUploads(dst mapRenderUploadDestination) {
+	var submitted int
+	var bytes int64
+	for submitted < len(l.uploads) {
+		img := l.uploads[submitted]
+		b := img.Bounds()
+		n := int64(b.Dx()) * int64(b.Dy()) * 4
+		if mapRenderUploadFrameFull(submitted, bytes, n) {
+			break
+		}
+		submitRenderUpload(dst, img, submitted)
+		bytes += n
+		l.uploads[submitted] = nil
+		submitted++
+	}
+	l.uploads = l.uploads[submitted:]
 }

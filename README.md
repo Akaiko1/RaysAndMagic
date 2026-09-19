@@ -27,7 +27,7 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
 
 ## Quick Start
 
-**Requirements:** Go 1.25+, Ebiten v2.9
+**Requirements:** Go 1.25+, Ebitengine v2.10.2 (pinned in `go.mod`). Desktop builds no longer require Cgo.
 
 ```bash
 go mod tidy
@@ -55,6 +55,14 @@ The game and map viewer locate `config.yaml`/`assets/` next to the binary or one
 ```bash
 ./build_mac_release.sh
 ```
+
+Build scripts generate shader artifacts automatically. Metal precompilation uses
+Xcode's Metal Toolchain; DirectX precompilation uses Windows SDK `fxc.exe` on
+PATH. These tools are optional: unavailable backends retain runtime compilation.
+A plain `go run .` also works from a clean checkout without generated artifacts.
+
+See [Rendering and loading](RENDERING.md) for cache locations, memory limits,
+shader regeneration, and native gameplay verification.
 
 ## Running on macOS (downloaded `.app`)
 

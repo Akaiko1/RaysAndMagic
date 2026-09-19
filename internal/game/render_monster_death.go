@@ -16,12 +16,16 @@ func monsterFlyingBottom(screenHeight int, groundBottom, size float64) float64 {
 }
 
 func (g *MMGame) corpseBottom(c *monsterCorpse, groundBottom, size float64) float64 {
-	if !c.flying {
+	if !c.flying && c.arborealHeight <= 0 {
 		return groundBottom
 	}
 	age := float64(g.frameCount-c.started) / float64(g.config.GetTPS())
 	t := math.Max(0, math.Min(1, age/g.monsterDeathSettings().FallSeconds))
 	airBottom := monsterFlyingBottom(g.config.GetScreenHeight(), groundBottom, size)
+	if c.arborealHeight > 0 {
+		pixelsPerTile := 2 * (groundBottom - float64(g.config.GetScreenHeight())/2)
+		airBottom = arborealBottom(groundBottom, pixelsPerTile, c.arborealHeight)
+	}
 	return airBottom + (groundBottom-airBottom)*t*t
 }
 

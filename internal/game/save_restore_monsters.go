@@ -191,6 +191,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
 				m.AmbientMoveCredit = ms.AmbientMoveCredit
+				if m.Arboreal != nil {
+					m.Arbor = ms.Arbor
+				}
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a
@@ -475,6 +478,9 @@ func findMonsterKeyByName(name string) string {
 // Copy optional coordinates so restoring never mutates the caller's snapshot.
 func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) MonsterSave {
 	ms.X, ms.Y = wm.ProjectWorldPos(mapKey, ms.X, ms.Y)
+	ms.Arbor = ms.Arbor.MapPositions(func(x, y float64) (float64, float64) {
+		return wm.ProjectWorldPos(mapKey, x, y)
+	})
 	if ms.SpawnPosition != nil {
 		x, y := wm.ProjectWorldPos(mapKey, ms.SpawnPosition[0], ms.SpawnPosition[1])
 		ms.SpawnPosition = &[2]float64{x, y}

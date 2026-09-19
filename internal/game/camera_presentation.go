@@ -9,10 +9,11 @@ import (
 // gameplay positions are resampled; TB retains its existing turn animation.
 type cameraPose struct{ x, y, angle float64 }
 type cameraPresentation struct {
-	previous, current, presented  cameraPose
-	tickStart                     time.Time
-	epoch                         uint64
-	valid, presentedValid, active bool
+	older, previous, current, presented cameraPose
+	tickStart                           time.Time
+	epoch                               uint64
+	valid, presentedValid, active       bool
+	historyValid                        bool
 }
 
 func (g *MMGame) cameraPose() cameraPose {
@@ -35,14 +36,15 @@ func (g *MMGame) finishCameraTick(before cameraPose, epoch uint64, started time.
 	}
 	p := &g.cameraPresentation
 	step := time.Second / time.Duration(g.config.GetTPS())
-	// Catch-up Updates share a fixed timeline, rather than each restarting the
+	// Early and catch-up Updates share a fixed timeline rather than restarting
 	// interpolation at wall-clock time. Re-anchor after a substantial stall.
 	if p.valid {
 		next := p.tickStart.Add(step)
-		if !next.After(started) && started.Sub(next) < 4*step {
+		if offset := started.Sub(next); offset >= -step && offset < 4*step {
 			started = next
 		}
 	}
+	p.older, p.historyValid = p.previous, p.valid
 	p.previous, p.current, p.tickStart, p.valid = before, g.cameraPose(), started, true
 }
 func (g *MMGame) renderCameraPose(now time.Time) cameraPose {
@@ -51,9 +53,17 @@ func (g *MMGame) renderCameraPose(now time.Time) cameraPose {
 	if !g.cameraInterpolationAllowed() || !p.valid || p.current != logical {
 		return logical
 	}
-	a := max(0.0, min(1.0, now.Sub(p.tickStart).Seconds()*float64(g.config.GetTPS())))
-	return cameraPose{p.previous.x + (p.current.x-p.previous.x)*a, p.previous.y + (p.current.y-p.previous.y)*a,
-		p.previous.angle + math.Remainder(p.current.angle-p.previous.angle, 2*math.Pi)*a}
+	a := now.Sub(p.tickStart).Seconds() * float64(g.config.GetTPS())
+	from, to := p.previous, p.current
+	// The engine can round a tick up before its nominal time. Keep rendering
+	// the preceding segment until that time instead of snapping to its end.
+	if a < 0 && p.historyValid {
+		from, to = p.older, p.previous
+		a++
+	}
+	a = max(0.0, min(1.0, a))
+	return cameraPose{from.x + (to.x-from.x)*a, from.y + (to.y-from.y)*a,
+		from.angle + math.Remainder(to.angle-from.angle, 2*math.Pi)*a}
 }
 func (g *MMGame) swapCameraPose(pose cameraPose) func() {
 	cam := g.camera

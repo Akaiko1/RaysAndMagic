@@ -167,6 +167,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
+				Arbor:             mon.Arbor,
 				Population:        mon.Population,
 				AmbientMoveCredit: mon.AmbientMoveCredit,
 				ID:                mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
@@ -301,6 +302,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				entry := saves[i]
 				entry.X, entry.Y = lx, ly
+				entry.Arbor = entry.Arbor.MapPositions(func(x, y float64) (float64, float64) {
+					return wm.LocalizeRegionWorldPos(key, x, y)
+				})
 				sx, sy := wm.LocalizeRegionWorldPos(key, mon.SpawnX, mon.SpawnY)
 				entry.SpawnPosition = &[2]float64{sx, sy}
 				if entry.LootGuardTargetTileX != 0 || entry.LootGuardTargetTileY != 0 {

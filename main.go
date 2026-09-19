@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/shadercache"
 	"ugataima/internal/sound"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
@@ -19,6 +20,7 @@ import (
 )
 
 func main() {
+	shadercache.Initialize()
 
 	// Shared content configs (also loaded by the map editor).
 	cfg, _ := boot.LoadGameData()

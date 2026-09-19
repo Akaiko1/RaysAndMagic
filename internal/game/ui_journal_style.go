@@ -163,7 +163,9 @@ func drawJournalMaterial(dst, src *ebiten.Image, r layoutRect) {
 		for x := 0; x < r.w; x += tile {
 			w, h := min(tile, r.w-x), min(tile, r.h-y)
 			cut := image.Rect(b.Min.X, b.Min.Y, b.Min.X+w*b.Dx()/tile, b.Min.Y+h*b.Dy()/tile)
-			drawImageScaled(dst, src.SubImage(cut).(*ebiten.Image), r.x+x, r.y+y, w, h)
+			part := src.RecyclableSubImage(cut)
+			drawImageScaled(dst, part, r.x+x, r.y+y, w, h)
+			part.Recycle()
 		}
 	}
 }

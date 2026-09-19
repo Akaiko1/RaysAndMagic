@@ -2,6 +2,7 @@ package game
 
 import (
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 )
 
 // GameSave captures minimal persistent state for save/load
@@ -232,8 +233,9 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Population        string  `json:"population,omitempty"`
-	AmbientMoveCredit float64 `json:"ambient_move_credit,omitempty"`
+	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
+	Population        string                `json:"population,omitempty"`
+	AmbientMoveCredit float64               `json:"ambient_move_credit,omitempty"`
 
 	ID        string  `json:"id,omitempty"`
 	Key       string  `json:"key"`

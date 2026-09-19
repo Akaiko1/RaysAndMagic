@@ -184,3 +184,45 @@ func TestCameraPresentationPicking(t *testing.T) {
 		}
 	}
 }
+
+// Ebitengine 2.10 rounds tick counts to nearest, so Update can arrive up to
+// half a tick before its nominal time. Draw must still follow one timeline.
+func TestCameraPresentationEarlyTicks(t *testing.T) {
+	for _, fps := range []int{90, 120, 144, 240} {
+		for _, speed := range []float64{2, 4} {
+			t.Run(fmt.Sprintf("%dFPS/speed%g", fps, speed), func(t *testing.T) {
+				g, _, _ := tbBehaviorGame(t, 40, 40)
+				g.turnBasedMode = false
+				g.appScreen = AppScreenInGame
+				g.camera.X, g.camera.Y, g.camera.Angle = 0, 0, 0
+				start := time.Unix(100, 0)
+				step := time.Second / time.Duration(g.config.GetTPS())
+				g.finishCameraTick(g.cameraPose(), g.cameraPresentation.epoch, start)
+				tick := 0
+				for frame := 1; frame < fps*2; frame++ {
+					// Small frame-time variation crosses both sides of tick boundaries.
+					elapsed := time.Duration(frame) * time.Second / time.Duration(fps)
+					if frame%3 == 0 {
+						elapsed += step / 8
+					}
+					now := start.Add(elapsed)
+					due := int((elapsed + step/2) / step)
+					for tick < due {
+						before := g.cameraPose()
+						g.camera.X += speed
+						tick++
+						g.finishCameraTick(before, g.cameraPresentation.epoch, now)
+					}
+					if frame < 4 {
+						continue
+					}
+					want := speed * (float64(elapsed)/float64(step) - 1)
+					got := g.renderCameraPose(now).x
+					if math.Abs(got-want) > 1e-5 {
+						t.Fatalf("early tick reset motion timeline at frame %d: got %.6f want %.6f", frame, got, want)
+					}
+				}
+			})
+		}
+	}
+}

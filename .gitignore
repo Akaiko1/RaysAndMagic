@@ -47,3 +47,9 @@ assets/app_icons/*.iconset/
 /tmp*
 
 docs/
+
+# Disposable derived CPU graphics; never bundle or commit.
+.render-cache/
+
+/internal/shadercache/data/*.gz
+/internal/shadercache/data/*.tmp

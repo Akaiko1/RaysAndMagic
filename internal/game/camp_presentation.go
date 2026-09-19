@@ -203,6 +203,8 @@ func (p campDissolvePattern) coverageRadius(w, h int) float32 {
 
 // Pixels change only at the advancing/receding cluster boundary. Stable local
 // noise roughens that boundary without scattering unrelated pixels everywhere.
+//
+//ebitengine:shadersource
 const campDissolveShaderSrc = `//kage:unit pixels
 package main
 var Progress float

@@ -1,4 +1,12 @@
 loots:
+  ring_tailed_lemur:
+    - type: "item"
+      key: "lemur_fur"
+      chance: 0.20
+  red_ruffed_lemur:
+    - type: "item"
+      key: "lemur_fur"
+      chance: 0.20
   desert_rabbit:
     - type: "item"
       key: "rabbit_pelt"

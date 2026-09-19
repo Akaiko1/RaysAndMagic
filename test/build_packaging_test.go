@@ -71,6 +71,10 @@ func TestBuildRuntimePackaging(t *testing.T) {
 			write("assets/map_viewer/source_only.txt", []byte("editor source tree"), 0644)
 			write("tools/go", []byte(`#!/bin/bash
 set -eu
+if [ "${1:-}" = "run" ] && [ "${2:-}" = "./tools/shadergen" ]; then
+  printf 'prepared shaders\n' >> shader-build.log
+  exit 0
+fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     shift
@@ -95,6 +99,14 @@ exit 1
 					cmd.Env = append(os.Environ(), "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
 					if output, err := cmd.CombinedOutput(); err != nil {
 						t.Fatalf("build script failed: %v\n%s", err, output)
+					}
+					log, err := os.ReadFile(filepath.Join(dir, "shader-build.log"))
+					wantRuns := 1
+					if state == "rebuild" {
+						wantRuns = 2
+					}
+					if err != nil || strings.Count(string(log), "prepared shaders") != wantRuns {
+						t.Fatalf("shader preparation must run once per build: %q, %v", log, err)
 					}
 					for _, root := range tc.roots {
 						for path, want := range assets {

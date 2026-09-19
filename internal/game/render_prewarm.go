@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -200,7 +201,7 @@ func (c *mapRenderStandeeCommit) advance(r *Renderer, maxBytes int) (*ebiten.Ima
 		start := write.cpu.PixOffset(bounds.Min.X, bounds.Min.Y+write.row)
 		end := start + rows*write.cpu.Stride
 		region := image.Rect(0, write.row, width, write.row+rows)
-		write.image.SubImage(region).(*ebiten.Image).WritePixels(write.cpu.Pix[start:end])
+		graphics.WritePixelsRegion(write.image, region, write.cpu.Pix[start:end])
 		write.row += rows
 		if maxBytes > 0 {
 			budget -= rows * rowBytes
@@ -324,7 +325,7 @@ func (c *mapRenderSkyCommit) advance(maxBytes int) bool {
 	start := c.cpu.PixOffset(bounds.Min.X, bounds.Min.Y+c.row)
 	end := start + rows*c.cpu.Stride
 	region := image.Rect(0, c.row, width, c.row+rows)
-	c.image.SubImage(region).(*ebiten.Image).WritePixels(c.cpu.Pix[start:end])
+	graphics.WritePixelsRegion(c.image, region, c.cpu.Pix[start:end])
 	c.row += rows
 	return c.row >= height
 }
@@ -779,6 +780,14 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 		}
 	}
 
+	if ecology := config.GlobalEcology; ecology != nil {
+		for _, population := range ecology.Populations {
+			if population.Map == mapKey && len(monsterArborealAnimations(population.Monster)) > 0 {
+				observeMinScore(decodeMonsterKeys, population.Monster, math.Inf(1))
+				observeMinScore(monsterKeys, population.Monster, math.Inf(1))
+			}
+		}
+	}
 	for resource := range resolveMonsterPrewarmResources(decodeMonsterKeys, priorities) {
 		monsterDecode[resource] = struct{}{}
 	}
@@ -1068,7 +1077,7 @@ func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
 	}
 }
 
-func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
+func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, cache graphics.PixelCache, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1094,7 +1103,7 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 				lease:    lease,
 				key:      job.key,
 				source:   job.source,
-				prepared: prepareStandeePixels(job.cpu, tint, true),
+				prepared: prepareCachedStandeePixels(ctx, cache, job.cpu, tint),
 			}
 			lease.ReleaseOnCancel(ctx)
 			jobs[i] = mapRenderStandeeJob{}
@@ -1744,6 +1753,11 @@ func mapRenderSourceRequests(plan mapRenderPrewarmPlan) []graphics.SpriteResourc
 		for _, animationType := range []string{"walking_r", "walking_l", "attacking_r", "attacking_l", "dying_r", "dying_l"} {
 			requests[graphics.SpriteResourceRequest{Name: resource.spriteName, AnimationType: animationType}] = struct{}{}
 		}
+		for _, kind := range monsterArborealAnimations(resource.key) {
+			for _, direction := range []string{"_r", "_l"} {
+				requests[graphics.SpriteResourceRequest{Name: resource.spriteName, AnimationType: kind + direction}] = struct{}{}
+			}
+		}
 	}
 	for _, names := range [][]string{plan.tileSprites, plan.wallSprites, plan.treeSprites, plan.crossedPropSprites, plan.npcDecodeSprites, plan.containerDecode, plan.containerSprites} {
 		for _, name := range names {
@@ -1999,6 +2013,13 @@ func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResou
 		appendFrames(p.animationFrames(resource.spriteName, "dying_r"))
 		appendFrames(p.animationFrames(resource.spriteName, "dying_l"))
 	}
+	for _, kind := range monsterArborealAnimations(resource.key) {
+		right := p.animationFrames(resource.spriteName, kind+"_r")
+		appendFrames(right)
+		if !p.renderer.game.config.Graphics.Standee.Enabled || len(right) == 0 {
+			appendFrames(p.animationFrames(resource.spriteName, kind+"_l"))
+		}
+	}
 	if !hasWalk {
 		if base := p.sprite(resource.spriteName); base != nil {
 			visualFrames = append(visualFrames, base)
@@ -2172,7 +2193,7 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		tint := r.game.config.Graphics.Standee.CoreTint
 		jobs := task.standeeJobs
 		task.standeeJobs = nil
-		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint, task.queueBudget)
+		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint, graphics.PixelCache{Dir: storage.RenderCacheDir()}, task.queueBudget)
 	})
 	return steps
 }
@@ -2347,12 +2368,7 @@ func (r *Renderer) submitMapRenderPrewarmUploads(dst mapRenderUploadDestination)
 		if mapRenderUploadFrameFull(consumed, consumedBytes, imageBytes) {
 			break
 		}
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(-bounds.Min.X), float64(-bounds.Min.Y))
-		opts.GeoM.Scale(1/float64(bounds.Dx()), 1/float64(bounds.Dy()))
-		opts.GeoM.Translate(float64(consumed), 0)
-		opts.ColorScale.ScaleAlpha(0)
-		dst.DrawImage(upload.image, opts)
+		submitRenderUpload(dst, upload.image, consumed)
 		delete(r.mapRenderUploadQueued, upload.image)
 		consumedBytes += imageBytes
 		consumed++
@@ -2425,4 +2441,16 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 		}
 		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
 	}
+}
+
+// Submit without readback fences. A transparent draw makes the image available
+// to the graphics backend without changing the displayed loading frame.
+func submitRenderUpload(dst mapRenderUploadDestination, img *ebiten.Image, index int) {
+	b := img.Bounds()
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(-b.Min.X), float64(-b.Min.Y))
+	opts.GeoM.Scale(1/float64(b.Dx()), 1/float64(b.Dy()))
+	opts.GeoM.Translate(float64(index), 0)
+	opts.ColorScale.ScaleAlpha(0)
+	dst.DrawImage(img, opts)
 }

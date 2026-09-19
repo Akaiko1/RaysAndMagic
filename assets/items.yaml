@@ -2242,6 +2242,13 @@ items:
     rarity: "rare"
     value: 350
 
+  lemur_fur:
+    name: "Lemur Fur"
+    type: "trinket"
+    description: "A small scrap of soft jungle fur"
+    rarity: "common"
+    value: 8
+
   rabbit_pelt:
     name: "Rabbit Pelt"
     type: "trinket"

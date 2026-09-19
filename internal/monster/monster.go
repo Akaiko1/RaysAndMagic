@@ -239,6 +239,8 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Arboreal          *ArborealConfig
+	Arbor             ArborealState
 	Disposition       string
 	Prey              []string
 	PreyRadius        float64
@@ -1323,6 +1325,11 @@ func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 // 100 are applied by RT speed or one TB roll per attempted movement action.
 func (m *Monster3D) MovementHeld(turnBased bool) bool {
 	if m == nil || !m.IsAlive() || m.Speed <= 0 {
+		return true
+	}
+	// Charm may wander on the ground, but cannot hand an unfinished canopy
+	// trajectory to ground pathfinding. Preserve all anchors until it ends.
+	if m.Pacified && m.Arbor.Phase != "" {
 		return true
 	}
 	if turnBased {

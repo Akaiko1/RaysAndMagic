@@ -317,12 +317,12 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			m := monster.NewMonster3DFromConfig(224, 224, key, g.config)
 			name := m.GetSpriteType()
 			kinds := []string{"walking", "attacking", "dying"}
-			// These actors have no attack action: a fleeing herbivore, a
-			// transport and the warlord's passive support idol.
-			passive := name == "desert_rabbit" || name == "desert_caravan" || name == "deep_jungle_idol"
+			// Passive wildlife, transport and the support idol have no attack.
+			passive := m.Arboreal != nil || name == "desert_rabbit" || name == "desert_caravan" || name == "deep_jungle_idol"
 			if passive {
 				kinds = []string{"walking", "dying"}
 			}
+			kinds = append(kinds, monsterArborealAnimations(key)...)
 			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
 			for _, kind := range kinds {
 				resolved := kind + "_r"

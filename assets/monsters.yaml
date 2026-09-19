@@ -2091,6 +2091,58 @@ monsters:
     size_class: huge
     resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
 
+  ring_tailed_lemur:
+    name: "Ring-tailed Lemur"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 18
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.1
+    sprite: "ring_tailed_lemur"
+    box_w: 18
+    box_h: 18
+    size_class: small
+    biomes: [jungle]
+    arboreal:
+      tree_tiles: [jungle_vine_tree, jungle_palm]
+      height_tiles: 1.15
+      jump_range_tiles: 3
+      climb_seconds: 1.4
+      jump_seconds: 0.8
+      rest_seconds: 4
+
+  red_ruffed_lemur:
+    name: "Red Ruffed Lemur"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 24
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.25
+    sprite: "red_ruffed_lemur"
+    box_w: 20
+    box_h: 20
+    size_class: small
+    biomes: [jungle]
+    arboreal:
+      tree_tiles: [jungle_vine_tree, jungle_palm]
+      height_tiles: 1.3
+      jump_range_tiles: 3.5
+      climb_seconds: 1.5
+      jump_seconds: 0.9
+      rest_seconds: 5
+
   desert_rabbit:
     name: "Desert Rabbit"
     type: "beast"

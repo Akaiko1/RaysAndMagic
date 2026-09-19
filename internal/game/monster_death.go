@@ -16,6 +16,7 @@ type monsterCorpse struct {
 	x, y, sizeTiles, yaw       float64
 	mirror                     bool
 	flying                     bool
+	arborealHeight             float64
 	tintR, tintG, tintB        float32
 	started                    int64
 	frameCount                 int
@@ -95,7 +96,8 @@ func (g *MMGame) beginMonsterDeath(m *monster.Monster3D) {
 		key: m.Key, spriteName: m.GetSpriteType(), animation: animation,
 		x: x, y: y, sizeTiles: m.GetSizeGameMultiplier(), yaw: yaw,
 		mirror: mirror, flying: m.Flying, tintR: m.TintR, tintG: m.TintG, tintB: m.TintB,
-		started: g.frameCount, frameCount: frames,
+		arborealHeight: m.Arbor.Height,
+		started:        g.frameCount, frameCount: frames,
 	})
 }
 
@@ -105,7 +107,7 @@ func (g *MMGame) corpseFrameAndOpacity(c *monsterCorpse) (int, float32) {
 	last := max(0, c.frameCount-1)
 	frame := min(last, int(age*float64(settings.FPS)))
 	fadeStart := float64(last) / float64(settings.FPS)
-	if c.flying {
+	if c.flying || c.arborealHeight > 0 {
 		fadeStart = math.Max(fadeStart, settings.FallSeconds)
 	}
 	fadeAge := math.Max(0, age-fadeStart)
@@ -125,6 +127,9 @@ func (g *MMGame) updateMonsterDeaths() {
 }
 
 func (g *MMGame) monsterLootLanding(m *monster.Monster3D) (float64, float64) {
+	if m.Arbor.Phase != "" && g.world != nil && g.world.CanMoveTo(m.Arbor.GroundX, m.Arbor.GroundY) {
+		return m.Arbor.GroundX, m.Arbor.GroundY
+	}
 	w := g.GetCurrentWorld()
 	if w == nil {
 		return m.X, m.Y
@@ -168,7 +173,7 @@ func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, go
 		settings := g.monsterDeathSettings()
 		hop = lootHop{fromX: sx, fromY: sy, started: g.frameCount,
 			duration: max(1, int64(settings.LootHopSeconds*float64(g.config.GetTPS()))), heightTiles: settings.LootHopHeightTiles}
-		if m.Flying {
+		if m.Flying || m.Arbor.Height > 0 {
 			hop.started += int64(math.Ceil(settings.FallSeconds * float64(g.config.GetTPS())))
 		}
 	}

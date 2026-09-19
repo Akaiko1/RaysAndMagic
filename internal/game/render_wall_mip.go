@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"ugataima/internal/graphics"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -164,7 +165,7 @@ func (b *mapRenderWallRipmapBuilder) advance(maxBytes int) (*wallRipmap, bool) {
 	start := b.pendingCPU.PixOffset(bounds.Min.X, bounds.Min.Y+b.pendingRow)
 	end := start + rows*b.pendingCPU.Stride
 	region := image.Rect(0, b.pendingRow, width, b.pendingRow+rows)
-	b.pendingImage.SubImage(region).(*ebiten.Image).WritePixels(b.pendingCPU.Pix[start:end])
+	graphics.WritePixelsRegion(b.pendingImage, region, b.pendingCPU.Pix[start:end])
 	b.pendingRow += rows
 	if b.pendingRow < height {
 		return b.ripmap, false

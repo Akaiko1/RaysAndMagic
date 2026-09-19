@@ -662,6 +662,8 @@ func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 //	Images[1] = floorTexAtlas (horizontal strip of N floor textures, mip
 //	            chain strips stacked below - see buildFloorTexAtlas)
 //	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
+//
+//ebitengine:shadersource
 const floorShaderSrc = `//kage:unit pixels
 
 package main
@@ -848,6 +850,8 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
 // averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
 // scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
+//
+//ebitengine:shadersource
 const turnBlurShaderSrc = `//kage:unit pixels
 
 package main
@@ -871,6 +875,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 }
 `
 
+//ebitengine:shadersource
 const skyShaderSrc = `//kage:unit pixels
 
 package main

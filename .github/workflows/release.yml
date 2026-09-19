@@ -9,7 +9,37 @@ permissions:
   contents: write
 
 jobs:
+  windows-shaders:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Precompile DirectX shaders
+        shell: pwsh
+        run: |
+          $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+          $fxc = Get-ChildItem $sdkBin -Filter fxc.exe -Recurse |
+            Where-Object { $_.Directory.Name -eq 'x64' } |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (-not $fxc) { throw 'Windows SDK fxc.exe is required for release shaders' }
+          $env:PATH = "$($fxc.Directory.FullName);$env:PATH"
+          go run ./tools/shadergen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-shaders
+          path: internal/shadercache/data/shaders.json.gz
+          if-no-files-found: error
+
   build-release:
+    needs: windows-shaders
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -18,6 +48,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-shaders
+          path: internal/shadercache/data
+
+      - name: Ensure Metal compiler is available
+        run: |
+          if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk macosx metal --version
 
       - name: Build release bundles
         run: |

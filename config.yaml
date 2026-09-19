@@ -12,7 +12,9 @@ display:
   window_title: "Rays and Magic"
   resizable: true
   fullscreen: true
-  disable_vsync_on_mac: true
+  # Keep Metal presentation paced. An unsynced loop can count Draw calls while
+  # skipping displayed frames under GPU load (especially long tree corridors).
+  disable_vsync_on_mac: false
 
 # Engine settings
 # tps is the simulation tick rate and the yardstick for every frame-counted

@@ -1269,17 +1269,7 @@ func prepareFloorAtlas(textures []floorTexture) (*image.RGBA, int, int, int) {
 	if len(textures) == 0 {
 		return nil, 0, 0, 0
 	}
-	tileW := textures[0].width
-	tileH := textures[0].height
-	// Levels halve cleanly only while both dimensions stay even.
-	maxMip := 0
-	for w, h := tileW, tileH; w%2 == 0 && h%2 == 0 && maxMip < maxFloorMipLevels; w, h = w/2, h/2 {
-		maxMip++
-	}
-	atlasH := tileH
-	if maxMip > 0 {
-		atlasH = tileH * 2
-	}
+	tileW, tileH, maxMip, atlasH := floorAtlasLayout(textures)
 	atlas := image.NewRGBA(image.Rect(0, 0, tileW*len(textures), atlasH))
 	for i, tex := range textures {
 		for y := 0; y < tileH; y++ {
@@ -3026,6 +3016,9 @@ func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
 }
 
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
+	if sprite, flip := r.arborealSprite(mon, false); sprite != nil {
+		return sprite, flip
+	}
 	spriteName := mon.GetSpriteType()
 	// A striking monster with a dedicated attack sheet plays it as a one-shot
 	// over the strike window; monsters without one fall through to the walk
@@ -3101,6 +3094,9 @@ func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *mo
 // path's trick; a standee uses ONE art set and mirrors by world heading,
 // otherwise the two independent flips combine into backwards walking.
 func (r *Renderer) getMonsterStandeeSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
+	if sprite, left := r.arborealSprite(mon, true); sprite != nil {
+		return sprite, left
+	}
 	name := mon.GetSpriteType()
 	// A striking monster with an attack sheet sweeps it once over the strike;
 	// otherwise the walk set (mirrored by world heading upstream).
@@ -3619,6 +3615,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if mon.Flying {
 			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), bottomF, sizeF)
 		}
+		bottomF = arborealBottom(bottomF, float64(r.game.config.GetScreenHeight())*tileSize/depthPerp, mon.Arbor.Height)
 
 		var sprite *ebiten.Image
 		var flip, artFacesLeft bool
@@ -5438,4 +5435,20 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, blend)
 		}
 	}
+}
+
+// floorAtlasLayout is shared by preparation and exact disk-cache validation.
+func floorAtlasLayout(textures []floorTexture) (int, int, int, int) {
+	tileW := textures[0].width
+	tileH := textures[0].height
+	// Levels halve cleanly only while both dimensions stay even.
+	maxMip := 0
+	for w, h := tileW, tileH; w%2 == 0 && h%2 == 0 && maxMip < maxFloorMipLevels; w, h = w/2, h/2 {
+		maxMip++
+	}
+	atlasH := tileH
+	if maxMip > 0 {
+		atlasH = tileH * 2
+	}
+	return tileW, tileH, maxMip, atlasH
 }

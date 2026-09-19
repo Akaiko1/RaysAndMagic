@@ -516,7 +516,7 @@ func TestMapRenderStandeeWorkerCompletionAndCancellation(t *testing.T) {
 			cpu := image.NewRGBA(image.Rect(0, 0, 4, 4))
 			results := prepareMapRenderStandees(ctx, []mapRenderStandeeJob{{
 				key: standeeCoreKey{name: "mob:test"}, cpu: cpu,
-			}}, 0.5)
+			}}, 0.5, graphics.PixelCache{})
 			prepared, ok := <-results
 			if ok != tt.wantResult {
 				t.Fatalf("worker result present = %v, want %v", ok, tt.wantResult)

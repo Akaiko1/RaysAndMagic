@@ -27,6 +27,17 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 		if err != nil || def.Disposition != disposition {
 			return fmt.Errorf("ecology actor %q must have disposition %q", key, disposition)
 		}
+		if def.Arboreal != nil {
+			for _, tree := range def.Arboreal.TreeTiles {
+				if world.GlobalTileManager == nil {
+					return fmt.Errorf("arboreal actor %q needs the tile catalog", key)
+				}
+				tile := world.GlobalTileManager.GetTileDataByKey(tree)
+				if tile == nil || tile.RenderType != "crossed_standee" || tile.Walkable {
+					return fmt.Errorf("arboreal actor %q has invalid tree %q", key, tree)
+				}
+			}
+		}
 		return nil
 	}
 	for _, p := range c.Populations {

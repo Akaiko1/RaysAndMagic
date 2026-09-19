@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_build_lib.sh
 source "${SCRIPT_DIR}/_build_lib.sh"
 
+# Collect with the pinned engine; compile available native shader backends.
+go run ./tools/shadergen
+
 APP_NAME="RaysAndMagic"
 VIEWER_NAME="RaysAndMagicMapViewer"
 BIN_DIR="bin"

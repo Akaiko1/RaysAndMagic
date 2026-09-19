@@ -210,12 +210,16 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	if m.CurrentAIBehavior() == AIBehaviorInert {
 		return
 	}
+	if m.Arbor.Phase != "" && m.MovementHeld(false) {
+		m.StandDownFromCombat()
+		return
+	}
 
 	m.StateTimer++
 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
-	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
+	if collisionChecker != nil && m.Arbor.Phase == "" && m.StateTimer%15 == 0 { // throttle checks
 		if !collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
 			m.unstuckFromObstacles(collisionChecker)
 		}
@@ -1774,8 +1778,16 @@ func (m *Monster3D) NextFleeTurnStep(collisionChecker CollisionChecker, playerX,
 // unstuckFromObstacles tries to move the monster to the nearest non-blocked position
 // Useful when a monster ends up overlapping a solid tile (e.g., trees) due to edge cases
 func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
+	m.unstuckFromObstaclesWithin(collisionChecker, nil)
+}
+
+// Recovery may escape an invalid starting tile, but never the actor's region.
+func (m *Monster3D) unstuckFromObstaclesWithin(collisionChecker CollisionChecker, allowed func(float64, float64) bool) bool {
 	if collisionChecker == nil {
-		return
+		return false
+	}
+	canLand := func(x, y float64) bool {
+		return (allowed == nil || allowed(x, y)) && collisionChecker.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
 	}
 
 	// Search outwards in rings for a free spot
@@ -1788,16 +1800,18 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
+			if canLand(nx, ny) {
 				m.X = nx
 				m.Y = ny
-				return
+				return true
 			}
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveToWithTileOverrides(m.ID, m.SpawnX, m.SpawnY, m.WalkableTileOverrides, m.Flying) {
+	if canLand(m.SpawnX, m.SpawnY) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
+		return true
 	}
+	return false
 }

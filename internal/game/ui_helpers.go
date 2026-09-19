@@ -532,8 +532,9 @@ func drawNineSliceScaled(dst, src *ebiten.Image, x, y, w, h, slice, corner int) 
 	}
 	b := src.Bounds()
 	for _, op := range planNineSlice(b.Dx(), b.Dy(), w, h, slice, corner) {
-		part := src.SubImage(image.Rect(b.Min.X+op.sx, b.Min.Y+op.sy, b.Min.X+op.sx+op.sw, b.Min.Y+op.sy+op.sh)).(*ebiten.Image)
+		part := src.RecyclableSubImage(image.Rect(b.Min.X+op.sx, b.Min.Y+op.sy, b.Min.X+op.sx+op.sw, b.Min.Y+op.sy+op.sh))
 		drawImageScaled(dst, part, x+op.dx, y+op.dy, op.dw, op.dh)
+		part.Recycle()
 	}
 }
 
@@ -1157,7 +1158,8 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	ensureDebugTextScratch(w, h)
 	debugTextScratch.Fill(color.RGBA{0, 0, 0, 0})
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
+	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
+	defer glyphs.Recycle()
 	x := float64(cx) - float64(w)*scale/2
 	y := float64(cy) - float64(h)*scale/2
 	blit := func(ox, oy float64, c color.Color) {
@@ -1254,7 +1256,8 @@ func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 
 	// Offset by -1 so the rendered text aligns with DebugPrintAt's left edge.
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
+	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
+	defer glyphs.Recycle()
 
 	img := ebiten.NewImage(w+2, h+2)
 	blit := func(dx, dy int, c color.Color) {
@@ -1320,12 +1323,13 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 			sh = h - sy
 		}
 		c := metalShade(base, (float64(sy)+float64(sh)/2)/float64(h))
-		strip := debugTextScratch.SubImage(image.Rect(0, sy, w, sy+sh)).(*ebiten.Image)
+		strip := debugTextScratch.RecyclableSubImage(image.Rect(0, sy, w, sy+sh))
 		op := &ebiten.DrawImageOptions{}
 		r, g, b, a := c.RGBA()
 		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
 		op.GeoM.Translate(float64(x), float64(y+sy))
 		screen.DrawImage(strip, op)
+		strip.Recycle()
 	}
 }
 

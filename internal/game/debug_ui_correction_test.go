@@ -55,6 +55,7 @@ func TestDebugSim_UIFrameAndTextCorrections(t *testing.T) {
 				runOnDrawFrame(func(_ *ebiten.Image) {
 					got, want := ebiten.NewImage(240, 100), ebiten.NewImage(240, 100)
 					defer got.Deallocate()
+					defer want.Deallocate()
 					style := frameSilver
 					if kind == "profile" {
 						ui.drawProfileCard(got, layoutRect{0, 0, 240, 100}, active)
@@ -62,10 +63,16 @@ func TestDebugSim_UIFrameAndTextCorrections(t *testing.T) {
 						style = frameBronze
 						ui.drawButtonFrame(got, 0, 0, 240, 100, active)
 					}
-					if active {
+					// Buttons retain the bronze rail on hover and brighten
+					// it; profile cards switch metal when earned.
+					var tint ebiten.ColorScale
+					if active && kind == "profile" {
 						style = frameGold
 					}
-					ui.drawThemeFrame(want, style, 0, 0, 240, 100)
+					if active && kind == "button" {
+						tint.Scale(1.35, 1.35, 1.35, 1)
+					}
+					ui.drawThemeFrameTint(want, style, 0, 0, 240, 100, tint)
 					a, b := snapshotUIImage(got).Pix, snapshotUIImage(want).Pix
 					for i, v := range a {
 						d := int(v) - int(b[i])

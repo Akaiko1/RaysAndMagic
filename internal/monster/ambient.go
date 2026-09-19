@@ -45,6 +45,9 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 	}
 	m.IsEngagingPlayer = false
 	m.WasAttacked = false
+	if m.updateArboreal(checker, tx, ty, turn) {
+		return
+	}
 	if m.AmbientFlee {
 		m.State = StateFleeing
 		goal, ok := m.pickFleeTarget(checker, tx, ty)

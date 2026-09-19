@@ -14,6 +14,8 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
+	Arboreal *ArborealConfig `yaml:"arboreal,omitempty"`
+
 	Disposition  string   `yaml:"disposition,omitempty"`
 	Prey         []string `yaml:"prey,omitempty"`
 	PreyRadius   float64  `yaml:"prey_radius,omitempty"`
@@ -161,6 +163,14 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	var conflicts []string
 
 	for key, monster := range config.Monsters {
+		if monster.Arboreal != nil {
+			if err := monster.Arboreal.validate(); err != nil {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
+			}
+			if monster.Disposition != "wildlife" || monster.Flying || len(monster.WalkableTileOverrides) != 0 || len(monster.Prey) != 0 {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q: arboreal movement requires ground wildlife without prey or terrain overrides", key))
+			}
+		}
 		if monster.Disposition != "" && monster.Disposition != "wildlife" && monster.Disposition != "caravan" {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid disposition", key))
 		}
@@ -479,6 +489,7 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
 	m.Disposition, m.Prey, m.PreyRadius = def.Disposition, def.Prey, def.PreyRadius*m.tileSize()
+	m.Arboreal = def.Arboreal
 	m.MonsterType = def.Type
 	// Render/collision identity never changes after setup; cache it so hot
 	// frame/tick callers do not copy or scan the YAML definition.

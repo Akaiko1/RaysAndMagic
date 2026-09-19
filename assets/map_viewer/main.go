@@ -18,6 +18,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/shadercache"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
@@ -235,6 +236,7 @@ type toolbarButton struct {
 }
 
 func main() {
+	shadercache.Initialize()
 	// Shared content configs + bridges, same sequence as the game.
 	cfg, monsterCfg := boot.LoadGameData()
 

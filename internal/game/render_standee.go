@@ -540,6 +540,8 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 // level, and image 0 is the full-size coordinate reference. In pixel mode Kage
 // adjusts only atlas origins for imageSrcNAt, so these helpers explicitly map
 // full-size coordinates into each level before sampling.
+//
+//ebitengine:shadersource
 const standeeTrilinearShaderSrc = standeeSamplingShaderSrc + `func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	// custom.y selects near sticker, core, or far sticker. custom.w carries
 	// the major-axis footprint (negative for vertical minification).
@@ -578,6 +580,8 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 // Geometry covers the projected union of both outer faces. Every virtual
 // layer reconstructs the same perspective height, source coordinate, wall
 // clipping, shade, and front-to-back alpha blend as the physical shell path.
+//
+//ebitengine:shadersource
 const standeeVolumeShaderSrc = standeeSamplingShaderSrc + `func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
 	if depth <= 0.0 || u < 0.0 || u > 1.0 {
 		return vec2(0), false

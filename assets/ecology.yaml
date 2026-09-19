@@ -1,6 +1,8 @@
 # Survivors persist; only deficits are replenished at the named phase.
 turn_step_speed: 2.07
 populations:
+  - {map: deep_jungle, monster: ring_tailed_lemur, count: 10, phase: day}
+  - {map: deep_jungle, monster: red_ruffed_lemur, count: 10, phase: day}
   - {map: desert, monster: desert_rabbit, count: 7, phase: day}
   - {map: desert, monster: fennec, count: 2, phase: night}
 caravan:

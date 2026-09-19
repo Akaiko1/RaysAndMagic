@@ -142,7 +142,7 @@ func TestMonstersYAML_MeleeProfilesLoad(t *testing.T) {
 			}
 		}
 	}
-	if eligible != 70 || excluded != 5 {
+	if eligible != 72 || excluded != 5 {
 		t.Fatalf("roster: %d eligible, %d excluded", eligible, excluded)
 	}
 }
