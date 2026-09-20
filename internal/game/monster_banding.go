@@ -338,6 +338,7 @@ func (gl *GameLoop) stackMonsterBand(id int, band []*monster.Monster3D) {
 		// drop the member's own (overridden) walk momentum.
 		m.Direction = leader.Direction
 		m.FaceAccX, m.FaceAccY = 0, 0
+		gl.inheritMonsterWalkPlayback(m, leader)
 		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 	}
 }

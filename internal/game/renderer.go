@@ -3006,23 +3006,13 @@ func (r *Renderer) projectileMovesTowardCamera(vx, vy float64) bool {
 	return vx*camForwardX+vy*camForwardY < 0
 }
 
-func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
-	switch mon.State {
-	case monster.StatePatrolling, monster.StatePursuing, monster.StateFleeing:
-		return true
-	default:
-		return false
-	}
-}
-
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
 	if sprite, flip := r.arborealSprite(mon, false); sprite != nil {
 		return sprite, flip
 	}
 	spriteName := mon.GetSpriteType()
 	// A striking monster with a dedicated attack sheet plays it as a one-shot
-	// over the strike window; monsters without one fall through to the walk
-	// cycle (its AttackAnimFrames branch still reads as a brief lunge).
+	// over the strike window; monsters without one hold the resting walk frame.
 	if mon.AttackAnimFrames > 0 {
 		if anim, flip := r.getMonsterDirectionalAnimation(spriteName, mon, "attacking"); anim != nil && len(anim.Frames) > 0 {
 			return r.attackAnimFrameImage(anim, mon), flip
@@ -3037,7 +3027,7 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool
 
 // attackAnimFrameImage sweeps an attack animation ONCE across the strike window:
 // AttackAnimFrames counts down from MonsterAttackAnimFrames to 0, mapped to
-// frames 0..n-1. Unlike the free-running walk cycle, the strike plays start to
+// frames 0..n-1. Like a TB walk cycle, the strike plays start to
 // finish so a wind-up/release reads correctly.
 func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
 	n := len(anim.Frames)
@@ -3060,30 +3050,16 @@ func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *mon
 }
 
 // monsterAnimFrameImage picks the animation frame for the monster's current
-// motion state: cycling while it moves (and briefly after a TB step), the rest
-// pose otherwise.
+// actual displacement: cycling during RT movement or once per TB tile step.
+// Every new walk starts at frame zero; stationary AI intent cannot animate it.
 func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
-	tps := r.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
+	elapsed, moving := r.monsterWalkElapsed(mon)
+	if !moving {
+		return anim.Frames[0]
 	}
-	const animFPS = 8
-	ticksPerFrame := tps / animFPS
-	if ticksPerFrame < 1 {
-		ticksPerFrame = 1
-	}
-	animWindow := int64(ticksPerFrame * len(anim.Frames))
-	if animWindow < 1 {
-		animWindow = 1
-	}
-	// Cycle while moving, while striking (both modes set AttackAnimFrames at
-	// the attack moment - otherwise attackers froze on the rest pose), or
-	// briefly after a TB step.
-	cycling := r.shouldAnimateMonster(mon) ||
-		mon.AttackAnimFrames > 0 ||
-		(r.game.turnBasedMode && mon.LastMoveTick > 0 && r.game.frameCount-mon.LastMoveTick <= animWindow)
-	if cycling {
-		return anim.Frames[int((r.game.frameCount/int64(ticksPerFrame))%int64(len(anim.Frames)))]
+	frame := elapsed / int64(r.monsterWalkTicksPerFrame())
+	if !r.game.turnBasedMode || frame < int64(len(anim.Frames)) {
+		return anim.Frames[int(frame%int64(len(anim.Frames)))]
 	}
 	return anim.Frames[0]
 }

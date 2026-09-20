@@ -933,8 +933,11 @@ func (c MonsterDeathRenderConfig) Validate() error {
 	return nil
 }
 
+const DefaultMonsterWalkFrameSeconds = 0.375
+
 type MonsterRenderConfig struct {
-	Death MonsterDeathRenderConfig `yaml:"death"`
+	WalkFrameSeconds float64                  `yaml:"walk_frame_seconds"`
+	Death            MonsterDeathRenderConfig `yaml:"death"`
 	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
 	// (projectile hits); rendering is uncapped - a render-side pixel cap makes
 	// sprites sink at close range as the floor anchor outgrows the capped size.
@@ -1528,6 +1531,7 @@ func LoadConfig(filename string) (*Config, error) {
 	var config Config
 	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
+	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
@@ -1579,6 +1583,9 @@ func LoadConfig(filename string) (*Config, error) {
 		if _, ok := ResolveSizeClassTiles(config.Graphics.SizeClasses, class); !ok {
 			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
 		}
+	}
+	if seconds := config.Graphics.Monster.WalkFrameSeconds; !(seconds > 0 && seconds <= 5) {
+		return nil, fmt.Errorf("graphics.monster.walk_frame_seconds must be in (0, 5]")
 	}
 	if err := config.Graphics.Monster.Death.Validate(); err != nil {
 		return nil, err

@@ -29,6 +29,7 @@ type GameLoop struct {
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
 	monsterFrameBuf       []monsterFramePosition
+	monsterWalkPlayback   map[*monster.Monster3D]monsterWalkPlayback
 	bandersBuf            []*monster.Monster3D
 	bandSinglesBuf        []*monster.Monster3D
 	bandIDsBuf            []int
@@ -274,6 +275,13 @@ func (g *MMGame) gameplayPausedByOverlay() bool {
 // drops the momentum. Movement helpers don't set m.Direction themselves - only
 // no-move state transitions (idle/alert/flee) set an intent facing.
 func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
+	if gl.game != nil {
+		for m, playback := range gl.monsterWalkPlayback {
+			if !m.IsAlive() || (playback.sampleTick != gl.game.frameCount && playback.sampleTick != gl.game.frameCount-1) {
+				delete(gl.monsterWalkPlayback, m)
+			}
+		}
+	}
 	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
 		return nil
 	}
@@ -298,6 +306,7 @@ func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
 		}
 		dx := m.X - pos.x
 		dy := m.Y - pos.y
+		gl.recordMonsterWalkMotion(m, pos.x, pos.y)
 		if dx == 0 && dy == 0 {
 			m.FaceAccX, m.FaceAccY = 0, 0
 			continue
