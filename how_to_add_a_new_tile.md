@@ -1,13 +1,30 @@
 # How to Add a New Tile
 
-Tiles are defined in YAML and loaded by the TileManager at startup.
+Tiles are loaded by `TileManager` at startup. Read
+[shared authoring rules](docs/content-authoring.md) first.
 
 ## Overview
 - Base tiles: `assets/tiles.yaml`
 - Special tiles: `assets/special_tiles.yaml` (merged into the same tile database)
 - Map placement: single-letter symbols in `.map` files
-- `render_type` must be one of: `wall`, `crossed_standee`, `standee`, `floor`, `landmark_standee` (validated at load - an unknown value refuses to boot)
+- `render_type` must be one of: `wall`, `crossed_standee`, `crossed_prop`, `standee`, `floor`, `landmark_standee` (validated at load - an unknown value refuses to boot)
 - `transparent` controls raycast pass vs sprite pass; be explicit to avoid visual artifacts.
+
+## Choose the render type first
+
+| Type | Intended use and size |
+| --- | --- |
+| `floor` | Ground color/texture, no vertical sprite |
+| `wall` | Opaque vertical texture slices; source fills its square |
+| `crossed_standee` | Natural trees/rocks; size class controls frame width; tree mechanics apply |
+| `crossed_prop` | Built blockers such as crates/logs; size class controls visible height; no tree mechanics or billboard LOD |
+| `standee` | Camera-facing prop; must be walkable unless wall-mounted |
+| `landmark_standee` | Landmark sprite; shared prop size class |
+
+`solid`, `walkable`, `transparent`, and `render_type` are separate controls.
+Choose collision, standing permission, ray continuation, and drawing explicitly.
+`wall_mounted` is valid only on `standee`; `no_spin` only on `standee` or
+`landmark_standee`. A cross already has fixed planes.
 
 ## Step 1: Add the tile
 Add a new entry under `tiles:` in `assets/tiles.yaml`.
@@ -17,6 +34,7 @@ Example:
 tiles:
   magic_crystal:
     name: "Magic Crystal"
+    type: prop
     solid: false
     transparent: true
     walkable: true
@@ -24,7 +42,7 @@ tiles:
     sprite: "moss_rock"    # must exist in assets/sprites/environment/
     render_type: "standee"
     floor_color: [150, 100, 255]
-    letter: "X"
+    short_label: "magic_crystal"
 ```
 
 Sprite files live in `assets/sprites/environment/` (no `.png` suffix in YAML).
@@ -37,19 +55,28 @@ non-walkable `floor`), `light` (`enabled`, `radius_tiles`, `intensity` - the
 tile lights the scene), `floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
-Use the `letter` in the map ASCII grid:
+Use a general-tile placeholder and its label for this letterless prop:
+```text
+....$....>[tile:magic_crystal]
 ```
-....X....
-```
+A tile with an authored `letter` instead uses that character directly.
+
+Ordinary tiles also require a `type` from the editor taxonomy (`floor`, `water`,
+`marker`, `wall`, `wall_decor`, `nature`, `rock`, `structure`, `prop`). This is
+separate from `render_type`. Special tiles use their own behavior type.
 
 ## Letter rules
 - Letters must be unique per biome. TileManager errors on conflicts.
 - If `biomes` is omitted, the letter must be unique globally.
+- Lowercase letters are reserved for monsters. Terrain uses uppercase letters,
+  digits, or punctuation.
+- Letterless general decor uses `short_label` in YAML and `$` with
+  `>[tile:short_label]` in the map. See [map syntax](docs/adding-maps.md#map-syntax).
 
 ## Special tiles (data-driven placement)
 Special tiles in `assets/special_tiles.yaml` can be placed by key using:
 ```
-%...@....%  >[stile:spike_trap]
+....@.....>[stile:spike_trap]
 ```
 This replaces the `@` with the special tile matching `spike_trap`.
 
@@ -58,7 +85,14 @@ Teleporter behavior is driven by `special_tiles.yaml` properties. Example:
 ```yaml
 special_tiles:
   vteleporter:
+    name: "Violet Teleporter"
     type: "teleporter"
+    solid: false
+    transparent: true
+    walkable: true
+    render_type: "floor"
+    floor_color: [138, 43, 226]
+    inherit_floor: true
     properties:
       cooldown_seconds: 5
       teleporter_group: "violet"
@@ -126,12 +160,11 @@ radius together do not emit in synchronized bursts. Later rolls keep the exact
 configured interval.
 
 ## Testing checklist
-- YAML loads without errors.
+- Run the [shared validation checklist](docs/content-authoring.md#verification).
 - Letter is unique for its biome.
 - Sprite exists if specified.
 - Tile renders and collides as expected.
 - Special tile placement with `>[stile:key]` works.
 
 ## Known limitations
-- Audio and particle effects are not implemented.
 - Non-teleporter special tile behaviors require code changes.

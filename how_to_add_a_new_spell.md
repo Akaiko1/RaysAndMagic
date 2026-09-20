@@ -1,6 +1,7 @@
 # How to Add a New Spell
 
-All spells are defined in `assets/spells.yaml`. The YAML key is the SpellID used by combat, tooltips, and items.
+Spells live in `assets/spells.yaml`. The YAML key is the SpellID used by combat,
+tooltips, and traders. Read [shared authoring rules](docs/content-authoring.md) first.
 
 ## Overview
 - Projectile spells are fully data-driven (YAML only).
@@ -54,11 +55,18 @@ spells:
 
 ## Damage model
 
-There is no `damage` field. A projectile spell's base damage is
-`spell_points_cost x 3` (`spells.SpellDamagePerSP`), optionally scaled by
-`damage_cost_multiplier` and boosted by Intellect (plus Personality when
-`scales_with_personality` is set). `deals_no_damage: true` makes a projectile
-purely a status carrier.
+There is no generic `damage` field. The default projectile basis is
+`spell_points_cost * 3` (`SpellDamagePerSP`), modified by
+`damage_cost_multiplier`, spell-school mastery and character stats. An authored
+`damage_by_mastery: [N, E, M, G]` replaces the cost-derived ladder; it must contain
+exactly four nonnegative, nondecreasing values. `mastery_damage_per_tier` is a
+separate option for supported nova/map-wide spells. These are not interchangeable
+with `zone_tick_damage`, which authors persistent-zone ticks.
+
+`deals_no_damage: true` makes a projectile a status carrier. Use the runtime
+formula and shared tooltip builders for the final damage, including true damage,
+Strong Magic, criticals, and target defenses. See
+[damage and hit scope](docs/content-authoring.md#damage-and-hit-scope).
 
 ## Supported projectile fields
 
@@ -80,17 +88,37 @@ purely a status carrier.
 ### Vision bonus note
 The `vision_bonus` value is read for any utility spell, but the gameplay
 effect (which buff to activate - torch light radius vs wizard eye compass
-range) is dispatched by SpellID in `internal/game/combat.go`. New vision
-spells still require code there.
+range) is dispatched by SpellID in the utility-casting runtime. New vision
+spells require an explicit dispatch path.
 
 ### Quick-heal note
 The quick-heal key (C, or legacy H) is data-driven: any spell with
 `heal_amount > 0` or `heal_party: true` qualifies automatically
 (`SpellDefinition.IsHeal`); the best known one is picked. No code changes needed.
 
+## Other supported forms
+
+Use a shipped definition with the same casting form as your starting point:
+`stone_blossom` for mortar impact (`mortar_range_tiles`, positive projectile
+speed), `inferno` for a party-centered nova, `earthquake` for map-wide damage,
+`hot_steam` or `firewall` for persistent zones, `jump` for forward relocation,
+and `summon_ice_elemental` for mastery-scaled allied summons. Inspect the exact
+keys in [spells.yaml](assets/spells.yaml) before copying. Adding a field alone
+cannot create a new casting form.
+
+Castable spells require positive `cooldown_seconds`. `category: buff` spells
+forbid that field and instead need a supported beneficial timed effect. A new
+school must be supported by the canonical school catalog; spelling one in YAML
+is not enough.
+
+## Art
+
+Add `assets/sprites/interface/spells/icon_spell_<id>.png`; timed effects may also need
+a `status_icon`. Follow [shared asset rules](docs/content-authoring.md#assets-and-animation).
+
 ## Step 2: Grant the spell to players
 Choose one (or more):
-- Add to class starting spells in `internal/character/character.go`.
+- Extend the character creation rules if the spell should be known at start.
 - Add to `assets/level_up.yaml` as a level-up choice.
 - Add to a spell trader in `assets/npcs.yaml`.
 
@@ -103,7 +131,7 @@ There are no spell-level or mastery requirements. A character only needs the
 spell's matching magic school to be open before learning it from an NPC.
 
 ## Testing checklist
-- YAML loads without errors.
+- Run the [shared validation checklist](docs/content-authoring.md#verification).
 - Spell appears in spellbook or NPC trader list.
 - Casting works and shows expected effects.
 - Tooltips show the right values.

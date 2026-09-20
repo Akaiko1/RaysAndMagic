@@ -47,6 +47,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 
 	config.MustLoadTrapConfig("assets/traps.yaml")
+	if err := config.LoadIconFrames("assets/icon_frames.yaml"); err != nil {
+		log.Fatalf("Icon frames: %v", err)
+	}
 	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	if err := monster.ValidateSizeClassHeights(); err != nil {
 		log.Fatalf("Size class config: %v", err)

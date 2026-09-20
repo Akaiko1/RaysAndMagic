@@ -46,7 +46,12 @@ assets/app_icons/*.iconset/
 
 /tmp*
 
-docs/
+# Keep local notes ignored; publish the contributor guides explicitly.
+/docs/*
+!/docs/content-authoring.md
+!/docs/adding-items-and-loot.md
+!/docs/adding-quests.md
+!/docs/adding-maps.md
 
 # Disposable derived CPU graphics; never bundle or commit.
 .render-cache/

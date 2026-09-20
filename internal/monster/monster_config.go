@@ -171,7 +171,7 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 				conflicts = append(conflicts, fmt.Sprintf("monster %q: arboreal movement requires ground wildlife without prey or terrain overrides", key))
 			}
 		}
-		if monster.Disposition != "" && monster.Disposition != "wildlife" && monster.Disposition != "caravan" {
+		if monster.Disposition != "" && monster.Disposition != "wildlife" && monster.Disposition != "caravan" && monster.Disposition != "fish" {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid disposition", key))
 		}
 		if len(monster.Prey) > 0 && (monster.Disposition != "wildlife" || monster.PreyRadius <= 0) {

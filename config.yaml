@@ -397,7 +397,7 @@ graphics:
   # Monster rendering (max_sprite_size bounds combat collision scaling only;
   # rendering is uncapped so sprites don't sink at close range)
   monster:
-    walk_frame_seconds: 0.375  # 3x slower than the previous 8-frame-per-second walk cycle
+    walk_frame_seconds: 0.15  # 3x slower than the previous 8-frame-per-second walk cycle
     max_sprite_size: 60
     min_sprite_size: 8
     size_distance_multiplier: 75
@@ -459,32 +459,22 @@ graphics:
     despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
     # Despill is intentionally aggressive (strips ANY magenta hue), which greys
     # out sprites whose purple/magenta is real art. List those here (basenames;
-    # animation sheets as "<name>_<animType>") to despill ONLY their edge fringe
+    # naming any directional animation also covers its base and sibling sheets)
+    # to despill ONLY their edge fringe
     # within edge_despill_radius px, preserving the interior. Curated from the
     # despill audit - extend as new purple art is added.
     edge_despill_radius: 3
     edge_only_despill:
       # Purple/magenta creatures
       - octopus
-      - octopus_walking_r
       - medusa
-      - medusa_walking_r
       - alien
-      - alien_walking_r
       - archmage
-      - archmage_walking_r
       - lich
-      - lich_walking_r
       - lich_king
-      - lich_king_walking_r
       - forest_spider
-      - forest_spider_walking_r
-      - forest_spider_attacking_r
-      - forest_spider_dying_r
       # Ice crystal highlights read as violet
       - frost_elemental
-      - frost_elemental_walking_r
-      - frost_elemental_attacking_r
       # Sorcerer hero art (purple robes)
       - lysander
       - lysander_full

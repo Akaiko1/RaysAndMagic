@@ -781,8 +781,14 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 	}
 
 	if ecology := config.GlobalEcology; ecology != nil {
+		if ecology.Fish != nil {
+			if key := ecology.Fish.Species[mapKey]; key != "" {
+				observeMinScore(decodeMonsterKeys, key, math.Inf(1))
+				observeMinScore(monsterKeys, key, math.Inf(1))
+			}
+		}
 		for _, population := range ecology.Populations {
-			if population.Map == mapKey && len(monsterArborealAnimations(population.Monster)) > 0 {
+			if population.Map == mapKey && len(monsterSpecialAnimations(population.Monster)) > 0 {
 				observeMinScore(decodeMonsterKeys, population.Monster, math.Inf(1))
 				observeMinScore(monsterKeys, population.Monster, math.Inf(1))
 			}
@@ -1753,7 +1759,7 @@ func mapRenderSourceRequests(plan mapRenderPrewarmPlan) []graphics.SpriteResourc
 		for _, animationType := range []string{"walking_r", "walking_l", "attacking_r", "attacking_l", "dying_r", "dying_l"} {
 			requests[graphics.SpriteResourceRequest{Name: resource.spriteName, AnimationType: animationType}] = struct{}{}
 		}
-		for _, kind := range monsterArborealAnimations(resource.key) {
+		for _, kind := range monsterSpecialAnimations(resource.key) {
 			for _, direction := range []string{"_r", "_l"} {
 				requests[graphics.SpriteResourceRequest{Name: resource.spriteName, AnimationType: kind + direction}] = struct{}{}
 			}
@@ -2013,7 +2019,7 @@ func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResou
 		appendFrames(p.animationFrames(resource.spriteName, "dying_r"))
 		appendFrames(p.animationFrames(resource.spriteName, "dying_l"))
 	}
-	for _, kind := range monsterArborealAnimations(resource.key) {
+	for _, kind := range monsterSpecialAnimations(resource.key) {
 		right := p.animationFrames(resource.spriteName, kind+"_r")
 		appendFrames(right)
 		if !p.renderer.game.config.Graphics.Standee.Enabled || len(right) == 0 {

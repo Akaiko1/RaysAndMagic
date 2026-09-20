@@ -40,6 +40,16 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 		}
 		return nil
 	}
+	if c.Fish != nil {
+		for mapKey, key := range c.Fish.Species {
+			if err := checkActor(key, "fish"); err != nil {
+				return err
+			}
+			if ecologyWorld(mapKey) == nil {
+				return fmt.Errorf("fish map %q is missing", mapKey)
+			}
+		}
+	}
 	for _, p := range c.Populations {
 		if err := checkActor(p.Monster, "wildlife"); err != nil {
 			return err

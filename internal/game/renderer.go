@@ -3007,7 +3007,7 @@ func (r *Renderer) projectileMovesTowardCamera(vx, vy float64) bool {
 }
 
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
-	if sprite, flip := r.arborealSprite(mon, false); sprite != nil {
+	if sprite, flip := r.specialMotionSprite(mon, false); sprite != nil {
 		return sprite, flip
 	}
 	spriteName := mon.GetSpriteType()
@@ -3070,7 +3070,7 @@ func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *mo
 // path's trick; a standee uses ONE art set and mirrors by world heading,
 // otherwise the two independent flips combine into backwards walking.
 func (r *Renderer) getMonsterStandeeSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
-	if sprite, left := r.arborealSprite(mon, true); sprite != nil {
+	if sprite, left := r.specialMotionSprite(mon, true); sprite != nil {
 		return sprite, left
 	}
 	name := mon.GetSpriteType()
@@ -3591,7 +3591,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if mon.Flying {
 			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), bottomF, sizeF)
 		}
-		bottomF = arborealBottom(bottomF, float64(r.game.config.GetScreenHeight())*tileSize/depthPerp, mon.Arbor.Height)
+		bottomF = arborealBottom(bottomF, float64(r.game.config.GetScreenHeight())*tileSize/depthPerp, mon.VisualHeightTiles())
 
 		var sprite *ebiten.Image
 		var flip, artFacesLeft bool

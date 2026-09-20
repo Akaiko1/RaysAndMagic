@@ -10,17 +10,22 @@ import (
 
 var arborealAnimations = []string{"climbing", "jumping", "descending", "perched"}
 
-func monsterArborealAnimations(key string) []string {
+func monsterSpecialAnimations(key string) []string {
 	if monster.MonsterConfig != nil {
-		if def, ok := monster.MonsterConfig.Monsters[key]; ok && def.Arboreal != nil {
-			return arborealAnimations
+		if def, ok := monster.MonsterConfig.Monsters[key]; ok {
+			if def.Disposition == "fish" {
+				return []string{"leaping"}
+			}
+			if def.Arboreal != nil {
+				return arborealAnimations
+			}
 		}
 	}
 	return nil
 }
 
-func (r *Renderer) arborealSprite(m *monster.Monster3D, standee bool) (*ebiten.Image, bool) {
-	kind, progress := m.ArborealAnimation()
+func (r *Renderer) specialMotionSprite(m *monster.Monster3D, standee bool) (*ebiten.Image, bool) {
+	kind, progress := m.SpecialMotionAnimation()
 	if kind == "" {
 		return nil, false
 	}

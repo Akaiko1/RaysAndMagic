@@ -21,6 +21,7 @@ import (
 )
 
 type SpriteManager struct {
+	iconFrames      map[string]iconFrameEntry
 	deferResource   func(SpriteResourceRequest) bool
 	failedResources map[SpriteResourceRequest]bool
 
@@ -177,15 +178,33 @@ const despillHueFloor = 8
 // for edge-only despill sprites when the config leaves the radius unset.
 const despillEdgeRadiusDefault = 3
 
-// SetDespillEdgeOnly marks sprites (by name; animation sheets as
-// "<name>_<animType>") whose interior magenta must be preserved - despill on
-// them is restricted to within `radius` px of a transparent edge.
+// SetDespillEdgeOnly preserves interior purple across a whole animation family,
+// whether the configuration names its base sprite or any directional sheet.
+// Other sprite names remain exact matches. Configure before loading resources.
 func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeOnly = make(map[string]bool, len(names))
 	for _, n := range names {
-		sm.keyEdgeOnly[n] = true
+		sm.keyEdgeOnly[spriteDespillFamily(n)] = true
 	}
 	sm.keyEdgeRadius = radius
+}
+
+// Directional motion suffixes belong to one source identity. Strip only the
+// complete suffix, never an arbitrary prefix (lich and lich_king are distinct).
+func spriteDespillFamily(name string) string {
+	if !strings.HasSuffix(name, "_r") && !strings.HasSuffix(name, "_l") {
+		return name
+	}
+	stem := name[:len(name)-2]
+	separator := strings.LastIndexByte(stem, '_')
+	if separator < 1 {
+		return name
+	}
+	switch stem[separator+1:] {
+	case "walking", "attacking", "dying", "climbing", "descending", "jumping", "perched", "leaping":
+		return stem[:separator]
+	}
+	return name
 }
 
 // SetColorKey enables/configures the load-time color key (see SpriteManager).
@@ -230,7 +249,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 		return near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB)
 	}
 
-	edgeOnly := sm.keyEdgeOnly[name]
+	edgeOnly := sm.keyEdgeOnly[spriteDespillFamily(name)]
 	// Transparency mask, needed only when despill is limited to the fringe band.
 	var trans []bool
 	if edgeOnly {
@@ -299,6 +318,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 
 func NewSpriteManager() *SpriteManager {
 	return &SpriteManager{
+		iconFrames:         loadIconFrameEntries(),
 		sprites:            make(map[string]*ebiten.Image),
 		spriteTypeCache:    make(map[string]string),
 		animations:         make(map[animationCacheKey]*SpriteAnimation),
@@ -496,7 +516,7 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	if request.AnimationType != "" {
 		indexedName += "_" + request.AnimationType
 	}
-	prepared.Image = sm.applyColorKey(indexedName, img)
+	prepared.Image = sm.prepareSpritePixels(indexedName, img)
 	prepared.Found = prepared.Image != nil
 	if prepared.Found {
 		prepared.CPU = rgbaFromImage(prepared.Image)
@@ -924,7 +944,7 @@ func (sm *SpriteManager) loadSpriteVisibleFrameBounds(name string) spriteVisible
 	if err != nil {
 		return spriteVisibleFrameBounds{}
 	}
-	return spriteVisibleFrameBoundsFromImage(sm.applyColorKey(name, img))
+	return spriteVisibleFrameBoundsFromImage(sm.prepareSpritePixels(name, img))
 }
 
 func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds {
@@ -981,7 +1001,7 @@ func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {
 	if err != nil {
 		return nil
 	}
-	img = sm.applyColorKey(name, img)
+	img = sm.prepareSpritePixels(name, img)
 	return spriteAlphaMaskFromImage(img)
 }
 

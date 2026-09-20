@@ -1,4 +1,10 @@
 loots:
+  common_carp:
+    - {type: item, key: carp_scale, chance: 1}
+  koi:
+    - {type: item, key: koi_scale, chance: 1}
+  rainbow_salmon:
+    - {type: item, key: rainbow_salmon_scale, chance: 1}
   ring_tailed_lemur:
     - type: "item"
       key: "lemur_fur"

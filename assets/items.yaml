@@ -2264,3 +2264,24 @@ items:
     flavor: "The desert keeps its warmest coat for the coldest hours."
     rarity: "common"
     value: 90
+
+  carp_scale:
+    name: "Carp Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3
+
+  koi_scale:
+    name: "Koi Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3
+
+  rainbow_salmon_scale:
+    name: "Rainbow Salmon Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3

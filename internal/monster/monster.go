@@ -104,7 +104,7 @@ func (m *Monster3D) IsPassiveUntilProvoked() bool {
 // monster behavior. It intentionally does not decide whether a normal monster
 // can first see the party; CanStartPlayerEngagement owns that geometry gate.
 func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
-	if m == nil || m.IsInertSetPiece() {
+	if m == nil || m.IsInertSetPiece() || m.Disposition == "fish" {
 		return AIBehaviorInert
 	}
 	if m.Bound {
@@ -241,6 +241,7 @@ func generateUniqueMonsterID() string {
 type Monster3D struct {
 	Arboreal          *ArborealConfig
 	Arbor             ArborealState
+	FishLeap          *FishLeapState
 	Disposition       string
 	Prey              []string
 	PreyRadius        float64

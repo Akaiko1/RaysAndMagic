@@ -161,6 +161,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
+			// Leaping fish are brief visual encounters; only their drops persist.
+			if mon.Disposition == "fish" {
+				continue
+			}
 			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.

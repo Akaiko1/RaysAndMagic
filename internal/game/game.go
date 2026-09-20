@@ -780,6 +780,12 @@ func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 }
 
 func NewMMGame(cfg *config.Config) *MMGame {
+	return newMMGame(cfg, false)
+}
+
+// Preview arenas use the same game systems without a campaign journal or
+// campaign-map requirements. Content and rendering validation still apply.
+func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	sprites := graphics.NewSpriteManager()
 	ApplySpriteColorKey(sprites, cfg)
 
@@ -790,8 +796,13 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	}
 	// Content check that needs loaded MAPS (boot sees only configs): every
 	// duel-offering NPC must stand on a map with a duel: block.
-	if err := ValidateDuelGrounds(world.GlobalWorldManager); err != nil {
-		panic(err)
+	if !preview {
+		if err := ValidateDuelGrounds(world.GlobalWorldManager); err != nil {
+			panic(err)
+		}
+		if err := ValidateEcologyContent(cfg, quests.GlobalQuestManager); err != nil {
+			panic(err)
+		}
 	}
 
 	// Create a 4-character party
@@ -892,7 +903,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	game.gameLoop = NewGameLoop(game)
 
 	// Connect global quest manager
-	game.questManager = quests.GlobalQuestManager
+	if !preview {
+		game.questManager = quests.GlobalQuestManager
+	}
 	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
@@ -919,14 +932,13 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	}
 	// Every interact quest must be finishable: its tag credited by something, and
 	// enough of those props actually standing. Runs HERE, with its siblings, so
-	// every boot path is covered - the headless sim, the map viewer and the test
-	// fixtures all build a game, and only the shipped binary called it before.
+	// every campaign boot path is covered, including headless simulations.
+	// Editor arenas deliberately contain no campaign quest props.
 	// It stands down on a world with no props (a blank fixture) and warns instead.
-	if err := ValidateEcologyContent(cfg, quests.GlobalQuestManager); err != nil {
-		panic(err)
-	}
-	if err := ValidateInteractTagProducers(quests.GlobalQuestManager); err != nil {
-		panic(err)
+	if !preview {
+		if err := ValidateInteractTagProducers(game.questManager); err != nil {
+			panic(err)
+		}
 	}
 
 	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite

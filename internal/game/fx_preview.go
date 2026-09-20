@@ -78,7 +78,7 @@ func NewFxPreview(cfg *config.Config) (*FxPreview, error) {
 	world.GlobalWorldManager.LoadedMaps[fxStageMapKey] = p.arena
 	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 
-	p.g = NewMMGame(cfg)
+	p.g = newMMGame(cfg, true)
 	p.g.turnBasedMode = false
 	p.g.selectedChar = 0
 

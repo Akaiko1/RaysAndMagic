@@ -1338,11 +1338,11 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 // drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
 // rather than a flat fill.
 var (
-	raritySilver   = color.RGBA{210, 216, 230, 255} // uncommon
-	rarityGold     = color.RGBA{255, 215, 0, 255}   // rare
-	rarityFire     = color.RGBA{220, 80, 20, 255}   // legendary
-	rarityEmerald  = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
-	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
+	raritySilver   = config.RaritySilver
+	rarityGold     = config.RarityGold
+	rarityFire     = config.RarityLegendary
+	rarityEmerald  = config.RarityUnique
+	focusModeMetal = color.RGBA{70, 155, 235, 255} // focus-mode blue steel
 )
 
 // metallicColors marks which base tints get the metal-gradient text treatment.
@@ -1373,18 +1373,7 @@ func rarityColor(rarity string) color.Color {
 // needs the concrete RGBA (a metal heading, a plate) calls this, so retinting a
 // rarity here moves every surface that shows it.
 func rarityRGBA(rarity string) color.RGBA {
-	switch strings.ToLower(rarity) {
-	case "uncommon":
-		return raritySilver
-	case "rare":
-		return rarityGold
-	case "legendary":
-		return rarityFire
-	case "unique":
-		return rarityEmerald
-	default:
-		return color.RGBA{255, 255, 255, 255} // Common/default
-	}
+	return config.RarityRGBA(rarity)
 }
 
 var (

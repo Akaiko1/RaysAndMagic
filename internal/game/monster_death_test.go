@@ -322,7 +322,11 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			if passive {
 				kinds = []string{"walking", "dying"}
 			}
-			kinds = append(kinds, monsterArborealAnimations(key)...)
+			fish := m.Disposition == "fish"
+			if fish {
+				kinds = nil // Only the special leaping animation is authored.
+			}
+			kinds = append(kinds, monsterSpecialAnimations(key)...)
 			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
 			for _, kind := range kinds {
 				resolved := kind + "_r"
@@ -347,7 +351,7 @@ func TestMonsterAnimationAssets(t *testing.T) {
 					t.Fatalf("%s missing from source prewarm", resolved)
 				}
 			}
-			if !passive {
+			if !passive && !fish {
 				g.armMonsterAttackAnimation(m)
 				if m.AttackAnimFrames != animationDurationFrames(g.config.GetTPS(), AuthoredMonsterAttackFPS, 4) {
 					t.Fatal("authored attack did not receive the full animation window")
@@ -356,6 +360,12 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			m.HitPoints = 0
 			before := len(g.monsterCorpses)
 			g.combat.finishMonsterKill(m)
+			if fish {
+				if len(g.monsterCorpses) != before {
+					t.Fatal("fish must disappear without a corpse animation")
+				}
+				return
+			}
 			if len(g.monsterCorpses) != before+1 || g.monsterCorpses[before].spriteName != name {
 				t.Fatal("death animation not wired to this monster definition")
 			}

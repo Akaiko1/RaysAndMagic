@@ -1,10 +1,10 @@
 # How to Add a New Weapon
 
-Weapons are fully data-driven via `assets/weapons.yaml`.
+Weapons use `assets/weapons.yaml`. Read [shared authoring rules](docs/content-authoring.md) first.
 
 ## Overview
 - Each YAML key is the weapon key used by loot tables and config lookups.
-- Weapon display names are converted to keys by lowercasing and replacing spaces.
+- Display-name lookups use the authored catalog index. Keep names unique; do not infer a key from the name.
 - Ranged vs melee is determined by `range` (tiles): `range > 3` is ranged.
 
 ## Step 1: Add the weapon to assets/weapons.yaml
@@ -24,9 +24,8 @@ weapons:
     value: 800
 
     melee:
-      arc_angle: 75
+      arc_type: 3
       animation_frames: 10
-      hit_delay: 3
 
     graphics:
       slash_color: [200, 255, 255]
@@ -63,7 +62,8 @@ weapons:
 ## Step 2: Make it obtainable
 - Add to `assets/loots.yaml` under a monster key.
 - Add to merchant inventory (`assets/npcs.yaml`).
-- Add as a quest reward (custom logic).
+- Use an encounter reward chest for an explicit weapon reward; ordinary quest
+  `item_pool` rewards accept item keys, not weapons. See [quests](docs/adding-quests.md).
 
 ## Important fields
 - `category`: used for class restrictions and mastery.
@@ -76,7 +76,7 @@ weapons:
 - `bonus_stat_secondary`
 - `damage_type`
 - `max_projectiles`
-- `bonus_vs` (map of monster name or key to damage multiplier)
+- `bonus_vs` (monster name, key, or family/type to damage multiplier)
 - `stun_chance` (0.0-1.0) + `stun_turns`
 - `disintegrate_chance`
 - `aoe_radius_tiles` (splash radius; hits all monsters within N tiles)
@@ -85,15 +85,35 @@ weapons:
 - `spell_cooldown_multiplier` (scales the wielder's spell cooldowns, e.g. Archmage Staff 0.8)
 - `projectile_school` (renders the projectile as that school's spell orb instead of an arrow)
 
-These non-base effects surface in tooltips via `WeaponDefinitionConfig.EffectLines`
-(single source of truth - add a new effect there and every tooltip/card picks
-it up). `crit_chance` is a base attribute rendered separately, not in EffectLines.
+For melee, `arc_type` is 1 (single target), 2 (front and flank), 3 (three
+positions), or 4 (five positions). `arc_angle` and `hit_delay` are removed fields.
+Ranged magic weapons with `projectile_school` must use the matching `damage_type`.
+
+Additional supported mechanics include `volley`, `pierce_count`,
+`ricochet_targets` with `ricochet_range_tiles`, `double_strike`, `true_damage`,
+and paired status fields. Copy the complete mechanic from an existing weapon;
+load-time validation checks its required pairs. `no_loot: true` excludes a weapon
+from generated rarity pools, but does not forbid explicit authored drops or stock.
+
+[Shared damage rules](docs/content-authoring.md#damage-and-hit-scope) explain
+critical hits, Designate Target, true damage, splash, and primary-only riders.
+Do not implement these independently for a new weapon.
+
+## Art and presentation
+
+Add `assets/sprites/interface/weapons/icon_weapon_<key>.png` using the
+[shared icon contract](docs/content-authoring.md#assets-and-animation).
+Effect text is derived through `WeaponDefinitionConfig.EffectLines` and
+`CoreEffectLines`, then composed by the shared character card template. Check
+both the game tooltip and editor card when adding a new mechanic.
 
 ## Class restrictions
-Weapon categories are restricted by class in `internal/character/character.go`.
+Weapon access and mastery use the class/skill catalog in
+`internal/character/catalog.go` and the character equipment rules. Verify the
+intended class can equip the weapon; a YAML category does not grant a skill.
 
 ## Testing checklist
-- YAML loads without errors.
+- Run the [shared validation checklist](docs/content-authoring.md#verification).
 - Melee weapons have `melee` and `graphics`.
 - Ranged weapons have `physics` and `graphics`.
 - Weapon can be acquired and equipped.

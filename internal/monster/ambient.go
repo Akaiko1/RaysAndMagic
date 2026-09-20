@@ -19,7 +19,7 @@ func (m *Monster3D) Hunts(target *Monster3D) bool {
 
 // CanAttackActor is the shared relationship check used at selection AND commit.
 func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
-	if m == nil || target == nil || m == target || !m.IsAlive() || !target.IsAlive() || m.IsInertSetPiece() || m.Pacified || m.BossEvasive {
+	if m == nil || target == nil || m == target || m.Disposition == "fish" || !m.IsAlive() || !target.IsAlive() || m.IsInertSetPiece() || m.Pacified || m.BossEvasive {
 		return false
 	}
 	if m.Bound {

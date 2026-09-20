@@ -2199,3 +2199,60 @@ monsters:
     box_w: 36
     box_h: 36
     size_class: large
+
+  common_carp:
+    name: "Common Carp"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: common_carp
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [forest]
+
+  koi:
+    name: "Koi"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: koi
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [sakura_garden]
+
+  rainbow_salmon:
+    name: "Rainbow Salmon"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: rainbow_salmon
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [highlands]

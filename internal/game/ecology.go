@@ -17,6 +17,7 @@ import (
 
 // EcologyState belongs to the campaign, never the account-wide profile.
 type EcologyState struct {
+	FishRollFrames   int            `json:"fish_roll_frames,omitempty"`
 	PopulationPhases map[string]int `json:"population_phases,omitempty"`
 	Unlocked         bool           `json:"unlocked,omitempty"`
 	ActorID          string         `json:"actor_id,omitempty"`
@@ -177,6 +178,9 @@ func (g *MMGame) replenishWildlife() {
 }
 
 func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
+	if m.Disposition == "fish" {
+		return true
+	}
 	if !m.IsAmbient() || m.IsPartyControlled() {
 		return false
 	}
@@ -319,6 +323,7 @@ func (g *MMGame) updateEcology() {
 	if c == nil || world.GlobalWorldManager == nil || g.world == nil {
 		return
 	}
+	g.updateFish()
 	g.replenishWildlife()
 	g.unlockCaravan()
 	if !g.ecology.Unlocked {

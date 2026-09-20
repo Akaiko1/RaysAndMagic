@@ -13,6 +13,7 @@ import (
 var GlobalEcology *EcologyConfig
 
 type EcologyConfig struct {
+	Fish          *FishSpawnConfig     `yaml:"fish,omitempty"`
 	TurnStepSpeed float64              `yaml:"turn_step_speed"`
 	Populations   []WildlifePopulation `yaml:"populations"`
 	Caravan       CaravanConfig        `yaml:"caravan"`
@@ -58,6 +59,11 @@ func LoadEcology(path string) error {
 	return nil
 }
 func (c *EcologyConfig) Validate() error {
+	if c.Fish != nil {
+		if err := c.Fish.Validate(); err != nil {
+			return err
+		}
+	}
 	if c.TurnStepSpeed <= 0 {
 		return fmt.Errorf("turn_step_speed must be positive")
 	}

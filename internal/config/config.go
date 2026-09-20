@@ -877,7 +877,8 @@ type ColorKeyConfig struct {
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
-	// "<name>_<animType>") whose interior magenta is intentional art. For these,
+	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
+	// directional sheet or its base covers the entire animation family. For these,
 	// despill runs ONLY within EdgeDespillRadius px of a transparent edge - the
 	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
