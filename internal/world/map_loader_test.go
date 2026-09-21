@@ -527,3 +527,28 @@ func TestMapLoader_EmptyGroundOverrideFailsLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestMapLoaderRejectsAuthoredFish(t *testing.T) {
+	installTestTileManager(t)
+	previous := monster.MonsterConfig
+	t.Cleanup(func() { monster.MonsterConfig = previous })
+	for _, disposition := range []string{"", "wildlife", monster.DispositionFish} {
+		t.Run("disposition="+disposition, func(t *testing.T) {
+			monster.MonsterConfig = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{
+				"test_actor": {Letter: "a", Disposition: disposition},
+			}}
+			path := filepath.Join(t.TempDir(), "actor.map")
+			if err := os.WriteFile(path, []byte("+a.\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			data, err := NewMapLoaderWithBiome(nil, "forest").LoadMap(path)
+			if disposition == monster.DispositionFish {
+				if err == nil || !strings.Contains(err.Error(), "test_actor") || !strings.Contains(err.Error(), "ecology") {
+					t.Fatalf("missing load-time fish error: %v", err)
+				}
+			} else if err != nil || len(data.MonsterSpawns) != 1 {
+				t.Fatalf("ordinary authored spawn rejected: %v", err)
+			}
+		})
+	}
+}

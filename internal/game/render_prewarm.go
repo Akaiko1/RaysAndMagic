@@ -1090,6 +1090,7 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 	results := make(chan mapRenderPreparedStandee, 1)
 	go func() {
 		defer close(results)
+		defer cache.Prune()
 		for i := range jobs {
 			job := jobs[i]
 			select {

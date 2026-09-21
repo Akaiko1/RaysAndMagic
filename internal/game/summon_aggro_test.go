@@ -186,47 +186,56 @@ func TestPassiveMonsterAndPartySummonIgnoreEachOtherUntilProvoked(t *testing.T) 
 	}
 }
 
-func TestBoundCrossfireCannotCollaterallyProvokePassiveMonster(t *testing.T) {
-	game, _, tileSize := tbBehaviorGame(t, 40, 40)
-	placePlayerAtTile(game, 2, 2, tileSize)
+func TestBoundCrossfireCannotHitExcludedActors(t *testing.T) {
+	for _, kind := range []string{"passive", "fish", "provoked_fish"} {
+		t.Run(kind, func(t *testing.T) {
+			game, _, tileSize := tbBehaviorGame(t, 40, 40)
+			placePlayerAtTile(game, 2, 2, tileSize)
 
-	source := monsterPkg.NewMonster3DFromConfig(10*tileSize+tileSize/2, 10*tileSize+tileSize/2, "bandit", game.config)
-	markCardAlly(source)
-	passive := monsterPkg.NewMonster3DFromConfig(12*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
-	passive.PassiveUntilAttacked = true
-	passive.MaxHitPoints, passive.HitPoints = 5000, 5000
-	target := monsterPkg.NewMonster3DFromConfig(15*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
-	target.MaxHitPoints, target.HitPoints = 5000, 5000
-	splashTarget := monsterPkg.NewMonster3DFromConfig(16*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
-	splashTarget.MaxHitPoints, splashTarget.HitPoints = 5000, 5000
-	game.world.Monsters = []*monsterPkg.Monster3D{source, passive, target, splashTarget}
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+			source := monsterPkg.NewMonster3DFromConfig(10*tileSize+tileSize/2, 10*tileSize+tileSize/2, "bandit", game.config)
+			markCardAlly(source)
+			passive := monsterPkg.NewMonster3DFromConfig(12*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+			passive.PassiveUntilAttacked = kind == "passive"
+			if kind != "passive" {
+				passive.Disposition = monsterPkg.DispositionFish
+			}
+			passive.WasAttacked = kind == "provoked_fish"
+			wasAttacked := passive.WasAttacked
+			passive.MaxHitPoints, passive.HitPoints = 5000, 5000
+			target := monsterPkg.NewMonster3DFromConfig(15*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+			target.MaxHitPoints, target.HitPoints = 5000, 5000
+			splashTarget := monsterPkg.NewMonster3DFromConfig(16*tileSize+tileSize/2, 10*tileSize+tileSize/2, "goblin", game.config)
+			splashTarget.MaxHitPoints, splashTarget.HitPoints = 5000, 5000
+			game.world.Monsters = []*monsterPkg.Monster3D{source, passive, target, splashTarget}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	if got := game.combat.nearestEnemyMonster(source, 10*tileSize); got != target {
-		t.Fatalf("bound ally selected %v, want nearest damageable target %s beyond passive mob", got, target.Name)
-	}
-	if !game.combat.spawnMonsterRangedAttackAtMonster(source, target, ProjectileOwnerBoundUndead) {
-		t.Fatal("bound bandit did not spawn a crossfire projectile")
-	}
-	bolt := &game.arrows[len(game.arrows)-1]
-	bolt.X, bolt.Y = passive.X, passive.Y
-	game.collisionSystem.UpdateEntity(bolt.ID, bolt.X, bolt.Y)
+			if got := game.combat.nearestEnemyMonster(source, 10*tileSize); got != target {
+				t.Fatalf("bound ally selected %v, want nearest damageable target %s beyond passive mob", got, target.Name)
+			}
+			if !game.combat.spawnMonsterRangedAttackAtMonster(source, target, ProjectileOwnerBoundUndead) {
+				t.Fatal("bound bandit did not spawn a crossfire projectile")
+			}
+			bolt := &game.arrows[len(game.arrows)-1]
+			bolt.X, bolt.Y = passive.X, passive.Y
+			game.collisionSystem.UpdateEntity(bolt.ID, bolt.X, bolt.Y)
 
-	game.combat.CheckProjectileMonsterCollisions()
-	if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked {
-		t.Fatal("bound projectile collaterally hit and provoked an ignored passive monster")
-	}
-	if !bolt.Active {
-		t.Fatal("bound projectile was consumed by a passive monster it may not target")
-	}
+			game.combat.CheckProjectileMonsterCollisions()
+			if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked != wasAttacked {
+				t.Fatal("bound projectile collaterally hit and provoked an ignored passive monster")
+			}
+			if !bolt.Active {
+				t.Fatal("bound projectile was consumed by a passive monster it may not target")
+			}
 
-	packet := singleMonsterDamagePacket(damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical.String(), 0)
-	game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, false, 4)
-	if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked {
-		t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
-	}
-	if splashTarget.HitPoints >= splashTarget.MaxHitPoints {
-		t.Fatal("bound AoE failed to damage an ordinary enemy in the same blast")
+			packet := singleMonsterDamagePacket(damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical.String(), 0)
+			game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, false, 4)
+			if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked != wasAttacked {
+				t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
+			}
+			if splashTarget.HitPoints >= splashTarget.MaxHitPoints {
+				t.Fatal("bound AoE failed to damage an ordinary enemy in the same blast")
+			}
+		})
 	}
 }
 

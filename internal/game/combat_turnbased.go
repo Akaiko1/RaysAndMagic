@@ -71,13 +71,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if i == owner || m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
@@ -454,7 +454,6 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 		m.ResetPathCache()
 	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
-	m.LastMoveTick = gl.game.frameCount
 	if movedTile {
 		gl.game.observeOverwatchMovement(m, oldX, oldY)
 	}

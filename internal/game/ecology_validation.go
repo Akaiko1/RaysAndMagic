@@ -33,7 +33,7 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 					return fmt.Errorf("arboreal actor %q needs the tile catalog", key)
 				}
 				tile := world.GlobalTileManager.GetTileDataByKey(tree)
-				if tile == nil || tile.RenderType != "crossed_standee" || tile.Walkable {
+				if tile == nil || tile.RenderType != config.TileRenderCrossedStandee || tile.Walkable {
 					return fmt.Errorf("arboreal actor %q has invalid tree %q", key, tree)
 				}
 			}
@@ -42,7 +42,7 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 	}
 	if c.Fish != nil {
 		for mapKey, key := range c.Fish.Species {
-			if err := checkActor(key, "fish"); err != nil {
+			if err := checkActor(key, monster.DispositionFish); err != nil {
 				return err
 			}
 			if ecologyWorld(mapKey) == nil {

@@ -9,8 +9,8 @@ import (
 	"ugataima/internal/graphics"
 )
 
-// Increment when the standee preparation, source-size, wood-color or mip
-// algorithms change. Settings and source pixels are also part of every key.
+// Increment only for algorithm changes. Numeric settings and source pixels
+// participate directly, so tuning a limit or palette invalidates old entries.
 const standeePixelCacheVersion = "standee-pixels-v1"
 const floorPixelCacheVersion = "floor-atlas-v1"
 
@@ -21,7 +21,9 @@ func prepareCachedStandeePixels(ctx context.Context, cache graphics.PixelCache, 
 	if cache.Dir == "" {
 		return prepareStandeePixels(cpu, tint, true)
 	}
-	key := graphics.PixelCacheKey(fmt.Sprintf("%s:%016x", standeePixelCacheVersion, math.Float64bits(tint)), cpu)
+	key := graphics.PixelCacheKey(fmt.Sprintf("%s:tint=%016x:max_pixels=%d:mips=%d:wood=%016x,%016x,%016x",
+		standeePixelCacheVersion, math.Float64bits(tint), standeeRenderSourceMaxPixels, maxMipLevel,
+		math.Float64bits(standeeWoodTone[0]), math.Float64bits(standeeWoodTone[1]), math.Float64bits(standeeWoodTone[2])), cpu)
 	w, h := standeeRenderSourceSize(cpu.Bounds().Dx(), cpu.Bounds().Dy())
 	sizes := mipSizesUniform(w, h)
 	allSizes := append(append([]image.Point(nil), sizes...), sizes...)
@@ -47,7 +49,7 @@ func prepareCachedFloorAtlas(ctx context.Context, cache graphics.PixelCache, tex
 	for _, tex := range textures {
 		sources = append(sources, &image.RGBA{Pix: tex.pixels, Stride: tex.width * 4, Rect: image.Rect(0, 0, tex.width, tex.height)})
 	}
-	key := graphics.PixelCacheKey(floorPixelCacheVersion, sources...)
+	key := graphics.PixelCacheKey(fmt.Sprintf("%s:mips=%d", floorPixelCacheVersion, maxFloorMipLevels), sources...)
 	w, h, mip, atlasH := floorAtlasLayout(textures)
 	if images, ok := cache.Load(ctx, key, []image.Point{{X: w * len(textures), Y: atlasH}}); ok {
 		return images[0], w, h, mip

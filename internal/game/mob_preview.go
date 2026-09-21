@@ -89,7 +89,7 @@ func (p *MobPreview) Select(key string) {
 	patrolX := p.boundPatrolStage(stageX)
 	for i := 0; i < count; i++ {
 		m := monster.NewMonster3DFromConfig(stageX, 8.5*ts, key, g.config)
-		if m.Disposition == "fish" && config.GlobalEcology != nil && config.GlobalEcology.Fish != nil {
+		if m.IsFish() && config.GlobalEcology != nil && config.GlobalEcology.Fish != nil {
 			f := config.GlobalEcology.Fish
 			m.FishLeap = &monster.FishLeapState{FromX: m.X, FromY: m.Y, ToX: m.X + ts, ToY: m.Y, Duration: f.FlightSeconds, PeakHeight: f.HeightTiles}
 			m.AdvanceFishLeap(0)

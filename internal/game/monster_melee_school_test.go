@@ -127,22 +127,27 @@ func TestElementalMeleeResistanceAndRangedExclusion(t *testing.T) {
 func TestMonstersYAML_MeleeProfilesLoad(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	eligible, excluded := 0, 0
+	excluded := map[string]bool{"jungle_idol": true, "hobbit_archer": true, "weapon_master": true, "dark_elf_sorceress": true, "wild_druid": true}
+	seen := map[string]bool{}
 	for key, def := range monsterPkg.MonsterConfig.Monsters {
 		profile := def.MeleeProfile(cs.game.config.MonsterCombat.ElementalAttack, "earth")
-		if def.Champion != "" || def.WarlordIdol {
-			excluded++
+		seen[key] = true
+		if excluded[key] {
 			if profile.School != "" || profile.ElementalAttack.Chance != 0 {
 				t.Fatalf("%s must be excluded", key)
 			}
 		} else {
-			eligible++
 			if profile.School != "physical" || profile.ElementalAttack.Chance != .2 {
 				t.Fatalf("%s profile=%+v", key, profile)
 			}
 		}
 	}
-	if eligible == 0 || excluded == 0 {
-		t.Fatalf("roster must exercise ordinary and excluded profiles: %d eligible, %d excluded", eligible, excluded)
+	for key := range excluded {
+		if !seen[key] {
+			t.Errorf("missing excluded profile %s", key)
+		}
+	}
+	if !seen["goblin"] {
+		t.Fatal("missing ordinary melee positive control")
 	}
 }

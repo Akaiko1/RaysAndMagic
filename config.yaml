@@ -397,7 +397,7 @@ graphics:
   # Monster rendering (max_sprite_size bounds combat collision scaling only;
   # rendering is uncapped so sprites don't sink at close range)
   monster:
-    walk_frame_seconds: 0.15  # 3x slower than the previous 8-frame-per-second walk cycle
+    walk_frame_seconds: 0.15  # Seconds per walking frame; matches the code default (about 6.7 FPS)
     max_sprite_size: 60
     min_sprite_size: 8
     size_distance_multiplier: 75

@@ -24,7 +24,7 @@ func TestMonsterWalkingPlaybackCadence(t *testing.T) {
 		sprites.EvictResource("goblin", "attacking_r")
 	})
 	for _, tps := range []int{60, 120, 240} {
-		for _, seconds := range []float64{0, 0.375, 0.125} {
+		for _, seconds := range []float64{0, 0.15, 0.375, 0.125} {
 			t.Run(fmt.Sprintf("tps_%d/seconds_%g", tps, seconds), func(t *testing.T) {
 				g := &MMGame{config: &config.Config{Engine: config.EngineConfig{TPS: tps}, World: config.WorldConfig{TileSize: 64}}, sprites: sprites, camera: &FirstPersonCamera{}, world: &world.World3D{}}
 				g.gameLoop = &GameLoop{game: g}
@@ -35,6 +35,9 @@ func TestMonsterWalkingPlaybackCadence(t *testing.T) {
 					t.Fatal("missing walking fixture")
 				}
 				period := (3*tps + 4) / 8
+				if seconds == 0 || seconds == 0.15 {
+					period = (3*tps + 10) / 20
+				}
 				if seconds == 0.125 {
 					period = (tps + 4) / 8
 				}
@@ -84,8 +87,8 @@ func TestMonsterWalkingPlaybackCadence(t *testing.T) {
 						}
 					}
 				}
-				// Reconstructed actors and combat's legacy move stamp cannot invent a step.
-				m := &monster.Monster3D{Key: "goblin", State: monster.StatePursuing, LastMoveTick: g.frameCount}
+				// Reconstructed actors cannot invent a step.
+				m := &monster.Monster3D{Key: "goblin", State: monster.StatePursuing}
 				g.turnBasedMode = true
 				if got, _ := r.getMonsterSprite(m); got != walk.Frames[0] {
 					t.Fatal("fresh/restored stationary actor animated")

@@ -1,6 +1,7 @@
 package monster
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -36,15 +37,51 @@ func (a *ArborealConfig) validate() error {
 // ArborealState is actor-owned and saved with coordinates in the actor's map.
 // Ground is a reachable landing tile beside the current destination tree.
 type ArborealState struct {
-	Phase            string  `json:"phase,omitempty"`
-	Progress         float64 `json:"progress,omitempty"`
-	Height           float64 `json:"height,omitempty"`
-	FromHeight       float64 `json:"from_height,omitempty"`
-	FromX, FromY     float64
-	ToX, ToY         float64
-	GroundX, GroundY float64
-	HoldSeconds      float64 `json:"hold_seconds,omitempty"`
-	Hops             int     `json:"hops,omitempty"`
+	Phase       string  `json:"phase,omitempty"`
+	Progress    float64 `json:"progress,omitempty"`
+	Height      float64 `json:"height,omitempty"`
+	FromHeight  float64 `json:"from_height,omitempty"`
+	FromX       float64 `json:"from_x,omitempty"`
+	FromY       float64 `json:"from_y,omitempty"`
+	ToX         float64 `json:"to_x,omitempty"`
+	ToY         float64 `json:"to_y,omitempty"`
+	GroundX     float64 `json:"ground_x,omitempty"`
+	GroundY     float64 `json:"ground_y,omitempty"`
+	HoldSeconds float64 `json:"hold_seconds,omitempty"`
+	Hops        int     `json:"hops,omitempty"`
+}
+
+// UnmarshalJSON accepts the original untagged coordinates. Explicit current
+// keys win, including zero values; writes always use the snake_case contract.
+func (s *ArborealState) UnmarshalJSON(data []byte) error {
+	type stateJSON ArborealState
+	var decoded stateJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		old, current string
+		dst          *float64
+	}{
+		{"FromX", "from_x", &decoded.FromX}, {"FromY", "from_y", &decoded.FromY},
+		{"ToX", "to_x", &decoded.ToX}, {"ToY", "to_y", &decoded.ToY},
+		{"GroundX", "ground_x", &decoded.GroundX}, {"GroundY", "ground_y", &decoded.GroundY},
+	} {
+		if _, current := fields[field.current]; current {
+			continue
+		}
+		if legacy, ok := fields[field.old]; ok {
+			if err := json.Unmarshal(legacy, field.dst); err != nil {
+				return err
+			}
+		}
+	}
+	*s = ArborealState(decoded)
+	return nil
 }
 
 func (s ArborealState) MapPositions(f func(float64, float64) (float64, float64)) ArborealState {
@@ -110,8 +147,11 @@ func (m *Monster3D) chooseTree(c CollisionChecker, reach, tx, ty float64) (x, y,
 			if d < .5*t || d > reach*t || !m.climbable(c, nx, ny) {
 				continue
 			}
+			if !m.arborealRouteClear(c, nx, ny) {
+				continue
+			}
 			lx, ly, ok := m.arborealLanding(c, nx, ny)
-			if !ok || !m.arborealRouteClear(c, nx, ny) {
+			if !ok {
 				continue
 			}
 			score := rand.Float64()
@@ -162,7 +202,7 @@ func (m *Monster3D) updateArboreal(c CollisionChecker, tx, ty float64, turn bool
 	}
 	dt := 1 / float64(max(1, tps))
 	if turn {
-		dt = m.tileSize() / (60 * math.Max(.01, m.Speed))
+		dt = m.tileSize() / speedPerSecond(math.Max(.01, m.Speed))
 		// Turn move credit already applies Slow before this method is called.
 	} else {
 		dt *= m.EffectiveSpeed() / math.Max(.01, m.Speed)

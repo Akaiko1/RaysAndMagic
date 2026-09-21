@@ -1488,6 +1488,9 @@ func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
 	return path
 }
 
+// speedPerSecond converts the authored speed unit for every movement clock.
+func speedPerSecond(speed float64) float64 { return speed * 60 }
+
 func (m *Monster3D) speedPerTick() float64 {
 	tps := config.DefaultTPS
 	if m.config != nil {
@@ -1498,7 +1501,7 @@ func (m *Monster3D) speedPerTick() float64 {
 	if tps <= 0 {
 		return m.EffectiveSpeed()
 	}
-	return m.EffectiveSpeed() * (60.0 / float64(tps))
+	return speedPerSecond(m.EffectiveSpeed()) / float64(tps)
 }
 
 type movementSpeedMultipliers struct {

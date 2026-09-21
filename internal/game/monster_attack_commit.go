@@ -86,7 +86,6 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 		for hit := 0; hit < m.GetTurnBasedAttackCount() && cs.monsterAttackStillValid(m, target, cadence); hit++ {
 			if !spent {
 				cs.game.armMonsterAttackAnimation(m)
-				m.LastMoveTick = cs.game.frameCount
 			}
 			cs.deliverMonsterAttack(m, target)
 			spent = true

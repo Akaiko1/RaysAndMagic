@@ -934,7 +934,7 @@ func (c MonsterDeathRenderConfig) Validate() error {
 	return nil
 }
 
-const DefaultMonsterWalkFrameSeconds = 0.375
+const DefaultMonsterWalkFrameSeconds = 0.15
 
 type MonsterRenderConfig struct {
 	WalkFrameSeconds float64                  `yaml:"walk_frame_seconds"`

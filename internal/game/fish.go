@@ -23,7 +23,7 @@ func (g *MMGame) fishLootLanding(m *monster.Monster3D) (float64, float64) {
 			if !g.world.CanMoveTo(wx, wy) {
 				continue
 			}
-			if g.collisionSystem != nil && (!g.collisionSystem.CanMoveTo("player", wx, wy) || !g.collisionSystem.CheckLineOfSight(m.X, m.Y, wx, wy)) {
+			if g.collisionSystem != nil && ((g.collisionSystem.GetEntityByID("player") != nil && !g.collisionSystem.CanMoveTo("player", wx, wy)) || !g.collisionSystem.CheckLineOfSight(m.X, m.Y, wx, wy)) {
 				continue
 			}
 			d := Distance(m.X, m.Y, wx, wy)
@@ -66,7 +66,7 @@ func (g *MMGame) fishDestinations(key string, x, y int, water bool) [][2]int {
 			continue
 		}
 		wx, wy := (float64(nx)+.5)*tile, (float64(ny)+.5)*tile
-		if !water && (!g.world.CanMoveTo(wx, wy) || (g.collisionSystem != nil && !g.collisionSystem.CanMoveTo("player", wx, wy))) {
+		if !water && (!g.world.CanMoveTo(wx, wy) || (g.collisionSystem != nil && g.collisionSystem.GetEntityByID("player") != nil && !g.collisionSystem.CanMoveTo("player", wx, wy))) {
 			continue
 		}
 		out = append(out, [2]int{nx, ny})
@@ -117,34 +117,14 @@ func (g *MMGame) spawnLeapingFish(key, species string, source [2]int, settings *
 	return m
 }
 
-// Called behind the normal menu/loading pause barriers, in RT and TB. Fish
-// move once per elapsed frame and never spend a monster AI turn or patrol.
-func (g *MMGame) updateFish() {
-	c := config.GlobalEcology
-	if c == nil || c.Fish == nil || g.world == nil || g.camera == nil || world.GlobalWorldManager == nil {
-		return
-	}
-	f := c.Fish
-	dt := 1 / float64(g.config.GetTPS())
-	for _, w := range ecologyWorlds() {
+// Loading replaces the timeline, including worlds absent from a legacy save.
+// Such worlds keep their authored rosters, but must never retain old flights.
+func (g *MMGame) discardFish() {
+	for w := range g.fishWorlds {
 		kept := w.Monsters[:0]
 		for _, m := range w.Monsters {
-			remove := false
-			if m.Disposition == "fish" {
-				if w != g.world {
-					remove = true
-				} else if m.IsAlive() {
-					remove = m.AdvanceFishLeap(dt)
-					if remove && m.FishLeap != nil && m.FishLeap.Beached {
-						g.addMonsterLootDrop(m, g.combat.rollMonsterLoot(m), 0)
-					}
-					if !remove {
-						g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-					}
-				}
-			}
-			if remove {
-				if w == g.world {
+			if m.IsFish() {
+				if w == g.world && g.collisionSystem != nil {
 					g.collisionSystem.UnregisterEntity(m.ID)
 				}
 				continue
@@ -154,16 +134,60 @@ func (g *MMGame) updateFish() {
 		clear(w.Monsters[len(kept):])
 		w.Monsters = kept
 	}
-	// A shared update cadence, not a spawn cooldown. Flights do not suppress
-	// later rolls, and each eligible tile rolls independently.
-	if g.ecology.FishRollFrames < 0 || g.ecology.FishRollFrames >= f.RollEveryFrames {
-		g.ecology.FishRollFrames = 0
-	}
-	g.ecology.FishRollFrames++
-	if g.ecology.FishRollFrames < f.RollEveryFrames {
+	g.fishWorlds = nil
+}
+
+// Called behind the normal menu/loading pause barriers, in RT and TB. Fish
+// move once per elapsed frame and never spend a monster AI turn or patrol.
+func (g *MMGame) updateFish() {
+	c := config.GlobalEcology
+	if c == nil || c.Fish == nil || g.world == nil || g.camera == nil || world.GlobalWorldManager == nil {
 		return
 	}
-	g.ecology.FishRollFrames = 0
+	f := c.Fish
+	dt := 1 / float64(g.config.GetTPS())
+	// Registration tracks only worlds with flights. Empty scenes do no roster
+	// scanning or world-list allocation between spawn rolls.
+	for w := range g.fishWorlds {
+		live := false
+		kept := w.Monsters[:0]
+		for _, m := range w.Monsters {
+			remove := false
+			if m.IsFish() {
+				if w != g.world {
+					remove = true
+				} else if m.IsAlive() {
+					remove = m.AdvanceFishLeap(dt)
+					if remove && m.FishLeap != nil && m.FishLeap.Beached {
+						g.addMonsterLootDrop(m, g.combat.rollMonsterLoot(m), 0)
+					}
+					if !remove {
+						live = true
+						if g.collisionSystem != nil {
+							g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+						}
+					}
+				}
+			}
+			if remove {
+				if w == g.world && g.collisionSystem != nil {
+					g.collisionSystem.UnregisterEntity(m.ID)
+				}
+				continue
+			}
+			kept = append(kept, m)
+		}
+		clear(w.Monsters[len(kept):])
+		w.Monsters = kept
+		if !live {
+			delete(g.fishWorlds, w)
+		}
+	}
+	// A shared update cadence, not a spawn cooldown. Flights do not suppress
+	// later rolls, and each eligible tile rolls independently.
+	if g.frameCount == 0 || g.frameCount%int64(f.RollEveryFrames) != 0 {
+		return
+	}
 	key := world.GlobalWorldManager.CurrentMapKey
 	species := f.Species[key]
 	if species == "" || f.SpawnChancePerTile <= 0 {

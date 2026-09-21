@@ -2,6 +2,11 @@ package monster
 
 import "ugataima/internal/config"
 
+const DispositionFish = "fish"
+
+// IsFish identifies transient ecology fish independently of their species.
+func (m *Monster3D) IsFish() bool { return m != nil && m.Disposition == DispositionFish }
+
 // IsAmbient separates persistent wildlife and travelers from authored hostile
 // rosters. It does not replace creature type (beast, undead, dragon, etc.).
 func (m *Monster3D) IsAmbient() bool { return m != nil && m.Disposition != "" }
@@ -19,7 +24,7 @@ func (m *Monster3D) Hunts(target *Monster3D) bool {
 
 // CanAttackActor is the shared relationship check used at selection AND commit.
 func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
-	if m == nil || target == nil || m == target || m.Disposition == "fish" || !m.IsAlive() || !target.IsAlive() || m.IsInertSetPiece() || m.Pacified || m.BossEvasive {
+	if m == nil || target == nil || m == target || m.IsFish() || target.IsFish() || !m.IsAlive() || !target.IsAlive() || m.IsInertSetPiece() || m.Pacified || m.BossEvasive {
 		return false
 	}
 	if m.Bound {

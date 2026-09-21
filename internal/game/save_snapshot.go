@@ -162,7 +162,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
 			// Leaping fish are brief visual encounters; only their drops persist.
-			if mon.Disposition == "fish" {
+			if mon.IsFish() {
 				continue
 			}
 			// Save the monster's own key (always set) - a name lookup is

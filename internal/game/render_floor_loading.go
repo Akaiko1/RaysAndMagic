@@ -58,6 +58,7 @@ func (r *Renderer) startFloorPreparation(key string, groups map[string][]string)
 	r.floorPreparation = &floorPreparation{key: key, cancel: cancel, result: result}
 	go func() {
 		defer close(result)
+		defer cache.Prune()
 		if ctx.Err() != nil {
 			return
 		}

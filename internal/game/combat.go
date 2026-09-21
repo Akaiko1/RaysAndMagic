@@ -3530,9 +3530,10 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 // summon's target selection, direct projectile collision, and AoE collateral.
 // Keeping all three on one policy prevents a bolt or splash from silently
 // provoking a passive creature that the summon's AI deliberately ignored.
+// Fish are party-only catches, including when an allied shot passes through.
 func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3D) bool {
 	return cs != nil && candidate != nil && candidate.IsAlive() &&
-		!candidate.IsPartyControlled() && candidate.Disposition != "caravan" &&
+		!candidate.IsPartyControlled() && !candidate.IsFish() && candidate.Disposition != "caravan" &&
 		!candidate.IsDamageInvulnerable() &&
 		!candidate.IsPassiveUntilProvoked() &&
 		!cs.bossEvasive(candidate)

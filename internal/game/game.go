@@ -176,6 +176,7 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	fishWorlds       map[*world.World3D]struct{} // Only worlds with transient live fish.
 	ecology          EcologyState
 	ecologyOwner     *MMGame
 	ecologyCaravan   *monster.Monster3D
@@ -982,6 +983,15 @@ func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	if m == nil {
 		return
+	}
+	if err := m.ValidateFishLeap(); err != nil {
+		panic(err)
+	}
+	if m.IsFish() {
+		if g.fishWorlds == nil {
+			g.fishWorlds = make(map[*world.World3D]struct{})
+		}
+		g.fishWorlds[g.world] = struct{}{}
 	}
 	g.world.Monsters = append(g.world.Monsters, m)
 	width, height := m.GetSize()

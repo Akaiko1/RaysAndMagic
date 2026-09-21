@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // PixelCache stores only reproducible CPU pixels. Call it from preparation
@@ -23,6 +24,7 @@ type PixelCache struct{ Dir string }
 
 const pixelCacheDiskLimit = 256 << 20
 const pixelCacheEntryLimit = 32 << 20
+const pixelCacheTempMaxAge = time.Hour
 
 var pixelCacheWriteMu sync.Mutex
 
@@ -127,8 +129,6 @@ func (c PixelCache) Store(ctx context.Context, key [32]byte, images []*image.RGB
 	if cachePixelBytes(sizes) == 0 {
 		return
 	}
-	pixelCacheWriteMu.Lock()
-	defer pixelCacheWriteMu.Unlock()
 	if ctx.Err() != nil || os.MkdirAll(c.Dir, 0755) != nil {
 		return
 	}
@@ -176,13 +176,23 @@ func (c PixelCache) Store(ctx context.Context, key [32]byte, images []*image.RGB
 	if err != nil || closeErr != nil || flushErr != nil || fileErr != nil || ctx.Err() != nil {
 		return
 	}
-	if os.Rename(f.Name(), c.path(key)) != nil {
-		return
+	// Compression and file I/O are independent across workers. Serialize only
+	// publication; cancellation while waiting must not publish an obsolete task.
+	pixelCacheWriteMu.Lock()
+	if ctx.Err() == nil {
+		_ = os.Rename(f.Name(), c.path(key))
 	}
-	c.prune(pixelCacheDiskLimit)
+	pixelCacheWriteMu.Unlock()
 }
 
+// Prune runs once when a preparation task ends, including cancellation. Recent
+// temporary files may belong to another process and are counted but retained.
+func (c PixelCache) Prune() { c.prune(pixelCacheDiskLimit) }
+
 func (c PixelCache) prune(limit int64) {
+	if c.Dir == "" {
+		return
+	}
 	entries, err := os.ReadDir(c.Dir)
 	if err != nil {
 		return
@@ -190,11 +200,19 @@ func (c PixelCache) prune(limit int64) {
 	var files []os.FileInfo
 	var total int64
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".rgba") {
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".rgba") && !strings.HasPrefix(e.Name(), ".pixels-")) {
 			continue
 		}
 		if info, err := e.Info(); err == nil {
-			files = append(files, info)
+			if strings.HasPrefix(e.Name(), ".pixels-") {
+				// Interrupted writers leave disposable files. Never delete a recent
+				// writer's temporary file merely because another task finishes first.
+				if time.Since(info.ModTime()) >= pixelCacheTempMaxAge && os.Remove(filepath.Join(c.Dir, e.Name())) == nil {
+					continue
+				}
+			} else {
+				files = append(files, info)
+			}
 			total += info.Size()
 		}
 	}

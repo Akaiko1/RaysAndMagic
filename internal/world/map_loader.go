@@ -233,9 +233,12 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 				if monster.MonsterConfig == nil {
 					return nil, fmt.Errorf("monster config is not loaded while resolving marker %q at (%d,%d)", monsterLetter, x, y)
 				}
-				_, monsterKey, err := monster.MonsterConfig.GetMonsterByLetterForBiome(monsterLetter, ml.biome)
+				def, monsterKey, err := monster.MonsterConfig.GetMonsterByLetterForBiome(monsterLetter, ml.biome)
 				if err != nil {
 					return nil, fmt.Errorf("unknown monster marker %q at (%d,%d) for biome %q: %w", monsterLetter, x, y, ml.biome, err)
+				}
+				if def.Disposition == monster.DispositionFish {
+					return nil, fmt.Errorf("fish %q at (%d,%d) cannot be an authored map spawn; use ecology fish spawning", monsterKey, x, y)
 				}
 				spawn := MonsterSpawn{
 					X:          x,

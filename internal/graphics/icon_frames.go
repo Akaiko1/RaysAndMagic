@@ -11,7 +11,7 @@ import (
 	"ugataima/internal/config"
 )
 
-const contentIconSize = 128
+const contentIconSize = config.ContentIconSize
 
 // HUD variants share the authored PNG and resource loader, but omit the
 // decorative content frame. Both surfaces use the same destination scaler.

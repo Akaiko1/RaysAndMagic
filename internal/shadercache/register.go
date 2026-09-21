@@ -93,13 +93,13 @@ func Initialize() {
 		if err != nil {
 			return
 		}
-		if err := initializeArchive(data, probeProcess, register); err != nil {
+		if err := initializeArchive(data, probeProcess, register, newShaderProbeCache()); err != nil {
 			log.Printf("Precompiled shaders unavailable; using runtime compilation: %v", err)
 		}
 	})
 }
 
-func initializeArchive(data []byte, probe func() error, publish func([]shaderArtifact)) error {
+func initializeArchive(data []byte, probe func() error, publish func([]shaderArtifact), cache shaderProbeCache) error {
 	shaders, err := decodeArchive(data)
 	if err != nil {
 		return err
@@ -107,7 +107,7 @@ func initializeArchive(data []byte, probe func() error, publish func([]shaderArt
 	if len(shaders) == 0 {
 		return nil
 	}
-	if err := probe(); err != nil {
+	if err := probeWithCache(data, cache.executable, cache.dir, probe); err != nil {
 		return err
 	}
 	publish(shaders)

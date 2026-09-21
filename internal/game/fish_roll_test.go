@@ -24,17 +24,20 @@ func TestFishIndependentTileRolls(t *testing.T) {
 						t.Fatalf("expected two connected water cells, got %d", count)
 					}
 					for i := 0; i < 119; i++ {
+						g.frameCount++
 						g.updateFish()
 					}
 					if len(g.world.Monsters) != 0 {
 						t.Fatal("fish spawned before frame 120")
 					}
+					g.frameCount++
 					g.updateFish()
 					want := int(chance) * count
 					if len(g.world.Monsters) != want {
 						t.Fatalf("first roll: got %d, want %d", len(g.world.Monsters), want)
 					}
 					for i := 0; i < 120; i++ {
+						g.frameCount++
 						g.updateFish()
 					}
 					if len(g.world.Monsters) != 2*want {
@@ -53,16 +56,17 @@ func TestFishIndependentTileRolls(t *testing.T) {
 
 func TestFishLegacyCooldownIgnored(t *testing.T) {
 	var state EcologyState
-	if err := json.Unmarshal([]byte(`{"fish_cooldowns":{"forest":999999},"deliveries":4}`), &state); err != nil {
+	if err := json.Unmarshal([]byte(`{"fish_cooldowns":{"forest":999999},"fish_roll_frames":119,"deliveries":4}`), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.FishRollFrames != 0 || state.Deliveries != 4 {
+	if state.Deliveries != 4 {
 		t.Fatal("legacy cooldown changed campaign state")
 	}
 	g, _, _ := fishTestGame(t, "forest")
 	g.ecology = state
 	config.GlobalEcology.Fish.SpawnChancePerTile = 1
 	for i := 0; i < 120; i++ {
+		g.frameCount++
 		g.updateFish()
 	}
 	if len(g.world.Monsters) != 2 {

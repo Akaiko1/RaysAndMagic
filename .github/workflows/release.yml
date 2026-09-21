@@ -22,12 +22,10 @@ jobs:
       - name: Precompile DirectX shaders
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
-          $fxc = Get-ChildItem $sdkBin -Filter fxc.exe -Recurse |
-            Where-Object { $_.Directory.Name -eq 'x64' } |
-            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
-            Select-Object -First 1
-          if (-not $fxc) { throw 'Windows SDK fxc.exe is required for release shaders' }
+          ./.github/scripts/test-fxc-discovery.ps1
+          $fxc = & ./.github/scripts/find-fxc.ps1 -SdkBin $sdkBin
           $env:PATH = "$($fxc.Directory.FullName);$env:PATH"
           go run ./tools/shadergen
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

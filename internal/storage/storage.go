@@ -95,31 +95,48 @@ var dataRoot string
 // during creation are logged to stderr; callers always receive a path string
 // even if the directory could not be created.
 func AppSaveDir() string {
-	if dataRoot != "" {
-		dir := filepath.Join(dataRoot, savesDirName)
-		err := os.MkdirAll(dir, 0755)
-		if err == nil {
+	roots := appDataRoots()
+	for _, root := range roots {
+		dir := filepath.Join(root, savesDirName)
+		if err := os.MkdirAll(dir, 0755); err == nil {
 			return dir
-		}
-		fmt.Fprintf(os.Stderr, "[storage] failed to create saves directory %q: %v\n", dir, err)
-	}
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		if !isTempExeDir(exeDir) {
-			dir := filepath.Join(exeDir, savesDirName)
-			if err := os.MkdirAll(dir, 0755); err == nil {
-				return dir
-			}
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		dir := filepath.Join(cwd, savesDirName)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		} else {
 			fmt.Fprintf(os.Stderr, "[storage] failed to create saves directory %q: %v\n", dir, err)
 		}
-		return dir
+	}
+	if len(roots) > 0 {
+		return filepath.Join(roots[len(roots)-1], savesDirName)
 	}
 	return savesDirName
+}
+
+// appDataRoots is shared by saves and disposable rendering data. A standalone
+// executable owns its adjacent directory even when Finder supplies cwd="/".
+func appDataRoots() []string {
+	executable, _ := os.Executable()
+	cwd, _ := os.Getwd()
+	return dataDirectoryRoots(dataRoot, executable, cwd)
+}
+
+func dataDirectoryRoots(root, executable, cwd string) []string {
+	var roots []string
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		for _, old := range roots {
+			if old == path {
+				return
+			}
+		}
+		roots = append(roots, path)
+	}
+	add(root)
+	if executable != "" && !isTempExeDir(filepath.Dir(executable)) {
+		add(filepath.Dir(executable))
+	}
+	add(cwd)
+	return roots
 }
 
 // AppSavePath joins filename with the resolved save directory.

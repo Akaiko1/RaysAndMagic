@@ -2,9 +2,14 @@ package shadercache
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,6 +20,73 @@ const probeEnv = "RAM_SHADER_PROBE"
 const probeSuccess = "RaysAndMagic shader validation complete"
 
 func isProbe() bool { return os.Getenv(probeEnv) == "1" }
+
+type shaderProbeCache struct{ executable, dir string }
+
+// The cache is per user and available before bundle data setup runs.
+func newShaderProbeCache() shaderProbeCache {
+	executable, err := os.Executable()
+	if err != nil {
+		return shaderProbeCache{}
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return shaderProbeCache{}
+	}
+	return shaderProbeCache{executable: executable, dir: filepath.Join(dir, "RaysAndMagic", "shader-probes")}
+}
+
+// Cache only successful GPU admission. Hash the binary itself, not its timestamp
+// or version label, so rebuilding either executable invalidates its own marker.
+func probeWithCache(data []byte, executable, dir string, probe func() error) error {
+	if dir == "" {
+		return probe()
+	}
+	key, err := probeCacheKey(data, executable)
+	if err != nil {
+		return probe()
+	}
+	marker := filepath.Join(dir, key+".ok")
+	if saved, err := os.ReadFile(marker); err == nil && string(saved) == probeSuccess {
+		return nil
+	}
+	if err := probe(); err != nil {
+		return err
+	}
+	if os.MkdirAll(dir, 0755) != nil {
+		return nil // Optional cache failure must not reject a validated archive.
+	}
+	f, err := os.CreateTemp(dir, ".shader-probe-*")
+	if err != nil {
+		return nil
+	}
+	defer os.Remove(f.Name())
+	_, writeErr := io.WriteString(f, probeSuccess)
+	closeErr := f.Close()
+	if writeErr == nil && closeErr == nil {
+		_ = os.Rename(f.Name(), marker)
+	}
+	return nil
+}
+
+func probeCacheKey(data []byte, executable string) (string, error) {
+	f, err := os.Open(executable)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	archiveHash := sha256.Sum256(data)
+	h.Write(archiveHash[:])
+	fmt.Fprintf(h, "%s\x00%s\x00%s\x00", executable, runtime.GOOS, runtime.GOARCH)
+	for _, name := range []string{"EBITENGINE_GRAPHICS_LIBRARY", "EBITEN_GRAPHICS_LIBRARY", "EBITENGINE_DIRECTX", "EBITEN_DIRECTX", "EBITENGINE_DIRECTX_FEATURE_LEVEL"} {
+		fmt.Fprintf(h, "%s=%s\x00", name, os.Getenv(name))
+	}
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 func probeProcess() error {
 	executable, err := os.Executable()

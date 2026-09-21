@@ -1,6 +1,7 @@
 package game
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -143,29 +144,36 @@ func TestFishScheduleAndSave(t *testing.T) {
 	f := config.GlobalEcology.Fish
 	f.SpawnChancePerTile = 1
 	for i := 0; i < f.RollEveryFrames-1; i++ {
+		g.frameCount++
 		g.updateFish()
 	}
 	if len(g.world.Monsters) != 0 {
 		t.Fatal("rolled before cadence boundary")
 	}
 	sources := len(g.fishSources("forest", f.RadiusTiles))
+	g.frameCount++
 	g.updateFish()
 	if sources < 2 || len(g.world.Monsters) != sources {
 		t.Fatal("did not roll independently for every water tile")
 	}
 	for i := 0; i < f.RollEveryFrames; i++ {
+		g.frameCount++
 		g.updateFish()
 	}
 	if len(g.world.Monsters) != 2*sources {
 		t.Fatal("active flights suppressed the next roll")
 	}
 	for i := 0; i < 20; i++ {
+		g.frameCount++
 		g.updateFish()
 	}
 	save := g.buildSave(wm)
 	raw, err := json.Marshal(save)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("fish_roll_frames")) {
+		t.Fatal("visual fish cadence written to save")
 	}
 	var restored GameSave
 	if err = json.Unmarshal(raw, &restored); err != nil {
@@ -181,13 +189,14 @@ func TestFishScheduleAndSave(t *testing.T) {
 			}
 		}
 	}
-	before := restored.Ecology.FishRollFrames
+	before := g.frameCount
 	if err = g.applySave(wm, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if len(g.world.Monsters) != 0 || g.ecology.FishRollFrames != before {
-		t.Fatal("load lost roll phase or restored a fish")
+	if len(g.world.Monsters) != 0 || len(g.fishWorlds) != 0 || g.frameCount != before {
+		t.Fatal("load changed world clock or restored a fish")
 	}
+	g.frameCount++
 	g.updateFish()
 	if len(g.world.Monsters) != 0 {
 		t.Fatal("reload spawned an immediate replacement")
@@ -222,6 +231,7 @@ func TestFishTravelAndReachableLoot(t *testing.T) {
 			old := g.world
 			g.world = newTestWorldSized(g.config, 30, 30)
 			wm.LoadedMaps["other"], wm.CurrentMapKey = g.world, "other"
+			g.frameCount++
 			g.updateFish()
 			if len(old.Monsters) != 0 || len(g.groundContainers) != 0 {
 				t.Fatal("travel retained fish or awarded remote loot")
@@ -303,7 +313,7 @@ func testFishPauseSharedWorldClock(t *testing.T, turnBased bool) {
 	}
 	g, _, _ := bootOpenWorldGame(t, true)
 	g.turnBasedMode = turnBased
-	g.ecology.FishRollFrames = 100
+	g.frameCount = 100
 	m := monster.NewMonster3DFromConfig(g.camera.X+128, g.camera.Y, "common_carp", g.config)
 	m.FishLeap = &monster.FishLeapState{FromX: m.X, FromY: m.Y, ToX: m.X + 64, ToY: m.Y, Duration: 1.8, PeakHeight: .7}
 	g.registerSpawnedMonster(m)
@@ -312,7 +322,7 @@ func testFishPauseSharedWorldClock(t *testing.T, turnBased bool) {
 		g.gameLoop.ui.renderedModalSnapshot = g.gameLoop.ui.topModalSnapshot()
 		g.gameLoop.updateExploration()
 	}
-	if m.FishLeap.Progress != 0 || g.ecology.FishRollFrames != 100 {
+	if m.FishLeap.Progress != 0 || g.frameCount != 100 {
 		t.Fatal("fish advanced behind paused overlay")
 	}
 	g.gameVictory = false

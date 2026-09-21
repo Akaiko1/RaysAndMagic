@@ -322,7 +322,7 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			if passive {
 				kinds = []string{"walking", "dying"}
 			}
-			fish := m.Disposition == "fish"
+			fish := m.IsFish()
 			if fish {
 				kinds = nil // Only the special leaping animation is authored.
 			}

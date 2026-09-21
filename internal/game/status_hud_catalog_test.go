@@ -60,7 +60,7 @@ func TestStatusHUDCatalog(t *testing.T) {
 						t.Fatalf("%s copied old art instead of using current content: %s", key, status.Icon)
 					}
 				}
-				if config.IsUnframedIcon(status.Icon) {
+				if config.GlobalIconFrames.Icons[status.Icon] != "" {
 					t.Fatalf("%s applies a decorative content frame", key)
 				}
 				if status.Duration != 120 || status.MaxDuration != 120 {

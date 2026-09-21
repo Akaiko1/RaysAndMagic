@@ -3,10 +3,12 @@ package graphics
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPixelCacheRoundTripAndInvalidation(t *testing.T) {
@@ -119,5 +121,150 @@ func TestPixelCacheUnavailableCancelledAndEviction(t *testing.T) {
 	}
 	if data, err := os.ReadFile(blocker); err != nil || string(data) != "keep" {
 		t.Fatal("pruning touched unrelated data")
+	}
+}
+
+func TestPixelCacheCompressionDoesNotHoldPublicationLock(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%v", cancelled), func(t *testing.T) {
+			c := PixelCache{Dir: t.TempDir()}
+			img := image.NewRGBA(image.Rect(0, 0, 512, 512))
+			key := PixelCacheKey("parallel", img)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan struct{})
+			pixelCacheWriteMu.Lock()
+			locked := true
+			defer func() {
+				if locked {
+					pixelCacheWriteMu.Unlock()
+				}
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Error("store did not finish")
+				}
+			}()
+			go func() { defer close(done); c.Store(ctx, key, []*image.RGBA{img}) }()
+			compressed := false
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				files, _ := filepath.Glob(filepath.Join(c.Dir, ".pixels-*"))
+				for _, file := range files {
+					if info, err := os.Stat(file); err == nil && info.Size() > 0 {
+						compressed = true
+					}
+				}
+				if compressed {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if !compressed {
+				t.Fatal("compression blocked behind another worker's publication lock")
+			}
+			if _, err := os.Stat(c.path(key)); !os.IsNotExist(err) {
+				t.Fatal("entry published before atomic rename")
+			}
+			if cancelled {
+				cancel()
+			}
+			pixelCacheWriteMu.Unlock()
+			locked = false
+			<-done
+			_, hit := c.Load(context.Background(), key, []image.Point{{X: 512, Y: 512}})
+			if hit == cancelled {
+				t.Fatalf("cache hit=%v after cancel=%v", hit, cancelled)
+			}
+			if files, _ := filepath.Glob(filepath.Join(c.Dir, ".pixels-*")); len(files) != 0 {
+				t.Fatal("store left temporary files")
+			}
+		})
+	}
+}
+
+func TestPixelCachePrunesAtTaskBoundaryAndCleansOrphans(t *testing.T) {
+	for _, pressure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pressure=%v", pressure), func(t *testing.T) {
+			c := PixelCache{Dir: t.TempDir()}
+			old := time.Now().Add(-2 * pixelCacheTempMaxAge)
+			for _, name := range []string{".pixels-abandoned", ".pixels-active", "unrelated"} {
+				file := filepath.Join(c.Dir, name)
+				if err := os.WriteFile(file, []byte("keep-or-clean"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if name != ".pixels-active" {
+					if err := os.Chtimes(file, old, old); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			oversized := filepath.Join(c.Dir, "old.rgba")
+			if pressure {
+				f, err := os.Create(oversized)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = f.Truncate(pixelCacheDiskLimit + 1)
+				closeErr := f.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if closeErr != nil {
+					t.Fatal(closeErr)
+				}
+				if err := os.Chtimes(oversized, old, old); err != nil {
+					t.Fatal(err)
+				}
+			}
+			img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+			key := PixelCacheKey("batch", img)
+			for i := 0; i < 4; i++ {
+				c.Store(context.Background(), key, []*image.RGBA{img})
+			}
+			if _, err := os.Stat(filepath.Join(c.Dir, ".pixels-abandoned")); err != nil {
+				t.Fatal("Store pruned during a batch")
+			}
+			if pressure {
+				if _, err := os.Stat(oversized); err != nil {
+					t.Fatal("Store scanned/evicted entries during a batch")
+				}
+			}
+			c.Prune()
+			if _, err := os.Stat(filepath.Join(c.Dir, ".pixels-abandoned")); !os.IsNotExist(err) {
+				t.Fatal("stale temporary file retained")
+			}
+			if pressure {
+				if _, err := os.Stat(oversized); !os.IsNotExist(err) {
+					t.Fatal("oversized cache not pruned")
+				}
+			}
+			for _, name := range []string{".pixels-active", "unrelated"} {
+				if _, err := os.Stat(filepath.Join(c.Dir, name)); err != nil {
+					t.Fatalf("prune removed %s", name)
+				}
+			}
+			if _, ok := c.Load(context.Background(), key, []image.Point{{X: 16, Y: 16}}); !ok {
+				t.Fatal("recent cache entry lost")
+			}
+		})
+	}
+}
+
+func TestPixelCacheCountsRecentTemporaryBytes(t *testing.T) {
+	c := PixelCache{Dir: t.TempDir()}
+	temp := filepath.Join(c.Dir, ".pixels-active")
+	if err := os.WriteFile(temp, make([]byte, 1024), 0600); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	key := PixelCacheKey("test", img)
+	c.Store(context.Background(), key, []*image.RGBA{img})
+	c.prune(1024)
+	if _, err := os.Stat(c.path(key)); !os.IsNotExist(err) {
+		t.Fatal("temporary bytes did not count towards the budget")
+	}
+	if _, err := os.Stat(temp); err != nil {
+		t.Fatal("active writer was removed")
 	}
 }

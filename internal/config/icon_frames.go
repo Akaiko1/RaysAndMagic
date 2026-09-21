@@ -3,9 +3,13 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/color"
+	_ "image/png"
 	"os"
 	"strings"
+
+	"ugataima/internal/spritecatalog"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,6 +20,9 @@ type IconFramesConfig struct {
 	Frames map[string]string `yaml:"frames"`
 	Icons  map[string]string `yaml:"icons"`
 }
+
+// ContentIconSize is the authored size shared by migrated art and frame masks.
+const ContentIconSize = 128
 
 var GlobalIconFrames *IconFramesConfig
 
@@ -48,12 +55,40 @@ func LoadIconFrames(path string) error {
 			return fmt.Errorf("icon frame references unknown content %q", icon)
 		}
 	}
+	paths, _ := spritecatalog.BuildIndex()
+	for style, path := range cfg.Frames {
+		if err := validateContentIconImage(path); err != nil {
+			return fmt.Errorf("icon frame %q: %w", style, err)
+		}
+	}
+	for icon := range cfg.Icons {
+		path := paths[icon]
+		if path == "" {
+			return fmt.Errorf("unframed icon %q has no source PNG", icon)
+		}
+		if err := validateContentIconImage(path); err != nil {
+			return fmt.Errorf("unframed icon %q: %w", icon, err)
+		}
+	}
 	GlobalIconFrames = &cfg
 	return nil
 }
 
-func IsUnframedIcon(name string) bool {
-	return GlobalIconFrames != nil && GlobalIconFrames.Icons[name] != ""
+// Decode only the header: reject invalid source dimensions before workers start.
+func validateContentIconImage(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if cfg.Width != ContentIconSize || cfg.Height != ContentIconSize {
+		return fmt.Errorf("%s must be %dx%d, got %dx%d", path, ContentIconSize, ContentIconSize, cfg.Width, cfg.Height)
+	}
+	return nil
 }
 
 // IconFrameColor resolves semantic content metadata, never an icon's pixels.

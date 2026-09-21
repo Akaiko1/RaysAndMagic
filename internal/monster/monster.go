@@ -104,7 +104,7 @@ func (m *Monster3D) IsPassiveUntilProvoked() bool {
 // monster behavior. It intentionally does not decide whether a normal monster
 // can first see the party; CanStartPlayerEngagement owns that geometry gate.
 func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
-	if m == nil || m.IsInertSetPiece() || m.Disposition == "fish" {
+	if m == nil || m.IsInertSetPiece() || m.IsFish() {
 		return AIBehaviorInert
 	}
 	if m.Bound {
@@ -288,7 +288,6 @@ type Monster3D struct {
 	LastChosenDir float64 // Last direction chosen by pathfinding
 	StuckCounter  int     // Counts consecutive frames where monster couldn't move
 	LastX, LastY  float64 // Position last frame to detect stuck state
-	LastMoveTick  int64   // Last game frame when the monster moved (for animations)
 
 	// Pursuit pathfinding state (tile-based A*)
 	PathTiles        []TileCoord

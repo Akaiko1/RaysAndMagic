@@ -62,7 +62,7 @@ func TestShaderArchiveFallback(t *testing.T) {
 					return errors.New("backend rejected binary")
 				}
 				return nil
-			}, func([]shaderArtifact) { published = true })
+			}, func([]shaderArtifact) { published = true }, shaderProbeCache{})
 			if published != tc.wantPublish {
 				t.Fatalf("published=%v error=%v", published, err)
 			}
@@ -124,13 +124,26 @@ func TestShaderNativeValidationAndFallback(t *testing.T) {
 			}
 			t.Setenv("RAM_SHADER_TEST_ARCHIVE", file)
 			published := false
-			err := initializeArchive(payload, probeProcess, func([]shaderArtifact) { published = true })
+			executable, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cache := shaderProbeCache{executable: executable, dir: t.TempDir()}
+			probes := 0
+			probe := func() error { probes++; return probeProcess() }
+			err = initializeArchive(payload, probe, func([]shaderArtifact) { published = true }, cache)
 			if strings.HasPrefix(mode, "rejected/") {
 				if err == nil || published {
 					t.Fatal("rejected binaries reached parent")
 				}
 			} else if err != nil || !published {
 				t.Fatalf("%s: %v", mode, err)
+			}
+			if !strings.HasPrefix(mode, "rejected/") {
+				published = false
+				if err := initializeArchive(payload, probe, func([]shaderArtifact) { published = true }, cache); err != nil || !published || probes != 1 {
+					t.Fatalf("validated restart: published=%v probes=%d err=%v", published, probes, err)
+				}
 			}
 		})
 	}

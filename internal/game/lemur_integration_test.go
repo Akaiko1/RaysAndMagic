@@ -232,22 +232,25 @@ func TestLemurInterruptedJumpFindsReachableLanding(t *testing.T) {
 }
 
 func TestLemurPartialSlowProgression(t *testing.T) {
-	for _, turn := range []bool{false, true} {
-		t.Run(fmt.Sprintf("TB=%v", turn), func(t *testing.T) {
-			g, m, _ := lemurTestGame(t, "ring_tailed_lemur")
-			m.Speed = config.GlobalEcology.TurnStepSpeed
-			stepLemur(g, m, false)
-			before, x, y := m.Arbor, m.X, m.Y
-			m.AmbientMoveCredit = 0
-			stepLemur(g, m, turn)
-			normal := m.Arbor.Progress - before.Progress
-			m.Arbor, m.X, m.Y, m.AmbientMoveCredit = before, x, y, 0
-			m.ApplySlow(50, 100, 100)
-			stepLemur(g, m, turn)
-			stepLemur(g, m, turn)
-			if got := m.Arbor.Progress - before.Progress; math.Abs(got-normal) > 1e-9 {
-				t.Fatalf("50 percent Slow should take two updates: normal=%f slow=%f", normal, got)
-			}
-		})
+	for _, tps := range []int{60, 120, 240} {
+		for _, turn := range []bool{false, true} {
+			t.Run(fmt.Sprintf("TPS=%d/TB=%v", tps, turn), func(t *testing.T) {
+				g, m, _ := lemurTestGame(t, "ring_tailed_lemur")
+				g.config.Engine.TPS = tps
+				m.Speed = config.GlobalEcology.TurnStepSpeed
+				stepLemur(g, m, false)
+				before, x, y := m.Arbor, m.X, m.Y
+				m.AmbientMoveCredit = 0
+				stepLemur(g, m, turn)
+				normal := m.Arbor.Progress - before.Progress
+				m.Arbor, m.X, m.Y, m.AmbientMoveCredit = before, x, y, 0
+				m.ApplySlow(50, 100, 100)
+				stepLemur(g, m, turn)
+				stepLemur(g, m, turn)
+				if got := m.Arbor.Progress - before.Progress; math.Abs(got-normal) > 1e-9 {
+					t.Fatalf("50 percent Slow should take two updates: normal=%f slow=%f", normal, got)
+				}
+			})
+		}
 	}
 }

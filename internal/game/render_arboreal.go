@@ -13,7 +13,7 @@ var arborealAnimations = []string{"climbing", "jumping", "descending", "perched"
 func monsterSpecialAnimations(key string) []string {
 	if monster.MonsterConfig != nil {
 		if def, ok := monster.MonsterConfig.Monsters[key]; ok {
-			if def.Disposition == "fish" {
+			if def.Disposition == monster.DispositionFish {
 				return []string{"leaping"}
 			}
 			if def.Arboreal != nil {

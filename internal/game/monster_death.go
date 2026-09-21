@@ -127,7 +127,7 @@ func (g *MMGame) updateMonsterDeaths() {
 }
 
 func (g *MMGame) monsterLootLanding(m *monster.Monster3D) (float64, float64) {
-	if m.Disposition == "fish" {
+	if m.IsFish() {
 		return g.fishLootLanding(m)
 	}
 	if m.Arbor.Phase != "" && g.world != nil && g.world.CanMoveTo(m.Arbor.GroundX, m.Arbor.GroundY) {
@@ -166,7 +166,7 @@ func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, go
 		return
 	}
 	x, y := m.X, m.Y
-	if m.Disposition == "fish" {
+	if m.IsFish() {
 		x, y = g.monsterLootLanding(m)
 	}
 	hop := lootHop{}

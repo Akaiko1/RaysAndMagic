@@ -17,7 +17,6 @@ import (
 
 // EcologyState belongs to the campaign, never the account-wide profile.
 type EcologyState struct {
-	FishRollFrames   int            `json:"fish_roll_frames,omitempty"`
 	PopulationPhases map[string]int `json:"population_phases,omitempty"`
 	Unlocked         bool           `json:"unlocked,omitempty"`
 	ActorID          string         `json:"actor_id,omitempty"`
@@ -178,7 +177,7 @@ func (g *MMGame) replenishWildlife() {
 }
 
 func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
-	if m.Disposition == "fish" {
+	if m.IsFish() {
 		return true
 	}
 	if !m.IsAmbient() || m.IsPartyControlled() {
@@ -193,7 +192,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	}
 	tx, ty := m.X, m.Y
 	best := m.AmbientAwarenessRadius()
-	if g.camera != nil && Distance(m.X, m.Y, g.camera.X, g.camera.Y) < best && (m.Arbor.Height > 0 || g.collisionSystem.CheckLineOfSight(m.X, m.Y, g.camera.X, g.camera.Y)) {
+	if g.camera != nil && Distance(m.X, m.Y, g.camera.X, g.camera.Y) < best && (g.collisionSystem == nil || g.collisionSystem.CheckLineOfSight(m.X, m.Y, g.camera.X, g.camera.Y)) {
 		tx, ty = g.camera.X, g.camera.Y
 		best = Distance(m.X, m.Y, tx, ty)
 		m.AmbientFlee = true
@@ -203,7 +202,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 			continue
 		}
 		d := Distance(m.X, m.Y, other.X, other.Y)
-		if d < best && g.collisionSystem.CheckLineOfSight(m.X, m.Y, other.X, other.Y) {
+		if d < best && (g.collisionSystem == nil || g.collisionSystem.CheckLineOfSight(m.X, m.Y, other.X, other.Y)) {
 			best, tx, ty = d, other.X, other.Y
 			m.AmbientFlee = true
 		}
@@ -221,7 +220,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 				continue
 			}
 			d := Distance(m.X, m.Y, other.X, other.Y)
-			if d < best && g.collisionSystem.CheckLineOfSight(m.X, m.Y, other.X, other.Y) {
+			if d < best && (g.collisionSystem == nil || g.collisionSystem.CheckLineOfSight(m.X, m.Y, other.X, other.Y)) {
 				best = d
 				m.AIFoe = other
 				tx, ty = other.X, other.Y
