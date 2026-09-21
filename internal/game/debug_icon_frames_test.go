@@ -111,8 +111,8 @@ func TestDebugSim_IconFrameGallery(t *testing.T) {
 	})
 }
 
-// Use actual composed assets and the HUD entry point. Plain and timed HUD
-// cells must retain the same single outer frame as inventory/book scaling.
+// Inspect actual composed content assets at inventory/book and compact sizes.
+// Status HUD icons have their own presentation and catalog test.
 func TestDebugSim_MigratedIconCatalog(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("requires live GPU")
@@ -131,7 +131,6 @@ func TestDebugSim_MigratedIconCatalog(t *testing.T) {
 	sort.Strings(names)
 	runOnDrawFrame(func(*ebiten.Image) {
 		sm := graphics.NewSpriteManager()
-		ui := &UISystem{game: &MMGame{sprites: sm}}
 		canvas := ebiten.NewImage(960, 720)
 		defer canvas.Deallocate()
 		for start := 0; start < len(names); start += 24 {
@@ -146,42 +145,8 @@ func TestDebugSim_MigratedIconCatalog(t *testing.T) {
 				drawImageScaled(canvas, sprite, x, y, 128, 128)
 				label := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name, "icon_item_"), "icon_weapon_"), "icon_spell_"), "icon_trap_")
 				drawDebugText(canvas, label, x, y+132)
-				ui.drawSpellIcon(canvas, x, y+146, 24, name, "", 0, 0)
-				ui.drawSpellIcon(canvas, x+34, y+146, 24, name, "", 50, 100)
-				for _, size := range []int{24, 32, 64, 128} {
-					plain, hud, timed := ebiten.NewImage(size, size), ebiten.NewImage(size, size), ebiten.NewImage(size, size)
-					drawImageScaled(plain, sprite, 0, 0, size, size)
-					ui.drawSpellIcon(hud, 0, 0, size, name, "", 0, 0)
-					ui.drawSpellIcon(timed, 0, 0, size, name, "", 50, 100)
-					want, got, withBar := snapshotUIImage(plain), snapshotUIImage(hud), snapshotUIImage(timed)
-					if !bytes.Equal(want.Pix, got.Pix) {
-						maxDelta := 0
-						for j, v := range want.Pix {
-							d := int(v) - int(got.Pix[j])
-							maxDelta = max(maxDelta, d, -d)
-						}
-						// Fractional minification at different GPU atlas offsets
-						// can round a filtered channel by one byte.
-						if maxDelta > 1 {
-							t.Errorf("%s at %d: HUD pixel difference, maximum channel delta %d", name, size, maxDelta)
-						}
-					}
-					inset := sm.ContentIconFrameInset(name, size)
-					for py := 0; py < size; py++ {
-						for px := 0; px < size; px++ {
-							if px >= inset && px < size-inset && py >= inset && py < size-inset {
-								continue
-							}
-							if !iconPixelNear(want.RGBAAt(px, py), withBar.RGBAAt(px, py)) {
-								t.Errorf("%s at %d: duration bar covers frame at %d,%d", name, size, px, py)
-								break
-							}
-						}
-					}
-					plain.Deallocate()
-					hud.Deallocate()
-					timed.Deallocate()
-				}
+				drawImageScaled(canvas, sprite, x, y+146, 24, 24)
+				drawImageScaled(canvas, sprite, x+34, y+146, 32, 32)
 				sm.EvictResource(name, "")
 			}
 			if folder := os.Getenv("RAM_ICON_GALLERY"); folder != "" {
@@ -198,15 +163,6 @@ func TestDebugSim_MigratedIconCatalog(t *testing.T) {
 			}
 		}
 	})
-}
-
-func iconPixelNear(a, b color.RGBA) bool {
-	for _, d := range []int{int(a.R) - int(b.R), int(a.G) - int(b.G), int(a.B) - int(b.B), int(a.A) - int(b.A)} {
-		if d < -1 || d > 1 {
-			return false
-		}
-	}
-	return true
 }
 
 // Show each inventory card beside its independent full illustration through

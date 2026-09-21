@@ -1277,11 +1277,8 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 
 // drawSpellIcon draws a single spell status icon with duration bar and returns clickable bounds
 func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fallback string, currentDuration, maxDuration int) (int, int, int, int) {
-	unframed := config.IsUnframedIcon(icon)
-	if !unframed {
-		vector.FillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{4, 7, 12, 245}, false)
-		vector.FillRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), color.RGBA{22, 29, 42, 210}, false)
-	}
+	vector.FillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{4, 7, 12, 245}, false)
+	vector.FillRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), color.RGBA{22, 29, 42, 210}, false)
 
 	if icon != "" {
 		sprite := ui.game.sprites.GetSprite(icon)
@@ -1289,25 +1286,16 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 	} else if fallback != "" {
 		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
-	if !unframed {
-		vector.StrokeRect(screen, float32(x), float32(y), float32(size), float32(size), 1, color.RGBA{195, 162, 82, 245}, false)
-		vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), 1, color.RGBA{82, 119, 164, 220}, false)
-	}
+	vector.StrokeRect(screen, float32(x), float32(y), float32(size), float32(size), 1, color.RGBA{195, 162, 82, 245}, false)
+	vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), 1, color.RGBA{82, 119, 164, 220}, false)
 
 	// Draw duration bar at bottom of icon
 	if maxDuration > 0 {
 		barWidth := size
 		barHeight := 3
-		barX, barY := x, y+size-barHeight
-		if unframed {
-			inset := ui.game.sprites.ContentIconFrameInset(icon, size)
-			barX += inset
-			barY -= inset
-			barWidth = max(0, size-2*inset)
-		}
 
 		// Background bar (gray)
-		vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{60, 60, 60, 200}, false)
+		vector.FillRect(screen, float32(x), float32(y+size-barHeight), float32(barWidth), float32(barHeight), color.RGBA{60, 60, 60, 200}, false)
 
 		// Duration bar (colored based on remaining time)
 		if currentDuration > 0 {
@@ -1324,7 +1312,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 					barColor = color.RGBA{200, 100, 0, 255} // Orange-red
 				}
 
-				vector.FillRect(screen, float32(barX), float32(barY), float32(fillWidth), float32(barHeight), barColor, false)
+				vector.FillRect(screen, float32(x), float32(y+size-barHeight), float32(fillWidth), float32(barHeight), barColor, false)
 			}
 		}
 	}
