@@ -27,8 +27,8 @@ func statusHUDCatalog() []string {
 }
 
 // All authored spell and consumable statuses share the compact HUD policy.
-// Both first activation and reconstruction from active effects resolve dedicated
-// status art; inventory migration metadata must never decorate those sources.
+// Activation and reconstruction use either existing dedicated art or the new
+// shared content source without a decorative frame; no copied legacy art.
 func TestStatusHUDCatalog(t *testing.T) {
 	cfg := loadTestConfig(t)
 	t.Chdir("../..")
@@ -51,8 +51,14 @@ func TestStatusHUDCatalog(t *testing.T) {
 				if status == nil {
 					t.Fatal("no active status")
 				}
-				if !strings.HasPrefix(status.Icon, "status_") || !g.sprites.HasSprite(status.Icon) {
-					t.Fatalf("%s uses inventory/book art or missing HUD source: %s", key, status.Icon)
+				if (!strings.HasPrefix(status.Icon, "status_") && !strings.HasPrefix(status.Icon, "hud_icon_")) || !g.sprites.HasSprite(status.Icon) {
+					t.Fatalf("%s has a decorated or missing HUD source: %s", key, status.Icon)
+				}
+				if strings.HasPrefix(status.Icon, "status_") {
+					token := config.GlobalSpells.Spells[key]
+					if token == nil || (token.StatusIcon != "bless" && token.StatusIcon != "torch" && token.StatusIcon != "eye" && token.StatusIcon != "water_walk" && token.StatusIcon != "water_breathing") {
+						t.Fatalf("%s copied old art instead of using current content: %s", key, status.Icon)
+					}
 				}
 				if config.IsUnframedIcon(status.Icon) {
 					t.Fatalf("%s applies a decorative content frame", key)

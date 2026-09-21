@@ -394,6 +394,7 @@ func (sm *SpriteManager) ensureIndex() {
 		return
 	}
 	sm.spritePaths, sm.spriteDirType = buildSpriteIndex()
+	sm.indexHUDIcons()
 }
 
 var (

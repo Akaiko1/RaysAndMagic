@@ -51,6 +51,21 @@ func TestContentIconPreparation(t *testing.T) {
 				request := SpriteResourceRequest{Name: "icon_item_test"}
 				sm.spritePaths = map[string]string{request.Name: path}
 				sm.spriteDirType = map[string]string{request.Name: "interface"}
+				sm.indexHUDIcons()
+				hudRequest := SpriteResourceRequest{Name: sm.HUDIconName(request.Name)}
+				hud := sm.decodePreparedResource(hudRequest)
+				if !hud.Found || !bytes.Equal(hud.CPU.Pix, art.Pix) {
+					t.Fatal("HUD must use the exact current art without a content frame or resize")
+				}
+				if sm.HUDIconName("status_bless") != "status_bless" {
+					t.Fatal("dedicated status art was changed")
+				}
+				for result := range sm.PrepareResources(context.Background(), []SpriteResourceRequest{hudRequest}) {
+					if !result.Found || !bytes.Equal(result.CPU.Pix, art.Pix) {
+						t.Fatal("asynchronous HUD loading added a frame or changed the art")
+					}
+					result.QueueLease.Release()
+				}
 				want := sm.decodePreparedResource(request)
 				if !want.Found {
 					t.Fatal("icon not prepared")

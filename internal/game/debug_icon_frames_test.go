@@ -171,7 +171,7 @@ func TestDebugSim_CardArtworkGallery(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("requires live GPU")
 	}
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
 	t.Chdir("../..")
 	old := config.GlobalIconFrames
 	t.Cleanup(func() { config.GlobalIconFrames = old })
@@ -187,6 +187,7 @@ func TestDebugSim_CardArtworkGallery(t *testing.T) {
 	sort.Strings(keys)
 	runOnDrawFrame(func(*ebiten.Image) {
 		sm := graphics.NewSpriteManager()
+		ApplySpriteColorKey(sm, cfg)
 		canvas := ebiten.NewImage(960, 880)
 		defer canvas.Deallocate()
 		for start := 0; start < len(keys); start += 12 {

@@ -6,13 +6,44 @@ import (
 	"image/color"
 	"image/draw"
 	"os"
+	"strings"
 
 	"ugataima/internal/config"
 )
 
 const contentIconSize = 128
 
+// HUD variants share the authored PNG and resource loader, but omit the
+// decorative content frame. Both surfaces use the same destination scaler.
+const hudIconPrefix = "hud_"
+
+func (sm *SpriteManager) HUDIconName(name string) string {
+	if _, ok := sm.iconFrames[name]; ok {
+		return hudIconPrefix + name
+	}
+	return name
+}
+
+func (sm *SpriteManager) indexHUDIcons() {
+	for name := range sm.iconFrames {
+		if path := sm.spritePaths[name]; path != "" {
+			sm.spritePaths[hudIconPrefix+name] = path
+			sm.spriteDirType[hudIconPrefix+name] = sm.spriteDirType[name]
+		}
+	}
+}
+
 func (sm *SpriteManager) prepareSpritePixels(name string, src image.Image) image.Image {
+	// Full illustrations have painted backgrounds, not a sprite chroma key.
+	// Preserve intentional magenta and purple in every loading/metadata path.
+	if strings.HasPrefix(name, "full_art_") {
+		return src
+	}
+	if base, hud := strings.CutPrefix(name, hudIconPrefix); hud {
+		if _, ok := sm.iconFrames[base]; ok {
+			return sm.applyColorKey(base, src)
+		}
+	}
 	return sm.composeContentIcon(name, sm.applyColorKey(name, src))
 }
 
