@@ -656,7 +656,7 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 
 const tooltipCompareGap = 8
 const tooltipScreenMargin = 8
-const tooltipIconSize = 64
+const tooltipIconSize = 128
 const tooltipIconGap = 8
 
 func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
