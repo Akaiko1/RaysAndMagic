@@ -1519,6 +1519,9 @@ func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
 // worldClickAllowed reports whether a click can reach world objects (no menu,
 // dialog or overlay is swallowing the game view).
 func (g *MMGame) worldClickAllowed() bool {
+	if g.editorPreview != nil {
+		return false
+	}
 	if g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame {
 		return false
 	}

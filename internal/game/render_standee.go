@@ -572,8 +572,8 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
 //
-//	custom.xy  far/near perpendicular depth
-//	custom.zw  far/near source U
+//	custom.xy  far/near reciprocal perpendicular depth
+//	custom.zw  far/near source U divided by depth
 //	srcPos.xy  height/bottom projection invariants
 //	color      brightness, wall depth, wall top, shell count
 //
@@ -606,10 +606,10 @@ func addFront(acc vec4, c vec4) vec4 {
 }
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
-	farDepth := custom.x
-	nearDepth := custom.y
-	farU := custom.z
-	nearU := custom.w
+	farDepth := 1.0/custom.x
+	nearDepth := 1.0/custom.y
+	farU := custom.z*farDepth
+	nearU := custom.w*nearDepth
 	projection := srcPos - imageSrc0Origin()
 	dstY := dstPos.y - imageDstOrigin().y
 	wallDepth := color.g
@@ -1143,6 +1143,15 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	if !fok0 || !nok0 {
 		return false
 	}
+	farEnd, _, farOK := intersection(far, float64(maxX+1))
+	nearEnd, _, nearOK := intersection(near, float64(maxX+1))
+	if !farOK || !nearOK {
+		return false
+	}
+	spanWidth := float64(maxX + 1 - minX)
+	farInv, nearInv := 1/f0Depth, 1/n0Depth
+	farInvStep := (1/farEnd - farInv) / spanWidth
+	nearInvStep := (1/nearEnd - nearInv) / spanWidth
 	heightScale := float32(slab.centerSize * slab.centerDepth)
 	bottomScale := float32((slab.bottomY - float64(screenH)/2) * slab.centerDepth)
 	filterData := float32(0)
@@ -1153,9 +1162,40 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	depthBuffer := r.game.depthBuffer
 	wallTopBuffer := r.game.wallTopBuffer
 	sourceOrigin := stickerMips.levels[0].Bounds().Min
-	for x := minX; x <= maxX; x++ {
-		f1Depth, f1U, fok1 := intersection(far, float64(x+1))
-		n1Depth, n1U, nok1 := intersection(near, float64(x+1))
+	// Ignore walls wholly behind both faces, then coalesce identical shader
+	// clipping inputs. Reciprocal depth is affine across the screen, so its
+	// endpoint minimum conservatively bounds every layer throughout a column.
+	// A small margin keeps floating-point ties on the original clipping path.
+	wallAt := func(x int) (depth, top float32) {
+		depth = float32(viewDistance)
+		if x >= 0 && x < len(depthBuffer) {
+			if d := depthBuffer[x]; d > 0 && d < viewDistance {
+				offset := float64(x - minX)
+				minInv := min(farInv+farInvStep*offset, farInv+farInvStep*(offset+1),
+					nearInv+nearInvStep*offset, nearInv+nearInvStep*(offset+1))
+				if float64(float32(d))*minInv > 1.00001 {
+					return
+				}
+				depth = float32(d)
+				if x < len(wallTopBuffer) {
+					top = float32(min(max(wallTopBuffer[x], 0), screenH))
+				}
+			}
+		}
+		return
+	}
+	for x := minX; x <= maxX; {
+		wallDepth, wallTop := wallAt(x)
+		end := x + 1
+		for end <= maxX {
+			d, top := wallAt(end)
+			if d != wallDepth || top != wallTop {
+				break
+			}
+			end++
+		}
+		f1Depth, f1U, fok1 := intersection(far, float64(end))
+		n1Depth, n1U, nok1 := intersection(near, float64(end))
 		if !fok1 || !nok1 {
 			r.standeeVerts = vertices[:0]
 			r.standeeMaterialIdx = indices[:0]
@@ -1164,43 +1204,31 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		if math.Max(math.Max(f0U, f1U), math.Max(n0U, n1U)) < 0 ||
 			math.Min(math.Min(f0U, f1U), math.Min(n0U, n1U)) > 1 {
 			f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
+			x = end
 			continue
 		}
 
+		// Each projected edge is linear. The endpoint union conservatively
+		// encloses both faces; sourcePosition rejects any uncovered pixels.
 		fTop0, fBottom0 := geometryAt(f0Depth)
 		nTop0, nBottom0 := geometryAt(n0Depth)
 		fTop1, fBottom1 := geometryAt(f1Depth)
 		nTop1, nBottom1 := geometryAt(n1Depth)
 		top0, bottom0 := min(fTop0, nTop0), max(fBottom0, nBottom0)
 		top1, bottom1 := min(fTop1, nTop1), max(fBottom1, nBottom1)
-		x0, x1 := float32(x), float32(x+1)
+		x0, x1 := float32(x), float32(end)
 		base := uint32(len(vertices))
 
-		wallDepth := viewDistance
-		wallTop := 0.0
-		if x >= 0 && x < len(depthBuffer) {
-			if depth := depthBuffer[x]; depth > 0 && depth < wallDepth {
-				wallDepth = depth
-				if x < len(wallTopBuffer) {
-					wallTop = float64(wallTopBuffer[x])
-				}
-			}
-		}
-		if wallTop < 0 {
-			wallTop = 0
-		} else if wallTop > float64(screenH) {
-			wallTop = float64(screenH)
-		}
 		left := ebiten.Vertex{
 			DstX: x0, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(f0Depth), Custom1: float32(n0Depth),
-			Custom2: float32(mirrorU(f0U)), Custom3: float32(mirrorU(n0U)),
+			Custom0: float32(1 / f0Depth), Custom1: float32(1 / n0Depth),
+			Custom2: float32(mirrorU(f0U) / f0Depth), Custom3: float32(mirrorU(n0U) / n0Depth),
 			ColorR: slab.rr, ColorG: float32(wallDepth), ColorB: float32(wallTop), ColorA: packedShells,
 		}
 		right := ebiten.Vertex{
 			DstX: x1, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(f1Depth), Custom1: float32(n1Depth),
-			Custom2: float32(mirrorU(f1U)), Custom3: float32(mirrorU(n1U)),
+			Custom0: float32(1 / f1Depth), Custom1: float32(1 / n1Depth),
+			Custom2: float32(mirrorU(f1U) / f1Depth), Custom3: float32(mirrorU(n1U) / n1Depth),
 			ColorR: slab.rr, ColorG: float32(wallDepth), ColorB: float32(wallTop), ColorA: packedShells,
 		}
 		left.DstY, right.DstY = top0, top1
@@ -1209,6 +1237,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		vertices = append(vertices, left, right)
 		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
+		x = end
 	}
 	if len(indices) == 0 {
 		r.standeeVerts = vertices[:0]

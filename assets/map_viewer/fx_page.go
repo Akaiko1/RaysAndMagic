@@ -177,7 +177,7 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 		if i == fxPage.selIdx {
 			vector.FillRect(list, 0, float32(ry-3), float32(fxListW), float32(fxRowH), color.RGBA{60, 90, 140, 200}, false)
 		}
-		ebitenutil.DebugPrintAt(list, fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), 8, ry)
+		ebitenutil.DebugPrintAt(list, clipText(fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), fxListW-16), 8, ry)
 	}
 
 	// Right: the sandbox scene, aspect-fit into the remaining panel.
@@ -185,7 +185,7 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 	panelX := fxListW + contentPad
 	panelY := pageBarHeight + contentPad
 	panelW := windowWidth - panelX - contentPad
-	panelH := windowHeight - panelY - contentPad - 24
+	panelH := windowHeight - panelY - contentPad - 48
 	sw, sh := scene.Bounds().Dx(), scene.Bounds().Dy()
 	scale := float64(panelW) / float64(sw)
 	if s := float64(panelH) / float64(sh); s < scale {
@@ -198,7 +198,8 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 	graphics.DrawImageScaled(screen, scene, float64(dx), float64(dy), float64(sw)*scale, float64(sh)*scale, nil)
 
 	sel := fxPage.items[fxPage.selIdx]
-	ebitenutil.DebugPrintAt(screen,
-		fmt.Sprintf("%s %s  (key: %s)  - Up/Down select, wheel scroll", fxKindTag(sel.Kind), sel.Label, sel.Key),
-		panelX, windowHeight-20)
+	for i, line := range wrapTooltipLines(fmt.Sprintf("%s %s (key: %s)", fxKindTag(sel.Kind), sel.Label, sel.Key), game.ShadedTextColumns(panelW)) {
+		ebitenutil.DebugPrintAt(screen, line, panelX, windowHeight-48+i*14)
+	}
+	ebitenutil.DebugPrintAt(screen, "Up/Down: select effect   Wheel: scroll list", panelX, windowHeight-18)
 }

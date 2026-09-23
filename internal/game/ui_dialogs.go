@@ -1217,24 +1217,12 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	})
 	ui.drawStashCarriedIcon(screen)
 
-	// Full item card on hover, floating at the cursor (drawn over everything via
-	// the queued tooltip pass). selectedChar is bounds-guarded - a stale index
-	// (party shrank) must not panic on this per-frame hover path. We resolve to a
-	// real member (clamping a stale index) so the formatter never sees a nil char.
+	// The shop and editor share the base card, independent of selected character.
 	if tooltipHasItem {
-		{
-			// Shop tooltips show the ITEM's own base numbers (nil char = base
-			// view) - never scaled by whichever party member is selected.
-			tip := GetItemTooltip(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
-			if tip != "" {
-				lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
-				plate, titleText := ui.itemTitleColors(tooltipItem)
-				var bodyColors []color.Color
-				if titleText != nil { // gear keeps its rarity-metal body
-					bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
-				}
-				ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), mouseX+16, mouseY+8)
-			}
+		tip := GetItemTooltip(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
+		if tip != "" {
+			lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
+			ui.queueItemTooltip(lines, tooltipItem, nil, mouseX+16, mouseY+8)
 		}
 	}
 

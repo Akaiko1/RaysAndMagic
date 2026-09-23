@@ -112,7 +112,7 @@ func TestEquipmentComparisonCatalog(t *testing.T) {
 						assertComparisonDelta(t, text, config.TitleWords(stat), oldStats.ValueByName(stat), newStats.ValueByName(stat), "")
 					}
 					for _, size := range [][2]int{{minW, minH}, {1280, 720}, {1920, 1080}} {
-						_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, size[0]/2-tooltipCompareGap)
+						_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, size[0]/2-tooltipCompareGap, size[1])
 						if height > size[1] {
 							t.Fatalf("comparison clipped at %dx%d: height %d\n%s", size[0], size[1], height, text)
 						}
@@ -225,7 +225,7 @@ func TestEquipmentComparisonCompletedSets(t *testing.T) {
 					}
 					text := GetItemComparisonTooltip(piece, ch, cs)
 					minW, minH := MinimumWindowSize()
-					_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, minW/2-tooltipCompareGap)
+					_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, minW/2-tooltipCompareGap, minH)
 					if height > minH {
 						t.Fatalf("set comparison clipped: height=%d max=%d\n%s", height, minH, text)
 					}
@@ -331,7 +331,7 @@ func TestEquipmentComparisonWeaponCatalog(t *testing.T) {
 					}
 				}
 				for _, size := range [][2]int{{minW, minH}, {1280, 720}, {1920, 1080}} {
-					_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, size[0]/2-tooltipCompareGap)
+					_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, size[0]/2-tooltipCompareGap, size[1])
 					if height > size[1] {
 						t.Fatalf("weapon comparison clipped at %dx%d: height=%d\n%s", size[0], size[1], height, text)
 					}
@@ -351,7 +351,7 @@ func TestItemCardUsesEquippedScaling(t *testing.T) {
 	if _, _, ok := ch.EquipItem(candidate); !ok {
 		t.Fatal("equip refused")
 	}
-	want := fmt.Sprintf("Total Armor Class: %d", cs.CalculateArmorClassContribution(candidate, ch))
+	want := fmt.Sprintf("Item Armor Class: %d", cs.CalculateArmorClassContribution(candidate, ch))
 	if !strings.Contains(card, want) {
 		t.Fatalf("candidate card missed its own END scaling: want %s\n%s", want, card)
 	}

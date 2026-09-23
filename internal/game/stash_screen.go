@@ -743,12 +743,7 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 		return
 	}
 	lines := strings.Split(tip, "\n")
-	plate, titleText := ui.itemTitleColors(it)
-	var bodyColors []color.Color
-	if titleText != nil {
-		bodyColors = ui.rarityBodyColors(it, len(lines))
-	}
-	ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(it), mouseX+16, mouseY+8)
+	ui.queueItemTooltip(lines, it, char, mouseX+16, mouseY+8)
 }
 
 // stashCardSource captures a card cell as a drag source.

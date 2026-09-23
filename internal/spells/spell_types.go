@@ -240,7 +240,7 @@ func (d SpellDefinition) EffectLines() []string {
 }
 
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(false, true)
+	return d.effectLines(false, false)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
@@ -254,7 +254,7 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	// card and the shop line can never disagree about a new spell.
 	if d.SummonMonster != "" {
 		line := uitext.Text("spell.summons_an_ally_up_to_at_a", d.SummonMax)
-		if len(d.SummonHPByMastery) == 4 && len(d.SummonDamageByMastery) == 4 {
+		if includeStructured && len(d.SummonHPByMastery) == 4 && len(d.SummonDamageByMastery) == 4 {
 			line += uitext.Text("spell.by_mastery_hp_and_damage",
 				d.SummonHPByMastery[0], d.SummonHPByMastery[3],
 				d.SummonDamageByMastery[0], d.SummonDamageByMastery[3])
@@ -345,9 +345,13 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	}
 	switch {
 	case d.HealParty:
-		out = append(out, uitext.Text("spell.heals_the_entire_party"))
+		if includeCardDetails {
+			out = append(out, uitext.Text("spell.heals_the_entire_party"))
+		}
 	case d.HealAmount > 0 && d.TargetSelf:
-		out = append(out, uitext.Text("spell.self_target_only"))
+		if includeCardDetails {
+			out = append(out, uitext.Text("spell.self_target_only"))
+		}
 	case d.HealAmount > 0:
 		out = append(out, uitext.Text("spell.can_target_any_party_member"))
 	}

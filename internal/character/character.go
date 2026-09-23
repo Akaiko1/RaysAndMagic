@@ -15,7 +15,7 @@ import (
 // Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
 // because game's balance.go can't be imported from internal/character (circular).
 const (
-	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
+	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
 	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
@@ -1401,16 +1401,23 @@ func (c *MMCharacter) GetEffectiveLuck() int {
 	return c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqBonus
 }
 
+// ItemAttributeScalingBonuses uses base attributes, excluding gear and buffs.
+func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, personality int) {
+	if div := item.Attributes["intellect_scaling_divisor"]; div > 0 {
+		intellect = c.Intellect / div
+	}
+	if div := item.Attributes["personality_scaling_divisor"]; div > 0 {
+		personality = c.Personality / div
+	}
+	return
+}
+
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
 func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus int) {
 	for _, it := range c.Equipment {
-		// Scaling divisor bonuses (stat / divisor)
-		if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
-			intellectBonus += c.Intellect / div
-		}
-		if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
-			personalityBonus += c.Personality / div
-		}
+		intBonus, perBonus := c.ItemAttributeScalingBonuses(it)
+		intellectBonus += intBonus
+		personalityBonus += perBonus
 		// endurance_scaling_divisor is deliberately NOT a stat bonus: it is the
 		// armor piece's AC formula input (AC = base + effective End / divisor,
 		// see CalculateArmorClassContribution). Feeding it back into Endurance
@@ -1501,22 +1508,38 @@ func (c *MMCharacter) HasCompletedEquipmentSet(key string) bool {
 }
 
 func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {
-	if len(set.RequiredPieces) == 0 {
-		return count >= set.PiecesRequired
+	return c.equipmentSetPieceCount(setKey, set, count) >= set.RequiredPieceCount()
+}
+
+// EquipmentSetProgress counts exact required pieces only once, matching combat.
+func (c *MMCharacter) EquipmentSetProgress(key string) (int, int) {
+	set := config.GetItemSet(key)
+	if set == nil {
+		return 0, 0
 	}
-	for _, requiredKey := range set.RequiredPieces {
-		found := false
+	count := 0
+	for _, item := range c.Equipment {
+		if item.Set == key {
+			count++
+		}
+	}
+	return c.equipmentSetPieceCount(key, set, count), set.RequiredPieceCount()
+}
+
+func (c *MMCharacter) equipmentSetPieceCount(key string, set *config.ItemSetConfig, count int) int {
+	if len(set.RequiredPieces) == 0 {
+		return count
+	}
+	count = 0
+	for _, required := range set.RequiredPieces {
 		for _, equipped := range c.Equipment {
-			if equipped.Set == setKey && setPieceKey(equipped) == requiredKey {
-				found = true
+			if equipped.Set == key && setPieceKey(equipped) == required {
+				count++
 				break
 			}
 		}
-		if !found {
-			return false
-		}
 	}
-	return true
+	return count
 }
 
 // setPieceKey resolves a saved equipped item to its data key. Exact-piece

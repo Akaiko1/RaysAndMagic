@@ -177,6 +177,7 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	editorPreview    *editorPreviewState
 	fishWorlds       map[*world.World3D]struct{} // Only worlds with transient live fish.
 	ecology          EcologyState
 	ecologyOwner     *MMGame
@@ -828,7 +829,12 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	// Initialize threading components
 	threadingComponents := threading.NewThreadingComponents(cfg)
 
+	var editorPreview *editorPreviewState
+	if preview {
+		editorPreview = &editorPreviewState{}
+	}
 	game := &MMGame{
+		editorPreview:    editorPreview,
 		menuState:        newMenuState(),
 		dialogState:      newDialogState(),
 		world:            currentWorld,
@@ -1803,6 +1809,7 @@ func (g *MMGame) Shutdown() {
 		g.gameLoop.ui.profileViewport = nil
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		g.gameLoop.ui.releaseCompassFrame()
 		g.gameLoop.ui.profileArt.close()
 		g.gameLoop.ui.profileArt = nil
 	}

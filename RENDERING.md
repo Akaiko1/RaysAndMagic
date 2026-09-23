@@ -149,6 +149,35 @@ frames, source images and retained UI patterns keep normal ownership. Never
 recycle those long-lived objects or retain a recyclable wrapper in a cache.
 The common `graphics.DrawImageScaled` filtering rule is unchanged.
 
+## Compass and crossed-standee geometry
+
+The compass caches its static background and outlines separately, preserving
+their order below and above the live minimap. Circles are built in local image
+coordinates once per radius. Camera turns, RT/TB, world changes and save loads
+do not invalidate this world-independent frame. Resizing replaces the images;
+shutdown releases them. NPC dots, the heading pointer and minimap remain live.
+The minimap uses a fixed six-pixel tile scale: increasing the viewport radius
+reveals more terrain. It draws partial edge tiles and applies a cached circular
+alpha mask, filling the disk up to its colored frame without a dark annulus or
+stair-step edge. The old external black shadow is omitted. NPC markers share
+this scale and stay wholly inside the disk. Out-of-world areas remain empty.
+Local stroke tessellation can change a few pixels at the old circle-closing
+seam; the rest is checked against the uncached draw with alpha-rounding tolerance.
+
+The full-opacity crossed-standee volume compositor groups adjacent screen
+columns with the same effective wall clipping. Walls conservatively behind all
+layers are irrelevant to that grouping. It interpolates reciprocal depth and
+U/depth for both outer faces, then reconstructs depth and U per fragment. This
+preserves perspective over a wide quad without skipping columns or changing
+shell counts, texture sampling, art, LOD or alpha compositing. Genuine wall-depth
+or wall-height changes still split spans. Conservative outer geometry is clipped
+by the existing per-layer coverage tests in the shader.
+
+Fades, single-face LOD, grazing faces and invalid volume intersections retain
+the material renderer. This change does not introduce tree depth occlusion or
+alter floor blending. Both compass images and standee meshes are derived render
+state and are never serialized.
+
 ## Verification cases
 
 | Rule | Cases | Expected result |
@@ -165,6 +194,10 @@ The common `graphics.DrawImageScaled` filtering rule is unchanged.
 | Display pacing | Fullscreen / windowed, river / land, saved scene, VSync / explicit opt-out | Shipped synchronized output presents frames instead of free-running past a full Metal drawable queue; simulation stays at 120 TPS |
 | Alpha metadata | RGBA / NRGBA / Alpha / generic, offset stride / sheet / transparent | Bounds and hit masks match the generic reference |
 | Views | Full image / nonzero-origin subimage / recycled wrapper | Same pixels, correct ownership after submission |
+| Compass frame | First/repeated draw, RT/TB heading, world replacement, resize, release/rebuild | Same layer order and live contents; reuse by radius only |
+| Compass map | Small/medium/large radius, world interior/edge, near/far/diagonal/outside NPCs | Full in-world disk, circular clipping, more terrain at larger sizes, bounded live markers |
+| Standee spans | Clear/distant/low/high/sloped walls, mirrored cutouts, 2-16 shells, screen edge | Perspective and openings preserved; irrelevant walls do not split spans |
+| Standee fallback | Side fade, transient opacity, grazing/subpixel face | Existing material path and silhouettes preserved |
 
 Resource preparation is transient; save format and gameplay persistence do not
 change. The disk-cache restart tests cover its separate persistence contract.
@@ -230,3 +263,16 @@ windowed, nearby clearing and turning controls. `RAM_RIVER_CPU` and
 `RAM_RIVER_TRACE` accept output file paths and start after the initial load.
 The reported frame intervals are still engine-side measurements; use native
 Metal presentation instrumentation to investigate dropped display frames.
+
+For a reproducible river start without depending on the contents of a save, use
+`RAM_RIVER_START=1` with `RAM_NATIVE_RIVER=1` and `RAM_DEBUG_SIM=1`. It positions
+the party at forest tile (30,36) after the menu. `RAM_RIVER_SAVE` is optional in
+this mode; if supplied, its party is loaded before positioning. All save reads
+still use a private copy. `RAM_RIVER_LAND=1` selects the clearing instead.
+
+`TestRiverVisualFrames` with `RAM_DEBUG_SIM=1` and
+`RAM_RIVER_VIDEO_FRAMES=/absolute/output/directory` writes 240 native 1920x1080
+PNG frames for an eight-second, 30 FPS visual comparison. Its scripted camera
+travels along the river and turns; this is an image-quality diagnostic, not a
+real-time performance recording. `TestCompassFrameCache` can additionally save
+uncached/cached compass crops through `RAM_COMPASS_PREVIEW=/absolute/directory`.

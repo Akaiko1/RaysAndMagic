@@ -255,7 +255,7 @@ spells:
 
   day_of_the_gods:
     name: "Day of the Gods"
-    description: "Blesses the party with scaling resistance against every damage school for 5 minutes"
+    description: "Blesses the party with resistance against every damage school"
     school: "light"
     spell_points_cost: 20
     category: buff
@@ -269,7 +269,7 @@ spells:
 
   hour_of_power:
     name: "Hour of Power"
-    description: "For 10 minutes the party deals more damage and takes less from every hit"
+    description: "The party deals more damage and takes less from every hit"
     school: "light"
     spell_points_cost: 18
     category: buff

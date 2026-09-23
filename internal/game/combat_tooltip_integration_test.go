@@ -79,7 +79,7 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 						if got := tooltipNumber(t, text, "Base: "); got != tc.base {
 							t.Errorf("source base = %d, want %d", got, tc.base)
 						}
-						if tc.wantSplit && (strings.Index(text, line) < strings.Index(text, "Base:") || strings.Index(text, line) > strings.Index(text, "Normal Damage:")) {
+						if tc.wantSplit && (strings.Index(text, line) < strings.Index(text, "Base:") || strings.Index(text, line) > strings.Index(text, "Total Damage:")) {
 							t.Error("split must be between source formula and resolved damage")
 						}
 					}
@@ -219,7 +219,7 @@ func TestNoDamageSpellComparisonsBothDirections(t *testing.T) {
 							continue
 						}
 						var a, b int
-						if _, err := fmt.Sscanf(line, "Total Damage: %d vs %d", &a, &b); err != nil {
+						if _, err := fmt.Sscanf(line, "Total Damage: %d -> %d", &b, &a); err != nil {
 							t.Fatal(err)
 						}
 						if reverse {
@@ -331,12 +331,12 @@ func TestAuthoredSpellOverridesReachGameAndEditor(t *testing.T) {
 			for _, school := range caster.MagicSchools {
 				school.Mastery = character.MasteryNovice
 			}
-			sd, err := spells.GetSpellDefinitionByID("fireball")
+			_, err := spells.GetSpellDefinitionByID("fireball")
 			if err != nil {
 				t.Fatal(err)
 			}
 			gameTip := GetSpellTooltip("fireball", caster, cs, true)
-			editorTip := strings.Join(character.RenderCardLines(character.SpellCardSections("fireball", &def, sd), true), "\n")
+			editorTip := GetSpellTooltip(spells.SpellID("fireball"), nil, nil, true)
 			if strings.Contains(gameTip, tc.absent) || strings.Contains(editorTip, tc.absent) {
 				t.Fatalf("inactive formula term %q in game or editor:\n%s\n%s", tc.absent, gameTip, editorTip)
 			}

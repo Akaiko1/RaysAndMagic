@@ -2442,9 +2442,9 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 			vertices[i].SrcX = srcX + 1
 			vertices[i].ColorG = 100
 			vertices[i].ColorA = standeeVolumeMinShells
-			vertices[i].Custom0 = 2
+			vertices[i].Custom0 = 0.5
 			vertices[i].Custom1 = 1
-			vertices[i].Custom2 = 0.5
+			vertices[i].Custom2 = 0.25
 			vertices[i].Custom3 = 0.5
 		}
 		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())

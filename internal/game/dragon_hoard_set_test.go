@@ -98,7 +98,7 @@ func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 
 	weaponTip := GetItemTooltip(sword, ch, cs, true)
 	for _, want := range []string{
-		"Chance: 100%", "Set: Dragon's Hoard (2 pieces)",
+		"Chance: 100%", "Set: Dragon's Hoard (2/2 equipped)",
 		"Set bonus: critical chance +75%", "Set: +75%",
 	} {
 		if !strings.Contains(weaponTip, want) {

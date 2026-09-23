@@ -115,7 +115,7 @@ func (g *MMGame) observeOverwatchMovement(m *monster.Monster3D, oldX, oldY float
 // observeOverwatchAttack runs once after an enemy's committed attack action,
 // not on animation ticks, failed attempts, or every projectile in a volley.
 func (g *MMGame) observeOverwatchAttack(m *monster.Monster3D) {
-	g.tryOverwatchReaction(m, 0.5)
+	g.tryOverwatchReaction(m, character.OverwatchAttackChanceScale)
 }
 
 func (g *MMGame) tryOverwatchReaction(m *monster.Monster3D, chanceScale float64) {

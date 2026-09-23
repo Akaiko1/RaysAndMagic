@@ -3,7 +3,6 @@ package game
 import (
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"strings"
 	"testing"
 
@@ -11,12 +10,15 @@ import (
 	"ugataima/internal/items"
 )
 
+// Cases: count-based armor and exact-piece weapon sets; complete, incomplete,
+// loose copy, duplicate pieces, shop, missing identity, and save/load; compact/full.
+// All cards use plain set text; only worn complete sets receive green styling.
 func TestEquippedSetTooltipActivation(t *testing.T) {
 	for _, keys := range [][]string{
 		{"padded_cap", "padded_vest", "padded_gloves", "padded_boots"},
 		{"golden_armor", "gold_sword"},
 	} {
-		for _, state := range []string{"complete", "incomplete", "bag", "restored", "duplicates"} {
+		for _, state := range []string{"complete", "incomplete", "bag", "bag-completes", "restored", "duplicates", "shop", "unidentified"} {
 			for _, full := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/full=%v", keys[0], state, full), func(t *testing.T) {
 					cs := newTestCombatSystemWithConfig(t)
@@ -39,7 +41,7 @@ func TestEquippedSetTooltipActivation(t *testing.T) {
 						if i == 0 {
 							target = it
 						}
-						if state != "incomplete" || i != len(keys)-1 {
+						if (state != "incomplete" || i != len(keys)-1) && (state != "bag-completes" || i != 0) {
 							ch.Equipment[it.PreferredSlot(items.SlotMainHand)] = it
 						}
 					}
@@ -49,6 +51,10 @@ func TestEquippedSetTooltipActivation(t *testing.T) {
 						// An identical loose item must not inherit an equipped instance's badge.
 						target.InstanceID = 0
 						items.EnsureInstanceID(&target)
+					case "shop":
+						ch = nil
+					case "unidentified":
+						target.InstanceID = 0
 					case "restored":
 						data, err := json.Marshal(ch.Equipment)
 						if err != nil {
@@ -66,27 +72,84 @@ func TestEquippedSetTooltipActivation(t *testing.T) {
 						ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: target, items.SlotOffHand: target}
 					}
 					text := GetItemTooltip(target, ch, cs, full)
-					lines := strings.Split(text, "\n")
-					ui := &UISystem{game: cs.game}
-					ui.queueTitledTooltipIcon(lines, nil, color.White, nil, "", 0, 0)
-					marked := 0
-					for i, line := range lines {
-						if strings.HasPrefix(strings.TrimSpace(line), activeSetPrefix) {
-							marked++
-							if ui.tooltipColors[i] != (color.RGBA{120, 225, 135, 255}) {
-								t.Fatal("active bonus was not colored in the queued tooltip")
-							}
+					if ch != nil {
+						count := len(keys)
+						if state == "incomplete" || state == "bag-completes" {
+							count--
+						}
+						if state == "duplicates" {
+							count = 1
+						}
+						if !strings.Contains(text, fmt.Sprintf("(%d/%d equipped)", count, len(keys))) {
+							t.Fatalf("wrong set progress: %s", text)
 						}
 					}
-					wantLines := 0
-					if want {
-						wantLines = len(config.EquipmentSetLines(target.Set))
+					lines := strings.Split(text, "\n")
+					ui := &UISystem{game: cs.game}
+					ui.queueItemTooltip(lines, target, ch, 0, 0)
+					if strings.Contains(text, "[ACTIVE]") || strings.Contains(strings.Join(ui.tooltipLines, "\n"), "[ACTIVE]") {
+						t.Fatalf("set activity leaked into visible text: %s", text)
 					}
-					if marked != wantLines {
-						t.Fatalf("marked %d lines, want %d:\n%s", marked, wantLines, text)
+					found := 0
+					for i, line := range ui.tooltipLines {
+						isSetLine := false
+						for _, setLine := range equipmentSetTooltipLines(target.Set, ch) {
+							if strings.TrimSpace(line) == setLine {
+								isSetLine = true
+								found++
+								break
+							}
+						}
+						green := i < len(ui.tooltipColors) && ui.tooltipColors[i] == equipmentBenefitColor
+						if green != (want && isSetLine) {
+							t.Fatalf("line %q green=%v, active=%v setLine=%v", line, green, want, isSetLine)
+						}
+					}
+					if found != len(equipmentSetTooltipLines(target.Set, ch)) {
+						t.Fatalf("missing set description: %s", text)
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestSetHighlightSurvivesLongAuthoredText(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	ch := cs.game.party.Members[0]
+	armor := items.CreateItemFromYAML("golden_armor")
+	sword := items.CreateWeaponFromYAML("gold_sword")
+	items.EnsureInstanceID(&armor)
+	items.EnsureInstanceID(&sword)
+	ch.Equipment = map[items.EquipSlot]items.Item{items.SlotArmor: armor, items.SlotMainHand: sword}
+	set := config.GetItemSet(armor.Set)
+	original := *set
+	t.Cleanup(func() { *set = original })
+	set.Name = strings.Repeat("Long authored set name ", 5)
+	for _, full := range []bool{false, true} {
+		lines := strings.Split(GetItemTooltip(armor, ch, cs, full), "\n")
+		colors := activeSetBonusColors(lines, nil, armor, ch)
+		wrapped, colors := wrapTooltipLines(lines, colors, 0, 300, 0)
+		active := false
+		greenRows := 0
+		for i, line := range wrapped {
+			if line == equipmentSetSectionTitle {
+				active = true
+				continue
+			}
+			if line == "" {
+				active = false
+			}
+			green := colors[i] == equipmentBenefitColor
+			if green != active {
+				t.Fatalf("wrapped row %q green=%v, want %v", line, green, active)
+			}
+			if green {
+				greenRows++
+			}
+		}
+		if greenRows < 3 {
+			t.Fatal("fixture did not exercise wrapped set rows")
 		}
 	}
 }

@@ -63,10 +63,7 @@ func (g *MMGame) recoverPendingStashTransfer() bool {
 	if journal == nil {
 		return true
 	}
-	selected := &journal.Before
-	if stashTransferCommittedInAnySave(journal.ID) {
-		selected = &journal.After
-	}
+	selected := resolvedStashTransfer(journal)
 	if err := stash.Save(selected); err != nil {
 		return false
 	}
@@ -142,11 +139,19 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 	if g.party == nil || !g.ensureStashLoaded() {
 		return
 	}
+	g.loadNeedsResave = reconcilePartyItemsAgainstStash(g.party, &g.cardSlots, g.stash) || g.loadNeedsResave
+}
+
+func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlots]cardSlot, shared *stash.Stash) (rekeyedAny bool) {
+	if party == nil || shared == nil {
+		return false
+	}
 	// Chest ownership counts units by lineage. A merged stack can contain several
 	// origins; retaining all of them avoids the old partial-withdrawal hole where
 	// Party.AddItem collapsed the returned fragment's ID into a different stack.
 	owned := make(map[uint64]int)
 	claim := func(it items.Item) {
+		normalizeItemFromConfig(&it)
 		if it.Stackable() {
 			for _, part := range it.StackLineageParts() {
 				owned[part.ID] += part.Quantity
@@ -157,14 +162,14 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 			owned[it.InstanceID]++
 		}
 	}
-	for i := range g.stash.Slots {
-		claim(g.stash.Slots[i])
+	for i := range shared.Slots {
+		claim(shared.Slots[i])
 	}
-	for i := range g.stash.CardSlots {
-		claim(g.stash.CardSlots[i])
+	for i := range shared.CardSlots {
+		claim(shared.CardSlots[i])
 	}
 	if len(owned) == 0 {
-		return
+		return false
 	}
 	// afterDedup returns the item minus chest-owned lineage units. A component
 	// that survives a partial subtraction is rekeyed by items.Item so a later
@@ -172,19 +177,19 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 	afterDedup := func(it items.Item) (items.Item, bool) {
 		kept, rekeyed := it.StripStashOwnedUnits(owned)
 		if rekeyed {
-			g.loadNeedsResave = true
+			rekeyedAny = true
 		}
 		return it, kept
 	}
 
 	// Strip the bag: a slice deletes by rebuilding in place around the removed.
-	bag := g.party.Inventory[:0]
-	for _, it := range g.party.Inventory {
+	bag := party.Inventory[:0]
+	for _, it := range party.Inventory {
 		if kept, ok := afterDedup(it); ok {
 			bag = append(bag, kept)
 		}
 	}
-	g.party.Inventory = bag
+	party.Inventory = bag
 
 	stripMember := func(m *character.MMCharacter) {
 		if m == nil {
@@ -206,18 +211,39 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 			}
 		}
 	}
-	for _, m := range g.party.Members {
+	for _, m := range party.Members {
 		stripMember(m)
 	}
-	for _, m := range g.party.Reserve {
+	for _, m := range party.Reserve {
 		stripMember(m)
 	}
-	for _, m := range g.party.Captive {
+	for _, m := range party.Captive {
 		stripMember(m)
 	}
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		if _, kept := afterDedup(g.cardSlots[slot].item); !kept {
-			g.clearCardCollectionSlot(slot)
+		if _, kept := afterDedup(cards[slot].item); !kept {
+			cards[slot] = cardSlot{}
 		}
 	}
+	return rekeyedAny
+}
+
+func resolvedStashTransfer(journal *stash.TransferJournal) *stash.Stash {
+	if stashTransferCommittedInAnySave(journal.ID) {
+		return &journal.After
+	}
+	return &journal.Before
+}
+
+// ReadStashSnapshot reads the same effective chest state as game loading,
+// including crash recovery, without writing the chest or clearing its journal.
+func ReadStashSnapshot() (*stash.Stash, error) {
+	journal, err := stash.LoadTransferJournal()
+	if err != nil {
+		return nil, err
+	}
+	if journal != nil {
+		return resolvedStashTransfer(journal), nil
+	}
+	return stash.Load()
 }

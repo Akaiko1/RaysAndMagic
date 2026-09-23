@@ -144,7 +144,7 @@ const (
 	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
-	TurnBasedSpRegenEveryNRounds = 3
+	TurnBasedSpRegenEveryNRounds = config.RegenerationRounds
 
 	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
 	// TB round for periodic damage effects. Poison and burn still deal one tick

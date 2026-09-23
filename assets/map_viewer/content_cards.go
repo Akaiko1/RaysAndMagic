@@ -13,6 +13,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/game"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/stats"
@@ -31,8 +32,7 @@ type contentCard struct {
 
 	// Tooltip-only fields (full data).
 	description string
-	flavor      string
-	tooltipRows []string // pre-formatted "Label: value" rows
+	tooltipRows []string // complete shared tooltip, including name and category
 
 	// icon overrides the icon_<kind>_<key>.png naming convention (traps ship
 	// their sprite name in traps.yaml).
@@ -224,9 +224,7 @@ func buildSpellCards() []contentCard {
 	return cards
 }
 
-// buildTrapCards lists the thief traps under their own section. Mechanics rows
-// come from config.TrapDefinitionConfig.EffectLines - the SAME source as the
-// in-game trap-book tooltip, so the editor can't drift.
+// buildTrapCards lists traps using the same base tooltips as the shop.
 func buildTrapCards() []contentCard {
 	var cards []contentCard
 	for _, key := range config.TrapKeysOrdered() {
@@ -240,15 +238,17 @@ func buildTrapCards() []contentCard {
 }
 
 func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard {
-	rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
-	rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
+	it, ok := config.TrapItem(key)
+	if !ok {
+		panic("unknown catalog trap: " + key)
+	}
+	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,
 		key:         key,
 		name:        def.Name,
 		subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
-		description: def.Description,
 		tooltipRows: rows,
 		icon:        def.Icon,
 	}
@@ -256,30 +256,20 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 
 func weaponCard(section, key string, def *config.WeaponDefinitionConfig) contentCard {
 	formula := character.WeaponDamageFormula(def)
-	subtitle := fmt.Sprintf("Dmg %d  Range %d", formula.Base, def.Range)
+	subtitle := fmt.Sprintf("Base dmg %d  Range %d", formula.Base, def.Range)
 	if character.WeaponStrikeCount(def) > 1 {
 		subtitle = fmt.Sprintf("Pre-split dmg %d  Range %d", formula.Base, def.Range)
 	}
 	if def.AoeRadiusTiles > 0 {
 		subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
 	}
-	for i, term := range formula.Terms {
-		if i == 0 {
-			subtitle += "  +" + term.Stat
-		} else {
-			subtitle += fmt.Sprintf("  +%s/%d", term.Stat, term.Divisor)
-		}
+	for _, term := range formula.Terms {
+		subtitle += fmt.Sprintf("  +%s/%d", term.Stat, term.Divisor)
 	}
-	// Unified template (shared engine in character/cardtemplate.go): the
-	// editor shows the character-independent variant - formulas in place of
-	// personal numbers - in the same section order as the in-game tooltip.
-	rows := character.RenderCardLines(character.WeaponCardSections(def), true)
-	if def.Rarity != "" {
-		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
+	if def.TrueDamage > 0 {
+		subtitle += fmt.Sprintf("  +%d True", def.TrueDamage)
 	}
-	if def.Value > 0 {
-		rows = appendRow(rows, "Value", fmt.Sprintf("%d gold", def.Value))
-	}
+	rows := strings.Split(game.GetItemTooltip(items.CreateWeaponFromYAML(key), nil, nil, true), "\n")
 	return contentCard{
 		kind:        cardWeapon,
 		section:     section,
@@ -287,56 +277,20 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 		name:        def.Name,
 		subtitle:    subtitle,
 		rarity:      def.Rarity,
-		description: def.Description,
-		flavor:      def.Flavor,
 		tooltipRows: rows,
 	}
 }
 
-// wearableKindLabel names a wearable by its SLOT (Belt / Amulet / Cloak / ...),
-// matching the in-game tooltip's itemKindLabel - "Accessory" says nothing
-// about where the piece goes.
-func wearableKindLabel(def *config.ItemDefinitionConfig) string {
-	t := strings.ToLower(strings.TrimSpace(def.Type))
-	if t == "armor" || t == "accessory" {
-		if slot, ok := items.EquipSlotFromName(def.EquipSlot); ok {
-			return slot.DisplayName()
-		}
-		if t == "accessory" {
-			return items.SlotRing1.DisplayName()
-		}
-	}
-	return titleCase(def.Type)
-}
-
-func sortedKeys(m map[string]int) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard {
 	subtitle := itemSubtitle(def)
-	kind := wearableKindLabel(def)
+	it := items.CreateItemFromYAML(key)
+	kind := it.DisplayKind()
 	if strings.ToLower(def.Type) == "accessory" {
 		// Surface the slot on the card itself, not only in the tooltip.
 		subtitle = strings.TrimSpace(kind + "  " + subtitle)
 	}
 
-	rows := []string{"Type: " + kind}
-	// Unified template (character/cardtemplate.go) - same sections as the
-	// in-game tooltip, character-independent variant.
-	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def), true)...)
-	if def.Rarity != "" {
-		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
-	}
-	if def.Value > 0 {
-		rows = appendRow(rows, "Value", fmt.Sprintf("%d gold", def.Value))
-	}
-
+	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
 	return contentCard{
 		kind:        cardItem,
 		section:     section,
@@ -344,8 +298,6 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 		name:        def.Name,
 		subtitle:    subtitle,
 		rarity:      def.Rarity,
-		description: def.Description,
-		flavor:      def.Flavor,
 		tooltipRows: rows,
 	}
 }
@@ -360,43 +312,9 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 		}
 		return s
 	case "consumable":
-		switch {
-		case def.HealBase > 0:
-			return fmt.Sprintf("Heal %d+End/%d", def.HealBase, def.HealEnduranceDivisor)
-		case def.Revive:
-			return "Revive"
-		case def.SummonDistanceTiles > 0:
-			return fmt.Sprintf("Summons ~%d tiles", def.SummonDistanceTiles)
-		}
+		return strings.Join(def.CoreEffectLines(), "  ")
 	case "accessory":
-		parts := []string{}
-		flatBonuses := []struct {
-			label string
-			val   int
-		}{
-			{"Might", def.BonusMight},
-			{"Int", def.BonusIntellect},
-			{"Per", def.BonusPersonality},
-			{"End", def.BonusEndurance},
-			{"Acc", def.BonusAccuracy},
-			{"Spd", def.BonusSpeed},
-			{"Luck", def.BonusLuck},
-		}
-		for _, b := range flatBonuses {
-			if b.val > 0 {
-				parts = append(parts, fmt.Sprintf("+%d %s", b.val, b.label))
-			}
-		}
-		if def.IntellectScalingDivisor > 0 {
-			parts = append(parts, fmt.Sprintf("+Int/%d Intellect", def.IntellectScalingDivisor))
-		}
-		if def.PersonalityScalingDivisor > 0 {
-			parts = append(parts, fmt.Sprintf("+Per/%d Personality", def.PersonalityScalingDivisor))
-		}
-		for _, school := range sortedKeys(def.Resistances) {
-			parts = append(parts, fmt.Sprintf("%d%% %s resist", def.Resistances[school], titleCase(school)))
-		}
-		return strings.Join(parts, "  ")
+		return strings.Join(def.CoreEffectLines(), "  ")
 	case "quest":
 		return "Quest item"
 	}
@@ -405,30 +323,6 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 
 func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCard {
 	sd, sdErr := spells.GetSpellDefinitionByID(spells.SpellID(key))
-
-	// Monster-only spells are cast with the monster's own attack damage (no SP /
-	// Intellect / mastery / crit), so the player-formula card would lie - render
-	// the dedicated monster card instead.
-	if def.MonsterOnly {
-		subtitle := fmt.Sprintf("MONSTER ONLY  %s", titleCase(def.School))
-		if def.AoeRadiusTiles > 0 {
-			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
-		}
-		var rows []string
-		rows = appendRow(rows, "School", titleCase(def.School))
-		if sdErr == nil {
-			rows = append(rows, character.RenderCardLines(character.MonsterSpellCardSections(def, sd), true)...)
-		}
-		return contentCard{
-			kind:        cardSpell,
-			section:     section,
-			key:         key,
-			name:        def.Name,
-			subtitle:    subtitle,
-			description: def.Description,
-			tooltipRows: rows,
-		}
-	}
 
 	baseDamage := 0
 	kind := spells.DamageNone
@@ -440,33 +334,28 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	subtitle := fmt.Sprintf("SP %d", def.SpellPointsCost)
 	switch {
 	case kind == spells.DamageZone:
-		subtitle += fmt.Sprintf("  Tick %d", baseDamage)
+		subtitle += fmt.Sprintf("  Base tick %d", baseDamage)
 	case baseDamage > 0:
-		subtitle += fmt.Sprintf("  Dmg %d", baseDamage)
+		subtitle += fmt.Sprintf("  Base dmg %d", baseDamage)
 		if def.AoeRadiusTiles > 0 {
 			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
 		}
 	case def.HealAmount > 0:
-		subtitle += fmt.Sprintf("  Heal %d", def.HealAmount)
+		subtitle += fmt.Sprintf("  Base heal %d", def.HealAmount)
 	case def.Duration > 0:
-		subtitle += fmt.Sprintf("  %ds", def.Duration)
+		subtitle += fmt.Sprintf("  Base duration %ds", def.Duration)
 	}
 
-	// Unified template (character/cardtemplate.go) - same sections as the
-	// in-game tooltip, character-independent variant (formulas, not numbers).
-	var rows []string
-	rows = appendRow(rows, "School", titleCase(def.School))
-	if sdErr == nil {
-		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd), true)...)
+	if def.MonsterOnly {
+		subtitle = "Monster only - " + titleCase(def.School)
 	}
-
+	rows := strings.Split(game.GetSpellTooltip(spells.SpellID(key), nil, nil, true), "\n")
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,
 		key:         key,
 		name:        def.Name,
 		subtitle:    subtitle,
-		description: def.Description,
 		tooltipRows: rows,
 	}
 }
@@ -477,25 +366,6 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 // duplicated here - they come from the shared `character` package
 // (PlayableClasses, AllSkills, CharacterClass.Blurb, SkillType.Description/
 // Category), so adding a class or skill to the game updates the editor too.
-
-// equipSlotOrder is the order starting equipment is listed on a character card.
-var equipSlotOrder = []struct {
-	slot  items.EquipSlot
-	label string
-}{
-	{items.SlotMainHand, "Weapon"},
-	{items.SlotSpell, "Spell"},
-	{items.SlotOffHand, "Off-hand"},
-	{items.SlotArmor, "Armor"},
-	{items.SlotHelmet, "Helmet"},
-	{items.SlotBoots, "Boots"},
-	{items.SlotGauntlets, "Gauntlets"},
-	{items.SlotBelt, "Belt"},
-	{items.SlotCloak, "Cloak"},
-	{items.SlotAmulet, "Amulet"},
-	{items.SlotRing1, "Ring"},
-	{items.SlotRing2, "Ring"},
-}
 
 func spellDisplayName(key string) string {
 	if config.GlobalSpells != nil {
@@ -543,14 +413,6 @@ func buildSkillCards() []contentCard {
 		})
 	}
 	return cards
-}
-
-func appendRow(rows []string, label, value string) []string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return rows
-	}
-	return append(rows, label+": "+value)
 }
 
 func titleCase(s string) string { return config.TitleWords(s) }

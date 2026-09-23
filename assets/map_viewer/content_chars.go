@@ -12,6 +12,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/game"
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -45,7 +46,7 @@ type charDetail struct {
 // charTextCols is how many characters fit in the panel's right text column.
 func charTextCols() int {
 	w := windowWidth - 2*contentPad - charPortraitSz - 16 - 8
-	c := w / 7
+	c := game.ShadedTextColumns(w)
 	if c < 16 {
 		c = 16
 	}
@@ -95,6 +96,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			}
 			txt("")
 			txt(fmt.Sprintf("HP %d    SP %d    Level %d", ch.MaxHitPoints, ch.MaxSpellPoints, ch.Level))
+			hdr("Base attributes (before equipment)")
 			txt(fmt.Sprintf("Might %d   Intellect %d   Personality %d   Endurance %d",
 				ch.Might, ch.Intellect, ch.Personality, ch.Endurance))
 			txt(fmt.Sprintf("Accuracy %d   Speed %d   Luck %d", ch.Accuracy, ch.Speed, ch.Luck))
@@ -151,11 +153,8 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			// Starting equipment (with icons). The equipped spell slot is skipped -
 			// it just duplicates a spell already listed under "Starting spells".
 			equipRows := []panelRow{}
-			for _, s := range equipSlotOrder {
-				if s.slot == items.SlotSpell {
-					continue
-				}
-				it, ok := ch.Equipment[s.slot]
+			for _, s := range items.DisplayEquipSlots {
+				it, ok := ch.Equipment[s]
 				if !ok || it.Name == "" {
 					continue
 				}
@@ -165,7 +164,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				}
 				equipRows = append(equipRows, panelRow{
 					hasIcon: true, iconKind: kind, iconKey: itemKey,
-					text: fmt.Sprintf("%s - %s", s.label, it.Name),
+					text: fmt.Sprintf("%s - %s", s.DisplayName(), it.Name),
 				})
 			}
 			txt("")

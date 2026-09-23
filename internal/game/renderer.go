@@ -3876,7 +3876,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
-	if s.distance <= pickupRange && !c.hop.active(r.game.frameCount) {
+	if r.game.worldClickAllowed() && s.distance <= pickupRange && !c.hop.active(r.game.frameCount) {
 		mouseX, mouseY := ebiten.CursorPosition()
 		info := GroundContainerRenderInfo{
 			ScreenX:    s.screenX,

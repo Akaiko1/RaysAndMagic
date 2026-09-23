@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"ugataima/internal/boot"
 	"ugataima/internal/character"
@@ -66,13 +65,14 @@ var pageTabDefs = []struct {
 }
 
 type mapInfo struct {
-	Biome  config.BiomeConfig
-	Key    string
-	Config *config.MapConfig
-	Data   *world.MapData
-	Err    error
-	Header []string // leading "#" comment lines, preserved across save
-	EOL    string   // original line ending ("\r\n" or "\n"), preserved across save
+	LightingText string // resolved at load, never probes sky files during Draw
+	Biome        config.BiomeConfig
+	Key          string
+	Config       *config.MapConfig
+	Data         *world.MapData
+	Err          error
+	Header       []string // leading "#" comment lines, preserved across save
+	EOL          string   // original line ending ("\r\n" or "\n"), preserved across save
 }
 
 type viewer struct {
@@ -675,12 +675,7 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 		}
 		lines = append(lines, "", "MONSTER", "Key: "+spawn.MonsterKey)
 		if def, ok := v.monsterCfg.Monsters[spawn.MonsterKey]; ok {
-			lines = append(lines,
-				"Name: "+def.Name,
-				fmt.Sprintf("Level: %d   HP: %d   AC: %d", def.Level, def.MaxHitPoints, def.ArmorClass),
-				fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
-					monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)),
-			)
+			lines = append(lines, mapMonsterStatLines(def)...)
 			if def.Type != "" {
 				lines = append(lines, "Type: "+def.Type)
 			}
@@ -718,6 +713,26 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 		lines = appendTileTooltipLines(lines, data)
 	}
 	drawTooltipBox(screen, lines, mouseX, mouseY)
+}
+
+// Map spawns have no selected champion tier. Show the build reference instead
+// of the placeholder HP/damage fields that runtime champion setup replaces.
+func mapMonsterStatLines(def monster.MonsterDefinition) []string {
+	lines := []string{"Name: " + def.Name}
+	if def.Champion != "" {
+		return append(lines, "Champion: "+def.Champion, "Stats depend on tier and equipment")
+	}
+	lines = append(lines, fmt.Sprintf("Level: %d   HP: %d   AC: %d", def.Level, def.MaxHitPoints, def.ArmorClass))
+	if def.Disposition != "" {
+		lines = append(lines, "Disposition: "+def.Disposition)
+	}
+	if def.HasAttackStats() {
+		lines = append(lines, fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
+			monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)))
+	} else {
+		lines = append(lines, "Does not attack")
+	}
+	return lines
 }
 
 func appendTileTooltipLines(lines []string, data *config.TileData) []string {
@@ -848,7 +863,7 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 	)
 	maxLineW := 0
 	for _, ln := range lines {
-		if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
+		if w := game.ShadedTextWidth(ln); w > maxLineW {
 			maxLineW = w
 		}
 	}
@@ -1306,11 +1321,7 @@ func buildMapInfoLines(m mapInfo, currentBrush brush) []infoLine {
 
 	if m.Config != nil {
 		header("RENDERING")
-		ambient := m.Config.AmbientLight
-		if ambient <= 0 {
-			ambient = 1
-		}
-		add("Ambient light: %.2f", ambient)
+		add("%s", m.LightingText)
 		add("Floor RGB: %d, %d, %d", m.Config.DefaultFloorColor[0], m.Config.DefaultFloorColor[1], m.Config.DefaultFloorColor[2])
 		if m.Config.SkyTexture != "" {
 			add("Sky: %s", m.Config.SkyTexture)
@@ -1479,11 +1490,9 @@ func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int)
 	drawImageScaled(screen, img, bx, by, bw, bh)
 }
 
-// clipText truncates text with an ellipsis to fit availPx (~6px per glyph in
-// the debug font).
+// clipText truncates text with an ellipsis to fit the shared font advance.
 func clipText(text string, availPx int) string {
-	const glyphW = 6
-	maxChars := availPx / glyphW
+	maxChars := game.ShadedTextColumns(availPx)
 	if maxChars < 1 {
 		return ""
 	}
@@ -1742,9 +1751,8 @@ func drawCenteredLabel(screen *ebiten.Image, label string, r rect) {
 	if label == "" {
 		return
 	}
-	const charW = 7
 	const charH = 13
-	textW := utf8.RuneCountInString(label) * charW
+	textW := game.ShadedTextWidth(label)
 	textH := charH
 	x := r.x + (r.w-textW)/2
 	y := r.y + (r.h-textH)/2
@@ -2251,13 +2259,14 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 		data, err := loader.LoadMap(mapPath)
 		header, eol := readMapHeaderAndEOL(mapPath)
 		maps = append(maps, mapInfo{
-			Key:    key,
-			Biome:  wm.Biomes[mapCfg.Biome],
-			Config: mapCfg,
-			Data:   data,
-			Err:    err,
-			Header: header,
-			EOL:    eol,
+			Key:          key,
+			LightingText: game.MapLightingText(mapCfg),
+			Biome:        wm.Biomes[mapCfg.Biome],
+			Config:       mapCfg,
+			Data:         data,
+			Err:          err,
+			Header:       header,
+			EOL:          eol,
 		})
 	}
 

@@ -41,7 +41,7 @@ func TestSingleTooltipStaysInViewport(t *testing.T) {
 						if r.x < tooltipScreenMargin || r.y < tooltipScreenMargin || r.right() > res[0]-tooltipScreenMargin || r.bottom() > res[1]-tooltipScreenMargin {
 							t.Fatalf("tooltip outside viewport: %+v", r)
 						}
-						w, h := tooltipBoxSizeForScreen(lines, nil, icon, r.x, r.right())
+						w, h := tooltipBoxSizeForScreen(lines, nil, icon, r.x, r.right(), res[1])
 						if w != r.w || h != r.h {
 							t.Fatalf("draw wrapping differs from placement: %dx%d vs %+v", w, h, r)
 						}

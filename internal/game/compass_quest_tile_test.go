@@ -31,7 +31,7 @@ func TestSyncQuestTiles_InvalidatesCompassMinimapCache(t *testing.T) {
 
 	// Simulate a compass tile layer already cached for a player who is - and
 	// stays - on some tile, well before the quest completes.
-	g.gameLoop.ui.rebuildCompassTileLayer(0, 0, 5, 4, 40)
+	g.gameLoop.ui.rebuildCompassTileLayer(0, 0, 40)
 	if g.gameLoop.ui.compassCacheWorld == nil {
 		t.Fatal("setup failed: compass cache didn't populate")
 	}

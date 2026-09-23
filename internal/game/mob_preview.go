@@ -12,6 +12,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+// Shared by Mobs and FX. Editor scenes have no world pointer interaction and
+// may supply an arena-local caravan route without changing campaign content.
+type editorPreviewState struct {
+	caravanRoute *config.CaravanRoute
+}
+
 // MobPreview is the map editor's live monster stage: a sandbox MMGame with a
 // flat arena using the game's movement AI, animations, banding and renderer.
 // Invisible stage boundaries keep patrols in view and clear of the camera.
@@ -70,6 +76,8 @@ func (p *MobPreview) Select(key string) {
 	// unfinished preparation, before queuing the replacement.
 	g.gameLoop.renderer.resetMapRenderResourceResidency()
 	p.attackTick, p.attackFrames = 0, 0
+	g.editorPreview.caravanRoute = nil
+	g.ecology.Checkpoint = 0
 	for _, m := range p.arena.Monsters {
 		g.collisionSystem.UnregisterEntity(m.ID)
 	}
@@ -87,6 +95,15 @@ func (p *MobPreview) Select(key string) {
 	// Keep the original close framing; constrain the stage, not the camera.
 	stageX := g.camera.X + (1.1+0.35*def.GetSizeGameMultiplier())*ts
 	patrolX := p.boundPatrolStage(stageX)
+	if def.Disposition == "caravan" {
+		x := int(patrolX / ts)
+		g.editorPreview.caravanRoute = &config.CaravanRoute{ID: mobStageMapKey, Points: []config.RoutePoint{
+			{Map: mobStageMapKey, X: x, Y: 7},
+			{Map: mobStageMapKey, X: x + 1, Y: 7},
+			{Map: mobStageMapKey, X: x + 1, Y: 9},
+			{Map: mobStageMapKey, X: x, Y: 9},
+		}}
+	}
 	for i := 0; i < count; i++ {
 		m := monster.NewMonster3DFromConfig(stageX, 8.5*ts, key, g.config)
 		if m.IsFish() && config.GlobalEcology != nil && config.GlobalEcology.Fish != nil {
@@ -188,10 +205,27 @@ func (p *MobPreview) Step() {
 	}
 	start := gl.captureMonsterFramePositions()
 	if !attacking {
+		p.advanceCaravanRoute()
 		gl.updateMonstersParallel()
 	}
 	gl.faceMonstersAlongFrameMotion(start)
 	gl.updateMonsterBands()
+}
+
+// The specimen walks the normal ambient path. Only checkpoint advancement is
+// local: previews never run campaign arrivals, trade rewards or respawning.
+func (p *MobPreview) advanceCaravanRoute() {
+	g := p.g
+	route := g.editorPreview.caravanRoute
+	if route == nil || len(p.arena.Monsters) == 0 {
+		return
+	}
+	m := p.arena.Monsters[0]
+	_, x, y := ecologyPoint(route.Points[g.ecology.Checkpoint], float64(g.config.GetTileSize()))
+	if Distance(m.X, m.Y, x, y) <= float64(g.config.GetTileSize())*.1 {
+		g.ecology.Checkpoint = (g.ecology.Checkpoint + 1) % len(route.Points)
+	}
+	g.setCaravanTarget(m)
 }
 
 func (p *MobPreview) loading() bool {

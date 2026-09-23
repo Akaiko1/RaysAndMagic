@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 
 	"ugataima/internal/config"
@@ -19,6 +20,13 @@ func DrawShadedText(dst *ebiten.Image, text string, x, y int, col color.Color) {
 	drawDebugTextColored(dst, text, x, y, col)
 }
 
+// ShadedTextWidth is the advance of the same font used by DrawShadedText and
+// ebitenutil.DebugPrintAt. Editor labels must not estimate a different glyph width.
+func ShadedTextWidth(text string) int { return debugTextWidth(text) }
+
+// ShadedTextColumns converts available pixels to complete fixed-width glyphs.
+func ShadedTextColumns(width int) int { return max(0, width/debugTextCharWidth) }
+
 // RarityColor is the game's single rarity->tint mapping (metal tiers render as
 // gradients through DrawShadedText).
 func RarityColor(rarity string) color.Color { return rarityColor(rarity) }
@@ -36,4 +44,20 @@ func RefreshItemFromConfig(item *items.Item) { normalizeItemFromConfig(item) }
 // color (editor resist sheets; free for game HUD use).
 func SchoolColor(school string) color.Color {
 	return config.SchoolRGBA(school)
+}
+
+// MapLightingText describes the same outdoor/interior policy as the renderer.
+// Catalogs have no clock and therefore never claim a fixed outdoor brightness.
+func MapLightingText(mc *config.MapConfig) string {
+	if mc == nil {
+		return ""
+	}
+	if skyHasDayNightVariants(mc.SkyTexture) {
+		return "Ambient light: day/night cycle"
+	}
+	ambient := mc.AmbientLight
+	if ambient <= 0 {
+		ambient = 1
+	}
+	return fmt.Sprintf("Ambient light: %.2f", ambient)
 }

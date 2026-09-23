@@ -85,6 +85,12 @@ type UISystem struct {
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
 	radarDotFar    *ebiten.Image // Yellow dot for far enemies
+	// Radius-dependent static frame layers, independent of the minimap world.
+	compassFrameBackground *ebiten.Image
+	compassFrameOutline    *ebiten.Image
+	compassFrameRadius     int
+	compassMapMask         *ebiten.Image
+
 	// Compass minimap tile-layer cache: the ~80 static tile visuals only change
 	// when the player crosses a tile boundary (or the world swaps), so they're
 	// baked into one image and blitted per frame instead of redrawing their
@@ -281,8 +287,8 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 			// a top edge.
 			gap := tooltipCompareGap
 			cardCap := tooltipColumnWidth(screenW, 2)
-			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap)
-			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap)
+			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap, screenH)
+			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap, screenH)
 			h := mainH
 			if compareH > h {
 				h = compareH

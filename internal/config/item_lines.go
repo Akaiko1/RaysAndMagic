@@ -28,6 +28,11 @@ func nonPhysicalDamageSchools() []damagecalc.Type {
 // bonuses (divisors are STAT bonuses computed from the base stat - they feed
 // everything the stat feeds).
 func (d *ItemDefinitionConfig) StatBonusLines() []string {
+	return append(d.FlatStatBonusLines(), d.ScalingStatBonusLines()...)
+}
+
+// FlatStatBonusLines excludes formulas that a live card resolves for its bearer.
+func (d *ItemDefinitionConfig) FlatStatBonusLines() []string {
 	var parts []string
 	flat := []struct {
 		label string
@@ -46,6 +51,11 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
 		}
 	}
+	return parts
+}
+
+func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
+	var parts []string
 	if d.IntellectScalingDivisor > 0 {
 		parts = append(parts, uitext.Text("item.intellect_base", d.IntellectScalingDivisor))
 	}
@@ -131,41 +141,48 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 	return parts
 }
 
-// EffectLines is the full character-independent mechanics list: armor values,
-// stat bonuses, resistances, consumable behavior, and authored tooltip effects.
+// EffectLines is the complete character-independent mechanics list.
 func (d *ItemDefinitionConfig) EffectLines() []string {
-	return d.effectLines(true)
-}
-
-// CoreEffectLines omits armor values rendered in the structured defense section.
-func (d *ItemDefinitionConfig) CoreEffectLines() []string {
-	return d.effectLines(false)
-}
-
-func (d *ItemDefinitionConfig) effectLines(includeStructured bool) []string {
 	var lines []string
-	if includeStructured && d.ArmorClassBase > 0 {
+	if d.ArmorClassBase > 0 {
 		lines = append(lines, uitext.Text("item.armor_class", d.ArmorClassBase))
 	}
-	if includeStructured && d.EnduranceScalingDivisor > 0 {
+	if d.EnduranceScalingDivisor > 0 {
 		lines = append(lines, uitext.Text("item.ac_endurance", d.EnduranceScalingDivisor))
 	}
-	lines = append(lines, d.StatBonusLines()...)
+	lines = append(lines, d.CoreEffectLines()...)
+	return append(lines, d.SetLines()...)
+}
+
+// CoreEffectLines leaves armor and set membership to their own card sections.
+func (d *ItemDefinitionConfig) CoreEffectLines() []string {
+	lines := d.StatBonusLines()
 	lines = append(lines, d.ResistLines()...)
-	if d.HealBase > 0 {
-		if d.HealEnduranceDivisor > 0 {
-			lines = append(lines, uitext.Text("item.heals_endurance_hp", d.HealBase, d.HealEnduranceDivisor))
-		} else {
-			lines = append(lines, uitext.Text("item.heals_hp", d.HealBase))
-		}
-	}
-	if d.ManaBase > 0 {
-		if d.ManaPersonalityDivisor > 0 {
-			lines = append(lines, uitext.Text("item.restores_personality_sp", d.ManaBase, d.ManaPersonalityDivisor))
-		} else {
-			lines = append(lines, uitext.Text("item.restores_sp", d.ManaBase))
-		}
-	}
+	return append(lines, d.SpecialEffectLines()...)
+}
+
+// FixedEffectLines leaves scaling formulas to a live bearer's resolved rows.
+func (d *ItemDefinitionConfig) FixedEffectLines() []string {
+	lines := d.FlatStatBonusLines()
+	lines = append(lines, d.ResistLines()...)
+	return append(lines, d.SpecialEffectLines()...)
+}
+
+// EffectLinesWithoutRecovery lets consumable cards render recovery separately.
+func (d *ItemDefinitionConfig) EffectLinesWithoutRecovery() []string {
+	lines := d.StatBonusLines()
+	lines = append(lines, d.ResistLines()...)
+	return append(lines, d.behaviorLines()...)
+}
+
+// SpecialEffectLines contains behavior, without stats, resistances or set bonuses.
+// Equipment comparisons already compare those numerical values separately.
+func (d *ItemDefinitionConfig) SpecialEffectLines() []string {
+	return append(d.RecoveryLines(), d.behaviorLines()...)
+}
+
+func (d *ItemDefinitionConfig) behaviorLines() []string {
+	var lines []string
 	if ln := d.PartyArmorLine(); ln != "" {
 		lines = append(lines, ln)
 	}
@@ -193,7 +210,26 @@ func (d *ItemDefinitionConfig) effectLines(includeStructured bool) []string {
 	if cl := d.CardEffectLines(); len(cl) > 0 {
 		lines = append(lines, uitext.Text("item.collection")+strings.Join(cl, ", "))
 	}
-	lines = append(lines, d.SetLines()...)
+	return lines
+}
+
+// RecoveryLines describes the item's base recovery and attribute scaling.
+func (d *ItemDefinitionConfig) RecoveryLines() []string {
+	var lines []string
+	if d.HealBase > 0 {
+		if d.HealEnduranceDivisor > 0 {
+			lines = append(lines, uitext.Text("item.heals_endurance_hp", d.HealBase, d.HealEnduranceDivisor))
+		} else {
+			lines = append(lines, uitext.Text("item.heals_hp", d.HealBase))
+		}
+	}
+	if d.ManaBase > 0 {
+		if d.ManaPersonalityDivisor > 0 {
+			lines = append(lines, uitext.Text("item.restores_personality_sp", d.ManaBase, d.ManaPersonalityDivisor))
+		} else {
+			lines = append(lines, uitext.Text("item.restores_sp", d.ManaBase))
+		}
+	}
 	return lines
 }
 
@@ -335,7 +371,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct))
 	}
 	if d.CardRegenPct != 0 {
-		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct))
+		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
 	}
 	if d.CardDoubleAttackPct != 0 {
 		p = append(p, uitext.Text("item.on_melee_attack_strike_again", d.CardDoubleAttackPct))

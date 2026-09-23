@@ -332,7 +332,7 @@ func TestStaffCooldownMainHandPresentationContract(t *testing.T) {
 				}
 				def, _ := config.GetWeaponDefinition(key)
 				for _, full := range []bool{false, true} {
-					for _, text := range []string{GetItemTooltip(it, ch, cs, full), strings.Join(character.RenderCardLines(character.WeaponCardSections(def), full), "\n")} {
+					for _, text := range []string{GetItemTooltip(it, ch, cs, full), GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, full)} {
 						if !strings.Contains(text, "(main hand only)") {
 							t.Fatalf("card hides hand restriction (full=%v):\n%s", full, text)
 						}

@@ -1,8 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"ugataima/internal/boot"
+	"ugataima/internal/items"
+	"ugataima/internal/storage"
 
 	"ugataima/internal/game"
 )
@@ -65,5 +72,63 @@ func TestArchiveDisplayName(t *testing.T) {
 	broken := game.ArchivedSave{Path: "/a/broken.json"}
 	if got := archiveDisplayName(broken); got != "broken" {
 		t.Errorf("unreadable archive should fall back to filename, got %q", got)
+	}
+}
+
+func TestSaveTooltipBrowseKeepsFileAndNormalizesItems(t *testing.T) {
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	t.Chdir("../..")
+	boot.LoadGameData()
+	for _, kind := range []string{"legacy", "physical", "mixed"} {
+		t.Run(kind, func(t *testing.T) {
+			it := items.CreateItemFromYAML("leather_armor")
+			it.Attributes["armor_class"] = 9999
+			gs := game.GameSave{Party: game.PartySave{Inventory: []items.Item{it}}}
+			troll := items.CreateItemFromYAML("troll_card")
+			switch kind {
+			case "legacy":
+				gs.Party.CardCollection = []string{"troll_card"}
+			case "physical":
+				gs.Party.CardCollectionItems = []items.Item{troll}
+			case "mixed":
+				gs.Party.CardCollectionItems = []items.Item{{}, troll}
+				gs.Party.CardCollection = []string{"troll_card", "troll_card"}
+			}
+			before, err := json.Marshal(gs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "fixture.json")
+			if err = os.WriteFile(path, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, loot := buildSaveDetail(path, "Fixture", game.SaveSummary{})
+			cards := 0
+			for _, row := range loot {
+				if row.item == nil {
+					continue
+				}
+				if row.item.Type == items.ItemCard {
+					cards++
+				}
+				card := cardForSavedItem(*row.item)
+				text := strings.Join(card.tooltipRows, "\n")
+				if text == "" || strings.Contains(text, "9999") {
+					t.Fatalf("stale or empty tooltip: %s", text)
+				}
+			}
+			want := 1
+			if kind == "mixed" {
+				want = 2
+			}
+			if cards != want {
+				t.Fatalf("card hover count %d, want %d", cards, want)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("read-only save browsing changed the source file")
+			}
+		})
 	}
 }

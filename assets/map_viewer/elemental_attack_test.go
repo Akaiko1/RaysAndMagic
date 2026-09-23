@@ -24,7 +24,7 @@ func TestElementalEditorCatalogUsesConfiguredProfile(t *testing.T) {
 				texts = append(texts, row.text)
 			}
 			text := strings.Join(strings.Fields(strings.Join(texts, " ")), " ")
-			excluded := def.Champion != "" || def.WarlordIdol
+			excluded := def.Champion != "" || def.WarlordIdol || def.Disposition != ""
 			if excluded {
 				if strings.Contains(text, "Elemental Attack:") {
 					t.Fatal("excluded monster acquired elemental row")

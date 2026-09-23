@@ -3,7 +3,6 @@ package character
 import (
 	"fmt"
 	"strings"
-	uitext "ugataima/assets/text"
 
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -163,6 +162,8 @@ func masteryTableValue(table [4]int, tier int) int {
 	}
 	return table[tier]
 }
+
+const OverwatchAttackChanceScale = 0.5
 
 func OverwatchChancePct(tier int) int {
 	return masteryTableValue(overwatchChancePct, tier)
@@ -376,44 +377,17 @@ func WeaponCooldownMultiplier(def *config.WeaponDefinitionConfig) float64 {
 	return mult
 }
 
-// WeaponCombatLines lists the game-side combat traits of a weapon that the
-// config-level EffectLines can't compute (the category->skill mapping lives
-// here): the effective attack-speed multiplier (per-weapon override OR the
-// category multiplier from weapons.yaml) and the ranged armor-pierce chance.
-// Shared by the in-game weapon tooltip and the map-editor card.
+// WeaponCombatLines lists combat traits governed by character rules.
 func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 	if def == nil {
 		return nil
 	}
 	var out []string
-	if line := WeaponAttackCooldownLine(def); line != "" {
-		out = append(out, line)
-	}
 	damageType, damageTypeErr := damagecalc.ParseType(def.DamageType)
 	if def.Physics != nil && (def.DamageType == "" || (damageTypeErr == nil && damageType == damagecalc.Physical)) {
 		out = append(out, fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct))
 	}
 	return out
-}
-
-// WeaponAttackCooldownLine describes only the intrinsic attack-speed modifier.
-func WeaponAttackCooldownLine(def *config.WeaponDefinitionConfig) string {
-	if def == nil {
-		return ""
-	}
-	mult := WeaponCooldownMultiplier(def)
-	if mult > 0 && mult != 1.0 {
-		// Show the raw multiplier + how it compares to the baseline weapon
-		// (a sword, x1.00) - "+10%" alone read as "vs my current weapon" or
-		// "+10% of 1s". The actual cooldown in seconds is shown alongside.
-		d := mult - 1.0
-		rel := "slower"
-		if d < 0 {
-			d, rel = -d, "faster"
-		}
-		return uitext.Text("weapon.attack_cooldown_x_than_standard", mult, int(d*100+0.5), rel)
-	}
-	return ""
 }
 
 // MagicMasteryDescription explains only the selected school's rules. Keeping

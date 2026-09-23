@@ -13,7 +13,7 @@ import (
 )
 
 // Shared rule: compositing a shell stack must preserve its cutout, shade and
-// wall clipping while submitting only one column mesh. Persistence is N/A:
+// wall clipping while coalescing columns with identical wall clipping inputs. Persistence is N/A:
 // the mesh is rebuilt for the current camera on every draw.
 func TestStandeeSmallStackComposite(t *testing.T) {
 	requireStandeeGPU(t)
@@ -45,7 +45,7 @@ func TestStandeeSmallStackComposite(t *testing.T) {
 	key := makeStandeeCoreKey("small-stack", sprite, true)
 	for _, shells := range []int{2, 3, 5, 6, 16} {
 		for _, mirrored := range []bool{false, true} {
-			for _, state := range []string{"clear", "wall", "side-fade", "fade"} {
+			for _, state := range []string{"clear", "distant-wall", "wall", "sloped-wall", "high-wall", "screen-edge", "side-fade", "fade"} {
 				t.Run(fmt.Sprintf("shells%d/mirror%v/%s", shells, mirrored, state), func(t *testing.T) {
 					depth := 4 * tile
 					g.camera.X, g.camera.Y, g.camera.Angle = -depth, 0, 0
@@ -54,10 +54,24 @@ func TestStandeeSmallStackComposite(t *testing.T) {
 					for x := range g.depthBuffer {
 						g.depthBuffer[x] = g.camera.ViewDist
 						g.wallTopBuffer[x] = 0
-						if state == "wall" && x > w/3 && x < 2*w/3 {
+						if state == "distant-wall" {
+							g.depthBuffer[x] = depth*3 + float64(x)
+							g.wallTopBuffer[x] = h/3 + x/5
+						}
+						if (state == "wall" || state == "sloped-wall" || state == "high-wall") && x > w/3 && x < 2*w/3 {
 							g.depthBuffer[x] = depth / 2
 							g.wallTopBuffer[x] = h / 2
+							if state == "sloped-wall" {
+								g.depthBuffer[x] += float64(x) / 10
+								g.wallTopBuffer[x] += x / 4
+							}
+							if state == "high-wall" {
+								g.wallTopBuffer[x] = h / 4
+							}
 						}
+					}
+					if state == "screen-edge" {
+						g.camera.Angle = 0.5
 					}
 					slab, ok := r.prepareStandeeSlab(sprite, key, 0, 0, math.Pi/4, depth, 300, 450, 1, 1, 1, false, mirrored, 2*tile, nil)
 					if !ok || len(slab.surfaces) != shells+2 {
@@ -89,9 +103,12 @@ func TestStandeeSmallStackComposite(t *testing.T) {
 					if nFast == 0 || nRef == 0 {
 						t.Fatal("fixture rendered no geometry")
 					}
-					if state == "clear" || state == "wall" {
+					if state != "side-fade" && state != "fade" {
 						if nFast >= nRef/2 {
 							t.Fatalf("production failed to use one mesh: composite=%d material=%d", nFast, nRef)
+						}
+						if (state == "clear" || state == "distant-wall" || state == "wall" || state == "high-wall") && nFast > 12 {
+							t.Fatalf("identical wall inputs did not coalesce: vertices=%d", nFast)
 						}
 					} else if nFast != nRef {
 						t.Fatal("fading stack bypassed material path")
@@ -114,7 +131,7 @@ func TestStandeeSmallStackComposite(t *testing.T) {
 					}
 					// The central opening is deliberately wide enough to stay clear through
 					// every shell. A bounding-box occluder must never fill this hole.
-					if fast[(300*w+400)*4+3] != 0 {
+					if state != "screen-edge" && fast[(300*w+400)*4+3] != 0 {
 						t.Fatal("transparent opening filled")
 					}
 				})

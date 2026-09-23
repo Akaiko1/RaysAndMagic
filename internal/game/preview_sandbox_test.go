@@ -96,6 +96,9 @@ func TestPreviewSandboxCampaignIsolation(t *testing.T) {
 				if mobs.g.questManager != nil || fx.g.questManager != nil {
 					t.Fatal("preview adopted the campaign journal")
 				}
+				if mobs.g.worldClickAllowed() || fx.g.worldClickAllowed() {
+					t.Fatal("editor preview accepts game-world pointer selection")
+				}
 				if config.GlobalEcology != originalEcology || quests.GlobalQuestManager != originalJournal {
 					t.Fatal("preview replaced global campaign data")
 				}

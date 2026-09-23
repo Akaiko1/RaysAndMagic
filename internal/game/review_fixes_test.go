@@ -347,11 +347,11 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 	}
 
 	tooltip := GetItemTooltip(weapon, nil, cs, true)
-	if !strings.Contains(tooltip, "True Damage: +10") {
+	if !strings.Contains(tooltip, "Weapon: +10 True") {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
 	}
-	editor := strings.Join(character.RenderCardLines(character.WeaponCardSections(def), true), "\n")
-	if !strings.Contains(editor, "True Damage: +10") {
+	editor := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
+	if !strings.Contains(editor, "Weapon: +10 True") {
 		t.Fatalf("editor card omits authored true damage:\n%s", editor)
 	}
 }

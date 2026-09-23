@@ -13,6 +13,7 @@ ui.reward: "Reward: %s"
 ui.scroll_details: "Scroll for details"
 
 ui.overwatch_ready: "Overwatch ready"
+ui.overwatch_chances: "Enemy approach: %d%% per tile; attack: %.0f%% (in range and clear sight)"
 
 combat.overwatch_fires: "%s fires Overwatch at %s!"
 combat.overwatch_source: "%s (Overwatch)"

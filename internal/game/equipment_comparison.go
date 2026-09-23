@@ -173,13 +173,7 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 func comparisonEffectLines(item items.Item) []string {
 	if item.Type == items.ItemWeapon {
 		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
-			var out []string
-			for _, line := range weaponEffectLines(def) {
-				if !slices.Contains(def.SetLines(), line) {
-					out = append(out, line)
-				}
-			}
-			return out
+			return append(def.SpecialEffectLines(), character.WeaponCombatLines(def)...)
 		}
 		return nil
 	}
@@ -187,15 +181,7 @@ func comparisonEffectLines(item items.Item) []string {
 	if !ok || def == nil {
 		return nil
 	}
-	excluded := append(def.StatBonusLines(), def.ResistLines()...)
-	excluded = append(excluded, def.SetLines()...)
-	var out []string
-	for _, line := range character.FilteredItemEffectLines(def) {
-		if !slices.Contains(excluded, line) {
-			out = append(out, line)
-		}
-	}
-	return out
+	return def.SpecialEffectLines()
 }
 
 // Numerical gains and losses use readable colors independently of item rarity.

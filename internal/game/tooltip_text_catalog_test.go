@@ -35,27 +35,27 @@ func TestTooltipWordingDoesNotControlEffectSelection(t *testing.T) {
 	render := func() map[string]string {
 		result := map[string]string{}
 		for _, full := range []bool{false, true} {
-			add := func(kind, key, game string, sections []character.CardSection) {
+			add := func(kind, key, live, base string) {
 				prefix := fmt.Sprintf("%s/%s/full=%v/", kind, key, full)
-				result[prefix+"game"] = game
-				result[prefix+"editor"] = strings.Join(character.RenderCardLines(sections, full), "\n")
+				result[prefix+"game"] = live
+				result[prefix+"editor"] = base
 			}
-			for key, def := range config.GlobalItems.Items {
-				add("item", key, GetItemTooltip(items.CreateItemFromYAML(key), ch, cs, full), character.ItemCardSections(def))
+			for key := range config.GlobalItems.Items {
+				add("item", key, GetItemTooltip(items.CreateItemFromYAML(key), ch, cs, full), GetItemTooltip(items.CreateItemFromYAML(key), nil, nil, full))
 			}
-			for key, def := range config.GlobalWeapons.Weapons {
-				add("weapon", key, GetItemTooltip(items.CreateWeaponFromYAML(key), ch, cs, full), character.WeaponCardSections(def))
+			for key := range config.GlobalWeapons.Weapons {
+				add("weapon", key, GetItemTooltip(items.CreateWeaponFromYAML(key), ch, cs, full), GetItemTooltip(items.CreateWeaponFromYAML(key), nil, nil, full))
 			}
-			for key, def := range config.GlobalSpells.Spells {
+			for key := range config.GlobalSpells.Spells {
 				sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 				if err != nil {
 					t.Fatal(err)
 				}
-				add("spell", key, buildSpellTooltipUnified(sd, ch, cs, full), character.SpellCardSections(key, def, sd))
+				add("spell", key, buildSpellTooltipUnified(sd, ch, cs, full), GetSpellTooltip(sd.ID, nil, nil, full))
 			}
 			for _, key := range config.TrapKeysOrdered() {
 				def, _ := config.GetTrapDefinition(key)
-				add("trap", key, buildTrapTooltipUnified(key, def, ch, cs, full), character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner))
+				add("trap", key, buildTrapTooltipUnified(key, def, ch, cs, full), buildTrapTooltipUnified(key, def, nil, nil, full))
 			}
 		}
 		return result

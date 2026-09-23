@@ -1,6 +1,8 @@
 package game
 
 import (
+	"bytes"
+	"encoding/json"
 	"math"
 	"slices"
 	"testing"
@@ -8,6 +10,55 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 )
+
+func TestMobPreviewCaravanRoute(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	t.Chdir("../..")
+	before, err := json.Marshal(config.GlobalEcology)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewMobPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.g.Shutdown)
+	for _, key := range []string{"desert_caravan", "wolf", "desert_caravan"} {
+		p.Select(key)
+		if key == "wolf" {
+			if p.g.caravanRoute() != nil {
+				t.Fatal("reselection retained the caravan route")
+			}
+			continue
+		}
+		route := p.g.caravanRoute()
+		if route == nil || len(route.Points) < 2 || p.g.ecology.Checkpoint != 0 {
+			t.Fatal("caravan preview did not start a fresh local route")
+		}
+		m := p.Monsters()[0]
+		visited, loops := map[int]bool{}, 0
+		for i := 0; i < cfg.GetTPS()*40; i++ {
+			checkpoint := p.g.ecology.Checkpoint
+			p.Step()
+			if checkpoint != p.g.ecology.Checkpoint {
+				visited[checkpoint] = true
+				if p.g.ecology.Checkpoint == 0 {
+					loops++
+				}
+			}
+			if m.IsEngagingPlayer || m.X-p.g.camera.X < float64(cfg.GetTileSize()) {
+				t.Fatal("caravan left the stage or engaged the camera")
+			}
+		}
+		if len(visited) != len(route.Points) || loops < 2 {
+			t.Fatalf("caravan did not loop: visited=%v loops=%d position=%.1f,%.1f target=%.1f,%.1f", visited, loops, m.X, m.Y, m.AITargetX, m.AITargetY)
+		}
+	}
+	after, _ := json.Marshal(config.GlobalEcology)
+	if !bytes.Equal(before, after) || len(p.g.ecology.Stock) != 0 || len(p.g.world.NPCs) != 0 {
+		t.Fatal("preview changed campaign routes or produced trade rewards")
+	}
+}
 
 // Every authored size/disposition starts close and remains clear of the
 // camera after Update. Long-running movement is checked on the live renderer.

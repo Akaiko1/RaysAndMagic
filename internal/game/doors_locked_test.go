@@ -74,7 +74,7 @@ func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
 			}
 
 			tooltip := GetItemTooltip(items.CreateItemFromYAML(tc.key), nil, g.combat, false)
-			editorCard := strings.Join(character.RenderCardLines(character.ItemCardSections(def), true), "\n")
+			editorCard := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
 			for _, line := range append(append([]string{}, def.TooltipEffects...), def.TooltipUsageLines()...) {
 				if !strings.Contains(tooltip, line) {
 					t.Errorf("game tooltip missing YAML line %q:\n%s", line, tooltip)

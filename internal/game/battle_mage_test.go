@@ -671,7 +671,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		boltParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("firebolt", caster, boltTotal), "fire")
 		rock := rockParts.Total()
 		bolt := boltParts.Total()
-		want := fmt.Sprintf("Total Damage: %d vs %d (%+d)", rock, bolt, rock-bolt)
+		want := fmt.Sprintf("Total Damage: %d -> %d (%+d)", bolt, rock, rock-bolt)
 		found := false
 		for _, ln := range lines {
 			if ln == want {

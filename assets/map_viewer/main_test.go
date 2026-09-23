@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -128,8 +129,7 @@ func TestMobInfo_GoldDragonShowsOnlyMonsterFacingStun(t *testing.T) {
 }
 
 // TestSpellCard_SharesMechanicsWithGame verifies the editor's spell card pulls
-// its mechanics from spells.EffectLines (the same source as the in-game
-// tooltip), so previously-missing fields (stun chance, buff bonuses, charm,
+// its base mechanics from the shared game tooltip, so previously-missing fields (stun chance, buff bonuses, charm,
 // zone, revive...) now appear and can't drift from the game.
 func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
@@ -146,8 +146,8 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	}
 	want := map[string]string{
 		"psychic_shock": "Stun chance: 10%",
-		"stone_skin":    "Party takes -4 to -10 damage per hit by mastery",
-		"heroism":       "Party physical attacks deal +3 to +10 damage by mastery",
+		"stone_skin":    "Base reduction: -4 per hit",
+		"heroism":       "Base physical damage bonus: +3",
 		"charm":         "Pacifies",
 		"stun":          "Stuns every monster within 3.0 tiles",
 		"raise_dead":    "Revives a fallen ally to 25% HP",
@@ -263,6 +263,7 @@ func TestBuildMapInfoLines_ShowsMapRuntimeSettings(t *testing.T) {
 			StartY: 7,
 		},
 	}
+	m.LightingText = game.MapLightingText(m.Config)
 	lines := buildMapInfoLines(m, brush{kind: brushEraser})
 	rows := make([]string, 0, len(lines))
 	for _, line := range lines {

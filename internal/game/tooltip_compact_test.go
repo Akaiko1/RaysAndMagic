@@ -45,7 +45,7 @@ func TestTooltipCompact_WeaponHidesBreakdownKeepsTotals(t *testing.T) {
 		}
 	}
 	// Full reveals them, and the hint is gone.
-	for _, want := range []string{"Base:", "Normal Damage:", "Reduced by target Armor"} {
+	for _, want := range []string{"Base:", "Total Damage:", "Reduced by target Armor"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("full weapon must contain %q:\n%s", want, full)
 		}
@@ -88,28 +88,28 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				delete(char.Skills, character.SkillDualWielding)
 			},
 			want:   []string{"Speed ("},
-			absent: []string{"Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"},
+			absent: []string{"Orcish Fury -", "Dual Wielding -", "Cooldown limit:", "Capped at 100%"},
 		},
 		{
 			name: "shop omits every bearer factor", weaponKey: "iron_sword", shop: true,
-			absent: []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"},
+			absent: []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Cooldown limit:", "Capped at 100%"},
 		},
 		{
 			name: "shop keeps category cooldown property", weaponKey: "hunting_bow", shop: true,
-			want:     []string{"Attack cooldown x1.20 (20% slower than standard)"},
-			wantOnce: []string{"Attack cooldown x1.20"},
-			absent:   []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"},
+			want:     []string{"Base weapon cooldown: 1.26s"},
+			wantOnce: []string{"Base weapon cooldown:"},
+			absent:   []string{"Speed (", "Dual Wielding -", "Cooldown limit:", "RT Cooldown:"},
 		},
 		{
 			name: "shop keeps authored cooldown override", weaponKey: "suppressor_gun", shop: true,
-			want:     []string{"Attack cooldown x0.40 (60% faster than standard)"},
-			wantOnce: []string{"Attack cooldown x0.40"},
-			absent:   []string{"Speed (", "Dual Wielding -", "Safety clamp:", "RT Cooldown:"},
+			want:     []string{"Base weapon cooldown: 0.42s"},
+			wantOnce: []string{"Base weapon cooldown:"},
+			absent:   []string{"Speed (", "Dual Wielding -", "Cooldown limit:", "RT Cooldown:"},
 		},
 		{
 			name: "equipped card keeps one category cooldown property", weaponKey: "hunting_bow",
-			want:     []string{"Speed (", "Attack cooldown x1.20 (20% slower than standard)", "RT Cooldown:"},
-			wantOnce: []string{"Attack cooldown x1.20"},
+			want:     []string{"Speed (", "Base weapon cooldown: 1.26s", "RT Cooldown:"},
+			wantOnce: []string{"Base weapon cooldown:"},
 		},
 		{name: "Fury Novice", weaponKey: "iron_sword", setup: fury(character.MasteryNovice), want: []string{"Orcish Fury - Novice: +3"}},
 		{name: "Fury Expert", weaponKey: "iron_sword", setup: fury(character.MasteryExpert), want: []string{"Orcish Fury - Expert: +5"}},
@@ -137,8 +137,8 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				char.Speed = int(AttackCooldownCapSpeed)
 				char.Skills[character.SkillDualWielding] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			},
-			want:     []string{"Attack cooldown x0.40 (60% faster than standard)", "Safety clamp: 0.1s"},
-			wantOnce: []string{"Attack cooldown x0.40"},
+			want:     []string{"Base weapon cooldown: 0.42s", "Cooldown limit: 0.10s"},
+			wantOnce: []string{"Base weapon cooldown:"},
 		},
 		{
 			name: "critical cap is named only when active", weaponKey: "iron_sword",
@@ -154,7 +154,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Active party buff: +5", "Cards: +20% melee damage"},
-			order: []string{"Active party buff: +5", "Cards: +20% melee damage", "Normal Damage:"},
+			order: []string{"Active party buff: +5", "Cards: +20% melee damage", "Total Damage:"},
 		},
 		{
 			name: "ranged card multiplier precedes buff", weaponKey: "hunting_bow",
@@ -163,7 +163,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Cards: +20% ranged damage", "Active party buff: +5"},
-			order: []string{"Cards: +20% ranged damage", "Active party buff: +5", "Normal Damage:"},
+			order: []string{"Cards: +20% ranged damage", "Active party buff: +5", "Total Damage:"},
 		},
 	}
 
@@ -202,7 +202,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 					t.Errorf("full tooltip contains %q %d times, want exactly once:\n%s", wantOnce, count, full)
 				}
 			}
-			for _, detail := range []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Safety clamp:", "Capped at 100%"} {
+			for _, detail := range []string{"Attack cooldown x", "Speed (", "Orcish Fury -", "Dual Wielding -", "Cooldown limit:", "Capped at 100%"} {
 				if strings.Contains(compact, detail) {
 					t.Errorf("compact tooltip contains detail factor %q:\n%s", detail, compact)
 				}
@@ -236,15 +236,15 @@ func TestTooltipCompact_ArmorRequirementAndOrder(t *testing.T) {
 	if !strings.Contains(compact, "Requires: Plate Skill") {
 		t.Errorf("compact armor must show the equip requirement:\n%s", compact)
 	}
-	if !strings.Contains(compact, "Total Armor Class:") {
-		t.Errorf("compact armor must show Total Armor Class:\n%s", compact)
+	if !strings.Contains(compact, "Item Armor Class:") {
+		t.Errorf("compact armor must show Item Armor Class:\n%s", compact)
 	}
 	// The AC decomposition is detail-only.
 	if strings.Contains(compact, "Base Armor Class:") {
 		t.Errorf("compact armor must hide the AC breakdown:\n%s", compact)
 	}
 	// Full: Base->...->Total order.
-	if base, total := ttIndexOf(full, "Base Armor Class:"), ttIndexOf(full, "Total Armor Class:"); base < 0 || total < 0 || base >= total {
+	if base, total := ttIndexOf(full, "Base Armor Class:"), ttIndexOf(full, "Item Armor Class:"); base < 0 || total < 0 || base >= total {
 		t.Errorf("full armor DEFENSE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
 	}
 }
@@ -292,16 +292,15 @@ func TestTooltipCompact_SpellHidesDecompKeepsTotalsAndCost(t *testing.T) {
 	}
 }
 
-func TestTooltipCompact_SimpleItemHasNoShiftHint(t *testing.T) {
+func TestTooltipCompact_PotionHasShiftDetails(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	potion, err := items.TryCreateItemFromYAML("health_potion")
 	if err != nil {
 		t.Skip("health_potion not defined")
 	}
 	compact := GetItemTooltip(potion, thief, g.combat, false)
-	// Consumables are small - fully compact, no detail tier, so NO hint.
-	if strings.Contains(compact, "[Shift]") {
-		t.Errorf("simple item must not advertise a full breakdown it doesn't have:\n%s", compact)
+	if !strings.Contains(compact, "[Shift]") {
+		t.Errorf("potion must advertise recovery and automatic-use details:\n%s", compact)
 	}
 }
 
@@ -313,8 +312,7 @@ func TestEditorCardsAlwaysFull(t *testing.T) {
 	if !ok || def == nil {
 		t.Skip("magic dagger not defined")
 	}
-	rows := character.RenderCardLines(character.WeaponCardSections(def), true)
-	joined := strings.Join(rows, "\n")
+	joined := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
 	if !strings.Contains(joined, "Reduced by target Armor") {
 		t.Errorf("editor weapon card (full) must include the RULES detail:\n%s", joined)
 	}

@@ -97,11 +97,11 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	if !ok || def == nil {
 		t.Skip("ray_of_light not defined")
 	}
-	sd, err := spells.GetSpellDefinitionByID("ray_of_light")
+	_, err := spells.GetSpellDefinitionByID("ray_of_light")
 	if err != nil {
 		t.Fatalf("ray_of_light sd: %v", err)
 	}
-	joined := strings.Join(character.RenderCardLines(character.SpellCardSections("ray_of_light", def, sd), true), "\n")
+	joined := GetSpellTooltip(spells.SpellID("ray_of_light"), nil, nil, true)
 	// Ray of Light scales with BOTH stats (school Intellect + the personality flag).
 	if !strings.Contains(joined, "Intellect / 3") || !strings.Contains(joined, "Personality / 3") {
 		t.Errorf("Ray of Light editor card must scale with BOTH Intellect and Personality:\n%s", joined)
@@ -122,12 +122,12 @@ func TestEditorCard_BuffOmitsInactiveRTCooldown(t *testing.T) {
 			if !ok || def == nil {
 				t.Fatalf("%s definition missing", tc.key)
 			}
-			sd, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.key))
+			_, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.key))
 			if err != nil {
 				t.Fatalf("%s spell definition: %v", tc.key, err)
 			}
-			card := strings.Join(character.RenderCardLines(character.SpellCardSections(tc.key, def, sd), true), "\n")
-			gotCooldown := strings.Contains(card, "Cooldown")
+			card := GetSpellTooltip(spells.SpellID(tc.key), nil, nil, true)
+			gotCooldown := strings.Contains(card, "Base cooldown:")
 			if gotCooldown != tc.wantCooldown {
 				t.Errorf("editor cooldown shown = %v, want %v:\n%s", gotCooldown, tc.wantCooldown, card)
 			}
@@ -149,8 +149,8 @@ func TestTooltip_AoESplashCritAndDodgeRules(t *testing.T) {
 	if !strings.Contains(full, "Perfect Dodge") {
 		t.Errorf("projectile spell must mention Perfect Dodge:\n%s", full)
 	}
-	if !strings.Contains(full, "Hitbox:") {
-		t.Errorf("projectile spell should show its hitbox size:\n%s", full)
+	if strings.Contains(full, "Hitbox:") {
+		t.Errorf("projectile spell should not expose its collision geometry:\n%s", full)
 	}
 }
 
@@ -246,7 +246,7 @@ func TestTooltip_MeditationCostDiscount(t *testing.T) {
 		t.Fatalf("fireball: %v", err)
 	}
 	full := buildSpellTooltipUnified(def, caster, cs, true)
-	for _, want := range []string{"Base Cost:", "GM Meditation: -25%"} {
+	for _, want := range []string{"Base Cost:", "Meditation - Grandmaster: -25%"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("GM meditator spell must break down the cost (%q):\n%s", want, full)
 		}
@@ -336,7 +336,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 		assertCleanTooltipText(t, "compact/spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, false))
 		assertCleanTooltipText(t, "spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, true))
-		editor := strings.Join(character.RenderCardLines(character.SpellCardSections(key, def, sd), true), "\n")
+		editor := GetSpellTooltip(spells.SpellID(key), nil, nil, true)
 		assertCleanTooltipText(t, "editor/spell/"+key, editor)
 	}
 
@@ -352,7 +352,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 		assertCleanTooltipText(t, "compact/weapon/"+key, GetItemTooltip(item, char, cs, false))
 		assertCleanTooltipText(t, "weapon/"+key, GetItemTooltip(item, char, cs, true))
-		editor := strings.Join(character.RenderCardLines(character.WeaponCardSections(def), true), "\n")
+		editor := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
 		assertCleanTooltipText(t, "editor/weapon/"+key, editor)
 	}
 	for key, def := range config.GlobalItems.Items {
@@ -367,7 +367,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 		assertCleanTooltipText(t, "compact/item/"+key, GetItemTooltip(item, char, cs, false))
 		assertCleanTooltipText(t, "item/"+key, GetItemTooltip(item, char, cs, true))
-		editor := strings.Join(character.RenderCardLines(character.ItemCardSections(def), true), "\n")
+		editor := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
 		// Pure collectibles have no mechanical sections; the editor's outer
 		// item card still renders their authored name and description.
 		if strings.TrimSpace(editor) != "" {
@@ -375,7 +375,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 	}
 	for _, key := range config.TrapKeysOrdered() {
-		def, ok := config.GetTrapDefinition(key)
+		_, ok := config.GetTrapDefinition(key)
 		if !ok {
 			t.Errorf("trap/%s: definition missing", key)
 			continue
@@ -387,8 +387,7 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 		}
 		assertCleanTooltipText(t, "compact/trap/"+key, GetItemTooltip(item, char, cs, false))
 		assertCleanTooltipText(t, "trap/"+key, GetItemTooltip(item, char, cs, true))
-		editor := strings.Join(character.RenderCardLines(
-			character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true), "\n")
+		editor := GetItemTooltip(item, nil, nil, true)
 		assertCleanTooltipText(t, "editor/trap/"+key, editor)
 	}
 }

@@ -1,39 +1,72 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 )
+
+const equipmentSetSectionTitle = "SET"
 
 var equipmentBenefitColor = color.RGBA{120, 225, 135, 255}
 
-const activeSetPrefix = "[ACTIVE] "
-
-func highlightActiveSetLines(text, setKey string) string {
-	lines := strings.Split(text, "\n")
-	for _, setLine := range config.EquipmentSetLines(setKey) {
-		for i, line := range lines {
-			if strings.TrimSpace(line) == setLine {
-				lines[i] = strings.Replace(line, setLine, activeSetPrefix+setLine, 1)
-			}
-		}
+func equipmentSetTooltipLines(key string, bearer *character.MMCharacter) []string {
+	lines := config.EquipmentSetLines(key)
+	if bearer != nil && len(lines) > 0 {
+		count, required := bearer.EquipmentSetProgress(key)
+		lines[0] = fmt.Sprintf("Set: %s (%d/%d equipped)", config.GetItemSet(key).Name, count, required)
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
-func activeSetBonusColors(lines []string, base []color.Color) []color.Color {
+// queueItemTooltip keeps set activation in presentation colors, never in text.
+func (ui *UISystem) queueItemTooltip(lines []string, item items.Item, bearer *character.MMCharacter, x, y int) {
+	plate, titleText := ui.itemTitleColors(item)
+	var colors []color.Color
+	if titleText != nil {
+		colors = ui.rarityBodyColors(item, len(lines))
+	}
+	colors = activeSetBonusColors(lines, colors, item, bearer)
+	ui.queueTitledTooltipIcon(lines, colors, plate, titleText, itemTooltipIconName(item), x, y)
+}
+
+func activeSetBonusColors(lines []string, base []color.Color, item items.Item, bearer *character.MMCharacter) []color.Color {
+	if bearer == nil || item.InstanceID == 0 || item.Set == "" || !bearer.HasCompletedEquipmentSet(item.Set) {
+		return base
+	}
+	equipped := false
+	for _, worn := range bearer.Equipment {
+		if worn.InstanceID == item.InstanceID {
+			equipped = true
+			break
+		}
+	}
+	if !equipped {
+		return base
+	}
 	var out []color.Color
+	inSet := false
 	for i, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), activeSetPrefix) {
+		text := strings.TrimSpace(line)
+		if text == equipmentSetSectionTitle {
+			inSet = true
 			continue
 		}
-		if out == nil {
-			out = tooltipLineColors(len(lines), base)
+		if text == "" {
+			inSet = false
 		}
-		out[i] = equipmentBenefitColor
+		if inSet {
+			if out == nil {
+				out = tooltipLineColors(len(lines), base)
+			}
+			out[i] = equipmentBenefitColor
+		}
 	}
+
 	if out == nil {
 		return base
 	}

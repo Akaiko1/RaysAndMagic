@@ -2,7 +2,6 @@ package game
 
 import (
 	"ugataima/internal/character"
-	"ugataima/internal/items"
 )
 
 func (g *MMGame) restoreSavedParty(save *GameSave) {
@@ -14,34 +13,10 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	// Restore the monster-card collection (party-wide). New saves carry the
 	// physical card item + InstanceID; the legacy key-only field is load-only
 	// migration and cannot prove ownership against the shared stash.
-	g.cardSlots = [MaxCardSlots]cardSlot{}
-	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollectionItems); i++ {
-		it := save.Party.CardCollectionItems[i]
-		if it.Name == "" {
-			continue
-		}
-		normalizeItemFromConfig(&it)
-		hadID := it.InstanceID != 0
-		if g.setCardCollectionSlot(i, it) && !hadID {
-			g.loadNeedsResave = true
-		}
-	}
-	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
-		if g.cardCollectionKey(i) != "" {
-			continue
-		}
-		key := save.Party.CardCollection[i]
-		if cardDef(key) == nil {
-			continue
-		}
-		if g.stashOwnsCardKey(key) {
-			g.loadNeedsResave = true
-			continue
-		}
-		if g.setCardCollectionSlot(i, items.CreateItemFromYAML(key)) {
-			g.loadNeedsResave = true
-		}
-	}
+	g.ensureStashLoaded()
+	var migrated bool
+	g.cardSlots, migrated = resolveSavedCardSlots(save.Party, g.stash)
+	g.loadNeedsResave = g.loadNeedsResave || migrated
 	restoreRoster := func(dst *[]*character.MMCharacter, saves []CharacterSave) {
 		for _, cs := range saves {
 			member := restoreCharacterSave(cs)

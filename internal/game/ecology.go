@@ -255,6 +255,9 @@ func (cs *CombatSystem) finishActorKill(attacker, target *monster.Monster3D) {
 }
 
 func (g *MMGame) caravanRoute() *config.CaravanRoute {
+	if g.editorPreview != nil {
+		return g.editorPreview.caravanRoute
+	}
 	if config.GlobalEcology == nil {
 		return nil
 	}

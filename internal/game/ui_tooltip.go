@@ -11,18 +11,20 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// GetItemTooltip returns a comprehensive tooltip string for any item type.
-// It collects fields in a simple map and glues them together in a stable order
-// to keep the function compact and easy to extend.
 // tooltipDetailHeld reports whether the player is holding Shift to expand a
 // tooltip to its full Base->Stat->Mastery breakdown + universal RULES.
 func tooltipDetailHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
 
+// GetItemTooltip is shared by inventory, shops and editor catalogs. A nil
+// character requests the item's base values, independent of any active game.
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+	if char == nil {
+		combatSystem = nil
+	}
+	wearer := char
 	alreadyEquipped := false
-	activeSet := false
 	// A bag/shop item's own card uses the same post-equip context as the
 	// comparison. Equipped items retain their actual slot (especially rings).
 	if char != nil && combatSystem != nil && combatSystem.game != nil &&
@@ -30,7 +32,6 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		for _, equipped := range char.Equipment {
 			if item.InstanceID != 0 && equipped.InstanceID == item.InstanceID {
 				alreadyEquipped = true
-				activeSet = item.Set != "" && char.HasCompletedEquipmentSet(item.Set)
 				break
 			}
 		}
@@ -62,19 +63,17 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = buildSimpleItemTooltipUnified(item, full, char)
 	}
 	if core == "" {
-		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
+		core = fmt.Sprintf("%s\n%s", item.Name, item.DisplayKind())
 	}
 
-	if activeSet {
-		core = highlightActiveSetLines(core, item.Set)
+	if setLines := equipmentSetTooltipLines(item.Set, wearer); len(setLines) > 0 {
+		core += "\n\n" + equipmentSetSectionTitle + "\n" + strings.Join(setLines, "\n")
 	}
 	var tail []string
 	if val, ok := item.Attributes["value"]; ok && val > 0 {
 		tail = append(tail, fmt.Sprintf("Value: %d gold", val))
 	}
-	if item.Description != "" {
-		tail = append(tail, fmt.Sprintf("\"%s\"", item.Description))
-	}
+	tail = append(tail, itemProseLines(item)...)
 	if len(tail) > 0 {
 		core += "\n\n" + strings.Join(tail, "\n")
 	}
@@ -151,12 +150,8 @@ func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharact
 }
 
 func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
-	if char == nil || combatSystem == nil {
-		return ""
-	}
-
 	spellID := spells.SpellID(item.SpellEffect)
-	def, err := spells.GetSpellDefinitionByID(spellID)
+	_, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		lines := []string{
 			item.Name,
@@ -181,14 +176,8 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 		lines = append(lines, "", fmt.Sprintf("Value: %d gold", val))
 	}
 
-	if item.Description != "" && item.Description != def.Description {
-		lines = append(lines, "", fmt.Sprintf("\"%s\"", item.Description))
-	}
-
 	return joinTooltipLines(lines)
 }
-
-// getArmorTooltip returns armor-specific tooltip information (YAML-driven)
 
 func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
 	category := strings.ToLower(item.ArmorCategory)
@@ -210,26 +199,9 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 	return fmt.Sprintf("Requires: %s Skill (Missing)", display)
 }
 
-// getConsumableTooltip returns consumable-specific tooltip information
-
 // joinTooltipLines joins tooltip lines with newlines
 func joinTooltipLines(lines []string) string {
 	return strings.Join(lines, "\n")
-}
-
-// itemKindLabel names the item for the player: wearable pieces are labeled by
-// their SLOT (Belt / Amulet / Cloak / Ring ...) instead of the internal type -
-// "Accessory" told you nothing about where it goes.
-func itemKindLabel(item items.Item) string {
-	if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-		if slotCode, ok := item.Attributes["equip_slot"]; ok {
-			return items.EquipSlot(slotCode).DisplayName()
-		}
-		if item.Type == items.ItemAccessory {
-			return items.SlotRing1.DisplayName() // accessories default to the ring slot
-		}
-	}
-	return item.Type.String()
 }
 
 func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem, after *character.MMCharacter, afterCombat *CombatSystem) []string {
@@ -237,13 +209,20 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 
 	nextDamage := afterCombat.calculateWeaponDamagePreview(item, after)
 	oldDamage := combatSystem.calculateWeaponDamagePreview(equipped, char)
-	lines = append(lines, fmt.Sprintf("Damage / hit: %d -> %d (%+d)", oldDamage.Total, nextDamage.Total, nextDamage.Total-oldDamage.Total))
-	lines = append(lines, fmt.Sprintf("Critical damage: %d -> %d (%+d)", oldDamage.CriticalTotal, nextDamage.CriticalTotal, nextDamage.CriticalTotal-oldDamage.CriticalTotal))
+	if oldDamage.Total != nextDamage.Total {
+		lines = append(lines, fmt.Sprintf("Damage / hit: %d -> %d (%+d)", oldDamage.Total, nextDamage.Total, nextDamage.Total-oldDamage.Total))
+	}
+	if oldDamage.CriticalTotal != nextDamage.CriticalTotal {
+		lines = append(lines, fmt.Sprintf("Critical damage: %d -> %d (%+d)", oldDamage.CriticalTotal, nextDamage.CriticalTotal, nextDamage.CriticalTotal-oldDamage.CriticalTotal))
+	}
 	if nextDamage.True != oldDamage.True {
 		lines = append(lines, fmt.Sprintf("True damage / hit: %d -> %d (%+d)", oldDamage.True, nextDamage.True, nextDamage.True-oldDamage.True))
 	}
 	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped.Name), afterCombat.WeaponCooldownFramesFor(after, item.Name)
-	lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", cooldownSeconds(combatSystem, oldFrames), cooldownSeconds(afterCombat, nextFrames)))
+	oldRecovery, nextRecovery := cooldownSeconds(combatSystem, oldFrames), cooldownSeconds(afterCombat, nextFrames)
+	if oldRecovery != nextRecovery {
+		lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", oldRecovery, nextRecovery))
+	}
 	oldDef, _, _ := config.GetWeaponDefinitionByName(equipped.Name)
 	nextDef, _, _ := config.GetWeaponDefinitionByName(item.Name)
 	if oldDef != nil && nextDef != nil {
@@ -251,20 +230,19 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 		if oldCount != nextCount {
 			lines = append(lines, fmt.Sprintf("Strikes / attack: %d -> %d", oldCount, nextCount))
 		}
-		if oldDef.Volley != nextDef.Volley {
+		if max(1, oldDef.Volley) != max(1, nextDef.Volley) {
 			lines = append(lines, fmt.Sprintf("Projectiles / shot: %d -> %d", max(1, oldDef.Volley), max(1, nextDef.Volley)))
 		}
 	}
 
-	itemRange, eqRange := 0, 0
-	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil {
-		itemRange = def.Range
-	}
-	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok && def != nil {
-		eqRange = def.Range
-	}
+	itemRange, itemSpeed := character.EffectiveWeaponFlight(nextDef, after)
+	eqRange, eqSpeed := character.EffectiveWeaponFlight(oldDef, char)
 	if itemRange != eqRange {
-		lines = append(lines, fmt.Sprintf("Range: %d -> %d (%+d) tiles", eqRange, itemRange, itemRange-eqRange))
+		lines = append(lines, fmt.Sprintf("Range: %.0f -> %.0f (%+.0f) tiles", eqRange, itemRange, itemRange-eqRange))
+	}
+
+	if itemSpeed != eqSpeed {
+		lines = append(lines, fmt.Sprintf("Projectile Speed: %.1f -> %.1f (%+.1f) tiles/s", eqSpeed, itemSpeed, itemSpeed-eqSpeed))
 	}
 
 	itemArc, eqArc := "", ""
@@ -280,7 +258,7 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 
 	itemCrit := afterCombat.CalculateWeaponCritChance(item, after)
 	eqCrit := combatSystem.CalculateWeaponCritChance(equipped, char)
-	if itemCrit > 0 || eqCrit > 0 {
+	if itemCrit != eqCrit {
 		lines = append(lines, fmt.Sprintf("Critical Chance: %d%% -> %d%% (%+d%%)", eqCrit, itemCrit, itemCrit-eqCrit))
 	}
 
@@ -312,37 +290,52 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		itemCost = combatSystem.effectiveSpellCost(char, itemCost)
 		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
 	}
-	lines := []string{
-		fmt.Sprintf("Equipped: %s", equippedDef.Name),
-		fmt.Sprintf("Spell Points: %d vs %d (%+d)", itemCost, eqCost, itemCost-eqCost),
+	lines := []string{fmt.Sprintf("Equipped: %s", equippedDef.Name), "After equipping (current -> new)"}
+	if itemCost != eqCost {
+		lines = append(lines, fmt.Sprintf("Spell Points: %d -> %d (%+d)", eqCost, itemCost, itemCost-eqCost))
+	}
+
+	oldCooldown := cooldownSeconds(combatSystem, combatSystem.SpellCooldownFrames(char, equippedID))
+	newCooldown := cooldownSeconds(combatSystem, combatSystem.SpellCooldownFrames(char, itemID))
+	if oldCooldown != newCooldown {
+		lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", effectOrNone(oldCooldown), effectOrNone(newCooldown)))
 	}
 
 	if itemDef.IsProjectile || equippedDef.IsProjectile {
 		if rng, ok := combatSystem.CalculateSpellRangeTiles(itemDef.ID); ok {
-			if eqRng, eqOK := combatSystem.CalculateSpellRangeTiles(equippedDef.ID); eqOK {
-				lines = append(lines, fmt.Sprintf("Range: %.1f vs %.1f (%+.1f) tiles", rng, eqRng, rng-eqRng))
+			if eqRng, eqOK := combatSystem.CalculateSpellRangeTiles(equippedDef.ID); eqOK && fmt.Sprintf("%.1f", rng) != fmt.Sprintf("%.1f", eqRng) {
+				lines = append(lines, fmt.Sprintf("Range: %.1f -> %.1f (%+.1f) tiles", eqRng, rng, rng-eqRng))
 			}
 		}
-		// Both sides quote the packet combat fires (spellDamageParts), so Strong
-		// Magic and mastery splits weigh into the comparison exactly as in play.
-		_, _, itemTotal := combatSystem.CalculateSpellDamage(itemDef.ID, char)
-		_, _, eqTotal := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
-		itemParts := combatSystem.spellDamageParts(itemDef.ID, char, itemTotal)
-		itemParts, _ = combatSystem.spellPartsWithOutgoingBuff(itemParts, itemDef.School)
-		eqParts := combatSystem.spellDamageParts(equippedDef.ID, char, eqTotal)
-		eqParts, _ = combatSystem.spellPartsWithOutgoingBuff(eqParts, equippedDef.School)
-		itemDmg := itemParts.Total()
-		eqDmg := eqParts.Total()
-		if itemDmg > 0 || eqDmg > 0 {
-			lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", itemDmg, eqDmg, itemDmg-eqDmg))
+	}
+	// Compare like units: direct hits and zone ticks get separate rows. Control
+	// and healing spells do not acquire outgoing damage bonuses in the preview.
+	damage := func(def spells.SpellDefinition, perTick bool) int {
+		kind := def.DamageFormula().Kind
+		if kind == spells.DamageNone || (kind == spells.DamageZone) != perTick {
+			return 0
+		}
+		_, _, total := combatSystem.CalculateSpellDamage(def.ID, char)
+		parts := combatSystem.spellDamageParts(def.ID, char, total)
+		parts, _ = combatSystem.spellPartsWithOutgoingBuff(parts, def.School)
+		return parts.Total()
+	}
+	for _, perTick := range []bool{false, true} {
+		old, next := damage(equippedDef, perTick), damage(itemDef, perTick)
+		if old != next {
+			label := "Total Damage"
+			if perTick {
+				label = "Damage per tick"
+			}
+			lines = append(lines, fmt.Sprintf("%s: %d -> %d (%+d)", label, old, next, next-old))
 		}
 	}
 
 	if itemDef.HealAmount > 0 || equippedDef.HealAmount > 0 {
 		_, _, itemHeal := combatSystem.CalculateSpellHealing(itemDef.ID, char)
 		_, _, eqHeal := combatSystem.CalculateSpellHealing(equippedDef.ID, char)
-		if itemHeal > 0 || eqHeal > 0 {
-			lines = append(lines, fmt.Sprintf("Total Healing: %d vs %d (%+d)", itemHeal, eqHeal, itemHeal-eqHeal))
+		if itemHeal != eqHeal {
+			lines = append(lines, fmt.Sprintf("Total Healing: %d -> %d (%+d)", eqHeal, itemHeal, itemHeal-eqHeal))
 		}
 	}
 
@@ -350,14 +343,19 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		if itemDef.Duration > 0 || equippedDef.Duration > 0 {
 			itemDur := combatSystem.CalculateSpellDurationSeconds(itemDef.ID, char)
 			eqDur := combatSystem.CalculateSpellDurationSeconds(equippedDef.ID, char)
-			lines = append(lines, fmt.Sprintf("Duration: %ds vs %ds (%+ds)", itemDur, eqDur, itemDur-eqDur))
+			if itemDur != eqDur {
+				lines = append(lines, fmt.Sprintf("Duration: %ds -> %ds (%+ds)", eqDur, itemDur, itemDur-eqDur))
+			}
 		}
 	}
 
-	itemEffects := spellEffectsSummary(itemDef)
-	eqEffects := spellEffectsSummary(equippedDef)
-	if itemEffects != "" || eqEffects != "" {
-		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+	itemEffects := spellEffectsSummary(itemDef, char)
+	eqEffects := spellEffectsSummary(equippedDef, char)
+	if itemEffects != eqEffects {
+		lines = append(lines, fmt.Sprintf("Effects: %s -> %s", effectOrNone(eqEffects), effectOrNone(itemEffects)))
+	}
+	if len(lines) == 2 {
+		lines = append(lines, "No change to current stats or abilities")
 	}
 
 	return lines
@@ -370,21 +368,21 @@ func effectOrNone(s string) string {
 	return s
 }
 
-// weaponEffectLines delegates to the canonical formatter on the config
-// type so the in-game tooltip, compare-tooltip and map-viewer card stay
-// in sync. Add new special-effect rows in config.WeaponDefinitionConfig
-// EffectLines and every consumer picks them up automatically.
-func weaponEffectLines(def *config.WeaponDefinitionConfig) []string {
-	// Config-computable lines + the game-side combat traits (attack speed,
-	// ranged armor pierce) from the shared character helper.
-	return append(def.EffectLines(), character.WeaponCombatLines(def)...)
-}
-
-// spellEffectsSummary compresses the spell's mechanics into one comparison
-// cell - the SAME EffectLines the tooltip and editor print (a hand-picked
-// field list here once showed only Disintegrate and lost AoE/stun/buffs).
-func spellEffectsSummary(def spells.SpellDefinition) string {
-	return strings.Join(def.EffectLines(), "; ")
+// spellEffectsSummary uses the card's current effects and delivery geometry.
+func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter) string {
+	effects := spellCurrentEffects(def, char)
+	effects.Title = ""
+	var lines []string
+	for _, line := range character.RenderCardLines([]ttSection{effects}, false) {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if kind := def.DamageFormula().Kind; kind == spells.DamageNova || kind == spells.DamageZone {
+		lines = append(lines, damageTypeAoELine(def.School, 0))
+	}
+	lines = append(lines, spellAreaLines(def)...)
+	return strings.Join(lines, "; ")
 }
 
 // GetSpellTooltip returns a comprehensive tooltip for spells in the spellbook using centralized spell definitions
@@ -393,7 +391,12 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	if err != nil {
 		return fmt.Sprintf("Unknown Spell (%s)", spellID)
 	}
-	out := buildSpellTooltipUnified(def, char, combatSystem, full)
+	var out string
+	if authored, ok := config.GetSpellDefinition(string(spellID)); ok && authored.MonsterOnly {
+		out = renderTooltip(def.Name, "Monster spell - "+spellSchoolsLabel(def), character.MonsterSpellCardSections(authored, def), full)
+	} else {
+		out = buildSpellTooltipUnified(def, char, combatSystem, full)
+	}
 	if def.Description != "" {
 		out += "\n\n\"" + def.Description + "\""
 	}
@@ -430,4 +433,29 @@ func formatSchoolName(school string) string {
 		return ""
 	}
 	return strings.ToUpper(school[:1]) + school[1:]
+}
+
+// Authored description and flavor have different jobs. Legacy saves may store
+// only flavor in Description, so known definitions always supply both texts.
+func itemProseLines(item items.Item) []string {
+	description, flavor := "", ""
+	if item.Type == items.ItemWeapon {
+		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+			description, flavor = def.Description, def.Flavor
+		} else {
+			flavor = item.Description
+		}
+	} else if def, _, ok := config.GetItemDefinitionByName(item.Name); ok {
+		description, flavor = def.Description, def.Flavor
+	} else {
+		flavor = item.Description
+	}
+	var lines []string
+	if description != "" {
+		lines = append(lines, description)
+	}
+	if flavor != "" && flavor != description {
+		lines = append(lines, fmt.Sprintf("\"%s\"", flavor))
+	}
+	return lines
 }

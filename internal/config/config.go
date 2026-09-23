@@ -53,10 +53,15 @@ func weaponStatusDurationLabel(seconds int) string {
 }
 
 func (w *WeaponDefinitionConfig) EffectLines() []string {
+	return append(w.effectLines(true), w.SetLines()...)
+}
+
+// SpecialEffectLines excludes set membership, compared as a separate rule.
+func (w *WeaponDefinitionConfig) SpecialEffectLines() []string {
 	return w.effectLines(true)
 }
 
-// CoreEffectLines omits rows rendered in the structured attack/damage sections.
+// CoreEffectLines omits rows rendered in the attack, damage and set sections.
 func (w *WeaponDefinitionConfig) CoreEffectLines() []string {
 	return w.effectLines(false)
 }
@@ -86,9 +91,8 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if includeStructured && w.MaxProjectiles > 0 {
 		lines = append(lines, uitext.Text("weapon.max_airborne", w.MaxProjectiles))
 	}
-	// Attack-speed lines live in character.WeaponCombatLines (the category->
-	// skill mapping needed for the default multiplier lives there); only the
-	// spell-cooldown perk is computable at this layer.
+	// The structured attack section renders cooldown from the combat calculation.
+	// The spell-cooldown perk is computable at this layer.
 	if line := cooldownMultLine(uitext.Text("weapon.spell_cooldown"), w.SpellCooldownMultiplier); line != "" {
 		lines = append(lines, line+uitext.Text("weapon.main_hand_only"))
 	}
@@ -151,7 +155,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
 		lines = append(lines, uitext.Text("weapon.clutchburst_kills_explode_for_fire_within_tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
 	}
-	if w.TrueDamage > 0 {
+	if includeStructured && w.TrueDamage > 0 {
 		lines = append(lines, uitext.Text("weapon.true_damage_ignores_armor_and_dodge", w.TrueDamage))
 	}
 	if w.SlowPct > 0 && w.SlowSeconds > 0 {
@@ -189,7 +193,6 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w.TBActionsPerRound > 0 {
 		lines = append(lines, uitext.Text("weapon.autofire_at_least_actions_per_turn_based", w.TBActionsPerRound))
 	}
-	lines = append(lines, w.SetLines()...)
 	return lines
 }
 
@@ -1428,6 +1431,9 @@ type WeaponDefinitionConfig struct {
 // GetTPS (MMGame.framesForSeconds does exactly that); where a raw frame constant
 // remains, its comment states what it lasts at this rate.
 const DefaultTPS = 120
+
+const RegenerationIntervalFrames = 600
+const RegenerationRounds = 3
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {

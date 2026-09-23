@@ -30,7 +30,7 @@ func TestDebugSim_ActiveSetTooltip(t *testing.T) {
 	ui := g.gameLoop.ui
 	for _, size := range [][2]int{{1024, 768}, {1280, 800}} {
 		lines := strings.Split(GetItemTooltip(armor, ch, g.combat, false), "\n")
-		ui.queueTitledTooltipIcon(lines, nil, rarityGold, nil, "", 10, 10)
+		ui.queueItemTooltip(lines, armor, ch, 10, 10)
 		runOnDrawFrame(func(_ *ebiten.Image) {
 			dst := ebiten.NewImage(size[0], size[1])
 			defer dst.Deallocate()

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -205,7 +206,7 @@ func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
 		if line := cooldownLine(g.combat, want); !strings.Contains(tip, line) {
 			t.Fatalf("trap tooltip must show effective cooldown %q:\n%s", line, tip)
 		}
-		if !strings.Contains(tip, "Scales with caster Speed") {
+		if !strings.Contains(tip, fmt.Sprintf("Speed (%d):", thief.GetEffectiveSpeed())) {
 			t.Fatalf("trap tooltip must disclose Speed scaling:\n%s", tip)
 		}
 		return thief.RTCooldown

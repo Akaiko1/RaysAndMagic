@@ -14,6 +14,7 @@ import (
 func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	screenW := cs.game.config.GetScreenWidth()
+	screenH := cs.game.config.GetScreenHeight()
 
 	var holder = cs.game.party.Members[0]
 	for _, m := range cs.game.party.Members {
@@ -34,8 +35,8 @@ func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 	// Same sizing the renderer uses: each card capped to ~half the screen.
 	gap := tooltipCompareGap
 	cardCap := tooltipColumnWidth(screenW, 2)
-	mainW, _ := tooltipBoxSizeForScreen(main, nil, true, 0, cardCap)
-	compareW, _ := tooltipBoxSizeForScreen(cmp, nil, false, 0, cardCap)
+	mainW, _ := tooltipBoxSizeForScreen(main, nil, true, 0, cardCap, screenH)
+	compareW, _ := tooltipBoxSizeForScreen(cmp, nil, false, 0, cardCap, screenH)
 	if mainW > cardCap || compareW > cardCap {
 		t.Errorf("a card exceeds the half-screen cap: mainW=%d compareW=%d cap=%d", mainW, compareW, cardCap)
 	}
@@ -57,9 +58,8 @@ func TestTooltipCompare_NoHorizontalOverlap(t *testing.T) {
 
 	// Vertical: the taller card drives the shared flip; with the cursor anywhere
 	// (incl. the very bottom), flipTooltipY must keep the whole card on screen.
-	screenH := cs.game.config.GetScreenHeight()
-	_, mainH := tooltipBoxSizeForScreen(main, nil, true, 0, cardCap)
-	_, compareH := tooltipBoxSizeForScreen(cmp, nil, false, 0, cardCap)
+	_, mainH := tooltipBoxSizeForScreen(main, nil, true, 0, cardCap, screenH)
+	_, compareH := tooltipBoxSizeForScreen(cmp, nil, false, 0, cardCap, screenH)
 	h := mainH
 	if compareH > h {
 		h = compareH

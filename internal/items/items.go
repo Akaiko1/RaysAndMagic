@@ -733,3 +733,18 @@ func mapEquipSlotStringToCode(slotStr string) EquipSlot {
 	}
 	return SlotArmor // unreachable for YAML items: load-time validation rejects unknown names
 }
+
+// DisplayKind names the item for the player: wearable pieces are labeled by
+// their SLOT (Belt / Amulet / Cloak / Ring ...) instead of the internal type -
+// "Accessory" told you nothing about where it goes.
+func (item Item) DisplayKind() string {
+	if item.Type == ItemArmor || item.Type == ItemAccessory {
+		if slotCode, ok := item.Attributes["equip_slot"]; ok {
+			return EquipSlot(slotCode).DisplayName()
+		}
+		if item.Type == ItemAccessory {
+			return SlotRing1.DisplayName() // accessories default to the ring slot
+		}
+	}
+	return item.Type.String()
+}

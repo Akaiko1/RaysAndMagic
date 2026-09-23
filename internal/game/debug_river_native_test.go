@@ -138,16 +138,19 @@ func TestRiverNativeRoute(t *testing.T) {
 	defer audioManager.Close()
 	g.soundManager = audioManager
 	source := os.Getenv("RAM_RIVER_SAVE")
-	if source == "" {
-		t.Fatal("RAM_RIVER_SAVE required")
-	}
-	bytes, err := os.ReadFile(source)
-	if err != nil {
-		t.Fatal(err)
+	startAtRiver := os.Getenv("RAM_RIVER_START") != ""
+	if source == "" && !startAtRiver {
+		t.Fatal("RAM_RIVER_SAVE or RAM_RIVER_START required")
 	}
 	saved := filepath.Join(root, "river.json")
-	if err := os.WriteFile(saved, bytes, 0600); err != nil {
-		t.Fatal(err)
+	if source != "" {
+		bytes, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(saved, bytes, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	g.showFPS = os.Getenv("RAM_RIVER_OVERLAY") != ""
 	tile := float64(g.config.GetTileSize())
@@ -156,8 +159,15 @@ func TestRiverNativeRoute(t *testing.T) {
 	d := &riverNativeDriver{g: g, done: make(chan struct{}), direction: -1, minX: minX, maxX: maxX}
 	d.turnOnly = os.Getenv("RAM_RIVER_TURN") != ""
 	d.loadSave = func() error {
-		if err := g.LoadGameFromFile(saved); err != nil {
-			return err
+		if source != "" {
+			if err := g.LoadGameFromFile(saved); err != nil {
+				return err
+			}
+		}
+		if startAtRiver {
+			x, y := world.GlobalWorldManager.ProjectWorldPos("forest", 30.5*tile, 36.5*tile)
+			g.setPartyPosition(x, y)
+			g.snapFacing(world.GlobalWorldManager.ProjectAngle("forest", math.Pi))
 		}
 		if os.Getenv("RAM_RIVER_LAND") != "" {
 			x, y := world.GlobalWorldManager.ProjectWorldPos("forest", 30.5*tile, 44.5*tile)

@@ -163,11 +163,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	if tooltip != "" && tooltipHasItem {
 		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
 		plate, titleText := ui.itemTitleColors(tooltipItem)
-		var bodyColors []color.Color
-		if titleText != nil { // gear keeps its rarity-metal body; spells/traps stay white
-			bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
-		}
-		ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
+		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
 		if compareTooltip != "" {
 			compareLines := strings.Split(compareTooltip, "\n")
 			var compareBody []color.Color

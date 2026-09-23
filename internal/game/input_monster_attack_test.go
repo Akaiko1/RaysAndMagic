@@ -264,7 +264,7 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 }
 
 func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
-	for _, state := range []string{"visible", "leave", "dead", "removed", "friendly", "wall", "modal", "HUD", "drag", "world"} {
+	for _, state := range []string{"visible", "leave", "dead", "removed", "friendly", "wall", "modal", "HUD", "drag", "world", "editor preview"} {
 		t.Run(state, func(t *testing.T) {
 			g, _, fp, m, _ := mouseCombatHarness(t, false)
 			switch state {
@@ -290,8 +290,11 @@ func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
 			case "world":
 				other := *g.world
 				g.world = &other
+			case "editor preview":
+				g.editorPreview = &editorPreviewState{}
 			}
 			r := g.gameLoop.renderer
+			r.hoveredMonster = m // A previous frame's selection must clear too.
 			r.selectMonsterHover()
 			if (r.hoveredMonster == m) != (state == "visible") {
 				t.Fatal("hover disagrees with attack targeting")

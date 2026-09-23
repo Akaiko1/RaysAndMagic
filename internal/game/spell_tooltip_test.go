@@ -97,12 +97,12 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 
 	mustContain := []struct{ id, want string }{
 		{"psychic_shock", "Stun chance: 10%"},
-		{"stone_skin", "Party takes -4 to -10 damage per hit by mastery"},
 		{"stone_skin", "Current reduction: -4 per hit"},
-		{"heroism", "Party physical attacks deal +3 to +10 damage by mastery"},
-		{"day_of_the_gods", "Party takes 10% to 30% less damage by mastery"},
-		{"hour_of_power", "Party attacks deal +5 to +15 damage by mastery"},
-		{"hour_of_power", "Party takes -1 to -5 damage per hit by mastery"},
+		{"stone_skin", "Current reduction: -4 per hit"},
+		{"heroism", "Current physical damage bonus: +3"},
+		{"day_of_the_gods", "Current resistance: -10% incoming"},
+		{"hour_of_power", "Current damage bonus: +5"},
+		{"hour_of_power", "Current reduction: -1 per hit"},
 		{"stun", "Stuns every monster within 3.0 tiles for 4s"},
 		{"darkness", "Stuns every monster within 5.0 tiles for 5s"},
 		{"disintegrate", "Disintegrate: 15%"},
@@ -120,14 +120,14 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"psychic_shock", "Personality ("}, // self-magic school -> Personality
 		{"hot_steam", "Intellect ("},
 		{"heal", "Personality ("},
-		{"inferno", "Burns EVERY monster on the map for 45-90 damage by mastery"},
+		{"inferno", "Radius: Current map"},
 		{"fly", "Only under an open sky"},
 		{"town_portal", "visited taverns, towns, and major landmarks"},
 		{"fire_shield", "Party resists Fire +50%"},
 		{"stone_blossom", "blooms exactly 7 tiles out"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},
 		{"resurrect", "full HP"},
-		{"mass_heal", "Heals the entire party"},
+		{"mass_heal", "Target: Entire Party"},
 		{"awaken", "Wakes all unconscious allies"},
 	}
 	for _, c := range mustContain {

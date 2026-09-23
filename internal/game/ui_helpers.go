@@ -658,7 +658,7 @@ const tooltipScreenMargin = 8
 const tooltipIconSize = 128
 const tooltipIconGap = 8
 
-func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
+func tooltipBoxSizeWithIcon(lines []string, hasIcon bool, lineHeight int) (int, int) {
 	if len(lines) == 0 {
 		return 0, 0
 	}
@@ -672,11 +672,39 @@ func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 			bgWidth = w
 		}
 	}
-	bgHeight := len(lines)*16 + 8
+	bgHeight := 8
+	for _, line := range lines {
+		bgHeight += tooltipRowHeight(line, lineHeight)
+	}
 	if hasIcon && bgHeight < tooltipIconSize+12 {
 		bgHeight = tooltipIconSize + 12
 	}
 	return bgWidth, bgHeight
+}
+
+// Blank rows separate sections without consuming a full text line.
+func tooltipRowHeight(line string, lineHeight int) int {
+	if line == "" {
+		return 4
+	}
+	return lineHeight
+}
+
+// Long full cards may use the bitmap font's tighter 14px line spacing. Keep
+// short cards at 16px, with the same font, 128px icon and complete text.
+func tooltipLineHeight(lines []string, screenH int) int {
+	rows, blanks := 0, 0
+	for _, line := range lines {
+		if line == "" {
+			blanks++
+		} else {
+			rows++
+		}
+	}
+	if rows == 0 {
+		return 16
+	}
+	return max(14, min(16, (screenH-2*tooltipScreenMargin-8-4*blanks)/rows))
 }
 
 // drawTooltip draws a tooltip with the given text lines at the specified
@@ -701,7 +729,8 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
 	lines, colors = wrapTooltipLines(lines, colors, x, maxRight, tooltipTextOffset(hasIcon))
-	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
+	lineHeight := tooltipLineHeight(lines, screen.Bounds().Dy())
+	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon, lineHeight)
 
 	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
 	// defensive top clamp only.
@@ -722,7 +751,7 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, tit
 	titleStart := 0
 	if titlePlate != nil && len(lines) > 0 {
 		if plateW := x + bgWidth - 4 - (textX - 4); plateW > 0 {
-			drawMetalPlate(screen, textX-4, y+4, plateW, 18, metalPlateBase(titlePlate))
+			drawMetalPlate(screen, textX-4, y+4, plateW, lineHeight+2, metalPlateBase(titlePlate))
 		}
 		if titleText != nil {
 			drawDebugTextColored(screen, lines[0], textX, y+6, titleText)
@@ -733,12 +762,17 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, tit
 	}
 
 	hasColors := len(colors) == len(lines) && len(colors) > 0
+	textY := y + 6
+	if titleStart > 0 {
+		textY += tooltipRowHeight(lines[0], lineHeight)
+	}
 	for i := titleStart; i < len(lines); i++ {
 		if hasColors {
-			drawDebugTextColored(screen, lines[i], textX, y+6+i*16, colors[i])
+			drawDebugTextColored(screen, lines[i], textX, textY, colors[i])
 		} else {
-			drawDebugText(screen, lines[i], textX, y+6+i*16)
+			drawDebugText(screen, lines[i], textX, textY)
 		}
+		textY += tooltipRowHeight(lines[i], lineHeight)
 	}
 }
 
@@ -814,15 +848,15 @@ func tooltipTextOffset(hasIcon bool) int {
 	return 0
 }
 
-func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW int) (int, int) {
+func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW, screenH int) (int, int) {
 	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
-	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
+	return tooltipBoxSizeWithIcon(wrapped, hasIcon, tooltipLineHeight(wrapped, screenH))
 }
 
 // Measure before positioning, as for comparison cards. Wrapping at the cursor
 // first can force the minimum text column beyond the right edge.
 func singleTooltipLayout(lines []string, colors []color.Color, hasIcon bool, x, y, screenW, screenH int) layoutRect {
-	w, h := tooltipBoxSizeForScreen(lines, colors, hasIcon, 0, tooltipColumnWidth(screenW, 1))
+	w, h := tooltipBoxSizeForScreen(lines, colors, hasIcon, 0, tooltipColumnWidth(screenW, 1), screenH)
 	return positionTooltipBox(x, y, w, h, screenW, screenH)
 }
 
@@ -919,7 +953,7 @@ func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Co
 		return
 	}
 	ui.tooltipLines = lines
-	ui.tooltipColors = activeSetBonusColors(lines, bodyColors)
+	ui.tooltipColors = bodyColors
 	ui.tooltipTitleColor = plate
 	ui.tooltipTitleText = titleText
 	ui.tooltipIcon = ui.validTooltipIcon(icon)

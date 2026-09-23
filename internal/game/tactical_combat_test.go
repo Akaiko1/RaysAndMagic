@@ -330,7 +330,7 @@ func TestBallisticsAndMedicineUseSharedNumbers(t *testing.T) {
 			t.Fatal("mana potion ignored Field Medicine")
 		}
 		text := GetItemTooltip(ch.Equipment[items.SlotMainHand], ch, g.combat, true)
-		if !strings.Contains(text, fmt.Sprintf("Current Range: %.0f tiles", rangeTiles)) || !strings.Contains(text, fmt.Sprintf("Current Projectile Speed: %.1f tiles/s", speed)) {
+		if !strings.Contains(text, fmt.Sprintf("Range: %.0f tiles", rangeTiles)) || !strings.Contains(text, fmt.Sprintf("Projectile Speed: %.1f tiles/s", speed)) {
 			t.Fatal("tooltip ignored Ballistics")
 		}
 	}

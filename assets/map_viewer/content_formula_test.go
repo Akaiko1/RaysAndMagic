@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/bridge"
 	"ugataima/internal/config"
 )
 
@@ -28,9 +29,17 @@ func TestEditorWeaponStrikeUnits(t *testing.T) {
 				DoubleStrike: tc.doubleStrike, Volley: tc.volley,
 				BonusStat: "Might", BonusStatSecondary: "Speed",
 			}
-			card := weaponCard("test", "fixture", def)
+			installEditorWeapon(t, def)
+			card := weaponCard("test", "iron_sword", def)
 			text := strings.Join(card.tooltipRows, "\n")
-			prefix := fmt.Sprintf("Dmg %d  Range %d", tc.base, tc.rangeTiles)
+			wantDamage := tc.base
+			if tc.wantSplit {
+				wantDamage = (tc.base + 1) / 2
+			}
+			if !strings.Contains(text, fmt.Sprintf("Total Damage: %d\n", wantDamage)) {
+				t.Errorf("wrong base damage per strike: %s", text)
+			}
+			prefix := fmt.Sprintf("Base dmg %d  Range %d", tc.base, tc.rangeTiles)
 			if tc.wantSplit {
 				prefix = fmt.Sprintf("Pre-split dmg %d  Range %d", tc.base, tc.rangeTiles)
 			}
@@ -38,23 +47,17 @@ func TestEditorWeaponStrikeUnits(t *testing.T) {
 				t.Errorf("subtitle = %q, want prefix %q", card.subtitle, prefix)
 			}
 			for _, line := range []string{
-				"Strikes per attack: 2", "Normal damage formula before strike split:",
+				"Strikes per attack: 2",
 				"Per strike: divide Normal formula total by 2, round up",
 			} {
 				if strings.Contains(text, line) != tc.wantSplit {
 					t.Errorf("split=%v, unexpected presence/absence of %q:\n%s", tc.wantSplit, line, text)
 				}
 			}
-			if strings.Contains(text, "Damage shown per strike") {
-				t.Errorf("editor source formula mislabeled as per-strike damage:\n%s", text)
-			}
-			for _, line := range []string{fmt.Sprintf("Base: %d", tc.base), "Might / 3: scales", "Speed / 4: scales"} {
+			for _, line := range []string{fmt.Sprintf("Base: %d", tc.base), "Scales with Might / 3", "Also scales with Speed / 4"} {
 				if !strings.Contains(text, line) {
 					t.Errorf("source term lost or divided separately: missing %q", line)
 				}
-			}
-			if tc.wantSplit && strings.Index(text, "Per strike: divide") < strings.Index(text, "Arms Master:") {
-				t.Error("strike split must follow the complete Normal formula")
 			}
 			for _, r := range card.subtitle + text {
 				if r > 127 {
@@ -74,29 +77,29 @@ func TestEditorSpellCardsUseCompleteFormula(t *testing.T) {
 		want   []string
 		absent []string
 	}{
-		{"projectile", func(d *config.SpellDefinitionConfig) {}, []string{"Dmg 42", "Intellect / 3: scales"}, nil},
-		{"dual-stat", func(d *config.SpellDefinitionConfig) { d.ScalesWithPersonality = true }, []string{"Intellect / 3: scales", "Personality / 3: scales"}, nil},
-		{"self-magic", func(d *config.SpellDefinitionConfig) { d.School = "body"; d.ScalesWithPersonality = true }, []string{"Personality / 3: scales"}, []string{"Intellect /"}},
-		{"control", func(d *config.SpellDefinitionConfig) { d.DealsNoDamage = true }, []string{"SP 7"}, []string{"Dmg ", "Base (", "/ 3: scales"}},
-		{"projectile-ladder", func(d *config.SpellDefinitionConfig) { d.DamageByMastery = []int{11, 23, 47, 95} }, []string{"Dmg 11", "Novice: 11", "23 / 47 / 95"}, []string{"Intellect /", "Base ("}},
+		{"projectile", func(d *config.SpellDefinitionConfig) {}, []string{"Base dmg 42", "Scales with Intellect / 3"}, nil},
+		{"dual-stat", func(d *config.SpellDefinitionConfig) { d.ScalesWithPersonality = true }, []string{"Scales with Intellect / 3", "Scales with Personality / 3"}, nil},
+		{"self-magic", func(d *config.SpellDefinitionConfig) { d.School = "body"; d.ScalesWithPersonality = true }, []string{"Scales with Personality / 3"}, []string{"Intellect /"}},
+		{"control", func(d *config.SpellDefinitionConfig) { d.DealsNoDamage = true }, []string{"SP 7"}, []string{"Base dmg ", "Base (", "/ 3: scales"}},
+		{"projectile-ladder", func(d *config.SpellDefinitionConfig) { d.DamageByMastery = []int{11, 23, 47, 95} }, []string{"Base dmg 11", "Base: 11"}, []string{"Intellect /", "Base ("}},
 		{"zone", func(d *config.SpellDefinitionConfig) {
 			d.IsProjectile = false
 			d.ZoneRadiusTiles = 2
 			d.ZoneTickSeconds = 1
 			d.ZoneTickDamage = 9
-		}, []string{"Tick 9", "DAMAGE PER TICK", "Base: 9", "Intellect / 3: scales"}, []string{"Base ("}},
+		}, []string{"Base tick 9", "DAMAGE PER TICK", "Base: 9", "Scales with Intellect / 3"}, []string{"Base ("}},
 		{"nova-step", func(d *config.SpellDefinitionConfig) {
 			d.IsProjectile = false
 			d.PartyAoeRadiusTiles = 2
 			d.MasteryDamagePerTier = 5
-		}, []string{"Dmg 21", "Damage: 21-36", "Targets: Monsters and Party"}, []string{"Intellect /"}},
+		}, []string{"Base dmg 21", "Damage: 21", "Targets: Monsters and Party"}, []string{"Intellect /"}},
 		{"map-ladder-spares-party", func(d *config.SpellDefinitionConfig) {
 			d.IsProjectile = false
 			d.MapWide = true
 			d.SparesParty = true
 			d.DamageByMastery = []int{11, 23, 47, 95}
-		}, []string{"Dmg 11", "Novice: 11", "23 / 47 / 95", "Radius: Current map", "Targets: Monsters only"}, []string{"Intellect /", "Targets: Monsters and Party"}},
-		{"heal", func(d *config.SpellDefinitionConfig) { d.IsProjectile = false; d.IsUtility = true; d.HealAmount = 19 }, []string{"Heal 19", "Base: 19", "Personality / 2: scales"}, []string{"Dmg ", "Intellect /"}},
+		}, []string{"Base dmg 11", "Base: 11", "Radius: Current map", "Targets: Monsters only"}, []string{"Intellect /", "Targets: Monsters and Party"}},
+		{"heal", func(d *config.SpellDefinitionConfig) { d.IsProjectile = false; d.IsUtility = true; d.HealAmount = 19 }, []string{"Base heal 19", "Base: 19", "Scales with Personality / 2"}, []string{"Base dmg ", "Intellect /"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			def := &config.SpellDefinitionConfig{Name: "Fixture", School: "light", SpellPointsCost: 7, CooldownSeconds: 2, IsProjectile: true, DamageCostMultiplier: 2}
@@ -116,7 +119,7 @@ func TestEditorSpellCardsUseCompleteFormula(t *testing.T) {
 					t.Errorf("unexpected %q:\n%s", absent, text)
 				}
 			}
-			if n := strings.Count(text, "Personality / 3: scales"); n > 1 {
+			if n := strings.Count(text, "Scales with Personality / 3"); n > 1 {
 				t.Errorf("Personality counted %d times", n)
 			}
 		})
@@ -127,20 +130,34 @@ func TestEditorWeaponCardUsesFormulaTerms(t *testing.T) {
 	for _, stat := range []string{"", "Might", "Intellect", "Personality", "Endurance", "Accuracy", "Speed", "Luck"} {
 		t.Run("primary-"+stat, func(t *testing.T) {
 			def := &config.WeaponDefinitionConfig{Name: "Fixture", Damage: 17, BonusStat: stat, BonusStatSecondary: "Personality"}
-			card := weaponCard("test", "fixture", def)
+			installEditorWeapon(t, def)
+			card := weaponCard("test", "iron_sword", def)
 			primary := stat
 			if primary == "" {
 				primary = "Might"
 			}
 			text := strings.Join(card.tooltipRows, "\n")
-			for _, want := range []string{"Base: 17", primary + " / 3: scales", "Personality / 4: scales"} {
+			for _, want := range []string{"Base: 17", "Scales with " + primary + " / 3", "Also scales with Personality / 4"} {
 				if !strings.Contains(text, want) {
 					t.Errorf("missing %q:\n%s", want, text)
 				}
 			}
-			if !strings.Contains(card.subtitle, "+"+primary) {
+			if !strings.Contains(card.subtitle, "+"+primary+"/3") || !strings.Contains(card.subtitle, "+Personality/4") {
 				t.Errorf("subtitle omitted primary stat: %s", card.subtitle)
 			}
 		})
 	}
+}
+
+func installEditorWeapon(t *testing.T, def *config.WeaponDefinitionConfig) {
+	t.Helper()
+	if _, err := config.LoadWeaponConfig("../weapons.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	original := config.GlobalWeapons.Weapons["iron_sword"]
+	before := *original
+	def.Name = original.Name
+	*original = *def
+	bridge.SetupWeaponBridge()
+	t.Cleanup(func() { *original = before })
 }

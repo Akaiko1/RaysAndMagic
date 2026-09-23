@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
@@ -851,7 +850,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			cx, cy := float32(px+pw-11), float32(py+11)
 			drawTacticalReticle(screen, cx, cy, 9)
 			if isMouseHoveringBox(mouseX, mouseY, int(cx)-9, int(cy)-9, int(cx)+9, int(cy)+9) {
-				ui.queueTooltip([]string{uitext.Text("ui.overwatch_ready"), character.SkillOverwatch.Description()}, mouseX+12, mouseY+8)
+				ui.queueOverwatchTooltip(member, mouseX+12, mouseY+8)
 			}
 		}
 		if ui.game.partyMemberFocused(i) {
@@ -1388,15 +1387,11 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 func (ui *UISystem) drawCompassAt(screen *ebiten.Image, compassX, compassY int) {
 	compassRadius := ui.compassRadius()
 
-	vector.FillCircle(screen, float32(compassX+2), float32(compassY+3), float32(compassRadius+6), color.RGBA{0, 0, 0, 170}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+5), color.RGBA{66, 48, 24, 245}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+3), color.RGBA{194, 153, 66, 255}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{8, 14, 23, 235}, true)
+	ui.drawCompassFrame(screen, compassX, compassY, compassRadius, false)
 
 	ui.drawCompassMinimap(screen, compassX, compassY, compassRadius)
 
-	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), 2, color.RGBA{98, 140, 181, 245}, true)
-	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+4), 1, color.RGBA{255, 218, 115, 245}, true)
+	ui.drawCompassFrame(screen, compassX, compassY, compassRadius, true)
 
 	// A single north-up map and a rotating player pointer avoid the ambiguity of
 	// the old red line, which looked like either a heading or a target marker.
@@ -1449,21 +1444,12 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	playerTileX := TileIndex(ui.game.camera.X, tileSize)
 	playerTileY := TileIndex(ui.game.camera.Y, tileSize)
 
-	// Number of tiles to show in each direction from center
-	viewRange := 6
-	// Size of each minimap tile in pixels
-	miniTileSize := float32(radius) / float32(viewRange+1)
-	if miniTileSize < 3 {
-		miniTileSize = 3
-	}
-	if miniTileSize > 8 {
-		miniTileSize = 8
-	}
+	const miniTileSize = float32(compassMapTilePixels)
 
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != radius*2 ||
 		ui.compassCacheWorld != ui.game.world ||
 		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
-		ui.rebuildCompassTileLayer(playerTileX, playerTileY, viewRange, miniTileSize, radius)
+		ui.rebuildCompassTileLayer(playerTileX, playerTileY, radius)
 	}
 
 	opts := &ebiten.DrawImageOptions{}
@@ -1480,27 +1466,37 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		dx := npcTileX - playerTileX
 		dy := npcTileY - playerTileY
 
-		// Only show NPCs within view range
-		if dx*dx+dy*dy <= viewRange*viewRange {
+		// Keep the entire live marker inside the same circular map viewport.
+		dotRadius := max(float32(2), miniTileSize/2)
+		markerLimit := float32(radius) - dotRadius - 1
+		if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
 			screenX := float32(centerX) + float32(dx)*miniTileSize
 			screenY := float32(centerY) + float32(dy)*miniTileSize
-			dotRadius := max(float32(2), miniTileSize/2)
 			vector.FillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
 			vector.FillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
 		}
 	}
 }
 
+// Fixed pixel scale: a larger circle reveals more tiles rather than enlarging
+// the same six-tile field and leaving a dark annulus around it.
+const compassMapTilePixels = 6
+
 // rebuildCompassTileLayer bakes the compass minimap's floor backgrounds and
-// environment thumbnails into a 2R x 2R layer centered on the player's tile.
-// Like the map editor, floor tiles remain clean color fields while walls,
-// trees, structures, and props show their actual authored sprite.
-func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
+// environment thumbnails into a circular viewport centered on the player's
+// tile. Partial edge cells are clipped per pixel, not culled by tile center.
+func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, radius int) {
+	ui.ensureCompassFrame(radius)
+	const miniTileSize = float32(compassMapTilePixels)
+	viewRange := (radius + compassMapTilePixels - 1) / compassMapTilePixels
 	// A deferred sprite can unwind this draw. Publish the cache identity only
 	// after the whole layer is complete, including on a same-position resize.
 	ui.compassCacheWorld = nil
 	side := 2 * radius
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
+		if ui.compassTileLayer != nil {
+			ui.compassTileLayer.Deallocate()
+		}
 		ui.compassTileLayer = ebiten.NewImage(side, side)
 	} else {
 		ui.compassTileLayer.Clear()
@@ -1514,11 +1510,6 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 
 			// Skip tiles outside world bounds
 			if tileX < 0 || tileX >= ui.game.world.Width || tileY < 0 || tileY >= ui.game.world.Height {
-				continue
-			}
-
-			// Check if this tile is within the circular compass area
-			if dx*dx+dy*dy > viewRange*viewRange {
 				continue
 			}
 
@@ -1545,6 +1536,10 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 			drawCompassTileSprite(ui.compassTileLayer, ui.game.sprites.GetSprite(appearance.sprite), drawX, drawY, miniTileSize)
 		}
 	}
+	// Clip tile pixels, not tile centers: partial edge cells fill the disk
+	// without the stair-step gaps left by a circular tile-center cutoff.
+	opts := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
+	ui.compassTileLayer.DrawImage(ui.compassMapMask, opts)
 	ui.compassCacheWorld = ui.game.world
 	ui.compassCacheTileX = playerTileX
 	ui.compassCacheTileY = playerTileY

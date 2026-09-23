@@ -45,7 +45,7 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 			t.Errorf("%s lost its signature rider", c.key)
 		}
 		// The shortbow's whole identity is its cadence, which renders via
-		// character.WeaponCombatLines rather than EffectLines.
+		// the structured attack cooldown rather than EffectLines.
 		if c.key != "arena_shortbow" && len(def.EffectLines()) == 0 {
 			t.Errorf("%s has no tooltip effect lines", c.key)
 		}

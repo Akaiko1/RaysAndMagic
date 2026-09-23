@@ -15,7 +15,7 @@ func TestItemUsageGameEditorCatalog(t *testing.T) {
 	for key, def := range config.GlobalItems.Items {
 		t.Run(key, func(t *testing.T) {
 			item := items.CreateItemFromYAML(key)
-			editor := strings.Join(character.RenderCardLines(character.ItemCardSections(def), true), "\n")
+			editor := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
 			for _, full := range []bool{false, true} {
 				rendered := GetItemTooltip(item, cs.game.party.Members[0], cs, full)
 				for _, line := range def.TooltipUsageLines() {
