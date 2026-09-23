@@ -407,7 +407,7 @@ func (sm *SpriteManager) prepareResources(ctx context.Context, requests []Sprite
 				return
 			}
 			prepared := sm.decodePreparedResourceAtPath(job.request, job.path)
-			if interactive && prepared.Found {
+			if interactive && prepared.Found && prepared.alpha == nil {
 				prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
 			}
 			prepared.QueueLease = lease
@@ -461,6 +461,11 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 		prepared.CPU = rgbaFromImage(prepared.Image)
 		prepared.metadataReady = true
 		prepared.visible = spriteVisibleFrameBoundsFromImage(prepared.Image)
+		// World actors are pointer targets too. Prepare their mask with the
+		// source pixels so clicking a published frame never decodes on input.
+		if sm.spriteDirType[indexedName] == "npc_mob" {
+			prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
+		}
 		if request.AnimationType != "" {
 			prepared.Frames = animationCPUFrames(prepared.CPU)
 		}
@@ -839,6 +844,39 @@ func (sm *SpriteManager) SpriteOpaqueAt(name string, x, y int) (opaque, known bo
 		return false, true
 	}
 	return mask.alpha[y*mask.width+x] != 0, true
+}
+
+// ImageOpaqueAt resolves a published sprite or animation frame against its
+// existing CPU alpha mask, without a GPU readback or a second frame registry.
+func (sm *SpriteManager) ImageOpaqueAt(img *ebiten.Image, x, y int) (opaque, known bool) {
+	request, ok := sm.ResourceForImage(img)
+	if !ok {
+		return false, false
+	}
+	name := request.Name
+	if request.AnimationType == "" {
+		return sm.SpriteOpaqueAt(name, x, y)
+	}
+	name += "_" + request.AnimationType
+	mask := sm.alphaMasks[name]
+	if mask == nil {
+		return false, false
+	}
+	anim := sm.GetAnimation(request.Name, request.AnimationType)
+	if anim == nil {
+		return false, false
+	}
+	rects := animationFrameRects(image.Rect(0, 0, mask.width, mask.height))
+	for i, frame := range anim.Frames {
+		if frame == img && i < len(rects) {
+			r := rects[i]
+			if x < 0 || y < 0 || x >= r.Dx() || y >= r.Dy() {
+				return false, true
+			}
+			return mask.alpha[(r.Min.Y+y)*mask.width+r.Min.X+x] != 0, true
+		}
+	}
+	return false, false
 }
 
 // SpriteVisibleFrameBounds returns the visible alpha bounds inside one logical

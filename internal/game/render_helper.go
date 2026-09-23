@@ -651,9 +651,9 @@ func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 //	floorY   = camY + rowDist-DirSin + rowDist-PlaneSin-s
 //	tx, ty   = floor(floor[XY] / TileSize)
 //	base     = floorColorMap[tx, ty]
-//	idx      = floorTextureIndexMap[tx, ty].r - 1
+//	material = floorTextureIndexMap[tx, ty] (base, shore, profile/flags)
 //	mip      = clamp(log2(max(texelsX, texelsY)), 0, MaxMip)
-//	texel    = trilinear(atlas, idx, mip)      # manual mips - Kage has none
+//	texel    = filtered material/shore blend # manual mips - Kage has none
 //	color    = mix(base, texel, 0.8) - brightness(dist, lights)
 //
 // Inputs:
@@ -661,7 +661,8 @@ func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 //	Images[0] = floorColorMap (worldWxworldH RGBA8 base colors)
 //	Images[1] = floorTexAtlas (horizontal strip of N floor textures, mip
 //	            chain strips stacked below - see buildFloorTexAtlas)
-//	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
+//	Images[2] = floorTextureIndexMap (R = base index + 1, G = shore index + 1, B = profile/flags)
+//	Images[3] = floorShoreMap (vertex distance to water, R = distance / 2)
 //
 //ebitengine:shadersource
 const floorShaderSrc = `//kage:unit pixels
@@ -690,8 +691,8 @@ var Lights [32]vec4
 
 // sampleFloorMip does one sharp-bilinear tap inside a texture's atlas cell at
 // the given mip level. Level k's strip starts at y = TexH*2*(1-0.5^k) with
-// cells scaled by 0.5^k; texel lookups wrap inside the cell so tiling stays
-// seamless (Kage samples nearest-only natively). The sharpen factor squeezes
+// cells scaled by 0.5^k; texel lookups clamp inside the authored cell.
+// Neighboring materials are blended explicitly. The sharpen factor squeezes
 // magnification interpolation into a ~1px band at texel seams; it only
 // applies at level 0 - minified levels use plain bilinear.
 func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
@@ -709,10 +710,10 @@ func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
 	}
 	fracX := clamp((fx-bx-0.5)*sharp+0.5, 0.0, 1.0)
 	fracY := clamp((fy-by-0.5)*sharp+0.5, 0.0, 1.0)
-	x0 := mod(bx, cw)
-	x1 := mod(bx+1.0, cw)
-	y0 := mod(by, ch)
-	y1 := mod(by+1.0, ch)
+	x0 := clamp(bx, 0.0, cw-1.0)
+	x1 := clamp(bx+1.0, 0.0, cw-1.0)
+	y0 := clamp(by, 0.0, ch-1.0)
+	y1 := clamp(by+1.0, 0.0, ch-1.0)
 	cellX := atlasIndex * cw
 	// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
 	// space; Ebitengine converts them to the target source internally.
@@ -736,6 +737,123 @@ func sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel float) vec4 {
 	return mix(lo, sampleFloorMip(atlasIndex, lx, ly, k1, texelsPerPixel), blend)
 }
 
+// Stable value noise in tile coordinates. It never uses time or screen pixels.
+func floorHash(p vec2) float {
+	v := fract(vec3(p.x, p.y, p.x) * 0.1031)
+	v += dot(v, v.yzx + 33.33)
+	return fract((v.x + v.y) * v.z)
+}
+
+func floorNoise(p vec2) float {
+	b := floor(p)
+	f := fract(p)
+	f = f*f*(3.0-2.0*f)
+	return mix(mix(floorHash(b), floorHash(b+vec2(1,0)), f.x), mix(floorHash(b+vec2(0,1)), floorHash(b+vec2(1,1)), f.x), f.y)
+}
+
+func floorMaterialAt(tile vec2) vec4 {
+	if tile.x<0 || tile.y<0 || tile.x>=WorldSize.x || tile.y>=WorldSize.y { return vec4(0) }
+	raw := floor(imageSrc2UnsafeAt(imageSrc0Origin()+tile+vec2(0.5)).rgb*255.0+0.5)
+	return vec4(raw.rg,mod(raw.b,8.0),raw.b)
+}
+
+// Profile IDs match floorProfileByte. A directed cliff accepts only its
+// solid, world-aligned side. Void never mixes with land, water, or bridges.
+func floorCanBlend(a,b vec4, delta vec2) bool {
+	if a.b==0 || b.b==0 { return false }
+	if a.b==5 || b.b==5 { return a.b==5 && b.b==5 }
+	if a.b==3 || a.b==4 {
+		d := delta
+		return b.b==1 && d.y==0 && ((a.b==3 && d.x == -1) || (a.b==4 && d.x == 1))
+	}
+	if b.b==3 || b.b==4 {
+		d := -delta
+		return a.b==1 && d.y==0 && ((b.b==3 && d.x == -1) || (b.b==4 && d.x == 1))
+	}
+	return true
+}
+
+func floorWaterDistance(q vec2) float {
+	p := clamp(q,vec2(0),WorldSize)
+	b := floor(p)
+	f := fract(p)
+	a := imageSrc0Origin()+b+vec2(0.5)
+	// CPU samples sit on map vertices. Clamp the last vertex at map edges.
+	ox := min(1.0,WorldSize.x-b.x)
+	oy := min(1.0,WorldSize.y-b.y)
+	lo := mix(imageSrc3UnsafeAt(a).r,imageSrc3UnsafeAt(a+vec2(ox,0)).r,f.x)
+	hi := mix(imageSrc3UnsafeAt(a+vec2(0,oy)).r,imageSrc3UnsafeAt(a+vec2(ox,oy)).r,f.x)
+	return mix(lo,hi,f.y)*2.0
+}
+
+func floorCellColor(q,tile vec2, material vec4, mip,texelsPerPixel,waterDistance,noise float) vec3 {
+	base := imageSrc0UnsafeAt(imageSrc0Origin()+tile+vec2(0.5)).rgb
+	// Clamp neighbors to their OWN border. Wrapping here would pull a cliff's
+	// dark drop edge onto the opposite, landward side of the authored artwork.
+	local := clamp(q-tile,vec2(0),vec2(1))
+	if material.r>0 && material.r<=TexCount {
+		base = sampleFloorTrilinear(material.r-1,local.x,local.y,mip,texelsPerPixel).rgb*0.8+base*0.2
+	}
+	if material.g>0 && material.g<=TexCount && waterDistance<1.6 {
+		weight := 1.0-smoothstep(0.54,0.86,waterDistance+noise*0.10)
+		if weight>0 {
+			shore := sampleFloorTrilinear(material.g-1,local.x,local.y,mip,texelsPerPixel).rgb
+			base = mix(base,shore,weight*0.95)
+		}
+	}
+	if material.b==1 {
+		base *= 1.0-0.18*(1.0-smoothstep(0.0,0.25,waterDistance))
+	}
+	return base
+}
+
+func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3 {
+	owner := floor(q)
+	if owner.x<0 || owner.y<0 || owner.x>=WorldSize.x || owner.y>=WorldSize.y { return vec3(30.0/255.0) }
+	own := floorMaterialAt(owner)
+	if own.b==0 { return floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0) }
+	waterDistance := 2.0
+	if own.a>=128 { waterDistance = floorWaterDistance(q) }
+	if mod(floor(own.a/64.0),2.0)<0.5 { return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x) }
+	edgeDistance := min(fract(q),vec2(1)-fract(q))
+	if min(edgeDistance.x,edgeDistance.y)>min(0.5,0.31+maskFootprint*0.5) {
+		return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x)
+	}
+	base := floor(q-vec2(0.5))
+	fraction := q-vec2(0.5)-base
+	var cells [4]vec4
+	cells[0]=floorMaterialAt(base)
+	cells[1]=floorMaterialAt(base+vec2(1,0))
+	cells[2]=floorMaterialAt(base+vec2(0,1))
+	cells[3]=floorMaterialAt(base+vec2(1,1))
+	width := 0.24
+	for i:=0;i<4;i++ {
+		if cells[i].b>=2 { width=0.09 }
+	}
+	// Filter the mask as well as the textures at distance. Near-field noise
+	// perturbs only the narrow transition; interiors keep their original art.
+	width = min(0.48,width+maskFootprint*0.5)
+	detail := 1.0-smoothstep(0.06,0.24,maskFootprint)
+	f := smoothstep(vec2(0.5-width),vec2(0.5+width),fraction+noise*0.025*detail)
+	var rgb vec3
+	total := 0.0
+	for i:=0;i<4;i++ {
+		offset := vec2(float(i%2),float(i/2))
+		tile := base+offset
+		weight := mix(1.0-f.x,f.x,offset.x)*mix(1.0-f.y,f.y,offset.y)
+		if weight<=0 || tile.x<0 || tile.y<0 || tile.x>=WorldSize.x || tile.y>=WorldSize.y { continue }
+		if tile!=owner {
+			// The neighbor must opt in too: the outer edge of a cached boundary
+			// band must not half-blend into a tile using the single-material path.
+			if mod(floor(cells[i].a/64.0),2.0)<0.5 || !floorCanBlend(own,cells[i],tile-owner) { continue }
+		}
+		rgb += floorCellColor(q,tile,cells[i],mip,texelsPerPixel,waterDistance,noise.x*detail)*weight
+		total += weight
+	}
+	if total>0 { return rgb/total }
+	return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x*detail)
+}
+
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
 	// floor loop; the floor is GPU-only now, so the half-resolution cost bought
@@ -753,57 +871,29 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	floorX := CamPos.x + rowDist*DirCos + rowDist*PlaneCos*s
 	floorY := CamPos.y + rowDist*DirSin + rowDist*PlaneSin*s
 
-	tx := floor(floorX / TileSize)
-	ty := floor(floorY / TileSize)
-
+	// Keep the existing anisotropic three-tap footprint; each tap resolves its
+	// own materials so a distant screen pixel integrates across tile boundaries.
+	const tapCount = 3
+	ray := vec2(DirCos,DirSin)+vec2(PlaneCos,PlaneSin)*s
+	texelScale := TexTileSize/TileSize
+	horizontal := vec2(PlaneCos,PlaneSin)*(rowDist*2.0/ScreenSize.x)*texelScale
+	vertical := ray*(rowDist*rowDist/RowDistFactor)*texelScale
+	texelsPerPixel := max(length(horizontal),0.0001)
+	foot := max(texelsPerPixel,length(vertical)/float(tapCount))
+	mip := clamp(log2(max(foot,1.0)),0.0,MaxMip)
+	maskFootprint := foot/max(TexTileSize.x,1.0)
+	q := vec2(floorX,floorY)/TileSize
+	var noise vec2
+	if floorMaterialAt(floor(q)).a>=64.0 {
+		noise = vec2(floorNoise(q*1.5),floorNoise(q*1.5+vec2(17,41)))*2.0-1.0
+	}
 	var rgb vec3
-	var atlasIndex float
-	if tx < 0.0 || tx >= WorldSize.x || ty < 0.0 || ty >= WorldSize.y {
-		rgb = vec3(30.0/255.0, 30.0/255.0, 30.0/255.0)
-		atlasIndex = -1.0
-	} else {
-		raw := imageSrc0UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
-		rgb = raw.rgb
-		idxRaw := imageSrc2UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
-		atlasIndex = floor(idxRaw.r*255.0 + 0.5) - 1.0
+	for tap:=0;tap<tapCount;tap++ {
+		offset := (float(tap)+0.5)/float(tapCount)-0.5
+		tapDist := RowDistFactor/(p+offset)
+		rgb += floorSurface((CamPos+tapDist*ray)/TileSize,mip,texelsPerPixel,maskFootprint,noise)
 	}
-
-	if atlasIndex >= 0.0 && atlasIndex < TexCount && TexCount > 0.5 {
-		// Texel footprint of one screen pixel. Horizontal grows linearly with
-		// rowDist; VERTICAL grows with rowDist^2 (one screen row near the
-		// horizon spans rowDist^2/RowDistFactor world units) and dominates
-		// there. Point/bilinear sampling of a footprint many texels wide is
-		// the ripple-while-moving: each step lands on different texels. The
-		// mip level pre-averages exactly that footprint.
-		// One shared tap count defines both the filter footprint and sample
-		// spacing. Three taps can cover three mip footprints, not nine.
-		const tapCount = 3
-		ray := vec2(DirCos, DirSin) + vec2(PlaneCos, PlaneSin)*s
-		texelScale := TexTileSize / TileSize
-		horizontal := vec2(PlaneCos, PlaneSin) * (rowDist*2.0/ScreenSize.x) * texelScale
-		vertical := ray * (rowDist*rowDist/RowDistFactor) * texelScale
-		texelsPerPixel := length(horizontal)
-		// Include the off-axis ray length and both texture dimensions. The
-		// screen-edge footprint is wider than the forward ray's footprint.
-		foot := max(texelsPerPixel, length(vertical)/float(tapCount))
-		mip := clamp(log2(max(foot, 1.0)), 0.0, MaxMip)
-
-		// Integrate this screen row at evenly spaced subpixel positions.
-		// Reuse the pixel's material across a tile boundary, as before.
-		texColor := vec4(0.0)
-		for tap := 0; tap < tapCount; tap++ {
-			offset := (float(tap)+0.5)/float(tapCount) - 0.5
-			tapDist := RowDistFactor / (p + offset)
-			local := fract((CamPos + tapDist*ray) / TileSize)
-			texColor += sampleFloorTrilinear(atlasIndex, local.x, local.y, mip, texelsPerPixel)
-		}
-		texColor /= float(tapCount)
-
-		// Keep the floor material visible across the whole view. The old
-		// footprint fade replaced it with the flat tile colour in the distance,
-		// which read as fog rather than a textured floor.
-		rgb = texColor.rgb*0.8 + rgb*0.2
-	}
+	rgb /= float(tapCount)
 
 	dx := floorX - CamPos.x
 	dy := floorY - CamPos.y

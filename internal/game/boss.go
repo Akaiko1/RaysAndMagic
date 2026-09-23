@@ -171,7 +171,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 // (load validation rejects that combination, so this is a belt-and-suspenders
 // guard against hand-built test monsters).
 func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
-	if m.InfernoRangeTiles <= 0 {
+	if m.InfernoRangeTiles <= 0 || cs.attackOriginBlocked(m.X, m.Y) {
 		return false
 	}
 	reach := m.InfernoRangeTiles * float64(cs.game.config.GetTileSize())
@@ -390,6 +390,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
+	defer cs.game.observeOverwatchAttack(m)
 	defer cs.game.beginProfileMonsterHit(m, m.Name)()
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)

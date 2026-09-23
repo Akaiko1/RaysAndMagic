@@ -1980,6 +1980,7 @@ monsters:
     alert_radius: 14
     attack_radius: 2
     speed: 0
+    animate_when_idle: true
     gold_min: 3000
     gold_max: 6000
     boss: true

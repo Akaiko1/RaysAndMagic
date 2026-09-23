@@ -33,7 +33,7 @@ type pendingMortar struct {
 func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, announce bool) bool {
 	tileSize := float64(cs.game.config.GetTileSize())
 	dist := spellDef.MortarRangeTiles * tileSize
-	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
+	dirX, dirY := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	landX := cs.game.camera.X + dirX*dist
 	landY := cs.game.camera.Y + dirY*dist
 
@@ -77,7 +77,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 // mortar's path (no collision entity: nothing may intercept the arc).
 func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int) {
 	castingSystem := spells.NewCastingSystem(cs.game.config)
-	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle)
+	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
 	if err != nil {
 		return
 	}

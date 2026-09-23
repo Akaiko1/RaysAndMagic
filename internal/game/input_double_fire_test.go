@@ -22,8 +22,8 @@ func TestSpacePickupGate_TapFiresOnce(t *testing.T) {
 	}
 }
 
-// A buffered click never outlives the UI layer it was aimed at: the queues
-// flush on every modal<->world flip, and survive within one layer.
+// Sampling cannot carry a buffered click across a UI-layer flip. Within the
+// same layer it preserves the current batch for dispatch in this Update.
 func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
@@ -48,8 +48,8 @@ func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 	ui.renderedModalSnapshot = modalLayerSnapshot{} // the replacement world frame landed
 	ui.updateMouseState()                           // record the newly visible world layer
 
-	// Within one layer nothing flips, so buffered clicks (dialog double-click
-	// convention) survive frame boundaries.
+	// Sampling within one layer leaves the batch for downstream handlers.
+	// The complete Update, tested separately, expires any unmatched events.
 	g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: 50, y: 50, at: time.Now().UnixMilli()})
 	ui.updateMouseState()
 	if n := len(g.mouseLeftClicks); n != 1 {

@@ -127,6 +127,8 @@ const (
 	SpiritualTrainingProcPctPerTier = 10
 	// AnimalBondingSummonMax: maximum living Animal Bonding bears per Druid.
 	AnimalBondingSummonMax = 2
+	// OverwatchReadySeconds: stationary time before RT reactions become ready.
+	OverwatchReadySeconds = 1.0
 	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
 	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.
 	DoorForceChancePct    = 20
@@ -134,14 +136,22 @@ const (
 )
 
 var (
-	elementalMasteryPiercePct = [...]int{10, 20, 35, 50}
-	animalBondingProcPct      = [...]int{5, 8, 12, 15}
-	animalBondingStatPct      = [...]int{40, 60, 80, 100}
-	animalBondingHPPct        = [...]int{100, 200, 300, 500}
-	sacrificeRedirectPct      = [...]int{10, 20, 30, 50}
-	impenetrableDefenseFlat   = [...]int{3, 5, 7, 10}
-	lockpickingChancePct      = [...]int{20, 35, 50, 60}
-	naturalHealerBonusPct     = [...]int{20, 40, 60, 100}
+	overwatchChancePct              = [...]int{20, 30, 40, 50}
+	ballisticsSpeedPct              = [...]int{15, 25, 35, 50}
+	ballisticsRangeTiles            = [...]int{0, 0, 1, 2}
+	ballisticsCritPct               = [...]int{2, 4, 6, 8}
+	fieldMedicineRestorePct         = [...]int{15, 25, 40, 60}
+	fieldMedicinePoisonReductionPct = [...]int{10, 20, 30, 40}
+	designationCritPct              = [...]int{5, 8, 12, 15}
+	designationSeconds              = [...]int{6, 9, 12, 15}
+	elementalMasteryPiercePct       = [...]int{10, 20, 35, 50}
+	animalBondingProcPct            = [...]int{5, 8, 12, 15}
+	animalBondingStatPct            = [...]int{40, 60, 80, 100}
+	animalBondingHPPct              = [...]int{100, 200, 300, 500}
+	sacrificeRedirectPct            = [...]int{10, 20, 30, 50}
+	impenetrableDefenseFlat         = [...]int{3, 5, 7, 10}
+	lockpickingChancePct            = [...]int{20, 35, 50, 60}
+	naturalHealerBonusPct           = [...]int{20, 40, 60, 100}
 )
 
 func masteryTableValue(table [4]int, tier int) int {
@@ -152,6 +162,38 @@ func masteryTableValue(table [4]int, tier int) int {
 		tier = int(MasteryGrandMaster)
 	}
 	return table[tier]
+}
+
+func OverwatchChancePct(tier int) int {
+	return masteryTableValue(overwatchChancePct, tier)
+}
+
+func BallisticsSpeedPct(tier int) int {
+	return masteryTableValue(ballisticsSpeedPct, tier)
+}
+
+func BallisticsRangeTiles(tier int) int {
+	return masteryTableValue(ballisticsRangeTiles, tier)
+}
+
+func BallisticsCritPct(tier int) int {
+	return masteryTableValue(ballisticsCritPct, tier)
+}
+
+func FieldMedicineRestorePct(tier int) int {
+	return masteryTableValue(fieldMedicineRestorePct, tier)
+}
+
+func FieldMedicinePoisonReductionPct(tier int) int {
+	return masteryTableValue(fieldMedicinePoisonReductionPct, tier)
+}
+
+func DesignationCritPct(tier int) int {
+	return masteryTableValue(designationCritPct, tier)
+}
+
+func DesignationSeconds(tier int) int {
+	return masteryTableValue(designationSeconds, tier)
 }
 
 func ElementalMasteryPiercePct(tier int) int {
@@ -426,10 +468,19 @@ func (s SkillType) Category() string {
 // the map editor can never drift. Mastery tiers: Novice 0 / Expert 1 / Master 2
 // / Grandmaster 3 (bonuses scale per tier above Novice unless noted).
 func (s SkillType) Description() string {
-	if text, ok := tacticalSkillDescription(s); ok {
-		return text
-	}
 	switch s {
+	case SkillOverwatch:
+		return fmt.Sprintf("While the party holds position, each tile an enemy advances toward it in weapon range and clear sight has a %d/%d/%d/%d%% chance to trigger a normal bow/blaster shot. Enemy attack actions against the party also trigger a reaction at half that chance. Full weapon damage and effects; ignores attack cooldowns and spends no action. Ready after %.1fs stationary in RT; a TB step disables it until the next round. Turning is allowed.",
+			OverwatchChancePct(0), OverwatchChancePct(1), OverwatchChancePct(2), OverwatchChancePct(3), OverwatchReadySeconds)
+	case SkillBallistics:
+		return fmt.Sprintf("Bow/blaster projectile speed +%d/%d/%d/%d%%; range +%d/%d/%d/%d tiles; critical chance +%d/%d/%d/%d%%.",
+			BallisticsSpeedPct(0), BallisticsSpeedPct(1), BallisticsSpeedPct(2), BallisticsSpeedPct(3), BallisticsRangeTiles(0), BallisticsRangeTiles(1), BallisticsRangeTiles(2), BallisticsRangeTiles(3), BallisticsCritPct(0), BallisticsCritPct(1), BallisticsCritPct(2), BallisticsCritPct(3))
+	case SkillFieldMedicine:
+		return fmt.Sprintf("Consumables restore +%d/%d/%d/%d%% HP and SP to this character, manually or automatically. Poison duration -%d/%d/%d/%d%%.",
+			FieldMedicineRestorePct(0), FieldMedicineRestorePct(1), FieldMedicineRestorePct(2), FieldMedicineRestorePct(3), FieldMedicinePoisonReductionPct(0), FieldMedicinePoisonReductionPct(1), FieldMedicinePoisonReductionPct(2), FieldMedicinePoisonReductionPct(3))
+	case SkillDesignateTarget:
+		return fmt.Sprintf("Successful ranged weapon hits mark one target for %d/%d/%d/%ds. Party weapon attacks gain +%d/%d/%d/%d percentage points of critical chance against it. A new target replaces the old mark; marks do not stack.",
+			DesignationSeconds(0), DesignationSeconds(1), DesignationSeconds(2), DesignationSeconds(3), DesignationCritPct(0), DesignationCritPct(1), DesignationCritPct(2), DesignationCritPct(3))
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster:
 		// A skill-optional category (blaster) needs no training to fire; its
 		// skill only pays the mastery bonuses.

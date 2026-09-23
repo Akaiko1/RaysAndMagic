@@ -49,7 +49,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 							isolateTrueDamageMember(ch, 0)
 							ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
 							ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
-							g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+							g.combat.designationRoll = func(int) int { return 0 }
 							g.cardSlots = [MaxCardSlots]cardSlot{}
 							g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
 							def, _ := config.GetWeaponDefinition(key)
@@ -120,7 +120,7 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				g, _, ch, tile := sniperFixture(t, false)
 				isolateTrueDamageMember(ch, 0)
 				ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
-				g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "masked_hexer_girl_card"
 				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
@@ -183,7 +183,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 		for _, tb := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/tb=%v", key, tb), func(t *testing.T) {
 				g, _, ch, tile := sniperFixture(t, tb)
-				g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "elf_archer_card"
 				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
@@ -234,7 +234,6 @@ func TestDesignationContinuationUsesLaunchPayloadAndCurrentMark(t *testing.T) {
 			for _, markNext := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/tb=%v/markNext=%v", key, tb, markNext), func(t *testing.T) {
 					g, _, ch, tile := sniperFixture(t, tb)
-					g.config.Characters.Tactics.DesignationCritPct = [4]int{5, 5, 5, 5}
 					g.cardSlots = [MaxCardSlots]cardSlot{}
 					primary, secondary := partyDamageTargets(g, tile)
 					g.designateTarget(ch, primary)
@@ -282,7 +281,7 @@ func TestDesignationImpactEligibility(t *testing.T) {
 	for _, state := range []string{"active", "expired", "stunned", "dead", "reserve", "no skill", "proc bolt", "spell"} {
 		t.Run(state, func(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
-			g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+			g.combat.designationRoll = func(int) int { return 0 }
 			primary, secondary := partyDamageTargets(g, tile)
 			g.designateTarget(ch, secondary)
 			want := 100
@@ -362,7 +361,7 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			isolateTrueDamageMember(ch, 0)
 			ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
 			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
-			g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+			g.combat.designationRoll = func(int) int { return 0 }
 			primary, secondary := partyDamageTargets(g, tile)
 			g.designateTarget(ch, primary)
 			def, _ := config.GetWeaponDefinition(key)

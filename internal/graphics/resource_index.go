@@ -50,9 +50,9 @@ func (sm *SpriteManager) DetachResource(name, animationType string) []*ebiten.Im
 	if entry, ok := sm.visibleFrameBounds[indexedName]; ok && !entry.known {
 		delete(sm.visibleFrameBounds, indexedName)
 	}
-	if mask, ok := sm.alphaMasks[indexedName]; ok && mask == nil {
-		delete(sm.alphaMasks, indexedName)
-	}
+	// Pixel masks have the same residency as their render source. Reloading
+	// rebuilds them during CPU preparation before publishing the new frames.
+	delete(sm.alphaMasks, indexedName)
 	if animationType == "" {
 		delete(sm.sprites, name)
 	} else {

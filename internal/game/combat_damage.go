@@ -264,10 +264,14 @@ func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, at
 		return partyMonsterHit{}
 	}
 	packet, critical := attack.Packet, attack.Critical
+	roll := rand.Intn
+	if cs.designationRoll != nil {
+		roll = cs.designationRoll
+	}
 	// A conditional roll adds percentage points to the shared launch roll.
 	// Only this victim's pre-impact mark can upgrade a non-critical weapon hit.
 	if bonus := attack.DesignationBonuses[target.ID]; !critical && target.IsAlive() && bonus > 0 &&
-		rand.Intn(max(1, 100-attack.BaseCritChance)) < bonus {
+		roll(max(1, 100-attack.BaseCritChance)) < bonus {
 		packet, critical = attack.CriticalPacket, true
 	}
 	parts := cs.applyMonsterDamagePacket(target, packet, cs.partyMonsterDamageOptions(attack, target))

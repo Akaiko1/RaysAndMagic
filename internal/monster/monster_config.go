@@ -39,6 +39,8 @@ type MonsterDefinition struct {
 	Biomes       []string `yaml:"biomes,omitempty"`
 	BoxW         float64  `yaml:"box_w"`
 	BoxH         float64  `yaml:"box_h"`
+	// AnimateWhenIdle loops the walking sheet at rest, independently of speed.
+	AnimateWhenIdle bool `yaml:"animate_when_idle,omitempty"`
 	// SizeClass picks a quantized sprite height (small/medium/person/large/huge);
 	// the tile-height value per class lives in config graphics.monster_size_classes.
 	SizeClass string `yaml:"size_class"`
@@ -509,6 +511,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AlertRadius = def.AlertRadius * tileSize
 	m.AttackRadius = def.AttackRadius * tileSize
 	m.Speed = def.Speed
+	m.AnimateWhenIdle = def.AnimateWhenIdle
 
 	// Set random gold within range
 	if def.GoldMax > def.GoldMin {

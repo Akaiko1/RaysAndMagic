@@ -2210,6 +2210,7 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 	p.addUpload(r.whiteImg)
 	p.addUpload(r.floorColorMap)
 	p.addUpload(r.floorTextureIndexMap)
+	p.addUpload(r.floorShoreMap)
 	p.addUpload(r.floorTexAtlas)
 	if len(r.tileLightCache) > 0 {
 		p.addUpload(r.ensureSoftGlow())

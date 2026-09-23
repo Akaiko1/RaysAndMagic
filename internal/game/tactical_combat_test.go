@@ -22,10 +22,10 @@ func sniperFixture(t *testing.T, tb bool) (*MMGame, *GameLoop, *character.MMChar
 	g.party.Members = []*character.MMCharacter{ch}
 	g.party.Inventory = nil
 	g.selectedChar = 0
-	g.config.Characters.Tactics.OverwatchChance = [4]int{100, 100, 100, 100}
 	g.updateTacticalClocks()
-	g.tactics.stationarySeconds = g.config.Characters.Tactics.OverwatchReadySeconds
+	g.tactics.stationarySeconds = character.OverwatchReadySeconds
 	g.tactics.movedTB = false
+	g.combat.reactionRoll = func() float64 { return 0 }
 	return g, gl, ch, tile
 }
 
@@ -95,7 +95,7 @@ func TestOverwatchReadinessAndIndicatorContract(t *testing.T) {
 }
 
 func TestOverwatchMovementCases(t *testing.T) {
-	for _, name := range []string{"approach", "away", "stationary", "teleport", "bound", "pacified", "dead", "range", "wall", "partial", "zero chance"} {
+	for _, name := range []string{"approach", "away", "stationary", "teleport", "bound", "pacified", "dead", "range", "wall", "partial", "failed roll"} {
 		t.Run(name, func(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
 			m := spawnMonsterAtTile(g, "wolf", 10, 10, tile)
@@ -134,8 +134,8 @@ func TestOverwatchMovementCases(t *testing.T) {
 			case "partial":
 				m.X = oldX - tile/4
 				want = 0
-			case "zero chance":
-				g.config.Characters.Tactics.OverwatchChance = [4]int{}
+			case "failed roll":
+				g.combat.reactionRoll = func() float64 { return 0.99 }
 				want = 0
 			}
 			g.observeOverwatchMovement(m, oldX, oldY)
@@ -268,8 +268,9 @@ func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 	g, _, ch, tile := sniperFixture(t, false)
 	def, _ := config.GetWeaponDefinition("surveyors_rifle")
 	def.CritChance = 0
+	delete(ch.Skills, character.SkillBallistics)
 	ch.Luck = 0
-	g.config.Characters.Tactics.DesignationCritPct = [4]int{100, 100, 100, 100}
+	g.combat.designationRoll = func(int) int { return 0 }
 	m := spawnMonsterAtTile(g, "wolf", 10, 10, tile)
 	m.HitPoints = 10000
 	m.ArmorClass = 0
@@ -312,12 +313,12 @@ func TestBallisticsAndMedicineUseSharedNumbers(t *testing.T) {
 		ch.Skills[character.SkillBallistics].Mastery = character.SkillMastery(tier)
 		ch.Skills[character.SkillFieldMedicine].Mastery = character.SkillMastery(tier)
 		rangeTiles, speed := character.EffectiveWeaponFlight(def, ch)
-		if rangeTiles != float64(def.Range+g.config.Characters.Tactics.BallisticsRangeTiles[tier]) || math.Abs(speed-def.Physics.SpeedTiles*(1+float64(g.config.Characters.Tactics.BallisticsSpeedPct[tier])/100)) > 1e-8 {
+		if rangeTiles != float64(def.Range+character.BallisticsRangeTiles(tier)) || math.Abs(speed-def.Physics.SpeedTiles*(1+float64(character.BallisticsSpeedPct(tier))/100)) > 1e-8 {
 			t.Fatal("flight values diverged from mastery data")
 		}
 		ch.CurePoison()
 		ch.ApplyPoison(1000)
-		if ch.PoisonFramesRemaining != 1000*(100-g.config.Characters.Tactics.MedicinePoisonReductionPct[tier])/100 {
+		if ch.PoisonFramesRemaining != 1000*(100-character.FieldMedicinePoisonReductionPct(tier))/100 {
 			t.Fatal("poison reduction diverged")
 		}
 		p := items.CreateItemFromYAML("mana_potion")
@@ -530,7 +531,7 @@ func TestDesignationSharedEligibility(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
 			m := spawnMonsterAtTile(g, "wolf", 10, 10, tile)
 			g.designateTarget(ch, m)
-			want := ch.TacticalSkillValue(character.SkillDesignateTarget, g.config.Characters.Tactics.DesignationCritPct)
+			want := character.DesignationCritPct(ch.SkillTier(character.SkillDesignateTarget))
 			switch name {
 			case "expired":
 				ch.DesignationFrames = 1
@@ -560,10 +561,33 @@ func TestDesignationSharedEligibility(t *testing.T) {
 				other.Skills[character.SkillDesignateTarget].Mastery = character.MasteryGrandMaster
 				g.party.Members = append(g.party.Members, other)
 				g.designateTarget(other, m)
-				want = other.TacticalSkillValue(character.SkillDesignateTarget, g.config.Characters.Tactics.DesignationCritPct)
+				want = character.DesignationCritPct(other.SkillTier(character.SkillDesignateTarget))
 			}
 			if got := g.designationBonus(m); got != want {
 				t.Fatalf("mark bonus=%d want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestCatalogSkillsPreserveMasteryAcrossSave(t *testing.T) {
+	for tier := 0; tier < 4; tier++ {
+		t.Run(fmt.Sprint(tier), func(t *testing.T) {
+			g, _, ch, _ := sniperFixture(t, false)
+			for _, skill := range []character.SkillType{character.SkillOverwatch, character.SkillBallistics, character.SkillFieldMedicine, character.SkillDesignateTarget} {
+				ch.Skills[skill].Mastery = character.SkillMastery(tier)
+			}
+			ch.AutoDrinkCooldown, ch.DesignationFrames, ch.DesignatedTargetID = 47, 93, "saved-mark"
+			beforeCrit := g.combat.CalculateWeaponCritChance(ch.Equipment[items.SlotMainHand], ch)
+			beforeRecovery := character.ConsumableRestore(ch, 100, 0, false)
+			restored := restoreCharacterSave(buildCharacterSave(ch))
+			for _, skill := range []character.SkillType{character.SkillOverwatch, character.SkillBallistics, character.SkillFieldMedicine, character.SkillDesignateTarget} {
+				if !restored.HasSkill(skill) || restored.SkillTier(skill) != tier {
+					t.Fatal("saved skill or mastery changed")
+				}
+			}
+			if g.combat.CalculateWeaponCritChance(restored.Equipment[items.SlotMainHand], restored) != beforeCrit || character.ConsumableRestore(restored, 100, 0, false) != beforeRecovery || restored.AutoDrinkCooldown != 47 || restored.DesignationFrames != 93 || restored.DesignatedTargetID != "saved-mark" {
+				t.Fatal("save round trip changed skill effects or ongoing state")
 			}
 		})
 	}

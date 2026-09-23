@@ -27,6 +27,7 @@ monsters:
     alert_radius: 3        # tiles
     attack_radius: 1       # tiles
     speed: 1.1
+    animate_when_idle: false # optional; true loops the walking sheet at rest
     gold_min: 25
     gold_max: 80
     sprite: "goblin"       # assets/sprites/mobs/goblin.png
@@ -59,6 +60,20 @@ Place the static PNG and directional animation sheets under
 [shared animation contract](docs/content-authoring.md#assets-and-animation).
 Check the silhouette, baseline, directions, and size in the editor's Mobs tab
 and at gameplay distance.
+
+Set `animate_when_idle: true` to loop a living monster's walking sheet while it
+rests. The flag defaults to `false` and is independent of `speed`: `speed: 0`
+alone does not enable animation. Currently only `dragon_brood_mother` combines
+`speed: 0` with `animate_when_idle: true`.
+
+This works in real-time, turn-based play, and the editor's Mobs preview. Movement
+keeps its existing cycle timing, and dedicated attack or special-motion sheets
+retain priority. A missing attack sheet holds the first walking frame. Dead
+monsters, inert encounter props, and fish do not play the resting loop.
+Without the flag, waiting, rooting, or slowing a movable monster does not animate
+it. The loop uses `graphics.monster.walk_frame_seconds`; no separate idle sheet
+is required. The flag is reloaded from YAML on save restoration; the visual phase
+is transient and is not saved.
 
 ## Step 3: Optional ranged attacks
 
@@ -112,6 +127,14 @@ Map placement chooses the spawn point; normal movement rules still apply afterwa
 
 ## Terrain movement overrides
 `walkable_tile_overrides` lists normally blocked tile keys from `assets/tiles.yaml` that this monster may traverse. It grants movement permission; it does not choose spawn locations or preferred terrain. Omit it when no exception is needed. Do not list already walkable tiles or tiles covered by the monster's flight rules. For example, a ground monster that may cross dunes can list `desert_dune`.
+
+Movement permission does not permit attacking from inside a blocking object.
+Melee and ranged monsters must first leave walls, trees, rocks, and dunes, even
+with `walkable_tile_overrides` or flight. AI attack positions use the same
+height clearance as projectiles: open water and chasms are valid positions for
+actors able to occupy them. A flying party can also attack and cast above these
+floors, but cannot do so from inside blocking scenery. Combat line checks are
+reciprocal; vision for detecting a target remains separate.
 
 ## Wildlife and tree movement
 

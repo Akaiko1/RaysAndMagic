@@ -115,7 +115,8 @@ func (w *World3D) loadFromMapFile() {
 	w.loadMonstersFromMapData(mapData.MonsterSpawns)
 }
 
-// CanProjectileMoveTo reports whether a projectile (or spell) may occupy (x,y).
+// CanProjectileMoveTo reports clearance at projectile/attack height at (x,y).
+// Combat origin checks share it so flying actors can fight above open floors.
 // Projectiles fly OVER floor-level obstacles - chasms and water (render_type
 // "floor") are ground-level, so a bolt sails across them; only solid
 // wall/billboard tiles stop it. Player/monster movement still uses CanMoveTo.
@@ -372,7 +373,7 @@ func (w *World3D) IsTileBlockingForFly(tileX, tileY int) bool {
 }
 
 // IsTileBlockingTerrainAt exposes the raw terrain rule (no Fly override) for
-// game-side checks like "is the flying party inside a solid wall".
+// game-side placement/ejection checks. Combat uses CanProjectileMoveTo instead.
 func (w *World3D) IsTileBlockingTerrainAt(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true

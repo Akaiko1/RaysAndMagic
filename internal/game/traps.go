@@ -197,7 +197,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 // previous tile (which may be the party's own - refused); otherwise max range.
 func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	ts := float64(cs.game.config.GetTileSize())
-	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
+	dirX, dirY := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	curX, curY := TileIndex(cs.game.camera.X, ts), TileIndex(cs.game.camera.Y, ts)
 	lastX, lastY := curX, curY
 
@@ -233,6 +233,9 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 // turn-based front DIAGONAL slot (drawn at screen-center), or nil. Uses the
 // pulledFrontSlot SSoT so trap auto-targeting matches what the player sees.
 func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
+	if cs.partyAimTarget != nil {
+		return nil // explicit aim must not acquire a different pulled flank
+	}
 	var best *monsterPkg.Monster3D
 	var bestD float64
 	for _, m := range cs.game.world.Monsters {

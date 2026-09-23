@@ -201,14 +201,10 @@ func comparisonEffectLines(item items.Item) []string {
 // Numerical gains and losses use readable colors independently of item rarity.
 // Recovery stays neutral: a lower duration is better, unlike these stat rows.
 func equipmentComparisonColors(lines []string, base []color.Color) []color.Color {
-	out := make([]color.Color, len(lines))
+	out := tooltipLineColors(len(lines), base)
 	for i, line := range lines {
-		out[i] = color.White
-		if i < len(base) {
-			out[i] = base[i]
-		}
 		if strings.Contains(line, " -> ") && strings.Contains(line, " (+") {
-			out[i] = color.RGBA{120, 225, 135, 255}
+			out[i] = equipmentBenefitColor
 		}
 		if (strings.Contains(line, " -> ") && strings.Contains(line, " (-")) || strings.HasPrefix(line, "Cannot equip") {
 			out[i] = color.RGBA{245, 135, 120, 255}

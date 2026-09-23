@@ -10,7 +10,7 @@ tiles:
     render_type: "floor"
     # No floor_color on purpose: empty ground is tinted per-map by
     # default_floor_color (map_configs.yaml); a color here is never read.
-    floor_texture_group: "default"  # overridden to "beach" near water at runtime
+    floor_texture_group: "default"  # receives a "beach" layer near water when the biome provides one
     letter: "."
 
   wall:

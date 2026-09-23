@@ -54,11 +54,14 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		bestWorldDistance := math.MaxFloat64
 		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
 		reflected := proj.owner == ProjectileOwnerReflected
-		continuation := false
-		if ar, ok := proj.data.(*Arrow); ok {
-			continuation = ar.SkipMonster != nil || ar.WorldAim
+		worldAim := false
+		switch p := proj.data.(type) {
+		case *Arrow:
+			worldAim = p.SkipMonster != nil || p.WorldAim
+		case *MagicProjectile:
+			worldAim = p.WorldAim
 		}
-		worldSpace := crossfire || reflected || continuation
+		worldSpace := crossfire || reflected || worldAim
 		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
 
 		camCos := math.Cos(cs.game.camera.Angle)

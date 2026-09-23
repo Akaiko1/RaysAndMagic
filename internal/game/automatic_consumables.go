@@ -12,8 +12,8 @@ func (g *MMGame) updateAutomaticConsumables() {
 	if g == nil || g.party == nil || g.config == nil || g.automaticInventoryBlocked() || g.gameplayPausedByOverlay() {
 		return
 	}
-	rules := g.config.Characters.Tactics
-	if rules.AutoDrinkThresholdPct <= 0 {
+	rules := g.config.Characters.AutoDrink
+	if rules.ThresholdPct <= 0 {
 		return
 	}
 	for index, ch := range g.party.Members {
@@ -27,10 +27,10 @@ func (g *MMGame) updateAutomaticConsumables() {
 			continue
 		}
 		resources := []string{}
-		if ch.HitPoints*100 < ch.MaxHitPoints*rules.AutoDrinkThresholdPct {
+		if ch.HitPoints*100 < ch.MaxHitPoints*rules.ThresholdPct {
 			resources = append(resources, "heal_base")
 		}
-		if ch.MaxSpellPoints > 0 && ch.SpellPoints*100 < ch.MaxSpellPoints*rules.AutoDrinkThresholdPct {
+		if ch.MaxSpellPoints > 0 && ch.SpellPoints*100 < ch.MaxSpellPoints*rules.ThresholdPct {
 			resources = append(resources, "mana_base")
 		}
 		used := false
@@ -55,7 +55,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 		}
 
 		if used {
-			seconds := rules.AutoDrinkSeconds
+			seconds := rules.IntervalSeconds
 			if g.turnBasedMode {
 				seconds = max(seconds, float64(TurnBasedPeriodicEffectSeconds))
 			}

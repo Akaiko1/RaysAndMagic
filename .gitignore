@@ -46,12 +46,11 @@ assets/app_icons/*.iconset/
 
 /tmp*
 
-# Keep local notes ignored; publish the contributor guides explicitly.
-/docs/*
-!/docs/content-authoring.md
-!/docs/adding-items-and-loot.md
-!/docs/adding-quests.md
-!/docs/adding-maps.md
+# Public documentation is tracked by default. Only internal AI work notes
+# and generation transcripts stay local.
+/docs/ai-notes/
+/docs/player-profile-frame-fix.md
+/docs/achievement-art-prompts.md
 
 # Disposable derived CPU graphics; never bundle or commit.
 .render-cache/

@@ -80,6 +80,9 @@ func (ui *UISystem) syncPointerScreen() {
 
 func (ui *UISystem) cancelScreenPointerGestures() {
 	g := ui.game
+	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
+		g.gameLoop.inputHandler.cancelMouseAttack()
+	}
 	g.entryMenuRootPressArmed = false
 	if g.partyCreate != nil {
 		g.partyCreate.clearPending()

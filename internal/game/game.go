@@ -63,6 +63,7 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -1663,6 +1664,12 @@ func (g *MMGame) turnViewFrames() int {
 // spot until the next ordinary step.
 func (g *MMGame) setPartyPosition(x, y float64) {
 	g.resetCameraPresentation()
+	g.movePartyPosition(x, y)
+}
+
+// movePartyPosition keeps the last displayed pose available for input until
+// Draw publishes the ordinary step. Teleports and restores use setPartyPosition.
+func (g *MMGame) movePartyPosition(x, y float64) {
 	g.camera.X, g.camera.Y = x, y
 	if g.collisionSystem != nil {
 		g.collisionSystem.UpdateEntity("player", x, y)
@@ -1678,21 +1685,6 @@ func (g *MMGame) snapFacing(angle float64) {
 	g.camera.Angle = angle
 	g.viewAngleRender = angle
 	g.viewTurnFramesLeft = 0
-}
-
-// beginViewAngleSwap points the camera at the eased display angle for a draw
-// pass and returns the restore for the logical angle. The restore only undoes
-// OUR swap: a Draw-time UI handler may re-aim the camera mid-Draw, and that
-// write must survive the frame.
-func (g *MMGame) beginViewAngleSwap() (restore func()) {
-	logicalAngle := g.camera.Angle
-	displayAngle := g.viewAngleRender
-	g.camera.Angle = displayAngle
-	return func() {
-		if g.camera.Angle == displayAngle {
-			g.camera.Angle = logicalAngle
-		}
-	}
 }
 
 // beginScreenShakeSwap confines cosmetic displacement to the scene pass.
@@ -3107,7 +3099,7 @@ func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
 		return false
 	}
 	targetID, targetX, targetY, hasTarget := g.monsterAttackTarget(m)
-	if !hasTarget {
+	if !hasTarget || (g.combat != nil && g.combat.attackOriginBlocked(m.X, m.Y)) {
 		return false
 	}
 	tileSize := float64(g.config.GetTileSize())

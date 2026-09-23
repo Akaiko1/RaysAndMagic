@@ -106,20 +106,28 @@ special_tiles:
 Special tiles like `spike_trap` or `magic_circle` are now placeable by key, but their gameplay effects are still not implemented.
 
 ## Floor textures, color, and the biome default
-Floor textures are biome-driven. The named texture groups live per-biome in the
-top-level `biomes:` section of `assets/map_configs.yaml` (NOT on the tile and
-NOT per-map). A tile picks a group with `floor_texture_group`:
-- Set `floor_texture_group: "water"` (etc.) to use that biome group.
-- Omit it and the tile borrows the biome's `"default"` group - UNLESS the tile
-  sets a `floor_color`, in which case the color IS its look and stays
-  untextured (teleporters, traps, spawn are coloured squares this way).
-- Empty `.` (and any tile on the biome default) bordering water auto-uses the
-  biome's `"beach"` group, if defined, for shoreline sand.
 
-`floor_color` is a BASE color blended UNDER the texture (~80% texture up close,
-fading to more color with distance), and shown 100% when no texture resolves
-(no group, or the group isn't defined for the current biome). `floor_near_color`
-is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
+Floor textures are biome-driven. Named groups live in `biomes:` in
+`assets/map_configs.yaml`; a tile selects one with `floor_texture_group`.
+
+- An explicit group selects that biome's textures.
+- With no explicit group, `inherit_floor` resolves surrounding ground first,
+  falling back to the biome's `default` group. Spawn markers and teleporters use
+  inherited ground with their decoration drawn over it.
+- Without inheritance, an explicit nonzero `floor_color` and no group keep the
+  tile untextured. Otherwise it uses `default`.
+- Near water, resolved `default` ground can receive the biome's natural `beach`
+  layer. This blends over the ground; it does not replace the tile.
+
+Choose a `floor_transitions` profile for each group. See
+[Floor texture transitions](docs/floor-transitions.md) for `hard`, `natural`,
+`water`, `void`, directional cliff rules, inheritance, and YAML examples.
+
+`floor_color` supplies the base tint under a resolved texture (80% texture,
+20% base before other rendering effects), or the full base when no texture
+resolves. Distance shading and lighting apply afterward. `floor_near_color`
+tints adjacent empty floor and explicit inheriting marker tiles; generic
+inheriting objects take the surrounding floor without that neighbor tint.
 
 ## Supported fields
 Core fields are fully supported:

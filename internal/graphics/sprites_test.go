@@ -2,6 +2,7 @@ package graphics
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -276,8 +277,16 @@ func TestEvictResourceDropsStaticAndAnimationCaches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			indexed := tt.resourceName
+			if tt.animationType != "" {
+				indexed += "_" + tt.animationType
+			}
+			sm.alphaMasks[indexed] = &spriteAlphaMask{width: 1, height: 1, alpha: []uint8{255}}
 			if got := len(sm.EvictResource(tt.resourceName, tt.animationType)); got != tt.wantImages {
 				t.Fatalf("evicted images = %d, want %d", got, tt.wantImages)
+			}
+			if _, ok := sm.alphaMasks[indexed]; ok {
+				t.Fatal("pixel mask outlived evicted source")
 			}
 		})
 	}
@@ -655,4 +664,55 @@ func minByte(a, b uint8) uint8 {
 		return a
 	}
 	return b
+}
+
+func TestImageOpaqueAtAnimationFrame(t *testing.T) {
+	for _, size := range [][2]int{{8, 2}, {4, 4}} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			sm := NewSpriteManager()
+			request := SpriteResourceRequest{Name: "pointer_test", AnimationType: "walking_r"}
+			src := image.NewNRGBA(image.Rect(0, 0, size[0], size[1]))
+			rects := animationFrameRects(src.Bounds())
+			for i, r := range rects {
+				src.SetNRGBA(r.Min.X+i%2, r.Min.Y+i/2, color.NRGBA{R: 255, A: 255})
+			}
+			path := filepath.Join(t.TempDir(), "source.png")
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(f, src); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			sm.spritePaths = map[string]string{"pointer_test_walking_r": path}
+			sm.spriteDirType = map[string]string{"pointer_test_walking_r": "npc_mob"}
+			for load := 0; load < 2; load++ {
+				prepared := <-sm.PrepareResources(context.Background(), []SpriteResourceRequest{request})
+				sm.CommitPreparedResource(prepared)
+				anim := sm.GetAnimation(request.Name, request.AnimationType)
+				if anim == nil || len(anim.Frames) != 4 {
+					t.Fatal("frames not published")
+				}
+				for i, frame := range anim.Frames {
+					for y := -1; y <= 2; y++ {
+						for x := -1; x <= 2; x++ {
+							got, known := sm.ImageOpaqueAt(frame, x, y)
+							want := x == i%2 && y == i/2
+							if !known || got != want {
+								t.Fatalf("frame %d pixel %d,%d = %v,%v; want %v,true", i, x, y, got, known, want)
+							}
+						}
+					}
+				}
+				sm.EvictResource(request.Name, request.AnimationType)
+				if len(sm.alphaMasks) != 0 {
+					t.Fatal("animation mask survived eviction")
+				}
+			}
+
+		})
+	}
 }

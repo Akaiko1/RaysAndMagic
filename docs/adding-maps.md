@@ -33,6 +33,9 @@ can set lower `ambient_light` and `wall_torches`. Add a supported entrance and
 exit (NPC travel action or teleporter group), and test arrival tiles and return
 travel. Merely registering a file does not make it reachable.
 
+For terrain blending, beach layers, and directional chasm art, configure biome
+`floor_transitions` using the [floor transition guide](floor-transitions.md).
+
 ## Map syntax
 
 Each grid cell is one ASCII character. Keep rows rectangular and put entity

@@ -23,7 +23,7 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	}
 	g := cs.game
 	ts := float64(g.config.GetTileSize())
-	dx, dy := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
+	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	landX := g.camera.X + dx*def.JumpTiles*ts
 	landY := g.camera.Y + dy*def.JumpTiles*ts
 

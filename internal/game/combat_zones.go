@@ -136,7 +136,7 @@ func (cs *CombatSystem) zoneCastCells(proto PersistentDamageZone, def spells.Spe
 	if ahead <= 0 {
 		ahead = 1
 	}
-	fx, fy := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
+	fx, fy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	rx, ry := -fy, fx // camera right, in world space
 	// The wall runs along the GRID AXIS nearest the facing's right vector. Laying
 	// it on the raw diagonal instead leaves cells sharing a tile (a 3-wide wall

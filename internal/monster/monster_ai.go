@@ -3,6 +3,7 @@ package monster
 import (
 	"math"
 	"math/rand"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/status"
@@ -280,7 +281,7 @@ func (m *Monster3D) meleeTileAdjacent(targetX, targetY float64, checker Collisio
 	if dx > 1 || dy > 1 || (dx == 0 && dy == 0) {
 		return false
 	}
-	return checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+	return collision.AttackLineClear(checker, m.X, m.Y, targetX, targetY)
 }
 
 // pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
@@ -290,7 +291,7 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 	if !m.IsEngagingPlayer {
 		m.BeginCombatEngagement()
 	}
-	los := checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+	los := collision.AttackLineClear(checker, m.X, m.Y, targetX, targetY)
 	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.PursuitReachPixels() && los) ||
 		m.meleeTileAdjacent(targetX, targetY, checker)
 	if !inReach || !m.canClaimAttackPost(checker, targetX, targetY) {
@@ -654,7 +655,7 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 	attackRange := m.PursuitReachPixels()
-	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+	hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 
 	// Check if close enough to attack (pixel range, or melee tile-adjacency so a
 	// diagonal neighbour commits instead of pursuing in place).
@@ -752,7 +753,7 @@ func (m *Monster3D) canClaimAttackPost(collisionChecker CollisionChecker, target
 	if !m.usesAttackPosts() {
 		return true
 	}
-	if m.entersTargetTile(m.X, m.Y, targetX, targetY) {
+	if !collision.CanAttackFrom(collisionChecker, m.X, m.Y) || m.entersTargetTile(m.X, m.Y, targetX, targetY) {
 		return false
 	}
 	checker, ok := collisionChecker.(AttackPostReservationChecker)
@@ -813,7 +814,7 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 	if mathutil.IntAbs(dxTile) != 1 || mathutil.IntAbs(dyTile) != 1 {
 		return false
 	}
-	if collisionChecker.CheckLineOfSight(m.X, m.Y, targetX, targetY) {
+	if collision.AttackLineClear(collisionChecker, m.X, m.Y, targetX, targetY) {
 		return false
 	}
 	step := m.speedPerTick()
@@ -1390,13 +1391,10 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			// Every combat target keeps its own tile clear. Attackers settle on
 			// surrounding posts, which prevents either party or summon fights
 			// from collapsing into a single overlapping stack.
-			if attackPosts && dx == 0 && dy == 0 {
+			if attackPosts && ((dx == 0 && dy == 0) || (!melee && !collision.CanAttackFrom(collisionChecker, centerX, centerY))) {
 				continue
 			}
 			if melee {
-				if !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
-					continue
-				}
 				if !adjacent && distance(targetX, targetY, centerX, centerY) > reach+0.1 {
 					continue
 				}
@@ -1412,11 +1410,11 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			if !melee && adjacent {
 				approach = append(approach, TileCoord{X: tileX, Y: tileY}) // no-LOS fallback
 			}
-			// Ranged: a goal needs a FIRE LANE, not just range - a tile within
+			// A goal needs an attack lane, not just range - a tile within
 			// reach but walled off leaves the mob parked there, in range yet
 			// forever unable to shoot (the attack gate requires LOS). LOS is the
 			// costliest test, so it runs last and only on walkable candidates.
-			if !melee && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
+			if !collision.AttackLineClear(collisionChecker, centerX, centerY, targetX, targetY) {
 				continue
 			}
 			goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1561,7 +1559,7 @@ func (m *Monster3D) updateAlert(collisionChecker CollisionChecker, playerX, play
 		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
 			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
 		}
-		hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+		hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 		if ((distanceToPlayer <= attackRange*enterFraction && hasLOS) || m.meleeTileAdjacent(playerX, playerY, collisionChecker)) &&
 			m.canClaimAttackPost(collisionChecker, playerX, playerY) {
 			m.State = StateAttacking
@@ -1634,7 +1632,7 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	// Target stepped out of reach -> resume the chase immediately instead of
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
 	// at <=0.9xrange, so exiting at >range keeps a clean hysteresis band.)
-	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+	hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 	if m.IsEngagingPlayer && (distance(m.X, m.Y, playerX, playerY) > m.PursuitReachPixels() || !hasLOS) &&
 		!m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 		m.State = StatePursuing

@@ -426,9 +426,8 @@ func isOverlayModalLayer(layer modalLayerID) bool {
 	}
 }
 
-// dropQueuedClicks discards both buffered click queues. Used wherever a modal
-// layer owns the frame: a press it did not consume was aimed at its dim, and a
-// press queued before it opened was aimed at the interface it replaced.
+// dropQueuedClicks ends a click batch at the Update boundary or when its layer
+// changes mid-dispatch. Double-click history and held gestures are separate.
 func (ui *UISystem) dropQueuedClicks() {
 	if ui == nil || ui.game == nil {
 		return
@@ -920,7 +919,7 @@ func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Co
 		return
 	}
 	ui.tooltipLines = lines
-	ui.tooltipColors = bodyColors
+	ui.tooltipColors = activeSetBonusColors(lines, bodyColors)
 	ui.tooltipTitleColor = plate
 	ui.tooltipTitleText = titleText
 	ui.tooltipIcon = ui.validTooltipIcon(icon)

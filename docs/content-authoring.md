@@ -88,8 +88,7 @@ Write concise adventure dialogue with a distinct speaker, concrete motives and
 places, and occasional dry humor. Explain the objective once; let reminders and
 completion lines react to the state of the story. Keep exact objectives intact
 and prices/eligibility in shared service UI. English prose uses ASCII punctuation.
-Read the local `docs/dialogue-style.md` instructions when available for the
-project's full writing workflow.
+Read the [dialogue style guide](dialogue-style.md) for the full writing workflow.
 
 ## Verification
 
@@ -114,3 +113,17 @@ project's full writing workflow.
 
 Document what was actually run. A loader test cannot establish that a sprite
 looks correct, a new item is obtainable, or a quest can be completed in a save.
+
+## Regular skill balance
+
+Regular skills, including Ballistics, Field Medicine, Designate Target and
+Overwatch, share `internal/character/catalog.go` for mastery tables and tooltip
+calculations. These four skills use the ordinary `SkillType` model; they do not
+form a separate tactical configuration category. Their former YAML tables were
+moved into the existing regular-skill catalog to keep that model consistent.
+Changing these tables requires a rebuild. Content such as weapons, spells,
+monsters and class skill access remains YAML-driven and validated at load time.
+
+Automatic drinking is a party-wide mechanic configured by `auto_drink` in
+`config.yaml`. Field Medicine modifies its efficiency through the same catalog
+used by the skill description; it does not enable the feature only for Snipers.

@@ -95,8 +95,14 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased boo
 			return
 		}
 	}
+	if cs.attackOriginBlocked(m.X, m.Y) {
+		return
+	}
 	m.ArmTrapVolleyCooldown(cs.game.config.GetTPS())
 	cs.game.sowBossTrapField(m)
+	if len(cs.game.bossFireTraps) > 0 {
+		cs.game.observeOverwatchAttack(m)
+	}
 }
 
 // sowBossTrapField replaces the field with a fresh volley around the boss.

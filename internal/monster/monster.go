@@ -284,6 +284,9 @@ type Monster3D struct {
 	StateTimer   int
 	AttackCount  int // Number of attacks made in current engagement
 
+	// Presentation policy from YAML, restored from the definition rather than saved.
+	AnimateWhenIdle bool
+
 	// Pathfinding state - prevents oscillation when stuck between obstacles
 	LastChosenDir float64 // Last direction chosen by pathfinding
 	StuckCounter  int     // Counts consecutive frames where monster couldn't move

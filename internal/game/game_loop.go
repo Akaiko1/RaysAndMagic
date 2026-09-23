@@ -59,6 +59,10 @@ func NewGameLoop(game *MMGame) *GameLoop {
 
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
+	// Click queues route this Update's edges through UI, then world input.
+	// Misses must expire here, including early returns: a later camera pose or
+	// widget must never acquire an old press. Holds have their own gesture state.
+	defer gl.ui.dropQueuedClicks()
 	updateStart := time.Now()
 	beforeCamera, cameraEpoch := gl.game.cameraPose(), gl.game.cameraPresentation.epoch
 	defer func() { gl.game.finishCameraTick(beforeCamera, cameraEpoch, updateStart) }()

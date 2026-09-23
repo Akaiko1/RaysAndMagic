@@ -1,5 +1,9 @@
 # Rendering and resource loading
 
+Floor texture blending and authoring rules are documented in
+[Floor texture transitions](docs/floor-transitions.md), including profile
+compatibility, shorelines, and Dragon Cliffs orientation.
+
 ## Engine and build
 
 The game and map editor use Ebitengine 2.10.2 and Go 1.25 or newer. Desktop

@@ -33,6 +33,13 @@ type InputHandler struct {
 	attackHoldFrames int  // frames an RT attack key has been held (tap vs hold-repeat)
 	spaceHoldFrames  int  // frames Space specifically has been held (tap vs hold-repeat for loot pickup; unlike attackHoldFrames it ticks while sprinting)
 	spacePressActed  bool // this Space press already fired a combat action (blocks same-press loot pickup)
+
+	// Pointer ownership is transient and belongs to one displayed actor/world.
+	mouseAttackTarget     *monster.Monster3D
+	mouseAttackWorld      *world.World3D
+	mouseAttackHoldFrames int
+	mouseAttackTurnBased  bool
+	mouseAttackInputTick  int64
 }
 
 // NewInputHandler creates a new input handler
@@ -79,6 +86,9 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
 	ih.keys.BeginFrame()
+	if !pointerLeftPressed() || !ih.game.worldClickAllowed() || ih.game.dragArmed || ih.game.dragActive || ih.game.dragPickedUp || ih.game.stashDragPickedUp {
+		ih.cancelMouseAttack()
+	}
 
 	// A picked-up split fragment owns the next click, but it is NOT a rendered
 	// layer: its picker is already closed and the parent hub or stash stays on
@@ -117,6 +127,7 @@ func (ih *InputHandler) HandleInput() {
 	}
 
 	if gl := ih.game.gameLoop; gl != nil && gl.ui != nil && gl.ui.displayedInput.capturedGameplay {
+		ih.cancelMouseAttack()
 		return
 	}
 
@@ -944,6 +955,15 @@ func (ih *InputHandler) handleCombatInput() {
 		return
 	}
 
+	if ih.performRTCombatAction(kind, fJust) && kind == rtActSmart {
+		ih.spacePressActed = true
+	}
+}
+
+// Shared action dispatch for keyboard and world-pointer attacks. Reports
+// whether dispatch passed the cooldown/capability gate, preserving Space's
+// same-press loot suppression semantics even when SmartAttack finds no action.
+func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool) bool {
 	// Off a corpse first, then onto a member who can actually do THIS action:
 	// holding F only visits casters, C only healers, R only the armed.
 	ih.game.ensureSelectedCanActRT()
@@ -954,7 +974,7 @@ func (ih *InputHandler) handleCombatInput() {
 		// Explicit F with nothing castable: say WHY once per fresh press (the
 		// TB path announces through the cast itself; holds stay silent so a
 		// held key can't spam). Space keeps its silent weapon fallback.
-		if kind == rtActCast && fJust && ih.game.combatActorAllowed(ih.game.selectedChar) {
+		if kind == rtActCast && freshCast && ih.game.combatActorAllowed(ih.game.selectedChar) {
 			ih.announceCastShortfall(ih.game.selectedChar)
 		}
 		ih.game.advanceRTActor(kind)
@@ -971,7 +991,7 @@ func (ih *InputHandler) handleCombatInput() {
 	// Gate: short global stagger AND the selected member ready+capable. A capable
 	// member on cooldown lands here and simply waits (no fire, no chat spam).
 	if ih.game.spellInputCooldown != 0 || !ih.game.rtActionReady(ih.game.selectedChar, kind) {
-		return
+		return false
 	}
 	sel := ih.game.party.Members[ih.game.selectedChar]
 
@@ -1009,12 +1029,7 @@ func (ih *InputHandler) handleCombatInput() {
 	case rtActHeal:
 		ih.castBestHeal(sel)
 	}
-
-	// This Space press just fired a combat action - block loot pickup for the
-	// rest of THIS press (see the pickup guard above).
-	if kind == rtActSmart {
-		ih.spacePressActed = true
-	}
+	return true
 }
 
 // commitRTAction puts the just-acted character on cooldown, applies the short
@@ -1454,6 +1469,11 @@ func (ih *InputHandler) handleWorldMouseInput() {
 				ih.game.pickupGroundContainerAt(idx)
 				return
 			}
+			if target := ih.game.monsterAtScreen(clickX, clickY); target != nil {
+				ih.game.consumeLeftClick()
+				ih.beginMouseAttack(target)
+				return
+			}
 			if npc, inRange := ih.game.findNPCAtScreen(clickX, clickY); npc != nil {
 				ih.game.consumeLeftClick()
 				if inRange {
@@ -1466,6 +1486,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 		}
 	}
 
+	ih.repeatMouseAttack()
 	// Mouse state is updated once per frame in updateMouseState().
 }
 
@@ -2313,14 +2334,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		}
-		if acted, spellID := ih.game.combat.SmartAttack(); acted {
-			if spellID == "" {
-				ih.game.consumeSelectedCharWeaponAction()
-			} else {
-				ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
-			}
-		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		ih.performTurnBasedSmartAttack()
 	case ih.keys.Consume(ebiten.KeyF): // cast slotted spell
 		if fired, spellID := ih.castSlottedSpellResolved(selected); fired {
 			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
@@ -2411,7 +2425,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	// In turn-based mode, if the tile is passable, we should always be able to move there
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
 	oldX, oldY := ih.game.camera.X, ih.game.camera.Y
-	ih.game.setPartyPosition(targetX, targetY)
+	ih.game.movePartyPosition(targetX, targetY)
 	ih.game.recordProfileStep(oldX, oldY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
 	ih.applyLandingTileEffects()

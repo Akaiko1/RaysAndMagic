@@ -87,6 +87,17 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
 	for name, biome := range mapConfigs.Biomes {
 		biome.FloorTextureGroups = mergeSharedFloorTextureGroups(biome.FloorTextureGroups, mapConfigs.SharedFloorTextureGroups)
+		profiles := make(map[string]config.FloorTransition, len(mapConfigs.SharedFloorTransitions)+len(biome.FloorTransitions))
+		for group, profile := range mapConfigs.SharedFloorTransitions {
+			profiles[group] = profile
+		}
+		for group, profile := range biome.FloorTransitions {
+			profiles[group] = profile
+		}
+		biome.FloorTransitions = profiles
+		if err := biome.ValidateFloorTransitions(); err != nil {
+			return fmt.Errorf("biome %q: %w", name, err)
+		}
 		wm.Biomes[name] = biome
 	}
 

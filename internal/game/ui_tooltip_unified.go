@@ -277,14 +277,17 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if totalCrit > 0 {
 		crit.Add("Chance: %d%%", totalCrit)
 		if char != nil {
-			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
-			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms
+			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
+			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
 			if cardCrit > 0 {
 				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
 			}
 			if setCrit > 0 {
 				parts = append(parts, fmt.Sprintf("Set: +%d%%", setCrit))
+			}
+			if ballistics > 0 {
+				parts = append(parts, fmt.Sprintf("Ballistics: +%d%%", ballistics))
 			}
 			if gmWeapon > 0 {
 				parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))

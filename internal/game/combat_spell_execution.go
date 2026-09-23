@@ -131,7 +131,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 	}
 
 	if spellDef.IsProjectile {
-		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle)
+		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return castRejected
@@ -161,6 +161,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		projectile.Damage = parts.Normal
 
 		magicProjectile := MagicProjectile{
+			WorldAim:           cs.partyAimTarget != nil,
 			ID:                 cs.game.GenerateProjectileID(string(spellID)),
 			Attacker:           caster,
 			X:                  projectile.X,

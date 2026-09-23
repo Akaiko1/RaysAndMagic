@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -70,7 +69,7 @@ func (g *MMGame) overwatchReady(ch *character.MMCharacter) bool {
 		if g.tactics.movedTB {
 			return false
 		}
-	} else if g.tactics.stationarySeconds+1e-9 < g.config.Characters.Tactics.OverwatchReadySeconds {
+	} else if g.tactics.stationarySeconds+1e-9 < character.OverwatchReadySeconds {
 		return false
 	}
 	weapon, ok := ch.Equipment[items.SlotMainHand]
@@ -109,20 +108,39 @@ func (g *MMGame) observeOverwatchMovement(m *monster.Monster3D, oldX, oldY float
 	g.tactics.approach[m] += distance
 	for g.tactics.approach[m]+1e-7 >= tile {
 		g.tactics.approach[m] -= tile
-		for index, ch := range g.party.Members {
-			if !g.overwatchReady(ch) {
-				continue
-			}
-			def := lookupWeaponConfigByName(ch.Equipment[items.SlotMainHand].Name)
-			rangeTiles, _ := character.EffectiveWeaponFlight(def, ch)
-			if Distance(g.camera.X, g.camera.Y, m.X, m.Y) > rangeTiles*tile || !g.combat.attackLineClear(g.camera.X, g.camera.Y, m.X, m.Y) {
-				continue
-			}
-			if rand.Intn(100) >= ch.TacticalSkillValue(character.SkillOverwatch, g.config.Characters.Tactics.OverwatchChance) {
-				continue
-			}
-			g.fireOverwatch(index, m)
+		g.tryOverwatchReaction(m, 1)
+	}
+}
+
+// observeOverwatchAttack runs once after an enemy's committed attack action,
+// not on animation ticks, failed attempts, or every projectile in a volley.
+func (g *MMGame) observeOverwatchAttack(m *monster.Monster3D) {
+	g.tryOverwatchReaction(m, 0.5)
+}
+
+func (g *MMGame) tryOverwatchReaction(m *monster.Monster3D, chanceScale float64) {
+	if m == nil || !m.IsAlive() || !m.IsEngagingPlayer || m.IsPartyControlled() || m.AIFoe != nil || m.IsDamageInvulnerable() {
+		return
+	}
+	for index, ch := range g.party.Members {
+		if !g.overwatchReady(ch) {
+			continue
 		}
+		def := lookupWeaponConfigByName(ch.Equipment[items.SlotMainHand].Name)
+		reach, _ := character.EffectiveWeaponFlight(def, ch)
+		x, y := g.combat.logicalCameraXY()
+		if Distance(x, y, m.X, m.Y) > reach*float64(g.config.GetTileSize()) || !g.combat.attackLineClear(x, y, m.X, m.Y) {
+			continue
+		}
+		chance := float64(character.OverwatchChancePct(ch.SkillTier(character.SkillOverwatch))) * chanceScale / 100
+		roll := rand.Float64
+		if g.combat.reactionRoll != nil {
+			roll = g.combat.reactionRoll
+		}
+		if chance <= 0 || roll() >= chance {
+			continue
+		}
+		g.fireOverwatch(index, m)
 	}
 }
 
@@ -148,7 +166,7 @@ func (g *MMGame) designateTarget(ch *character.MMCharacter, target *monster.Mons
 		return
 	}
 	ch.DesignatedTargetID = target.ID
-	ch.DesignationFrames = ch.TacticalSkillValue(character.SkillDesignateTarget, config.TacticalSkills().DesignationSeconds) * g.config.GetTPS()
+	ch.DesignationFrames = character.DesignationSeconds(ch.SkillTier(character.SkillDesignateTarget)) * g.config.GetTPS()
 }
 
 // designationBonus is shared by weapon damage and the visible target marker.
@@ -166,10 +184,10 @@ func (g *MMGame) designationBonus(target *monster.Monster3D) int {
 }
 
 func activeDesignationBonus(ch *character.MMCharacter) int {
-	if ch == nil || !ch.CanUseCombatAction() || ch.DesignationFrames <= 0 || ch.DesignatedTargetID == "" {
+	if ch == nil || !ch.HasSkill(character.SkillDesignateTarget) || !ch.CanUseCombatAction() || ch.DesignationFrames <= 0 || ch.DesignatedTargetID == "" {
 		return 0
 	}
-	return ch.TacticalSkillValue(character.SkillDesignateTarget, config.TacticalSkills().DesignationCritPct)
+	return character.DesignationCritPct(ch.SkillTier(character.SkillDesignateTarget))
 }
 
 // Snapshot once per impact: a ranged hit can replace its owner's mark before

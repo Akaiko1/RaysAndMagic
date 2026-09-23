@@ -124,7 +124,7 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
-	// Tactical timers use simulation frames in both RT and TB.
+	// Consumable and target-mark timers use simulation frames in both RT and TB.
 	AutoDrinkCooldown  int
 	DesignatedTargetID string
 	DesignationFrames  int
@@ -825,7 +825,7 @@ func (c *MMCharacter) ApplyCardRegenTick() {
 // ApplyPoison applies or refreshes a poison effect for the given duration in frames.
 func (c *MMCharacter) ApplyPoison(frames int) {
 	if c.HasSkill(SkillFieldMedicine) && frames > 0 {
-		frames = max(1, frames*(100-c.TacticalSkillValue(SkillFieldMedicine, config.TacticalSkills().MedicinePoisonReductionPct))/100)
+		frames = max(1, frames*(100-FieldMedicinePoisonReductionPct(c.SkillTier(SkillFieldMedicine)))/100)
 	}
 	if frames <= 0 {
 		return

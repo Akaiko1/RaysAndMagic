@@ -22,6 +22,11 @@ type CombatSystem struct {
 	game                *MMGame
 	racialProcRoll      func(int) bool
 	elementalAttackRoll func() float64
+	designationRoll     func(int) int
+	partyAimTarget      *monsterPkg.Monster3D
+	partyAimAngle       float64
+	reactionRoll        func() float64
+	monsterAction       *monsterActionObservation
 }
 
 // Owner namespaces of the pure party allies. They persist through
@@ -532,8 +537,9 @@ func (cs *CombatSystem) attackSlotFor(attacker *character.MMCharacter) items.Equ
 	}
 }
 
-// partyEntombed reports whether the flying party hovers inside terrain that is
-// solid without Fly (a wall). Fighting and casting from there are refused:
+// partyInsideSolidTerrain detects walls and blocking objects at attack height.
+// Water and chasms only block walking, so flight permits attacks above them.
+// Fighting and casting from inside objects are refused:
 // monsters can neither reach nor see the party, so it would be a free-hit
 // exploit. Emits a throttled explanation so the refusal reads as a rule.
 func (cs *CombatSystem) partyInsideSolidTerrain() bool {
@@ -541,13 +547,8 @@ func (cs *CombatSystem) partyInsideSolidTerrain() bool {
 	if !g.flyActive || g.camera == nil {
 		return false
 	}
-	w := g.GetCurrentWorld()
-	if w == nil {
-		return false
-	}
-	ts := g.config.GetTileSize()
 	x, y := cs.logicalCameraXY()
-	return w.IsTileBlockingTerrainAt(TileIndex(x, ts), TileIndex(y, ts))
+	return cs.attackOriginBlocked(x, y)
 }
 
 func (cs *CombatSystem) partyEntombed() bool {
@@ -567,7 +568,7 @@ func (cs *CombatSystem) partyEntombed() bool {
 // actually happened (no weapon / incapacitated -> false, so turn-based action
 // slots aren't burned on a no-op).
 func (cs *CombatSystem) EquipmentMeleeAttack() bool {
-	return cs.equipmentAttackAtAngle(cs.game.camera.Angle, false)
+	return cs.equipmentAttackAtAngle(cs.partyAttackAngle(), false)
 }
 
 func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) bool {
@@ -678,7 +679,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) boo
 // the weapon (card-proc bolts on melee wielders would otherwise report the
 // hunting-bow physics fallback).
 func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, label string) bool {
-	return cs.createArrowAttackAimed(damage, slot, label, cs.game.camera.Angle, false)
+	return cs.createArrowAttackAimed(damage, slot, label, cs.partyAttackAngle(), false)
 }
 
 func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, worldAim bool) bool {
@@ -792,7 +793,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			DamageType:         damageType,
 			Crit:               isCrit,
 			CritChance:         critChance,
-			WorldAim:           worldAim,
+			WorldAim:           worldAim || cs.partyAimTarget != nil,
 			DisintegrateChance: disintegrateChance,
 			PierceLeft:         pierceLeft,
 			RicochetLeft:       ricochetLeft,
@@ -996,7 +997,7 @@ func applyMeleeArc(cands []meleeArcCandidate, arcType int) {
 func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) int {
 	playerX := cs.game.camera.X
 	playerY := cs.game.camera.Y
-	playerAngle := cs.game.camera.Angle
+	playerAngle := cs.partyAttackAngle()
 	tileSize := float64(cs.game.config.GetTileSize())
 
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
@@ -1050,6 +1051,9 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 }
 
 func (cs *CombatSystem) turnBasedPulledMeleeTargets(cands []meleeHitCandidate, arcType int) ([]*monsterPkg.Monster3D, bool) {
+	if cs.partyAimTarget != nil {
+		return nil, false // explicit world aim uses the weapon's actual arc
+	}
 	if arcType != 1 && arcType != 2 {
 		return nil, false
 	}
@@ -1647,7 +1651,7 @@ func (cs *CombatSystem) monsterCanPounceParty(m *monsterPkg.Monster3D) bool {
 		return false
 	}
 	return cs.game.collisionSystem == nil ||
-		cs.game.collisionSystem.CheckLineOfSight(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
+		cs.attackLineClear(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
 }
 
 // executePounce leaps a pouncing monster onto the nearest walkable tile
@@ -1801,7 +1805,7 @@ func (cs *CombatSystem) monsterMeleeAdjacentToPoint(monster *monsterPkg.Monster3
 	if dx > 1 || dy > 1 {
 		return false
 	}
-	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, targetX, targetY)
+	return cs.attackLineClear(monster.X, monster.Y, targetX, targetY)
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
@@ -1879,6 +1883,7 @@ func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType 
 // resolution, so an in-flight champion projectile cannot inherit a later hand
 // or spell's mutable state.
 func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, hit monsterCharacterHit) {
+	cs.recordMonsterPartyAttack(monster)
 	defer cs.game.beginProfileMonsterHit(monster, sourceName)()
 	if target == nil {
 		return
@@ -2508,6 +2513,9 @@ func (cs *CombatSystem) spawnMonsterRangedAttackNormal(monster *monsterPkg.Monst
 // attack). Shared by the melee and ranged paths so a new whole-party attack is
 // added in ONE place, not copy-pasted into both in the right order.
 func (cs *CombatSystem) tryMonsterAoeAttack(monster *monsterPkg.Monster3D) bool {
+	if monster == nil || cs.attackOriginBlocked(monster.X, monster.Y) {
+		return false
+	}
 	if cs.tryMonsterDragonBreath(monster) {
 		return true
 	}
@@ -2537,7 +2545,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 // Piercing Shot and the separate breath/fireburst actions are authored whole-
 // party attacks; they do not redirect their victim list to a single summon.
 func (cs *CombatSystem) tryMonsterAttackSpecial(monster *monsterPkg.Monster3D, target monsterAttackDestination) bool {
-	if monster == nil || !monster.IsAlive() {
+	if monster == nil || !monster.IsAlive() || cs.attackOriginBlocked(monster.X, monster.Y) {
 		return false
 	}
 	if cs.championTryCastSpell(monster, target) || cs.tryMonsterAllyHeal(monster) {
@@ -2644,6 +2652,9 @@ func (cs *CombatSystem) pickMonsterAllyHealTarget(healer *monsterPkg.Monster3D) 
 // the given owner, dispatching to its spell or weapon projectile. Returns true if
 // one was spawned. Fireburst (party-only AoE) is handled by the caller.
 func (cs *CombatSystem) spawnMonsterRangedAttackAt(monster *monsterPkg.Monster3D, targetX, targetY float64, owner ProjectileOwner) bool {
+	if monster == nil || !cs.attackLineClear(monster.X, monster.Y, targetX, targetY) {
+		return false
+	}
 	if monster.ProjectileSpell != "" {
 		cs.spawnMonsterSpellProjectile(monster, spells.SpellID(monster.ProjectileSpell), targetX, targetY, owner)
 		return true
@@ -2721,6 +2732,9 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 		AoE:                aoe,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
+	if owner == ProjectileOwnerMonster {
+		cs.recordMonsterPartyAttack(monster)
+	}
 
 	tileSize := cs.game.config.GetTileSize()
 	collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
@@ -2736,6 +2750,9 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	if !exists || weaponDef == nil || weaponDef.Physics == nil {
 		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", weaponKey)
 		return
+	}
+	if owner == ProjectileOwnerMonster {
+		cs.recordMonsterPartyAttack(monster)
 	}
 
 	tileSize := cs.game.config.GetTileSize()

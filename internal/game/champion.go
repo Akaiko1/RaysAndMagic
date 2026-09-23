@@ -925,6 +925,9 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
 
 	case def.StunRadiusTiles > 0:
+		if target.foe == nil && !m.IsPartyControlled() {
+			cs.recordMonsterPartyAttack(m)
+		}
 		radius := def.StunRadiusTiles * float64(cs.game.config.GetTileSize())
 		frames := def.StunDurationSeconds * cs.game.config.GetTPS()
 		for _, foe := range cs.game.world.Monsters {

@@ -14,6 +14,19 @@ const (
 // attempted action, so a dead or newly friendly foe cannot turn into a party hit.
 type monsterAttackDestination struct{ foe *monster.Monster3D }
 
+// Delivery records hostile actions even when they miss, are dodged, or deal
+// zero damage. Spending an action on healing or a buff is not an attack.
+type monsterActionObservation struct {
+	actor       *monster.Monster3D
+	partyAttack bool
+}
+
+func (cs *CombatSystem) recordMonsterPartyAttack(m *monster.Monster3D) {
+	if action := cs.monsterAction; action != nil && action.actor == m {
+		action.partyAttack = true
+	}
+}
+
 func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence) bool {
 	if cs == nil || cs.game == nil || m == nil || !m.IsAlive() {
 		return false
@@ -66,7 +79,7 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 // modes. Planners may test reach before moving, but this boundary revalidates
 // current faction, target lifetime, obstruction and logical post ownership.
 // Boss specials retain their separate authored action gates.
-func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence) bool {
+func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence) (spent bool) {
 	if !cs.monsterAttackStillValid(m, target, cadence) {
 		return false
 	}
@@ -80,9 +93,19 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	if !cs.game.tryClaimMonsterAttackPost(m) {
 		return false
 	}
+	// Observe actual delivery across all hands/hits, including replacement
+	// spells. A mixed support/attack action earns only one reaction.
+	previous := cs.monsterAction
+	action := monsterActionObservation{actor: m}
+	cs.monsterAction = &action
+	defer func() {
+		cs.monsterAction = previous
+		if spent && target.foe == nil && action.partyAttack {
+			cs.game.observeOverwatchAttack(m)
+		}
+	}()
 	m.State = monster.StateAttacking
 	if cadence == monsterAttackTurn {
-		spent := false
 		for hit := 0; hit < m.GetTurnBasedAttackCount() && cs.monsterAttackStillValid(m, target, cadence); hit++ {
 			if !spent {
 				cs.game.armMonsterAttackAnimation(m)

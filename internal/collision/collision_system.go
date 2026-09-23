@@ -489,14 +489,11 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 	}
 
 	width, height := tileChecker.GetWorldBounds()
-	maxT := math.Hypot(dx, dy) / math.Max(tileSize, 1)
+	maxSteps := int(math.Abs(float64(gx-tx))+math.Abs(float64(gy-ty))) + 1
 
-	// Check starting tile. A sight ray always sees OUT of the observer's own
-	// tile: the only way to occupy an opaque tile is a flying mob perched on a
-	// solid-but-transparent sprite tile (boulder/canopy), which IsTileOpaque
-	// reports opaque - bailing here would blind it to its own line of fire and
-	// make ranged flyers shuffle instead of shooting. Movement is still blocked
-	// by the start tile.
+	// Detection can see out of the observer's occupied tile, including flight
+	// or terrain overrides. AttackLineClear separately rejects firing positions
+	// inside objects; movement still checks the starting tile here.
 	if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 	}
@@ -507,10 +504,35 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 		return RaycastHit{Hit: false}, false
 	}
 
+	blocked := func(x, y int) bool {
+		if x < 0 || y < 0 || x >= width || y >= height {
+			return true
+		}
+		if sightOnly {
+			return tileChecker.IsTileOpaque(x, y) || hasSightBlockers && sightBlockerTiles[sightTileKey{x: x, y: y}] > 0
+		}
+		return tileChecker.IsTileBlocking(x, y)
+	}
 	t := 0.0
-	for steps := 0; steps < int(maxT)+2; steps++ {
-		// DDA step
-		if tMaxX < tMaxY {
+	for steps := 0; steps < maxSteps; steps++ {
+		// A corner touches both side cells. Test both before entering the
+		// diagonal cell, independent of travel direction (live and snapshot).
+		if stepX != 0 && stepY != 0 && math.Abs(tMaxX-tMaxY) <= 1e-12 {
+			t = tMaxX
+			if t > 1 {
+				break
+			}
+			for _, side := range [][2]int{{tx + stepX, ty}, {tx, ty + stepY}} {
+				if blocked(side[0], side[1]) {
+					hitX, hitY := x1+dx*t, y1+dy*t
+					return RaycastHit{Hit: true, TileX: side[0], TileY: side[1], Dist: math.Hypot(hitX-x1, hitY-y1), HitX: hitX, HitY: hitY}, true
+				}
+			}
+			tx += stepX
+			ty += stepY
+			tMaxX += tDeltaX
+			tMaxY += tDeltaY
+		} else if tMaxX < tMaxY {
 			tx += stepX
 			t = tMaxX
 			tMaxX += tDeltaX
@@ -518,6 +540,9 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 			ty += stepY
 			t = tMaxY
 			tMaxY += tDeltaY
+		}
+		if t > 1 {
+			break
 		}
 
 		// Check bounds

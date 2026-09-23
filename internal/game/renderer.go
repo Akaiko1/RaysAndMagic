@@ -70,12 +70,13 @@ type Renderer struct {
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// GPU floor rendering - a Kage shader replaces the per-pixel CPU loop.
 	// floorColorMap is a worldWxworldH RGBA8 image with base tile colors.
-	// floorTextureIndexMap is a worldWxworldH RGBA8 image; R encodes
-	// atlas-index+1, 0 means no texture overlay. floorTexAtlas is a horizontal
+	// floorTextureIndexMap stores base/shore atlas indices and a transition profile.
+	// floorShoreMap stores distance to water at tile vertices. floorTexAtlas is a horizontal
 	// strip of all configured floor material variants.
 	floorShader          *ebiten.Shader
 	floorColorMap        *ebiten.Image
 	floorTextureIndexMap *ebiten.Image
+	floorShoreMap        *ebiten.Image
 	floorTexAtlas        *ebiten.Image
 	floorTexGroups       map[string]floorTextureGroup
 	floorTexCount        int
@@ -242,6 +243,8 @@ type Renderer struct {
 	// Reusable buffer for tree hits to avoid allocation per frame
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
+	monsterPick    monsterPickFrame
+	hoveredMonster *monster.Monster3D
 	unifiedSprites []UnifiedSpriteRenderData
 	// Cached average texture colour per tile type, used to tint the impassable
 	// aura bubbles to match the rock/cliff sprite they rise from. Computed lazily.
@@ -908,57 +911,11 @@ func (r *Renderer) precomputeFloorColorCache() {
 	r.teleporterTiles = teleporterTiles
 
 	r.floorColorCache = cache
-	r.buildFloorColorMap(worldWidth, worldHeight)
-}
-
-// buildFloorColorMap encodes floorColorCache as a worldWxworldH RGBA8 image,
-// one pixel per tile. A second one-pixel-per-tile image stores the floor
-// texture atlas index selected for each tile.
-func (r *Renderer) buildFloorColorMap(worldWidth, worldHeight int) {
-	if worldWidth <= 0 || worldHeight <= 0 {
-		r.floorColorMap = nil
-		r.floorTextureIndexMap = nil
-		return
+	// The asynchronous atlas commit publishes material maps with its matching
+	// group indices. Building against the previous atlas here is wasted work.
+	if r.floorPreparation == nil {
+		r.buildFloorColorMap(worldWidth, worldHeight)
 	}
-	if r.floorColorMap == nil ||
-		r.floorColorMap.Bounds().Dx() != worldWidth ||
-		r.floorColorMap.Bounds().Dy() != worldHeight {
-		r.floorColorMap = ebiten.NewImage(worldWidth, worldHeight)
-	}
-	if r.floorTextureIndexMap == nil ||
-		r.floorTextureIndexMap.Bounds().Dx() != worldWidth ||
-		r.floorTextureIndexMap.Bounds().Dy() != worldHeight {
-		r.floorTextureIndexMap = ebiten.NewImage(worldWidth, worldHeight)
-	}
-
-	colorPixels := make([]byte, worldWidth*worldHeight*4)
-	indexPixels := make([]byte, worldWidth*worldHeight*4)
-	hasTM := world.GlobalTileManager != nil
-	for ty := 0; ty < worldHeight; ty++ {
-		for tx := 0; tx < worldWidth; tx++ {
-			clr := r.floorColorCache[[2]int{tx, ty}]
-			tileType := world.TileEmpty
-			if hasTM && r.game.world != nil &&
-				tx >= 0 && tx < r.game.world.Width &&
-				ty >= 0 && ty < r.game.world.Height {
-				tileType = r.game.world.Tiles[ty][tx]
-			}
-			idx := (ty*worldWidth + tx) * 4
-			colorPixels[idx] = clr.R
-			colorPixels[idx+1] = clr.G
-			colorPixels[idx+2] = clr.B
-			colorPixels[idx+3] = 255
-
-			// Shader reads only the R channel; G/B left zero, alpha 255 keeps
-			// the image fully opaque so premultiplication is a no-op.
-			indexPixels[idx+3] = 255
-			if atlasIndex, ok := r.floorTextureIndexForTile(tx, ty, tileType); ok {
-				indexPixels[idx] = uint8(atlasIndex + 1)
-			}
-		}
-	}
-	r.floorColorMap.WritePixels(colorPixels)
-	r.floorTextureIndexMap.WritePixels(indexPixels)
 }
 
 func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.TileType3D) (int, bool) {
@@ -976,13 +933,7 @@ func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.Til
 const defaultFloorTextureGroup = "default"
 
 // floorTextureGroupForTile returns the floor-texture group name for a tile.
-// Mapping is data-driven from tiles.yaml (TileData.FloorTextureGroup) with two
-// fallbacks resolved here, not in the data:
-//   - "beach": an "empty" tile bordering any water-group tile uses "beach"
-//     instead of its own group, so shorelines transition into sand.
-//   - objects without an authored floor inherit the dominant neighbouring
-//     floor. Floor-only tiles without one use the biome's "default" group.
-//     A floor-only marker can opt into inheritance with inherit_floor.
+// Resolve authored and inherited ground before adding any shoreline layer.
 func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.TileType3D) string {
 	if world.GlobalTileManager == nil {
 		return ""
@@ -1006,16 +957,7 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 			group = defaultFloorTextureGroup
 		}
 	}
-	// Beach shoreline: any tile sitting on the biome's default ground that
-	// borders water uses "beach" instead, so the sand transition is
-	// continuous - including the ground under objects like palms, not just
-	// bare empty tiles. Only when the current biome actually defines a
-	// "beach" group (forest/desert), so city/church floors are unaffected.
-	if group == defaultFloorTextureGroup && r.tileBordersWater(tileX, tileY) {
-		if _, ok := r.floorTexGroups[r.floorGroupLookupKey(tileX, tileY, "beach")]; ok {
-			return "beach"
-		}
-	}
+
 	return group
 }
 
@@ -1051,33 +993,18 @@ func (r *Renderer) inheritedFloorTileData(tileX, tileY int, tileType world.TileT
 	return world.GlobalTileManager.GetTileData(t)
 }
 
-func (r *Renderer) tileBordersWater(tileX, tileY int) bool {
-	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
-		return false
-	}
-	for dy := -1; dy <= 1; dy++ {
-		for dx := -1; dx <= 1; dx++ {
-			if dx == 0 && dy == 0 {
-				continue
-			}
-			nx, ny := tileX+dx, tileY+dy
-			if nx < 0 || ny < 0 || nx >= r.game.world.Width || ny >= r.game.world.Height {
-				continue
-			}
-			key := world.GlobalTileManager.GetTileKey(r.game.world.Tiles[ny][nx])
-			if key == "water" || key == "deep_water" || key == "forest_stream" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func stableFloorTextureIndex(tileX, tileY, tileType, count int) int {
 	if count <= 1 {
 		return 0
 	}
 	hash := uint32(tileX)*73856093 ^ uint32(tileY)*19349663 ^ uint32(tileType)*83492791
+	// Avalanche the low bits before modulo: coordinate parity otherwise makes
+	// two- and four-texture groups repeat in a checkerboard.
+	hash ^= hash >> 16
+	hash *= 0x7feb352d
+	hash ^= hash >> 15
+	hash *= 0x846ca68b
+	hash ^= hash >> 16
 	return int(hash % uint32(count))
 }
 
@@ -1192,7 +1119,7 @@ func openWorldFloorTextureGroups() map[string][]string {
 			continue
 		}
 		for group, texs := range biome.FloorTextureGroups {
-			out[mc.Biome+"/"+group] = texs
+			out[floorTextureGroupKey(mc.Biome, group, true)] = texs
 		}
 	}
 	return out
@@ -1201,15 +1128,14 @@ func openWorldFloorTextureGroups() map[string][]string {
 // floorGroupLookupKey namespaces a floor group with the tile's region biome
 // on the unified world; identity for split maps (single-biome atlas).
 func (r *Renderer) floorGroupLookupKey(tileX, tileY int, group string) string {
-	if group == "" || !r.game.openWorldActive() {
+	return floorTextureGroupKey(r.floorBiomeKeyAt(tileX, tileY), group, r.game.openWorldActive())
+}
+
+// floorTextureGroupKey is shared by atlas creation and material lookup. Callers
+// resolving several groups in one cell can reuse the already resolved biome.
+func floorTextureGroupKey(biome, group string, unified bool) string {
+	if group == "" || !unified {
 		return group
-	}
-	wm := world.GlobalWorldManager
-	biome := wm.BiomeAtTile(tileX, tileY)
-	if biome == "" {
-		if mc := wm.GetCurrentMapConfig(); mc != nil {
-			biome = mc.Biome
-		}
 	}
 	return biome + "/" + group
 }
@@ -1962,16 +1888,6 @@ const maxFloorShaderLights = 32
 // screen -> world -> tile, look up base color, optionally blend a hash-selected
 // floor texture, then apply distance shading plus up to maxFloorShaderLights
 // point lights.
-//
-// The shader does NOT exactly match the previous CPU loop:
-//   - hash uses smaller multipliers (73 / 19) due to int32 overflow in Kage
-//     where CPU used 73856093 / 19349663
-//   - texture contribution fades out by distance via smoothstep on the texel
-//     footprint per screen pixel, to avoid far-field stripes from nearest
-//     sampling
-//
-// Per-tile variation pattern is similar; absolute texture index per tile
-// will differ from the old CPU rendering.
 func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	shader, err := r.ensureFloorShader()
 	if err != nil || shader == nil || r.floorColorMap == nil || r.floorTextureIndexMap == nil || r.game.world == nil {
@@ -2095,6 +2011,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	op.Images[0] = r.floorColorMap
 	op.Images[1] = texAtlas
 	op.Images[2] = r.floorTextureIndexMap
+	op.Images[3] = r.floorShoreMap
 	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
 }
 
@@ -3049,16 +2966,20 @@ func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *mon
 	return anim.Frames[idx]
 }
 
-// monsterAnimFrameImage picks the animation frame for the monster's current
-// actual displacement: cycling during RT movement or once per TB tile step.
-// Every new walk starts at frame zero; stationary AI intent cannot animate it.
+// monsterAnimFrameImage plays actual movement as an RT loop or one TB step.
+// At rest, only explicitly opted-in creatures loop; movement and attack timing
+// remain independent of that presentation policy.
 func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
 	elapsed, moving := r.monsterWalkElapsed(mon)
-	if !moving {
-		return anim.Frames[0]
+	period := int64(r.monsterWalkTicksPerFrame())
+	frame := elapsed / period
+	if moving && (!r.game.turnBasedMode || frame < int64(len(anim.Frames))) {
+		return anim.Frames[int(frame%int64(len(anim.Frames)))]
 	}
-	frame := elapsed / int64(r.monsterWalkTicksPerFrame())
-	if !r.game.turnBasedMode || frame < int64(len(anim.Frames)) {
+	// An attack without its own sheet still holds the first walking frame.
+	// Fish and inert encounter props retain their separate presentation rules.
+	if mon.AnimateWhenIdle && mon.IsAlive() && !mon.IsInertSetPiece() && !mon.IsFish() && mon.AttackAnimFrames == 0 {
+		frame = r.game.frameCount / period
 		return anim.Frames[int(frame%int64(len(anim.Frames)))]
 	}
 	return anim.Frames[0]
@@ -3210,8 +3131,9 @@ type UnifiedSpriteRenderData struct {
 	treeArmHi       int
 	treeCenterDepth float64
 	// Monster specific
-	monster     *monster.Monster3D
-	monsterFlip bool // billboard fallback: mirror the chosen directional sheet
+	monster          *monster.Monster3D
+	monsterPickIndex int  // index in this completed frame, or -1 when culled
+	monsterFlip      bool // billboard fallback: mirror the chosen directional sheet
 	// Standee art has one deterministic authored facing; world heading supplies
 	// the runtime mirror. Keeping it beside the selected frame prevents collect
 	// and draw from resolving two different animation sheets.
@@ -3428,6 +3350,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	r.crossedGeometry.begin()
 	defer r.crossedGeometry.end()
 	// Reuse pre-allocated buffer
+	r.beginMonsterPickFrame()
 	sprites := r.unifiedSprites[:0]
 
 	// Camera properties for frustum culling
@@ -3797,6 +3720,20 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Update buffer for next frame
 	r.unifiedSprites = sprites
 
+	// Resolve every actor before choosing the hover target. Reusing these
+	// poses for draw avoids mixing last frame's hit boxes with new wall depth.
+	for i := range sprites {
+		if sprites[i].spriteType != SpriteTypeMonster {
+			continue
+		}
+		sprites[i].monsterPickIndex = -1
+		if hit, ok := r.prepareMonsterPick(sprites[i]); ok {
+			sprites[i].monsterPickIndex = len(r.monsterPick.hits)
+			r.monsterPick.hits = append(r.monsterPick.hits, hit)
+		}
+	}
+	r.selectMonsterHover()
+
 	// Render all sprites in sorted order
 	for _, s := range sprites {
 		switch s.spriteType {
@@ -4097,12 +4034,12 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, b, b, b, 1.0)
 }
 
-// drawUnifiedMonsterSprite draws a monster sprite from unified data
-func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if !r.spriteDepthBufferVisible(s) {
-		return
+// prepareMonsterPick computes the pose once, before hover selection and draw.
+// Input keeps the completed frame; hover uses this frame's camera and geometry.
+func (r *Renderer) prepareMonsterPick(s UnifiedSpriteRenderData) (monsterPickHit, bool) {
+	if !r.spriteDepthBufferVisible(s) || s.sprite == nil {
+		return monsterPickHit{}, false
 	}
-	r.stampActorDepth(s)
 	// drawAllSpritesSorted always stamps the visual position (true or pulled).
 	renderX, renderY := s.monsterRenderX, s.monsterRenderY
 
@@ -4122,36 +4059,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		drawLeftF += dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize)
 	}
 	screenYF := s.bottomF - s.sizeF
-	screenY := int(screenYF)
 
-	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
-	brightness := r.calculateBrightnessWithTorchLight(renderX, renderY, distance)
-	br := float32(brightness)
-	rr, gg, bb := br, br, br
-	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
-	// over MonsterHitFlashFrames so the impact reads clearly.
-	if s.monster != nil && s.monster.HitTintFrames > 0 {
-		f := float32(s.monster.HitTintFrames) / float32(MonsterHitFlashFrames)
-		if f > 1 {
-			f = 1
-		}
-		rr = br + (1.7-br)*f
-		gg = br * (1 - 0.75*f)
-		bb = br * (1 - 0.75*f)
-	}
-	// Elite/variant tint: a persistent colour cast distinguishes a champion from
-	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
-	// both standee and billboard paths below), so it reads at a glance - no new art.
-	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
-		rr *= s.monster.TintR
-		gg *= s.monster.TintG
-		bb *= s.monster.TintB
-	}
-
-	// Standee mode: the monster is a wooden token whose face turns with its
-	// travel direction (yaw = Direction + 90deg puts the slab across it). The
-	// displayed yaw eases toward the heading at the configured turn speed so
-	// the token swivels instead of snapping.
 	if r.game.config.Graphics.Standee.Enabled {
 		m := s.monster
 		target := m.Direction + math.Pi/2
@@ -4192,7 +4100,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// (|dDot| small) so it can't flicker mid-charge.
 		sprite, artFacesLeft := s.sprite, s.monsterArtFacesLeft
 		if sprite == nil {
-			return
+			return monsterPickHit{}, false
 		}
 		if mirror, decisive := standeeMirrorFor(r.game.camera.Angle, m.StandeeYaw, m.Direction, artFacesLeft); decisive {
 			m.StandeeMirror = mirror
@@ -4216,44 +4124,68 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 			entY += math.Sin(m.StandeeYaw) * off
 		}
 
-		// Monster animation frames are load-time images with identical bounds;
-		// the pointer (stable for them) is what tells frames apart in the cache.
-		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", m.Key), sprite, true)
-		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
-			s.depthPerp, s.sizeF, screenYF+s.sizeF, rr, gg, bb, false, m.StandeeMirror, 0) {
-			r.drawMonsterStatusFX(screen, s, screenY)
-			return
-		}
+		return r.makeMonsterPick(s, entX, entY, m.StandeeYaw, drawLeftF, screenYF, true), true
 	}
+	return r.makeMonsterPick(s, renderX, renderY, 0, drawLeftF, screenYF, false), true
+}
 
-	// DEPRECATED: flat camera-facing billboard, superseded by the standee token
-	// above (graphics.standee.enabled=true is the shipped default). Kept only as
-	// the fallback when standee is turned off; not a maintained visual target -
-	// new per-monster overlays belong in drawMonsterStatusFX, called from BOTH
-	// paths, not appended here alone.
-	billboardSprite, billboardFlip := s.sprite, s.monsterFlip
-	if r.game.config.Graphics.Standee.Enabled {
-		// Resolve the billboard-specific directional sheet only when standee
-		// geometry genuinely rejected the token and this fallback will draw.
-		billboardSprite, billboardFlip = r.getMonsterSprite(s.monster)
-	}
-	if billboardSprite == nil {
+func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	if s.monsterPickIndex < 0 || s.monsterPickIndex >= len(r.monsterPick.hits) {
 		return
 	}
-	scaleX := s.sizeF / float64(billboardSprite.Bounds().Dx())
-	scaleY := s.sizeF / float64(billboardSprite.Bounds().Dy())
-	if billboardFlip {
-		opts := r.scaledWorldSpriteOpts(-scaleX, scaleY)
-		opts.GeoM.Translate(drawLeftF+s.sizeF, screenYF)
-		opts.ColorScale.Scale(rr, gg, bb, 1.0)
-		opts.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(billboardSprite, opts)
+	h := r.monsterPick.hits[s.monsterPickIndex]
+	r.stampActorDepth(s)
+	renderX, renderY := s.monsterRenderX, s.monsterRenderY
+	drawLeftF, screenYF := h.left, h.top
+	screenY := int(screenYF)
+	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
+	brightness := r.calculateBrightnessWithTorchLight(renderX, renderY, distance)
+	br := float32(brightness)
+	rr, gg, bb := br, br, br
+	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
+	// over MonsterHitFlashFrames so the impact reads clearly.
+	if s.monster != nil && s.monster.HitTintFrames > 0 {
+		f := float32(s.monster.HitTintFrames) / float32(MonsterHitFlashFrames)
+		if f > 1 {
+			f = 1
+		}
+		rr = br + (1.7-br)*f
+		gg = br * (1 - 0.75*f)
+		bb = br * (1 - 0.75*f)
+	}
+	// Elite/variant tint: a persistent colour cast distinguishes a champion from
+	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
+	// both standee and billboard paths below), so it reads at a glance - no new art.
+	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
+		rr *= s.monster.TintR
+		gg *= s.monster.TintG
+		bb *= s.monster.TintB
+	}
+
+	if s.monster == r.hoveredMonster {
+		rr *= standeeHoverBoost
+		gg *= standeeHoverBoost
+		bb *= standeeHoverBoost
+	}
+
+	if h.standee {
+		m := s.monster
+		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", m.Key), h.sprite, true)
+		r.drawStandeeSprite(screen, h.sprite, key, h.p0x+h.dx/2, h.p0y+h.dy/2, m.StandeeYaw,
+			s.depthPerp, s.sizeF, s.bottomF, rr, gg, bb, false, h.flipped, 0)
 	} else {
+		scaleX := s.sizeF / float64(h.sprite.Bounds().Dx())
+		scaleY := s.sizeF / float64(h.sprite.Bounds().Dy())
+		left := drawLeftF
+		if h.flipped {
+			scaleX = -scaleX
+			left += s.sizeF
+		}
 		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-		opts.GeoM.Translate(drawLeftF, screenYF)
-		opts.ColorScale.Scale(rr, gg, bb, 1.0)
+		opts.GeoM.Translate(left, screenYF)
+		opts.ColorScale.Scale(rr, gg, bb, 1)
 		opts.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(billboardSprite, opts)
+		screen.DrawImage(h.sprite, opts)
 	}
 	r.drawMonsterStatusFX(screen, s, screenY)
 }

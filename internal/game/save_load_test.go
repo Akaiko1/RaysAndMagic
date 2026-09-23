@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -1268,8 +1269,9 @@ func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
 	g.camera.Angle = 0
 	g.viewAngleRender = 0
 	g.viewTurnFramesLeft = 3
+	g.turnBasedMode = true
 
-	restore := g.beginViewAngleSwap()
+	restore := g.beginRenderCameraSwap(time.Now())
 	if err := g.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
@@ -1284,13 +1286,14 @@ func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
 }
 
 // Without a mid-draw camera write the swap still restores the logical angle.
-func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
+func TestBeginRenderCameraSwap_RestoresLogicalTurnAngle(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 	g.camera.Angle = 1.0
 	g.viewAngleRender = 0.5 // mid-glide display angle
+	g.turnBasedMode = true
 
-	restore := g.beginViewAngleSwap()
+	restore := g.beginRenderCameraSwap(time.Now())
 	if g.camera.Angle != 0.5 {
 		t.Fatalf("draw must render at the display angle, got %v", g.camera.Angle)
 	}

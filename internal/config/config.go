@@ -468,7 +468,7 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
-	Tactics      TacticalSkillsConfig  `yaml:"tactics"`
+	AutoDrink    AutoDrinkConfig       `yaml:"auto_drink"`
 	StartingGold int                   `yaml:"starting_gold"`
 	StartingFood int                   `yaml:"starting_food"`
 	HitPoints    HitPointsConfig       `yaml:"hit_points"`
@@ -1031,7 +1031,7 @@ type TileData struct {
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Objects without a group or floor_color inherit the
 	// dominant neighbouring floor; floor-only tiles fall back to the map base.
-	// The "beach" group is picked dynamically for empty tiles bordering water.
+	// The optional "beach" group is layered over default ground near water.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	// InheritFloor forces a floor marker (spawn point, teleporter) to take
 	// the surrounding biome floor even when it has a floor_color. Regular
@@ -1217,6 +1217,8 @@ type BiomeConfig struct {
 	CampScene             string              `yaml:"camp_scene,omitempty"`
 	ElementalAttackSchool string              `yaml:"elemental_attack_school"`
 	FloorTextureGroups    map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	// Unlisted groups keep hard edges. Cliff profiles name the drop side.
+	FloorTransitions map[string]FloorTransition `yaml:"floor_transitions,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
 	// this biome (the off-map backdrop wall). Empty -> the global "seaview"
 	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
@@ -1268,7 +1270,8 @@ type MapConfigs struct {
 	// SharedFloorTextureGroups are floor-texture groups every biome gets for
 	// free, for universal tiles (water) that can appear on any map. A biome
 	// listing the same group name overrides the shared one.
-	SharedFloorTextureGroups map[string][]string `yaml:"shared_floor_texture_groups,omitempty"`
+	SharedFloorTextureGroups map[string][]string        `yaml:"shared_floor_texture_groups,omitempty"`
+	SharedFloorTransitions   map[string]FloorTransition `yaml:"shared_floor_transitions,omitempty"`
 }
 
 // WeaponSystemConfig contains the complete weapon system configuration
@@ -1605,7 +1608,7 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	// Set global config for easy access
-	if err := config.Characters.Tactics.Validate(); err != nil {
+	if err := config.Characters.AutoDrink.Validate(); err != nil {
 		return nil, err
 	}
 	GlobalConfig = &config

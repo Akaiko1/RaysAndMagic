@@ -360,7 +360,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				axisDist = adY
 			}
 			hasLOS := gl.game.collisionSystem == nil ||
-				gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+				gl.game.combat.attackLineClear(m.X, m.Y, playerX, playerY)
 			if aligned && axisDist >= 1 && axisDist <= rangeTiles && hasLOS {
 				if gl.game.tryClaimMonsterAttackPost(m) {
 					m.State = monster.StateAttacking
@@ -602,7 +602,7 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if requireLOS && !gl.game.collisionSystem.CheckLineOfSight(wx, wy, targetX, targetY) {
+		if requireLOS && !gl.game.combat.attackLineClear(wx, wy, targetX, targetY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
@@ -695,7 +695,7 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if !gl.game.collisionSystem.CheckLineOfSight(wx, wy, playerX, playerY) {
+		if !gl.game.combat.attackLineClear(wx, wy, playerX, playerY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})

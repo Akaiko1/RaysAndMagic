@@ -66,8 +66,6 @@ func (c *AsyncImageCache) evictOldest(except string) bool {
 		return false
 	}
 	c.manager.EvictResource(name, "")
-	// This owner does not need gameplay hit masks after eviction.
-	delete(c.manager.alphaMasks, name)
 	delete(c.manager.visibleFrameBounds, name)
 	c.bytes -= oldest.bytes
 	delete(c.entries, name)

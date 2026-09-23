@@ -206,7 +206,7 @@ func TestPhysicalInventoryGesturesPreserveDoubleClick(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			h := newDisplayedModalHarness(t, 1024, 768)
 			// Isolate manual gestures from the separately tested automatic drinking policy.
-			h.g.config.Characters.Tactics.AutoDrinkThresholdPct = 0
+			h.g.config.Characters.AutoDrink.ThresholdPct = 0
 			h.g.menuOpen, h.g.currentTab = true, TabInventory
 			potion := items.CreateItemFromYAML("health_potion")
 			potion.Quantity, potion.InstanceID = 3, 700

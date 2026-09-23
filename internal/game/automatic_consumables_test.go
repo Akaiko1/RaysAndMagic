@@ -241,3 +241,50 @@ func TestAutomaticConsumableRealTimeInterval(t *testing.T) {
 		t.Fatal("automatic drinking did not resume after interval")
 	}
 }
+
+func TestAutomaticDrinkingAvailableToEveryClass(t *testing.T) {
+	for _, class := range character.PlayableClasses {
+		for _, tb := range []bool{false, true} {
+			for _, mana := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/TB=%v/mana=%v", class.Key(), tb, mana), func(t *testing.T) {
+					g, _, _, _ := sniperFixture(t, tb)
+					ch := character.CreateCharacter("Drinker", class, g.config)
+					g.party.Members = []*character.MMCharacter{ch}
+					ch.MaxHitPoints, ch.MaxSpellPoints = 1000, 1000
+					ch.HitPoints, ch.SpellPoints = 1000, 1000
+					key, baseKey, divisorKey := "health_potion", "heal_base", "heal_endurance_divisor"
+					if mana {
+						key, baseKey, divisorKey = "mana_potion", "mana_base", "mana_personality_divisor"
+						ch.SpellPoints = 1
+					} else {
+						ch.HitPoints = 1
+					}
+					potion := items.CreateItemFromYAML(key)
+					potion.Quantity = 2
+					g.party.Inventory = []items.Item{potion}
+					bonus := 0
+					if ch.HasSkill(character.SkillFieldMedicine) {
+						bonus = character.FieldMedicineRestorePct(ch.SkillTier(character.SkillFieldMedicine))
+					}
+					stat := ch.GetEffectiveEndurance()
+					if mana {
+						stat = ch.GetEffectivePersonality()
+					}
+					base := potion.Attributes[baseKey]
+					if divisor := potion.Attributes[divisorKey]; divisor > 0 {
+						base += stat / divisor
+					}
+					want := 1 + base*(100+bonus)/100
+					g.updateAutomaticConsumables()
+					got := ch.HitPoints
+					if mana {
+						got = ch.SpellPoints
+					}
+					if got != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 1 || ch.AutoDrinkCooldown <= 0 {
+						t.Fatalf("automatic drinking: got=%d want=%d, inventory=%v", got, want, g.party.Inventory)
+					}
+				})
+			}
+		}
+	}
+}

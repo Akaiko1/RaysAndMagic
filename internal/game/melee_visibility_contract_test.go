@@ -11,15 +11,21 @@ import (
 
 func TestMeleeDeliveryVisibility(t *testing.T) {
 	for _, entry := range []string{"party", "monster_party", "monster_crossfire", "champion_party", "champion_crossfire"} {
-		for _, blocked := range []bool{false, true} {
+		for _, obstacle := range []string{"clear", "middle", "source", "target"} {
+			blocked := obstacle != "clear"
 			for _, tb := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/blocked_%v/TB_%v", entry, blocked, tb), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/%s/TB_%v", entry, obstacle, tb), func(t *testing.T) {
 					g, ts := summonTileWorld(t)
 					g.turnBasedMode = tb
 					placePlayerAtTile(g, 5, 5, ts)
 					g.camera.Angle = 0
-					if blocked {
+					switch obstacle {
+					case "middle":
 						g.world.Tiles[5][6] = world.TileWall
+					case "source":
+						g.world.Tiles[5][7] = world.TileWall
+					case "target":
+						g.world.Tiles[5][5] = world.TileWall
 					}
 					m := monsterPkg.NewMonster3DFromConfig(7.5*ts, 5.5*ts, "dragon_green", g.config)
 					m.DamageMin, m.DamageMax = 100, 100

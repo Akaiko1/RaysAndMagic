@@ -24,17 +24,34 @@ func (g *MMGame) cameraPose() cameraPose {
 }
 func (g *MMGame) resetCameraPresentation() {
 	g.cameraPresentation = cameraPresentation{epoch: g.cameraPresentation.epoch + 1}
+	// A discontinuous view change cannot transfer a press or held target to
+	// the replacement scene. Ordinary movement preserves the displayed pose.
+	if gl := g.gameLoop; gl != nil {
+		gl.ui.dropQueuedClicks()
+		if gl.inputHandler != nil {
+			gl.inputHandler.cancelMouseAttack()
+		}
+	}
 }
 func (g *MMGame) cameraInterpolationAllowed() bool {
-	return g.camera != nil && g.config != nil && g.appScreen == AppScreenInGame && !g.turnBasedMode && !g.gameplayPausedByOverlay() &&
+	return !g.turnBasedMode && g.cameraPresentationAllowed()
+}
+func (g *MMGame) cameraPresentationAllowed() bool {
+	return g.camera != nil && g.config != nil && g.appScreen == AppScreenInGame && !g.gameplayPausedByOverlay() &&
 		(g.gameLoop == nil || g.gameLoop.loading == nil || !g.gameLoop.loading.awaitingFrame)
 }
 func (g *MMGame) finishCameraTick(before cameraPose, epoch uint64, started time.Time) {
-	if epoch != g.cameraPresentation.epoch || !g.cameraInterpolationAllowed() {
+	if epoch != g.cameraPresentation.epoch || !g.cameraPresentationAllowed() {
 		g.resetCameraPresentation()
 		return
 	}
 	p := &g.cameraPresentation
+	if g.turnBasedMode {
+		// TB eases its turn separately, but picking still needs the last Draw's
+		// pose across any number of Updates before the next frame is presented.
+		p.valid, p.historyValid = false, false
+		return
+	}
 	step := time.Second / time.Duration(g.config.GetTPS())
 	// Early and catch-up Updates share a fixed timeline rather than restarting
 	// interpolation at wall-clock time. Re-anchor after a substantial stall.
@@ -82,11 +99,10 @@ func (g *MMGame) swapCameraPose(pose cameraPose) func() {
 	}
 }
 func (g *MMGame) beginRenderCameraSwap(now time.Time) func() {
-	if g.turnBasedMode {
-		g.cameraPresentation.presentedValid = false
-		return g.beginViewAngleSwap()
-	}
 	pose := g.renderCameraPose(now)
+	if g.turnBasedMode {
+		pose.angle = g.viewAngleRender
+	}
 	g.cameraPresentation.presented, g.cameraPresentation.presentedValid = pose, true
 	return g.swapCameraPose(pose)
 }
@@ -95,7 +111,7 @@ func (g *MMGame) beginRenderCameraSwap(now time.Time) func() {
 // interaction range remains a gameplay decision at the logical position.
 func (g *MMGame) beginPresentedCameraSwap() func() {
 	p := &g.cameraPresentation
-	if !p.presentedValid || p.active || !g.cameraInterpolationAllowed() {
+	if !p.presentedValid || p.active || !g.cameraPresentationAllowed() {
 		return func() {}
 	}
 	return g.swapCameraPose(p.presented)

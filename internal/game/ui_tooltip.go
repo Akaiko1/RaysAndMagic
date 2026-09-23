@@ -21,14 +21,16 @@ func tooltipDetailHeld() bool {
 }
 
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+	alreadyEquipped := false
+	activeSet := false
 	// A bag/shop item's own card uses the same post-equip context as the
 	// comparison. Equipped items retain their actual slot (especially rings).
 	if char != nil && combatSystem != nil && combatSystem.game != nil &&
 		(item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory) {
-		alreadyEquipped := false
 		for _, equipped := range char.Equipment {
 			if item.InstanceID != 0 && equipped.InstanceID == item.InstanceID {
 				alreadyEquipped = true
+				activeSet = item.Set != "" && char.HasCompletedEquipmentSet(item.Set)
 				break
 			}
 		}
@@ -63,6 +65,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
 	}
 
+	if activeSet {
+		core = highlightActiveSetLines(core, item.Set)
+	}
 	var tail []string
 	if val, ok := item.Attributes["value"]; ok && val > 0 {
 		tail = append(tail, fmt.Sprintf("Value: %d gold", val))

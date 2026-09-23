@@ -65,6 +65,7 @@ approval in System Settings -> Privacy & Security before launch.
 | Q / E | Strafe |
 | R | Weapon attack |
 | Space | Smart attack / confirm |
+| Left click / hold on a monster | Aim smart attack / repeat while held on that monster |
 | F | Cast selected spell |
 | C or H | Quick heal |
 | 1-4 | Select party member |
@@ -75,6 +76,28 @@ approval in System Settings -> Privacy & Security before launch.
 | J | Quest log |
 | T | Interact with nearby NPC |
 | Esc | Menu / close dialogs |
+
+Mouse smart attack uses the same healing, spell, and weapon priorities and
+cooldowns as Space, without turning the view. Holding repeats after a short
+delay. Release, leaving the target, losing it behind a wall, or opening a menu
+ends the hold; press again to acquire a target. Friendly party-controlled
+creatures and transparent sprite margins are not attack targets. The monster
+under the pointer brightens to show which target the click will select.
+Background doors and NPCs do not intercept a foreground monster's click.
+Explicit mouse aim keeps the selected direction through melee resolution and
+projectile flight; the usual weapon arcs, splash and physical interception apply.
+Clicks use the last displayed view in both combat modes. An unmatched click
+expires in the same input update; turning or moving cannot give it a new target.
+
+Equipped item tooltips mark completed set bonuses in green with `[ACTIVE]`.
+Loose items show the set requirements without claiming that the bonus is active.
+Overwatch also reacts to enemy attacks against the party, at half its movement
+reaction chance. Ballistics adds 2/4/6/8 percentage points of bow/blaster critical
+chance from novice through grandmaster; these values share
+`internal/character/catalog.go` with other skill effects.
+Automatic potion use applies to every class and is configured separately under
+`characters.auto_drink` (`threshold_pct`, `interval_seconds`). Field Medicine
+increases recovery from both manual and automatic drinking; it does not enable it.
 
 ## Add content
 
@@ -90,7 +113,7 @@ YAML behaviors; a new behavior still needs runtime support.
 | Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
 | NPCs and services | `assets/npcs.yaml` | [NPCs](how_to_add_a_new_npc.md) |
 | Quests | `assets/quests.yaml` | [Quests](docs/adding-quests.md) |
-| Terrain and props | `assets/tiles.yaml`, `assets/special_tiles.yaml` | [Tiles](how_to_add_a_new_tile.md) |
+| Terrain and props | `assets/tiles.yaml`, `assets/special_tiles.yaml` | [Tiles](how_to_add_a_new_tile.md), [Floor transitions](docs/floor-transitions.md) |
 | Maps and connections | `assets/*.map`, `assets/map_configs.yaml`, `assets/open_world.yaml` | [Maps](docs/adding-maps.md) |
 
 Use the [map editor](assets/map_viewer/README.md) to place content and inspect
