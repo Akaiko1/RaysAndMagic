@@ -95,7 +95,7 @@ func (p *MobPreview) Select(key string) {
 	// Keep the original close framing; constrain the stage, not the camera.
 	stageX := g.camera.X + (1.1+0.35*def.GetSizeGameMultiplier())*ts
 	patrolX := p.boundPatrolStage(stageX)
-	if def.Disposition == "caravan" {
+	if def.Disposition == monster.DispositionCaravan {
 		x := int(patrolX / ts)
 		g.editorPreview.caravanRoute = &config.CaravanRoute{ID: mobStageMapKey, Points: []config.RoutePoint{
 			{Map: mobStageMapKey, X: x, Y: 7},

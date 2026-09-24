@@ -169,14 +169,14 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 			if err := monster.Arboreal.validate(); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
 			}
-			if monster.Disposition != "wildlife" || monster.Flying || len(monster.WalkableTileOverrides) != 0 || len(monster.Prey) != 0 {
+			if monster.Disposition != DispositionWildlife || monster.Flying || len(monster.WalkableTileOverrides) != 0 || len(monster.Prey) != 0 {
 				conflicts = append(conflicts, fmt.Sprintf("monster %q: arboreal movement requires ground wildlife without prey or terrain overrides", key))
 			}
 		}
-		if monster.Disposition != "" && monster.Disposition != "wildlife" && monster.Disposition != "caravan" && monster.Disposition != DispositionFish {
+		if monster.Disposition != "" && monster.Disposition != DispositionWildlife && monster.Disposition != DispositionCaravan && monster.Disposition != DispositionFish {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid disposition", key))
 		}
-		if len(monster.Prey) > 0 && (monster.Disposition != "wildlife" || monster.PreyRadius <= 0) {
+		if len(monster.Prey) > 0 && (monster.Disposition != DispositionWildlife || monster.PreyRadius <= 0) {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid prey rules", key))
 		}
 		for _, prey := range monster.Prey {

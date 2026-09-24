@@ -20,9 +20,11 @@ caravan:
   unlock_quest: toll_of_blades
   merchant: nomad_city_safiya
   stop_seconds: 15
+  attack_alert_cooldown_seconds: 20
   reward_units: 3
   stock_slots: 12
-  # Equal route weights: three bypasses, two hostile-cluster crossings.
+  # Equal route weights: three desert bypasses, two desert hostile crossings.
+  # Retired Forest detours keep their indices for old saves; skip them in both directions.
   # Different-map consecutive points are paired map entrance anchors.
   routes:
     - id: oasis_north
@@ -36,7 +38,7 @@ caravan:
         - {map: desert, x: 7, y: 19}
         - {map: desert, x: 1, y: 19}
         - {map: forest, x: 48, y: 15}
-        - {map: forest, x: 46, y: 12}
+        - {map: forest, x: 46, y: 12, skip: true}
         - {map: forest, x: 46, y: 7}
         - {map: city, x: 14, y: 21}
         - {map: city, x: 14, y: 18}
@@ -51,9 +53,9 @@ caravan:
         - {map: desert, x: 7, y: 19}
         - {map: desert, x: 1, y: 19}
         - {map: forest, x: 48, y: 15}
-        - {map: forest, x: 43, y: 14}
-        - {map: forest, x: 44, y: 10}
-        - {map: forest, x: 44, y: 7}
+        - {map: forest, x: 43, y: 14, skip: true}
+        - {map: forest, x: 44, y: 10, skip: true}
+        - {map: forest, x: 44, y: 7, skip: true}
         - {map: forest, x: 46, y: 7}
         - {map: city, x: 14, y: 21}
         - {map: city, x: 14, y: 18}
@@ -69,9 +71,9 @@ caravan:
         - {map: desert, x: 7, y: 19}
         - {map: desert, x: 1, y: 19}
         - {map: forest, x: 48, y: 15}
-        - {map: forest, x: 43, y: 17}
-        - {map: forest, x: 40, y: 12}
-        - {map: forest, x: 42, y: 7}
+        - {map: forest, x: 43, y: 17, skip: true}
+        - {map: forest, x: 40, y: 12, skip: true}
+        - {map: forest, x: 42, y: 7, skip: true}
         - {map: forest, x: 46, y: 7}
         - {map: city, x: 14, y: 21}
         - {map: city, x: 14, y: 18}
@@ -87,12 +89,12 @@ caravan:
         - {map: desert, x: 6, y: 19}
         - {map: desert, x: 1, y: 19}
         - {map: forest, x: 48, y: 15}
-        - {map: forest, x: 39, y: 14}
-        - {map: forest, x: 29, y: 14}
-        - {map: forest, x: 18, y: 14}
-        - {map: forest, x: 18, y: 8}
-        - {map: forest, x: 29, y: 7}
-        - {map: forest, x: 41, y: 7}
+        - {map: forest, x: 39, y: 14, skip: true}
+        - {map: forest, x: 29, y: 14, skip: true}
+        - {map: forest, x: 18, y: 14, skip: true}
+        - {map: forest, x: 18, y: 8, skip: true}
+        - {map: forest, x: 29, y: 7, skip: true}
+        - {map: forest, x: 41, y: 7, skip: true}
         - {map: forest, x: 46, y: 7}
         - {map: city, x: 14, y: 21}
         - {map: city, x: 14, y: 18}
@@ -110,11 +112,11 @@ caravan:
         - {map: desert, x: 7, y: 19}
         - {map: desert, x: 1, y: 19}
         - {map: forest, x: 48, y: 15}
-        - {map: forest, x: 42, y: 22}
-        - {map: forest, x: 34, y: 24}
-        - {map: forest, x: 29, y: 24}
-        - {map: forest, x: 29, y: 13}
-        - {map: forest, x: 40, y: 12}
+        - {map: forest, x: 42, y: 22, skip: true}
+        - {map: forest, x: 34, y: 24, skip: true}
+        - {map: forest, x: 29, y: 24, skip: true}
+        - {map: forest, x: 29, y: 13, skip: true}
+        - {map: forest, x: 40, y: 12, skip: true}
         - {map: forest, x: 46, y: 7}
         - {map: city, x: 14, y: 21}
         - {map: city, x: 14, y: 18}

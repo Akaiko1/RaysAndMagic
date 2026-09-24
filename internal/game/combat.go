@@ -351,7 +351,7 @@ func isPurePartySummon(m *monsterPkg.Monster3D) bool {
 // effects such as movement bursts and ricochets. They may choose enemies only,
 // never a bound summon or a pacified monster whose Charm they would break.
 func isExcludedFromPartyAutoTarget(m *monsterPkg.Monster3D) bool {
-	return m == nil || m.IsPartyControlled() || m.Disposition == "caravan"
+	return m == nil || m.IsPartyControlled() || m.IsCaravan()
 }
 
 // crumbleBoundAlliesOnDeparture removes the party's bound allies from the world
@@ -2734,6 +2734,8 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 	if owner == ProjectileOwnerMonster {
 		cs.recordMonsterPartyAttack(monster)
+	} else {
+		cs.recordMonsterActorAttack(monster)
 	}
 
 	tileSize := cs.game.config.GetTileSize()
@@ -2753,6 +2755,8 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	}
 	if owner == ProjectileOwnerMonster {
 		cs.recordMonsterPartyAttack(monster)
+	} else {
+		cs.recordMonsterActorAttack(monster)
 	}
 
 	tileSize := cs.game.config.GetTileSize()
@@ -2950,8 +2954,8 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		}
 	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-	if m.Disposition == "caravan" && cs.game.ecology.ActorID == m.ID && cs.game.ecology.RespawnDay == 0 {
-		cs.game.ecology.RespawnDay = cs.game.currentCalendarDay() + 1
+	if m.IsCaravan() {
+		cs.game.recordCaravanLoss(m.ID)
 	}
 	cs.game.beginMonsterDeath(m)
 	if !isPurePartySummon(m) {
@@ -3021,7 +3025,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	// A pure party summon was never an enemy: its death credits the party
 	// with nothing (no XP, gold, or loot). THE single gate for that rule, so
 	// every death path (melee, projectile, splash) honours it automatically.
-	if isPurePartySummon(monster) || monster.NoKillRewards || monster.Disposition == "caravan" {
+	if isPurePartySummon(monster) || monster.NoKillRewards || monster.IsCaravan() {
 		return 0
 	}
 
@@ -3403,8 +3407,8 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 
 // applyStun stuns a single monster for `seconds` real-time and `turns` turn-based
 // turns, under diminishing returns (see applyStunDR).
-func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
-	cs.applyStunDR(m, turns, seconds*cs.game.config.GetTPS(), true)
+func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int, announce bool) {
+	cs.applyStunDR(m, turns, seconds*cs.game.config.GetTPS(), announce)
 }
 
 // applyMonsterRoot is the one entry point for roots from traps and weapon
@@ -3550,7 +3554,7 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 // Fish are party-only catches, including when an allied shot passes through.
 func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3D) bool {
 	return cs != nil && candidate != nil && candidate.IsAlive() &&
-		!candidate.IsPartyControlled() && !candidate.IsFish() && candidate.Disposition != "caravan" &&
+		!candidate.IsPartyControlled() && !candidate.IsFish() && !candidate.IsCaravan() &&
 		!candidate.IsDamageInvulnerable() &&
 		!candidate.IsPassiveUntilProvoked() &&
 		!cs.bossEvasive(candidate)
@@ -3714,6 +3718,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	if !target.IsAlive() {
 		return false // already slain this frame - no double damage/reward
 	}
+	cs.game.notifyCaravanAttack(target)
 	if canDodge && monsterPerfectDodges(target, ignoreDodge) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
@@ -3723,13 +3728,13 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, attacker.Name, actual))
+			cs.game.addActorCombatMessage(attacker, target, "%s dodges, but %s lands %d true damage!", target.Name, attacker.Name, actual)
 			if !target.IsAlive() {
-				cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
+				cs.game.addActorCombatMessage(attacker, target, "%s slays %s!", attacker.Name, target.Name)
 				cs.finishActorKill(attacker, target)
 			}
 		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", target.Name, attacker.Name))
+			cs.game.addActorCombatMessage(attacker, target, "%s dodges %s's attack!", target.Name, attacker.Name)
 		}
 		return false
 	}
@@ -3746,11 +3751,11 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	if attacker.Bound {
 		verb = "(bound) strikes"
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, actual))
+	cs.game.addActorCombatMessage(attacker, target, "%s %s %s for %d!", attacker.Name, verb, target.Name, actual)
 	if target.IsAlive() {
 		return actual > 0
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
+	cs.game.addActorCombatMessage(attacker, target, "%s slays %s!", attacker.Name, target.Name)
 	cs.finishActorKill(attacker, target)
 	return actual > 0
 }

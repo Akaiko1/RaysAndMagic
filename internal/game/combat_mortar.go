@@ -155,6 +155,6 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 			continue
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s crushes %s for %d damage.", name, target.Name, actual))
-		cs.applyStun(target, m.StunSeconds, m.StunTurns)
+		cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
 	}
 }

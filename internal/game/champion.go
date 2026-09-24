@@ -904,7 +904,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	if err != nil {
 		return
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s!", m.Name, def.Name))
+	cs.game.addActorCombatMessage(m, target.foe, "%s casts %s!", m.Name, def.Name)
 	if def.IncomingDamageReduction > 0 || def.StunRadiusTiles > 0 {
 		// Projectile casts play at projectile creation. Direct champion spells
 		// have no projectile, so their school cue belongs at the cast itself.
@@ -939,7 +939,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 				opposing = cs.boundAllyCanDamageMonster(foe)
 			}
 			if opposing && Distance(m.X, m.Y, foe.X, foe.Y) <= radius {
-				cs.applyStunDR(foe, def.StunDurationTurns, frames, true)
+				cs.applyStun(foe, def.StunDurationSeconds, def.StunDurationTurns, true)
 			}
 		}
 		if m.IsPartyControlled() {

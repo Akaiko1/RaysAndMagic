@@ -51,14 +51,14 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 		}
 	}
 	for _, p := range c.Populations {
-		if err := checkActor(p.Monster, "wildlife"); err != nil {
+		if err := checkActor(p.Monster, monster.DispositionWildlife); err != nil {
 			return err
 		}
 		if ecologyWorld(p.Map) == nil {
 			return fmt.Errorf("ecology population map %q is missing", p.Map)
 		}
 	}
-	if err := checkActor(c.Caravan.Monster, "caravan"); err != nil {
+	if err := checkActor(c.Caravan.Monster, monster.DispositionCaravan); err != nil {
 		return err
 	}
 	if character.NPCConfigInstance == nil || character.NPCConfigInstance.NPCs[c.Caravan.Merchant] == nil {
@@ -73,6 +73,9 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 			return fmt.Errorf("caravan route %q must share the home anchor", r.ID)
 		}
 		for _, p := range r.Points {
+			if p.Skip {
+				continue
+			}
 			w, x, y := ecologyPoint(p, float64(cfg.GetTileSize()))
 			if w == nil || w.IsTileBlockingForMonster(int(x/float64(cfg.GetTileSize())), int(y/float64(cfg.GetTileSize())), nil, false) {
 				return fmt.Errorf("caravan route %q has blocked/missing anchor %+v", r.ID, p)

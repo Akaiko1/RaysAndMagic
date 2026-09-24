@@ -141,6 +141,8 @@ func TestEcologyRelationshipsAndKillCredit(t *testing.T) {
 }
 func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	g, _, tile := ecologyTestGame(t)
+	// This fixture tests delivery, not a random rabbit occupying the spawn tile.
+	config.GlobalEcology.Populations = nil
 	g.ecology.Unlocked = true
 	g.updateEcology()
 	_, m := g.ecologyActor()
@@ -196,6 +198,7 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 }
 func TestCaravanDeathRespawnAndSave(t *testing.T) {
 	g, wm, _ := ecologyTestGame(t)
+	config.GlobalEcology.Populations = nil
 	g.ecology.Unlocked = true
 	g.updateEcology()
 	_, m := g.ecologyActor()

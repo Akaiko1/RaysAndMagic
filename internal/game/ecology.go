@@ -186,7 +186,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	m.AIFoe = nil
 	m.AmbientFlee = false
 	g.setWildlifeBounds(m)
-	if m.Disposition == "caravan" {
+	if m.IsCaravan() {
 		g.setCaravanTarget(m)
 		return true
 	}
@@ -248,7 +248,7 @@ func (g *MMGame) caravanFoe(m *monster.Monster3D) *monster.Monster3D {
 	return other
 }
 func (cs *CombatSystem) finishActorKill(attacker, target *monster.Monster3D) {
-	if attacker != nil && attacker.Disposition == "wildlife" && !attacker.IsPartyControlled() {
+	if attacker != nil && attacker.IsWildlife() && !attacker.IsPartyControlled() {
 		target.NoKillRewards = true
 	}
 	cs.finishMonsterKillImmediately(target)
@@ -279,6 +279,7 @@ func (g *MMGame) chooseCaravanRoute() {
 func (g *MMGame) setCaravanTarget(m *monster.Monster3D) {
 	m.AITargetX, m.AITargetY = m.X, m.Y
 	r := g.caravanRoute()
+	g.normalizeCaravanCheckpoint(r)
 	if r == nil || g.ecology.StopFrames > 0 || g.ecology.Checkpoint < 0 || g.ecology.Checkpoint >= len(r.Points) {
 		return
 	}
@@ -287,6 +288,27 @@ func (g *MMGame) setCaravanTarget(m *monster.Monster3D) {
 		return
 	} // wait at the exit if the paired entrance is occupied
 	m.AITargetX, m.AITargetY = x, y
+}
+
+// Skipped anchors remain in content so both old and new saves keep the same
+// checkpoint indices. Resume directly toward the next active anchor, including
+// when a loaded caravan was partway through a retired detour.
+func (g *MMGame) normalizeCaravanCheckpoint(r *config.CaravanRoute) {
+	if r == nil || len(r.Points) == 0 {
+		return
+	}
+	g.ecology.Checkpoint = max(0, min(g.ecology.Checkpoint, len(r.Points)-1))
+	step := 1
+	if g.ecology.Returning {
+		step = -1
+	}
+	for r.Points[g.ecology.Checkpoint].Skip {
+		next := g.ecology.Checkpoint + step
+		if next < 0 || next >= len(r.Points) {
+			return
+		}
+		g.ecology.Checkpoint = next
+	}
 }
 func (g *MMGame) spawnCaravan() {
 	g.chooseCaravanRoute()
@@ -333,9 +355,7 @@ func (g *MMGame) updateEcology() {
 	}
 	w, m := g.ecologyActor()
 	if m == nil || !m.IsAlive() {
-		if g.ecology.ActorID != "" && g.ecology.RespawnDay == 0 {
-			g.ecology.RespawnDay = g.currentCalendarDay() + 1
-		}
+		g.recordCaravanLoss(g.ecology.ActorID)
 		if g.ecology.RespawnDay == 0 || g.currentCalendarDay() >= g.ecology.RespawnDay {
 			g.spawnCaravan()
 		}
@@ -353,7 +373,7 @@ func (g *MMGame) updateEcology() {
 		return
 	}
 	tile := float64(g.config.GetTileSize())
-	g.ecology.Checkpoint = max(0, min(g.ecology.Checkpoint, len(r.Points)-1))
+	g.normalizeCaravanCheckpoint(r)
 	point := r.Points[g.ecology.Checkpoint]
 	next, x, y := ecologyPoint(point, tile)
 	if next != w {
@@ -478,7 +498,7 @@ func (g *MMGame) caravanStatusText() string {
 }
 
 func (g *MMGame) setWildlifeBounds(m *monster.Monster3D) {
-	if m.Disposition != "wildlife" || config.GlobalEcology == nil {
+	if !m.IsWildlife() || config.GlobalEcology == nil {
 		return
 	}
 	for _, p := range config.GlobalEcology.Populations {

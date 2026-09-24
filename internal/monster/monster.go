@@ -116,14 +116,14 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.BossEvasive {
 		return AIBehaviorEvasive
 	}
-	if m.Disposition == "caravan" || (m.Disposition == "wildlife" && (m.AmbientFlee || m.AIFoe == nil)) {
+	if m.IsCaravan() || (m.IsWildlife() && (m.AmbientFlee || m.AIFoe == nil)) {
 		return AIBehaviorAmbient
 	}
 	if m.AIFoe != nil {
 		// A stale crossfire target must not wake a passive creature. Normal
 		// selection clears it too, but keeping the policy here makes every AI
 		// consumer obey the same passive-until-hit contract.
-		if m.IsPassiveUntilProvoked() && m.AIFoe.Disposition != "caravan" {
+		if m.IsPassiveUntilProvoked() && !m.AIFoe.IsCaravan() {
 			return AIBehaviorPassive
 		}
 		return AIBehaviorFightFoe
@@ -729,6 +729,11 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 
 	// Mark as attacked - prevents AI from disengaging due to distance
 	m.WasAttacked = true
+	// Caravans keep their current route and path when hit. Combat engagement
+	// resets pathfinding, so repeated attacks used to interrupt their travel.
+	if m.IsCaravan() {
+		return dealt
+	}
 
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {

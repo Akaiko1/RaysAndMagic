@@ -289,6 +289,7 @@ func (ih *InputHandler) restartNewGame() {
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.ecology = EcologyState{}
+	g.caravanAttackAlertUntil = time.Time{}
 	g.ecologyViews = nil
 	g.cancelCampPresentation()
 	// A fresh run inherits no UI gesture from the replaced timeline. This also

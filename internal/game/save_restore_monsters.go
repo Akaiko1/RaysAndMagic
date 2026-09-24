@@ -191,7 +191,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
 				m.AmbientMoveCredit = ms.AmbientMoveCredit
-				if m.Disposition == "wildlife" {
+				if m.IsWildlife() {
 					m.Threat = ms.AmbientThreat
 					m.AmbientFlee = m.Threat.Seconds > 0
 				}

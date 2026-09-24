@@ -28,19 +28,22 @@ type RoutePoint struct {
 	Map string `yaml:"map" json:"map"`
 	X   int    `yaml:"x" json:"x"`
 	Y   int    `yaml:"y" json:"y"`
+	// Retire an interior waypoint without changing checkpoint indices in saves.
+	Skip bool `yaml:"skip,omitempty" json:"skip,omitempty"`
 }
 type CaravanRoute struct {
 	ID     string       `yaml:"id"`
 	Points []RoutePoint `yaml:"points"`
 }
 type CaravanConfig struct {
-	Monster     string         `yaml:"monster"`
-	UnlockQuest string         `yaml:"unlock_quest"`
-	Merchant    string         `yaml:"merchant"`
-	StopSeconds int            `yaml:"stop_seconds"`
-	RewardUnits int            `yaml:"reward_units"`
-	StockSlots  int            `yaml:"stock_slots"`
-	Routes      []CaravanRoute `yaml:"routes"`
+	AttackAlertCooldownSeconds int            `yaml:"attack_alert_cooldown_seconds"`
+	Monster                    string         `yaml:"monster"`
+	UnlockQuest                string         `yaml:"unlock_quest"`
+	Merchant                   string         `yaml:"merchant"`
+	StopSeconds                int            `yaml:"stop_seconds"`
+	RewardUnits                int            `yaml:"reward_units"`
+	StockSlots                 int            `yaml:"stock_slots"`
+	Routes                     []CaravanRoute `yaml:"routes"`
 }
 
 func LoadEcology(path string) error {
@@ -76,7 +79,7 @@ func (c *EcologyConfig) Validate() error {
 		seen[k] = true
 	}
 	v := c.Caravan
-	if v.Monster == "" || v.UnlockQuest == "" || v.Merchant == "" || v.StopSeconds < 0 || v.RewardUnits < 1 || v.StockSlots < 1 || len(v.Routes) < 1 {
+	if v.Monster == "" || v.UnlockQuest == "" || v.Merchant == "" || v.AttackAlertCooldownSeconds <= 0 || v.StopSeconds < 0 || v.RewardUnits < 1 || v.StockSlots < 1 || len(v.Routes) < 1 {
 		return fmt.Errorf("invalid caravan configuration")
 	}
 	seen = map[string]bool{}
@@ -85,9 +88,12 @@ func (c *EcologyConfig) Validate() error {
 			return fmt.Errorf("invalid caravan route %q", r.ID)
 		}
 		seen[r.ID] = true
-		for _, p := range r.Points {
+		for i, p := range r.Points {
 			if p.Map == "" || p.X < 0 || p.Y < 0 {
 				return fmt.Errorf("invalid point in route %q", r.ID)
+			}
+			if p.Skip && (i == 0 || i == len(r.Points)-1 || r.Points[i-1].Map != p.Map || r.Points[i+1].Map != p.Map) {
+				return fmt.Errorf("cannot skip endpoint or map crossing in route %q", r.ID)
 			}
 		}
 	}

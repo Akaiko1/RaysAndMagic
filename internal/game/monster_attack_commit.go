@@ -19,6 +19,13 @@ type monsterAttackDestination struct{ foe *monster.Monster3D }
 type monsterActionObservation struct {
 	actor       *monster.Monster3D
 	partyAttack bool
+	actorAttack bool
+}
+
+func (cs *CombatSystem) recordMonsterActorAttack(m *monster.Monster3D) {
+	if action := cs.monsterAction; action != nil && action.actor == m {
+		action.actorAttack = true
+	}
 }
 
 func (cs *CombatSystem) recordMonsterPartyAttack(m *monster.Monster3D) {
@@ -100,6 +107,9 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	cs.monsterAction = &action
 	defer func() {
 		cs.monsterAction = previous
+		if spent && target.foe != nil && action.actorAttack {
+			cs.game.notifyCaravanAttack(target.foe)
+		}
 		if spent && target.foe == nil && action.partyAttack {
 			cs.game.observeOverwatchAttack(m)
 		}

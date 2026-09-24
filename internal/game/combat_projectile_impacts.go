@@ -621,7 +621,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
-			cs.applyStun(monster, stunSeconds, stunTurns) // announces stun/resist itself
+			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
 		}
 		// The Maw already credits its kill and announces itself.
 		executed = cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName)

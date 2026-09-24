@@ -2,7 +2,14 @@ package monster
 
 import "ugataima/internal/config"
 
-const DispositionFish = "fish"
+const (
+	DispositionFish     = "fish"
+	DispositionCaravan  = "caravan"
+	DispositionWildlife = "wildlife"
+)
+
+func (m *Monster3D) IsCaravan() bool  { return m != nil && m.Disposition == DispositionCaravan }
+func (m *Monster3D) IsWildlife() bool { return m != nil && m.Disposition == DispositionWildlife }
 
 // IsFish identifies transient ecology fish independently of their species.
 func (m *Monster3D) IsFish() bool { return m != nil && m.Disposition == DispositionFish }
@@ -11,7 +18,7 @@ func (m *Monster3D) IsFish() bool { return m != nil && m.Disposition == Disposit
 // rosters. It does not replace creature type (beast, undead, dragon, etc.).
 func (m *Monster3D) IsAmbient() bool { return m != nil && m.Disposition != "" }
 func (m *Monster3D) Hunts(target *Monster3D) bool {
-	if m == nil || target == nil || m.Disposition != "wildlife" || target.Disposition != "wildlife" {
+	if m == nil || target == nil || !m.IsWildlife() || !target.IsWildlife() {
 		return false
 	}
 	for _, key := range m.Prey {
@@ -28,15 +35,15 @@ func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
 		return false
 	}
 	if m.Bound {
-		return !target.IsPartyControlled() && target.Disposition != "caravan" && !target.IsInertSetPiece()
+		return !target.IsPartyControlled() && !target.IsCaravan() && !target.IsInertSetPiece()
 	}
-	if m.Disposition == "caravan" {
+	if m.IsCaravan() {
 		return false
 	}
-	if m.Disposition == "wildlife" {
+	if m.IsWildlife() {
 		return !m.AmbientFlee && m.Hunts(target) && !target.IsPartyControlled()
 	}
-	return target.IsPartyControlled() || target.Disposition == "caravan"
+	return target.IsPartyControlled() || target.IsCaravan()
 }
 
 // UpdateAmbient uses the same terrain/path policy as hostile movement. TB
@@ -68,7 +75,7 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 		m.updateAmbientThreatMovement(checker, tx, ty, turn)
 		return
 	}
-	if m.Disposition == "wildlife" {
+	if m.IsWildlife() {
 		m.State = StatePatrolling
 		if !turn {
 			m.updatePatrolling(checker)

@@ -1510,7 +1510,7 @@ type movementSpeedMultipliers struct {
 // movementSpeed returns the per-tick speed for the given state (search: move-speed).
 func (m *Monster3D) movementSpeed(state MonsterState) float64 {
 	base := m.speedPerTick()
-	if m.IsAmbient() && (state == StateFleeing || m.Disposition == "caravan") {
+	if m.IsAmbient() && (state == StateFleeing || m.IsCaravan()) {
 		return base
 	}
 	mults := m.movementSpeedMultipliers()

@@ -19,7 +19,7 @@ type EffectLine struct {
 // inert encounter props. Temporary control or boss phases do not change a
 // catalog's description of the actor's available attacks.
 func (d MonsterDefinition) HasAttackStats() bool {
-	return !d.WarlordIdol && d.Disposition != "caravan" && d.Disposition != DispositionFish
+	return !d.WarlordIdol && d.Disposition != DispositionCaravan && d.Disposition != DispositionFish
 }
 
 // CombatEffectLines is the single formatter for monster attack/special ability

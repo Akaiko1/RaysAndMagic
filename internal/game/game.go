@@ -177,13 +177,14 @@ type MapPose struct {
 }
 
 type MMGame struct {
-	editorPreview    *editorPreviewState
-	fishWorlds       map[*world.World3D]struct{} // Only worlds with transient live fish.
-	ecology          EcologyState
-	ecologyOwner     *MMGame
-	ecologyCaravan   *monster.Monster3D
-	ecologyViews     map[*world.World3D]*MMGame
-	ecologyRosterIDs map[string]bool
+	editorPreview           *editorPreviewState
+	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
+	ecology                 EcologyState
+	ecologyOwner            *MMGame
+	ecologyCaravan          *monster.Monster3D
+	ecologyViews            map[*world.World3D]*MMGame
+	ecologyRosterIDs        map[string]bool
+	caravanAttackAlertUntil time.Time // Session-only HUD notification throttle.
 
 	tactics tacticalState
 	menuState
@@ -2142,7 +2143,7 @@ func (g *MMGame) refreshMonsterAIState() {
 	liveIdols := 0
 	g.ecologyCaravan = nil
 	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && m.Disposition == "caravan" {
+		if m != nil && m.IsAlive() && m.IsCaravan() {
 			g.ecologyCaravan = m
 		}
 		if m != nil && m.WarlordIdol && m.IsAlive() {

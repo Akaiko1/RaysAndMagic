@@ -1306,6 +1306,7 @@ var (
 	combatMessagePurple = color.RGBA{190, 100, 255, 255}
 	combatMessageOrange = color.RGBA{255, 140, 40, 255}
 	combatMessageYellow = color.RGBA{255, 230, 90, 255}
+	combatMessageRed    = color.RGBA{255, 70, 70, 255}
 )
 
 func lootMessageColor(drops []items.Item) color.Color {

@@ -125,7 +125,7 @@ func (g *MMGame) rewardOwner() *MMGame {
 }
 
 func remoteEcologyActor(m *monster.Monster3D) bool {
-	return m.IsAlive() && !m.IsPartyControlled() && (m.IsAmbient() || (m.AIFoe != nil && m.AIFoe.Disposition == "caravan"))
+	return m.IsAlive() && !m.IsPartyControlled() && (m.IsAmbient() || (m.AIFoe != nil && m.AIFoe.IsCaravan()))
 }
 
 // Publish all actor motion before serial post arbitration and attack delivery,

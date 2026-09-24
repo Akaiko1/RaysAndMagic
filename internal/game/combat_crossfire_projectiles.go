@@ -144,6 +144,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	if !target.IsAlive() {
 		return
 	}
+	cs.game.notifyCaravanAttack(target)
 	if sourceName == "" {
 		sourceName = "A bolt"
 	}
@@ -155,7 +156,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// kill finalizes a slain crossfire target through the same kill choke point as
 	// a party hit, so a bound summon can earn champion rewards for the party too.
 	kill := func() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
+		cs.game.addActorCombatMessage(srcMonster, target, "%s is destroyed!", target.Name)
 		cs.finishActorKill(srcMonster, target)
 	}
 
@@ -175,12 +176,12 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage!", target.Name, sourceName, actual))
+			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges, but %s lands %d true damage!", target.Name, sourceName, actual)
 			if !target.IsAlive() {
 				kill()
 			}
 		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's bolt!", target.Name, sourceName))
+			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges %s's bolt!", target.Name, sourceName)
 		}
 		return
 	}
@@ -189,7 +190,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	if rollMonsterDisintegrate(target, disintegrateChance) {
 		target.HitPoints = 0
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt disintegrates %s!", sourceName, target.Name))
+		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt disintegrates %s!", sourceName, target.Name)
 		kill()
 		return
 	}
@@ -204,11 +205,11 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			cs.game.playMonsterSound(soundMonsterHit, target)
 		}
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt hits %s for %d!", sourceName, target.Name, actual))
+		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt hits %s for %d!", sourceName, target.Name, actual)
 	}
 	// Stun rider (Psychic Shock etc.) carries over too.
 	if target.IsAlive() && stunChance > 0 && rand.Float64() < stunChance {
-		cs.applyStun(target, stunSeconds, stunTurns) // announces stun/resist itself
+		cs.applyStun(target, stunSeconds, stunTurns, !quietActorCombat(srcMonster, target))
 	}
 	if !target.IsAlive() {
 		kill()

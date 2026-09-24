@@ -300,12 +300,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 					mapMonsters[key] = []MonsterSave{}
 				}
 			}
-			for i, mon := range wm.OpenWorld.Monsters {
-				key, lx, ly, ok := wm.LocalizeWorldPos(mon.X, mon.Y)
+			// Localize the filtered records themselves: transient actors such as
+			// fish have no save entry, so live-roster indexes do not align.
+			for _, entry := range saves {
+				key, lx, ly, ok := wm.LocalizeWorldPos(entry.X, entry.Y)
 				if !ok {
 					continue
 				}
-				entry := saves[i]
 				entry.X, entry.Y = lx, ly
 				entry.AmbientThreat = entry.AmbientThreat.MapPosition(func(x, y float64) (float64, float64) {
 					return wm.LocalizeRegionWorldPos(key, x, y)
@@ -313,7 +314,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				entry.Arbor = entry.Arbor.MapPositions(func(x, y float64) (float64, float64) {
 					return wm.LocalizeRegionWorldPos(key, x, y)
 				})
-				sx, sy := wm.LocalizeRegionWorldPos(key, mon.SpawnX, mon.SpawnY)
+				sx, sy := wm.LocalizeRegionWorldPos(key, entry.SpawnPosition[0], entry.SpawnPosition[1])
 				entry.SpawnPosition = &[2]float64{sx, sy}
 				if entry.LootGuardTargetTileX != 0 || entry.LootGuardTargetTileY != 0 {
 					entry.LootGuardTargetTileX, entry.LootGuardTargetTileY =
