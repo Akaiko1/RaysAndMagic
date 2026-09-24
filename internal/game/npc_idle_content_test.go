@@ -81,9 +81,10 @@ func TestDesertNPCIdleContent(t *testing.T) {
 							}
 						}
 						contact := [2]float64{float64(left+right) / 2, float64(bottom)}
+						// Allow one pixel of antialiased sole-edge variation after downsampling.
 						if i == 0 {
 							planted[foot] = contact
-						} else if math.Abs(contact[0]-planted[foot][0]) > 1 || contact[1] != planted[foot][1] {
+						} else if math.Abs(contact[0]-planted[foot][0]) > 1 || math.Abs(contact[1]-planted[foot][1]) > 1 {
 							t.Fatalf("frame %d foot %d slides: contact %v, neutral %v", i, foot, contact, planted[foot])
 						}
 					}
