@@ -167,9 +167,6 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		if compareTooltip != "" {
 			compareLines := strings.Split(compareTooltip, "\n")
 			var compareBody []color.Color
-			if titleText != nil {
-				compareBody = ui.rarityBodyColors(tooltipItem, len(compareLines))
-			}
 			if tooltipItem.Type == items.ItemWeapon || tooltipItem.Type == items.ItemArmor || tooltipItem.Type == items.ItemAccessory {
 				compareBody = equipmentComparisonColors(compareLines, compareBody)
 			}
@@ -763,10 +760,14 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	// Draw spell tooltip if hovering over a spell
 	if spellTooltip != "" {
 		lines := strings.Split(spellTooltip, "\n")
-		ui.queueTooltipIcon(lines, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
+		plate := color.Color(nil)
+		if def, err := spells.GetSpellDefinitionByID(spellTooltipID); err == nil {
+			plate = schoolPlateColor(def.School)
+		}
+		ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
 		if spellCompareTooltip != "" {
 			compareLines := strings.Split(spellCompareTooltip, "\n")
-			ui.queueTooltipComparison(compareLines, nil)
+			ui.queueTitledTooltipComparison(compareLines, nil, plate, nil)
 		}
 	}
 

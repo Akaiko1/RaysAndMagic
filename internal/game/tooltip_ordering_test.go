@@ -77,7 +77,7 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 						}
 						if full && def.TrueDamage > 0 {
 							source := strings.Index(card, fmt.Sprintf("Weapon: +%d True", def.TrueDamage))
-							if source < 0 || source > strings.Index(card, "Total Damage:") {
+							if source < strings.Index(card, "Total Damage:") || source > strings.Index(card, "\nCRITICAL\n") {
 								t.Fatalf("authored damage outside breakdown: %s", card)
 							}
 						}
@@ -130,7 +130,7 @@ func TestTooltipOrderedSpellResults(t *testing.T) {
 						}
 						if full {
 							base, delta, final := strings.Index(card, "Base cooldown:"), strings.Index(card, "Speed ("), strings.Index(card, "RT Cooldown:")
-							if base < 0 || delta < base || final < delta {
+							if final < 0 || base < final || delta < base {
 								t.Fatalf("cooldown out of order: %s", card)
 							}
 						}

@@ -12,7 +12,7 @@ import (
 // The compact/full contract (user-designed unified tooltip): compact hides the
 // Base->Stat->Mastery decomposition and the universal RULES, but keeps the
 // totals, cost/cooldown and per-item state (requirements, locks). Full reveals
-// the breakdown, in builder order (decomposition BEFORE the total). The
+// the breakdown, in builder order (weapon results BEFORE their explanation). The
 // "[Shift] full breakdown" hint shows only in compact when detail exists.
 
 // indexOf returns the line index of the first line containing sub, or -1.
@@ -53,9 +53,9 @@ func TestTooltipCompact_WeaponHidesBreakdownKeepsTotals(t *testing.T) {
 	if strings.Contains(full, "[Shift]") {
 		t.Errorf("full view must not show the Shift hint:\n%s", full)
 	}
-	// Ordering: decomposition BEFORE the total (the round-1 bug).
-	if base, total := ttIndexOf(full, "Base:"), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full weapon DAMAGE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
+	// Weapon cards lead with the result; its calculation follows directly.
+	if base, total := ttIndexOf(full, "Base:"), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || total >= base {
+		t.Errorf("full weapon DAMAGE must show Total before its breakdown (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Active party buff: +5", "Cards: +20% melee damage"},
-			order: []string{"Active party buff: +5", "Cards: +20% melee damage", "Total Damage:"},
+			order: []string{"Total Damage:", "Active party buff: +5", "Cards: +20% melee damage"},
 		},
 		{
 			name: "ranged card multiplier precedes buff", weaponKey: "hunting_bow",
@@ -163,7 +163,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Cards: +20% ranged damage", "Active party buff: +5"},
-			order: []string{"Cards: +20% ranged damage", "Active party buff: +5", "Total Damage:"},
+			order: []string{"Total Damage:", "Cards: +20% ranged damage", "Active party buff: +5"},
 		},
 	}
 
@@ -243,9 +243,9 @@ func TestTooltipCompact_ArmorRequirementAndOrder(t *testing.T) {
 	if strings.Contains(compact, "Base Armor Class:") {
 		t.Errorf("compact armor must hide the AC breakdown:\n%s", compact)
 	}
-	// Full: Base->...->Total order.
-	if base, total := ttIndexOf(full, "Base Armor Class:"), ttIndexOf(full, "Item Armor Class:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full armor DEFENSE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
+	// Full: result before its calculation.
+	if base, total := ttIndexOf(full, "Base Armor Class:"), ttIndexOf(full, "Item Armor Class:"); base < 0 || total < 0 || total >= base {
+		t.Errorf("full armor DEFENSE must show Total before its breakdown (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 
@@ -287,8 +287,8 @@ func TestTooltipCompact_SpellHidesDecompKeepsTotalsAndCost(t *testing.T) {
 	if strings.Contains(compact, "Base (") {
 		t.Errorf("compact spell must hide the Base(...) decomposition:\n%s", compact)
 	}
-	if base, total := ttIndexOf(full, "Base ("), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full spell DAMAGE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
+	if base, total := ttIndexOf(full, "Base ("), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || total >= base {
+		t.Errorf("full spell DAMAGE must show Total before its breakdown (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 

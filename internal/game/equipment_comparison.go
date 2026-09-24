@@ -64,30 +64,38 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 	if !original.ItemFitsSlot(item, slot) {
 		lines = append(lines, "Cannot equip: requirements not met")
 	}
+	attack := ttSection{Title: "ATTACK"}
+	defense := ttSection{Title: "DEFENSE"}
+	attributes := ttSection{Title: "ATTRIBUTES"}
+	resistances := ttSection{Title: "RESISTANCES"}
+	effects := ttSection{Title: "EFFECTS"}
+	set := ttSection{Title: equipmentSetSectionTitle}
 	if item.Type == items.ItemWeapon && occupied && equipped.Type == items.ItemWeapon {
 		// Weapon-specific traits use the resulting set and stats, too.
-		lines = append(lines, buildWeaponComparisonLines(item, equipped, before, beforeCS, after, afterCS)...)
-	}
-	appendDelta := func(label string, old, next int, unit string) {
-		if old != next {
-			lines = append(lines, fmt.Sprintf("%s: %d%s -> %d%s (%+d%s)", label, old, unit, next, unit, next-old, unit))
+		for _, line := range buildWeaponComparisonLines(item, equipped, before, beforeCS, after, afterCS) {
+			attack.Add("%s", line)
 		}
 	}
-	appendDelta("Armor Class", beforeCS.CalculateTotalArmorClass(before), afterCS.CalculateTotalArmorClass(after), "")
-	appendDelta("Max HP", before.MaxHitPoints, after.MaxHitPoints, "")
-	appendDelta("Max SP", before.MaxSpellPoints, after.MaxSpellPoints, "")
+	appendDelta := func(section *ttSection, label string, old, next int, unit string) {
+		if old != next {
+			section.Add("%s: %d%s -> %d%s (%+d%s)", label, old, unit, next, unit, next-old, unit)
+		}
+	}
+	appendDelta(&defense, "Armor Class", beforeCS.CalculateTotalArmorClass(before), afterCS.CalculateTotalArmorClass(after), "")
+	appendDelta(&attributes, "Max HP", before.MaxHitPoints, after.MaxHitPoints, "")
+	appendDelta(&attributes, "Max SP", before.MaxSpellPoints, after.MaxSpellPoints, "")
 	oldStats, newStats := character.EffectiveCombatStats(before), character.EffectiveCombatStats(after)
 	for _, name := range stats.Names {
-		appendDelta(config.TitleWords(name), oldStats.ValueByName(name), newStats.ValueByName(name), "")
+		appendDelta(&attributes, config.TitleWords(name), oldStats.ValueByName(name), newStats.ValueByName(name), "")
 	}
-	appendDelta("Dodge", beforeCS.PerfectDodgeChance(before), afterCS.PerfectDodgeChance(after), "%")
-	appendDelta("Spell critical chance", beforeCS.totalCriticalChance(0, before), afterCS.totalCriticalChance(0, after), "%")
+	appendDelta(&defense, "Dodge", beforeCS.PerfectDodgeChance(before), afterCS.PerfectDodgeChance(after), "%")
+	appendDelta(&attack, "Spell critical chance", beforeCS.totalCriticalChance(0, before), afterCS.totalCriticalChance(0, after), "%")
 	for _, hand := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
 		oldWeapon, oldOK := before.Equipment[hand]
 		newWeapon, newOK := after.Equipment[hand]
 		if !newOK || newWeapon.Type != items.ItemWeapon {
 			if oldOK && oldWeapon.Type == items.ItemWeapon {
-				lines = append(lines, "Lose: "+hand.DisplayName()+" weapon attack")
+				attack.Add("Lose: %s weapon attack", hand.DisplayName())
 			}
 			continue
 		}
@@ -99,13 +107,13 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 			oldDamage = beforeCS.calculateWeaponDamagePreview(oldWeapon, before).Total
 			oldCrit = beforeCS.CalculateWeaponCritChance(oldWeapon, before)
 		}
-		appendDelta(hand.DisplayName()+" damage", oldDamage, afterCS.calculateWeaponDamagePreview(newWeapon, after).Total, "")
-		appendDelta(hand.DisplayName()+" critical chance", oldCrit, afterCS.CalculateWeaponCritChance(newWeapon, after), "%")
+		appendDelta(&attack, hand.DisplayName()+" damage", oldDamage, afterCS.calculateWeaponDamagePreview(newWeapon, after).Total, "")
+		appendDelta(&attack, hand.DisplayName()+" critical chance", oldCrit, afterCS.CalculateWeaponCritChance(newWeapon, after), "%")
 		if oldOK && oldWeapon.Type == items.ItemWeapon {
 			oldRecovery := cooldownSeconds(beforeCS, beforeCS.WeaponCooldownFramesFor(before, oldWeapon.Name))
 			newRecovery := cooldownSeconds(afterCS, afterCS.WeaponCooldownFramesFor(after, newWeapon.Name))
 			if oldRecovery != newRecovery {
-				lines = append(lines, fmt.Sprintf("%s RT recovery: %s -> %s", hand.DisplayName(), oldRecovery, newRecovery))
+				attack.Add("%s RT recovery: %s -> %s", hand.DisplayName(), oldRecovery, newRecovery)
 			}
 		}
 	}
@@ -132,7 +140,7 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 		if len(r.schools) == len(damagecalc.Types()) {
 			label = "All"
 		}
-		appendDelta(label+" resist", r.old, r.next, "%")
+		appendDelta(&resistances, label+" resist", r.old, r.next, "%")
 	}
 	// Read all authored effects from the existing formatter. Numerical stat and
 	// resistance rows already appear above; conditional mechanics remain explicit.
@@ -143,7 +151,7 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 	}{{"Gain: ", newEffects, oldEffects}, {"Lose: ", oldEffects, newEffects}} {
 		for _, line := range pair.from {
 			if !slices.Contains(pair.other, line) {
-				lines = append(lines, pair.prefix+line)
+				effects.Add("%s", pair.prefix+line)
 			}
 		}
 	}
@@ -158,11 +166,15 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 			if !next {
 				label = "Set lost: "
 			}
-			lines = append(lines, label+config.GetItemSet(key).Name)
+			set.Add("%s", label+config.GetItemSet(key).Name)
 			for _, line := range config.EquipmentSetLines(key)[1:] {
-				lines = append(lines, line)
+				set.Add("%s", line)
 			}
 		}
+	}
+	body := character.RenderCardLines([]ttSection{attack, defense, attributes, resistances, effects, set}, true)
+	if len(body) > 0 {
+		lines = append(append(lines, ""), body...)
 	}
 	if len(lines) == 2 {
 		lines = append(lines, "No change to current stats or abilities")

@@ -57,6 +57,7 @@ func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSyst
 		return
 	}
 	cd := cs.weaponCooldownBreakdown(ch, def.Name)
+	sec.Add("%s", cooldownLine(cs, cd.TotalFrames))
 	sec.AddDetail("Base weapon cooldown: %.2fs", reference/tps)
 	atSpeed := math.Round(cd.BaseFrames * cd.WeaponMultiplier)
 	// Subtract displayed stages so their two-decimal values add up on the card.
@@ -69,7 +70,6 @@ func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSyst
 	if cd.RawFrames != cd.TotalFrames {
 		sec.AddDetail("Cooldown limit: %.2fs", float64(cd.TotalFrames)/tps)
 	}
-	sec.Add("%s", cooldownLine(cs, cd.TotalFrames))
 }
 
 func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *CombatSystem) {
@@ -136,10 +136,10 @@ func addItemEffects(sec *ttSection, def *config.ItemDefinitionConfig, item items
 	}
 }
 
-func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter) ttSection {
+func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter, includeDamageType bool) ttSection {
 	tier, tierName := spellMasteryTier(char, def)
 	effects := ttSection{Title: "EFFECTS"}
-	if def.IsProjectile && !def.DealsNoDamage {
+	if includeDamageType && def.IsProjectile && !def.DealsNoDamage {
 		effects.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
 	}
 	for _, ln := range def.CoreEffectLines() {

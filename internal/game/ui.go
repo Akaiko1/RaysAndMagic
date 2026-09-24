@@ -273,31 +273,21 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
-		hasIcon := ui.tooltipIcon != ""
-
 		if ui.tooltipCompareLines == nil {
-			r := singleTooltipLayout(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, ui.tooltipY, screenW, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, r.x, r.y, r.right(), ui.game.sprites)
+			w, h := ui.mainTooltipSize(tooltipColumnWidth(screenW, 1), screenH)
+			r := positionTooltipBox(ui.tooltipX, ui.tooltipY, w, h, screenW, screenH)
+			ui.drawMainTooltip(screen, r.x, r.y, w)
 		} else {
-			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
-			// the pair always fits, then place the comparison flush to the right of
-			// the main and shift the pair left to stay on screen. Sizing and drawing
-			// use the same column width (cardCap) so the measured and painted boxes
-			// match; the flip is resolved once against the taller card so they share
-			// a top edge.
+			// Measure the pair together. A long card may borrow width from
+			// its comparison; drawing uses those exact same column limits.
 			gap := tooltipCompareGap
-			cardCap := tooltipColumnWidth(screenW, 2)
-			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap, screenH)
-			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap, screenH)
-			h := mainH
-			if compareH > h {
-				h = compareH
-			}
+			pair := ui.queuedTooltipPairLayout(screenW, screenH)
+			h := max(pair.mainH, pair.compareH)
 			y := flipTooltipY(ui.tooltipY, h, screenH)
 
-			mainX, compareX := tooltipPairX(ui.tooltipX, mainW, compareW, gap, screenW)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+cardCap, ui.game.sprites)
+			mainX, compareX := tooltipPairX(ui.tooltipX, pair.mainW, pair.compareW, gap, screenW)
+			ui.drawMainTooltip(screen, mainX, y, pair.mainCap)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+pair.compareCap, ui.game.sprites)
 		}
 	}
 }

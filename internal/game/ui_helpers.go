@@ -658,55 +658,6 @@ const tooltipScreenMargin = 8
 const tooltipIconSize = 128
 const tooltipIconGap = 8
 
-func tooltipBoxSizeWithIcon(lines []string, hasIcon bool, lineHeight int) (int, int) {
-	if len(lines) == 0 {
-		return 0, 0
-	}
-	iconSpace := 0
-	if hasIcon {
-		iconSpace = tooltipIconSize + tooltipIconGap
-	}
-	bgWidth := 0
-	for _, line := range lines {
-		if w := debugTextWidth(line) + 12 + iconSpace; w > bgWidth {
-			bgWidth = w
-		}
-	}
-	bgHeight := 8
-	for _, line := range lines {
-		bgHeight += tooltipRowHeight(line, lineHeight)
-	}
-	if hasIcon && bgHeight < tooltipIconSize+12 {
-		bgHeight = tooltipIconSize + 12
-	}
-	return bgWidth, bgHeight
-}
-
-// Blank rows separate sections without consuming a full text line.
-func tooltipRowHeight(line string, lineHeight int) int {
-	if line == "" {
-		return 4
-	}
-	return lineHeight
-}
-
-// Long full cards may use the bitmap font's tighter 14px line spacing. Keep
-// short cards at 16px, with the same font, 128px icon and complete text.
-func tooltipLineHeight(lines []string, screenH int) int {
-	rows, blanks := 0, 0
-	for _, line := range lines {
-		if line == "" {
-			blanks++
-		} else {
-			rows++
-		}
-	}
-	if rows == 0 {
-		return 16
-	}
-	return max(14, min(16, (screenH-2*tooltipScreenMargin-8-4*blanks)/rows))
-}
-
 // drawTooltip draws a tooltip with the given text lines at the specified
 // position. Lines that don't fit between the tooltip's x position and the
 // right screen edge are word-wrapped onto multiple rows; the colors slice
@@ -728,52 +679,8 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 // side-by-side cards (item + its comparison) each wrap within their own column.
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	lines, colors = wrapTooltipLines(lines, colors, x, maxRight, tooltipTextOffset(hasIcon))
-	lineHeight := tooltipLineHeight(lines, screen.Bounds().Dy())
-	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon, lineHeight)
-
-	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
-	// defensive top clamp only.
-	if y < 0 {
-		y = 0
-	}
-
-	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
-	textX := x + 6
-	if hasIcon {
-		drawImageScaled(screen, sprites.GetSprite(iconName), x+6, y+6, tooltipIconSize, tooltipIconSize)
-		textX += tooltipIconSize + tooltipIconGap
-	}
-
-	// Rarity nameplate: a brushed-metal band (darkened metal of the rarity hue)
-	// behind the first line, with the name drawn in its normal rarity color +
-	// black outline so the shiny text still reads.
-	titleStart := 0
-	if titlePlate != nil && len(lines) > 0 {
-		if plateW := x + bgWidth - 4 - (textX - 4); plateW > 0 {
-			drawMetalPlate(screen, textX-4, y+4, plateW, lineHeight+2, metalPlateBase(titlePlate))
-		}
-		if titleText != nil {
-			drawDebugTextColored(screen, lines[0], textX, y+6, titleText)
-		} else {
-			drawDebugText(screen, lines[0], textX, y+6) // "as before": plain white + outline
-		}
-		titleStart = 1
-	}
-
-	hasColors := len(colors) == len(lines) && len(colors) > 0
-	textY := y + 6
-	if titleStart > 0 {
-		textY += tooltipRowHeight(lines[0], lineHeight)
-	}
-	for i := titleStart; i < len(lines); i++ {
-		if hasColors {
-			drawDebugTextColored(screen, lines[i], textX, textY, colors[i])
-		} else {
-			drawDebugText(screen, lines[i], textX, textY)
-		}
-		textY += tooltipRowHeight(lines[i], lineHeight)
-	}
+	layout := layoutTooltip(lines, hasIcon, maxRight-x, screen.Bounds().Dy())
+	drawTooltipLayout(screen, lines, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 
 // metalPlateBase returns the nameplate's base color: a darkened metal of the
@@ -849,8 +756,8 @@ func tooltipTextOffset(hasIcon bool) int {
 }
 
 func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW, screenH int) (int, int) {
-	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
-	return tooltipBoxSizeWithIcon(wrapped, hasIcon, tooltipLineHeight(wrapped, screenH))
+	layout := layoutTooltip(lines, hasIcon, screenW-x, screenH)
+	return layout.w, layout.h
 }
 
 // Measure before positioning, as for comparison cards. Wrapping at the cursor
@@ -945,9 +852,9 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 
 // queueTitledTooltipIcon queues a tooltip whose first line (the name) gets a
 // metallic nameplate (plate base) with the name in titleText (nil = plain white
-// name). bodyColors tints lines BELOW the name (nil = plain white body); gear
-// keeps its rarity-metal body, spells/traps stay white. Plate hue: rarity for
-// gear, school for spells, wood for traps.
+// name). bodyColors overrides individual semantic rows; nil uses the shared
+// section/result/detail palette. Plate hue: rarity for gear, school for
+// spells, wood for traps.
 func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Color, plate, titleText color.Color, icon string, x, y int) {
 	if len(lines) == 0 {
 		return
@@ -982,6 +889,7 @@ func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color)
 	ui.tooltipCompareLines = lines
 	ui.tooltipCompareColors = colors
 	ui.tooltipCompareTitle = nil
+	ui.tooltipCompareText = nil
 }
 
 // queueTitledTooltipComparison queues the side-by-side comparison card with a
@@ -996,23 +904,6 @@ func (ui *UISystem) queueTitledTooltipComparison(lines []string, bodyColors []co
 	ui.tooltipCompareText = titleText
 }
 
-// rarityBodyColors paints every tooltip line in the item's rarity metal - the
-// original gear-tooltip body look (the name line's color is overridden by the
-// nameplate's titleText).
-func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
-	if n <= 0 {
-		return nil
-	}
-	c := ui.itemRarityColor(item)
-	colors := make([]color.Color, n)
-	for i := range colors {
-		colors[i] = c
-	}
-	return colors
-}
-
-// schoolPlateColor maps a magic school to its nameplate base hue (darkened +
-// brushed by drawMetalPlate). Used for spell-item / spellbook nameplates.
 func schoolPlateColor(school string) color.Color {
 	switch convertToMonsterDamageType(school) {
 	case monsterPkg.DamageFire:
@@ -1454,7 +1345,7 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 // statTooltipText quotes the canonical stat description from the character
 // catalog - one source for the in-game tooltip and the map editor.
 func statTooltipText(stat string) string {
-	return character.StatDescription(stat)
+	return referenceTooltipText(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
 }
 
 // masteryTooltipTextForSkill returns the canonical skill description. The text
@@ -1462,11 +1353,24 @@ func statTooltipText(stat string) string {
 // tooltip, combat, and the map editor all share one source - see
 // character.SkillType.Description.
 func masteryTooltipTextForSkill(skill character.SkillType) string {
-	return skill.Description()
+	return referenceTooltipText(skill.String(), "EFFECTS", skill.Description())
 }
 
 func magicMasteryTooltipText(school character.MagicSchoolID) string {
-	return character.MagicMasteryDescription(school)
+	return referenceTooltipText(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
+}
+
+// Reference prose stays canonical. Only paragraph boundaries and headings are
+// added here; no tooltip independently restates a skill's formulas or effects.
+func referenceTooltipText(title, section, description string) string {
+	if description == "" {
+		return ""
+	}
+	text := strings.ReplaceAll(description, ". ", ".\n")
+	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
+		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
+	}
+	return title + "\n\n" + section + "\n" + text
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

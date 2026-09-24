@@ -1345,7 +1345,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "+") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", uitext.Text("dialog.double_click_to_remove")}, key)
+				hoverLines = ui.appendCardArtHint(append(cardCollectionTooltipLines(def), "", "USAGE", uitext.Text("dialog.double_click_to_remove")), key)
 			}
 		}
 	}
@@ -1370,7 +1370,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", uitext.Text("dialog.double_click_to_add_to_collection")}, key)
+				hoverLines = ui.appendCardArtHint(append(cardCollectionTooltipLines(def), "", "USAGE", uitext.Text("dialog.double_click_to_add_to_collection")), key)
 			}
 		}
 	}

@@ -147,7 +147,9 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		if hovered {
 			lines := []string{
 				buffServiceLabel(choice.Buff),
+				"", "EFFECTS",
 				uitext.Text("dialog.cast_on_the_whole_party_for", buffServiceDurationLabel(choice.DurationSeconds)),
+				"", "USAGE",
 				uitext.Text("dialog.cost_gold", choice.Cost),
 				uitext.Text("dialog.a_service_the_party_does_not_learn"),
 			}

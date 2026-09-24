@@ -789,6 +789,17 @@ func cardEffectText(def *config.ItemDefinitionConfig) string {
 	return strings.Join(parts, ", ")
 }
 
+func cardCollectionTooltipLines(def *config.ItemDefinitionConfig) []string {
+	if def == nil {
+		return nil
+	}
+	effects := def.CardEffectLines()
+	if len(effects) == 0 {
+		effects = []string{cardEffectText(def)}
+	}
+	return append([]string{def.Name, "", "EFFECTS"}, effects...)
+}
+
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.
 func (g *MMGame) firstFreeCardSlot() int {
 	for i := 0; i < MaxCardSlots; i++ {

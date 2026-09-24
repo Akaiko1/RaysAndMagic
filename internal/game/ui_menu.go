@@ -194,22 +194,8 @@ func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW
 // the screen so it never spills off the edge.
 func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
-	// This framed variant has 8px padding rather than the ordinary 6px.
-	lines, _ = wrapTooltipLines(lines, nil, 0, tooltipColumnWidth(sw, 1), 4)
-	boxW := 0
-	for _, l := range lines {
-		if lw := debugTextWidth(l); lw > boxW {
-			boxW = lw
-		}
-	}
-	boxW += 16
-	boxH := len(lines)*16 + 10
-	r := positionTooltipBox(x, y, boxW, boxH, sw, sh)
-	x, y = r.x, r.y
-	ui.drawThemeFrame(screen, frameSilver, x, y, boxW, boxH)
-	for i, l := range lines {
-		drawDebugText(screen, l, x+8, y+6+i*16)
-	}
+	r := singleTooltipLayout(lines, nil, false, x, y, sw, sh)
+	drawTooltip(screen, lines, nil, nil, nil, "", r.x, r.y, r.right(), ui.game.sprites)
 }
 
 // drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a
@@ -336,7 +322,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
 
 			if hovered {
-				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
+				hover = ui.appendCardArtHint(cardCollectionTooltipLines(def), key)
 			}
 		}
 	}

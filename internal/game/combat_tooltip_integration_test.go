@@ -79,8 +79,8 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 						if got := tooltipNumber(t, text, "Base: "); got != tc.base {
 							t.Errorf("source base = %d, want %d", got, tc.base)
 						}
-						if tc.wantSplit && (strings.Index(text, line) < strings.Index(text, "Base:") || strings.Index(text, line) > strings.Index(text, "Total Damage:")) {
-							t.Error("split must be between source formula and resolved damage")
+						if tc.wantSplit && (strings.Index(text, "Total Damage:") > strings.Index(text, "Base:") || strings.Index(text, line) < strings.Index(text, "Base:") || strings.Index(text, line) > strings.Index(text, "\nATTACK\n")) {
+							t.Error("damage result must lead its source formula and per-strike calculation")
 						}
 					}
 					for _, r := range text {

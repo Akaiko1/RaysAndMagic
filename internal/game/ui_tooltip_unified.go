@@ -17,12 +17,10 @@ import (
 //	=== Name ===
 //	Category - Rarity/Level
 //	SECTION
-//	  base -> stat -> mastery -> total decomposition
+//	  results, then base -> stat -> mastery calculation
 //	...
-//	RULES
-//
-// Empty sections and inapplicable lines are skipped; armor/resistance
-// interaction is always spelled out; RT and TB values appear together.
+// Empty sections and inapplicable lines are skipped. Exceptions stay with
+// their mechanic; RT and TB values appear together.
 
 // Shops and editor catalogs use these same builders with no character.
 type ttSection = character.CardSection
@@ -140,6 +138,7 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	}
 
 	attack := ttSection{Title: "ATTACK"}
+	addWeaponCooldown(&attack, char, cs, def)
 	rangeTiles, speedTiles := character.EffectiveWeaponFlight(def, char)
 	if def.Range > 0 {
 		attack.Add("Range: %.0f tiles", rangeTiles)
@@ -156,10 +155,6 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if arc := character.MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
 	}
-	addWeaponCooldown(&attack, char, cs, def)
-	if character.WeaponStrikeCount(def) > 1 {
-		attack.Add("Strikes per attack: %d", character.WeaponStrikeCount(def))
-	}
 	if def.MaxProjectiles > 0 {
 		attack.AddDetail("Maximum Projectiles: %d", def.MaxProjectiles)
 	}
@@ -172,6 +167,12 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	breakdown := character.WeaponDamageBreakdown(def, char)
 	armsBonus, furyBonus := breakdown.ArmsMaster, breakdown.OrcishFury
 	preview := cs.calculateWeaponDamagePreview(item, char)
+	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
+	dmg.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+	if character.WeaponStrikeCount(def) > 1 {
+		dmg.Add("Strikes per attack: %d", character.WeaponStrikeCount(def))
+		dmg.Add("Damage shown per strike")
+	}
 	dmg.AddDetail("Base: %d", breakdown.Base)
 	if char != nil {
 		statBreakdownDetails(&dmg, breakdown.Breakdown, char)
@@ -222,26 +223,23 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if preview.CardTrue > 0 {
 		dmg.AddDetail("Cards: +%d True", preview.CardTrue)
 	}
-	if character.WeaponStrikeCount(def) > 1 {
-		dmg.Add("Damage shown per strike")
-	}
 	if preview.True > 0 {
 		dmg.AddDetail("Normal Damage: %d", preview.Normal)
 	}
-	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
+	armorInteractionRules(&dmg, def.DamageType, def.Physics != nil, preview.True > 0)
+	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
+		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {
+			dmg.AddDetail("Grandmaster: this strike ignores Perfect Dodge")
+		}
+	}
 	totalCrit := def.CritChance
 	if char != nil {
 		totalCrit = cs.CalculateWeaponCritChance(item, char)
 	}
-	if totalCrit > 0 {
-		dmg.Add("Critical Damage: %d", preview.CriticalTotal)
-		if preview.True > 0 || preview.OutgoingBuff > 0 {
-			dmg.AddDetail("Critical hits double normal damage before party buffs; True damage is not doubled")
-		}
-	}
-
 	crit := ttSection{Title: "CRITICAL"}
 	if totalCrit > 0 {
+		crit.Add("Chance: %d%%", totalCrit)
+		crit.Add("Critical Damage: %d", preview.CriticalTotal)
 		if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
 			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
@@ -266,28 +264,21 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 				crit.AddDetail("Capped at %d%%", totalCrit)
 			}
 		}
-		crit.Add("Chance: %d%%", totalCrit)
+		if preview.True > 0 || preview.OutgoingBuff > 0 {
+			crit.AddDetail("Critical hits double normal damage before party buffs; True damage is not doubled")
+		}
+	}
+	if def.AoeRadiusTiles > 0 {
+		crit.AddDetail("%s", character.WeaponSplashCritRule)
 	}
 
 	effects := ttSection{Title: "EFFECTS"}
-	effects.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
 	// Config-computable specials minus the lines this template renders itself.
 	for _, ln := range def.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
 
-	rules := ttSection{Title: "RULES"}
-	armorInteractionRules(&rules, def.DamageType, def.Physics != nil, preview.True > 0)
-	if def.AoeRadiusTiles > 0 {
-		rules.AddDetail("%s", character.WeaponSplashCritRule)
-	}
-	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
-		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {
-			rules.AddDetail("Grandmaster: this strike ignores Perfect Dodge")
-		}
-	}
-
-	return renderTooltip(item.Name, subtitle, []ttSection{attack, dmg, crit, effects, rules}, full)
+	return renderTooltip(item.Name, subtitle, []ttSection{dmg, crit, attack, effects}, full)
 }
 
 // ----------------------------------------------------------------- armor ----
@@ -326,20 +317,20 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 		addItemEffects(&effects, def, item, char)
 	}
 
-	rules := ttSection{Title: "RULES"}
+	requirements := ttSection{Title: "REQUIREMENTS"}
 	if ok && def != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
-		rules.AddDetail("Typed true damage and damage over time bypass Armor Class")
+		defense.AddDetail("Typed true damage and damage over time bypass Armor Class")
 	}
 	if cat, catOK := armorMasterySkill(item); catOK {
 		if line := getArmorRequirementLine(item, char); line != "" {
-			rules.Add("%s", line) // equip requirement is per-item state, not a formula
+			requirements.Add("%s", line)
 		}
 		if tier, _ := masteryTier(char, cat); tier >= int(character.MasteryGrandMaster) {
-			rules.AddDetail("Grandmaster: +%d%% Perfect Dodge while worn", character.ArmorGMDodgeBonus)
+			defense.AddDetail("Grandmaster: +%d%% Perfect Dodge while worn", character.ArmorGMDodgeBonus)
 		}
 	}
 
-	return renderTooltip(item.Name, subtitle, []ttSection{defense, effects, rules}, full)
+	return renderTooltip(item.Name, subtitle, []ttSection{defense, effects, requirements}, full)
 }
 
 // armorMasterySkill maps an armor piece to its mastery skill (leather/chain/
@@ -405,7 +396,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	}
 
 	dmg := ttSection{Title: "DAMAGE"}
-	totalCrit := 0
+	totalCrit, criticalDamage := 0, 0
 	if formula.Kind == spells.DamageProjectile {
 		spellParts = cs.spellDamageParts(def.ID, char, breakdown.Total)
 		mult, base := formula.CostMultiplier, breakdown.Base
@@ -445,7 +436,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if totalCrit > 0 {
 			critParts := spellCriticalParts(spellParts)
 			critParts, _ = cs.spellPartsWithOutgoingBuff(critParts, def.School)
-			dmg.Add("Critical Damage: %d", critParts.Total())
+			criticalDamage = critParts.Total()
 		}
 	}
 	// Party/map nova (Inferno): explicit mastery scaling, all normal damage.
@@ -488,6 +479,8 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 
 	crit := ttSection{Title: "CRITICAL"}
 	if totalCrit > 0 {
+		crit.Add("Chance: %d%%", totalCrit)
+		crit.Add("Critical Damage: %d", criticalDamage)
 		if char != nil {
 			luck, cardCrit, setCrit := cs.CriticalChanceBreakdown(char)
 			parts := []string{fmt.Sprintf("Luck: +%d%%", luck)}
@@ -499,7 +492,6 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			}
 			crit.AddDetail("%s", strings.Join(parts, " - "))
 		}
-		crit.Add("Chance: %d%%", totalCrit)
 	}
 
 	zone := ttSection{Title: "ZONE"}
@@ -548,36 +540,50 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		dmg.Title = "DAMAGE PER TICK"
 	}
 
-	effects := spellCurrentEffects(def, char)
-	// Duration decomposed: base -> mastery % -> current.
+	if def.IsProjectile && !def.DealsNoDamage {
+		dmg.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
+	}
+	effects := spellCurrentEffects(def, char, false)
+	durationSection := ttSection{Title: "DURATION"}
 	if def.Duration > 0 {
 		duration := character.SpellDurationBreakdown(def, char)
 		if char != nil {
-			effects.AddDetail("Base Duration: %ds", duration.Base)
+			durationSection.AddDetail("Base Duration: %ds", duration.Base)
 		}
 		if tier > 0 {
-			effects.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, duration.MasteryPct)
+			durationSection.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, duration.MasteryPct)
 		}
-		effects.Add("%s Duration: %ds", tooltipValuePrefix(char), duration.Seconds)
+		durationSection.Add("%s Duration: %ds", tooltipValuePrefix(char), duration.Seconds)
 	}
 
-	rules := ttSection{Title: "RULES"}
 	for _, rule := range character.SpellRules(def) {
 		switch rule.Kind {
 		case character.SpellRuleMasteryPolicy:
 			continue
 		case character.SpellRuleDodge:
-			if spellParts.True > 0 {
-				rules.AddDetail("Perfect Dodge avoids normal damage; typed true damage still lands")
-			} else {
-				rules.AddDetail("Can be evaded by Perfect Dodge")
+			section := &dmg
+			if formula.Kind == spells.DamageNone {
+				section = &effects
 			}
+			if spellParts.True > 0 {
+				section.AddDetail("Perfect Dodge avoids normal damage; typed true damage still lands")
+			} else {
+				section.AddDetail("Can be evaded by Perfect Dodge")
+			}
+		case character.SpellRuleDamage:
+			dmg.AddDetail("%s", rule.Text)
+		case character.SpellRuleCritical:
+			crit.AddDetail("%s", rule.Text)
+		case character.SpellRuleZone:
+			zone.AddDetail("%s", rule.Text)
+		case character.SpellRuleDuration:
+			durationSection.AddDetail("%s", rule.Text)
 		default:
-			rules.AddDetail("%s", rule.Text)
+			effects.AddDetail("%s", rule.Text)
 		}
 	}
 
-	return renderTooltip(def.Name, subtitle, []ttSection{casting, dmg, heal, crit, zone, effects, rules}, full)
+	return renderTooltip(def.Name, subtitle, []ttSection{dmg, heal, crit, effects, durationSection, zone, casting}, full)
 }
 
 func maxInt(a, b int) int {
@@ -615,6 +621,7 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 			dmg.AddDetail("Trapper - %s: +%d", tierName, tier*character.TrapperDamagePerTier)
 		}
 		dmg.Add("Total Damage: %d", trapDamage(def, char))
+		dmg.Add("%s", damageTypeAoELine(def.Element, def.AoeRadiusTiles))
 	}
 
 	effect := ttSection{Title: "CONTROL"}
@@ -635,25 +642,20 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 		effect.Add("Total Root: %ds RT / %d turns TB", s, t)
 	}
 
-	effects := ttSection{Title: "EFFECTS"}
-	if def.DamageBase > 0 {
-		effects.Add("%s", damageTypeAoELine(def.Element, def.AoeRadiusTiles))
-	}
-
-	rules := ttSection{Title: "RULES"}
+	requirements := ttSection{Title: "REQUIREMENTS"}
 	if char != nil && char.Level < def.Level {
-		rules.Add("LOCKED: requires level %d", def.Level) // must be visible compact
+		requirements.Add("LOCKED: requires level %d", def.Level)
 	}
 	if def.RootTurns > 0 {
-		rules.Add("Prevents movement but not attacks") // the root's key caveat
+		effect.Add("Prevents movement but not attacks")
 	}
 	if def.DamageBase > 0 {
-		armorInteractionRules(&rules, def.Element, false, false)
+		armorInteractionRules(&dmg, def.Element, false, false)
 	}
-	rules.AddDetail("Triggers once, then disappears")
-	rules.AddDetail("Maximum %d armed traps per character on the map", MaxTrapsPerOwner)
+	placement.AddDetail("Triggers once, then disappears")
+	placement.AddDetail("Maximum %d armed traps per character on the map", MaxTrapsPerOwner)
 
-	return renderTooltip(def.Name, subtitle, []ttSection{placement, dmg, effect, effects, rules}, full)
+	return renderTooltip(def.Name, subtitle, []ttSection{dmg, effect, placement, requirements}, full)
 }
 
 // -------------------------------------------------- misc item categories ----
@@ -669,16 +671,17 @@ func buildSimpleItemTooltipUnified(item items.Item, full bool, bearers ...*chara
 		subtitle += " - " + config.TitleWords(def.Rarity)
 	}
 	effect := ttSection{Title: "EFFECTS"}
+	recovery := ttSection{Title: "RECOVERY"}
 	use := ttSection{Title: "USAGE"}
 	if ok && def != nil {
 		for _, ln := range def.EffectLinesWithoutRecovery() {
 			effect.Add("%s", ln)
 		}
-		character.AddConsumableDetails(&effect, def, bearer)
+		character.AddConsumableDetails(&recovery, def, bearer)
 		character.AddConsumableUsage(&use, def)
 		for _, ln := range def.TooltipUsageLines() {
 			use.Add("%s", ln)
 		}
 	}
-	return renderTooltip(item.Name, subtitle, []ttSection{effect, use}, full)
+	return renderTooltip(item.Name, subtitle, []ttSection{recovery, effect, use}, full)
 }

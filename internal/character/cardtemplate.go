@@ -17,13 +17,10 @@ type cardLine struct {
 	detail bool
 }
 
-// CardSection is one titled block of the template. Lines keep INSERTION ORDER
-// with a per-line compact/detail flag: Add() lines show always (totals, costs,
-// the item's special effects + must-see flags), AddDetail() lines only in the
-// full view (Shift held in-game) - the Base->Stat->Mastery decomposition and the
-// universal armor/resistance RULES. Keeping one ordered list (not two arrays)
-// means the full view renders in the SAME order the builder added them, so a
-// decomposition added before its Total reads "Base -> ... -> Total", not reversed.
+// CardSection is one mechanic's results and their explanation. Add() records
+// always-visible results and conditions; AddDetail() records the full-view
+// calculation and exceptions. Rendering keeps source order within each tier,
+// with results first, so expanding a card never buries the answer.
 type CardSection struct {
 	Title string
 	lines []cardLine
@@ -60,17 +57,21 @@ func SectionsHaveDetail(sections []CardSection) bool {
 }
 
 // RenderCardLines flattens sections into display lines, hiding empty sections.
-// Lines render in insertion order; compact (full=false) skips detail lines.
+// Results precede details; compact (full=false) skips detail lines.
 // The map editor always passes true - it's a reference panel, not a tooltip.
 func RenderCardLines(sections []CardSection, full bool) []string {
 	var out []string
 	for _, sec := range sections {
 		var lines []string
-		for _, l := range sec.lines {
-			if l.detail && !full {
+		for _, detail := range []bool{false, true} {
+			if detail && !full {
 				continue
 			}
-			lines = append(lines, l.text)
+			for _, l := range sec.lines {
+				if l.detail == detail {
+					lines = append(lines, l.text)
+				}
+			}
 		}
 		if len(lines) == 0 {
 			continue
@@ -219,6 +220,10 @@ const (
 	// elemental GM it is fully dodgeable; once typed true damage exists, only
 	// the normal component is avoided.
 	SpellRuleDodge
+	SpellRuleDamage
+	SpellRuleCritical
+	SpellRuleZone
+	SpellRuleDuration
 )
 
 type SpellRule struct {
@@ -239,25 +244,25 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	school := config.TitleWords(def.School)
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
-		add(SpellRuleGeneral, "All damage remains normal %s damage", strings.ToLower(school))
-		add(SpellRuleGeneral, "Enemy %s Resistance reduces damage", school)
+		add(SpellRuleDamage, "All damage remains normal %s damage", strings.ToLower(school))
+		add(SpellRuleDamage, "Enemy %s Resistance reduces damage", school)
 		if !def.SparesParty {
-			add(SpellRuleGeneral, "Party %s Resistance reduces self-damage", school)
+			add(SpellRuleDamage, "Party %s Resistance reduces self-damage", school)
 		}
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
 				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
 		}
-		add(SpellRuleGeneral, "Cannot critically hit")
+		add(SpellRuleCritical, "Cannot critically hit")
 	case def.DealsNoDamage:
 		// Control projectiles need to distinguish their effect from a damage hit.
 		// Movement and summons have no direct attack whose crit needs explaining.
 		if def.JumpTiles <= 0 && def.SummonMonster == "" {
 			add(SpellRuleGeneral, "Deals no damage")
-			add(SpellRuleGeneral, "Cannot critically hit")
+			add(SpellRuleCritical, "Cannot critically hit")
 		}
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
-		add(SpellRuleGeneral, "%s Resistance reduces damage", school)
+		add(SpellRuleDamage, "%s Resistance reduces damage", school)
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
 				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
@@ -275,9 +280,9 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	}
 	if def.AoeRadiusTiles > 0 {
 		if def.MortarRangeTiles > 0 {
-			add(SpellRuleGeneral, "One critical roll boosts the entire bloom")
+			add(SpellRuleCritical, "One critical roll boosts the entire bloom")
 		} else {
-			add(SpellRuleGeneral, "%s", SplashCritRule)
+			add(SpellRuleCritical, "%s", SplashCritRule)
 		}
 	}
 	if def.IsProjectile && def.MortarRangeTiles <= 0 {
@@ -288,7 +293,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		}
 	}
 	if def.MortarRangeTiles > 0 {
-		add(SpellRuleGeneral, "The bloom cannot be evaded by Perfect Dodge")
+		add(SpellRuleDamage, "The bloom cannot be evaded by Perfect Dodge")
 	}
 	if def.Pacify {
 		add(SpellRuleGeneral, "Any received hit breaks the charm")
@@ -296,14 +301,14 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	}
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
 		if def.StatBonusGrandmaster > def.StatBonus {
-			add(SpellRuleGeneral, "Mastery increases duration and the bonus")
+			add(SpellRuleDuration, "Mastery increases duration and the bonus")
 		} else {
-			add(SpellRuleGeneral, "Mastery increases duration, not the bonus")
+			add(SpellRuleDuration, "Mastery increases duration, not the bonus")
 		}
-		add(SpellRuleGeneral, "Recasting refreshes the effect")
+		add(SpellRuleDuration, "Recasting refreshes the effect")
 	}
 	if def.ZoneRadiusTiles > 0 {
-		add(SpellRuleGeneral, "Overlapping zones of the same spell do not stack")
+		add(SpellRuleZone, "Overlapping zones of the same spell do not stack")
 	}
 	return out
 }
@@ -332,13 +337,12 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
-	effects.Add("%s", DamageTypeAoELine(def.School, sd.AoeRadiusTiles))
+	dmg.Add("%s", DamageTypeAoELine(def.School, sd.AoeRadiusTiles))
 	for _, ln := range FilteredSpellEffectLines(sd) {
 		effects.Add("%s", ln)
 	}
 
-	rules := CardSection{Title: "RULES"}
-	rules.Add("Strikes your party, not other monsters")
+	casting.Add("Strikes your party, not other monsters")
 
-	return []CardSection{casting, dmg, effects, rules}
+	return []CardSection{dmg, effects, casting}
 }

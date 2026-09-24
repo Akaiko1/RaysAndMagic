@@ -12,7 +12,7 @@ import (
 )
 
 // tooltipDetailHeld reports whether the player is holding Shift to expand a
-// tooltip to its full Base->Stat->Mastery breakdown + universal RULES.
+// tooltip to include calculations and mechanic-specific exceptions.
 func tooltipDetailHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
@@ -45,10 +45,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		return buildSpellItemTooltipFromDefinition(item, char, combatSystem, full)
 	}
 
-	// Every category renders through the unified template (=== Name ===,
-	// Category - Rarity, sections, RULES). Compact by default; the UI passes
-	// full=true (Shift held) to reveal the Base->Stat->Mastery decomposition +
-	// universal RULES (keeps tall cards on screen). Pure formatter - no input read.
+	// Every category uses result-first mechanic sections. Compact is the
+	// default; full=true (Shift held) adds calculations and exceptions within
+	// their sections. Pure formatter - no input read.
 	var core string
 	switch item.Type {
 	case items.ItemTrap:
@@ -291,20 +290,24 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
 	}
 	lines := []string{fmt.Sprintf("Equipped: %s", equippedDef.Name), "After equipping (current -> new)"}
+	casting := ttSection{Title: "CASTING"}
+	damageSection := ttSection{Title: "DAMAGE"}
+	healing := ttSection{Title: "HEALING"}
+	effects := ttSection{Title: "EFFECTS"}
 	if itemCost != eqCost {
-		lines = append(lines, fmt.Sprintf("Spell Points: %d -> %d (%+d)", eqCost, itemCost, itemCost-eqCost))
+		casting.Add("Spell Points: %d -> %d (%+d)", eqCost, itemCost, itemCost-eqCost)
 	}
 
 	oldCooldown := cooldownSeconds(combatSystem, combatSystem.SpellCooldownFrames(char, equippedID))
 	newCooldown := cooldownSeconds(combatSystem, combatSystem.SpellCooldownFrames(char, itemID))
 	if oldCooldown != newCooldown {
-		lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", effectOrNone(oldCooldown), effectOrNone(newCooldown)))
+		casting.Add("RT recovery: %s -> %s", effectOrNone(oldCooldown), effectOrNone(newCooldown))
 	}
 
 	if itemDef.IsProjectile || equippedDef.IsProjectile {
 		if rng, ok := combatSystem.CalculateSpellRangeTiles(itemDef.ID); ok {
 			if eqRng, eqOK := combatSystem.CalculateSpellRangeTiles(equippedDef.ID); eqOK && fmt.Sprintf("%.1f", rng) != fmt.Sprintf("%.1f", eqRng) {
-				lines = append(lines, fmt.Sprintf("Range: %.1f -> %.1f (%+.1f) tiles", eqRng, rng, rng-eqRng))
+				casting.Add("Range: %.1f -> %.1f (%+.1f) tiles", eqRng, rng, rng-eqRng)
 			}
 		}
 	}
@@ -327,7 +330,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 			if perTick {
 				label = "Damage per tick"
 			}
-			lines = append(lines, fmt.Sprintf("%s: %d -> %d (%+d)", label, old, next, next-old))
+			damageSection.Add("%s: %d -> %d (%+d)", label, old, next, next-old)
 		}
 	}
 
@@ -335,7 +338,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		_, _, itemHeal := combatSystem.CalculateSpellHealing(itemDef.ID, char)
 		_, _, eqHeal := combatSystem.CalculateSpellHealing(equippedDef.ID, char)
 		if itemHeal != eqHeal {
-			lines = append(lines, fmt.Sprintf("Total Healing: %d -> %d (%+d)", eqHeal, itemHeal, itemHeal-eqHeal))
+			healing.Add("Total Healing: %d -> %d (%+d)", eqHeal, itemHeal, itemHeal-eqHeal)
 		}
 	}
 
@@ -344,7 +347,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 			itemDur := combatSystem.CalculateSpellDurationSeconds(itemDef.ID, char)
 			eqDur := combatSystem.CalculateSpellDurationSeconds(equippedDef.ID, char)
 			if itemDur != eqDur {
-				lines = append(lines, fmt.Sprintf("Duration: %ds -> %ds (%+ds)", eqDur, itemDur, itemDur-eqDur))
+				effects.Add("Duration: %ds -> %ds (%+ds)", eqDur, itemDur, itemDur-eqDur)
 			}
 		}
 	}
@@ -352,7 +355,11 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 	itemEffects := spellEffectsSummary(itemDef, char)
 	eqEffects := spellEffectsSummary(equippedDef, char)
 	if itemEffects != eqEffects {
-		lines = append(lines, fmt.Sprintf("Effects: %s -> %s", effectOrNone(eqEffects), effectOrNone(itemEffects)))
+		effects.Add("Effects: %s -> %s", effectOrNone(eqEffects), effectOrNone(itemEffects))
+	}
+	body := character.RenderCardLines([]ttSection{damageSection, healing, effects, casting}, true)
+	if len(body) > 0 {
+		lines = append(append(lines, ""), body...)
 	}
 	if len(lines) == 2 {
 		lines = append(lines, "No change to current stats or abilities")
@@ -370,7 +377,7 @@ func effectOrNone(s string) string {
 
 // spellEffectsSummary uses the card's current effects and delivery geometry.
 func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter) string {
-	effects := spellCurrentEffects(def, char)
+	effects := spellCurrentEffects(def, char, true)
 	effects.Title = ""
 	var lines []string
 	for _, line := range character.RenderCardLines([]ttSection{effects}, false) {

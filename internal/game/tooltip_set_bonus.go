@@ -27,9 +27,6 @@ func equipmentSetTooltipLines(key string, bearer *character.MMCharacter) []strin
 func (ui *UISystem) queueItemTooltip(lines []string, item items.Item, bearer *character.MMCharacter, x, y int) {
 	plate, titleText := ui.itemTitleColors(item)
 	var colors []color.Color
-	if titleText != nil {
-		colors = ui.rarityBodyColors(item, len(lines))
-	}
 	colors = activeSetBonusColors(lines, colors, item, bearer)
 	ui.queueTitledTooltipIcon(lines, colors, plate, titleText, itemTooltipIconName(item), x, y)
 }
