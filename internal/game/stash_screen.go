@@ -401,7 +401,11 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	case stashKindChest, stashKindCard:
 		source := g.stashCellPtr(src)
 		if source != nil {
-			fragment, ok = source.SplitOffForStashWithdrawal(quantity)
+			if dst.kind == stashKindBag {
+				fragment, ok = source.SplitOffForStashWithdrawal(quantity)
+			} else {
+				fragment, ok = source.SplitOffWithinStash(quantity)
+			}
 		}
 	}
 	if !ok {

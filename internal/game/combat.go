@@ -362,11 +362,15 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 	if departing == nil || g.combat == nil {
 		return
 	}
+	completed := map[*monsterPkg.EncounterRewards]bool{}
 	kept := departing.Monsters[:0]
 	for _, m := range departing.Monsters {
 		if m == nil || !m.Bound || !m.IsAlive() {
 			kept = append(kept, m)
 			continue
+		}
+		if m.IsEncounterMonster && m.EncounterRewards != nil {
+			completed[m.EncounterRewards] = true
 		}
 		if !isPurePartySummon(m) {
 			g.combat.awardExperienceOnly(m)
@@ -381,6 +385,12 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 		}
 	}
 	departing.Monsters = kept
+	gl := &GameLoop{game: g}
+	for rewards := range completed {
+		if gl.countRemainingEncounterMonsters(departing.Monsters, rewards) == 0 {
+			gl.awardEncounterRewards(rewards)
+		}
+	}
 }
 
 // summonCardAllies spawns up to n permanent Bound allies for one physical card.
@@ -1030,6 +1040,9 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 
 	hits := 0
 	hit := func(m *monsterPkg.Monster3D) {
+		if !m.IsAlive() {
+			return
+		}
 		cs.ApplyDamageToMonster(m, damage, weapon.Name, isCrit)
 		hits++
 	}
@@ -1333,6 +1346,9 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 }
 
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+	if monster == nil || !monster.IsAlive() {
+		return
+	}
 	if isPurePartySummon(monster) {
 		return
 	}
@@ -1392,6 +1408,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+		if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
+			cs.applyAoeSplash(monster, attack, weaponDef.AoeRadiusTiles)
+		}
 		return
 	}
 

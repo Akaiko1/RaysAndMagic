@@ -484,7 +484,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 		return false
 	}
 	for _, m := range w.Monsters {
-		if m == nil || !m.IsAlive() || m.IsAmbient() {
+		if m == nil || !m.IsAlive() || m.IsAmbient() || m.IsPartyControlled() {
 			continue
 		}
 		tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
@@ -503,7 +503,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	if w == g.world {
 		for _, m := range w.Monsters {
-			if m != nil && m.PackKey == tag {
+			if m != nil && m.PackKey == tag && !m.IsPartyControlled() {
 				g.deadMonsterIDs = append(g.deadMonsterIDs, m.ID)
 			}
 		}
@@ -511,7 +511,7 @@ func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	}
 	kept := w.Monsters[:0]
 	for _, m := range w.Monsters {
-		if m != nil && m.PackKey == tag {
+		if m != nil && m.PackKey == tag && !m.IsPartyControlled() {
 			continue
 		}
 		kept = append(kept, m)
@@ -632,4 +632,13 @@ func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, cou
 		}
 	}
 	return slots
+}
+
+// cancelDayNightSkip discards presentation and uncommitted phases when a new
+// timeline replaces this one. Saving instead commits them before snapshotting.
+func (g *MMGame) cancelDayNightSkip() {
+	g.dayNightSkipActive = false
+	g.dayNightSkipTargetFrame = 0
+	g.dayNightSkipPhases = nil
+	g.cancelSkyFade()
 }

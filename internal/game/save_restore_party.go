@@ -46,17 +46,12 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 			g.totalGoldEarned = 0
 		}
 	}
-	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
-	// the bag anything the shared chest already owns. A stamp means this slot was
-	// migrated - flag it so LoadGameFromFile persists the ids once (the strip is
-	// idempotent per load and needs no resave).
+	// Stamp legacy party identities once. Ownership reconciliation runs after
+	// ground containers are restored, before stack merging and stat derivation.
 	if g.stampPartyInstanceIDs() {
 		g.loadNeedsResave = true
 	}
-	g.reconcilePartyAgainstStash()
-	// Fold duplicate stackables (pre-stacking saves) into stacks AFTER the
-	// stash strip, so a chest-owned copy is removed before it can merge.
-	g.party.MergeStacks()
+
 	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too -
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members

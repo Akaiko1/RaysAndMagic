@@ -78,11 +78,15 @@ func TestSavedCardPreviewMatchesRestore(t *testing.T) {
 				if err := json.Unmarshal(before, &copySave); err != nil {
 					t.Fatal(err)
 				}
-				cs := newTestCombatSystemWithConfig(t)
-				cs.game.stash = shared
-				cs.game.restoreSavedParty(&GameSave{Party: copySave})
+				g, wm, _ := travelFixture(t)
+				g.stash = shared
+				saved := g.buildSave(wm)
+				saved.Party = copySave
+				if err := g.applySave(wm, &saved); err != nil {
+					t.Fatal(err)
+				}
 				for i, it := range preview {
-					actual := cs.game.cardSlots[i].item
+					actual := g.cardSlots[i].item
 					if it.Name != tc.want[i] || actual.Name != tc.want[i] {
 						t.Fatalf("slot %d preview=%q loaded=%q want=%q", i, it.Name, actual.Name, tc.want[i])
 					}

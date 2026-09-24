@@ -218,3 +218,46 @@ func TestAIRegressionHealerKeepsSpecialAgainstSummon(t *testing.T) {
 		}
 	}
 }
+
+// Rebased patrol homes are ordinary saved anchors in both mode snapshots.
+// TB intentionally does not run ordinary patrol: test that it preserves the
+// old home until RT resumes, then persists the fallback home across a reload.
+func TestAIRegressionUnreachablePatrolHomeSave(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		t.Run(fmt.Sprint(tb), func(t *testing.T) {
+			g, wm, tile := travelFixture(t)
+			g.turnBasedMode = tb
+			placePlayerAtTile(g, 35, 35, tile)
+			m := monster.NewMonster3DFromConfig(5.5*tile, 5.5*tile, "bandit", g.config)
+			m.SpawnX, m.SpawnY = 20.5*tile, 5.5*tile
+			m.TetherRadius = 2 * tile
+			m.State = monster.StatePatrolling
+			g.world.Tiles[5][20] = world.TileWall
+			g.world.Monsters = []*monster.Monster3D{m}
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			if tb {
+				runOneMonsterTurn(g, &GameLoop{game: g})
+				if m.SpawnX != 20.5*tile {
+					t.Fatal("TB unexpectedly ran idle patrol fallback")
+				}
+				g.turnBasedMode = false
+			}
+			wr := CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g)
+			wr.Update()
+			wr.ApplyCollisionUpdate()
+			if m.SpawnX != m.X || m.SpawnY != m.Y {
+				t.Fatal("RT failed to recover the unreachable patrol home")
+			}
+			x, y := m.SpawnX, m.SpawnY
+			g.turnBasedMode = tb
+			saved := auditSaveJSON(t, g.buildSave(wm))
+			if err := g.applySave(wm, &saved); err != nil {
+				t.Fatal(err)
+			}
+			m = g.world.Monsters[0]
+			if m.SpawnX != x || m.SpawnY != y || !m.IsWithinTetherRadius() {
+				t.Fatal("reload restored the unreachable old home")
+			}
+		})
+	}
+}

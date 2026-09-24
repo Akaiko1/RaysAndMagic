@@ -89,6 +89,7 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 			if !ok {
 				continue
 			}
+			g.recordTerrainChange(tx, ty, tile, floor)
 			g.world.Tiles[ty][tx] = floor
 			toppled[[2]int{tx, ty}] = true
 		}

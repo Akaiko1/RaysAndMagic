@@ -1,13 +1,17 @@
 package game
 
 import (
+	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 )
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	Ecology EcologyState `json:"ecology,omitempty"`
+	TerrainChanges []TerrainChange `json:"terrain_changes,omitempty"`
+	Ecology        EcologyState    `json:"ecology,omitempty"`
 
 	MapKey             string                   `json:"map_key"`
 	PlayerX            float64                  `json:"player_x"`
@@ -26,8 +30,7 @@ type GameSave struct {
 	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`
 	GroundContainers   []GroundContainerSave    `json:"ground_containers,omitempty"`
 	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
-	// level-ups. Options are rebuilt from class+level on load, so we only
-	// need to remember which character is owed a choice at which level.
+	// level-ups and promotions, including their exact options and selections.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 	MaxPartyLevel         int                        `json:"max_party_level,omitempty"`
@@ -189,11 +192,25 @@ type SkillEntry struct {
 }
 
 // PendingLevelUpChoiceSave records that party member CharIndex has earned a
-// level-up choice at Level but hasn't picked one yet. Options themselves are
-// not stored - they're rebuilt from the character's class config on load.
+// level-up or promotion choice. Old saves without options use class/level
+// reconstruction; level zero identifies the legacy promotion picker.
 type PendingLevelUpChoiceSave struct {
-	CharIndex int `json:"char_index"`
-	Level     int `json:"level"`
+	CharIndex     int                        `json:"char_index"`
+	Level         int                        `json:"level"`
+	Options       []PendingLevelUpOptionSave `json:"options,omitempty"`
+	MaxSelections int                        `json:"max_selections,omitempty"`
+	Selected      []bool                     `json:"selected,omitempty"`
+	Selection     int                        `json:"selection,omitempty"`
+	Title         string                     `json:"title,omitempty"`
+	PadToMinimum  bool                       `json:"pad_to_minimum,omitempty"`
+}
+
+// PendingLevelUpOptionSave preserves resolved random mastery options as well as spells.
+type PendingLevelUpOptionSave struct {
+	Choice    config.LevelUpChoice    `json:"choice"`
+	SkillType character.SkillType     `json:"skill_type"`
+	School    character.MagicSchoolID `json:"school,omitempty"`
+	SpellID   spells.SpellID          `json:"spell_id,omitempty"`
 }
 
 // MagicSchoolEntry persists one magic school. Level is the same derived label as
@@ -335,6 +352,7 @@ type MonsterRuntimeStatsSave struct {
 }
 
 type EncounterRewardSave struct {
+	FreesCaptives     bool                      `json:"frees_captives,omitempty"`
 	Gold              int                       `json:"gold"`
 	Experience        int                       `json:"experience"`
 	CompletionMessage string                    `json:"completion_message,omitempty"`

@@ -90,11 +90,15 @@ func TestRepeatableKillQuotaStartsFresh(t *testing.T) {
 			forest.Monsters = append(forest.Monsters, monster.NewMonster3DFromConfig((float64(tx)+.5)*ts, (float64(ty)+.5)*ts, "forest_spider", g.config))
 		}
 	}
-	add(2)
 	ih := &InputHandler{game: g}
 	ih.handleGiveQuest("lake_spiders")
 	q := g.questManager.GetQuest("lake_spiders")
-	if q.Target() != 2 {
+	if g.creditQuestIfCleared(q.ID) || q.Completed {
+		t.Fatal("absent seasonal pack granted free quest rewards")
+	}
+	add(2)
+	g.reconcileKillQuests()
+	if q.Target() != 5 {
 		t.Fatalf("first night target=%d", q.Target())
 	}
 	g.questManager.MarkCompleted(q.ID)

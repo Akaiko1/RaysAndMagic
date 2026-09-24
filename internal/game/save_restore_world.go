@@ -91,6 +91,9 @@ func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) 
 			restored.Items = make([]items.Item, len(c.Items))
 			for i, it := range c.Items {
 				normalizeItemFromConfig(&it)
+				if items.EnsureInstanceID(&it) {
+					g.loadNeedsResave = true
+				}
 				restored.Items[i] = it
 			}
 		}

@@ -589,6 +589,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+		if aoeRadiusTiles > 0 {
+			cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
+		}
 		return
 	}
 

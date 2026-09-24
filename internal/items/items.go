@@ -179,7 +179,7 @@ func (it *Item) ConsumeStackUnits(quantity int) bool {
 // from a split component are rekeyed. This is the direction used when a party
 // stack is partially deposited into the shared stash.
 func (it *Item) SplitOff(quantity int) (Item, bool) {
-	return it.splitOff(quantity, true)
+	return it.splitOff(quantity, true, true)
 }
 
 // SplitOffForStashWithdrawal is the inverse partial-transfer direction. The
@@ -187,10 +187,15 @@ func (it *Item) SplitOff(quantity int) (Item, bool) {
 // of a split component is rekeyed. That prevents the live party save from
 // looking like it still owns the same units as the chest on a later reload.
 func (it *Item) SplitOffForStashWithdrawal(quantity int) (Item, bool) {
-	return it.splitOff(quantity, false)
+	return it.splitOff(quantity, false, true)
 }
 
-func (it *Item) splitOff(quantity int, movedKeepsSplitLineage bool) (Item, bool) {
+// SplitOffWithinStash changes layout without transferring ownership.
+func (it *Item) SplitOffWithinStash(quantity int) (Item, bool) {
+	return it.splitOff(quantity, false, false)
+}
+
+func (it *Item) splitOff(quantity int, movedKeepsSplitLineage, rekeySplit bool) (Item, bool) {
 	if it == nil || !it.Stackable() || quantity < 1 || quantity >= it.Count() {
 		return Item{}, false
 	}
@@ -200,9 +205,9 @@ func (it *Item) splitOff(quantity int, movedKeepsSplitLineage bool) (Item, bool)
 	if len(parts) == 0 {
 		fragment.Quantity = quantity
 		it.Quantity = it.Count() - quantity
-		if movedKeepsSplitLineage {
+		if rekeySplit && movedKeepsSplitLineage {
 			it.InstanceID = NewInstanceID()
-		} else {
+		} else if rekeySplit {
 			fragment.InstanceID = NewInstanceID()
 		}
 		return fragment, true
@@ -225,9 +230,9 @@ func (it *Item) splitOff(quantity int, movedKeepsSplitLineage bool) (Item, bool)
 		leftQuantity := part.Quantity - movedQuantity
 		if leftQuantity > 0 {
 			leftPart := StackLineage{ID: part.ID, Quantity: leftQuantity}
-			if movedKeepsSplitLineage {
+			if rekeySplit && movedKeepsSplitLineage {
 				leftPart.ID = NewInstanceID()
-			} else {
+			} else if rekeySplit {
 				movedPart.ID = NewInstanceID()
 			}
 			kept = append(kept, leftPart)

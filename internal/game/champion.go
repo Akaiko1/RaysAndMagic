@@ -744,7 +744,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 		return
 	}
 	if g.arenaTierSpentToday(choice.Tier) {
-		g.AddCombatMessage("That challenge is spent for today - return after sunrise.")
+		g.AddCombatMessage("That challenge is spent for now - return after the next dawn or dusk.")
 		return
 	}
 

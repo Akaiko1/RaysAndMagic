@@ -177,6 +177,7 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	terrainChanges          []TerrainChange
 	editorPreview           *editorPreviewState
 	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
 	ecology                 EcologyState

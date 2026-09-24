@@ -33,9 +33,8 @@ type Entry struct {
 	Kills       map[string]map[string]int `json:"kills"`
 	TotalPoints int                       `json:"total_points"`
 	LastVictory time.Time                 `json:"last_victory"`
-	// LastCredit: tier -> the in-game day of the last COUNTED victory (the run
-	// is this entry's key). A reloaded save keeps the same day, so save-scumming
-	// can never farm the board; a new day counts again.
+	// LastCredit: tier -> highest in-game phase credited for this run.
+	// Equal or older saves cannot replay that tier for another board credit.
 	LastCredit map[string]int `json:"last_credit,omitempty"`
 }
 
@@ -57,17 +56,29 @@ type Board struct {
 
 func filePath() string { return storage.AppSavePath(fileName) }
 
-// Load reads the board; a missing or corrupt file yields an empty board.
+// Load is the read-only UI view. Mutation paths use LoadChecked and never
+// replace unreadable records with this empty display fallback.
 func Load() *Board {
-	data, err := os.ReadFile(filePath())
+	b, err := LoadChecked()
 	if err != nil {
 		return &Board{}
 	}
-	var b Board
-	if json.Unmarshal(data, &b) != nil {
-		return &Board{}
+	return b
+}
+
+func LoadChecked() (*Board, error) {
+	data, err := os.ReadFile(filePath())
+	if os.IsNotExist(err) {
+		return &Board{}, nil
 	}
-	return &b
+	if err != nil {
+		return nil, err
+	}
+	var b Board
+	if err := json.Unmarshal(data, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
 }
 
 // Save writes the board.
@@ -77,11 +88,14 @@ func Save(b *Board) error {
 
 // RecordVictory upserts the RUN's entry: member snapshot refreshed, the
 // (champion, tier) kill counted, points accumulated; re-sorted by points.
-// day guards against save-scum farming: a tier already credited on the SAME
-// in-game day of this run (a save-load replay) is NOT counted again. Returns
+// day is a high-water mark: replaying the same or any earlier phase of a run
+// cannot earn another board credit. Returns
 // whether the victory was recorded.
 func RecordVictory(runID string, members []Member, championName, tier string, points, day int) bool {
-	b := Load()
+	b, err := LoadChecked()
+	if err != nil {
+		return false
+	}
 	var entry *Entry
 	for i := range b.Entries {
 		if b.Entries[i].RunID == runID {
@@ -93,8 +107,8 @@ func RecordVictory(runID string, members []Member, championName, tier string, po
 		b.Entries = append(b.Entries, Entry{RunID: runID, Kills: map[string]map[string]int{}})
 		entry = &b.Entries[len(b.Entries)-1]
 	}
-	if credited, ok := entry.LastCredit[tier]; ok && credited == day {
-		return false // same run, same in-game day: the board already honors it
+	if credited, ok := entry.LastCredit[tier]; ok && day <= credited {
+		return false // This phase or a later one already earned credit.
 	}
 	entry.Members = members
 	if entry.Kills == nil {
@@ -111,6 +125,5 @@ func RecordVictory(runID string, members []Member, championName, tier string, po
 	entry.TotalPoints += points
 	entry.LastVictory = time.Now()
 	sort.Slice(b.Entries, func(i, j int) bool { return b.Entries[i].TotalPoints > b.Entries[j].TotalPoints })
-	_ = Save(b)
-	return true
+	return Save(b) == nil
 }

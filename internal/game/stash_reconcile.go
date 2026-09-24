@@ -132,17 +132,17 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 
 // reconcilePartyAgainstStash drops chest-owned units from every place a save
 // can carry an item: bag, all rosters' equipment/quick slots, and the card
-// collection. Stackable items can contain multiple origins after UI merges, so
-// claims are consumed globally while walking the party. Zero-ID legacy items
+// collection and ground containers. Stackable items can contain multiple origins
+// after UI merges, so claims are consumed globally. Zero-ID legacy items
 // remain untracked until the normal ID migration stamps them.
 func (g *MMGame) reconcilePartyAgainstStash() {
 	if g.party == nil || !g.ensureStashLoaded() {
 		return
 	}
-	g.loadNeedsResave = reconcilePartyItemsAgainstStash(g.party, &g.cardSlots, g.stash) || g.loadNeedsResave
+	g.loadNeedsResave = reconcilePartyItemsAgainstStash(g.party, &g.cardSlots, g.stash, g.groundContainers) || g.loadNeedsResave
 }
 
-func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlots]cardSlot, shared *stash.Stash) (rekeyedAny bool) {
+func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlots]cardSlot, shared *stash.Stash, ground ...[]GroundContainer) (rekeyedAny bool) {
 	if party == nil || shared == nil {
 		return false
 	}
@@ -223,6 +223,17 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		if _, kept := afterDedup(cards[slot].item); !kept {
 			cards[slot] = cardSlot{}
+		}
+	}
+	for _, containers := range ground {
+		for i := range containers {
+			kept := containers[i].Items[:0]
+			for _, it := range containers[i].Items {
+				if item, ok := afterDedup(it); ok {
+					kept = append(kept, item)
+				}
+			}
+			containers[i].Items = kept
 		}
 	}
 	return rekeyedAny

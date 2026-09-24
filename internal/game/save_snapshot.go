@@ -56,6 +56,7 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 		return nil
 	}
 	rewards := &monster.EncounterRewards{
+		FreesCaptives:     save.FreesCaptives,
 		Gold:              save.Gold,
 		Experience:        save.Experience,
 		CompletionMessage: save.CompletionMessage,
@@ -259,6 +260,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				rewards := mon.EncounterRewards
 				saveEntry.EncounterRewards = &EncounterRewardSave{
+					FreesCaptives:     rewards.FreesCaptives,
 					Gold:              rewards.Gold,
 					Experience:        rewards.Experience,
 					CompletionMessage: rewards.CompletionMessage,
@@ -392,7 +394,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if len(g.levelUpChoiceQueue) > 0 {
 		pendingChoices = make([]PendingLevelUpChoiceSave, 0, len(g.levelUpChoiceQueue))
 		for _, req := range g.levelUpChoiceQueue {
+			options := make([]PendingLevelUpOptionSave, len(req.options))
+			for i, option := range req.options {
+				options[i] = PendingLevelUpOptionSave{Choice: option.choice, SkillType: option.skillType, School: option.school, SpellID: option.spellID}
+			}
 			pendingChoices = append(pendingChoices, PendingLevelUpChoiceSave{
+				Options: options, MaxSelections: req.maxSelections, Selected: append([]bool(nil), req.selected...), Selection: req.selection, Title: req.title, PadToMinimum: req.padToMinimum,
 				CharIndex: req.charIndex,
 				Level:     req.level,
 			})
@@ -462,6 +469,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
+		TerrainChanges:             append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:                     saveMapKey,
 		PlayerX:                    savePX,
 		PlayerY:                    savePY,

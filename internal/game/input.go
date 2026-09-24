@@ -288,6 +288,9 @@ func (ih *InputHandler) restartNewGame() {
 // drops the player into gameplay with the given party. Shared by restartNewGame
 // (default roster) and the party-creation screen (player-picked roster).
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	g.applyTerrainChanges(g.terrainChanges, true)
+	g.terrainChanges = nil
+	g.cancelDayNightSkip()
 	g.ecology = EcologyState{}
 	g.caravanAttackAlertUntil = time.Time{}
 	g.ecologyViews = nil
@@ -532,9 +535,16 @@ func (ih *InputHandler) saveVictoryScore() {
 		Date:       ih.game.victoryTime,
 	}
 
-	scores, _ := highscore.Load()
+	scores, err := highscore.Load()
+	if err != nil {
+		ih.game.AddCombatMessage("Could not read high scores: " + err.Error())
+		return
+	}
 	highscore.Add(scores, entry)
-	_ = highscore.Save(scores)
+	if err := highscore.Save(scores); err != nil {
+		ih.game.AddCombatMessage("Could not save high scores: " + err.Error())
+		return
+	}
 
 	ih.game.victoryScoreSaved = true
 }
@@ -1636,7 +1646,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	}
 
 	// Close menu with Escape
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	if ih.keys.Consume(ebiten.KeyEscape) {
 		ih.game.menuOpen = false
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 		return
@@ -2286,6 +2296,8 @@ func (ih *InputHandler) handleTurnBasedInput() {
 
 		if moved {
 			ih.game.turnBasedMoveCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
+			ih.game.endPartyTurnAfterMovement()
+			return
 		}
 	}
 
@@ -2306,11 +2318,6 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
 			return
 		}
-	}
-
-	if moved {
-		ih.game.endPartyTurnAfterMovement()
-		return
 	}
 
 	// Selected character can attack/spell if they're still selectable this
@@ -2555,7 +2562,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		ih.game.dialogSelectedSpell = len(options) - 1
 	}
 
-	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		if ih.game.dialogSelectedSpell > 0 {
 			ih.game.dialogSelectedSpell--
 		} else {
@@ -2564,7 +2571,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		ih.syncSkillTrainerPageToSelection()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
 		if ih.game.dialogSelectedSpell < len(options)-1 {
 			ih.game.dialogSelectedSpell++
 		} else {
@@ -2573,7 +2580,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		ih.syncSkillTrainerPageToSelection()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
 		ih.purchaseSelectedTraining()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
@@ -2786,7 +2793,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 			return
 		}
 		quest := g.questManager.GetQuest(questID)
-		if quest == nil || !quest.Completed {
+		if quest == nil || !quest.Completed || quest.RewardsClaimed {
 			g.AddCombatMessage(uitext.Text("dialog.the_lich_king_still_draws_breath_return"))
 			return
 		}
@@ -2795,7 +2802,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 			return
 		}
 		g.recordProfileQuestResolution(quest)
-		g.questManager.RemoveQuest(questID) // can't be turned in twice
+		_, _ = g.questManager.ClaimRewards(questID) // retain completion for saves and rumors
 		if npc != nil {
 			npc.Visited = true
 		}

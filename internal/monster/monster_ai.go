@@ -592,9 +592,9 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 		spawnTileX := m.worldToTile(m.SpawnX)
 		spawnTileY := m.worldToTile(m.SpawnY)
 		m.setMoveTarget(StatePatrolling, spawnTileX, spawnTileY)
-		if !m.followPathToTile(collisionChecker, spawnTileX, spawnTileY) {
-			m.clearMoveTarget()
-		}
+		// Keep a temporarily blocked home objective so its retry throttle is
+		// not reset by setMoveTarget on the next tick. Fallback clears it itself.
+		m.followPathToTile(collisionChecker, spawnTileX, spawnTileY)
 		return
 	}
 
@@ -1009,9 +1009,38 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		shouldRepath = true
 	}
 
-	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
-		func() []TileCoord { return m.findPathToTile(collisionChecker, targetTileX, targetTileY) },
-		m.movementSpeed(m.State), true, false, nil)
+	if m.isReturnHomeGoal(TileCoord{X: targetTileX, Y: targetTileY}) && shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 &&
+		m.StateTimer >= m.LastPathCalcTick && !m.canRepath(m.pathCheckFrequency()) {
+		return false
+	}
+	failedSearch := false
+	moved := m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
+		func() []TileCoord {
+			path := m.findPathToTile(collisionChecker, targetTileX, targetTileY)
+			failedSearch = len(path) == 0
+			return path
+		}, m.movementSpeed(m.State), true, false, nil)
+	// An unreachable patrol home must not pin this actor to a full A* search
+	// every tick. Adopt its current refuge; ordinary patrol can resume next tick.
+	// Only an actual failed search qualifies, never a blocked movement step.
+	if failedSearch && m.State == StatePatrolling && !m.MovementHeld(false) &&
+		m.isReturnHomeGoal(TileCoord{X: targetTileX, Y: targetTileY}) &&
+		len(m.findPathToTile(patrolTerrainChecker{collisionChecker}, targetTileX, targetTileY)) == 0 {
+		m.SpawnX, m.SpawnY = m.X, m.Y
+		m.ResetPathfinding()
+	}
+	return moved
+}
+
+// A body temporarily blocking a home route must not change the patrol origin.
+type patrolTerrainChecker struct{ CollisionChecker }
+
+func (c patrolTerrainChecker) CanMoveToWithTileOverrides(id string, x, y float64, overrides []string, flying bool) bool {
+	return c.CanOccupyTilesWithTileOverrides(id, x, y, overrides, flying)
+}
+
+func (m *Monster3D) isReturnHomeGoal(goal TileCoord) bool {
+	return !m.IsWithinTetherRadius() && goal == (TileCoord{X: m.worldToTile(m.SpawnX), Y: m.worldToTile(m.SpawnY)})
 }
 
 // followPathStep advances one tick along m.PathTiles toward (targetTileX,
@@ -1304,7 +1333,9 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 
 	nodesSearched := 0
 	maxNodes := 500 // typical mob search area is ~200-400 tiles
-	if m.relentlessHunter() {
+	if len(goals) == 1 && m.isReturnHomeGoal(goals[0]) {
+		maxNodes = width * height
+	} else if m.relentlessHunter() {
 		// Map-wide pursuit may path across a whole maze - well beyond a normal budget.
 		maxNodes = 4000
 	}

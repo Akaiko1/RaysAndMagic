@@ -303,6 +303,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s springs under %s!", def.Name, victim.Name))
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
+	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
@@ -311,13 +312,29 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 					Distance(t.X, t.Y, m.X, m.Y) > radius {
 					continue
 				}
+				if cs.tryDarkElfBindInstead(t.Owner, m) {
+					if m == victim {
+						boundVictim = true
+					}
+					continue
+				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			}
 		} else {
-			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
+			if cs.tryDarkElfBindInstead(t.Owner, victim) {
+				boundVictim = true
+			} else {
+				cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
+			}
 		}
 	}
 
+	if boundVictim {
+		return
+	}
+	if def.DamageBase <= 0 && cs.tryDarkElfBindInstead(t.Owner, victim) {
+		return
+	}
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
 	if victim.IsDamageInvulnerable() {

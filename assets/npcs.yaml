@@ -1600,6 +1600,7 @@ npcs:
     render_category: npc
     size_class: person
     sell_available: true
+    stock_refresh_weeks: 1
     dialogue:
       greeting: "Come under the awning. Zaira of the Long Road. Mail, plate, potions, road gear. Everything survived the journey here; now let's see what will get you through yours."
     inventory:

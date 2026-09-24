@@ -106,6 +106,16 @@ func validRumorSpawnReference(ref string, questManager *quests.QuestManager) boo
 
 // questCompleted reports whether a quest is completed in the current run.
 func (g *MMGame) questCompleted(id string) bool {
+	// Older versions removed the trial from the journal after promotion.
+	if id == "archmage_trial" && g.party != nil {
+		for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+			for _, member := range roster {
+				if member != nil && member.Promotion == character.PromotionArchmage {
+					return true
+				}
+			}
+		}
+	}
 	if g.questManager == nil {
 		return false
 	}

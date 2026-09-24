@@ -28,6 +28,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	// reach saved slots), keyed by SpellEffect.
 	if item.Type == items.ItemTrap {
 		if fresh, ok := config.TrapItem(string(item.SpellEffect)); ok {
+			fresh.InstanceID = item.InstanceID
 			*item = fresh
 		}
 		return

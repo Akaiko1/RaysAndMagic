@@ -53,6 +53,7 @@ quests:
     description: "Ilsa wants a bath without Forest Spiders gathering on the bank. Kill {target_count} at the forest lake and return to her for a reward. More arrive each night; she will pay for another clearing."
     type: "kill"
     target_monster: "forest_spider"
+    fixed_quota: true
     target_count: 5
     target_map: "forest"
     is_starting_quest: false

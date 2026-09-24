@@ -142,7 +142,7 @@ func (g *MMGame) applyLichPromotion(charIndex int) {
 
 // openPromotionSpellPicker queues a "pick up to 2" multi-select over the school's
 // spells the character doesn't already know. Status + school unlock must already
-// be applied by the caller (so a save mid-picker only forfeits the free spells).
+// be applied by the caller. Pending choices are preserved by save/load.
 func (g *MMGame) openPromotionSpellPicker(charIndex int, school character.MagicSchoolID, title string) {
 	if charIndex < 0 || charIndex >= len(g.party.Members) {
 		return

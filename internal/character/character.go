@@ -432,6 +432,11 @@ func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) 
 		if !ok {
 			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
 		}
+		// The half-orc Knight replaces this class skill with Orcish Fury.
+		// Do not re-add the replaced skill on every save migration.
+		if replaced, _, ok := c.racialSkillReplacement(); ok && st == replaced {
+			continue
+		}
 		mastery := MasteryNovice
 		if startTier, ok := stats.SkillStartMastery[sk]; ok {
 			m, ok := masteryFromKey(startTier)
@@ -540,25 +545,32 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 		ensureFixed(SkillHalflingGuile)
 	case "dark_elf":
 		ensureFixed(SkillDarkElfBinding)
-	case "half_orc":
-		if c.Class != ClassKnight {
-			break
-		}
+	}
+	if replaced, replacement, ok := c.racialSkillReplacement(); ok {
 		mastery := MasteryNovice
-		if old := c.Skills[SkillImpenetrableDefense]; old != nil {
+		if old := c.Skills[replaced]; old != nil {
 			mastery = old.Mastery
-			delete(c.Skills, SkillImpenetrableDefense)
+			delete(c.Skills, replaced)
 			changed = true
 		}
-		if fury := c.Skills[SkillOrcishFury]; fury == nil {
-			c.Skills[SkillOrcishFury] = &Skill{Mastery: mastery}
+		if skill := c.Skills[replacement]; skill == nil {
+			c.Skills[replacement] = &Skill{Mastery: mastery}
 			changed = true
-		} else if mastery > fury.Mastery {
-			fury.Mastery = mastery
+		} else if mastery > skill.Mastery {
+			skill.Mastery = mastery
 			changed = true
 		}
 	}
 	return changed
+}
+
+// racialSkillReplacement is shared by class-kit initialization and racial
+// migration, so a replaced skill cannot be reintroduced on the next load.
+func (c *MMCharacter) racialSkillReplacement() (SkillType, SkillType, bool) {
+	if c.Race == "half_orc" && c.Class == ClassKnight {
+		return SkillImpenetrableDefense, SkillOrcishFury, true
+	}
+	return 0, 0, false
 }
 
 // derivedStatMultipliers returns the HP/SP formula multipliers, falling back to

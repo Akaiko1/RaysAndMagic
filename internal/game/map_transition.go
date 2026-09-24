@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
 
@@ -80,6 +81,13 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 		return fmt.Errorf("world manager not available")
 	}
 	oldWorld := g.world
+	if g.worldByKey(targetMapKey) == nil {
+		return fmt.Errorf("destination map is not loaded: %s", targetMapKey)
+	}
+	g.flushDepartureDeaths()
+	if oldWorld != g.worldByKey(targetMapKey) {
+		g.crumbleBoundAlliesOnDeparture(oldWorld)
+	}
 	err := world.GlobalWorldManager.SwitchToMap(targetMapKey)
 	if err != nil {
 		return err
@@ -87,9 +95,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 
 	// Update world reference and collision system
 	g.world = g.GetCurrentWorld()
-	if oldWorld != g.world {
-		g.crumbleBoundAlliesOnDeparture(oldWorld)
-	}
+
 	g.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
 	g.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
 	// Sync the new world's Fly flag to the party NOW (not next frame): it may
@@ -146,6 +152,7 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 	g.spawnQuestCompletionMonsters(true)
 	g.flushPendingQuestSpawns()
 	g.setPartyPosition(x, y)
+	g.relocateTravelAllies()
 	// Landmark solidity was registered against the OLD map's coordinates during
 	// the switch; re-derive it now that the arrival position is final.
 	g.refreshLandmarkCollision()
@@ -156,4 +163,44 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 		g.snapToCardinalDirection()
 	}
 	g.Autosave()
+}
+
+// Travel must settle the departing world's death queue before transient reset.
+func (g *MMGame) flushDepartureDeaths() {
+	if g.world == nil || g.combat == nil {
+		return
+	}
+	if g.reusableDeadSet == nil {
+		g.reusableDeadSet = make(map[string]bool)
+	}
+	if g.reusableEncounterRewardsMap == nil {
+		g.reusableEncounterRewardsMap = make(map[*monster.EncounterRewards]int)
+	}
+	gl := &GameLoop{game: g}
+	gl.finalizeIndirectKills()
+	if len(g.deadMonsterIDs) > 0 {
+		gl.removeDeadMonstersByID()
+	}
+}
+
+// A same-world fast trip keeps allies and their timers, but relocates their
+// bodies and path state beside the new party position before the autosave.
+func (g *MMGame) relocateTravelAllies() {
+	if g.world == nil || g.combat == nil || g.collisionSystem == nil {
+		return
+	}
+	for _, m := range g.world.Monsters {
+		if m == nil || !m.IsAlive() || !m.Bound {
+			continue
+		}
+		x, y, ok := g.combat.findNearestSummonTile(g.camera.X, g.camera.Y, 10)
+		if !ok {
+			x, y = g.camera.X, g.camera.Y
+		} // controlled allies may share the party's tile
+		m.X, m.Y = x, y
+		m.ResetPathfinding()
+		m.AIFoe = nil
+		m.IsEngagingPlayer = false
+		g.collisionSystem.UpdateEntity(m.ID, x, y)
+	}
 }
