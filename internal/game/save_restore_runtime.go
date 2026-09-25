@@ -1,6 +1,8 @@
 package game
 
 import (
+	"time"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -10,6 +12,7 @@ import (
 func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	// Restore mode
 	g.turnBasedMode = save.TurnBased
+	g.resetOverwatch()
 	g.turnBasedTurnSuspended = save.TurnBasedTurnSuspended
 	g.currentTurn = save.CurrentTurn
 	g.partyActionsUsed = save.PartyActionsUsed
@@ -92,10 +95,6 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	g.underwaterReturnX = save.UnderwaterReturnX
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
-	// The aggregate is DERIVED from the restored registry (never trusted from
-	// the save) - a drifted legacy save can't turn a buff expiry into a
-	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
-	g.recomputeStatBonuses()
 	g.mapReturnPoses = save.MapReturnPoses
 	if g.mapReturnPoses == nil {
 		g.mapReturnPoses = make(map[string]MapPose)
@@ -108,9 +107,34 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 			continue
 		}
 		char := g.party.Members[pending.CharIndex]
-		choices := config.GetLevelUpChoices(char.GetClassKey(), pending.Level)
-		g.queueLevelUpChoices(char, pending.Level, choices)
+		if len(pending.Options) > 0 {
+			req := levelUpChoiceRequest{charIndex: pending.CharIndex, level: pending.Level, maxSelections: pending.MaxSelections, title: pending.Title, padToMinimum: pending.PadToMinimum, selection: pending.Selection}
+			for i, savedOption := range pending.Options {
+				option := levelUpChoiceOption{choice: savedOption.Choice, skillType: savedOption.SkillType, school: savedOption.School, spellID: savedOption.SpellID}
+				setLevelUpOptionDisplay(char, &option)
+				req.options = append(req.options, option)
+				req.selected = append(req.selected, i < len(pending.Selected) && pending.Selected[i])
+			}
+			if g.pruneLevelUpOptions(&req) {
+				req.selection = min(max(0, req.selection), len(req.options)-1)
+				g.levelUpChoiceQueue = append(g.levelUpChoiceQueue, req)
+			}
+		} else if pending.Level == 0 {
+			// Promotion requests in old saves carried only level zero.
+			if char.Promotion == character.PromotionArchmage {
+				g.openPromotionSpellPicker(pending.CharIndex, character.MagicSchoolLight, "Archmage: Choose Light Spells")
+			}
+			if char.Promotion == character.PromotionLich {
+				g.openPromotionSpellPicker(pending.CharIndex, character.MagicSchoolDark, "Lich: Choose Dark Spells")
+			}
+		} else {
+			choices := config.GetLevelUpChoices(char.GetClassKey(), pending.Level)
+			g.queueLevelUpChoices(char, pending.Level, choices)
+		}
 	}
+	g.victoryScoreSaved = false
+	g.victoryNameInput = ""
+	g.victoryTime = time.Time{}
 	g.gameOver = false
 	g.gameVictory = false
 	g.victoryAcknowledged = save.VictoryAcknowledged
@@ -118,17 +142,11 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
-		g.world.SetFlyActive(g.flyActive)
+		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 		g.dropFlyWithoutOpenSky() // an indoor save (or a pre-rule one) must not restore wings
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}
 
-	// A position saved on an older map layout can sit inside what is now a
-	// wall; clamp it to walkable ground. Runs here, after the buff restore
-	// above, so water/Fly saves keep their legal mid-lake or airborne spot.
-	if sx, sy := g.safePartyDestination(g.camera.X, g.camera.Y); sx != g.camera.X || sy != g.camera.Y {
-		g.setPartyPosition(sx, sy)
-	}
 }
 
 func (g *MMGame) restoreSavedEffectPresentation(wm *world.WorldManager, save *GameSave) {

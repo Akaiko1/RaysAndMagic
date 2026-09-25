@@ -23,23 +23,23 @@
 %.....;;;;;;;;;;;.@.....=:::::::::::%.M.....O.....t.M..%  >[npc:pond_keeper_ayame]
 %OO..;;;;;WWW;;;;;......%:::::::::::%.MO.......t.......%
 %OO.;;;;WWWWWWW;;;;H....%%%%%222%%%%%.MOO.M............%
-%.O.;;;;WWQQQWW;;;;.....T....222......MMMMMt.........O.%
+%.O.;;;;WWQQQWW;;;;.....T....222.......MMMMt.........O.%
 %OO.;;;WWQQ@QQWW;D;....OT....2G2..........MOO.......O..%  >[npc:chest_golden]
-%OO.P;;;WWQQQWW;;;;...OOT...L222L.....MMM.MOOM.........%
-%...;;;;WWWWWWW;;;;..UTTT....222......MO..........M....%
+%OO.P;;;WWQQQWW;;;;...OOT...L222L......MM.MOOM.........%
+%...;;;;WWWWWWW;;;;..UTT.....222......MO..........M....%
 %....;;;;;WWW;;I;;...........222..@...MO...............%  >[npc:tengu_exile_kuroha]
-%...k.III;;;;;;I;;.....TT...L222L.....MM.........t.....%
+%...k.III;;;;;;I;;..........L222L.....MM.........t.....%
 %......;;;;;;;;k..I....OT....222......MO...............%
 %..O.....k;;;......I....TBBBBB::BBBBB.M............t...%
 %..OO.......k.......I...TB::::::::::B.M................%
 %....................I..TBE::::::::$B.M......O..O......%  >[tile:brazier]
-%KKKKKKKKK..KKKKKKKKKKKKKB::::::::::B.MOMOMOMO..MOMOMOM%
-%KKKKKKKKK..KKKKKKKKKKKKKB$:J::::J::B.OMOMOMOM..OMOMOMO%  >[tile:omikuji]
+%KKKKKKKK....KKKKKKKKKKKKB::::::::::B.MOMOMOMO..MOMOMOM%
+%KKKKKKKKK..KKKKKKKKKKKKKB$:J::::J::B.OMOMOMO....MOMOMO%  >[tile:omikuji]
 %...........P............B:::::::::::..................%
 %....KKKK................B:::::X:::::A.................%
-%....KKKK...KKKK.........B$::::::::$BVVVVVVVVVVVVVVV.VV%  >[tile:taiko], [tile:sake_barrels]
-%....KKKK...KKKK.......T.B::::::@:::B,,,VVVV,,,,VVVV,VV%  >[npc:onmyoji_hina]
-%...........KKKK.........B::::::::::B,,,VVVV,,,,VVVV,VV%
+%....KKKK...KKKK.........B$::::::::$BVVVVVVVVVVVVVV...V%  >[tile:taiko], [tile:sake_barrels]
+%....KKKK...KKKK.......T.B::::::@:::B,,,VVVV,,,,VVV.,.V%  >[npc:onmyoji_hina]
+%...........KKKK.........B::::::::::B,,,VVVV,,,,VVV.,.V%
 %..u....FFFF.............B::::::::::B,f,VVVV,,,,,,,,,,V%
 %......,,u......KKKK.....BBBBB::BBBBB,,,,,,,VVV,,,U,,,V%
 %...KKK,,,...u..KKKK.....K....22....VVVV,,,,VVV,,,,,,,V%
@@ -52,13 +52,13 @@
 %......KKK....KKKK.......K..:::::C:.V,,,,,,,,,,,,,,,,,V%
 %...K..KKK..............AK..:::::::.V,,P,,V,,,P,P,,,V,V%
 %...@K............u......K....22....V,,,,,,,,,,,,,,,,,V%  >[npc:chest_iron]
-%KKKKKKKKKK.KKKKKKKKKKKKKK....22....V,,,,,V,,,,j,,,,,,V%
-%KKKKKKKKKK.KKKKKKKKKKKKKK....22....V,,,,,,,,,,,,,,,V,V%
+%KKKKKKKKK..KKKKKKKKKKKKKK....22....V,,,,,V,,,,j,,,,,,V%
+%KKKKKKKK....KKKKKKKKKKKKK....22....V,,,,,,,,,,,,,,,V,V%
 %...................................V,,,,,V,,,,,,,,,,,V%
 %......M.....C.M............M.......V,,,,,,V@,,,,,@,V,V%  >[npc:chest_iron], [npc:chest_golden]
-%...A............AA....LAL.....u....VVV,,,,V,,,,,,V,,,V%
+%...A............AA....LAL.....u.....V.,,,,V,,,,,,V,,,V%
 %...A,,AAA,,,,,,,,,,,,,,,,,,,,,,,,,..,,,,,,,,V,,V,,,,,V%
-%...A.A.@.A....AA...u..AA..P....A...VVV,,,,,,,,,,,,,,,V%  >[npc:spell_lectern]
+%...A.A.@.A....AA...u..AA..P....A......,,,,,,,,,,,,,,,V%  >[npc:spell_lectern]
 %......AAA.M.......M...M.........M..VVVVVVVVVVVVVVVVVVV%
 %......................................................%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

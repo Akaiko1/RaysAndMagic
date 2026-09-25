@@ -1,9 +1,10 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 
-	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -18,6 +19,13 @@ import (
 func DrawShadedText(dst *ebiten.Image, text string, x, y int, col color.Color) {
 	drawDebugTextColored(dst, text, x, y, col)
 }
+
+// ShadedTextWidth is the advance of the same font used by DrawShadedText and
+// ebitenutil.DebugPrintAt. Editor labels must not estimate a different glyph width.
+func ShadedTextWidth(text string) int { return debugTextWidth(text) }
+
+// ShadedTextColumns converts available pixels to complete fixed-width glyphs.
+func ShadedTextColumns(width int) int { return max(0, width/debugTextCharWidth) }
 
 // RarityColor is the game's single rarity->tint mapping (metal tiers render as
 // gradients through DrawShadedText).
@@ -35,25 +43,21 @@ func RefreshItemFromConfig(item *items.Item) { normalizeItemFromConfig(item) }
 // SchoolColor is the damage-school tint, usable wherever a school needs a
 // color (editor resist sheets; free for game HUD use).
 func SchoolColor(school string) color.Color {
-	damageType, err := damagecalc.ParseType(school)
-	if err != nil {
-		return color.White
-	}
-	if c, ok := schoolColors[damageType]; ok {
-		return c
-	}
-	return color.White
+	return config.SchoolRGBA(school)
 }
 
-var schoolColors = map[damagecalc.Type]color.RGBA{
-	damagecalc.Physical: {200, 200, 200, 255},
-	damagecalc.Fire:     {255, 110, 60, 255},
-	damagecalc.Water:    {80, 150, 255, 255},
-	damagecalc.Air:      {160, 220, 255, 255},
-	damagecalc.Earth:    {180, 140, 70, 255},
-	damagecalc.Mind:     {230, 120, 255, 255},
-	damagecalc.Body:     {150, 220, 90, 255},
-	damagecalc.Spirit:   {235, 235, 255, 255},
-	damagecalc.Light:    {255, 235, 130, 255},
-	damagecalc.Dark:     {160, 70, 220, 255},
+// MapLightingText describes the same outdoor/interior policy as the renderer.
+// Catalogs have no clock and therefore never claim a fixed outdoor brightness.
+func MapLightingText(mc *config.MapConfig) string {
+	if mc == nil {
+		return ""
+	}
+	if skyHasDayNightVariants(mc.SkyTexture) {
+		return "Ambient light: day/night cycle"
+	}
+	ambient := mc.AmbientLight
+	if ambient <= 0 {
+		ambient = 1
+	}
+	return fmt.Sprintf("Ambient light: %.2f", ambient)
 }

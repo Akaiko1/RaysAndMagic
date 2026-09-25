@@ -574,40 +574,11 @@ func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW i
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
 }
 
-// inGameQuickSlotBarLayout returns the gameplay quick-bar rectangle exactly
-// when it is visible. The HUD chat shares this layout to reserve the bar's
-// space instead of drawing over it at narrow standard resolutions.
+// inGameQuickSlotBarLayout uses the shared gameplay action rail so item hit
+// regions, camping and the other HUD overlays agree on their occupied space.
 func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
-	if g == nil || g.config == nil || g.menuOpen || g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
-		return layoutRect{}, false
-	}
-	ch := g.party.Members[g.selectedChar]
-	if ch == nil {
-		return layoutRect{}, false
-	}
-	any := false
-	for _, it := range ch.QuickSlots {
-		if it != nil {
-			any = true
-			break
-		}
-	}
-	if !any {
-		return layoutRect{}, false
-	}
-
-	pw, _, baseLeft, startY := partyPortraitLayout(g)
-	barW := pw * 2
-	if barW > 240 {
-		barW = 240
-	}
-	barH := int(float64(barW) / quickSlotBarAspect)
-	barX := baseLeft + pw*4 - barW // right edge aligned to the rightmost card
-	barY := startY - barH - 18
-	if barY < 0 {
-		barY = 0
-	}
-	return layoutRect{x: barX, y: barY, w: barW, h: barH}, true
+	layout, visible := inGameActionBarLayout(g)
+	return layout.quick, visible && layout.hasQuick
 }
 
 // drawInGameQuickSlots floats the bar above the party cards, right-aligned to the
@@ -683,24 +654,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	// used by an unconscious owner routes to a target picker (see
 	// UseConsumableFromInventory); a revive opens the revival picker.
 	if item.Type == items.ItemConsumable {
-		// ONE unit goes to the bag as a temp entry - raw append, not AddItem: a
-		// merge into an existing bag stack would break the "temp copy at idx"
-		// contract below and consume from the wrong pile.
-		drink := *item
-		drink.Quantity = 1
-		g.party.Inventory = append(g.party.Inventory, drink)
-		idx := len(g.party.Inventory) - 1
-		used := g.UseConsumableFromInventory(idx, charIdx)
-		switch {
-		case used:
-			g.decrementQuickSlot(ch, slotIdx) // one unit drunk; stack lives on
-		case g.revivalPickerOpen || g.healPickerOpen:
-			// A picker owns the temp bag copy at idx; keep the slot filled until it
-			// resolves (confirm clears it, cancel drops the temp copy & keeps it).
-			g.pickerQuickChar, g.pickerQuickSlot = charIdx, slotIdx
-		default:
-			g.party.RemoveItem(idx) // refused (full HP etc.): keep it, spend nothing
-		}
+		g.useQuickConsumable(charIdx, slotIdx)
 		return
 	}
 

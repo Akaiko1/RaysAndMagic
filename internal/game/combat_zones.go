@@ -136,7 +136,7 @@ func (cs *CombatSystem) zoneCastCells(proto PersistentDamageZone, def spells.Spe
 	if ahead <= 0 {
 		ahead = 1
 	}
-	fx, fy := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
+	fx, fy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	rx, ry := -fy, fx // camera right, in world space
 	// The wall runs along the GRID AXIS nearest the facing's right vector. Laying
 	// it on the raw diagonal instead leaves cells sharing a tile (a 3-wide wall
@@ -471,11 +471,9 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 			damagecalc.Parts{Normal: z.TickDamage, True: z.TrueTickDamage},
 			damageTypeStr,
 		)
-		actual := cs.applyMonsterDamagePacket(
-			m,
-			singleMonsterDamagePacket(parts, damageTypeStr, z.ResistPierce),
-			monsterDamageOptions{IgnoreArmor: true},
-		).Total()
+		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
+		attack.IgnoreArmor = true
+		actual := cs.applyPartyMonsterAttack(m, attack).Total()
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
 		if damageTypeStr == damagecalc.Water.String() {
 			cs.game.spawnSteamPuff(m.X, m.Y) // scalding steam keeps its own puff

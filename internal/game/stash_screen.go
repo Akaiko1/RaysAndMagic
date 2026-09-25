@@ -401,7 +401,11 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	case stashKindChest, stashKindCard:
 		source := g.stashCellPtr(src)
 		if source != nil {
-			fragment, ok = source.SplitOffForStashWithdrawal(quantity)
+			if dst.kind == stashKindBag {
+				fragment, ok = source.SplitOffForStashWithdrawal(quantity)
+			} else {
+				fragment, ok = source.SplitOffWithinStash(quantity)
+			}
 		}
 	}
 	if !ok {
@@ -499,8 +503,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	popupW, popupH := stashPopupW, stashPopupH
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
+	ui.drawThemeFrame(screen, frameGold, popupX, popupY, popupW, popupH)
 	drawDebugText(screen, "Tavern Stash", popupX+16, popupY+14)
 	drawDebugText(screen, stashSubtitle, popupX+16, popupY+34)
 
@@ -702,14 +705,7 @@ func (ui *UISystem) drawStashCarriedIcon(screen *ebiten.Image) {
 // otherwise. hidden suppresses the icon for the cell currently being carried out.
 // card tints the frame violet so the card-only bank reads apart from the chest.
 func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.Rectangle, hidden, card bool) {
-	fill := color.RGBA{20, 20, 38, 230}
-	border := color.RGBA{90, 90, 130, 200}
-	if card {
-		fill = color.RGBA{40, 22, 52, 230}
-		border = color.RGBA{150, 90, 190, 210}
-	}
-	drawFilledRect(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), fill)
-	drawRectBorder(screen, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), 1, border)
+	ui.drawThemeFrame(screen, frameGold, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
 	if !stash.IsEmpty(it) && !hidden {
 		ui.drawInventoryItemIcon(screen, it, r.Min.X+2, r.Min.Y+2, r.Dx()-4, r.Dy()-4, 0, true)
 	}
@@ -722,16 +718,10 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	g := ui.game
 	rt := stashToggleRect(L)
 	label := "Cards >"
-	base := color.RGBA{70, 60, 110, 220}
 	if g.stashShowCards {
 		label = "< Items"
-		base = color.RGBA{96, 64, 120, 230}
 	}
-	if ptInRect(mouseX, mouseY, rt) {
-		base.R, base.G, base.B = base.R+30, base.G+30, base.B+30
-	}
-	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
-	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
+	ui.drawButtonFrame(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), ptInRect(mouseX, mouseY, rt))
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{rt.Min.X, rt.Min.Y, (rt.Max.X) - (rt.Min.X), (rt.Max.Y) - (rt.Min.Y)}, func() {
 		if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
@@ -757,12 +747,7 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 		return
 	}
 	lines := strings.Split(tip, "\n")
-	plate, titleText := ui.itemTitleColors(it)
-	var bodyColors []color.Color
-	if titleText != nil {
-		bodyColors = ui.rarityBodyColors(it, len(lines))
-	}
-	ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(it), mouseX+16, mouseY+8)
+	ui.queueItemTooltip(lines, it, char, mouseX+16, mouseY+8)
 }
 
 // stashCardSource captures a card cell as a drag source.

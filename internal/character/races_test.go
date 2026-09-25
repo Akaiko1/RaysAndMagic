@@ -1,6 +1,7 @@
 package character
 
 import (
+	"fmt"
 	"testing"
 	"ugataima/internal/config"
 )
@@ -146,5 +147,53 @@ func TestEnsureRacialTraitsInfersLegacyRosterRace(t *testing.T) {
 	}
 	if c.Race != "half_orc" || c.Skills[SkillOrcishFury] == nil || c.Skills[SkillOrcishFury].Mastery != MasteryExpert {
 		t.Fatalf("legacy race migration = race %q, fury %+v", c.Race, c.Skills[SkillOrcishFury])
+	}
+}
+
+// Class-kit initialization and racial migration must agree for fresh and old
+// rosters, preserve the better mastery, and become idempotent after one pass.
+func TestRacialSkillReplacementIdempotence(t *testing.T) {
+	for _, race := range []string{"half_orc", "human"} {
+		for _, class := range []CharacterClass{ClassKnight, ClassArcher} {
+			for _, state := range []string{"fresh", "old_skill_higher", "replacement_higher"} {
+				t.Run(fmt.Sprintf("%s/%v/%s", race, class, state), func(t *testing.T) {
+					cfg := racesTestConfig()
+					stats := cfg.Characters.Classes[class.Key()]
+					stats.Skills = []string{"impenetrable_defense"}
+					cfg.Characters.Classes[class.Key()] = stats
+					c := &MMCharacter{Class: class, Race: race, Skills: map[SkillType]*Skill{}}
+					if state != "fresh" {
+						c.Skills[SkillImpenetrableDefense] = &Skill{Mastery: MasteryMaster}
+						c.Skills[SkillOrcishFury] = &Skill{Mastery: MasteryExpert}
+						if state == "replacement_higher" {
+							c.Skills[SkillOrcishFury].Mastery = MasteryGrandMaster
+						}
+					}
+					c.EnsureClassKitSkills(cfg)
+					c.EnsureRacialTraits(cfg)
+					replacement := race == "half_orc" && class == ClassKnight
+					if (c.Skills[SkillImpenetrableDefense] == nil) != replacement {
+						t.Fatal("class and racial passes disagree on replaced skill")
+					}
+					if replacement {
+						want := MasteryNovice
+						if state != "fresh" {
+							want = MasteryMaster
+							if state == "replacement_higher" {
+								want = MasteryGrandMaster
+							}
+						}
+						if c.Skills[SkillOrcishFury] == nil || c.Skills[SkillOrcishFury].Mastery != want {
+							t.Fatal("replacement lost earned mastery")
+						}
+					}
+					for i := 0; i < 3; i++ {
+						if c.EnsureClassKitSkills(cfg) || c.EnsureRacialTraits(cfg) {
+							t.Fatal("settled skill replacement requested another migration")
+						}
+					}
+				})
+			}
+		}
 	}
 }

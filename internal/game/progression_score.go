@@ -9,14 +9,7 @@ import (
 
 // GetScoreData collects score-input data from the current game state.
 func (g *MMGame) GetScoreData() highscore.ScoreData {
-	totalLevel := 0
-	for _, member := range g.party.Members {
-		totalLevel += member.Level
-	}
-	avgLevel := 1
-	if len(g.party.Members) > 0 {
-		avgLevel = totalLevel / len(g.party.Members)
-	}
+	avgLevel := g.party.AverageLevel()
 
 	playTime := time.Since(g.sessionStartTime)
 	if !g.victoryTime.IsZero() {
@@ -37,6 +30,7 @@ func (g *MMGame) awardGold(amount int) {
 	}
 	g.party.Gold += amount
 	g.totalGoldEarned += amount
+	g.profileAdd("gold", int64(amount))
 	g.playSound(soundCoins)
 }
 

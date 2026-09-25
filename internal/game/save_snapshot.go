@@ -56,11 +56,16 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 		return nil
 	}
 	rewards := &monster.EncounterRewards{
+		FreesCaptives:     save.FreesCaptives,
 		Gold:              save.Gold,
 		Experience:        save.Experience,
 		CompletionMessage: save.CompletionMessage,
 		QuestID:           save.QuestID,
 		TreasureChest:     treasureChestRewardFromSave(save.TreasureChest),
+	}
+	if encounter := character.NPCConfigInstance.EncounterByQuestID(save.QuestID); encounter != nil && encounter.Rewards != nil {
+		rewards.Gold = encounter.Rewards.Gold
+		rewards.Experience = encounter.Rewards.Experience
 	}
 	for _, chestSave := range save.TreasureChests {
 		if chest := treasureChestRewardFromSave(&chestSave); chest != nil {
@@ -157,13 +162,21 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
+			// Leaping fish are brief visual encounters; only their drops persist.
+			if mon.IsFish() {
+				continue
+			}
 			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
 			slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
-				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				AmbientThreat:     mon.Threat,
+				Arbor:             mon.Arbor,
+				Population:        mon.Population,
+				AmbientMoveCredit: mon.AmbientMoveCredit,
+				ID:                mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				CharmedByParty:          mon.CharmedByParty,
@@ -227,6 +240,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
 			}
+			saveEntry.SpawnPosition = &[2]float64{mon.SpawnX, mon.SpawnY}
 			if isPurePartySummon(mon) {
 				saveEntry.RuntimeStats = &MonsterRuntimeStatsSave{
 					MaxHitPoints: mon.MaxHitPoints,
@@ -246,6 +260,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				rewards := mon.EncounterRewards
 				saveEntry.EncounterRewards = &EncounterRewardSave{
+					FreesCaptives:     rewards.FreesCaptives,
 					Gold:              rewards.Gold,
 					Experience:        rewards.Experience,
 					CompletionMessage: rewards.CompletionMessage,
@@ -287,13 +302,22 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 					mapMonsters[key] = []MonsterSave{}
 				}
 			}
-			for i, mon := range wm.OpenWorld.Monsters {
-				key, lx, ly, ok := wm.LocalizeWorldPos(mon.X, mon.Y)
+			// Localize the filtered records themselves: transient actors such as
+			// fish have no save entry, so live-roster indexes do not align.
+			for _, entry := range saves {
+				key, lx, ly, ok := wm.LocalizeWorldPos(entry.X, entry.Y)
 				if !ok {
 					continue
 				}
-				entry := saves[i]
 				entry.X, entry.Y = lx, ly
+				entry.AmbientThreat = entry.AmbientThreat.MapPosition(func(x, y float64) (float64, float64) {
+					return wm.LocalizeRegionWorldPos(key, x, y)
+				})
+				entry.Arbor = entry.Arbor.MapPositions(func(x, y float64) (float64, float64) {
+					return wm.LocalizeRegionWorldPos(key, x, y)
+				})
+				sx, sy := wm.LocalizeRegionWorldPos(key, entry.SpawnPosition[0], entry.SpawnPosition[1])
+				entry.SpawnPosition = &[2]float64{sx, sy}
 				if entry.LootGuardTargetTileX != 0 || entry.LootGuardTargetTileY != 0 {
 					entry.LootGuardTargetTileX, entry.LootGuardTargetTileY =
 						wm.LocalizeTile(key, entry.LootGuardTargetTileX, entry.LootGuardTargetTileY)
@@ -345,11 +369,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if g.questManager != nil {
 		for _, quest := range g.questManager.GetAllQuests() {
 			questSaves = append(questSaves, QuestSave{
-				ID:             quest.ID,
-				Status:         string(quest.Status),
-				CurrentCount:   quest.CurrentCount,
-				DynamicTarget:  quest.DynamicTarget,
-				RewardsClaimed: quest.RewardsClaimed,
+				ID:               quest.ID,
+				Status:           string(quest.Status),
+				CurrentCount:     quest.CurrentCount,
+				DynamicTarget:    quest.DynamicTarget,
+				DynamicTargetSet: quest.DynamicTargetSet,
+				RewardsClaimed:   quest.RewardsClaimed,
+				ClaimedAtDay:     quest.ClaimedAtDay,
 			})
 		}
 	}
@@ -368,7 +394,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if len(g.levelUpChoiceQueue) > 0 {
 		pendingChoices = make([]PendingLevelUpChoiceSave, 0, len(g.levelUpChoiceQueue))
 		for _, req := range g.levelUpChoiceQueue {
+			options := make([]PendingLevelUpOptionSave, len(req.options))
+			for i, option := range req.options {
+				options[i] = PendingLevelUpOptionSave{Choice: option.choice, SkillType: option.skillType, School: option.school, SpellID: option.spellID}
+			}
 			pendingChoices = append(pendingChoices, PendingLevelUpChoiceSave{
+				Options: options, MaxSelections: req.maxSelections, Selected: append([]bool(nil), req.selected...), Selection: req.selection, Title: req.title, PadToMinimum: req.padToMinimum,
 				CharIndex: req.charIndex,
 				Level:     req.level,
 			})
@@ -438,6 +469,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
+		TerrainChanges:             append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:                     saveMapKey,
 		PlayerX:                    savePX,
 		PlayerY:                    savePY,
@@ -456,11 +488,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:           groundContainerSaves,
 		PendingLevelUpChoices:      pendingChoices,
 		PlayedTimeNs:               playedTime.Nanoseconds(),
+		MaxPartyLevel:              g.unlockedPartyLevel(),
 		DayNightFrames:             g.dayNightFrames,
 		DayNightDay:                g.dayNightDay,
-		CalendarDay:                g.calendarDay,
+		Ecology:                    cloneEcologyState(g.ecology),
+		CalendarDay:                g.currentCalendarDay(),
 		CalendarWeek:               g.calendarWeek,
 		CalendarMonth:              g.calendarMonth,
+		RespawnDayVersion:          respawnDaySaveVersion,
 		ArenaTierFoughtDay:         g.arenaTierFoughtDay,
 		ArenaRunID:                 g.playthroughID,
 		TotalGoldEarned:            g.totalGoldEarned,

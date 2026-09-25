@@ -2,12 +2,18 @@ package game
 
 import "ugataima/internal/config"
 
+// calendarDayFromPhase maps the old zero-based phase clock to the calendar.
+// Runs start at noon on day 1; dusk stays on that day and dawn starts the next.
+func calendarDayFromPhase(phase int) int {
+	return max(0, phase)/2 + 1
+}
+
 // calendarFromSave restores the persisted calendar. Older saves only have the
 // arena phase counter; two phase changes make one calendar day, so it provides
 // a stable migration starting at Day 1 / Week 1 / Month 1.
 func calendarFromSave(day, week, month, phaseChanges int, cfg config.DayNightConfig) (int, int, int) {
 	if day < 1 {
-		day = phaseChanges/2 + 1
+		day = calendarDayFromPhase(phaseChanges)
 	}
 	if week < 1 {
 		week = (day-1)/cfg.DaysPerWeekOrDefault() + 1
@@ -19,8 +25,8 @@ func calendarFromSave(day, week, month, phaseChanges int, cfg config.DayNightCon
 }
 
 // advanceCalendarAtDawn moves the real calendar forward one day and returns
-// which larger boundaries changed. Game-time systems use these boundaries,
-// while dayNightDay remains the arena's per-phase refresh counter.
+// which larger boundaries changed. All day-based timers use this calendar;
+// dayNightDay remains a phase counter for phase-driven content and old saves.
 func (g *MMGame) advanceCalendarAtDawn() (weekChanged, monthChanged bool) {
 	if g.calendarDay < 1 {
 		g.calendarDay = 1
@@ -36,4 +42,9 @@ func (g *MMGame) advanceCalendarAtDawn() (weekChanged, monthChanged bool) {
 	g.calendarWeek = (g.calendarDay-1)/g.config.DayNight.DaysPerWeekOrDefault() + 1
 	g.calendarMonth = (g.calendarDay-1)/g.config.DayNight.DaysPerMonthOrDefault() + 1
 	return g.calendarWeek != oldWeek, g.calendarMonth != oldMonth
+}
+
+// currentCalendarDay is one-based even before the first clock update.
+func (g *MMGame) currentCalendarDay() int {
+	return max(1, g.calendarDay)
 }

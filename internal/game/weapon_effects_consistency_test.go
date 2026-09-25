@@ -3,7 +3,7 @@ package game
 // Verifies that every weapon special-effect declared in weapons.yaml is
 // surfaced consistently by:
 //  1. config.WeaponDefinitionConfig.EffectLines (SSoT)
-//  2. weaponEffectsSummary (in-game compare-tooltip)
+//  2. comparisonEffectLines (in-game compare-tooltip)
 //
 // The map-viewer card and the main in-game tooltip both call EffectLines
 // directly, so structural consistency there is guaranteed by code - these
@@ -85,7 +85,7 @@ func TestWeaponEffectsSummary_DelegatesToEffectLines(t *testing.T) {
 			t.Fatalf("weapon %q missing", weaponKey)
 		}
 		item := items.CreateWeaponFromYAML(weaponKey)
-		summary := weaponEffectsSummary(item)
+		summary := strings.Join(comparisonEffectLines(item), ", ")
 		for _, line := range def.EffectLines() {
 			if !strings.Contains(summary, line) {
 				t.Errorf("weapon %q compare-tooltip lost effect line %q:\n  summary=%q",

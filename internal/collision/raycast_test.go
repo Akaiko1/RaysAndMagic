@@ -29,7 +29,7 @@ func (m *mockTileChecker) IsTileBlocking(tileX, tileY int) bool {
 	return false
 }
 
-func (m *mockTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
+func (m *mockTileChecker) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	return m.IsTileBlocking(tileX, tileY)
 }
 

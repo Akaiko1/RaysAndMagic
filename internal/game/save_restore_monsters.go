@@ -74,6 +74,11 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
+				// Legacy saves had no home: adopt their position once. A sealed boss
+				// retains its authored throne instead of an obsolete saved anchor.
+				if _, sealed := sealedSpawn[key]; !sealed && ms.SpawnPosition != nil {
+					m.SpawnX, m.SpawnY = ms.SpawnPosition[0], ms.SpawnPosition[1]
+				}
 				adoptSavedMonsterID(m, ms.ID)
 				// Seal a dormant boss immediately. refreshMonsterAIState recomputes
 				// BossDormant every frame, but that runs AFTER input - so without this a
@@ -184,6 +189,15 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.LootGuardAlerted = ms.LootGuardAlerted
 				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
+				m.Population = ms.Population
+				m.AmbientMoveCredit = ms.AmbientMoveCredit
+				if m.IsWildlife() {
+					m.Threat = ms.AmbientThreat
+					m.AmbientFlee = m.Threat.Seconds > 0
+				}
+				if m.Arboreal != nil {
+					m.Arbor = ms.Arbor
+				}
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a
@@ -240,6 +254,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 		}
 
+		// A load replaces the timeline. Missing stamps mean unknown age, not a
+		// date inherited from whichever save happened to be loaded before it.
+		for _, w := range wm.LoadedMaps {
+			if w != nil {
+				w.LastRespawnDay = 0
+			}
+		}
 		if len(save.MapMonsters) > 0 {
 			for mapKey, w := range wm.LoadedMaps {
 				monsters, ok := save.MapMonsters[mapKey]
@@ -253,12 +274,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// authored roster forever. A genuinely cleared farming map always
 				// has its first-arrival stamp, so preserve only this legacy case.
 				mapConfig := wm.MapConfigs[mapKey]
-				_, hasRespawnStamp := save.MapRespawnDay[mapKey]
+				hasRespawnStamp := save.MapRespawnDay[mapKey] > 0
 				if len(monsters) == 0 && !hasRespawnStamp && mapConfig != nil && mapConfig.RespawnDays > 0 && len(w.MonsterSpawns) > 0 {
-					if len(w.Monsters) == 0 {
-						w.RespawnAuthoredMonsters()
-					}
-					w.LastRespawnDay = g.dayNightDay + 1
+					// Gameplay respawns preserve party charms. A load must not
+					// carry those allies over from the previous timeline.
+					w.Monsters = nil
+					w.RespawnAuthoredMonsters()
+					w.LastRespawnDay = g.currentCalendarDay()
 					g.loadNeedsResave = true
 					continue
 				}
@@ -282,7 +304,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					}
 					restoredRegions[region.MapKey] = true
 					for _, msave := range monsters {
-						msave.X, msave.Y = wm.ProjectWorldPos(region.MapKey, msave.X, msave.Y)
+						msave = projectMonsterSave(wm, region.MapKey, msave)
 						if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 							msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 								wm.ProjectTile(region.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -314,7 +336,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// authored monsters instead of being wiped.
 				projected := make([]MonsterSave, 0, len(save.Monsters))
 				for _, msave := range save.Monsters {
-					msave.X, msave.Y = wm.ProjectWorldPos(save.MapKey, msave.X, msave.Y)
+					msave = projectMonsterSave(wm, save.MapKey, msave)
 					if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 						msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 							wm.ProjectTile(save.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -339,7 +361,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 		}
 		for mapKey, day := range save.MapRespawnDay {
-			if w := wm.LoadedMaps[mapKey]; w != nil {
+			if w := wm.LoadedMaps[mapKey]; w != nil && day > 0 {
 				w.LastRespawnDay = day
 			}
 		}
@@ -455,4 +477,20 @@ func findMonsterKeyByName(name string) string {
 		}
 	}
 	return ""
+}
+
+// Copy optional coordinates so restoring never mutates the caller's snapshot.
+func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) MonsterSave {
+	ms.X, ms.Y = wm.ProjectWorldPos(mapKey, ms.X, ms.Y)
+	ms.AmbientThreat = ms.AmbientThreat.MapPosition(func(x, y float64) (float64, float64) {
+		return wm.ProjectWorldPos(mapKey, x, y)
+	})
+	ms.Arbor = ms.Arbor.MapPositions(func(x, y float64) (float64, float64) {
+		return wm.ProjectWorldPos(mapKey, x, y)
+	})
+	if ms.SpawnPosition != nil {
+		x, y := wm.ProjectWorldPos(mapKey, ms.SpawnPosition[0], ms.SpawnPosition[1])
+		ms.SpawnPosition = &[2]float64{x, y}
+	}
+	return ms
 }

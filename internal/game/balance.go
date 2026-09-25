@@ -144,7 +144,7 @@ const (
 	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
-	TurnBasedSpRegenEveryNRounds = 3
+	TurnBasedSpRegenEveryNRounds = config.RegenerationRounds
 
 	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
 	// TB round for periodic damage effects. Poison and burn still deal one tick
@@ -165,7 +165,7 @@ const (
 	// real-time pounce cooldown. Both clocks are armed together across Tab.
 	TurnBasedPounceCooldownTurns = 2
 
-	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
+	// Camping (the Camp icon beside the HUD quick slots): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
 	CampFoodCost         = 1
 	CampEnemyRadiusTiles = 5.0

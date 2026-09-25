@@ -67,17 +67,17 @@ func computeTabbedMenuLayout(screenW, viewportBottom int) tabbedMenuLayout {
 }
 
 const (
-	inventoryPaperW   = inventoryPaperdollLayoutW
-	inventoryPaperH   = inventoryPaperdollLayoutH
-	inventoryGridSize = inventoryGridLayoutSize
-	inventoryPanelGap = 52
+	inventoryPaperW          = inventoryPaperdollLayoutW
+	inventoryPaperH          = inventoryPaperdollLayoutH
+	inventoryGridSize        = inventoryGridLayoutSize
+	inventoryPanelGap        = 52
+	inventoryPagerToQuickGap = 8
 )
 
 type inventoryContentLayout struct {
 	paper        layoutRect
 	grid         layoutRect
 	pager        layoutRect
-	camp         layoutRect
 	quickSlots   layoutRect
 	instructions [2]layoutRect
 }
@@ -107,14 +107,9 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 	// scale. Category tabs sit in the reserved space immediately above the grid.
 	grid := layoutRect{paper.right() + gap, paper.y, gridSize, gridSize}
 	pager := layoutRect{grid.x, grid.bottom() + 6, grid.w, pagerBtnH}
-	campY := pager.bottom() + 7
 	instructionY := content.bottom() - 2*debugTextCharHeight
-	// Quick slots share the paperdoll's bottom rail. Their maximum height is the
-	// remaining space after the Camp result and the quick-slot label; reserving
-	// the result line even while empty prevents a successful rest from moving or
-	// overlapping anything.
-	quickTopMin := campY + inventoryCampButtonNoticeBlock +
-		inventoryCampToQuickLabelGap + quickSlotTabLabelSpace
+	// Quick slots share the paperdoll's bottom rail and clear the pager label.
+	quickTopMin := pager.bottom() + inventoryPagerToQuickGap + quickSlotTabLabelSpace
 	maxQuickH := max(1, paper.bottom()-quickTopMin)
 	maxQuickW := max(1, int(float64(maxQuickH)*quickSlotBarAspect))
 	quickW := min(grid.w, min(maxQuickW, max(160, int(260*scale))))
@@ -124,7 +119,6 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 		paper:      paper,
 		grid:       grid,
 		pager:      pager,
-		camp:       layoutRect{grid.x, campY, grid.w, inventoryCampButtonNoticeBlock},
 		quickSlots: quickSlots,
 		instructions: [2]layoutRect{
 			{paper.x, instructionY, content.right() - paper.x, debugTextCharHeight},
@@ -195,24 +189,22 @@ func computeCharacterContentLayout(content layoutRect) characterContentLayout {
 }
 
 func computeCardsContentLayout(content layoutRect) cardsContentLayout {
-	cols := 4
-	if content.w >= 1080 {
-		cols = MaxCardSlots
-	}
-	const icon, colGap, rowGap = 92, 30, 58
-	gridW := cols*icon + (cols-1)*colGap
-	startX := content.x + (content.w-gridW)/2
-	startY := content.y + 56
+	const cols, gap = 4, 12
+	gridW := min(760, content.w*57/100)
+	icon := min(170, (gridW-3*gap)/cols)
+	icon = min(icon, max(64, (content.h-100)/2-32))
+	gridW = cols*icon + 3*gap
+	startX, startY := content.x+12, content.y+64
 	cards := make([]layoutRect, MaxCardSlots)
 	for i := range cards {
-		cards[i] = layoutRect{startX + (i%cols)*(icon+colGap), startY + (i/cols)*(icon+rowGap), icon, icon}
+		cards[i] = layoutRect{startX + (i%cols)*(icon+gap), startY + (i/cols)*(icon+38), icon, icon}
 	}
+	sx := startX + gridW + 24
 	return cardsContentLayout{
-		title:    layoutRect{content.x + 30, content.y + 6, content.w - 60, debugTextCharHeight},
-		subtitle: layoutRect{content.x + 30, content.y + 24, content.w - 60, debugTextCharHeight},
-		cards:    cards,
-		summary:  layoutRect{content.x + 30, startY + ((MaxCardSlots+cols-1)/cols)*(icon+rowGap) + 6, content.w - 60, content.bottom() - (startY + ((MaxCardSlots+cols-1)/cols)*(icon+rowGap) + 6)},
-		labelW:   icon + colGap - 6,
+		title:    layoutRect{content.x + 12, content.y + 6, content.w - 24, 18},
+		subtitle: layoutRect{content.x + 12, content.y + 30, content.w - 24, 18},
+		cards:    cards, labelW: icon + 6,
+		summary: layoutRect{sx, startY, content.right() - sx - 12, content.bottom() - startY - 8},
 	}
 }
 
@@ -223,11 +215,13 @@ const (
 	// Quest card chrome, measured from the card's own top: the name row sits
 	// above the description, the progress row / bar / claim button below it.
 	// A card's HEIGHT is these plus however many description rows it needs.
-	questCardDescTop      = 22
+	questCardDescTop      = 26
 	questCardProgressGap  = 18 // description bottom -> progress bar
-	questCardBarH         = 14
-	questCardBottomPad    = 9
+	questCardBarH         = 20
+	questCardBottomPad    = 8
 	questCardBottomChrome = questCardProgressGap + questCardBarH + questCardBottomPad
+	questCardLineHeight   = 16
+	questCardMinPerPage   = 4
 	questCardMaxDescRows  = 6 // sanity cap; hovering shows anything beyond it
 )
 
@@ -237,7 +231,7 @@ func questCardHeight(descRows int) int {
 	if descRows < 1 {
 		descRows = 1
 	}
-	return questCardDescTop + descRows*debugTextCharHeight + questCardBottomChrome
+	return questCardDescTop + descRows*questCardLineHeight + questCardBottomChrome
 }
 
 // questCardCopy is one card's wrapped description plus the height it needs.
@@ -255,7 +249,7 @@ func (c questCardCopy) descClipped() bool { return len(c.fullLines) > len(c.desc
 // questCardCopyFor wraps a description to the card's text width and clips it to
 // maxDescRows.
 func questCardCopyFor(description string, cardW, maxDescRows int) questCardCopy {
-	textW := cardW - 20
+	textW := cardW - 36
 	full := wrapDebugText(description, textW)
 	if len(full) == 0 {
 		full = []string{""}
@@ -291,9 +285,10 @@ func questCardListAvailable(content layoutRect) (listTop, avail int, pager layou
 }
 
 // questCardMaxDescRowsFor is how many description rows a single card may show
-// without outgrowing the whole list area.
+// while reserving room for at least four entries at supported resolutions.
 func questCardMaxDescRowsFor(avail int) int {
-	rows := (avail - questCardDescTop - questCardBottomChrome) / debugTextCharHeight
+	budget := (avail - (questCardMinPerPage-1)*questCardGap) / questCardMinPerPage
+	rows := (budget - questCardDescTop - questCardBottomChrome) / questCardLineHeight
 	if rows < 1 {
 		rows = 1
 	}
@@ -367,11 +362,11 @@ type npcDialogSectionLayout struct {
 }
 
 func computeNPCDialogSectionLayout(dialog layoutRect, hasBalance bool) npcDialogSectionLayout {
-	titleW := dialog.w - 40
+	titleW := dialog.w - 72
 	balance := layoutRect{}
 	if hasBalance {
 		titleW = dialog.w - 220
-		balance = layoutRect{dialog.right() - 160, dialog.y + 20, 140, debugTextCharHeight}
+		balance = layoutRect{dialog.right() - 190, dialog.y + 20, 140, debugTextCharHeight}
 	}
 	footerY := dialog.bottom() - 38
 	return npcDialogSectionLayout{

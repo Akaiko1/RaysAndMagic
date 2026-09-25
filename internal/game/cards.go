@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/stash"
 )
 
 // splitPhysToFire divides physical damage into a remaining-physical part and a
@@ -64,7 +65,7 @@ func cardDef(key string) *config.ItemDefinitionConfig {
 	if key == "" {
 		return nil
 	}
-	if def, ok := config.GetItemDefinition(key); ok {
+	if def, ok := config.GetItemDefinition(key); ok && def.Type == "card" {
 		return def
 	}
 	return nil
@@ -76,7 +77,7 @@ func itemCardKey(it items.Item) string {
 	if it.Type != items.ItemCard {
 		return ""
 	}
-	if _, key, ok := config.GetItemDefinitionByName(it.Name); ok {
+	if _, key, ok := config.GetItemDefinitionByName(it.Name); ok && cardDef(key) != nil {
 		return key
 	}
 	return ""
@@ -85,7 +86,7 @@ func itemCardKey(it items.Item) string {
 // cardSlot is one collection slot: the resolved card key (gameplay truth,
 // read on hot combat/frame paths) plus the physical card item whose
 // InstanceID survives into saves for stash reconciliation. The key is
-// resolved ONCE in setCardCollectionSlot - never re-derived from the item's
+// resolved ONCE when placing or restoring a slot - never re-derived from the item's
 // name at read time (GetItemDefinitionByName is a linear scan).
 type cardSlot struct {
 	key  string
@@ -103,14 +104,23 @@ func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
 	if slot < 0 || slot >= MaxCardSlots {
 		return false
 	}
+	resolved, _ := resolveCardSlot(it)
+	if resolved.key == "" {
+		return false
+	}
+	g.cardSlots[slot] = resolved
+	return true
+}
+
+// Placement and save restoration share validation, normalization and identity.
+func resolveCardSlot(it items.Item) (cardSlot, bool) {
 	normalizeItemFromConfig(&it)
 	key := itemCardKey(it)
 	if key == "" {
-		return false
+		return cardSlot{}, false
 	}
-	items.EnsureInstanceID(&it)
-	g.cardSlots[slot] = cardSlot{key: key, item: it}
-	return true
+	stamped := items.EnsureInstanceID(&it)
+	return cardSlot{key: key, item: it}, stamped
 }
 
 func (g *MMGame) clearCardCollectionSlot(slot int) {
@@ -138,21 +148,67 @@ func (g *MMGame) cardCollectionItem(slot int) items.Item {
 	return it
 }
 
-func (g *MMGame) stashOwnsCardKey(key string) bool {
-	if key == "" || !g.ensureStashLoaded() {
+func stashOwnsCardKey(shared *stash.Stash, key string) bool {
+	if shared == nil || key == "" {
 		return false
 	}
-	for _, it := range g.stash.Slots {
-		if itemCardKey(it) == key {
-			return true
-		}
-	}
-	for _, it := range g.stash.CardSlots {
-		if itemCardKey(it) == key {
-			return true
+	for _, bank := range [][]items.Item{shared.Slots[:], shared.CardSlots[:]} {
+		for _, it := range bank {
+			normalizeItemFromConfig(&it)
+			if itemCardKey(it) == key {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// resolveSavedCardSlots is the load contract for both gameplay and browsing.
+// Physical cards take precedence; legacy keys cannot prove ownership over stash.
+func resolveSavedCardSlots(save PartySave, shared *stash.Stash) (slots [MaxCardSlots]cardSlot, migrated bool) {
+	for i := range slots {
+		if i < len(save.CardCollectionItems) {
+			var stamped bool
+			slots[i], stamped = resolveCardSlot(save.CardCollectionItems[i])
+			migrated = migrated || stamped
+		}
+		if slots[i].key != "" || i >= len(save.CardCollection) {
+			continue
+		}
+		key := save.CardCollection[i]
+		if cardDef(key) == nil {
+			continue
+		}
+		if stashOwnsCardKey(shared, key) {
+			migrated = true
+			continue
+		}
+		slots[i], _ = resolveCardSlot(items.CreateItemFromYAML(key))
+		migrated = migrated || slots[i].key != ""
+	}
+
+	return slots, migrated
+}
+
+// PreviewSavedCardCollection applies the actual load and stash reconciliation
+// rules to copies. It performs no writes or save migrations on disk.
+func PreviewSavedCardCollection(save PartySave, shared *stash.Stash) [MaxCardSlots]items.Item {
+	slots, _ := resolveSavedCardSlots(save, shared)
+	party := &character.Party{Inventory: append([]items.Item(nil), save.Inventory...)}
+	for i := range party.Inventory {
+		normalizeItemFromConfig(&party.Inventory[i])
+	}
+	for _, roster := range [][]CharacterSave{save.Members, save.Reserve, save.Captive} {
+		for _, member := range roster {
+			party.Members = append(party.Members, restoreCharacterSave(member))
+		}
+	}
+	reconcilePartyItemsAgainstStash(party, &slots, shared)
+	var result [MaxCardSlots]items.Item
+	for i := range slots {
+		result[i] = slots[i].item
+	}
+	return result
 }
 
 // cardFullArtSprite returns a card's full-art sprite name ("full_art_<key>"
@@ -654,41 +710,21 @@ func (g *MMGame) cardArmorPiercePct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardArmorPiercePct })
 }
 
-// cardBonusVsMultiplier mirrors weaponBonusMultiplier but sources from the card
-// collection and also matches the monster's Type (e.g. "formless") in addition
-// to its Name/Key - letting a card grant "+dmg vs a whole creature category"
-// the way a weapon's bonus_vs can't.
+// cardBonusVsMultiplier uses the same name/key/type selectors as weapons.
+// Matching entries multiply across cards, once per selector within each card.
 func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 	if monster == nil {
 		return 1.0
 	}
-	candidates := []string{monster.Name}
-	if monster.Key != "" {
-		candidates = append(candidates, monster.Key)
-	}
-	if monster.MonsterType != "" {
-		candidates = append(candidates, monster.MonsterType)
-	}
 	mult := 1.0
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		def := cardDef(g.cardCollectionKey(slot))
-		if def == nil || len(def.CardBonusVs) == 0 {
+		if def == nil {
 			continue
 		}
 		for bonusKey, m := range def.CardBonusVs {
-			if m <= 0 {
-				continue
-			}
-			// Name/Key/MonsterType often name the same identity (e.g. the Dragon
-			// monster has Name="Dragon", Key="dragon", MonsterType="dragon") - one
-			// matching bonus_vs entry means "this card applies to this monster",
-			// not "multiply once per field that happened to match", so stop at the
-			// first hit instead of checking the remaining candidates.
-			for _, candidate := range candidates {
-				if strings.EqualFold(bonusKey, candidate) {
-					mult *= m
-					break
-				}
+			if m > 0 && monsterMatchesBonusTarget(monster, bonusKey) {
+				mult *= m
 			}
 		}
 	}
@@ -751,6 +787,17 @@ func cardEffectText(def *config.ItemDefinitionConfig) string {
 		return "Currently not implemented"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func cardCollectionTooltipLines(def *config.ItemDefinitionConfig) []string {
+	if def == nil {
+		return nil
+	}
+	effects := def.CardEffectLines()
+	if len(effects) == 0 {
+		effects = []string{cardEffectText(def)}
+	}
+	return append([]string{def.Name, "", "EFFECTS"}, effects...)
 }
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.

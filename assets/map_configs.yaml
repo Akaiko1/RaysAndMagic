@@ -1,8 +1,8 @@
 # Floor-texture groups are biome-driven: defined once per biome below and
 # shared by every map that declares that biome. Tiles pick a group via their
 # `floor_texture_group` field (see tiles.yaml); the renderer builds one atlas
-# per biome. The "beach" group is selected dynamically by the renderer for
-# empty tiles bordering water.
+# per biome. The optional "beach" group is a distance-based shoreline layer
+# over resolved default ground; it does not replace the ground tile.
 
 # Groups every biome inherits, for universal tiles that can turn up on any map.
 # Water (W) and deep water (Q) live in half the maps in the game, so their
@@ -14,8 +14,24 @@ shared_floor_texture_groups:
     - "water_0"
     - "water_1"
 
+shared_floor_transitions:
+  water: water
+
+# floor_transitions maps texture-group names to visual blending profiles.
+# After shared inheritance, unlisted groups use hard (no neighbor blending).
+# Profiles: hard, natural, water, void, cliff_east, cliff_west.
+# Cliff names describe the authored drop side; they do not rotate the artwork.
+# Rules, compatibility, shoreline behavior: docs/floor-transitions.md
 biomes:
   forest:
+    floor_transitions:
+      default: natural
+      beach: natural
+      forest_stream: water
+      quest_bridge: hard
+      clearing: natural
+      highlands_stream: water
+    camp_scene: camp_forest
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -41,6 +57,10 @@ biomes:
         - "highlands_stream_1"
 
   desert:
+    floor_transitions:
+      default: natural
+      beach: natural
+    camp_scene: camp_desert
     elemental_attack_school: fire
     floor_texture_groups:
       default:
@@ -53,6 +73,9 @@ biomes:
         - "beach_sand_1"
 
   water:
+    floor_transitions:
+      default: natural
+    camp_scene: camp_water
     elemental_attack_school: water
     floor_texture_groups:
       default:
@@ -62,6 +85,8 @@ biomes:
         - "underwater_floor_3"
 
   church:
+    floor_transitions:
+      default: hard
     elemental_attack_school: dark
     floor_texture_groups:
       default:
@@ -71,6 +96,12 @@ biomes:
         - "church_floor_3"
 
   clock_tower_workshop:
+    floor_transitions:
+      default: hard
+      clocktower_slate: hard
+      clocktower_mosaic: hard
+      clocktower_planks: hard
+      clocktower_grate: hard
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -85,6 +116,12 @@ biomes:
         - "clocktower_grate_0"
 
   clock_tower_gearworks:
+    floor_transitions:
+      default: hard
+      clocktower_slate: hard
+      clocktower_mosaic: hard
+      clocktower_planks: hard
+      clocktower_grate: hard
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -99,6 +136,12 @@ biomes:
         - "clocktower_grate_0"
 
   clock_tower_belfry:
+    floor_transitions:
+      default: hard
+      clocktower_slate: hard
+      clocktower_mosaic: hard
+      clocktower_planks: hard
+      clocktower_grate: hard
     elemental_attack_school: air
     floor_texture_groups:
       default:
@@ -113,6 +156,9 @@ biomes:
         - "clocktower_grate_0"
 
   arena:
+    floor_transitions:
+      default: natural
+    camp_scene: camp_desert
     elemental_attack_school: light
     floor_texture_groups:
       default:
@@ -120,6 +166,8 @@ biomes:
         - "arena_sand_1"
 
   pyramid:
+    floor_transitions:
+      default: hard
     elemental_attack_school: spirit
     floor_texture_groups:
       default:
@@ -129,6 +177,8 @@ biomes:
         - "pyramid_floor_3"
 
   lich_nexus:
+    floor_transitions:
+      default: hard
     elemental_attack_school: dark
     floor_texture_groups:
       default:
@@ -138,6 +188,8 @@ biomes:
         - "lich_nexus_floor_3"
 
   culverts:
+    floor_transitions:
+      default: hard
     elemental_attack_school: body
     floor_texture_groups:
       default:
@@ -150,6 +202,13 @@ biomes:
   # deliberately by tile letter (cobble courtyard / wood halls / tatami rooms /
   # blossom garden), not the random-from-group variety the other biomes use.
   japanese_castle:
+    floor_transitions:
+      default: hard
+      cobble: hard
+      wood: hard
+      tatami: hard
+      garden: natural
+    camp_scene: camp_japanese_castle
     elemental_attack_school: spirit
     floor_texture_groups:
       # "default" is what stitched open-world corridor cells (tile: empty)
@@ -171,6 +230,18 @@ biomes:
   # subregions by letter (moss garden / blossom earth / granite paving / koi
   # shallows), plus the four transition accents (digits 1-4 in tiles.yaml).
   sakura_garden:
+    floor_transitions:
+      default: hard
+      moss: natural
+      earth: natural
+      paving: hard
+      koi: water
+      grass_edge: hard
+      path: hard
+      pond_edge: hard
+      stream: hard
+      beach: hard
+    camp_scene: camp_sakura_garden
     elemental_attack_school: mind
     floor_texture_groups:
       # "default" is what stitched open-world corridor cells (tile: empty)
@@ -196,12 +267,14 @@ biomes:
         - "sakura_garden_floor_6"
       stream:
         - "sakura_garden_floor_7"
-      # The renderer auto-selects "beach" for empty tiles bordering the deep
-      # pond water (W/Q); the pond-edge texture is that shoreline here.
+      # Authored directional shoreline: kept intact, not used as a generic sand overlay.
       beach:
         - "sakura_garden_floor_6"
 
   city:
+    floor_transitions:
+      default: hard
+    camp_scene: camp_forest
     elemental_attack_school: water
     floor_texture_groups:
       default:
@@ -214,6 +287,10 @@ biomes:
   # group, so the plaza around the landmark reads as a deliberate paved circle
   # instead of more street. Same split, same letters (. and ,) in each.
   elf_city:
+    floor_transitions:
+      default: hard
+      court: hard
+    camp_scene: camp_highlands
     elemental_attack_school: air
     floor_texture_groups:
       default:
@@ -224,6 +301,10 @@ biomes:
         - "elf_city_floor_3"
 
   nomad_city:
+    floor_transitions:
+      default: hard
+      sand: natural
+    camp_scene: camp_desert
     elemental_attack_school: fire
     floor_texture_groups:
       default:
@@ -234,6 +315,10 @@ biomes:
         - "nomad_city_floor_2"
 
   highlands:
+    floor_transitions:
+      default: natural
+      highlands_stream: water
+    camp_scene: camp_highlands
     elemental_attack_school: air
     floor_texture_groups:
       default:
@@ -246,6 +331,17 @@ biomes:
         - "highlands_stream_1"
 
   dragon_cliffs:
+    floor_transitions:
+      default: natural
+      basalt: natural
+      dragon_cliffs_stream: water
+      bridge_0: hard
+      bridge_1: hard
+      chasm_edge_0: cliff_east
+      chasm_edge_1: cliff_west
+      chasm_floor_0: void
+      chasm_floor_1: void
+    camp_scene: camp_dragon_cliffs
     elemental_attack_school: earth
     floor_texture_groups:
       default:
@@ -279,6 +375,13 @@ biomes:
   # the forest_stream texture, and the renderer auto-selects "beach" for the
   # sandy banks bordering water.
   jungle:
+    floor_transitions:
+      default: natural
+      ruin: hard
+      varzea: natural
+      beach: natural
+      jungle_ford: water
+    camp_scene: camp_jungle
     elemental_attack_school: body
     # Off-map backdrop: dense jungle foliage wall instead of the global seaview.
     out_of_bounds_tile: "jungle_wall_foliage"

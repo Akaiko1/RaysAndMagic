@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
@@ -48,16 +49,30 @@ func WeaponStatusTurns(seconds int) int {
 }
 
 func weaponStatusDurationLabel(seconds int) string {
-	return fmt.Sprintf("%ds RT / %d turns TB", seconds, WeaponStatusTurns(seconds))
+	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
 }
 
 func (w *WeaponDefinitionConfig) EffectLines() []string {
+	return append(w.effectLines(true), w.SetLines()...)
+}
+
+// SpecialEffectLines excludes set membership, compared as a separate rule.
+func (w *WeaponDefinitionConfig) SpecialEffectLines() []string {
+	return w.effectLines(true)
+}
+
+// CoreEffectLines omits rows rendered in the attack, damage and set sections.
+func (w *WeaponDefinitionConfig) CoreEffectLines() []string {
+	return w.effectLines(false)
+}
+
+func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w == nil {
 		return nil
 	}
 	var lines []string
-	if damageType, err := damagecalc.ParseType(w.DamageType); err == nil && damageType != damagecalc.Physical {
-		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(damageType.String())))
+	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
+		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
 		turns := w.StunTurns
@@ -65,22 +80,21 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 			turns = 1
 		}
 		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns x TPS frames).
-		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", w.StunChance*100, turns, turns))
+		lines = append(lines, uitext.Text("weapon.stun_chance_s_rt_turns_tb", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", w.DisintegrateChance*100))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100))
 	}
-	if w.AoeRadiusTiles > 0 {
-		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", w.AoeRadiusTiles))
+	if includeStructured && w.AoeRadiusTiles > 0 {
+		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
 	}
-	if w.MaxProjectiles > 0 {
-		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
+	if includeStructured && w.MaxProjectiles > 0 {
+		lines = append(lines, uitext.Text("weapon.max_airborne", w.MaxProjectiles))
 	}
-	// Attack-speed lines live in character.WeaponCombatLines (the category->
-	// skill mapping needed for the default multiplier lives there); only the
-	// spell-cooldown perk is computable at this layer.
-	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
-		lines = append(lines, line)
+	// The structured attack section renders cooldown from the combat calculation.
+	// The spell-cooldown perk is computable at this layer.
+	if line := cooldownMultLine(uitext.Text("weapon.spell_cooldown"), w.SpellCooldownMultiplier); line != "" {
+		lines = append(lines, line+uitext.Text("weapon.main_hand_only"))
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -89,97 +103,96 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			lines = append(lines, fmt.Sprintf("Bonus vs %s: x%.1f", titleCaseLower(k), w.BonusVs[k]))
+			lines = append(lines, uitext.Text("weapon.bonus_vs_x", titleCaseLower(k), w.BonusVs[k]))
 		}
 	}
 	// Arena unique-tier signature riders.
 	if w.BonusVsStunned > 0 && w.BonusVsStunned != 1.0 {
-		lines = append(lines, fmt.Sprintf("Bonus vs stunned targets: x%.1f", w.BonusVsStunned))
+		lines = append(lines, uitext.Text("weapon.bonus_vs_stunned_targets_x", w.BonusVsStunned))
 	}
 	if w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Sunder: hits strip %d%% of the target's armor for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.sunder_hits_strip_of_the_target_s",
 			w.ArmorShredPct,
 			weaponStatusDurationLabel(w.ArmorShredSeconds),
 		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Root Chance: %.0f%% (pins in place %s - not a stun)",
+		lines = append(lines, uitext.Text(
+			"weapon.root_chance_pins_in_place_not_a",
 			w.RootChance*100,
 			weaponStatusDurationLabel(w.RootSeconds),
 		))
 	}
 	if w.ArmorClassBonus > 0 {
-		lines = append(lines, fmt.Sprintf("Armor Class %+d while wielded", w.ArmorClassBonus))
+		lines = append(lines, uitext.Text("weapon.armor_class_while_wielded", w.ArmorClassBonus))
 	}
 	if w.ThornsPct > 0 {
-		lines = append(lines, fmt.Sprintf("Riposte: attackers take %d%% of the melee damage they deal you", w.ThornsPct))
+		lines = append(lines, uitext.Text("weapon.riposte_attackers_take_of_the_melee_damage", w.ThornsPct))
 	}
 	if w.ArmorPiercePct > 0 {
-		lines = append(lines, fmt.Sprintf("Ignores %d%% of the target's armor", w.ArmorPiercePct))
+		lines = append(lines, uitext.Text("weapon.ignores_of_the_target_s_armor", w.ArmorPiercePct))
 	}
 	if w.PierceCount > 0 {
-		lines = append(lines, fmt.Sprintf("Pierces through %d target(s) and flies on", w.PierceCount))
+		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
 	if w.DoubleStrike {
-		lines = append(lines, "Pair: every swing strikes twice at half damage")
+		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
 	}
 	if w.EquipPersonalityMin > 0 {
-		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
+		lines = append(lines, uitext.Text("weapon.wieldable_by_anyone_with_personality_no_skill", w.EquipPersonalityMin))
 	}
 	// Drakeforged tier signature riders.
 	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Ignite Chance: %.0f%% (burns %ds)", w.IgniteChance*100, w.IgniteSeconds))
+		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, w.IgniteSeconds))
 	}
 	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
-		lines = append(lines, fmt.Sprintf("Brood Venom: %.0f%% chance to poison (%ds)", w.PoisonChance*100, w.PoisonSeconds))
+		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, w.PoisonSeconds))
 	}
 	if w.ExecuteBelowPct > 0 {
-		lines = append(lines, fmt.Sprintf("The Maw: targets left under %d%% HP are devoured outright", w.ExecuteBelowPct))
+		lines = append(lines, uitext.Text("weapon.the_maw_targets_left_under_hp_are", w.ExecuteBelowPct))
 	}
 	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
-		lines = append(lines, fmt.Sprintf("Clutchburst: kills explode for %d fire within %.0f tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+		lines = append(lines, uitext.Text("weapon.clutchburst_kills_explode_for_fire_within_tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
 	}
-	if w.TrueDamage > 0 {
-		lines = append(lines, fmt.Sprintf("True Damage: +%d (ignores armor and dodge)", w.TrueDamage))
+	if includeStructured && w.TrueDamage > 0 {
+		lines = append(lines, uitext.Text("weapon.true_damage_ignores_armor_and_dodge", w.TrueDamage))
 	}
 	if w.SlowPct > 0 && w.SlowSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Silt: hits slow the target %d%% for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.silt_hits_slow_the_target_for",
 			w.SlowPct,
 			weaponStatusDurationLabel(w.SlowSeconds),
 		))
 	}
 	if w.WeakenPct > 0 && w.WeakenSeconds > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"Sundering Roar: the target deals %d%% less damage for %s",
+		lines = append(lines, uitext.Text(
+			"weapon.sundering_roar_the_target_deals_less_damage",
 			w.WeakenPct,
 			weaponStatusDurationLabel(w.WeakenSeconds),
 		))
 	}
 	if w.RicochetTargets > 0 {
-		targetLabel := "enemies"
+		targetLabel := uitext.Text("weapon.enemies")
 		if w.RicochetTargets == 1 {
-			targetLabel = "enemy"
+			targetLabel = uitext.Text("weapon.enemy")
 		}
-		lines = append(lines, fmt.Sprintf(
-			"Ricochet: the bolt leaps to %d further %s within %.0f tiles",
+		lines = append(lines, uitext.Text(
+			"weapon.ricochet_the_bolt_leaps_to_further_within",
 			w.RicochetTargets,
 			targetLabel,
 			w.RicochetRangeTiles,
 		))
 	}
 	if w.SpellEchoPct > 0 {
-		lines = append(lines, fmt.Sprintf("Echo: %d%% chance your offensive spell repeats itself, free", w.SpellEchoPct))
+		lines = append(lines, uitext.Text("weapon.echo_chance_your_offensive_spell_repeats_itself", w.SpellEchoPct))
 	}
 	if w.PartyFireWhileRunning {
-		lines = append(lines, "On the Wing: the whole party may attack while running")
+		lines = append(lines, uitext.Text("weapon.on_the_wing_the_whole_party_may"))
 	}
 	if w.TBActionsPerRound > 0 {
-		lines = append(lines, fmt.Sprintf("Autofire: at least %d actions per turn-based round for the wielder", w.TBActionsPerRound))
+		lines = append(lines, uitext.Text("weapon.autofire_at_least_actions_per_turn_based", w.TBActionsPerRound))
 	}
-	lines = append(lines, w.SetLines()...)
 	return lines
 }
 
@@ -218,6 +231,22 @@ type Config struct {
 	Graphics      GraphicsConfig      `yaml:"graphics"`
 	Tiles         TileConfig          `yaml:"tiles"`
 	DayNight      DayNightConfig      `yaml:"day_night"`
+	Camping       CampingConfig       `yaml:"camping"`
+}
+
+type CampingConfig struct {
+	DissolveClustersMin int     `yaml:"dissolve_clusters_min"`
+	DissolveClustersMax int     `yaml:"dissolve_clusters_max"`
+	MaxTopCropFraction  float64 `yaml:"max_top_crop_fraction"`
+	DissolvePixelSize   int     `yaml:"dissolve_pixel_size"`
+	DefaultScene        string  `yaml:"default_scene"`
+	FadeInSeconds       float64 `yaml:"fade_in_seconds"`
+	HoldSeconds         float64 `yaml:"hold_seconds"`
+	FadeOutSeconds      float64 `yaml:"fade_out_seconds"`
+}
+
+func DefaultCampingConfig() CampingConfig {
+	return CampingConfig{DissolveClustersMin: 5, DissolveClustersMax: 6, MaxTopCropFraction: 0.08, DissolvePixelSize: 4, DefaultScene: "camp_dungeon", FadeInSeconds: 0.65, HoldSeconds: 2.5, FadeOutSeconds: 0.8}
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -256,6 +285,7 @@ type PackMemberConfig struct {
 	Monster       string `yaml:"monster"`
 	Count         int    `yaml:"count"`
 	QuestProgress bool   `yaml:"quest_progress,omitempty"`
+	MinPartyLevel int    `yaml:"min_party_level,omitempty"`
 }
 
 // PhaseMembers resolves the monster kinds this pack spawns for the given phase:
@@ -441,6 +471,7 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
+	AutoDrink    AutoDrinkConfig       `yaml:"auto_drink"`
 	StartingGold int                   `yaml:"starting_gold"`
 	StartingFood int                   `yaml:"starting_food"`
 	HitPoints    HitPointsConfig       `yaml:"hit_points"`
@@ -462,9 +493,10 @@ type CharacterConfig struct {
 // class sprite); Race (optional) keys characters.races stat modifiers - empty
 // means human/baseline.
 type RosterEntry struct {
-	Name  string `yaml:"name"`
-	Class string `yaml:"class"`
-	Race  string `yaml:"race,omitempty"`
+	AvailableInExistingSaves bool   `yaml:"available_in_existing_saves,omitempty"`
+	Name                     string `yaml:"name"`
+	Class                    string `yaml:"class"`
+	Race                     string `yaml:"race,omitempty"`
 }
 
 // RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
@@ -494,13 +526,14 @@ type ClassMagicEntry struct {
 }
 
 type ClassStats struct {
-	Might       int `yaml:"might"`
-	Intellect   int `yaml:"intellect"`
-	Personality int `yaml:"personality"`
-	Endurance   int `yaml:"endurance"`
-	Accuracy    int `yaml:"accuracy"`
-	Speed       int `yaml:"speed"`
-	Luck        int `yaml:"luck"`
+	CardRarity  string `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
+	Might       int    `yaml:"might"`
+	Intellect   int    `yaml:"intellect"`
+	Personality int    `yaml:"personality"`
+	Endurance   int    `yaml:"endurance"`
+	Accuracy    int    `yaml:"accuracy"`
+	Speed       int    `yaml:"speed"`
+	Luck        int    `yaml:"luck"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -653,11 +686,13 @@ type SpellDefinitionConfig struct {
 	ResistBuffSchool    string `yaml:"resist_buff_school,omitempty"`
 	ResistBuffSchoolPct int    `yaml:"resist_buff_school_pct,omitempty"`
 
-	// Fly: terrain collision allows every tile except the map's border while the
-	// buff lasts. Entity-based doors still block. OutdoorOnly gates casting to
-	// maps with a day/night sky.
+	// Fly activates the legacy flight buff state. TerrainPassage grants its
+	// movement capability; OutdoorOnly gates casting to maps with a day/night sky.
 	Fly         bool `yaml:"fly,omitempty"`
 	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
+	// TerrainPassage grants collision bypass while this registered timed buff
+	// is active. Movement and physical reward reach consume this capability.
+	TerrainPassage bool `yaml:"terrain_passage,omitempty"`
 
 	// TownPortal opens the visited-destination picker; confirming teleports the party.
 	TownPortal bool `yaml:"town_portal,omitempty"`
@@ -847,7 +882,8 @@ type ColorKeyConfig struct {
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
-	// "<name>_<animType>") whose interior magenta is intentional art. For these,
+	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
+	// directional sheet or its base covers the entire animation family. For these,
 	// despill runs ONLY within EdgeDespillRadius px of a transparent edge - the
 	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
@@ -882,7 +918,32 @@ type SpriteConfig struct {
 	TreeWidthMultiplier  float64 `yaml:"tree_width_multiplier"`
 }
 
+type MonsterDeathRenderConfig struct {
+	FPS                int     `yaml:"fps"`
+	FallSeconds        float64 `yaml:"fall_seconds"`
+	FadeSeconds        float64 `yaml:"fade_seconds"`
+	LootHopSeconds     float64 `yaml:"loot_hop_seconds"`
+	LootHopHeightTiles float64 `yaml:"loot_hop_height_tiles"`
+}
+
+func DefaultMonsterDeathRenderConfig() MonsterDeathRenderConfig {
+	return MonsterDeathRenderConfig{FPS: 6, FallSeconds: 1, FadeSeconds: 5, LootHopSeconds: 0.45, LootHopHeightTiles: 0.25}
+}
+
+func (c MonsterDeathRenderConfig) Validate() error {
+	if c.FPS <= 0 || c.FPS > 120 || !(c.FadeSeconds > 0 && c.FadeSeconds <= 60) ||
+		!(c.FallSeconds > 0 && c.FallSeconds <= 5) ||
+		!(c.LootHopSeconds > 0 && c.LootHopSeconds <= 5) || !(c.LootHopHeightTiles > 0 && c.LootHopHeightTiles <= 2) {
+		return fmt.Errorf("graphics.monster.death: invalid FPS, fall, fade or loot hop settings")
+	}
+	return nil
+}
+
+const DefaultMonsterWalkFrameSeconds = 0.15
+
 type MonsterRenderConfig struct {
+	WalkFrameSeconds float64                  `yaml:"walk_frame_seconds"`
+	Death            MonsterDeathRenderConfig `yaml:"death"`
 	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
 	// (projectile hits); rendering is uncapped - a render-side pixel cap makes
 	// sprites sink at close range as the floor anchor outgrows the capped size.
@@ -954,9 +1015,13 @@ type TileData struct {
 	Solid       bool   `yaml:"solid"`
 	Transparent bool   `yaml:"transparent"`
 	Walkable    bool   `yaml:"walkable"`
+	// BlocksPickup overrides the default !Walkable reach rule for physical
+	// rewards. Water opts out; FlyOver airspace accepts terrain-passage grants.
+	// Sight blockers still prevent reaching through walls and solid objects.
+	BlocksPickup *bool `yaml:"blocks_pickup,omitempty"`
 	// FlyOver explicitly marks transparent, non-walkable floor terrain such as
-	// water or a chasm as open airspace for flying monsters. It does not apply
-	// to walls, doors, or opaque terrain.
+	// water or a chasm as open airspace for flying monsters and party pickup
+	// reach with terrain passage. It does not apply to walls, doors, or opaque terrain.
 	FlyOver bool `yaml:"fly_over,omitempty"`
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
 	// HeightMultiplier remains only to reject legacy billboard authoring.
@@ -967,6 +1032,10 @@ type TileData struct {
 	// content entry fails loudly instead of silently falling back to 1 tile.
 	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
 	Sprite           string   `yaml:"sprite"`
+	// SpriteVariants is the complete choice list for a natural crossed standee.
+	// Its first entry is Sprite, the preview/fallback art. A world picks one
+	// entry per tile and keeps that choice until the next world/save load.
+	SpriteVariants   []string `yaml:"sprite_variants,omitempty"`
 	RenderType       string   `yaml:"render_type"`
 	ProceduralEffect string   `yaml:"procedural_effect,omitempty"`
 	FloorColor       [3]int   `yaml:"floor_color"`
@@ -975,13 +1044,16 @@ type TileData struct {
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Objects without a group or floor_color inherit the
 	// dominant neighbouring floor; floor-only tiles fall back to the map base.
-	// The "beach" group is picked dynamically for empty tiles bordering water.
+	// The optional "beach" group is layered over default ground near water.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	// InheritFloor forces a floor marker (spawn point, teleporter) to take
 	// the surrounding biome floor even when it has a floor_color. Regular
 	// non-floor objects without an authored floor inherit automatically; see
 	// InheritsNeighbourFloor.
 	InheritFloor bool `yaml:"inherit_floor,omitempty"`
+	// ExcludeAsUnderFloor keeps directional edges, paths and bridges from
+	// supplying automatically inherited ground. Their own appearance is unchanged.
+	ExcludeAsUnderFloor bool `yaml:"exclude_as_under_floor,omitempty"`
 	// ExcludedUnderFloorTiles lists tile keys this object must ignore when it
 	// inherits its floor from neighbouring cells. It is evaluated by the shared
 	// dominant-floor vote used by the game renderer and map viewer.
@@ -1122,7 +1194,7 @@ type MapConfig struct {
 	// for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
 	// RespawnDays > 0 makes the map a FARMING zone: on arrival, if at least this
-	// many day/night phase changes have passed since the roster was last spawned,
+	// many calendar days have passed since the roster was last spawned,
 	// the authored monsters respawn in full (the clock tower winds new horrors).
 	RespawnDays int `yaml:"respawn_days,omitempty"`
 	// ClearEncounter: a single map-wide encounter - ALL monsters on the map
@@ -1158,8 +1230,11 @@ type MapCanopyShadeConfig struct {
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
+	CampScene             string              `yaml:"camp_scene,omitempty"`
 	ElementalAttackSchool string              `yaml:"elemental_attack_school"`
 	FloorTextureGroups    map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	// Unlisted groups keep hard edges. Cliff profiles name the drop side.
+	FloorTransitions map[string]FloorTransition `yaml:"floor_transitions,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
 	// this biome (the off-map backdrop wall). Empty -> the global "seaview"
 	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
@@ -1211,7 +1286,8 @@ type MapConfigs struct {
 	// SharedFloorTextureGroups are floor-texture groups every biome gets for
 	// free, for universal tiles (water) that can appear on any map. A biome
 	// listing the same group name overrides the shared one.
-	SharedFloorTextureGroups map[string][]string `yaml:"shared_floor_texture_groups,omitempty"`
+	SharedFloorTextureGroups map[string][]string        `yaml:"shared_floor_texture_groups,omitempty"`
+	SharedFloorTransitions   map[string]FloorTransition `yaml:"shared_floor_transitions,omitempty"`
 }
 
 // WeaponSystemConfig contains the complete weapon system configuration
@@ -1253,11 +1329,11 @@ type WeaponDefinitionConfig struct {
 	StunChance         float64 `yaml:"stun_chance"`
 	StunTurns          int     `yaml:"stun_turns"`
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
-	// AoeRadiusTiles, when > 0, makes the weapon's projectile splash damage
+	// AoeRadiusTiles, when > 0, makes the weapon's hit splash damage
 	// to every other monster within this radius (in tiles) of the primary
 	// hit. Same semantics as the spell field of the same name: splash uses
-	// the base damage, applies the victim's armor reduction, and skips
-	// crits/disintegrate/stun.
+	// launch crit and true damage, resolving designation and defenses per victim.
+	// Splash does not trigger primary-only disintegrate, stun or on-hit riders.
 	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
 	Rarity         string  `yaml:"rarity"`
 	Value          int     `yaml:"value,omitempty"`
@@ -1369,6 +1445,9 @@ type WeaponDefinitionConfig struct {
 // remains, its comment states what it lasts at this rate.
 const DefaultTPS = 120
 
+const RegenerationIntervalFrames = 600
+const RegenerationRounds = 3
+
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
 		return c.Engine.TPS
@@ -1473,6 +1552,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	var config Config
+	config.Camping = DefaultCampingConfig()
+	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
+	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
@@ -1489,6 +1571,22 @@ func LoadConfig(filename string) (*Config, error) {
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
+	}
+	for _, pack := range config.DayNight.Packs {
+		for _, night := range []bool{false, true} {
+			for _, member := range pack.PhaseMembers(night) {
+				if member.MinPartyLevel < 0 {
+					return nil, fmt.Errorf("day_night pack %q: min_party_level must not be negative", pack.Map)
+				}
+			}
+		}
+	}
+	for key, class := range config.Characters.Classes {
+		switch class.CardRarity {
+		case "", "common", "uncommon", "rare", "legendary":
+		default:
+			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
+		}
 	}
 	if config.World.TileSize <= 0 {
 		return nil, fmt.Errorf("world.tile_size must be > 0")
@@ -1509,6 +1607,12 @@ func LoadConfig(filename string) (*Config, error) {
 			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
 		}
 	}
+	if seconds := config.Graphics.Monster.WalkFrameSeconds; !(seconds > 0 && seconds <= 5) {
+		return nil, fmt.Errorf("graphics.monster.walk_frame_seconds must be in (0, 5]")
+	}
+	if err := config.Graphics.Monster.Death.Validate(); err != nil {
+		return nil, err
+	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
 		return nil, err
 	}
@@ -1523,6 +1627,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	// Set global config for easy access
+	if err := config.Characters.AutoDrink.Validate(); err != nil {
+		return nil, err
+	}
 	GlobalConfig = &config
 
 	return &config, nil
@@ -1602,6 +1709,12 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.Fly && !def.TerrainPassage {
+			return fmt.Errorf("spell '%s': fly requires terrain_passage", id)
+		}
+		if def.TerrainPassage && (!def.IsUtility || def.Duration <= 0) {
+			return fmt.Errorf("spell '%s': terrain_passage requires a timed utility spell", id)
+		}
 		if def.School != "" {
 			school, err := canonicalDamageSchool(def.School)
 			if err != nil {
@@ -1961,7 +2074,8 @@ func MustLoadWeaponConfig(filename string) *WeaponSystemConfig {
 // ---------------- Items (non-weapon, non-spell) ----------------
 
 type ItemSystemConfig struct {
-	Items map[string]*ItemDefinitionConfig `yaml:"items"`
+	Items                map[string]*ItemDefinitionConfig `yaml:"items"`
+	TooltipUsageDefaults ItemTooltipUsageConfig           `yaml:"tooltip_usage_defaults"`
 	// Sets: armor-set bonus definitions (items opt in via their `set:` key).
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
@@ -2022,13 +2136,15 @@ type ItemDefinitionConfig struct {
 	// the same wording without item-key-specific presentation code.
 	TooltipEffects []string `yaml:"tooltip_effects,omitempty"`
 	TooltipUsage   []string `yaml:"tooltip_usage,omitempty"`
-	EquipSlot      string   `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value          int      `yaml:"value,omitempty"`      // Gold value
-	Rarity         string   `yaml:"rarity,omitempty"`
-	OpensMap       bool     `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
-	PromotesLich   bool     `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
-	Discardable    bool     `yaml:"discardable,omitempty"`   // quest item the player may still throw away
-	Set            string   `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
+	// Shared by definitions from the same catalog; not part of item/save data.
+	usageDefaults *ItemTooltipUsageConfig
+	EquipSlot     string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value         int    `yaml:"value,omitempty"`      // Gold value
+	Rarity        string `yaml:"rarity,omitempty"`
+	OpensMap      bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich  bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Discardable   bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
+	Set           string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -2065,7 +2181,7 @@ type ItemDefinitionConfig struct {
 	CardSummonCDSeconds   int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
 	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
 	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
-	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee hit strikes again immediately
+	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
 	CardSpellProcPct      int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
 	CardDodgeBonusPct     int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
 	CardArmorBonus        int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
@@ -2080,7 +2196,7 @@ type ItemDefinitionConfig struct {
 	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
 	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
 	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
-	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
+	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
 	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
 	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
 	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
@@ -2119,6 +2235,7 @@ type ItemDefinitionConfig struct {
 	// of letting yaml.v3 ignore it and silently create a draught with no ward.
 	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
 	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
+	BuffDodgePct            int    `yaml:"buff_dodge_pct,omitempty"`
 	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
 	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
 	StatusIcon              string `yaml:"status_icon,omitempty"`
@@ -2135,7 +2252,7 @@ const MinHostileStatusDurationPct = -90
 func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 	return d != nil &&
 		d.BuffDurationSeconds > 0 &&
-		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0)
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -2154,6 +2271,9 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	if err := validateEquipmentSetReferences(&itemCfg, GlobalWeapons); err != nil {
 		return nil, err
 	}
+	if err := itemCfg.TooltipUsageDefaults.validate(); err != nil {
+		return nil, err
+	}
 	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
 	// called per-hit and per-frame via the card collection (cardCollectionKey),
 	// where a linear scan of every item showed up as a hot-path cost.
@@ -2163,6 +2283,7 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
 	itemKeysByName := make(map[string]string, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
+		def.usageDefaults = &itemCfg.TooltipUsageDefaults
 		if prev, dup := itemKeysByName[def.Name]; dup {
 			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
 		}
@@ -2244,11 +2365,14 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if (def.ResistBuffSchool == "") != (def.ResistBuffSchoolPct == 0) {
 			return fmt.Errorf("item '%s': resist_buff_school and resist_buff_school_pct must be set together", key)
 		}
+		if def.BuffDodgePct < 0 || def.BuffDodgePct > 100 {
+			return fmt.Errorf("item %q: buff_dodge_pct must be in [0,100]", key)
+		}
 		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
 			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
 		}
 		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
-		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0
 		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
 		if hasBuffEffect && def.Type != "consumable" {
 			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
@@ -2257,7 +2381,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
 		}
 		if hasBuffMetadata && !hasBuffEffect {
-			return fmt.Errorf("item '%s': buff metadata has no resist or armor effect", key)
+			return fmt.Errorf("item '%s': buff metadata has no resist, armor, or dodge effect", key)
 		}
 		switch def.Type {
 		case "consumable":
@@ -2393,6 +2517,7 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
+	TreasureChest    bool              `yaml:"treasure_chest,omitempty"` // Chest loot provenance, independent of sprite or name.
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
 	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`

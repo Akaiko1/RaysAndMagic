@@ -29,10 +29,16 @@ func (m *Monster3D) MeleeProfile(rules config.ElementalAttackConfig, school stri
 	if m == nil {
 		return MeleeProfile{}
 	}
+	if m.Disposition != "" {
+		school = ""
+	}
 	return meleeProfile(m.IsChampion(), m.WarlordIdol, rules, school)
 }
 
 func (d MonsterDefinition) MeleeProfile(rules config.ElementalAttackConfig, school string) MeleeProfile {
+	if d.Disposition != "" {
+		school = ""
+	}
 	return meleeProfile(d.Champion != "", d.WarlordIdol, rules, school)
 }
 

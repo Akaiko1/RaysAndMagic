@@ -226,9 +226,6 @@ func (cs *CombatSystem) championAlternatingStrike(m *monster.Monster3D) bool {
 	if ch == nil {
 		return false
 	}
-	if cs.championTryCastSpell(m) { // a melee caster's swing can become a cast too
-		return true
-	}
 	off := false
 	if _, dual := championOffHandWeapon(ch); dual {
 		off = m.NextHandOff
@@ -403,7 +400,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		if m.AttackCDFrames == 0 {
 			m.AttackCDFrames = m.AttackCooldownFrames()
 			cs.game.armMonsterAttackAnimation(m)
-			cs.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
+			cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtBound)
 		}
 		return true
 	}
@@ -411,7 +408,9 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 	struck := false
 	if m.AttackCDFrames == 0 {
 		m.AttackCDFrames = m.AttackCooldownFrames()
-		cs.championCrossfireStrike(m, foe, false)
+		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{foe: foe}) {
+			cs.championCrossfireStrike(m, foe, false)
+		}
 		struck = true
 	}
 	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{foe: foe}, monsterAttackRealtime) {
@@ -459,7 +458,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 	struck := false
 	if attackTick && m.AttackCDFrames == 0 {
 		m.AttackCDFrames = m.AttackCooldownFrames()
-		if !cs.championTryCastSpell(m) { // a melee caster's swing can become a cast
+		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{}) {
 			cs.championMeleeStrike(m, false)
 		}
 		struck = true
@@ -616,7 +615,7 @@ func (cs *CombatSystem) rollChampionSetDrops(m *monster.Monster3D) {
 			continue
 		}
 		cs.game.AddColoredCombatMessage(fmt.Sprintf("%s's %s drops on the sand!", m.Name, it.Name), combatMessageGold)
-		cs.game.addLootBagDrop(m.X, m.Y, []items.Item{it}, 0)
+		cs.game.addMonsterLootDrop(m, []items.Item{it}, 0)
 		return // first successful set ends the rolling: one piece max per kill
 	}
 }
@@ -745,7 +744,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 		return
 	}
 	if g.arenaTierSpentToday(choice.Tier) {
-		g.AddCombatMessage("That challenge is spent for today - return after sunrise.")
+		g.AddCombatMessage("That challenge is spent for now - return after the next dawn or dusk.")
 		return
 	}
 
@@ -866,7 +865,7 @@ func validateChampionSpells(key string, def *config.ChampionDefinition) error {
 // claims the FIRST action of the duel; afterwards each attack rolls
 // spell_cast_chance to become a random pool cast. Returns whether a cast
 // consumed the attack.
-func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D) bool {
+func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D, target monsterAttackDestination) bool {
 	if m == nil || !m.IsChampion() {
 		return false
 	}
@@ -877,7 +876,7 @@ func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D) bool {
 	}
 	if !m.OpeningSpellDone && championOpensWith(def, championTierOf(m)) {
 		m.OpeningSpellDone = true
-		cs.championCastSpell(m, ch, spells.SpellID(def.OpeningSpell))
+		cs.championCastSpell(m, ch, spells.SpellID(def.OpeningSpell), target)
 		return true
 	}
 	if def.SpellCastChance <= 0 || rand.Float64() >= def.SpellCastChance {
@@ -887,7 +886,7 @@ func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D) bool {
 	if len(pool) == 0 {
 		return false
 	}
-	cs.championCastSpell(m, ch, pool[rand.Intn(len(pool))])
+	cs.championCastSpell(m, ch, pool[rand.Intn(len(pool))], target)
 	return true
 }
 
@@ -897,16 +896,15 @@ func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D) bool {
 // mechanical effect the same way the party cast path dispatches:
 //   - Stone Skin family (incoming_damage_reduction): mastery-scaled flat soak
 //     on the mob for the spell's duration (the monster dual of the party buff).
-//   - AoE stun family (stun_radius_tiles): stuns every party member while the
-//     party stands inside the shockwave radius.
-//   - everything else: a real spell projectile at the party; AoE spells engulf
-//     the whole party at impact, stun riders re-stamp at impact.
-func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MMCharacter, spellID spells.SpellID) {
+//   - AoE stun family (stun_radius_tiles): stuns the opposing faction in reach.
+//   - everything else: a projectile at the selected target; the shared impact
+//     path applies spell splash and stun riders to the appropriate faction.
+func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MMCharacter, spellID spells.SpellID, target monsterAttackDestination) {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s!", m.Name, def.Name))
+	cs.game.addActorCombatMessage(m, target.foe, "%s casts %s!", m.Name, def.Name)
 	if def.IncomingDamageReduction > 0 || def.StunRadiusTiles > 0 {
 		// Projectile casts play at projectile creation. Direct champion spells
 		// have no projectile, so their school cue belongs at the cast itself.
@@ -927,12 +925,30 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
 
 	case def.StunRadiusTiles > 0:
+		if target.foe == nil && !m.IsPartyControlled() {
+			cs.recordMonsterPartyAttack(m)
+		}
 		radius := def.StunRadiusTiles * float64(cs.game.config.GetTileSize())
+		frames := def.StunDurationSeconds * cs.game.config.GetTPS()
+		for _, foe := range cs.game.world.Monsters {
+			if foe == nil || !foe.IsAlive() {
+				continue
+			}
+			opposing := foe.Bound
+			if m.IsPartyControlled() {
+				opposing = cs.boundAllyCanDamageMonster(foe)
+			}
+			if opposing && Distance(m.X, m.Y, foe.X, foe.Y) <= radius {
+				cs.applyStun(foe, def.StunDurationSeconds, def.StunDurationTurns, true)
+			}
+		}
+		if m.IsPartyControlled() {
+			return
+		}
 		if Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) > radius {
 			cs.game.AddCombatMessage("The shockwave dissipates short of the party.")
 			return
 		}
-		frames := def.StunDurationSeconds * cs.game.config.GetTPS()
 		stunned := 0
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 			cs.applyScaledCharStun(member, frames, def.StunDurationTurns)
@@ -946,12 +962,13 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
 		// Champion spells use the spell's own damage packet. Weapon mastery true
 		// damage and dodge-pierce belong only to weapon strikes.
+		x, y, owner := cs.monsterAttackAim(m, target)
 		cs.spawnMonsterSpellProjectileDamage(
 			m,
 			spellID,
-			cs.game.camera.X,
-			cs.game.camera.Y,
-			ProjectileOwnerMonster,
+			x,
+			y,
+			owner,
 			parts,
 			false,
 		)

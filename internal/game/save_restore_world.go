@@ -1,6 +1,7 @@
 package game
 
 import (
+	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -90,6 +91,9 @@ func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) 
 			restored.Items = make([]items.Item, len(c.Items))
 			for i, it := range c.Items {
 				normalizeItemFromConfig(&it)
+				if items.EnsureInstanceID(&it) {
+					g.loadNeedsResave = true
+				}
 				restored.Items[i] = it
 			}
 		}
@@ -146,7 +150,23 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 	if g.questManager != nil {
 		g.questManager.Reset()
 		for _, qs := range save.Quests {
+			if encounter := character.NPCConfigInstance.EncounterByQuestID(qs.ID); encounter != nil {
+				gold, xp := 0, 0
+				if encounter.Rewards != nil {
+					gold, xp = encounter.Rewards.Gold, encounter.Rewards.Experience
+				}
+				g.questManager.CreateEncounterQuest(qs.ID, encounter.QuestName, encounter.QuestDescription, gold, xp)
+			}
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
+			if q := g.questManager.GetQuest(qs.ID); q != nil {
+				q.ClaimedAtDay = qs.ClaimedAtDay
+				if q.RewardsClaimed && q.ClaimedAtDay <= 0 {
+					q.ClaimedAtDay = g.currentQuestDay()
+				}
+			}
+			if qs.DynamicTargetSet {
+				g.questManager.SetDynamicTarget(qs.ID, qs.DynamicTarget)
+			}
 		}
 		// Completion spawns already fired in this save's timeline must not fire
 		// again (the spawned boss returns through the per-map monster restore).
@@ -157,9 +177,7 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 		// earlier this session must be actively taken back out here.
 		g.syncQuestTiles()
 		g.spawnQuestCompletionMonsters(false) // self-heal: a completed-but-unspawned quest fires now
-		// Starting exterminate quests never pass through handleGiveQuest, so
-		// anchor them to the restored rosters here - a save whose targets are
-		// already all dead completes (and spawns its boss) right now.
-		g.reconcileExterminationQuests()
+		// Reconcile active quotas against the restored roster and future spawns.
+		g.reconcileKillQuests()
 	}
 }

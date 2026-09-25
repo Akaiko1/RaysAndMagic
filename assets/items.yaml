@@ -1,3 +1,16 @@
+# Shared usage wording. Per-item tooltip_usage overrides these defaults.
+# Eligibility and usage conditions are derived from item properties in code.
+tooltip_usage_defaults:
+  card:
+    - "Bring to a Card Collector to add to the active collection"
+    - "Party bonuses apply only while the card is in the collection"
+  trinket: "Trade goods; sell to merchants"
+  activate_inventory: "Double-click in inventory to use"
+  consumed_on_use: "Consumed on use"
+  consumed_after_promotion: "Consumed after promotion"
+  cannot_sell: "Cannot be sold"
+  cannot_drop: "Cannot be dropped"
+
 # Equipment sets: pieces carrying the same `set:` key power a wearer bonus once
 # pieces_required of them are equipped on ONE character. required_pieces names
 # exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
@@ -1728,6 +1741,8 @@ items:
     type: "trinket"
     description: "A filigreed hand pried from a tower mechanism - the Clockmaker pays for these"
     flavor: "Time, broken off at the wrist."
+    tooltip_usage:
+      - "Exchange with the Clockmaker for weapons and armor"
     rarity: "uncommon"
     value: 320
 
@@ -2121,6 +2136,8 @@ items:
     type: "trinket"
     description: "A palm-wide scale of the Brood Mother, still warm"
     flavor: "Bolt holes along one edge, where it was fastened to something bigger. The Scalewright pays and does not discuss it."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "legendary"
     value: 1200
 
@@ -2129,6 +2146,8 @@ items:
     type: "trinket"
     description: "A red scale edged in gold, shed by desert fire"
     flavor: "Smells faintly of a very bad afternoon."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 350
 
@@ -2137,6 +2156,8 @@ items:
     type: "trinket"
     description: "A green scale slick as riverglass"
     flavor: "The venom wiped off. Probably."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 350
 
@@ -2145,12 +2166,35 @@ items:
     type: "trinket"
     description: "A gold scale that sparks faintly in a storm"
     flavor: "Worth its weight, and it throws sparks at steel indoors too."
+    tooltip_usage:
+      - "Exchange with the Scalewright for equipment; gold is also required"
     rarity: "rare"
     value: 600
 
   # ================= ELEMENTAL DRAUGHTS =================
   # Counterplay potions for the endgame triad: each wards one school for a
   # minute, party-wide. Dropped by dragons and the clock tower's works.
+  sun_bleached_silk:
+    name: "Sun-Bleached Silk"
+    type: "trinket"
+    description: "Fine caravan silk, faded by years of hard desert sun"
+    flavor: "The knife holes lower its price. The blood washes out."
+    rarity: "uncommon"
+    value: 160
+
+  mirage_salt:
+    name: "Mirage Salt"
+    type: "consumable"
+    description: "Pale salt from an oasis that appears on no honest map"
+    flavor: "A pinch on the tongue, and the desert loses track of you."
+    resist_buff_school: "fire"
+    resist_buff_school_pct: 30
+    buff_dodge_pct: 15
+    buff_duration_seconds: 120
+    status_icon: "mirage_salt"
+    rarity: "rare"
+    value: 500
+
   flame_ward_draught:
     name: "Flame Ward Draught"
     type: "consumable"
@@ -2197,3 +2241,47 @@ items:
     status_icon: "stoneskin_draught"
     rarity: "rare"
     value: 350
+
+  lemur_fur:
+    name: "Lemur Fur"
+    type: "trinket"
+    description: "A small scrap of soft jungle fur"
+    rarity: "common"
+    value: 8
+
+  rabbit_pelt:
+    name: "Rabbit Pelt"
+    type: "trinket"
+    description: "A soft sand-colored rabbit pelt"
+    flavor: "Enough for one mitten, if the tailor has small hands."
+    rarity: "common"
+    value: 30
+
+  fennec_pelt:
+    name: "Fennec Pelt"
+    type: "trinket"
+    description: "A pale desert fox pelt with a fine winter lining"
+    flavor: "The desert keeps its warmest coat for the coldest hours."
+    rarity: "common"
+    value: 90
+
+  carp_scale:
+    name: "Carp Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3
+
+  koi_scale:
+    name: "Koi Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3
+
+  rainbow_salmon_scale:
+    name: "Rainbow Salmon Scale"
+    type: trinket
+    description: "A glimmering scale shed by a leaping fish."
+    rarity: common
+    value: 3

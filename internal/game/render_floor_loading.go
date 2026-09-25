@@ -5,6 +5,9 @@ import (
 	"image"
 	"path/filepath"
 
+	"ugataima/internal/graphics"
+	"ugataima/internal/storage"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -51,9 +54,11 @@ func (r *Renderer) startFloorPreparation(key string, groups map[string][]string)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan preparedFloor, 1)
+	cache := graphics.PixelCache{Dir: storage.RenderCacheDir()}
 	r.floorPreparation = &floorPreparation{key: key, cancel: cancel, result: result}
 	go func() {
 		defer close(result)
+		defer cache.Prune()
 		if ctx.Err() != nil {
 			return
 		}
@@ -61,7 +66,7 @@ func (r *Renderer) startFloorPreparation(key string, groups map[string][]string)
 		if ctx.Err() != nil {
 			return
 		}
-		pixels, width, height, mip := prepareFloorAtlas(textures)
+		pixels, width, height, mip := prepareCachedFloorAtlas(ctx, cache, textures)
 		select {
 		case result <- preparedFloor{pixels: pixels, groups: mapping, count: len(textures), width: width, height: height, mip: mip}:
 		case <-ctx.Done():
@@ -93,7 +98,7 @@ func (r *Renderer) advanceFloorPreparation(maxBytes int) {
 	if prepared.pixels != nil {
 		cpu := prepared.pixels
 		rows := min(cpu.Bounds().Dy()-p.row, max(1, maxBytes/cpu.Stride))
-		p.image.SubImage(image.Rect(0, p.row, cpu.Bounds().Dx(), p.row+rows)).(*ebiten.Image).WritePixels(cpu.Pix[p.row*cpu.Stride : (p.row+rows)*cpu.Stride])
+		graphics.WritePixelsRegion(p.image, image.Rect(0, p.row, cpu.Bounds().Dx(), p.row+rows), cpu.Pix[p.row*cpu.Stride:(p.row+rows)*cpu.Stride])
 		p.row += rows
 		if p.row < cpu.Bounds().Dy() {
 			return

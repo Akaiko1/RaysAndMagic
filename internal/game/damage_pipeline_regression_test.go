@@ -281,9 +281,9 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	equippedPreview := cs.calculateWeaponDamagePreview(equipped, char)
 	comparison := GetItemComparisonTooltip(weapon, char, cs)
 	wantComparison := fmt.Sprintf(
-		"Total Damage: %d vs %d (%+d)",
-		preview.Total,
+		"Damage / hit: %d -> %d (%+d)",
 		equippedPreview.Total,
+		preview.Total,
 		preview.Total-equippedPreview.Total,
 	)
 	if !strings.Contains(comparison, wantComparison) {

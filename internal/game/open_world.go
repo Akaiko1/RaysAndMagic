@@ -30,6 +30,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 	if r == nil || r.MapKey == wm.CurrentMapKey {
 		return
 	}
+	g.recordProfileTravel(wm.CurrentMapKey, r.MapKey)
 	wm.CurrentMapKey = r.MapKey
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		// The stitched world does not rebuild renderer caches at a seamless
@@ -67,6 +68,13 @@ func (g *MMGame) mapKeyAtTile(tx, ty int) string {
 	if g.openWorldActive() {
 		if r := world.GlobalWorldManager.OpenWorldRegionAtTile(tx, ty); r != nil {
 			return r.MapKey
+		}
+	}
+	if wm := world.GlobalWorldManager; wm != nil && g.world != nil {
+		for key, w := range wm.LoadedMaps {
+			if w == g.world {
+				return key
+			}
 		}
 	}
 	return currentMapKey()

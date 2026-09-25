@@ -157,23 +157,14 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
 
-	// 'W' (water) is render_type "floor" but NOT walkable: it must never be
-	// voted as floor. '@' ringed only by water -> no floor neighbour -> biome '.'
-	// fallback (cobble), never the impassable water tile.
-	water, ok := tm.GetTileTypeFromLetterForBiome("W", "japanese_castle")
-	if !ok {
-		t.Fatalf("water tile not found")
-	}
+	// Automatic entity ground stays walkable; water requires an explicit override.
 	md = load(t, "WWW\nW@W  >[npc:merchant]\nWWW\n")
-	if got := md.Tiles[1][1]; got == water {
-		t.Fatalf("under-entity tile became impassable water %v", water)
-	}
 	if got := md.Tiles[1][1]; got != cobble {
-		t.Fatalf("under-entity tile = %v, want '.' fallback cobble %v (water excluded)", got, cobble)
+		t.Fatalf("under-entity tile = %v, want walkable fallback %v", got, cobble)
 	}
 }
 
-func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.T) {
+func TestResolveFloorsHonorsExcludedUnderFloorTiles(t *testing.T) {
 	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
@@ -206,11 +197,14 @@ func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.
 		{stream, tree, stream},
 		{stream, stream, stream},
 	}
-	if got, ok := tm.DominantNeighbourFloor(tiles, 3, 3, 1, 1, nil); !ok || got != stream {
+	rock, _ := tm.GetTileTypeFromKey("moss_rock")
+	tiles[1][1] = rock
+	if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != stream {
 		t.Fatalf("ordinary dominant floor = %v, %t; want forest stream %v, true", got, ok, stream)
 	}
 	for _, owner := range []TileType3D{tree, ancientTree} {
-		if got, ok := tm.DominantNeighbourFloorForTile(owner, tiles, 3, 3, 1, 1, nil); !ok || got != grass {
+		tiles[1][1] = owner
+		if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != grass {
 			t.Fatalf("tree %q inherited floor = %v, %t; want grass %v, true", tm.GetTileKey(owner), got, ok, grass)
 		}
 	}
@@ -523,6 +517,31 @@ func TestMapLoader_EmptyGroundOverrideFailsLoad(t *testing.T) {
 				t.Fatal("a malformed npc def loaded silently")
 			} else if !strings.Contains(err.Error(), "malformed npc def") {
 				t.Fatalf("error %q does not name the malformed def", err)
+			}
+		})
+	}
+}
+
+func TestMapLoaderRejectsAuthoredFish(t *testing.T) {
+	installTestTileManager(t)
+	previous := monster.MonsterConfig
+	t.Cleanup(func() { monster.MonsterConfig = previous })
+	for _, disposition := range []string{"", "wildlife", monster.DispositionFish} {
+		t.Run("disposition="+disposition, func(t *testing.T) {
+			monster.MonsterConfig = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{
+				"test_actor": {Letter: "a", Disposition: disposition},
+			}}
+			path := filepath.Join(t.TempDir(), "actor.map")
+			if err := os.WriteFile(path, []byte("+a.\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			data, err := NewMapLoaderWithBiome(nil, "forest").LoadMap(path)
+			if disposition == monster.DispositionFish {
+				if err == nil || !strings.Contains(err.Error(), "test_actor") || !strings.Contains(err.Error(), "ecology") {
+					t.Fatalf("missing load-time fish error: %v", err)
+				}
+			} else if err != nil || len(data.MonsterSpawns) != 1 {
+				t.Fatalf("ordinary authored spawn rejected: %v", err)
 			}
 		})
 	}

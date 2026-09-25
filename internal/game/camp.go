@@ -2,11 +2,12 @@ package game
 
 import (
 	"math"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 )
 
-// restParty fully restores every living member's HP/SP and wakes the
+// restParty cures afflictions, fully restores every living member's HP/SP and wakes the
 // unconscious. The dead and eradicated stay down - revival is a separate rite.
 func (g *MMGame) restParty() {
 	for i, m := range g.party.Members {
@@ -16,7 +17,7 @@ func (g *MMGame) restParty() {
 		healed := m.HitPoints < m.MaxHitPoints
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
-		m.RemoveCondition(character.ConditionUnconscious)
+		m.CureRestConditions()
 		if healed {
 			g.TriggerPartyHeal(i) // same rising green "+" the heal spells show
 		}
@@ -28,7 +29,7 @@ func (g *MMGame) restParty() {
 // when the larder is empty. Returns the message to show and whether it worked.
 func (g *MMGame) TryCamp() (string, bool) {
 	if g.party.Food < CampFoodCost {
-		return "Not enough food to make camp.", false
+		return uitext.Text("ui.camp_no_food"), false
 	}
 	radius := CampEnemyRadiusTiles * float64(g.config.World.TileSize)
 	for _, m := range g.world.Monsters {
@@ -38,24 +39,24 @@ func (g *MMGame) TryCamp() (string, bool) {
 		// Bound covers every summon plus Bind Undead - real allies. NOT
 		// IsPartyControlled: that adds Charm, a countdown that breaks on any hit,
 		// so resting through it banks a full heal before the monster turns.
-		if m.Bound {
+		if m.Bound || m.IsAmbient() {
 			continue
 		}
 		// No resting mid-combat: a pursuer kited beyond the radius (or a
 		// ranged monster shooting from outside it) still blocks the camp.
 		if m.TargetsParty() {
-			return "Enemies are upon you - you cannot rest mid-fight.", false
+			return uitext.Text("ui.camp_in_combat"), false
 		}
 		// Measure to the monster's box EDGE, not its center - a large monster
 		// whose body pokes into the radius counts as near.
 		mw, mh := m.GetSize()
 		if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= radius+math.Max(mw, mh)/2 {
-			return "Enemies are near - you cannot rest here.", false
+			return uitext.Text("ui.camp_enemies_near"), false
 		}
 	}
 	g.party.Food -= CampFoodCost
 	g.restParty()
-	return "The party rests. HP and spell points fully restored.", true
+	return uitext.Text("ui.camp_rested"), true
 }
 
 // applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto

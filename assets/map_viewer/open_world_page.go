@@ -12,8 +12,10 @@ import (
 	"image"
 	"image/color"
 	"sort"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/config"
+	"ugataima/internal/game"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
@@ -109,6 +111,7 @@ func (v *viewer) owRebuild() {
 	owPage.gridW, owPage.gridH = ow.Width, ow.Height
 	owPage.regions = append([]world.OpenWorldRegion(nil), wm.OpenWorldRegions...)
 
+	ow.RebuildInheritedFloors()
 	img := image.NewRGBA(image.Rect(0, 0, ow.Width, ow.Height))
 	voidColor := color.RGBA{12, 12, 18, 255}
 	for ty := 0; ty < ow.Height; ty++ {
@@ -325,12 +328,10 @@ func (v *viewer) drawOpenWorldPage(screen *ebiten.Image) {
 
 	if owPage.preview != nil {
 		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(scale, scale)
-		opts.GeoM.Translate(float64(viewX), float64(viewY))
 		if owPage.dragging || owPage.dirty {
 			opts.ColorScale.Scale(0.45, 0.45, 0.45, 1) // stale while editing
 		}
-		screen.DrawImage(owPage.preview, opts)
+		graphics.DrawImageScaled(screen, owPage.preview, float64(viewX), float64(viewY), float64(owPage.preview.Bounds().Dx())*scale, float64(owPage.preview.Bounds().Dy())*scale, opts)
 	}
 
 	// Region frames + labels from the LIVE config (correct mid-drag).
@@ -393,8 +394,10 @@ func (v *viewer) drawOpenWorldSidebar(screen *ebiten.Image, x int) {
 	drawFilledRect(screen, x, y, sidebarWidth-16, windowHeight-y-8, color.RGBA{25, 25, 40, 255})
 	drawRectBorder(screen, x, y, sidebarWidth-16, windowHeight-y-8, 2, color.RGBA{70, 70, 90, 255})
 	line := func(s string) {
-		ebitenutil.DebugPrintAt(screen, s, x+10, y+8)
-		y += 16
+		for _, row := range wrapTooltipLines(s, game.ShadedTextColumns(sidebarWidth-36)) {
+			ebitenutil.DebugPrintAt(screen, row, x+10, y+8)
+			y += 16
+		}
 	}
 	line("OPEN WORLD EDITOR")
 	line(fmt.Sprintf("grid %dx%d", owPage.gridW, owPage.gridH))
@@ -418,9 +421,7 @@ func (v *viewer) drawOpenWorldSidebar(screen *ebiten.Image, x int) {
 	}
 	line("")
 	if owPage.err != "" {
-		for _, l := range wrapTooltipLines("STITCH ERROR: "+owPage.err, 44) {
-			line(l)
-		}
+		line("STITCH ERROR: " + owPage.err)
 	} else if owPage.dirty || owPage.dragging {
 		line("editing... (stitch on release)")
 	} else {

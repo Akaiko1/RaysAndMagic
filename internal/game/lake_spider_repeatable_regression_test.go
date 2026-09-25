@@ -15,6 +15,11 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	game.questManager = questManager
 	quests.GlobalQuestManager = questManager
 
+	// Night packs now reuse vacancies in the authored roster. Clear the base
+	// monsters so this quest test has enough slots for its five spider kills.
+	for _, m := range game.world.Monsters {
+		m.HitPoints = 0
+	}
 	game.syncDayNightPacks(true)
 
 	var spiders []*monster.Monster3D
@@ -56,7 +61,7 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 		t.Fatal("generic item reward used giver-specific wording")
 	}
 
-	game.refreshRepeatableQuests()
+	game.refreshRepeatableQuests("night")
 	if questManager.GetQuest("lake_spiders") != nil {
 		t.Fatal("claimed repeatable quest was not cleared for the next night")
 	}

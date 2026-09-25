@@ -483,3 +483,21 @@ func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int)
 	}
 	return true
 }
+
+// AverageLevel is the floor of the active roster's mean, shared by world gates
+// and score displays. Empty and not-yet-created parties begin at level one.
+func (p *Party) AverageLevel() int {
+	total, count := 0, 0
+	if p != nil {
+		for _, member := range p.Members {
+			if member != nil {
+				total += member.Level
+				count++
+			}
+		}
+	}
+	if count == 0 {
+		return 1
+	}
+	return max(1, total/count)
+}

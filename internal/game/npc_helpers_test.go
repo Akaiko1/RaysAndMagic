@@ -59,7 +59,8 @@ func TestTrainerOptionsUseKnownSkillsAndNextMasteryCost(t *testing.T) {
 		},
 	}
 
-	options := trainerOptions(char)
+	npc := &character.NPC{Type: character.NPCTypeSkillTrainer, Training: map[string]int{"expert": 1000, "master": 4000}}
+	options := trainerOptions(char, npc)
 	if len(options) != 2 {
 		t.Fatalf("expected 2 trainable options, got %d", len(options))
 	}
@@ -67,7 +68,7 @@ func TestTrainerOptionsUseKnownSkillsAndNextMasteryCost(t *testing.T) {
 	if options[0].Label != "Sword" || options[0].Next != character.MasteryExpert {
 		t.Fatalf("unexpected first option: %+v", options[0])
 	}
-	if options[0].Cost != character.TrainingCostForMastery(character.MasteryExpert) {
+	if options[0].Cost != 1000 {
 		t.Fatalf("unexpected sword training cost: %d", options[0].Cost)
 	}
 

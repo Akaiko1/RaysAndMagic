@@ -54,10 +54,20 @@ func (g *MMGame) basePortraitSpriteName(c *character.MMCharacter) string {
 
 // fullPortraitSpriteName returns the large "_full" portrait key, promotion-aware.
 func (g *MMGame) fullPortraitSpriteName(c *character.MMCharacter) string {
-	if n := g.portraitSpriteName(c) + "_full"; g.sprites.HasSprite(n) {
+	base := g.portraitSpriteName(c)
+	if n := g.largePortraitSpriteName(base); n != base {
 		return n
 	}
 	return strings.ToLower(c.Name) + "_full"
+}
+
+// largePortraitSpriteName also resolves persisted portrait keys without needing
+// a live party member. Keep the original identity when detailed art is absent.
+func (g *MMGame) largePortraitSpriteName(base string) string {
+	if !strings.HasSuffix(base, "_full") && g.sprites.HasSprite(base+"_full") {
+		return base + "_full"
+	}
+	return base
 }
 
 // promotionSpriteExists reports whether a member has the asset set for the given
@@ -112,6 +122,7 @@ func (g *MMGame) applyArchmagePromotion(charIndex int) {
 	}
 	c := g.party.Members[charIndex]
 	c.Promotion = character.PromotionArchmage
+	g.profileAdd("promotion:archmage", 1)
 	unlockSchool(c, character.MagicSchoolLight)
 	g.AddCombatMessage(fmt.Sprintf("%s ascends to Archmage, master of Light!", c.Name))
 	g.openPromotionSpellPicker(charIndex, character.MagicSchoolLight, "Archmage: Choose Light Spells")
@@ -123,6 +134,7 @@ func (g *MMGame) applyLichPromotion(charIndex int) {
 	}
 	c := g.party.Members[charIndex]
 	c.Promotion = character.PromotionLich
+	g.profileAdd("promotion:lich", 1)
 	unlockSchool(c, character.MagicSchoolDark)
 	g.AddCombatMessage(fmt.Sprintf("%s embraces undeath as a Lich, wielder of Dark!", c.Name))
 	g.openPromotionSpellPicker(charIndex, character.MagicSchoolDark, "Lich: Choose Dark Spells")
@@ -130,7 +142,7 @@ func (g *MMGame) applyLichPromotion(charIndex int) {
 
 // openPromotionSpellPicker queues a "pick up to 2" multi-select over the school's
 // spells the character doesn't already know. Status + school unlock must already
-// be applied by the caller (so a save mid-picker only forfeits the free spells).
+// be applied by the caller. Pending choices are preserved by save/load.
 func (g *MMGame) openPromotionSpellPicker(charIndex int, school character.MagicSchoolID, title string) {
 	if charIndex < 0 || charIndex >= len(g.party.Members) {
 		return

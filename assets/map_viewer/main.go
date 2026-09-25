@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"ugataima/internal/boot"
 	"ugataima/internal/character"
@@ -18,6 +17,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/shadercache"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
@@ -65,13 +65,14 @@ var pageTabDefs = []struct {
 }
 
 type mapInfo struct {
-	Biome  config.BiomeConfig
-	Key    string
-	Config *config.MapConfig
-	Data   *world.MapData
-	Err    error
-	Header []string // leading "#" comment lines, preserved across save
-	EOL    string   // original line ending ("\r\n" or "\n"), preserved across save
+	LightingText string // resolved at load, never probes sky files during Draw
+	Biome        config.BiomeConfig
+	Key          string
+	Config       *config.MapConfig
+	Data         *world.MapData
+	Err          error
+	Header       []string // leading "#" comment lines, preserved across save
+	EOL          string   // original line ending ("\r\n" or "\n"), preserved across save
 }
 
 type viewer struct {
@@ -83,6 +84,8 @@ type viewer struct {
 	legendLines     []legendEntry
 	legendScroll    int
 	legendCollapsed map[string]bool
+	brushPalette    []legendEntry // Uncollapsed palette; presentation never changes eligibility.
+	brushBiome      string
 	sidebarTab      int
 	tileDataByKey   map[string]*config.TileData
 	tileManager     *world.TileManager
@@ -108,9 +111,10 @@ type viewer struct {
 	// once the cursor leaves the cell, so a plain click still reaches the brush
 	// and the eraser. dragPainted remembers the cells a held brush already
 	// painted, so drag-painting writes each cell once.
-	pendingGrab dragState
-	grab        dragState
-	dragPainted map[[2]int]bool
+	pendingGrab   dragState
+	grab          dragState
+	dragPainted   map[[2]int]bool
+	brushFloorMap *mapInfo
 
 	// gameSprites renders popup sprites through the game's own load pipeline
 	// (color key / despill), so they look exactly as in-game.
@@ -119,8 +123,8 @@ type viewer struct {
 	// Content page state: per-page card lists and independent scroll offsets.
 	pageCards   map[int][]contentCard
 	pageScroll  map[int]int
-	charDetails []charDetail             // Characters page (custom full-detail renderer)
-	iconCache   map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
+	charDetails []charDetail // Characters page (custom full-detail renderer)
+	iconImages  *graphics.AsyncImageCache
 }
 
 // contentCard, contentKind, and the cardX constants live in content_cards.go.
@@ -233,6 +237,7 @@ type toolbarButton struct {
 }
 
 func main() {
+	shadercache.Initialize()
 	// Shared content configs + bridges, same sequence as the game.
 	cfg, monsterCfg := boot.LoadGameData()
 
@@ -267,10 +272,11 @@ func main() {
 		},
 		pageScroll:  map[int]int{},
 		charDetails: buildCharacterDetails(cfg),
-		iconCache:   make(map[string]*ebiten.Image),
+		iconImages:  graphics.NewAsyncImageCache(64 << 20),
 		gameSprites: graphics.NewSpriteManager(),
 	}
 	game.ApplySpriteColorKey(v.gameSprites, cfg)
+	defer v.iconImages.Close()
 	// Legend is biome-scoped to the current map (universal tiles/monsters
 	// plus the map biome's own); rebuilt whenever the map changes.
 	v.refreshLegend()
@@ -290,6 +296,11 @@ func main() {
 }
 
 func (v *viewer) Update() error {
+	// Flush even when a modal/page switch consumes the release before drag input.
+	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || v.page != pageMaps {
+		v.finishBrushFloors()
+	}
+	v.iconImages.Advance(256 << 10)
 	if v.saveDialogOpen {
 		v.handleSaveDialogInput()
 		return nil
@@ -652,6 +663,11 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 					lines = append(lines, "")
 					lines = append(lines, wrapTooltipLines(def.Description, 64)...)
 				}
+				lines = append(lines, def.AvailabilityLines()...)
+				lines = append(lines, character.TrainingOfferLines(def.Training)...)
+				if len(def.Training) > 0 && def.RequiresQuest != "" {
+					lines = append(lines, "Requires claimed quest: "+def.RequiresQuest)
+				}
 			}
 		}
 		drawTooltipBox(screen, lines, mouseX, mouseY)
@@ -664,12 +680,7 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 		}
 		lines = append(lines, "", "MONSTER", "Key: "+spawn.MonsterKey)
 		if def, ok := v.monsterCfg.Monsters[spawn.MonsterKey]; ok {
-			lines = append(lines,
-				"Name: "+def.Name,
-				fmt.Sprintf("Level: %d   HP: %d   AC: %d", def.Level, def.MaxHitPoints, def.ArmorClass),
-				fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
-					monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)),
-			)
+			lines = append(lines, mapMonsterStatLines(def)...)
 			if def.Type != "" {
 				lines = append(lines, "Type: "+def.Type)
 			}
@@ -709,6 +720,26 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 	drawTooltipBox(screen, lines, mouseX, mouseY)
 }
 
+// Map spawns have no selected champion tier. Show the build reference instead
+// of the placeholder HP/damage fields that runtime champion setup replaces.
+func mapMonsterStatLines(def monster.MonsterDefinition) []string {
+	lines := []string{"Name: " + def.Name}
+	if def.Champion != "" {
+		return append(lines, "Champion: "+def.Champion, "Stats depend on tier and equipment")
+	}
+	lines = append(lines, fmt.Sprintf("Level: %d   HP: %d   AC: %d", def.Level, def.MaxHitPoints, def.ArmorClass))
+	if def.Disposition != "" {
+		lines = append(lines, "Disposition: "+def.Disposition)
+	}
+	if def.HasAttackStats() {
+		lines = append(lines, fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
+			monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)))
+	} else {
+		lines = append(lines, "Does not attack")
+	}
+	return lines
+}
+
 func appendTileTooltipLines(lines []string, data *config.TileData) []string {
 	if data == nil {
 		return lines
@@ -728,6 +759,9 @@ func appendTileTooltipLines(lines []string, data *config.TileData) []string {
 	}
 	if data.Sprite != "" {
 		lines = append(lines, "Sprite: "+data.Sprite)
+	}
+	if len(data.SpriteVariants) > 0 {
+		lines = append(lines, "Variants: "+strings.Join(data.SpriteVariants, ", "))
 	}
 	return lines
 }
@@ -837,7 +871,7 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 	)
 	maxLineW := 0
 	for _, ln := range lines {
-		if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
+		if w := game.ShadedTextWidth(ln); w > maxLineW {
 			maxLineW = w
 		}
 	}
@@ -1018,6 +1052,8 @@ func (v *viewer) resetMapView() {
 	v.zoom = 1
 	v.panX = 0
 	v.panY = 0
+	// A gesture belongs to its source map, even when the mouse stays held.
+	v.grab, v.pendingGrab, v.dragPainted = dragState{}, dragState{}, nil
 }
 
 func (v *viewer) handleMouseClick() {
@@ -1135,6 +1171,9 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 	txMax := clampInt((x+w-lay.originX)/tileSize+1, 0, lay.worldW-1)
 	tyMax := clampInt((y+h-lay.originY)/tileSize+1, 0, lay.worldH-1)
 
+	if m.Data.Floors == nil {
+		rebuildMapFloors(&m, tm)
+	}
 	floorColor := effectiveFloorColor(m, tm, tileDataByKey)
 
 	for ty := tyMin; ty <= tyMax; ty++ {
@@ -1293,11 +1332,7 @@ func buildMapInfoLines(m mapInfo, currentBrush brush) []infoLine {
 
 	if m.Config != nil {
 		header("RENDERING")
-		ambient := m.Config.AmbientLight
-		if ambient <= 0 {
-			ambient = 1
-		}
-		add("Ambient light: %.2f", ambient)
+		add("%s", m.LightingText)
 		add("Floor RGB: %d, %d, %d", m.Config.DefaultFloorColor[0], m.Config.DefaultFloorColor[1], m.Config.DefaultFloorColor[2])
 		if m.Config.SkyTexture != "" {
 			add("Sky: %s", m.Config.SkyTexture)
@@ -1463,21 +1498,12 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 
 // drawImageInBox draws img scaled to fit a swxsw box at (bx,by).
 func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int) {
-	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
-	if iw == 0 || ih == 0 {
-		return
-	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(bw)/float64(iw), float64(bh)/float64(ih))
-	op.GeoM.Translate(float64(bx), float64(by))
-	screen.DrawImage(img, op)
+	drawImageScaled(screen, img, bx, by, bw, bh)
 }
 
-// clipText truncates text with an ellipsis to fit availPx (~6px per glyph in
-// the debug font).
+// clipText truncates text with an ellipsis to fit the shared font advance.
 func clipText(text string, availPx int) string {
-	const glyphW = 6
-	maxChars := availPx / glyphW
+	maxChars := game.ShadedTextColumns(availPx)
 	if maxChars < 1 {
 		return ""
 	}
@@ -1652,6 +1678,7 @@ func (v *viewer) saveCurrentMap() error {
 		return fmt.Errorf("empty path")
 	}
 	m := v.maps[v.mapIndex]
+	rebuildMapFloors(&m, v.tileManager)
 	gridLines, err := encodeMapLines(&m, v.tileManager)
 	if err != nil {
 		return err
@@ -1736,9 +1763,8 @@ func drawCenteredLabel(screen *ebiten.Image, label string, r rect) {
 	if label == "" {
 		return
 	}
-	const charW = 7
 	const charH = 13
-	textW := utf8.RuneCountInString(label) * charW
+	textW := game.ShadedTextWidth(label)
 	textH := charH
 	x := r.x + (r.w-textW)/2
 	y := r.y + (r.h-textH)/2
@@ -1801,7 +1827,18 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 	if m == nil || m.Data == nil || v.tileManager == nil {
 		return
 	}
+	if ty < 0 || ty >= len(m.Data.Tiles) || tx < 0 || tx >= len(m.Data.Tiles[ty]) {
+		return
+	}
+	biome := ""
+	if m.Config != nil {
+		biome = m.Config.Biome
+	}
+	if !v.brushAvailable(v.brush, biome) {
+		return
+	}
 
+	defer v.updateBrushFloors(m)
 	clearMapCellSpawns(m, tx, ty)
 
 	switch v.brush.kind {
@@ -2123,6 +2160,37 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 	return color.RGBA{}, false
 }
 
+// Rebuild once on release for a held stroke; direct edits still update at once.
+func (v *viewer) updateBrushFloors(m *mapInfo) {
+	if v.brushFloorMap != nil && v.brushFloorMap != m {
+		v.finishBrushFloors()
+	}
+	if v.dragPainted != nil {
+		v.brushFloorMap = m
+		return
+	}
+	rebuildMapFloors(m, v.tileManager)
+}
+
+func (v *viewer) finishBrushFloors() {
+	if v.brushFloorMap != nil {
+		rebuildMapFloors(v.brushFloorMap, v.tileManager)
+		v.brushFloorMap = nil
+	}
+}
+
+// rebuildMapFloors runs after edits and before save, not once per drawn tile.
+func rebuildMapFloors(m *mapInfo, tm *world.TileManager) {
+	if m == nil || m.Data == nil || tm == nil {
+		return
+	}
+	biome := ""
+	if m.Config != nil {
+		biome = m.Config.Biome
+	}
+	m.Data.RebuildFloors(tm, biome)
+}
+
 // floorUnderObjectColor is the ground shown under an object sprite. The
 // TileData inheritance policy is shared with the game renderer, so a prop in a
 // road patch sits on road rather than the biome default.
@@ -2135,7 +2203,10 @@ func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[s
 		}
 		return base
 	}
-	if t, ok := tm.DominantNeighbourFloorForTile(tile, m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
+	if m.Data.Floors == nil {
+		rebuildMapFloors(&m, tm)
+	}
+	if t, ok := m.Data.Floors.At(tx, ty); ok {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
 			return colorFromRGB(data.FloorColor)
 		}
@@ -2235,20 +2306,21 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 		data, err := loader.LoadMap(mapPath)
 		header, eol := readMapHeaderAndEOL(mapPath)
 		maps = append(maps, mapInfo{
-			Key:    key,
-			Biome:  wm.Biomes[mapCfg.Biome],
-			Config: mapCfg,
-			Data:   data,
-			Err:    err,
-			Header: header,
-			EOL:    eol,
+			Key:          key,
+			LightingText: game.MapLightingText(mapCfg),
+			Biome:        wm.Biomes[mapCfg.Biome],
+			Config:       mapCfg,
+			Data:         data,
+			Err:          err,
+			Header:       header,
+			EOL:          eol,
 		})
 	}
 
 	return maps, nil
 }
 
-// matchesBiome reports whether a tile/monster (with the given biome scope) is
+// matchesBiome reports whether an authored resource (with the given biome scope) is
 // usable in the given biome. Empty scope = universal (every biome).
 func matchesBiome(scope []string, biome string) bool {
 	if len(scope) == 0 {
@@ -2273,7 +2345,28 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
+	// Rebuild eligibility from content, independently of collapsed sections.
+	v.brushPalette = nil
+	if !v.brushAvailable(v.brush, v.currentBiome()) {
+		v.brush = brush{}
+	}
 	v.rebuildLegend(true)
+}
+
+// brushAvailable shares all palette rules, including biome scope, champion
+// exclusion and letter overrides. Cache the uncollapsed rows so a held paint
+// stroke does not rebuild and sort the content catalog for every cell.
+func (v *viewer) brushAvailable(b brush, biome string) bool {
+	if v.brushPalette == nil || v.brushBiome != biome {
+		v.brushPalette = buildLegendEntries(v.tileManager, v.monsterCfg, biome, nil)
+		v.brushBiome = biome
+	}
+	for _, entry := range v.brushPalette {
+		if brushMatchesEntry(b, entry) {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *viewer) rebuildLegend(resetScroll bool) {
@@ -2586,11 +2679,14 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		entries = appendLegendScope(entries, "General: All Biomes", "scope:general", generalGroups, collapsed)
 	}
 
-	// NPCs are universal placement tools. Their authored behavior type remains a
-	// useful editor category, and each category can be collapsed independently.
+	// NPCs default to universal placement; authored biome scopes use the same
+	// filtering as tiles and monsters. Each behavior category is collapsible.
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
+			if data != nil && !matchesBiome(data.Biomes, biome) {
+				continue
+			}
 			npcType := ""
 			if data != nil {
 				npcType = data.Type
@@ -2771,27 +2867,9 @@ func drawHeaderBandForTextRow(screen *ebiten.Image, x, textY, w, rowAdvance int)
 	drawRectBorder(screen, x, y, w, h, 1, viewerHeaderBorder)
 }
 
-// drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's
-// helper (ui_helpers.go): linear filtering when SHRINKING (mipmaps) so thin
-// baked-in details/frames aren't dropped, nearest when upscaling so pixel art
-// stays crisp. Used for sprite icons and portraits so the editor renders them
-// exactly like the game (no "squished"/clipped look from nearest downscaling).
+// drawImageScaled uses the same resampling policy as the game's interface.
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
-	if src == nil || w <= 0 || h <= 0 {
-		return
-	}
-	b := src.Bounds()
-	sw, sh := b.Dx(), b.Dy()
-	if sw <= 0 || sh <= 0 {
-		return
-	}
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(float64(w)/float64(sw), float64(h)/float64(sh))
-	opts.GeoM.Translate(float64(x), float64(y))
-	if w < sw || h < sh {
-		opts.Filter = ebiten.FilterLinear
-	}
-	dst.DrawImage(src, opts)
+	graphics.DrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
 }
 
 func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.RGBA) {

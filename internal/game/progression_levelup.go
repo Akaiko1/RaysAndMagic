@@ -102,6 +102,7 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 // unspent). The living-only rule is uniform, so a downed hero (even benched)
 // gains nothing. Single source for all XP-award sites. No-op without combat.
 func (g *MMGame) grantSharedXP(amount int) {
+	defer g.updatePartyLevelUnlocks()
 	if amount <= 0 || g.combat == nil {
 		return
 	}
@@ -223,7 +224,13 @@ func (g *MMGame) drainOwedChoices(charIndex int) {
 	for _, lvl := range owed {
 		// Queue unconditionally: even levels with no explicit level_up.yaml entry
 		// (6/9/12/...) still get padded to MinLevelUpOptions random upgrades.
-		g.queueLevelUpChoices(char, lvl, config.GetLevelUpChoices(char.GetClassKey(), lvl))
+		if lvl == 0 && char.Promotion == character.PromotionArchmage {
+			g.openPromotionSpellPicker(charIndex, character.MagicSchoolLight, "Archmage: Choose Light Spells")
+		} else if lvl == 0 && char.Promotion == character.PromotionLich {
+			g.openPromotionSpellPicker(charIndex, character.MagicSchoolDark, "Lich: Choose Dark Spells")
+		} else if lvl > 0 {
+			g.queueLevelUpChoices(char, lvl, config.GetLevelUpChoices(char.GetClassKey(), lvl))
+		}
 	}
 }
 
@@ -544,10 +551,12 @@ func (g *MMGame) pruneLevelUpOptions(req *levelUpChoiceRequest) bool {
 		return false
 	}
 	kept := req.options[:0]
+	selected := make([]bool, 0, len(req.options))
 	for i := range req.options {
 		setLevelUpOptionDisplay(char, &req.options[i])
 		if levelUpOptionPickable(char, &req.options[i]) {
 			kept = append(kept, req.options[i])
+			selected = append(selected, i < len(req.selected) && req.selected[i])
 		}
 	}
 	req.options = kept
@@ -558,7 +567,7 @@ func (g *MMGame) pruneLevelUpOptions(req *levelUpChoiceRequest) bool {
 		req.options = padLevelUpOptions(char, req.options)
 	}
 	if len(req.selected) > 0 {
-		req.selected = make([]bool, len(req.options))
+		req.selected = append(selected, make([]bool, len(req.options)-len(selected))...)
 	}
 	if req.maxSelections > len(req.options) {
 		req.maxSelections = len(req.options)

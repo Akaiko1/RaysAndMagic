@@ -19,12 +19,14 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name          string `yaml:"name"`
-	Type          string `yaml:"type"`
-	Description   string `yaml:"description"`
-	Sprite        string `yaml:"sprite"`
-	VisitedSprite string `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin        bool   `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	// Empty biome scope keeps the NPC available in every editor palette.
+	Biomes        []string `yaml:"biomes,omitempty"`
+	Name          string   `yaml:"name"`
+	Type          string   `yaml:"type"`
+	Description   string   `yaml:"description"`
+	Sprite        string   `yaml:"sprite"`
+	VisitedSprite string   `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool     `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
@@ -39,8 +41,9 @@ type NPCData struct {
 	SellAvailable    bool     `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool     `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool     `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
-	NightOnly        bool     `yaml:"night_only,omitempty"`         // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
-	RejectsLich      bool     `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	MinPartyLevel    int      `yaml:"min_party_level,omitempty"`
+	NightOnly        bool     `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
+	RejectsLich      bool     `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	// TownPortal makes this NPC's map a Town Portal destination and the party's
 	// arrival point on it. Authored, not inferred from renting rooms: an inn is
 	// the usual anchor, but the flag is what counts.
@@ -51,6 +54,7 @@ type NPCData struct {
 	// the per-choice requires_quest. Validated: the quest must exist and the NPC
 	// must actually own a service to withhold.
 	RequiresQuest string               `yaml:"requires_quest,omitempty"`
+	Training      map[string]int       `yaml:"training,omitempty"` // Target mastery -> gold cost; omitted tiers are unavailable.
 	Dialogue      *NPCDialogue         `yaml:"dialogue"`
 	Spells        map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory     []*NPCItem           `yaml:"inventory,omitempty"`
@@ -252,6 +256,20 @@ type EncounterMonster struct {
 	CountMax int    `yaml:"count_max"`
 }
 
+// EncounterByQuestID resolves the authored reward/definition when a saved
+// encounter resumes. Unknown legacy or unlinked encounters keep their snapshot.
+func (nc *NPCConfig) EncounterByQuestID(id string) *NPCEncounter {
+	if nc == nil || id == "" {
+		return nil
+	}
+	for _, npc := range nc.NPCs {
+		if npc != nil && npc.Encounter != nil && npc.Encounter.QuestID == id {
+			return npc.Encounter
+		}
+	}
+	return nil
+}
+
 // NPCPropCopy is a quest prop's authored behaviour and wording: which interact
 // tag it credits and what the player reads. Content, so it lives in npcs.yaml
 // beside the prop's own greeting and choice text.
@@ -335,6 +353,9 @@ func LoadNPCConfig(filename string) error {
 	if err := validateNPCTypes(&config); err != nil {
 		return err
 	}
+	if err := validateNPCTraining(&config); err != nil {
+		return err
+	}
 	if err := validateCratesAndLecterns(&config); err != nil {
 		return err
 	}
@@ -350,6 +371,9 @@ func LoadNPCConfig(filename string) error {
 // ValidNPCTypes set - both behavior dispatch and the editor palette read it.
 func validateNPCTypes(cfg *NPCConfig) error {
 	for key, npc := range cfg.NPCs {
+		if npc != nil && npc.MinPartyLevel < 0 {
+			return fmt.Errorf("NPC %q: min_party_level must not be negative", key)
+		}
 		if npc == nil || !ValidNPCTypes[npc.Type] {
 			got := ""
 			if npc != nil {
@@ -517,6 +541,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
 		NightOnly:        data.NightOnly,
+		MinPartyLevel:    data.MinPartyLevel,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
 		GridSpanTiles:    data.GridSpanTiles,
@@ -524,6 +549,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		RejectsLich:      data.RejectsLich,
 		TownPortal:       data.TownPortal,
 		RequiresQuest:    data.RequiresQuest,
+		Training:         data.Training,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 		Lectern:          data.Lectern,

@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/character"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 )
 
@@ -26,6 +27,7 @@ const (
 	bannerQuestPaid
 	bannerInteractPrompt
 	bannerLegendaryDrop
+	bannerAchievement
 )
 
 // Timeline, in SECONDS: slide in, hold, slide out. Converted with the live tps
@@ -58,6 +60,7 @@ const (
 )
 
 type screenBanner struct {
+	icon  string
 	text  string
 	kind  screenBannerKind
 	frame int
@@ -84,7 +87,7 @@ func (g *MMGame) bannerOutFrames() int { return g.framesForSeconds(bannerOutSeco
 // renderer's brushed gradient; the nudge's white stays flat.
 func screenBannerTint(kind screenBannerKind) color.RGBA {
 	switch kind {
-	case bannerQuestDone, bannerQuestPaid:
+	case bannerQuestDone, bannerQuestPaid, bannerAchievement:
 		return rarityGold
 	case bannerInteractPrompt:
 		return color.RGBA{255, 255, 255, 255}
@@ -153,22 +156,44 @@ func (g *MMGame) queueBanner(kind screenBannerKind, text string) bool {
 	return true
 }
 
-// trimBannerOverflow cuts the queue back to bannerQueueMax. A nudge goes first
+// trimBannerOverflow limits ordinary news to bannerQueueMax, preserving all
+// achievement announcements. A nudge goes first
 // wherever it sits - INCLUDING the one mid-animation at index 0: it pops instead
 // of sliding out, and that is the deliberate trade. A nudge is recoverable (the
 // player steps away, or returns from an overlay); a quest banner never shown is
 // gone for good. Only news is protected by taking index 0 out of the fallback.
 func (g *MMGame) trimBannerOverflow() {
-	for len(g.screenBannerQueue) > bannerQueueMax {
-		drop := 1 // the oldest entry still waiting its turn
+	for g.screenBannerNewsCount() > bannerQueueMax {
+		drop := -1
+		for i := 1; i < len(g.screenBannerQueue); i++ {
+			if g.screenBannerQueue[i].kind != bannerAchievement {
+				drop = i
+				break
+			}
+		}
 		for i, b := range g.screenBannerQueue {
 			if b.kind == bannerInteractPrompt {
 				drop = i
 				break
 			}
 		}
+		if drop < 0 {
+			return
+		} // Achievement news is never discarded.
 		g.screenBannerQueue = append(g.screenBannerQueue[:drop], g.screenBannerQueue[drop+1:]...)
 	}
+}
+
+// Achievement announcements have their own bounded supply (the catalog). They
+// do not consume the existing four news slots or evict quest notifications.
+func (g *MMGame) screenBannerNewsCount() int {
+	count := 0
+	for _, b := range g.screenBannerQueue {
+		if b.kind != bannerAchievement {
+			count++
+		}
+	}
+	return count
 }
 
 // forgetInteractPromptTarget clears the focus identity and any queued nudge: a
@@ -179,10 +204,16 @@ func (g *MMGame) forgetInteractPromptTarget() {
 	g.dropPrompts(false)
 }
 
-// resetScreenBanners clears the channel and every producer's memory: queue,
-// focus identity, pending drops, and a fresh silent quest baseline.
+// resetScreenBanners clears run-local news and producer memory while keeping
+// lifetime achievement announcements, then establishes a silent quest baseline.
 func (g *MMGame) resetScreenBanners() {
-	g.screenBannerQueue = nil
+	kept := g.screenBannerQueue[:0]
+	for _, b := range g.screenBannerQueue {
+		if b.kind == bannerAchievement {
+			kept = append(kept, b)
+		}
+	}
+	g.screenBannerQueue = kept
 	g.bannerPromptNPC = nil
 	g.bannerPromptLostFrames = 0
 	g.pendingLegendaryDrops = nil // loot collected but not yet announced dies with the run
@@ -213,15 +244,13 @@ func (g *MMGame) currentScreenBanner() *screenBanner {
 	return &g.screenBannerQueue[0]
 }
 
-// visibleScreenBanner is the RENDERER's view: nothing while an overlay paused
-// the world (the tick stops, the HUD keeps drawing). The map and Game Over used
-// to be named here on top of that check because they did not pause; they do now,
-// so the pause contract covers them.
+// visibleScreenBanner hides ordinary news while an overlay pauses the world.
+// Achievement announcements remain visible and use the interface clock.
 func (g *MMGame) visibleScreenBanner() *screenBanner {
-	if g.gameplayPausedByOverlay() {
+	banner := g.currentScreenBanner()
+	if g.gameplayPausedByOverlay() && (banner == nil || banner.kind != bannerAchievement) {
 		return nil
 	}
-	banner := g.currentScreenBanner()
 	// Quest news and drops DO belong over an open dialog (a turn-in banners while
 	// you are still talking). An approach nudge does not: the party is already
 	// talking to the thing it points at.
@@ -391,6 +420,7 @@ type screenBannerGeometry struct {
 	plateX, plateY int
 	plateW, plateH int
 	textW          int
+	icon           layoutRect
 }
 
 // The top corners are taken: "ESC: Main menu" on the left, the mode readout and
@@ -398,7 +428,16 @@ type screenBannerGeometry struct {
 const bannerCornerReservePx = 130
 
 func screenBannerLayout(screenW int, text string, offset float64) screenBannerGeometry {
-	maxTextPx := screenW - 2*(bannerPlatePadX+bannerCornerReservePx)
+	return screenBannerLayoutWithIcon(screenW, text, offset, false)
+}
+
+func screenBannerLayoutWithIcon(screenW int, text string, offset float64, withIcon bool) screenBannerGeometry {
+	plateH := int(float64(debugTextCharHeight)*bannerScale) + 2*bannerPlatePadY
+	iconBand := 0
+	if withIcon {
+		iconBand = plateH + 4
+	}
+	maxTextPx := screenW - 2*(bannerPlatePadX+bannerCornerReservePx) - iconBand
 	if maxTextPx < 120 {
 		maxTextPx = 120
 	}
@@ -407,13 +446,16 @@ func screenBannerLayout(screenW int, text string, offset float64) screenBannerGe
 	g := screenBannerGeometry{
 		text:  clipped,
 		textW: int(float64(debugTextWidth(clipped)) * scale),
-		cx:    screenW / 2,
+		cx:    (screenW + iconBand) / 2,
 		cy:    bannerRestY - int(offset),
 	}
 	g.plateW = g.textW + 2*bannerPlatePadX
-	g.plateH = int(float64(debugTextCharHeight)*scale) + 2*bannerPlatePadY
+	g.plateH = plateH
 	g.plateX = g.cx - g.plateW/2
 	g.plateY = g.cy - g.plateH/2
+	if withIcon {
+		g.icon = layoutRect{g.plateX - iconBand, g.plateY, plateH, plateH}
+	}
 	return g
 }
 
@@ -433,12 +475,27 @@ func (ui *UISystem) drawScreenBanner(screen *ebiten.Image) {
 	if alpha <= 0 {
 		return
 	}
-	ui.drawScreenBannerContent(screen, banner.text, banner.kind, alpha, offset)
+	var icon *ebiten.Image
+	if banner.icon != "" && ui.game.sprites.HasSprite(banner.icon) {
+		icon = ui.game.sprites.GetSprite(banner.icon)
+	}
+	geo := screenBannerLayoutWithIcon(ui.game.config.GetScreenWidth(), banner.text, offset, icon != nil)
+	ui.drawScreenBannerGeometry(screen, geo, banner.kind, alpha)
+	if icon != nil {
+		op := &ebiten.DrawImageOptions{}
+
+		op.ColorScale.ScaleAlpha(float32(alpha))
+		graphics.DrawImageScaled(screen, icon, float64(geo.icon.x), float64(geo.icon.y), float64(geo.icon.w), float64(geo.icon.h), op)
+	}
 }
 
 func (ui *UISystem) drawScreenBannerContent(screen *ebiten.Image, text string, kind screenBannerKind, alpha, offset float64) {
-	tint := screenBannerTint(kind)
 	geo := screenBannerLayout(ui.game.config.GetScreenWidth(), text, offset)
+	ui.drawScreenBannerGeometry(screen, geo, kind, alpha)
+}
+
+func (ui *UISystem) drawScreenBannerGeometry(screen *ebiten.Image, geo screenBannerGeometry, kind screenBannerKind, alpha float64) {
+	tint := screenBannerTint(kind)
 	// Same furniture as the victory title: a dark panel, brushed-metal rules, and
 	// the scaled metal heading itself.
 	drawFilledRect(screen, geo.plateX, geo.plateY, geo.plateW, geo.plateH, fadeVectorColor(color.RGBA{8, 7, 3, 210}, alpha))

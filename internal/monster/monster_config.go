@@ -14,6 +14,11 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
+	Arboreal *ArborealConfig `yaml:"arboreal,omitempty"`
+
+	Disposition  string   `yaml:"disposition,omitempty"`
+	Prey         []string `yaml:"prey,omitempty"`
+	PreyRadius   float64  `yaml:"prey_radius,omitempty"`
 	Name         string   `yaml:"name"`
 	Type         string   `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
 	Level        int      `yaml:"level"`
@@ -34,6 +39,8 @@ type MonsterDefinition struct {
 	Biomes       []string `yaml:"biomes,omitempty"`
 	BoxW         float64  `yaml:"box_w"`
 	BoxH         float64  `yaml:"box_h"`
+	// AnimateWhenIdle loops the walking sheet at rest, independently of speed.
+	AnimateWhenIdle bool `yaml:"animate_when_idle,omitempty"`
 	// SizeClass picks a quantized sprite height (small/medium/person/large/huge);
 	// the tile-height value per class lives in config graphics.monster_size_classes.
 	SizeClass string `yaml:"size_class"`
@@ -48,7 +55,7 @@ type MonsterDefinition struct {
 	DeprecatedSizeGame        float64        `yaml:"size_game,omitempty"`
 	DeprecatedSizeMultiplier  float64        `yaml:"size_multiplier,omitempty"`
 	Resistances               map[string]int `yaml:"resistances"`
-	HabitatPrefs              []string       `yaml:"habitat_preferences"`
+	WalkableTileOverrides     []string       `yaml:"walkable_tile_overrides,omitempty"`
 	ProjectileSpell           string         `yaml:"projectile_spell"`
 	ProjectileWeapon          string         `yaml:"projectile_weapon"`
 	Flying                    bool           `yaml:"flying"`
@@ -128,6 +135,9 @@ type MonsterDefinition struct {
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
+
+	// Reject the former misleading key rather than silently losing terrain permissions.
+	DeprecatedHabitatPreferences yaml.Node `yaml:"habitat_preferences,omitempty"`
 }
 
 type MonsterLightConfig struct {
@@ -155,6 +165,28 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	var conflicts []string
 
 	for key, monster := range config.Monsters {
+		if monster.Arboreal != nil {
+			if err := monster.Arboreal.validate(); err != nil {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
+			}
+			if monster.Disposition != DispositionWildlife || monster.Flying || len(monster.WalkableTileOverrides) != 0 || len(monster.Prey) != 0 {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q: arboreal movement requires ground wildlife without prey or terrain overrides", key))
+			}
+		}
+		if monster.Disposition != "" && monster.Disposition != DispositionWildlife && monster.Disposition != DispositionCaravan && monster.Disposition != DispositionFish {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid disposition", key))
+		}
+		if len(monster.Prey) > 0 && (monster.Disposition != DispositionWildlife || monster.PreyRadius <= 0) {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q has invalid prey rules", key))
+		}
+		for _, prey := range monster.Prey {
+			if _, ok := config.Monsters[prey]; !ok {
+				conflicts = append(conflicts, fmt.Sprintf("monster %q has unknown prey %q", key, prey))
+			}
+		}
+		if monster.DeprecatedHabitatPreferences.Kind != 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed habitat_preferences - use walkable_tile_overrides for blocked tile exceptions", key))
+		}
 		letter := monster.Letter
 		if letter == "" {
 			continue
@@ -458,6 +490,8 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 // SetupMonsterFromConfig configures a monster from YAML definition
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
+	m.Disposition, m.Prey, m.PreyRadius = def.Disposition, def.Prey, def.PreyRadius*m.tileSize()
+	m.Arboreal = def.Arboreal
 	m.MonsterType = def.Type
 	// Render/collision identity never changes after setup; cache it so hot
 	// frame/tick callers do not copy or scan the YAML definition.
@@ -477,6 +511,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AlertRadius = def.AlertRadius * tileSize
 	m.AttackRadius = def.AttackRadius * tileSize
 	m.Speed = def.Speed
+	m.AnimateWhenIdle = def.AnimateWhenIdle
 
 	// Set random gold within range
 	if def.GoldMax > def.GoldMin {
@@ -493,8 +528,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		}
 	}
 
-	// Set habitat preferences - tiles this monster can walk on even if normally blocked
-	m.HabitatPrefs = def.HabitatPrefs
+	// Set walkable tile overrides - tiles this monster can walk on even if normally blocked
+	m.WalkableTileOverrides = def.WalkableTileOverrides
 
 	// Set ranged attack configuration
 	m.ProjectileSpell = def.ProjectileSpell

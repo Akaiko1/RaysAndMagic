@@ -1,20 +1,26 @@
 # How to Add a New NPC
 
-NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
+NPCs live in `assets/npcs.yaml` and are placed in maps. Read
+[shared authoring rules](docs/content-authoring.md) and
+[dialogue guidelines](docs/content-authoring.md#dialogue) first.
 
 ## Overview
 - Placement uses `@` in the map grid plus a trailing `>[npc:key]` definition on the same line.
 - NPC sprites are looked up by name (no `.png` suffix).
 - NPC types supported: `spell_trader`, `merchant`, `encounter`, `quest_giver`
-  (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
+  (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`,
+  `card_collector`, `spell_lectern`, `loot_crate`, and `door`.
+  The canonical list is `NPCTypeOrder` in `internal/character/npcs.go`.
 
 ### Render category and size
 - `render_category` is REQUIRED and sets how the NPC renders: `npc` (a person;
   a `w == h*4` idle sheet animates automatically), `scenery` (a
   prop), `landmark` (tall crossed monument), `wall_mounted` (a flush wall standee,
   slides onto the adjacent wall), `door` (a doorway blocker - stands ACROSS the
-  opening between two flanking walls, drawn and solid only while a living champion
-  mob is on the map; see the arena portcullis), or `invisible` (no sprite).
+  opening between two flanking walls; `door_behavior` determines whether a lock
+  or a living arena champion keeps it closed), `wide_landmark` (fixed facade using `grid_span_tiles` and `grid_span_dir`),
+  or `invisible` (no sprite). A `wide_landmark` omits `size_class` and uses
+  a span of at least two tiles; an invisible anchor also omits `size_class`.
 - Size: people use `size_class: person`. Props and landmarks select one of
   `tiny_prop`, `small_prop`, `medium_prop`, `full_tile`, `tall_prop`,
   `large_prop`, or `structure`. The target visible heights live once under
@@ -58,6 +64,8 @@ npcs:
     name: "Trader Marcus"
     type: "merchant"
     sprite: "elf"
+    render_category: "npc"
+    size_class: "person"
     sell_available: true
     dialogue:
       greeting: "Welcome to my shop!"
@@ -79,6 +87,8 @@ npcs:
     name: "Sahim the Wayfarer"
     type: "merchant"
     sprite: "merchant"
+    render_category: "npc"
+    size_class: "person"
     sell_available: true
     dialogue:
       greeting: "Spare tools and trinkets? I pay fair coin."
@@ -132,39 +142,34 @@ Notes on encounters:
 - `rewards` may also carry a `treasure_chest` (same shape as map encounters,
   see below) that spawns when the encounter is cleared.
 
-### Map-clear encounters (alternative, no NPC)
-A different mechanism lives in `assets/map_configs.yaml`, for monsters
-PRE-PLACED in the `.map` grid (not spawned by an NPC). Killing the group drops
-a treasure chest. Use `clear_encounter` (singular) to tie EVERY monster on the
-map to one reward, or `clear_encounters` (plural) for several independent
-groups - each declares `monsters: [{type, count}]` and a `treasure_chest`, and
-the engine binds the `count` nearest monsters of each type to that chest:
-```yaml
-maps:
-  desert:
-    biome: "desert"
-    clear_encounters:
-      - monsters:
-          - type: "bandit"
-            count: 5
-        rewards:
-          completion_message: "The oasis is clear."
-          treasure_chest:
-            id: "desert_oasis_chest"
-            tile_x: 12
-            tile_y: 8
-            sprite: "chest"
-            gold: 500
-```
+### Other services and encounters
+
+For quest offer/turn-in choices, state-dependent dialogue, and service unlocks,
+use the [quest guide](docs/adding-quests.md). A new dialogue `action` needs an
+implemented handler; arbitrary action names do not create mechanics.
+
+`stock_refresh_weeks` refills authored finite stock on the calendar schedule.
+`stock_weapons_rarity` with positive `stock_weapons_cost` supplies a generated
+weapon rack; weapons with `no_loot` are excluded. Non-gold merchants cannot set
+`sell_available: true`.
+
+A `loot_crate` NPC gets its loot from `loots.yaml crates`, keyed by NPC ID.
+A `spell_lectern` uses its `lectern` block. A `door` uses explicit `door_behavior`;
+a champion portcullis is different from a key/stat-unlocked door. Copy a matching
+shipped definition and validate its complete behavior block.
+
+For pre-placed monster groups and reward chests, use map `clear_encounter` or
+`clear_encounters`; see [maps](docs/adding-maps.md#encounters-and-respawning).
 
 ## Step 2: Place the NPC in a map
 Example map line:
 ```
-%..@....%  >[npc:my_spell_mage]
+...@.....>[npc:my_spell_mage]
 ```
 The `@` marks the NPC tile; the tag binds it to your NPC key.
 
 ## Testing checklist
+- Run the [shared validation checklist](docs/content-authoring.md#verification).
 - NPC appears at intended map location.
 - Interaction works with `T`.
 - Spell trader teaches priced spells to characters with the matching open school.

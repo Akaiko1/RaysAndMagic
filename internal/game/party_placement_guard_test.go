@@ -85,7 +85,7 @@ func TestSafePartyDestinationFlyStillClampsWhereFlyCannotGo(t *testing.T) {
 		if stx == dest[0] && sty == dest[1] {
 			t.Fatalf("fly destination (%d,%d) accepted outside flyable space", dest[0], dest[1])
 		}
-		if g.world.IsTileBlockingForFly(stx, sty) {
+		if g.world.IsTileBlockingForTerrainPassage(stx, sty) {
 			t.Fatalf("fly destination (%d,%d) clamped to (%d,%d), still fly-blocked", dest[0], dest[1], stx, sty)
 		}
 	}

@@ -29,6 +29,7 @@ type GameLoop struct {
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
 	monsterFrameBuf       []monsterFramePosition
+	monsterWalkPlayback   map[*monster.Monster3D]monsterWalkPlayback
 	bandersBuf            []*monster.Monster3D
 	bandSinglesBuf        []*monster.Monster3D
 	bandIDsBuf            []int
@@ -58,7 +59,14 @@ func NewGameLoop(game *MMGame) *GameLoop {
 
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
+	// Click queues route this Update's edges through UI, then world input.
+	// Misses must expire here, including early returns: a later camera pose or
+	// widget must never acquire an old press. Holds have their own gesture state.
+	defer gl.ui.dropQueuedClicks()
 	updateStart := time.Now()
+	beforeCamera, cameraEpoch := gl.game.cameraPose(), gl.game.cameraPresentation.epoch
+	defer func() { gl.game.finishCameraTick(beforeCamera, cameraEpoch, updateStart) }()
+	defer func() { gl.game.updatePlayerProfile(time.Now()) }()
 	defer func() {
 		gl.lastUpdateDuration = time.Since(updateStart)
 	}()
@@ -196,6 +204,9 @@ func (gl *GameLoop) updateExploration() {
 	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
 	// is what makes a paused overlay a still picture.
 	gl.game.frameCount++
+	gl.game.updateMonsterDeaths()
+	gl.game.updateTacticalClocks()
+	gl.game.updateAutomaticConsumables()
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
@@ -214,6 +225,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
+	gl.game.updateEcology()
 
 	// Each summon card's proc cooldown ticks independently in real time in both
 	// modes; these timers silence only their own proc.
@@ -225,6 +237,7 @@ func (gl *GameLoop) updateExploration() {
 	gl.runMonsterFrame()
 
 	gl.updateProjectilesAndImpacts()
+	gl.game.advanceRemoteEcologyProjectiles()
 
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {
@@ -266,6 +279,13 @@ func (g *MMGame) gameplayPausedByOverlay() bool {
 // drops the momentum. Movement helpers don't set m.Direction themselves - only
 // no-move state transitions (idle/alert/flee) set an intent facing.
 func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
+	if gl.game != nil {
+		for m, playback := range gl.monsterWalkPlayback {
+			if !m.IsAlive() || (playback.sampleTick != gl.game.frameCount && playback.sampleTick != gl.game.frameCount-1) {
+				delete(gl.monsterWalkPlayback, m)
+			}
+		}
+	}
 	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
 		return nil
 	}
@@ -290,6 +310,7 @@ func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
 		}
 		dx := m.X - pos.x
 		dy := m.Y - pos.y
+		gl.recordMonsterWalkMotion(m, pos.x, pos.y)
 		if dx == 0 && dy == 0 {
 			m.FaceAccX, m.FaceAccY = 0, 0
 			continue
@@ -312,13 +333,13 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	}()
 	defer func() {
 		if gl.renderer != nil {
+			// Observe pending GPU preparation in the loading gate before
+			// submitting it, just as we do for texture uploads below.
+			gl.renderer.drawMapRenderShaderWarm(screen)
 			gl.renderer.drawMapRenderPrewarmUploads(screen)
 		}
 	}()
 	gl.game.threading.PerformanceMonitor.RecordPresentedFrame()
-	if gl.renderer != nil {
-		gl.renderer.drawMapRenderShaderWarm(screen)
-	}
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
@@ -340,6 +361,10 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	}
 
 	if gl.ensureResourceLoading() {
+		// Draw can be the first owner after new actors become visible. Its
+		// readiness preflight uses the same deferred resource policy as Update.
+		gl.game.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
+		defer gl.game.sprites.SetDeferredResourceHandler(nil)
 		gl.drawResourceLoadingFrame(screen)
 		return
 	}
@@ -347,44 +372,25 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 }
 
 func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
+	gl.drawExplorationScene(screen)
+	// All cosmetic camera swaps have ended before HUD predicates run.
+	gl.ui.Draw(screen)
+}
+
+func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
 	// the scene goes through a horizontal motion-blur shader (camera blur - the
 	// view pans sideways) whose length tracks the turn speed; otherwise it's a
 	// straight blit. Either way the UI is drawn last, directly to the screen, so it
 	// never blurs.
 	g := gl.game
-	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
-	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
-	// observes the display angle. In real time viewAngleRender == camera.Angle, so
-	// this is a no-op.
+	// Interpolate only the world pass. The loading preflight and UI retain
+	// logical coordinates; TB uses the existing eased angle.
 	if g.camera != nil {
-		defer g.beginViewAngleSwap()()
+		defer g.beginRenderCameraSwap(time.Now())()
 	}
 
-	// Screen shake: nudge the camera sideways (perpendicular to the view) for
-	// this frame only - the whole raycast scene shifts coherently, and the
-	// camera is restored before any game logic can observe it.
-	if g.screenShake > 0 && g.camera != nil {
-		ox := -math.Sin(g.camera.Angle) * g.screenShake
-		oy := math.Cos(g.camera.Angle) * g.screenShake
-		if g.frameCount%2 == 0 {
-			ox, oy = -ox, -oy
-		}
-		g.camera.X += ox
-		g.camera.Y += oy
-		// Record the displacement so render-time geometry that must IGNORE the
-		// cosmetic shake (the TB front-diagonal pull - see pulledFrontSlot) can
-		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
-		// pull's LOS near walls and the pulled monster blinks when struck.
-		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
-		// Same only-undo-our-own-write rule as the angle swap above.
-		defer func(shakenX, shakenY, x, y float64) {
-			if g.camera.X == shakenX && g.camera.Y == shakenY {
-				g.camera.X, g.camera.Y = x, y
-			}
-			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
-		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
-	}
+	defer g.beginScreenShakeSwap()()
 	screenBounds := screen.Bounds()
 	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
 	if blurPx >= 0.75 {
@@ -420,9 +426,6 @@ func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 	} else {
 		gl.renderer.RenderFirstPersonView(screen)
 	}
-
-	// Draw UI elements (straight to the screen - never blurred)
-	gl.ui.Draw(screen)
 }
 
 const maxLogicalScreenHeight = 1080
@@ -612,7 +615,9 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 	if rewards == nil || !rewards.FreesCaptives {
 		return
 	}
-	for _, c := range gl.game.party.FreeCaptives() {
+	freed := gl.game.party.FreeCaptives()
+	gl.game.profileAdd("captives_freed", int64(len(freed)))
+	for _, c := range freed {
 		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }
@@ -681,11 +686,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 		}
 	}
 
-	// Tick every timed party buff and refresh its HUD status from ONE registry.
-	for _, b := range gl.game.timedBuffs() {
-		tickBuff(b.active, b.duration, b.onExpire)
-		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
-	}
+	gl.game.updateTimedBuffs()
 	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
 	// tick from their own list - see combat_buffs.go.
 	gl.game.tickCombatBuffs()
@@ -702,7 +703,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
-		gl.game.world.SetFlyActive(gl.game.flyActive)
+		gl.game.world.SetTerrainPassageActive(gl.game.partyHasTerrainPassage())
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
@@ -780,11 +781,6 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			id:       "fly",
 			active:   &g.flyActive,
 			duration: &g.flyDuration,
-			onExpire: func() {
-				// Fly let the party pass through walls; if it lapses while they hover
-				// inside solid terrain, surface them or movement stays wall-locked.
-				g.ejectFromWallAfterFly()
-			},
 		},
 		{
 			id:       "water_breathing",

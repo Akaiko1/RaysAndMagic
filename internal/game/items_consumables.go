@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"strings"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -100,10 +102,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 	if cannotReceiveOrdinaryHealing(ch) {
 		return
 	}
-	heal := base
-	if div > 0 {
-		heal += ch.GetEffectiveEndurance() / div
-	}
+	heal := character.ConsumableRestore(ch, base, div, false)
 	before := ch.HitPoints
 	ch.HitPoints += heal
 	if ch.HitPoints > ch.MaxHitPoints {
@@ -284,23 +283,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		}
 		g.addCombatBuff(buff)
 		g.party.ConsumeOneAt(itemIndex)
-		switch {
-		case buff.ResistSchoolPct > 0 && buff.ArmorBonus > 0:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - %s ward +%d%% and armor +%d for %ds.",
-				item.Name, buff.ResistSchool, buff.ResistSchoolPct, buff.ArmorBonus, def.BuffDurationSeconds,
-			))
-		case buff.ResistSchoolPct > 0:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - %s ward +%d%% for %ds.",
-				item.Name, buff.ResistSchool, buff.ResistSchoolPct, def.BuffDurationSeconds,
-			))
-		default:
-			g.AddCombatMessage(fmt.Sprintf(
-				"The party drinks %s - armor +%d for %ds.",
-				item.Name, buff.ArmorBonus, def.BuffDurationSeconds,
-			))
-		}
+		g.AddCombatMessage(uitext.Text("combat.party_uses_timed_buff", item.Name, strings.Join(def.ItemMechanicLines(), "; ")))
 		return true
 	}
 
@@ -321,7 +304,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			g.AddCombatMessage(fmt.Sprintf("%s is already brimming with mana.", ch.Name))
 			return false
 		}
-		restore := base + ch.GetEffectivePersonality()/div
+		restore := character.ConsumableRestore(ch, base, div, true)
 		before := ch.SpellPoints
 		ch.SpellPoints += restore
 		if ch.SpellPoints > ch.MaxSpellPoints {

@@ -24,6 +24,14 @@ type monsterDamagePacket struct {
 	Components []monsterDamageComponent
 }
 
+func (p monsterDamagePacket) normalDamage() int {
+	total := 0
+	for _, component := range p.Components {
+		total += component.Parts.Normal
+	}
+	return total
+}
+
 func singleMonsterDamagePacket(parts damagecalc.Parts, school string, resistPiercePct int) monsterDamagePacket {
 	damageType := convertToMonsterDamageType(school)
 	return monsterDamagePacket{Components: []monsterDamageComponent{{
@@ -105,6 +113,10 @@ func monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool 
 // separately for each monster.
 type partyMonsterAttack struct {
 	Packet               monsterDamagePacket
+	CriticalPacket       monsterDamagePacket
+	Critical             bool
+	BaseCritChance       int
+	DesignationBonuses   map[string]int
 	Attacker             *character.MMCharacter
 	WeaponDef            *config.WeaponDefinitionConfig
 	WeaponName           string
@@ -114,6 +126,28 @@ type partyMonsterAttack struct {
 	IgnoreDodge          bool
 	IgnoreArmor          bool
 	ArmorIgnoreChancePct int
+}
+
+// Weapon crits precede flat buffs and physical conversion. Prepare both source
+// packets here so a victim's designation never doubles buffs or true damage.
+func (cs *CombatSystem) newPartyWeaponAttack(
+	normal, trueDamage int, school string,
+	def *config.WeaponDefinitionConfig, name string,
+	isRanged, critical bool, baseCritChance int,
+) partyMonsterAttack {
+	buff := cs.game.combatBuffOutBonusForDamageType(school)
+	attack := cs.newPartyMonsterAttack(weaponDamageWithBuff(normal, buff), trueDamage, school, 0, def, name, isRanged, false, !isRanged)
+	attack.Critical = critical
+	attack.BaseCritChance = baseCritChance
+	if def != nil && !critical {
+		attack.DesignationBonuses = cs.game.designationBonuses()
+		if len(attack.DesignationBonuses) > 0 {
+			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(
+				weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), trueDamage, school, 0, true,
+			)
+		}
+	}
+	return attack
 }
 
 func (cs *CombatSystem) newPartyMonsterAttack(
@@ -219,15 +253,32 @@ func (cs *CombatSystem) monsterWeaponDamageOptions(
 	}
 }
 
-func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, attack partyMonsterAttack) damagecalc.Parts {
-	if isPurePartySummon(target) {
-		return damagecalc.Parts{}
+type partyMonsterHit struct {
+	damagecalc.Parts
+	Critical     bool
+	SourceNormal int // pre-mitigation amount used to size impact effects
+}
+
+func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, attack partyMonsterAttack) partyMonsterHit {
+	if target == nil || isPurePartySummon(target) {
+		return partyMonsterHit{}
 	}
-	parts := cs.applyMonsterDamagePacket(target, attack.Packet, cs.partyMonsterDamageOptions(attack, target))
+	packet, critical := attack.Packet, attack.Critical
+	roll := rand.Intn
+	if cs.designationRoll != nil {
+		roll = cs.designationRoll
+	}
+	// A conditional roll adds percentage points to the shared launch roll.
+	// Only this victim's pre-impact mark can upgrade a non-critical weapon hit.
+	if bonus := attack.DesignationBonuses[target.ID]; !critical && target.IsAlive() && bonus > 0 &&
+		roll(max(1, 100-attack.BaseCritChance)) < bonus {
+		packet, critical = attack.CriticalPacket, true
+	}
+	parts := cs.applyMonsterDamagePacket(target, packet, cs.partyMonsterDamageOptions(attack, target))
 	if parts.Total() > 0 && (attack.IsMelee || attack.IsRanged) {
 		cs.game.playMonsterSound(soundMonsterHit, target)
 	}
-	return parts
+	return partyMonsterHit{Parts: parts, Critical: critical, SourceNormal: packet.normalDamage()}
 }
 
 // weaponDamagePreview is the source-side, unmitigated result shown by tooltips

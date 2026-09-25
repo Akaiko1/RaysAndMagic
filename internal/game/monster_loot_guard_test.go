@@ -633,7 +633,7 @@ func TestLootGuardPatrolSkipsBlockedCellsWithinRadiusTwo(t *testing.T) {
 		t.Fatalf("guard selected (%d,%d), outside patrol radius two", moveX, moveY)
 	}
 	x, y := TileCenterFromTile(moveX, moveY, tile)
-	if !game.collisionSystem.CanMoveToWithHabitat(guard.ID, x, y, guard.HabitatPrefs, guard.Flying) {
+	if !game.collisionSystem.CanMoveToWithTileOverrides(guard.ID, x, y, guard.WalkableTileOverrides, guard.Flying) {
 		t.Fatalf("guard selected non-walkable patrol tile (%d,%d)", moveX, moveY)
 	}
 }

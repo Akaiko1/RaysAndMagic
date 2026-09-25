@@ -90,10 +90,11 @@ type QuestDefinition struct {
 	ProgressText    string `yaml:"progress_text,omitempty"`
 	Exterminate     bool   `yaml:"exterminate,omitempty"`
 	IsStartingQuest bool   `yaml:"is_starting_quest"`
-	// Repeatable errands are cleared again at every nightfall once claimed, so
-	// their giver offers the same task the next night (see
-	// refreshRepeatableQuests). Progress restarts from zero.
-	Repeatable bool `yaml:"repeatable,omitempty"`
+	// Repeatable is an explicit phase or elapsed-day schedule; omitted means once.
+	Repeatable RepeatSchedule `yaml:"repeatable,omitempty"`
+	// FixedQuota counts kills across replenishing packs rather than shrinking to
+	// the currently living population.
+	FixedQuota bool `yaml:"fixed_quota,omitempty"`
 	// AutoClaim marks objective-only quests whose completion is itself the
 	// reward. They finish without presenting an empty journal claim action.
 	AutoClaim bool `yaml:"auto_claim,omitempty"`
@@ -154,13 +155,13 @@ type Quest struct {
 	Definition   *QuestDefinition
 	Status       QuestStatus
 	CurrentCount int // Current progress towards target
-	// DynamicTarget snapshots a per-instance goal count at accept time (0 = unset,
-	// fall back to the static Definition.TargetCount). Exterminate quests capture
-	// the live target census when accepted, so the journal counts the map's real
-	// population instead of a hand-maintained number.
-	DynamicTarget  int
-	Completed      bool
-	RewardsClaimed bool
+	// DynamicTarget is the effective per-run quota. DynamicTargetSet also
+	// represents a resolved zero; legacy positive snapshots remain valid.
+	DynamicTarget    int
+	DynamicTargetSet bool
+	Completed        bool
+	RewardsClaimed   bool
+	ClaimedAtDay     float64 // elapsed calendar day at claim; zero means legacy/unknown
 }
 
 func (q *Quest) complete(autoClaim bool) {
@@ -174,7 +175,10 @@ func (q *Quest) complete(autoClaim bool) {
 // Target is the effective goal count: the per-instance DynamicTarget snapshot
 // when set, else the static definition count.
 func (q *Quest) Target() int {
-	if q.DynamicTarget > 0 {
+	if q.Definition != nil && q.Definition.FixedQuota {
+		return q.Definition.TargetCount
+	}
+	if q.DynamicTargetSet || q.DynamicTarget > 0 {
 		return q.DynamicTarget
 	}
 	return q.Definition.TargetCount
@@ -225,6 +229,15 @@ func validateQuestConfig(config *QuestConfig) error {
 	for id, def := range config.Quests {
 		if def == nil {
 			return fmt.Errorf("quest %q has empty definition", id)
+		}
+		if err := def.Repeatable.Validate(); err != nil {
+			return fmt.Errorf("quest %q: %w", id, err)
+		}
+		if def.Repeatable != "" && def.AutoClaim {
+			return fmt.Errorf("quest %q: repeatable requires an explicit reward claim", id)
+		}
+		if def.FixedQuota && (def.Type != QuestTypeKill || def.Exterminate) {
+			return fmt.Errorf("quest %q: fixed_quota requires a non-exterminate kill quest", id)
 		}
 		switch def.Type {
 		case QuestTypeKill, QuestTypeEncounter, QuestTypeInteract:
@@ -404,13 +417,14 @@ func (qm *QuestManager) MarkCompleted(questID string) {
 	}
 }
 
-// SetDynamicTarget snapshots a per-instance goal count (exterminate quests
-// capture the live target census at accept). No-op if not active.
+// SetDynamicTarget sets the resolved per-instance quota, including zero.
+// No-op if the quest has not been activated.
 func (qm *QuestManager) SetDynamicTarget(questID string, target int) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	if quest, ok := qm.activeQuests[questID]; ok {
-		quest.DynamicTarget = target
+		quest.DynamicTarget = max(0, target)
+		quest.DynamicTargetSet = true
 	}
 }
 
@@ -427,7 +441,7 @@ func (qm *QuestManager) SetCurrentCount(questID string, count int) {
 	if count < 0 {
 		count = 0
 	}
-	if max := quest.Target(); max > 0 && count > max {
+	if max := quest.Target(); count > max {
 		count = max
 	}
 	quest.CurrentCount = count
@@ -523,7 +537,7 @@ func (qm *QuestManager) VictoryCompleted() bool {
 }
 
 // ClaimRewards marks a quest's rewards as claimed and returns the rewards
-func (qm *QuestManager) ClaimRewards(questID string) (*QuestRewards, error) {
+func (qm *QuestManager) ClaimRewards(questID string, claimedAtDay ...float64) (*QuestRewards, error) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -540,7 +554,13 @@ func (qm *QuestManager) ClaimRewards(questID string) (*QuestRewards, error) {
 		return nil, fmt.Errorf("rewards already claimed: %s", questID)
 	}
 
+	if quest.Definition.Repeatable.days() > 0 && (len(claimedAtDay) == 0 || claimedAtDay[0] <= 0) {
+		return nil, fmt.Errorf("quest %s requires the game calendar time when claiming rewards", questID)
+	}
 	quest.RewardsClaimed = true
+	if len(claimedAtDay) > 0 {
+		quest.ClaimedAtDay = claimedAtDay[0]
+	}
 	return &quest.Definition.Rewards, nil
 }
 
@@ -745,6 +765,13 @@ func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus,
 	quest.Status = status
 	quest.CurrentCount = currentCount
 	quest.DynamicTarget = dynamicTarget
+	quest.DynamicTargetSet = dynamicTarget > 0
 	quest.Completed = (status == QuestStatusCompleted)
 	quest.RewardsClaimed = rewardsClaimed || (quest.Completed && quest.Definition.AutoClaim)
+}
+
+// Description resolves authored count placeholders from the same quota as
+// progress, completion and rewards. Definitions remain immutable.
+func (q *Quest) Description() string {
+	return strings.ReplaceAll(q.Definition.Description, "{target_count}", fmt.Sprint(q.Target()))
 }

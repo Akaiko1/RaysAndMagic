@@ -63,6 +63,8 @@ func (g *MMGame) dayNightLightScaleNow() float64 {
 // updateDayNight advances the clock one tick and fires the phase flip
 // (panorama crossfade + pack swap) when day turns to night or back.
 func (g *MMGame) updateDayNight() {
+	g.updatePartyLevelUnlocks()
+	defer g.refreshRepeatableQuests("")
 	if g.dayNightSkipActive {
 		if g.advanceSkyFadeFrame() {
 			return
@@ -101,23 +103,24 @@ func (g *MMGame) advanceSkyFadeFrame() bool {
 	return true
 }
 
-// applyDayNightPhase performs one real dusk/dawn boundary. The arena refreshes
-// at either boundary; weekly merchant stock converts those phase ticks to full
-// calendar days in refreshScheduledMerchantStocks.
+// applyDayNightPhase performs one real dusk/dawn boundary. Day-based timers
+// advance only at dawn; arena, packs, rumors and night quests retain phase cadence.
 func (g *MMGame) applyDayNightPhase(night bool) {
 	g.dayNightIsNight = night
 	g.applySkyForPhase(true)
 	g.syncDayNightPacks(night)
 	g.dayNightDay++
+	g.replenishWildlife()
 	g.refreshCelestialProvidence()
 	if night {
-		g.refreshRepeatableQuests()
+		g.refreshRepeatableQuests("night")
 		g.AddCombatMessage("Night falls.")
 		return
 	}
 	if weekChanged, _ := g.advanceCalendarAtDawn(); weekChanged {
 		g.refreshScheduledMerchantStocks()
 	}
+	g.refreshRepeatableQuests("day")
 	g.AddCombatMessage("The sun rises.")
 }
 
@@ -318,6 +321,7 @@ func (g *MMGame) finishDayNightSkipImmediately() {
 	g.dayNightFrames = g.dayNightSkipTargetFrame
 	g.dayNightSkipActive = false
 	g.dayNightSkipTargetFrame = 0
+	g.refreshRepeatableQuests("")
 }
 
 // --- Sky panorama phase variants -------------------------------------------
@@ -364,7 +368,7 @@ func (g *MMGame) dropFlyWithoutOpenSky() {
 	g.flyActive = false
 	g.flyDuration = 0
 	if g.world != nil {
-		g.world.SetFlyActive(false)
+		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
 	g.AddCombatMessage("The close air presses down - Fly fades.")
 }
@@ -435,6 +439,7 @@ func dayNightPackTag(mapKey string, night bool) string {
 // syncDayNightPacks despawns the outgoing phase's packs and spawns the
 // incoming ones on every configured map (loaded maps only).
 func (g *MMGame) syncDayNightPacks(night bool) {
+	g.updatePartyLevelUnlocks()
 	wm := world.GlobalWorldManager
 	if wm == nil {
 		return
@@ -460,14 +465,14 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			continue
 		}
 		tag := dayNightPackTag(pack.Map, night)
+		slots := g.availablePackSpawnTiles(w, pack.MinPlayerDistTilesOrDefault(), bx, by, bw, bh)
 		// One tag covers every member of the phase, so a mixed pack (e.g. grunts
-		// + an elite) despawns together and never self-clears mid-spawn.
+		// + an elite) shares one slot pool and never self-clears mid-spawn.
 		for _, mem := range pack.PhaseMembers(night) {
-			if mem.Monster == "" || mem.Count <= 0 {
+			if mem.Monster == "" || mem.Count <= 0 || !g.partyLevelUnlocked(mem.MinPartyLevel) {
 				continue
 			}
-			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress,
-				pack.MinPlayerDistTilesOrDefault(), bx, by, bw, bh)
+			slots = g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress, slots)
 		}
 	}
 }
@@ -479,7 +484,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 		return false
 	}
 	for _, m := range w.Monsters {
-		if m == nil || !m.IsAlive() {
+		if m == nil || !m.IsAlive() || m.IsAmbient() || m.IsPartyControlled() {
 			continue
 		}
 		tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
@@ -498,7 +503,7 @@ func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize
 func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	if w == g.world {
 		for _, m := range w.Monsters {
-			if m != nil && m.PackKey == tag {
+			if m != nil && m.PackKey == tag && !m.IsPartyControlled() {
 				g.deadMonsterIDs = append(g.deadMonsterIDs, m.ID)
 			}
 		}
@@ -506,7 +511,7 @@ func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	}
 	kept := w.Monsters[:0]
 	for _, m := range w.Monsters {
-		if m != nil && m.PackKey == tag {
+		if m != nil && m.PackKey == tag && !m.IsPartyControlled() {
 			continue
 		}
 		kept = append(kept, m)
@@ -514,53 +519,126 @@ func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	w.Monsters = kept
 }
 
-// spawnPackMonsters scatters count monsters over random walkable tiles within
-// the (bx,by,bw,bh) tile rect. On the current map spawns keep
-// min_player_dist_tiles away from the party and register collision
-// immediately; on other loaded maps collision registers in bulk on map
-// arrival (RegisterMonstersWithCollisionSystem).
-func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, questProgress bool, minPlayerDistTiles float64, bx, by, bw, bh int) {
-	if world.GlobalTileManager == nil || bw <= 0 || bh <= 0 {
-		return
+// availablePackSpawnTiles uses the authored roster as the only source of slots.
+// Living monsters reserve their original homes even while roaming; current
+// positions also block overlap. Outgoing packs queued for removal release their
+// slots immediately, just as they do on inactive maps where removal is direct.
+func (g *MMGame) availablePackSpawnTiles(w *world.World3D, minPlayerDistTiles float64, bx, by, bw, bh int) [][2]int {
+	if w == nil || world.GlobalTileManager == nil || bw <= 0 || bh <= 0 {
+		return nil
 	}
-	if monster.MonsterConfig == nil {
-		return
-	}
-	if _, ok := monster.MonsterConfig.Monsters[monsterKey]; !ok {
-		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", monsterKey)
-		return
-	}
-	tile := float64(g.config.GetTileSize())
-	minDist := minPlayerDistTiles * tile
-	current := w == g.world
-	spawned := 0
-	for attempts := 0; spawned < count && attempts < count*60; attempts++ {
-		tx, ty := bx+rand.Intn(bw), by+rand.Intn(bh)
-		if ty >= len(w.Tiles) || tx >= len(w.Tiles[ty]) {
+	inRegion := func(tx, ty int) bool { return tx >= bx && tx < bx+bw && ty >= by && ty < by+bh }
+	authored := make(map[[2]int]string)
+	var slots [][2]int
+	for _, spawn := range w.MonsterSpawns {
+		pos := [2]int{spawn.X, spawn.Y}
+		if !inRegion(spawn.X, spawn.Y) {
 			continue
 		}
-		if !world.GlobalTileManager.IsWalkable(w.Tiles[ty][tx]) {
+		if _, seen := authored[pos]; !seen {
+			authored[pos] = spawn.MonsterKey
+			slots = append(slots, pos)
+		}
+	}
+	pending := make(map[string]bool)
+	if w == g.world {
+		for _, id := range g.deadMonsterIDs {
+			pending[id] = true
+		}
+	}
+	tile := float64(g.config.GetTileSize())
+	reserved, occupied := make(map[[2]int]bool), make(map[[2]int]bool)
+	var unanchored []*monster.Monster3D
+	for _, m := range w.Monsters {
+		if m == nil || !m.IsAlive() || pending[m.ID] {
+			continue
+		}
+		home := [2]int{TileIndex(m.SpawnX, tile), TileIndex(m.SpawnY, tile)}
+		occupied[[2]int{TileIndex(m.X, tile), TileIndex(m.Y, tile)}] = true
+		baseSurvivor := !m.IsAmbient() && m.PackKey == "" && m.SummonedBy == "" && !isPurePartySummon(m)
+		if key, exists := authored[home]; !m.IsAmbient() && exists && !reserved[home] && (!baseSurvivor || key == m.Key) {
+			reserved[home] = true
+		} else if inRegion(home[0], home[1]) && baseSurvivor {
+			unanchored = append(unanchored, m)
+		}
+	}
+	// Old saves without spawn_position adopted the roaming position as home.
+	// Adopted homes can overlap or belong to another monster type. Reserve a
+	// distinct matching slot for each survivor after uncontested exact anchors,
+	// so legacy saves cannot treat living base mobs as kills.
+	// This also handles relocated spawn points without changing AI anchors.
+	for _, m := range unanchored {
+		best, bestDist := -1, math.MaxFloat64
+		for i, pos := range slots {
+			if reserved[pos] || authored[pos] != m.Key {
+				continue
+			}
+			x, y := TileCenterFromTile(pos[0], pos[1], tile)
+			dx, dy := x-m.SpawnX, y-m.SpawnY
+			if d := dx*dx + dy*dy; d < bestDist {
+				best, bestDist = i, d
+			}
+		}
+		if best >= 0 {
+			reserved[slots[best]] = true
+		}
+	}
+	minDist := minPlayerDistTiles * tile
+	free := slots[:0]
+	for _, pos := range slots {
+		tx, ty := pos[0], pos[1]
+		if reserved[pos] || occupied[pos] || tx < 0 || ty < 0 || ty >= len(w.Tiles) || tx >= len(w.Tiles[ty]) || !world.GlobalTileManager.IsWalkable(w.Tiles[ty][tx]) {
 			continue
 		}
 		x, y := TileCenterFromTile(tx, ty, tile)
-		if current {
+		if w == g.world {
 			dx, dy := x-g.camera.X, y-g.camera.Y
 			if dx*dx+dy*dy < minDist*minDist {
 				continue
 			}
 		}
+		free = append(free, pos)
+	}
+	rand.Shuffle(len(free), func(i, j int) { free[i], free[j] = free[j], free[i] })
+	return free
+}
+
+// spawnPackMonsters consumes distinct slots from the shared phase pool. Count
+// is an upper limit; a shortfall is skipped, never scattered onto other tiles.
+// Current-map spawns register collision now, inactive maps do so on arrival.
+func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, questProgress bool, slots [][2]int) [][2]int {
+	if monster.MonsterConfig == nil {
+		return slots
+	}
+	if _, ok := monster.MonsterConfig.Monsters[monsterKey]; !ok {
+		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", monsterKey)
+		return slots
+	}
+	for spawned := 0; spawned < count && len(slots) > 0; spawned++ {
+		pos := slots[len(slots)-1]
+		slots = slots[:len(slots)-1]
+		x, y := TileCenterFromTile(pos[0], pos[1], float64(g.config.GetTileSize()))
 		m := monster.NewMonster3DFromConfig(x, y, monsterKey, g.config)
 		if m == nil {
 			continue
 		}
 		m.PackKey = tag
 		m.QuestProgressIgnored = !questProgress
-		if current {
+		if w == g.world {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)
 		} else {
 			w.Monsters = append(w.Monsters, m)
 		}
-		spawned++
 	}
+	return slots
+}
+
+// cancelDayNightSkip discards presentation and uncommitted phases when a new
+// timeline replaces this one. Saving instead commits them before snapshotting.
+func (g *MMGame) cancelDayNightSkip() {
+	g.dayNightSkipActive = false
+	g.dayNightSkipTargetFrame = 0
+	g.dayNightSkipPhases = nil
+	g.cancelSkyFade()
 }

@@ -23,7 +23,7 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	}
 	g := cs.game
 	ts := float64(g.config.GetTileSize())
-	dx, dy := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
+	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	landX := g.camera.X + dx*def.JumpTiles*ts
 	landY := g.camera.Y + dy*def.JumpTiles*ts
 
@@ -89,6 +89,7 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 			if !ok {
 				continue
 			}
+			g.recordTerrainChange(tx, ty, tile, floor)
 			g.world.Tiles[ty][tx] = floor
 			toppled[[2]int{tx, ty}] = true
 		}
@@ -116,7 +117,7 @@ func (g *MMGame) biomeAtTile(tileX, tileY int) string {
 			return ""
 		}
 	}
-	if mc := wm.GetCurrentMapConfig(); mc != nil {
+	if mc := wm.MapConfigs[g.mapKeyAtTile(tileX, tileY)]; mc != nil {
 		return mc.Biome
 	}
 	return ""

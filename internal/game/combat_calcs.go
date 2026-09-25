@@ -185,9 +185,12 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 // WeaponCritBreakdown decomposes the weapon crit chance into its components -
 // the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
 // can't drift from the rolled total.
-func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms int) {
+func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics int) {
 	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
 		baseCrit = def.CritChance
+		if character.BallisticsWeapon(def) && char != nil && char.HasSkill(character.SkillBallistics) {
+			ballistics = character.BallisticsCritPct(char.SkillTier(character.SkillBallistics))
+		}
 		// Grandmaster in this weapon's category: extra crit with it.
 		if st, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok &&
 			char != nil && char.SkillTier(st) >= int(character.MasteryGrandMaster) {
@@ -199,12 +202,12 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 		gmArms = ArmsMasterGMCritBonus
 	}
 	luck, cardCrit, setCrit = cs.CriticalChanceBreakdown(char)
-	return baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms
+	return baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
-	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
-	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms
+	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(weapon, char)
+	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
 	if total < 0 {
 		return 0
 	}
@@ -465,41 +468,66 @@ func spellCooldownSpeedFactor(speed int) float64 {
 	return factor
 }
 
-// SpellCooldownFrames is the real-time cooldown after casting spellID: the
-// spell's authored cooldown_seconds at reference Speed, scaled by the caster's
-// Speed and any equipped weapon's
-// spell_cooldown_multiplier (e.g. Archmage Staff -20%). YAML category "buff"
-// is the explicit exception: it has no personal RT cooldown.
+type spellCooldownBreakdown struct {
+	BaseSeconds            float64
+	Speed                  int
+	SpeedFactor            float64
+	WeaponName             string
+	WeaponMultiplier       float64
+	RawFrames, TotalFrames int
+}
+
+// SpellCooldownFrames scales the authored cooldown by caster Speed and the
+// equipped weapon's spell_cooldown_multiplier. Buffs have no personal cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
+	return cs.spellCooldownBreakdown(char, spellID).TotalFrames
+}
+
+func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spellID spells.SpellID) spellCooldownBreakdown {
+	result := spellCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
 	if cs == nil || cs.game == nil || char == nil {
-		return RTCooldownMinFrames
+		return result
 	}
-	seconds := 0.0
-	if trapDef, ok := config.GetTrapDefinition(string(spellID)); ok {
-		// SmartAttack returns trap keys through the same cast-ID channel.
-		seconds = trapDef.CooldownSeconds
-	} else if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
-		if def.IsBuff() {
-			return 0
-		}
-		seconds = def.CooldownSeconds
-	} else {
-		// Unresolvable cast ID: there is no authored cooldown to honor, so only
-		// the global floor applies (spells.yaml validation keeps this unreachable
-		// for real content).
-		return RTCooldownMinFrames
+	seconds, ok := baseCastCooldownSeconds(spellID)
+	if !ok {
+		return result
 	}
-	speed := char.GetEffectiveSpeed()
-	frames := seconds * float64(cs.game.config.GetTPS()) * spellCooldownSpeedFactor(speed)
+	if seconds == 0 {
+		result.TotalFrames = 0
+		return result
+	}
+	result.BaseSeconds = seconds
+	result.Speed = char.GetEffectiveSpeed()
+	result.SpeedFactor = spellCooldownSpeedFactor(result.Speed)
+	frames := seconds * float64(cs.game.config.GetTPS()) * result.SpeedFactor
 	// Equipped-weapon spell-cooldown modifier (caster staff perk).
 	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
 		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
-			frames *= def.SpellCooldownMultiplier
+			result.WeaponMultiplier = def.SpellCooldownMultiplier
+			result.WeaponName = weapon.Name
+			frames *= result.WeaponMultiplier
 		}
 	}
-	return clampRTCooldown(int(math.Round(frames)))
+	result.RawFrames = int(math.Round(frames))
+	result.TotalFrames = clampRTCooldown(result.RawFrames)
+	return result
 }
 
 func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey string) int {
 	return cs.SpellCooldownFrames(char, spells.SpellID(trapKey))
+}
+
+// baseCastCooldownSeconds is shared by combat and character-free catalog cards.
+// Buffs spend an action in TB but have no personal cooldown in RT.
+func baseCastCooldownSeconds(id spells.SpellID) (float64, bool) {
+	if def, ok := config.GetTrapDefinition(string(id)); ok {
+		return def.CooldownSeconds, true
+	}
+	if def, err := spells.GetSpellDefinitionByID(id); err == nil {
+		if def.IsBuff() {
+			return 0, true
+		}
+		return def.CooldownSeconds, true
+	}
+	return 0, false
 }

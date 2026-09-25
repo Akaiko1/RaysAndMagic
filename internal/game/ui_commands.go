@@ -3,6 +3,7 @@ package game
 import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
@@ -16,6 +17,7 @@ const (
 	uiCommandDrag
 	uiCommandHold
 	uiCommandNavigation
+	uiCommandPointer // Screen gestures tick once per Update, including release.
 )
 
 type uiInputCommand struct {
@@ -25,12 +27,15 @@ type uiInputCommand struct {
 }
 
 type uiDisplayIdentity struct {
-	world  *world.World3D
-	party  *character.Party
-	modal  modalLayerSnapshot
-	screen uiScreenIdentity
-	state  [12]int
-	items  uint64
+	world        *world.World3D
+	party        *character.Party
+	modal        modalLayerSnapshot
+	screen       uiScreenIdentity
+	state        [16]int
+	items        uint64
+	partyCreate  *partyCreateState
+	questManager *quests.QuestManager
+	questState   uint64
 }
 
 // Screen ownership is shared by the display barrier and raw pointer gestures.
@@ -49,6 +54,8 @@ func (ui *UISystem) inputScreenIdentity() uiScreenIdentity {
 type uiDisplayedInput struct {
 	building, suspended  bool
 	processingClick      bool
+	capturedGameplay     bool
+	audioSelection       int // Last presented keyboard target; not a gesture owner.
 	quickDrag, stashDrag uiDragIdentity
 	holdIdentity         uiDisplayIdentity
 	holdActor            *character.MMCharacter
@@ -64,7 +71,8 @@ type uiDisplayedInput struct {
 func (ui *UISystem) syncPointerScreen() {
 	d := &ui.displayedInput
 	screen := ui.inputScreenIdentity()
-	if d.pointerScreenSet && d.pointerScreen != screen {
+	if d.pointerScreenSet && d.pointerScreen != screen ||
+		ui.game.audioSliderDrag >= 0 && !ui.audioSettingsOwnsInput() {
 		ui.cancelScreenPointerGestures()
 	}
 	d.pointerScreen, d.pointerScreenSet = screen, true
@@ -72,6 +80,9 @@ func (ui *UISystem) syncPointerScreen() {
 
 func (ui *UISystem) cancelScreenPointerGestures() {
 	g := ui.game
+	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
+		g.gameLoop.inputHandler.cancelMouseAttack()
+	}
 	g.entryMenuRootPressArmed = false
 	if g.partyCreate != nil {
 		g.partyCreate.clearPending()
@@ -85,10 +96,10 @@ func (ui *UISystem) cancelScreenPointerGestures() {
 
 func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	g := ui.game
-	id := uiDisplayIdentity{world: g.world, party: g.party, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
-	id.state = [12]int{g.savePage,
+	id := uiDisplayIdentity{world: g.world, party: g.party, partyCreate: g.partyCreate, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
+	id.state = [16]int{g.savePage,
 		boolInt(g.menuOpen), int(g.currentTab), g.selectedChar, ui.inventoryPage, ui.inventoryTab, ui.spellPage, ui.questPage,
-		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell}
+		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsPage, g.achievementsScroll, g.statisticsScroll}
 	hash := uint64(14695981039346656037)
 	mix := func(v uint64) { hash ^= v; hash *= 1099511628211 }
 	item := func(it items.Item) { mix(uiItemIdentity(it)) }
@@ -158,7 +169,36 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 			mix(uint64(entry.GoldCost))
 		}
 	}
+	mix(uint64(g.rosterScroll))
+	if g.partyCreate != nil {
+		mix(uint64(g.partyCreate.poolScroll))
+	}
 	id.items = hash
+	// Quest progress changes card order, claim buttons and NPC branches without
+	// necessarily changing inventory or gold (including zero-reward quests).
+	if g.questManager != nil && (g.dialogActive || g.menuOpen && g.currentTab == TabQuests) {
+		id.questManager = g.questManager
+		g.questManager.EachQuest(func(q *quests.Quest) {
+			if q == nil {
+				return
+			}
+			h := uint64(14695981039346656037)
+			add := func(v uint64) { h ^= v; h *= 1099511628211 }
+			for i := range q.ID {
+				add(uint64(q.ID[i]))
+			}
+			for i := range q.Status {
+				add(uint64(q.Status[i]))
+			}
+			add(uint64(q.CurrentCount))
+			add(uint64(q.DynamicTarget))
+			add(uint64(boolInt(q.Completed)))
+			add(uint64(boolInt(q.RewardsClaimed)))
+			// EachQuest walks a map: combine independently hashed entries so
+			// iteration order cannot invalidate an unchanged display.
+			id.questState ^= h
+		})
+	}
 	return id
 }
 
@@ -166,6 +206,7 @@ func (ui *UISystem) beginDisplayedInput() {
 	d := &ui.displayedInput
 	d.building = true
 	d.suspended = false
+	d.audioSelection = -1
 	// Release captured references from the previous layout before reuse.
 	clear(d.commands)
 	d.commands = d.commands[:0]
@@ -249,6 +290,7 @@ func (ui *UISystem) displayedDragPending() bool {
 func (ui *UISystem) dispatchDisplayedInput() {
 	d := &ui.displayedInput
 	g := ui.game
+	d.capturedGameplay = false
 	if ui.topModalLayer() != modalLayerStat || ui.statHoldStat != "" &&
 		(d.holdIdentity != ui.displayIdentity() || d.holdActor != ui.statHoldMember()) {
 		ui.statHoldStat = ""
@@ -265,22 +307,30 @@ func (ui *UISystem) dispatchDisplayedInput() {
 	ui.validateDisplayedDrags()
 	dragPending := ui.displayedDragPending()
 	holdPending := ui.topModalLayer() == modalLayerStat && (pointerLeftPressed() || ui.statHoldStat != "")
-	if len(g.mouseLeftClicks) == 0 && len(g.mouseRightClicks) == 0 && !dragPending && !holdPending {
+	pointerPending := false
+	for _, cmd := range d.commands {
+		pointerPending = pointerPending || cmd.kind == uiCommandPointer
+	}
+	if len(g.mouseLeftClicks) == 0 && len(g.mouseRightClicks) == 0 && !dragPending && !holdPending && !pointerPending {
 		return
 	}
 	if !ui.displayedInputCurrent() {
 		ui.dropQueuedClicks()
+		ui.cancelScreenPointerGestures()
 		ui.game.clearDrag()
 		ui.game.clearStashDrag()
 		return
 	}
 	ui.syncCharacterHubClickContext()
-	// Hold timers and drag edges tick once per Update, regardless of queued
+	// Hold timers, drag edges and screen gestures tick once per Update, regardless of queued
 	// clicks. Click adapters then see one event at a time in timestamp order.
 	left, right := g.mouseLeftClicks, g.mouseRightClicks
 	g.mouseLeftClicks, g.mouseRightClicks = nil, nil
 	for _, cmd := range d.commands {
-		if !(cmd.kind == uiCommandDrag && dragPending || cmd.kind == uiCommandHold && holdPending) {
+		if !(cmd.kind == uiCommandDrag && dragPending || cmd.kind == uiCommandHold && holdPending || cmd.kind == uiCommandPointer) {
+			continue
+		}
+		if cmd.kind == uiCommandPointer && pointerCancelJustPress() {
 			continue
 		}
 		if cmd.kind == uiCommandDrag && cmd.bounds.w > 0 && cmd.bounds.h > 0 {
@@ -313,12 +363,11 @@ func (ui *UISystem) dispatchDisplayedInput() {
 			g.mouseRightClicks = []queuedClick{right[0]}
 			right = right[1:]
 		}
-		ui.handleModalLayerInput()
 		for _, cmd := range d.commands {
 			if len(g.mouseLeftClicks) == 0 && len(g.mouseRightClicks) == 0 {
 				break
 			}
-			if cmd.kind == uiCommandDrag {
+			if cmd.kind == uiCommandDrag || cmd.kind == uiCommandPointer {
 				continue
 			}
 			if cmd.bounds.w > 0 && cmd.bounds.h > 0 {
@@ -335,7 +384,10 @@ func (ui *UISystem) dispatchDisplayedInput() {
 			}
 			cmd.apply()
 		}
-		if ui.topModalLayer() == modalLayerNone && ui.displayedInputCurrent() {
+		// Only exploration has downstream world hit tests. Unmatched clicks
+		// on any interface belong to its background and must not be replayed
+		// against a widget that appears or moves there on a later Draw.
+		if g.appScreen == AppScreenInGame && ui.topModalLayer() == modalLayerNone && g.worldClickAllowed() && ui.displayedInputCurrent() {
 			remainingLeft = append(remainingLeft, g.mouseLeftClicks...)
 			remainingRight = append(remainingRight, g.mouseRightClicks...)
 		}

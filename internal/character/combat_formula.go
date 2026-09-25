@@ -104,3 +104,23 @@ func WeaponStrikeDamage(def *config.WeaponDefinitionConfig, normal int) int {
 	strikes := WeaponStrikeCount(def)
 	return (normal + strikes - 1) / strikes
 }
+
+func BallisticsWeapon(def *config.WeaponDefinitionConfig) bool {
+	return def != nil && def.Range > 3 && (def.Category == "bow" || def.Category == "blaster")
+}
+
+// EffectiveWeaponFlight is shared by launch, target eligibility and tooltips.
+func EffectiveWeaponFlight(def *config.WeaponDefinitionConfig, c *MMCharacter) (rangeTiles, speedTiles float64) {
+	if def == nil {
+		return 0, 0
+	}
+	rangeTiles = float64(def.Range)
+	if def.Physics != nil {
+		speedTiles = def.Physics.SpeedTiles
+	}
+	if BallisticsWeapon(def) && c != nil && c.HasSkill(SkillBallistics) {
+		rangeTiles += float64(BallisticsRangeTiles(c.SkillTier(SkillBallistics)))
+		speedTiles *= 1 + float64(BallisticsSpeedPct(c.SkillTier(SkillBallistics)))/100
+	}
+	return
+}

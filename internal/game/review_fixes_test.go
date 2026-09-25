@@ -61,28 +61,41 @@ func TestRicochetContinuationGetsFreshLifetime(t *testing.T) {
 	}
 }
 
-func TestRicochetAutoTargetSkipsPartyControlledMonsters(t *testing.T) {
+// Ricochet follows the party auto-target policy: the nearest bound former
+// enemy is valid; summons, charmed monsters and the caravan are skipped.
+func TestRicochetAutoTargetFollowsAutoTargetPolicy(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	ts := float64(cs.game.config.GetTileSize())
+	def := &config.WeaponDefinitionConfig{RicochetRangeTiles: 4}
 	victim := mkTestMonster("Victim", 50)
-	bound := mkTestMonster("Bound", 50)
-	bound.Bound = true
-	bound.X = ts
-	charmed := mkTestMonster("Charmed", 50)
-	charmed.Pacified = true
-	charmed.X = 2 * ts
+	excluded := []*monsterPkg.Monster3D{mkTestMonster("Charmed", 50), mkTestMonster("Caravan", 50)}
+	excluded[0].Pacified = true
+	excluded[1].Disposition = monsterPkg.DispositionCaravan
+	for _, s := range partySummonKinds(cs.game) {
+		m := mkTestMonster(s.kind, 50)
+		markPurePartySummon(m, s.owner)
+		excluded = append(excluded, m)
+	}
+	for i, m := range excluded {
+		m.X = float64(i+1) * ts / 4 // nearer than any valid target
+	}
 	enemy := mkTestMonster("Enemy", 50)
 	enemy.X = 3 * ts
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{nil, victim, bound, charmed, enemy}
+	bound := mkTestMonster("Bound", 50)
+	bound.Bound = true
+	bound.X = 2 * ts
 
-	def := &config.WeaponDefinitionConfig{RicochetRangeTiles: 4}
+	cs.game.world.Monsters = append([]*monsterPkg.Monster3D{nil, victim, enemy}, excluded...)
 	if got := cs.nearestRicochetTarget(victim, def); got != enemy {
-		t.Fatalf("ricochet target = %v, want the nearest enemy", got)
+		t.Fatalf("ricochet target = %v, want the enemy past excluded actors", got)
 	}
-
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{victim, bound, charmed}
+	cs.game.world.Monsters = append(cs.game.world.Monsters, bound)
+	if got := cs.nearestRicochetTarget(victim, def); got != bound {
+		t.Fatalf("ricochet target = %v, want the nearer bound former enemy", got)
+	}
+	cs.game.world.Monsters = append([]*monsterPkg.Monster3D{victim}, excluded...)
 	if got := cs.nearestRicochetTarget(victim, def); got != nil {
-		t.Fatalf("ricochet selected party-controlled target %v", got)
+		t.Fatalf("ricochet selected excluded actor %v", got.Name)
 	}
 }
 
@@ -347,11 +360,11 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 	}
 
 	tooltip := GetItemTooltip(weapon, nil, cs, true)
-	if !strings.Contains(tooltip, "True Damage: +10") {
+	if !strings.Contains(tooltip, "Weapon: +10 True") {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
 	}
-	editor := strings.Join(character.RenderCardLines(character.WeaponCardSections(def), true), "\n")
-	if !strings.Contains(editor, "True Damage: +10") {
+	editor := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
+	if !strings.Contains(editor, "Weapon: +10 True") {
 		t.Fatalf("editor card omits authored true damage:\n%s", editor)
 	}
 }
@@ -378,7 +391,7 @@ func TestReconcileExterminationQuests(t *testing.T) {
 	// Two living targets: census becomes the dynamic goal, quest stays open.
 	a, b := mkTestMonster("Target", 10), mkTestMonster("Target", 10)
 	g.world.Monsters = []*monsterPkg.Monster3D{a, b}
-	g.reconcileExterminationQuests()
+	g.reconcileKillQuests()
 	q := g.questManager.GetQuest("purge_test")
 	if q.Completed || q.Target() != 2 {
 		t.Fatalf("populated reconcile: completed=%v target=%d, want open with target 2", q.Completed, q.Target())
@@ -386,7 +399,7 @@ func TestReconcileExterminationQuests(t *testing.T) {
 
 	// Targets all dead (an old save's state): reconcile completes on the spot.
 	a.HitPoints, b.HitPoints = 0, 0
-	g.reconcileExterminationQuests()
+	g.reconcileKillQuests()
 	if !g.questManager.GetQuest("purge_test").Completed {
 		t.Fatal("empty-map reconcile did not complete the quest")
 	}

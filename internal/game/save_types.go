@@ -1,11 +1,18 @@
 package game
 
 import (
+	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 )
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
+	TerrainChanges []TerrainChange `json:"terrain_changes,omitempty"`
+	Ecology        EcologyState    `json:"ecology,omitempty"`
+
 	MapKey             string                   `json:"map_key"`
 	PlayerX            float64                  `json:"player_x"`
 	PlayerY            float64                  `json:"player_y"`
@@ -23,17 +30,18 @@ type GameSave struct {
 	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`
 	GroundContainers   []GroundContainerSave    `json:"ground_containers,omitempty"`
 	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
-	// level-ups. Options are rebuilt from class+level on load, so we only
-	// need to remember which character is owed a choice at which level.
+	// level-ups and promotions, including their exact options and selections.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	MaxPartyLevel         int                        `json:"max_party_level,omitempty"`
 	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
 	DayNightDay           int                        `json:"day_night_day,omitempty"`
 	CalendarDay           int                        `json:"calendar_day,omitempty"`
 	CalendarWeek          int                        `json:"calendar_week,omitempty"`
 	CalendarMonth         int                        `json:"calendar_month,omitempty"`
+	RespawnDayVersion     int                        `json:"respawn_day_version,omitempty"`
 	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
-	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // respawn_days maps: day the roster was last spawned (+1 sentinel form)
+	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // One-based calendar day; zero means unstamped.
 	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
@@ -96,11 +104,13 @@ type GameSave struct {
 
 // QuestSave captures quest progress for save/load
 type QuestSave struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"`
-	CurrentCount   int    `json:"current_count"`
-	DynamicTarget  int    `json:"dynamic_target,omitempty"`
-	RewardsClaimed bool   `json:"rewards_claimed"`
+	ID               string  `json:"id"`
+	Status           string  `json:"status"`
+	CurrentCount     int     `json:"current_count"`
+	DynamicTarget    int     `json:"dynamic_target,omitempty"`
+	DynamicTargetSet bool    `json:"dynamic_target_set,omitempty"`
+	RewardsClaimed   bool    `json:"rewards_claimed"`
+	ClaimedAtDay     float64 `json:"claimed_at_day,omitempty"`
 }
 
 type PartySave struct {
@@ -116,24 +126,27 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	Name           string `json:"name"`
-	Class          int    `json:"class"`
-	Race           string `json:"race,omitempty"`
-	Promotion      int    `json:"promotion,omitempty"`
-	Level          int    `json:"level"`
-	Experience     int    `json:"experience"`
-	HitPoints      int    `json:"hit_points"`
-	MaxHitPoints   int    `json:"max_hit_points"`
-	SpellPoints    int    `json:"spell_points"`
-	MaxSpellPoints int    `json:"max_spell_points"`
-	Might          int    `json:"might"`
-	Intellect      int    `json:"intellect"`
-	Personality    int    `json:"personality"`
-	Endurance      int    `json:"endurance"`
-	Accuracy       int    `json:"accuracy"`
-	Speed          int    `json:"speed"`
-	Luck           int    `json:"luck"`
-	FreeStatPoints int    `json:"free_stat_points"`
+	AutoDrinkCooldown  int    `json:"auto_drink_cooldown,omitempty"`
+	DesignatedTargetID string `json:"designated_target_id,omitempty"`
+	DesignationFrames  int    `json:"designation_frames,omitempty"`
+	Name               string `json:"name"`
+	Class              int    `json:"class"`
+	Race               string `json:"race,omitempty"`
+	Promotion          int    `json:"promotion,omitempty"`
+	Level              int    `json:"level"`
+	Experience         int    `json:"experience"`
+	HitPoints          int    `json:"hit_points"`
+	MaxHitPoints       int    `json:"max_hit_points"`
+	SpellPoints        int    `json:"spell_points"`
+	MaxSpellPoints     int    `json:"max_spell_points"`
+	Might              int    `json:"might"`
+	Intellect          int    `json:"intellect"`
+	Personality        int    `json:"personality"`
+	Endurance          int    `json:"endurance"`
+	Accuracy           int    `json:"accuracy"`
+	Speed              int    `json:"speed"`
+	Luck               int    `json:"luck"`
+	FreeStatPoints     int    `json:"free_stat_points"`
 	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
 	// effective-stat layer, kept apart from the base stats above.
 	PermanentBonuses      map[string]int     `json:"permanent_bonuses,omitempty"`
@@ -179,11 +192,25 @@ type SkillEntry struct {
 }
 
 // PendingLevelUpChoiceSave records that party member CharIndex has earned a
-// level-up choice at Level but hasn't picked one yet. Options themselves are
-// not stored - they're rebuilt from the character's class config on load.
+// level-up or promotion choice. Old saves without options use class/level
+// reconstruction; level zero identifies the legacy promotion picker.
 type PendingLevelUpChoiceSave struct {
-	CharIndex int `json:"char_index"`
-	Level     int `json:"level"`
+	CharIndex     int                        `json:"char_index"`
+	Level         int                        `json:"level"`
+	Options       []PendingLevelUpOptionSave `json:"options,omitempty"`
+	MaxSelections int                        `json:"max_selections,omitempty"`
+	Selected      []bool                     `json:"selected,omitempty"`
+	Selection     int                        `json:"selection,omitempty"`
+	Title         string                     `json:"title,omitempty"`
+	PadToMinimum  bool                       `json:"pad_to_minimum,omitempty"`
+}
+
+// PendingLevelUpOptionSave preserves resolved random mastery options as well as spells.
+type PendingLevelUpOptionSave struct {
+	Choice    config.LevelUpChoice    `json:"choice"`
+	SkillType character.SkillType     `json:"skill_type"`
+	School    character.MagicSchoolID `json:"school,omitempty"`
+	SpellID   spells.SpellID          `json:"spell_id,omitempty"`
 }
 
 // MagicSchoolEntry persists one magic school. Level is the same derived label as
@@ -223,12 +250,19 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	AmbientThreat     monster.AmbientThreat `json:"ambient_threat,omitzero"`
+	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
+	Population        string                `json:"population,omitempty"`
+	AmbientMoveCredit float64               `json:"ambient_move_credit,omitempty"`
+
 	ID        string  `json:"id,omitempty"`
 	Key       string  `json:"key"`
 	Name      string  `json:"name"`
 	X         float64 `json:"x"`
 	Y         float64 `json:"y"`
 	HitPoints int     `json:"hit_points"`
+	// Optional for legacy saves; coordinates use the same map space as X/Y.
+	SpawnPosition *[2]float64 `json:"spawn_position,omitempty"`
 	// Pure party summons can replace their YAML stats at runtime from the
 	// summoner's mastery. Keep the snapshot optional so ordinary monsters still
 	// pick up current balance values from monsters.yaml after a load.
@@ -318,6 +352,7 @@ type MonsterRuntimeStatsSave struct {
 }
 
 type EncounterRewardSave struct {
+	FreesCaptives     bool                      `json:"frees_captives,omitempty"`
 	Gold              int                       `json:"gold"`
 	Experience        int                       `json:"experience"`
 	CompletionMessage string                    `json:"completion_message,omitempty"`

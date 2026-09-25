@@ -1,8 +1,10 @@
 package game
 
 import (
+	"github.com/hajimehoshi/ebiten/v2"
 	"testing"
 	"time"
+	"ugataima/internal/game/keytracker"
 )
 
 // Drive the real game/preview entry points. Inspect several independent effect
@@ -64,8 +66,7 @@ func TestPresentationEntryPoints(t *testing.T) {
 			case "after_input":
 				g.combatLogOpen = true
 				gl.ui.renderedModalSnapshot = gl.ui.topModalSnapshot()
-				x, y, w, _ := combatLogPanelLayout(g)
-				g.mouseLeftClicks = []queuedClick{{x: x + w - 20, y: y + 18, at: 1000}}
+				gl.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyEscape })
 			case "preview":
 				step = p.Step
 			case "entry_menu":

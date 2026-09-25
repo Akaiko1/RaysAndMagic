@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -716,8 +717,8 @@ func TestSaveLoad_UntrackedEmptyRespawnRosterUsesAuthoredSpawns(t *testing.T) {
 				if worldLoad.Monsters[0].Key != "bandit" {
 					t.Fatalf("restored roster key = %q, want bandit", worldLoad.Monsters[0].Key)
 				}
-				if worldLoad.LastRespawnDay != loaded.dayNightDay+1 {
-					t.Fatalf("respawn stamp = %d, want %d", worldLoad.LastRespawnDay, loaded.dayNightDay+1)
+				if worldLoad.LastRespawnDay != loaded.currentCalendarDay() {
+					t.Fatalf("respawn stamp = %d, want %d", worldLoad.LastRespawnDay, loaded.currentCalendarDay())
 				}
 			}
 		})
@@ -757,12 +758,12 @@ func TestRespawnOnArrival_UnstampedRosterRewindsToAuthored(t *testing.T) {
 		if got := len(w.Monsters); got != 2 {
 			t.Fatalf("unstamped roster must rewind to authored spawns, got %d monsters, want 2", got)
 		}
-		if w.LastRespawnDay != g.dayNightDay+1 {
+		if w.LastRespawnDay != g.currentCalendarDay() {
 			t.Fatalf("rewind must stamp the day, got %d", w.LastRespawnDay)
 		}
 	})
 	t.Run("fresh stamp: untouched", func(t *testing.T) {
-		g, w := setup(1) // spawned "today" (dayNightDay 0 -> stamp 1)
+		g, w := setup(1) // spawned "today" (calendar day 1 -> stamp 1)
 		g.maybeRespawnMapMonsters()
 		if got := len(w.Monsters); got != 1 {
 			t.Fatalf("freshly stamped roster must keep its refresh window, got %d monsters, want 1", got)
@@ -770,7 +771,7 @@ func TestRespawnOnArrival_UnstampedRosterRewindsToAuthored(t *testing.T) {
 	})
 	t.Run("expired stamp: rewound", func(t *testing.T) {
 		g, w := setup(1)
-		g.dayNightDay = 3 // 3 full phases later
+		g.calendarDay = 4 // Three calendar days later.
 		g.maybeRespawnMapMonsters()
 		if got := len(w.Monsters); got != 2 {
 			t.Fatalf("expired stamp must rewind, got %d monsters, want 2", got)
@@ -1268,8 +1269,9 @@ func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
 	g.camera.Angle = 0
 	g.viewAngleRender = 0
 	g.viewTurnFramesLeft = 3
+	g.turnBasedMode = true
 
-	restore := g.beginViewAngleSwap()
+	restore := g.beginRenderCameraSwap(time.Now())
 	if err := g.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
@@ -1284,13 +1286,14 @@ func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
 }
 
 // Without a mid-draw camera write the swap still restores the logical angle.
-func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
+func TestBeginRenderCameraSwap_RestoresLogicalTurnAngle(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 	g.camera.Angle = 1.0
 	g.viewAngleRender = 0.5 // mid-glide display angle
+	g.turnBasedMode = true
 
-	restore := g.beginViewAngleSwap()
+	restore := g.beginRenderCameraSwap(time.Now())
 	if g.camera.Angle != 0.5 {
 		t.Fatalf("draw must render at the display angle, got %v", g.camera.Angle)
 	}
@@ -1308,6 +1311,8 @@ func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
 // ID-twins - the vanished-warlord bug), so the loader must self-heal them.
 func TestApplySaveEnforcesMonsterIDUniqueness(t *testing.T) {
 	cfg := loadTestConfig(t)
+	// This test isolates monster-ID migrations from new content recruitment.
+	cfg.Characters.TavernRecruits = nil
 	type savedMob struct {
 		mapKey string
 		id     string

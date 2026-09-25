@@ -3,6 +3,7 @@ package monster
 import (
 	"math"
 	"math/rand"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/status"
@@ -11,11 +12,11 @@ import (
 // CollisionChecker interface for checking movement validity
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
-	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
-	// CanOccupyTilesWithHabitat is the tile-only variant: terrain rules apply,
+	CanMoveToWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool
+	// CanOccupyTilesWithTileOverrides is the tile-only variant: terrain rules apply,
 	// entity bodies are ignored. Used where an entity veto would be wrong
 	// (e.g. the A* start tile the monster is already standing in).
-	CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
+	CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -163,6 +164,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY flo
 // game.MonsterWrapper.Update, not on its own. Tests that need RT fidelity (not
 // just AI/position behavior) should do the same.
 func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
+	m.movementHeldThisFrame = m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
@@ -197,6 +199,8 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// monster fights from where it stands without being stunned.
 	if m.RootFramesRemaining > 0 {
 		status.TickFrameRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate)
+	}
+	if m.MovementHeld(false) {
 		px, py := m.X, m.Y
 		defer func() { m.X, m.Y = px, py }()
 	}
@@ -207,15 +211,24 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	if m.CurrentAIBehavior() == AIBehaviorInert {
 		return
 	}
+	if m.Arbor.Phase != "" && m.MovementHeld(false) {
+		m.StandDownFromCombat()
+		return
+	}
 
 	m.StateTimer++
 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
-	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-		if !collisionChecker.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs, m.Flying) {
+	if collisionChecker != nil && m.Arbor.Phase == "" && m.StateTimer%15 == 0 { // throttle checks
+		if !collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
 			m.unstuckFromObstacles(collisionChecker)
 		}
+	}
+
+	if m.CurrentAIBehavior() == AIBehaviorAmbient {
+		m.UpdateAmbient(collisionChecker, targetX, targetY, false)
+		return
 	}
 
 	// Party detection always uses the actual party position. The pursuit target
@@ -268,7 +281,7 @@ func (m *Monster3D) meleeTileAdjacent(targetX, targetY float64, checker Collisio
 	if dx > 1 || dy > 1 || (dx == 0 && dy == 0) {
 		return false
 	}
-	return checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+	return collision.AttackLineClear(checker, m.X, m.Y, targetX, targetY)
 }
 
 // pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
@@ -278,7 +291,7 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 	if !m.IsEngagingPlayer {
 		m.BeginCombatEngagement()
 	}
-	los := checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+	los := collision.AttackLineClear(checker, m.X, m.Y, targetX, targetY)
 	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.PursuitReachPixels() && los) ||
 		m.meleeTileAdjacent(targetX, targetY, checker)
 	if !inReach || !m.canClaimAttackPost(checker, targetX, targetY) {
@@ -579,9 +592,9 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 		spawnTileX := m.worldToTile(m.SpawnX)
 		spawnTileY := m.worldToTile(m.SpawnY)
 		m.setMoveTarget(StatePatrolling, spawnTileX, spawnTileY)
-		if !m.followPathToTile(collisionChecker, spawnTileX, spawnTileY) {
-			m.clearMoveTarget()
-		}
+		// Keep a temporarily blocked home objective so its retry throttle is
+		// not reset by setMoveTarget on the next tick. Fallback clears it itself.
+		m.followPathToTile(collisionChecker, spawnTileX, spawnTileY)
 		return
 	}
 
@@ -642,7 +655,7 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 	attackRange := m.PursuitReachPixels()
-	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+	hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 
 	// Check if close enough to attack (pixel range, or melee tile-adjacency so a
 	// diagonal neighbour commits instead of pursuing in place).
@@ -724,6 +737,15 @@ func (m *Monster3D) entersTargetTile(x, y, targetX, targetY float64) bool {
 	return sameTile && (m.usesAttackPosts() || !m.HasRangedAttack())
 }
 
+// blockedAttackTargetTile shares the direct-step occupancy rule with A* and
+// interpolation. The start may be overlapped (old save); exits remain legal.
+func (m *Monster3D) blockedAttackTargetTile(x, y float64) *TileCoord {
+	if !m.entersTargetTile(x, y, x, y) {
+		return nil
+	}
+	return &TileCoord{X: m.worldToTile(x), Y: m.worldToTile(y)}
+}
+
 // canClaimAttackPost gates only the transition into StateAttacking. A claimed
 // post remains walkable - the collision system deliberately does not block a
 // transit mob there - but it is not available for a second attacker to use.
@@ -731,7 +753,7 @@ func (m *Monster3D) canClaimAttackPost(collisionChecker CollisionChecker, target
 	if !m.usesAttackPosts() {
 		return true
 	}
-	if m.entersTargetTile(m.X, m.Y, targetX, targetY) {
+	if !collision.CanAttackFrom(collisionChecker, m.X, m.Y) || m.entersTargetTile(m.X, m.Y, targetX, targetY) {
 		return false
 	}
 	checker, ok := collisionChecker.(AttackPostReservationChecker)
@@ -764,15 +786,15 @@ func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64
 	}
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
-	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, newX, newY, m.WalkableTileOverrides, m.Flying) {
 		m.X, m.Y = newX, newY
 		return true
 	}
-	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, newX, m.Y, m.WalkableTileOverrides, m.Flying) {
 		m.X = newX
 		return true
 	}
-	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, newY, m.WalkableTileOverrides, m.Flying) {
 		m.Y = newY
 		return true
 	}
@@ -792,7 +814,7 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 	if mathutil.IntAbs(dxTile) != 1 || mathutil.IntAbs(dyTile) != 1 {
 		return false
 	}
-	if collisionChecker.CheckLineOfSight(m.X, m.Y, targetX, targetY) {
+	if collision.AttackLineClear(collisionChecker, m.X, m.Y, targetX, targetY) {
 		return false
 	}
 	step := m.speedPerTick()
@@ -803,7 +825,7 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 		{x: m.X, y: m.Y + float64(mathutil.IntSign(dyTile))*step},
 	}
 	for _, c := range candidates {
-		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
+		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithTileOverrides(m.ID, c.x, c.y, m.WalkableTileOverrides, m.Flying) {
 			m.X, m.Y = c.x, c.y
 			m.ResetPathfinding()
 			return true
@@ -972,7 +994,7 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 
 	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
 		func() []TileCoord { return m.findPathToTarget(collisionChecker, targetX, targetY) },
-		m.speedPerTick(), false, true)
+		m.speedPerTick(), false, true, m.blockedAttackTargetTile(targetX, targetY))
 }
 
 // followPathToTile computes (or reuses) an A* path to a tile and moves toward it.
@@ -987,9 +1009,38 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		shouldRepath = true
 	}
 
-	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
-		func() []TileCoord { return m.findPathToTile(collisionChecker, targetTileX, targetTileY) },
-		m.movementSpeed(m.State), true, false)
+	if m.isReturnHomeGoal(TileCoord{X: targetTileX, Y: targetTileY}) && shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 &&
+		m.StateTimer >= m.LastPathCalcTick && !m.canRepath(m.pathCheckFrequency()) {
+		return false
+	}
+	failedSearch := false
+	moved := m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
+		func() []TileCoord {
+			path := m.findPathToTile(collisionChecker, targetTileX, targetTileY)
+			failedSearch = len(path) == 0
+			return path
+		}, m.movementSpeed(m.State), true, false, nil)
+	// An unreachable patrol home must not pin this actor to a full A* search
+	// every tick. Adopt its current refuge; ordinary patrol can resume next tick.
+	// Only an actual failed search qualifies, never a blocked movement step.
+	if failedSearch && m.State == StatePatrolling && !m.MovementHeld(false) &&
+		m.isReturnHomeGoal(TileCoord{X: targetTileX, Y: targetTileY}) &&
+		len(m.findPathToTile(patrolTerrainChecker{collisionChecker}, targetTileX, targetTileY)) == 0 {
+		m.SpawnX, m.SpawnY = m.X, m.Y
+		m.ResetPathfinding()
+	}
+	return moved
+}
+
+// A body temporarily blocking a home route must not change the patrol origin.
+type patrolTerrainChecker struct{ CollisionChecker }
+
+func (c patrolTerrainChecker) CanMoveToWithTileOverrides(id string, x, y float64, overrides []string, flying bool) bool {
+	return c.CanOccupyTilesWithTileOverrides(id, x, y, overrides, flying)
+}
+
+func (m *Monster3D) isReturnHomeGoal(goal TileCoord) bool {
+	return !m.IsWithinTetherRadius() && goal == (TileCoord{X: m.worldToTile(m.SpawnX), Y: m.worldToTile(m.SpawnY)})
 }
 
 // followPathStep advances one tick along m.PathTiles toward (targetTileX,
@@ -997,7 +1048,11 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 // onto the next tile centre when within one step, else moves straight toward it.
 // haltOnZeroSpeed returns early on speed <= 0 (tile variant); cornerSlide enables
 // the axis-slide fallback (target variant only).
-func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool) bool {
+func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool, blocked *TileCoord) bool {
+	leavingBlocked := blocked != nil && m.worldToTile(m.X) == blocked.X && m.worldToTile(m.Y) == blocked.Y
+	canMove := func(x, y float64) bool {
+		return (leavingBlocked || blocked == nil || m.worldToTile(x) != blocked.X || m.worldToTile(y) != blocked.Y) && collisionChecker.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
+	}
 	if shouldRepath {
 		m.PathTiles = computePath()
 		m.PathIndex = 0
@@ -1034,7 +1089,7 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 	}
 
 	if dist <= step {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs, m.Flying) {
+		if canMove(targetCenterX, targetCenterY) {
 			m.X = targetCenterX
 			m.Y = targetCenterY
 			m.PathIndex++
@@ -1047,7 +1102,7 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if canMove(newX, newY) {
 		m.X = newX
 		m.Y = newY
 		return true
@@ -1058,11 +1113,11 @@ func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTile
 		// while rounding it). Instead of giving up and freezing, slide along
 		// whichever axis is still clear so the monster rounds the corner; only
 		// if BOTH axes are blocked do we repath.
-		if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		if dx != 0 && canMove(newX, m.Y) {
 			m.X = newX
 			return true
 		}
-		if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		if dy != 0 && canMove(m.X, newY) {
 			m.Y = newY
 			return true
 		}
@@ -1122,7 +1177,7 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 	minY := mathutil.IntMin(start.Y, targetTileY) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, targetTileY) + rangeTiles
 
-	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, m.blockedAttackTargetTile(targetX, targetY))
 }
 
 // NextPathStepTile returns the next cardinal tile this monster should step to en
@@ -1142,7 +1197,7 @@ func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX,
 // goal tiles. It is used by callers with mode-specific goals, e.g. turn-based
 // ranged monsters that need a row/column firing lane rather than any tile inside
 // their circular projectile range.
-func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord) (tileX, tileY int, ok bool) {
+func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord, blocked *TileCoord) (tileX, tileY int, ok bool) {
 	if collisionChecker == nil || len(goals) == 0 {
 		return 0, 0, false
 	}
@@ -1179,7 +1234,7 @@ func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goa
 	minY := mathutil.IntMin(start.Y, minGoalY) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, maxGoalY) + rangeTiles
 
-	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, blocked)
 	if len(path) < 2 {
 		return 0, 0, false
 	}
@@ -1206,7 +1261,7 @@ func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTile
 	minY := mathutil.IntMin(start.Y, goal.Y) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, goal.Y) + rangeTiles
 
-	return m.findPathAStar(collisionChecker, start, []TileCoord{goal}, minX, maxX, minY, maxY)
+	return m.findPathAStar(collisionChecker, start, []TileCoord{goal}, minX, maxX, minY, maxY, nil)
 }
 
 // HasPathToTile reports whether this monster can reach an exact tile using the
@@ -1223,7 +1278,7 @@ func (m *Monster3D) HasPathToTile(collisionChecker CollisionChecker, targetTileX
 	return len(m.findPathToTile(collisionChecker, targetTileX, targetTileY)) > 1
 }
 
-func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int) []TileCoord {
+func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int, blocked *TileCoord) []TileCoord {
 	m.PathSearchCount++
 	if maxX < minX || maxY < minY {
 		return nil
@@ -1254,7 +1309,7 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 	// every path attempt, freezing both in place.
 	if !ps.goal[startIdx] {
 		startCX, startCY := m.tileToWorldCenter(start.X, start.Y)
-		if !collisionChecker.CanOccupyTilesWithHabitat(m.ID, startCX, startCY, m.HabitatPrefs, m.Flying) {
+		if !collisionChecker.CanOccupyTilesWithTileOverrides(m.ID, startCX, startCY, m.WalkableTileOverrides, m.Flying) {
 			return nil
 		}
 	}
@@ -1278,7 +1333,9 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 
 	nodesSearched := 0
 	maxNodes := 500 // typical mob search area is ~200-400 tiles
-	if m.relentlessHunter() {
+	if len(goals) == 1 && m.isReturnHomeGoal(goals[0]) {
+		maxNodes = width * height
+	} else if m.relentlessHunter() {
 		// Map-wide pursuit may path across a whole maze - well beyond a normal budget.
 		maxNodes = 4000
 	}
@@ -1305,6 +1362,9 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 		coord := ps.coord(current.idx)
 		for _, dir := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
 			neighbor := TileCoord{X: coord.X + dir[0], Y: coord.Y + dir[1]}
+			if blocked != nil && neighbor == *blocked {
+				continue
+			}
 			nidx := ps.index(neighbor)
 			if nidx < 0 {
 				continue
@@ -1362,13 +1422,10 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			// Every combat target keeps its own tile clear. Attackers settle on
 			// surrounding posts, which prevents either party or summon fights
 			// from collapsing into a single overlapping stack.
-			if attackPosts && dx == 0 && dy == 0 {
+			if attackPosts && ((dx == 0 && dy == 0) || (!melee && !collision.CanAttackFrom(collisionChecker, centerX, centerY))) {
 				continue
 			}
 			if melee {
-				if !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
-					continue
-				}
 				if !adjacent && distance(targetX, targetY, centerX, centerY) > reach+0.1 {
 					continue
 				}
@@ -1378,17 +1435,17 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 				}
 			}
 			if (attackPosts && m.attackPostReserved(collisionChecker, centerX, centerY)) ||
-				!collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+				!collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying) {
 				continue
 			}
 			if !melee && adjacent {
 				approach = append(approach, TileCoord{X: tileX, Y: tileY}) // no-LOS fallback
 			}
-			// Ranged: a goal needs a FIRE LANE, not just range - a tile within
+			// A goal needs an attack lane, not just range - a tile within
 			// reach but walled off leaves the mob parked there, in range yet
 			// forever unable to shoot (the attack gate requires LOS). LOS is the
 			// costliest test, so it runs last and only on walkable candidates.
-			if !melee && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
+			if !collision.AttackLineClear(collisionChecker, centerX, centerY, targetX, targetY) {
 				continue
 			}
 			goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1430,7 +1487,7 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 			if hasReservations && reservations.IsMonsterAttackPostReserved(m.ID, centerX, centerY) {
 				continue
 			}
-			if !collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+			if !collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying) {
 				continue
 			}
 			goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1440,8 +1497,11 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 }
 
 func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
+	if b := m.AmbientBounds; b != nil && (tile.X < b[0] || tile.Y < b[1] || tile.X >= b[2] || tile.Y >= b[3]) {
+		return false
+	}
 	centerX, centerY := m.tileToWorldCenter(tile.X, tile.Y)
-	return collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying)
+	return collisionChecker.CanMoveToWithTileOverrides(m.ID, centerX, centerY, m.WalkableTileOverrides, m.Flying)
 }
 
 func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
@@ -1457,6 +1517,9 @@ func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
 	return path
 }
 
+// speedPerSecond converts the authored speed unit for every movement clock.
+func speedPerSecond(speed float64) float64 { return speed * 60 }
+
 func (m *Monster3D) speedPerTick() float64 {
 	tps := config.DefaultTPS
 	if m.config != nil {
@@ -1467,7 +1530,7 @@ func (m *Monster3D) speedPerTick() float64 {
 	if tps <= 0 {
 		return m.EffectiveSpeed()
 	}
-	return m.EffectiveSpeed() * (60.0 / float64(tps))
+	return speedPerSecond(m.EffectiveSpeed()) / float64(tps)
 }
 
 type movementSpeedMultipliers struct {
@@ -1478,6 +1541,9 @@ type movementSpeedMultipliers struct {
 // movementSpeed returns the per-tick speed for the given state (search: move-speed).
 func (m *Monster3D) movementSpeed(state MonsterState) float64 {
 	base := m.speedPerTick()
+	if m.IsAmbient() && (state == StateFleeing || m.IsCaravan()) {
+		return base
+	}
 	mults := m.movementSpeedMultipliers()
 	switch state {
 	case StatePatrolling:
@@ -1524,7 +1590,7 @@ func (m *Monster3D) updateAlert(collisionChecker CollisionChecker, playerX, play
 		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
 			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
 		}
-		hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+		hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 		if ((distanceToPlayer <= attackRange*enterFraction && hasLOS) || m.meleeTileAdjacent(playerX, playerY, collisionChecker)) &&
 			m.canClaimAttackPost(collisionChecker, playerX, playerY) {
 			m.State = StateAttacking
@@ -1597,7 +1663,7 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	// Target stepped out of reach -> resume the chase immediately instead of
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
 	// at <=0.9xrange, so exiting at >range keeps a clean hysteresis band.)
-	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+	hasLOS := collision.AttackLineClear(collisionChecker, m.X, m.Y, playerX, playerY)
 	if m.IsEngagingPlayer && (distance(m.X, m.Y, playerX, playerY) > m.PursuitReachPixels() || !hasLOS) &&
 		!m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 		m.State = StatePursuing
@@ -1744,8 +1810,16 @@ func (m *Monster3D) NextFleeTurnStep(collisionChecker CollisionChecker, playerX,
 // unstuckFromObstacles tries to move the monster to the nearest non-blocked position
 // Useful when a monster ends up overlapping a solid tile (e.g., trees) due to edge cases
 func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
+	m.unstuckFromObstaclesWithin(collisionChecker, nil)
+}
+
+// Recovery may escape an invalid starting tile, but never the actor's region.
+func (m *Monster3D) unstuckFromObstaclesWithin(collisionChecker CollisionChecker, allowed func(float64, float64) bool) bool {
 	if collisionChecker == nil {
-		return
+		return false
+	}
+	canLand := func(x, y float64) bool {
+		return (allowed == nil || allowed(x, y)) && collisionChecker.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
 	}
 
 	// Search outwards in rings for a free spot
@@ -1758,16 +1832,18 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+			if canLand(nx, ny) {
 				m.X = nx
 				m.Y = ny
-				return
+				return true
 			}
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
+	if canLand(m.SpawnX, m.SpawnY) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
+		return true
 	}
+	return false
 }

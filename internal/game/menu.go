@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	uitext "ugataima/assets/text"
 )
 
 // ErrExit is returned from the game loop to request a clean exit
@@ -35,8 +36,8 @@ const (
 
 	// Main-menu panel + option-list layout (its own size, distinct from the
 	// save/load panel). Shared by the draw code and the input hit-testing.
-	mainMenuPanelW     = 360
-	mainMenuPanelH     = 380
+	mainMenuPanelW     = 280
+	mainMenuPanelH     = 310
 	mainMenuListTopY   = 56
 	mainMenuRowPitch   = 32
 	settingsMenuPanelW = 480
@@ -53,6 +54,9 @@ const (
 func menuPanelSize(mode MainMenuMode) (w, h int) {
 	if mode == MenuMain {
 		return mainMenuPanelW, mainMenuPanelH
+	}
+	if mode == MenuControlTips {
+		return 480, 310
 	}
 	if mode == MenuSettings {
 		return settingsMenuPanelW, settingsMenuPanelH
@@ -104,6 +108,7 @@ var mainMenuOptions = []mainMenuOption{
 		g.mainMenuMode = MenuSettings
 		g.beginAudioSettings()
 	}},
+	{key: "control_tips", label: uitext.Text("ui.control_tips"), action: func(g *MMGame) { g.mainMenuMode = MenuControlTips }},
 	{key: "main_menu", label: "Main Menu", action: func(g *MMGame) { g.returnToMainMenu() }},
 }
 
@@ -117,5 +122,5 @@ var mainMenuControlTips = []string{
 }
 
 func mainMenuTipsTopY() int {
-	return mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
+	return 60
 }

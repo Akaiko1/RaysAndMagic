@@ -24,9 +24,7 @@ func TestFlyEjectFromWall(t *testing.T) {
 
 	// Fly ends this tick: tick the registry the way the game loop does.
 	game.flyActive, game.flyDuration = true, 1
-	for _, b := range game.timedBuffs() {
-		tickBuff(b.active, b.duration, b.onExpire)
-	}
+	game.updateTimedBuffs()
 
 	if game.flyActive {
 		t.Fatal("Fly should have expired")

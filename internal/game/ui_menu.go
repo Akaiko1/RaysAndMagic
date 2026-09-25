@@ -3,8 +3,8 @@ package game
 import (
 	"fmt"
 	"image/color"
-	"strings"
 	"time"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -54,25 +54,34 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	panelW, panelH := menuPanelSize(ui.game.mainMenuMode)
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
-	drawFilledRect(screen, px, py, panelW, panelH, color.RGBA{20, 20, 40, 230})
-	drawRectBorder(screen, px, py, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
+	style := frameGold
+	if ui.game.mainMenuMode == MenuControlTips {
+		style = frameBronze
+	}
+	ui.drawThemeFrame(screen, style, px, py, panelW, panelH)
+	if ui.game.mainMenuMode == MenuMain || ui.game.mainMenuMode == MenuControlTips {
+		ui.drawCornerDecor(screen, style, px-8, py-8, panelW+16, panelH+16, decorTopCorners)
+	}
+	if ui.game.mainMenuMode == MenuControlTips {
+		ui.drawPanelInlay(screen, frameBronze, px+panelW/2, py)
+	}
 
 	switch ui.game.mainMenuMode {
 	case MenuMain:
 		// Title
-		drawDebugText(screen, "Main Menu", px+16, py+14)
+		drawCenteredDebugText(screen, "Main Menu", px+32, py+16, panelW-64, 20)
 		// Options
 		for i, option := range mainMenuOptions {
-			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
-			if i == ui.game.mainMenuSelection {
-				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
-			}
-			drawDebugText(screen, option.label, tx, ty)
+			box, _, _ := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
+			ui.drawMenuButton(screen, option.label, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, i == ui.game.mainMenuSelection)
 		}
-		tipsY := py + mainMenuTipsTopY()
+	case MenuControlTips:
+		drawScaledMetalCenteredText(screen, uitext.Text("ui.control_tips"), w/2, py+28, 2, rarityGold)
 		for i, tip := range mainMenuControlTips {
-			drawDebugText(screen, tip, px+16, tipsY+i*debugTextCharHeight)
+			drawDebugText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
 		}
+		ui.drawBackButton(screen, px+24, py+panelH-46, func() { ui.game.mainMenuMode = MenuMain })
+
 	case MenuSaveSelect:
 		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
 		drawDebugText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
@@ -184,33 +193,9 @@ func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW
 // drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
 // the screen so it never spills off the edge.
 func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
-	boxW := 0
-	for _, l := range lines {
-		if lw := debugTextWidth(l); lw > boxW {
-			boxW = lw
-		}
-	}
-	boxW += 16
-	boxH := len(lines)*16 + 10
-	sw := ui.game.config.GetScreenWidth()
-	sh := ui.game.config.GetScreenHeight()
-	if x+boxW > sw {
-		x = sw - boxW
-	}
-	if y+boxH > sh {
-		y = sh - boxH
-	}
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	drawFilledRect(screen, x, y, boxW, boxH, color.RGBA{12, 12, 28, 240})
-	drawRectBorder(screen, x, y, boxW, boxH, 1, color.RGBA{120, 120, 180, 230})
-	for i, l := range lines {
-		drawDebugText(screen, l, x+8, y+6+i*16)
-	}
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	r := singleTooltipLayout(lines, nil, false, x, y, sw, sh)
+	drawTooltip(screen, lines, nil, nil, nil, "", r.x, r.y, r.right(), ui.game.sprites)
 }
 
 // drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a
@@ -221,17 +206,11 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 	prev, next := savePagerButtonRects(px, py, panelW, panelH)
 	stripY := prev.y1
 	stripH := prev.y2 - prev.y1
-	drawFilledRect(screen, px, stripY, panelW, stripH, color.RGBA{18, 18, 34, 235})
-	drawRectBorder(screen, px, stripY, panelW, stripH, 1, color.RGBA{100, 100, 160, 220})
+	ui.drawThemeFrame(screen, frameSilver, px, stripY, panelW, stripH)
 
 	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
-		fill := color.RGBA{60, 60, 100, 230}
-		if !enabled {
-			fill = color.RGBA{35, 35, 55, 200}
-		}
-		drawFilledRect(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, fill)
-		drawRectBorder(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, 1, color.RGBA{120, 120, 180, 230})
-		drawCenteredDebugText(screen, label, r.x1, r.y1+(stripH-12)/2, r.x2-r.x1, 12)
+		ui.drawButtonFrame(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, false)
+		drawCenteredDebugText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
 	}
 	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
 	drawPagerBtn(next, "Next >", true)
@@ -248,8 +227,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	dialogW, dialogH := 420, 140
 	x := (w - dialogW) / 2
 	y := (h - dialogH) / 2
-	drawFilledRect(screen, x, y, dialogW, dialogH, color.RGBA{15, 15, 35, 235})
-	drawRectBorder(screen, x, y, dialogW, dialogH, 2, color.RGBA{120, 120, 180, 255})
+	ui.drawThemeFrame(screen, frameSilver, x, y, dialogW, dialogH)
 
 	title := fmt.Sprintf("Rename %s", saveRowLabel(ui.game.saveRenameSlot))
 	drawCenteredDebugText(screen, title, x, y+10, dialogW, 20)
@@ -258,8 +236,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	inputBoxY := y + 48
 	inputBoxW := dialogW - 48
 	inputBoxH := 28
-	drawFilledRect(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, color.RGBA{30, 30, 60, 240})
-	drawRectBorder(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, 1, color.RGBA{140, 140, 200, 255})
+	ui.drawThemeFrame(screen, frameSilver, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
 
 	input := ui.game.saveRenameInput
 	if input == "" {
@@ -279,16 +256,13 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	// stays fully visible and remains the one mouse selector for characters.
 	drawFilledRect(screen, 0, 0, screen.Bounds().Dx(), viewportBottom, color.RGBA{5, 7, 12, 205})
 	ui.drawPatternFrame(screen, "menu_panel_frame", layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
+	ui.drawCornerDecor(screen, frameGold, layout.panel.x-8, layout.panel.y-8, layout.panel.w+16, layout.panel.h+16, decorBottomCorners)
 
 	for i, tabInfo := range tabbedMenuTabs {
 		tabRect := layout.tabs[i]
 
 		isActive := ui.game.currentTab == tabInfo.tab
-		tabSpriteName := "menu_tab_inactive"
-		if isActive {
-			tabSpriteName = "menu_tab_active"
-		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabRect.x, tabRect.y, tabRect.w, tabRect.h)
+		ui.drawButtonFrame(screen, tabRect.x, tabRect.y, tabRect.w, tabRect.h, isActive)
 
 		// One line leaves the decorative top/bottom rails clear at every scale.
 		drawCenteredDebugText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
@@ -346,23 +320,14 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			labelW := layout.labelW
 			labelX := x - (labelW-icon)/2
 			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
-			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+2+debugTextCharHeight, labelW, 14)
+
 			if hovered {
-				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
+				hover = ui.appendCardArtHint(cardCollectionTooltipLines(def), key)
 			}
 		}
 	}
 
-	// Combined totals: additive effects fold together, while summon cards stay
-	// separate because each owns an independent roll, creature pool and cooldown.
-	summary := "No active card effects."
-	if parts := ui.game.cardCollectionEffectLines(); len(parts) > 0 {
-		summary = "Active: " + strings.Join(parts, ", ")
-	}
-	// Wrap to the panel width so a full 8-card list doesn't run off the edge.
-	for i, line := range wrapDebugText(summary, layout.summary.w) {
-		drawDebugText(screen, line, layout.summary.x, layout.summary.y+i*debugTextCharHeight)
-	}
+	ui.drawCardEffectsList(screen, layout.summary)
 
 	if hover != nil {
 		ui.queueTooltip(hover, mouseX+16, mouseY+8)
@@ -462,115 +427,41 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	ui.lastClickedItem = -1
 	ui.lastEquipClickTime = time.Time{}
 	ui.lastClickedSlot = items.EquipSlot(-1)
-	ui.lastTrapClickTime = 0
-	ui.lastClickedTrap = -1
-	ui.game.lastSpellClickTime = 0
-	ui.game.lastClickedSpell = -1
-	ui.game.lastClickedSchool = -1
+	ui.game.lastBookClickTime = 0
+	ui.game.lastClickedBookEntry = -1
+	ui.game.lastClickedBookGroup = -1
 	ui.game.lastSchoolClickTime = 0
 	ui.game.lastSchoolClickedIdx = -1
 }
 
-// handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
-func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
+// Both books bind a double-click to the quick action. The callback only
+// supplies the book's selection and equipment rules; gesture ownership is shared.
+func (ui *UISystem) handleBookEntryClick(bounds layoutRect, group, index int, selectEntry, equipEntry func()) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{spellX, spellY, spellWidth, spellHeight}, func() { ui.handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex) })
+		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleBookEntryClick(bounds, group, index, selectEntry, equipEntry) })
 		return
 	}
-
-	if ui.modalLayerOwnsInput() {
+	if ui.modalLayerOwnsInput() || !ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
 		return
 	}
-	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
-		currentTime := ui.game.mouseLeftClickAt
-
-		// Check for a fast second click on the same spell.
-		doubleClick := ui.game.lastClickedSpell == spellIndex &&
-			ui.game.lastClickedSchool == schoolIndex &&
-			withinDoubleClickWindow(currentTime, ui.game.lastSpellClickTime)
-
-		// Update selection for highlight and keyboard navigation
-		ui.game.selectedSchool = schoolIndex
-		ui.game.selectedSpell = spellIndex
-
-		if doubleClick {
-			// Double-click binds the highlighted spell as the character's fast
-			// spell and deliberately keeps the book open. Enter/F owns casting.
-			ui.game.combat.EquipSelectedSpell()
-			ui.game.lastSpellClickTime = 0
-			ui.game.lastClickedSpell = -1
-			ui.game.lastClickedSchool = -1
-			return
-		}
-
-		// Update click tracking
-		ui.game.lastSpellClickTime = currentTime
-		ui.game.lastClickedSpell = spellIndex
-		ui.game.lastClickedSchool = schoolIndex
+	g := ui.game
+	now := g.mouseLeftClickAt
+	doubleClick := g.lastClickedBookEntry == index && g.lastClickedBookGroup == group && withinDoubleClickWindow(now, g.lastBookClickTime)
+	selectEntry()
+	if doubleClick {
+		equipEntry()
+		g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = 0, -1, -1
+		return
 	}
+	g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = now, index, group
 }
+
+func (ui *UISystem) handleSpellbookSpellClick(x, y, w, h, schoolIndex, spellIndex int) {
+	ui.handleBookEntryClick(layoutRect{x, y, w, h}, schoolIndex, spellIndex, func() {
+		ui.game.selectedSchool, ui.game.selectedSpell = schoolIndex, spellIndex
+	}, func() { ui.game.combat.EquipSelectedSpell() })
+}
+
+const bookControlsHint = "Up/Down: Navigate  Enter/F: Use  Click: Select  Double-click: Equip quick slot"
 
 // updateMouseState should be called once per frame before input handling.
-func (ui *UISystem) updateMouseState() {
-	ui.syncPointerScreen()
-	leftJustPressed := pointerLeftJustPressed()
-	rightJustPressed := pointerRightJustPress()
-	now := time.Now().UnixMilli()
-	if ui.modalRedrawBarrierActive() {
-		ui.cancelScreenPointerGestures()
-		ui.dropQueuedClicks()
-		return
-	}
-	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
-	// drop the queues (a click aimed at one layer must not fire in the next).
-	// Runs before this frame's clicks enqueue; within one layer (dialog
-	// double-clicks) no flip occurs.
-	if allowed := ui.game.worldClickAllowed(); allowed != ui.game.prevWorldClickAllowed {
-		ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
-		ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
-		ui.game.prevWorldClickAllowed = allowed
-	}
-	ui.game.pruneClickQueues(now)
-	inputLayer := ui.topModalLayer()
-	suppressLeftClick := false
-	if inputLayer == modalLayerNone {
-		suppressLeftClick = ui.updateQuickDrag()
-	} else if !ui.game.dragPickedUp && (ui.game.dragArmed || ui.game.dragActive) {
-		// Ownership lost mid-gesture: the release edge is a one-tick event and
-		// would be missed while the updater is skipped, leaving an armed/active
-		// drag to resurrect when the layer returns. Cancel it; only a picked-up
-		// split fragment is deliberate state that survives the freeze.
-		ui.game.clearDrag()
-	}
-	// The stash is either its standalone modal or a manager embedded in the NPC
-	// dialog. A higher modal must not let a release resolve later against a
-	// newly uncovered stash cell - same rule: cancel everything transient, keep
-	// only the deliberately picked-up split fragment.
-	//
-	// While the drag machine runs it OWNS the left button: it queues the click
-	// itself, on a release that stayed under the drag threshold (see
-	// updateStashDrag). Queueing on press as well would let the press that
-	// begins a drag double as a buy/sell click.
-	// The release-driven mode belongs to the SURFACE, not the layer: an ordinary
-	// dialog (quest, tavern service, trainer) has no drag machine to queue its
-	// clicks, so gating on the layer alone would leave it with no clicks at all.
-	dragSurface := ui.game.stashDragSurfaceOpen()
-	releaseDrivenClicks := false
-	if dragSurface && (inputLayer == modalLayerStash || inputLayer == modalLayerDialog) {
-		suppressLeftClick = ui.updateStashDrag(now) || suppressLeftClick
-		releaseDrivenClicks = true
-	} else if !ui.game.stashDragPickedUp && (ui.game.stashDragArmed || ui.game.stashDragActive || ui.game.stashDragDrop) {
-		ui.game.clearStashDrag()
-	}
-
-	if leftJustPressed && !suppressLeftClick && !releaseDrivenClicks {
-		x, y := pointerPosition()
-		ui.game.mouseLeftClicks = append(ui.game.mouseLeftClicks, queuedClick{x: x, y: y, at: now})
-		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = x, y
-	}
-	if rightJustPressed {
-		x, y := pointerPosition()
-		ui.game.mouseRightClicks = append(ui.game.mouseRightClicks, queuedClick{x: x, y: y, at: now})
-		ui.game.mouseRightClickX, ui.game.mouseRightClickY = x, y
-	}
-}

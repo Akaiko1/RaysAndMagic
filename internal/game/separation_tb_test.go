@@ -26,7 +26,7 @@ func tbSepGame(t *testing.T, ax, ay, bx, by float64) (*MMGame, *monsterPkg.Monst
 	g.turnBasedMode = true
 
 	mk := func(id string, x, y float64) *monsterPkg.Monster3D {
-		m := &monsterPkg.Monster3D{ID: id, Name: "Bandit", X: x, Y: y, HitPoints: 100, MaxHitPoints: 100, IsEngagingPlayer: true}
+		m := &monsterPkg.Monster3D{Speed: 1, ID: id, Name: "Bandit", X: x, Y: y, HitPoints: 100, MaxHitPoints: 100, IsEngagingPlayer: true}
 		w.Monsters = append(w.Monsters, m)
 		g.collisionSystem.RegisterEntity(collision.NewEntity(id, x, y, 48, 48, collision.CollisionTypeMonster, false))
 		return m

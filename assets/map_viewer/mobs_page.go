@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/config"
 	"ugataima/internal/game"
@@ -27,7 +28,6 @@ const (
 	mobRowH     = 22
 	mobListPadY = 8
 	mobInfoRowH = 14
-	mobInfoColW = 300
 	mobInfoCols = 40
 )
 
@@ -54,13 +54,15 @@ func appendInfoHeader(rows []infoLine, format string, args ...any) []infoLine {
 }
 
 var mobsPage struct {
-	preview *game.MobPreview
-	keys    []string // sorted monster keys
-	labels  []string // "L%2d Name" per key
-	selIdx  int
-	scroll  int
-	initErr string
-	info    []infoLine // flowing stat+drop lines for the selected mob
+	preview      *game.MobPreview
+	keys         []string // sorted monster keys
+	labels       []string // "L%2d Name" per key
+	selIdx       int
+	scroll       int
+	initErr      string
+	infoOffset   float64 // retain fractional wheel deltas between frames
+	infoCapacity int
+	info         []infoLine // flowing stat+drop lines for the selected mob
 }
 
 // Meaning tints for the stat sheet (school/rarity tints come from the game).
@@ -122,6 +124,7 @@ func (v *viewer) selectMob(idx int) {
 		return
 	}
 	mobsPage.selIdx = idx
+	mobsPage.infoOffset = 0
 	key := mobsPage.keys[idx]
 	mobsPage.preview.Select(key)
 	var runtime *monster.Monster3D
@@ -168,6 +171,8 @@ func (v *viewer) updateMobsPage() {
 		if mx < mobListW {
 			mobsPage.scroll -= int(wheelY * 30)
 			v.clampMobScroll()
+		} else {
+			scrollMobInfo(wheelY)
 		}
 	}
 
@@ -252,34 +257,34 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 	dw, dh := int(float64(sw)*scale), int(float64(sh)*scale)
 	dx := panelX + (panelW-dw)/2
 	vector.FillRect(screen, float32(dx-2), float32(panelY-2), float32(dw+4), float32(dh+4), color.RGBA{60, 60, 80, 255}, false)
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate(float64(dx), float64(panelY))
-	screen.DrawImage(scene, opts)
+	graphics.DrawImageScaled(screen, scene, float64(dx), float64(panelY), float64(sw)*scale, float64(sh)*scale, nil)
 
 	// Below: the stat sheet + drop table, flowing top-to-bottom into columns.
 	infoY := panelY + dh + contentPad
-	infoH := windowHeight - infoY - contentPad
-	rowsPerCol := infoH / mobInfoRowH
-	if rowsPerCol < 1 {
-		rowsPerCol = 1
-	}
-	info := screen.SubImage(image.Rect(panelX, infoY, windowWidth, windowHeight)).(*ebiten.Image)
-	for i, line := range mobsPage.info {
-		col := i / rowsPerCol
-		row := i % rowsPerCol
-		x := panelX + col*mobInfoColW
-		if x+mobInfoColW > windowWidth+mobInfoColW/2 {
-			game.DrawShadedText(info, "...", x, infoY, mobStatHeader)
-			break
-		}
-		y := infoY + row*mobInfoRowH
-		// Section headers render on a filled band (editor/game convention).
+	infoH := windowHeight - infoY - contentPad - 18
+	cols, rowsPerCol, colWidth := mobInfoLayout(panelW, infoH)
+	mobsPage.infoCapacity = cols * rowsPerCol
+	scrollMobInfo(0)
+	infoOffset := int(mobsPage.infoOffset)
+	info := screen.SubImage(image.Rect(panelX, infoY, windowWidth, infoY+infoH)).(*ebiten.Image)
+	end := min(len(mobsPage.info), infoOffset+mobsPage.infoCapacity)
+	for i := infoOffset; i < end; i++ {
+		line := mobsPage.info[i]
+		col, row := (i-infoOffset)/rowsPerCol, (i-infoOffset)%rowsPerCol
+		x, y := panelX+col*colWidth, infoY+row*mobInfoRowH
 		if line.header {
-			drawHeaderBandForTextRow(info, x-4, y, mobInfoColW-16, mobInfoRowH)
+			drawHeaderBandForTextRow(info, x-4, y, colWidth-16, mobInfoRowH)
 		}
 		game.DrawShadedText(info, line.text, x, y, line.col)
 	}
+	if len(mobsPage.info) > mobsPage.infoCapacity {
+		game.DrawShadedText(screen, fmt.Sprintf("Stats %d-%d / %d - wheel over this panel to scroll", infoOffset+1, end, len(mobsPage.info)), panelX, windowHeight-18, mobStatHeader)
+	}
+}
+
+func mobInfoLayout(width, height int) (columns, rows, columnWidth int) {
+	columns = max(1, width/(game.ShadedTextWidth(strings.Repeat("M", mobInfoCols))+24))
+	return columns, max(1, height/mobInfoRowH), width / columns
 }
 
 // buildMobInfoRuntime uses a staged monster when available so the editor shows
@@ -336,6 +341,9 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	if def.Type != "" {
 		add("Type: %s", def.Type)
 	}
+	if def.Disposition != "" {
+		add("Disposition: %s", def.Disposition)
+	}
 	add("Level %d   XP %d", level, xp)
 	if def.Champion != "" {
 		tierName := config.ChampionDefaultTier
@@ -367,17 +375,21 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	if dodge > 0 {
 		add("Perfect dodge: %d%%", dodge)
 	}
-	dmg := fmt.Sprintf("Damage %d-%d", damageMin, damageMax)
-	if trueDamage > 0 {
-		dmg += fmt.Sprintf(" +%d true", trueDamage)
+	if def.HasAttackStats() {
+		dmg := fmt.Sprintf("Damage %d-%d", damageMin, damageMax)
+		if trueDamage > 0 {
+			dmg += fmt.Sprintf(" +%d true", trueDamage)
+		}
+		dmg += fmt.Sprintf("   TB attacks: %d", attacks)
+		addc(mobStatDamage, "%s", dmg)
+		if cooldownMult != 0 && cooldownMult != 1 {
+			add("RT attack cooldown: x%.2f", cooldownMult)
+		}
+		add("Melee reach %.1f tiles", meleeTiles)
+	} else {
+		add("Does not attack")
 	}
-	dmg += fmt.Sprintf("   TB attacks: %d", attacks)
-	addc(mobStatDamage, "%s", dmg)
-	if cooldownMult != 0 && cooldownMult != 1 {
-		add("RT attack cooldown: x%.2f", cooldownMult)
-	}
-	add("Speed %.1f   Alert %.0f tiles", speed, alertTiles)
-	add("Melee reach %.1f tiles", meleeTiles)
+	add("Speed setting %.1f   Alert %.0f tiles", speed, alertTiles)
 	if rangedTiles > 0 && (effectDef.ProjectileSpell != "" || effectDef.ProjectileWeapon != "") {
 		add("Effective ranged range: %.1f tiles", rangedTiles)
 	}
@@ -386,8 +398,11 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		add("Enraged TB attacks: %d", enragedAttacks)
 	}
 
-	addHeader("ABILITIES")
-	for _, line := range effectDef.CombatEffectLines(contexts...) {
+	effects := effectDef.CombatEffectLines(contexts...)
+	if len(effects) > 0 {
+		addHeader("ABILITIES")
+	}
+	for _, line := range effects {
 		var col color.Color = mobStatDefault
 		if line.School != "" {
 			col = game.SchoolColor(line.School)
@@ -399,6 +414,9 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	var flags []string
 	if def.Banding {
 		flags = append(flags, "banding")
+	}
+	if def.AnimateWhenIdle {
+		flags = append(flags, "animated idle")
 	}
 	if def.Flying {
 		flags = append(flags, "flying")
@@ -422,44 +440,6 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		add("Flags: %s", strings.Join(flags, ", "))
 	}
 
-	// Boss kit.
-	if def.PassiveUntilQuest != "" {
-		add("Sealed until quest: %s", def.PassiveUntilQuest)
-	}
-	if def.EvadeRadiusTiles > 0 {
-		add("Evades within %.1f tiles (cd %.0fs)", def.EvadeRadiusTiles, def.BossCooldownSecs)
-	}
-	if def.InfernoChance > 0 {
-		add("Inferno nova: %.0f%% for %d", def.InfernoChance*100, def.InfernoDamage)
-	}
-	if def.TeleportAtHP > 0 {
-		add("Blinks below %d HP (%.0f%%)", def.TeleportAtHP, def.TeleportChance*100)
-	}
-	if def.SummonChance > 0 || len(def.SummonMonsters) > 0 {
-		n := def.SummonCount
-		if n == 0 {
-			n = 1
-		}
-		if def.SummonFirstGuaranteed {
-			add("Summons %dx {%s}: first guaranteed, then %.0f%% (max %d)", n, strings.Join(def.SummonMonsters, ", "), def.SummonChance*100, def.SummonMax)
-		} else {
-			add("Summons %dx {%s}: %.0f%% (max %d)", n, strings.Join(def.SummonMonsters, ", "), def.SummonChance*100, def.SummonMax)
-		}
-	}
-	if def.EnrageAtHP > 0 {
-		add("Enrages below %d HP: dmg x%.1f, cd x%.1f", def.EnrageAtHP, def.EnrageDamageMult, def.EnrageCooldownMult)
-	}
-	if def.DeathRalliesType != "" {
-		add("Death rallies: %s", def.DeathRalliesType)
-	}
-	if def.RallyOnAggroTiles > 0 {
-		if def.RallyMaxTargets > 0 {
-			add("Aggro rally: up to %d mobs within %.0f tiles", def.RallyMaxTargets, def.RallyOnAggroTiles)
-		} else {
-			add("Aggro rally: every mob within %.0f tiles", def.RallyOnAggroTiles)
-		}
-	}
-
 	// Resistances: one line per school in the school's tint, sorted for a
 	// stable sheet.
 	if len(resistances) > 0 {
@@ -470,15 +450,15 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		}
 		sort.Strings(resKeys)
 		for _, r := range resKeys {
-			addc(game.SchoolColor(r), "  %s %d", titleCase(r), resistances[r])
+			addc(game.SchoolColor(r), "  %s %d%%", titleCase(r), resistances[r])
 		}
 	}
 
 	if len(def.Biomes) > 0 {
 		add("Biomes: %s", strings.Join(def.Biomes, ", "))
 	}
-	if len(def.HabitatPrefs) > 0 {
-		add("Habitat: %s", strings.Join(def.HabitatPrefs, ", "))
+	if len(def.WalkableTileOverrides) > 0 {
+		add("Walkable tile overrides: %s", strings.Join(def.WalkableTileOverrides, ", "))
 	}
 	add("Letter '%s'   sprite %s   size %.1f", def.Letter, def.Sprite, def.GetSizeGameMultiplier())
 
@@ -507,4 +487,9 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		addc(game.RarityColor(rarity), "%4.1f%%  %s (%s)", e.Chance*100, name, e.Type)
 	}
 	return out
+}
+
+func scrollMobInfo(wheelY float64) {
+	limit := float64(max(0, len(mobsPage.info)-mobsPage.infoCapacity))
+	mobsPage.infoOffset = max(0, min(limit, mobsPage.infoOffset-wheelY*3))
 }

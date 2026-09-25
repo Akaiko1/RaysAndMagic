@@ -1060,6 +1060,8 @@ func TestLootBagBelongsToTheRegionItFellIn(t *testing.T) {
 
 	// Picking up an already announced bag must not announce it a second time.
 	g.screenBannerQueue = nil
+	g.camera.X, g.camera.Y = farX, farY
+	g.syncOpenWorldRegion()
 	g.pickupGroundContainerAt(0)
 	g.tickScreenBanners()
 	if b := g.currentScreenBanner(); b != nil {
@@ -1067,6 +1069,8 @@ func TestLootBagBelongsToTheRegionItFellIn(t *testing.T) {
 	}
 
 	// Positive control: the same drop at the party's feet does announce.
+	g.camera.X, g.camera.Y = partyX, partyY
+	g.syncOpenWorldRegion()
 	g.addLootBagDrop(partyX, partyY, []items.Item{{Name: "Broodscale Aegis", Rarity: "legendary"}}, 0)
 	if key := g.groundContainers[0].MapKey; key != "forest" {
 		t.Fatalf("a bag dropped at the party's feet is stamped %q", key)
@@ -1203,6 +1207,11 @@ func TestLegendaryAnnouncementTable(t *testing.T) {
 			}
 			g.screenBannerQueue = nil
 
+			// Travel to the container before opening it; spawning it remotely
+			// must not bypass physical reach at the later pickup event.
+			wm.CurrentMapKey = mapKey
+			g.world = wm.GetCurrentWorld()
+			g.collisionSystem.UpdateTileChecker(g.world)
 			g.pickupGroundContainerAt(0)
 			g.tickScreenBanners()
 			if got := g.currentScreenBanner() != nil; got != tc.wantOnPickupOpen {
@@ -1252,6 +1261,8 @@ func TestLegendaryDropAnnouncementDoesNotPersistOnTheBag(t *testing.T) {
 	}
 	// Both bags already announced when they dropped. Restoring and picking them up
 	// is silent, independent of the region stored on either container.
+	g.camera.X, g.camera.Y = farX, farY
+	g.syncOpenWorldRegion()
 	g.pickupGroundContainerAt(0)
 	g.tickScreenBanners()
 	if b := g.currentScreenBanner(); b != nil {
@@ -1261,6 +1272,8 @@ func TestLegendaryDropAnnouncementDoesNotPersistOnTheBag(t *testing.T) {
 	if got := g.groundContainers[0].Items[0].Name; got != "Broodscale Aegis" {
 		t.Fatalf("fixture: container 0 now holds %q, want the bag dropped at the feet", got)
 	}
+	g.camera.X, g.camera.Y = partyX, partyY
+	g.syncOpenWorldRegion()
 	g.pickupGroundContainerAt(0)
 	g.tickScreenBanners()
 	if b := g.currentScreenBanner(); b != nil {

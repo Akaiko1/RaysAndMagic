@@ -15,7 +15,7 @@ import (
 // Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
 // because game's balance.go can't be imported from internal/character (circular).
 const (
-	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
+	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
 	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
@@ -124,7 +124,12 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
-	// Poison status timer and tick accumulator (frames)
+	// Consumable and target-mark timers use simulation frames in both RT and TB.
+	AutoDrinkCooldown  int
+	DesignatedTargetID string
+	DesignationFrames  int
+
+	// Poison status timer and tick accumulator (frames).
 	PoisonFramesRemaining int
 	poisonTickTimer       int
 	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
@@ -301,6 +306,7 @@ const (
 	ClassArmsMaster
 	ClassMonk
 	ClassBattleMage
+	ClassSniper
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -426,6 +432,11 @@ func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) 
 		if !ok {
 			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
 		}
+		// The half-orc Knight replaces this class skill with Orcish Fury.
+		// Do not re-add the replaced skill on every save migration.
+		if replaced, _, ok := c.racialSkillReplacement(); ok && st == replaced {
+			continue
+		}
 		mastery := MasteryNovice
 		if startTier, ok := stats.SkillStartMastery[sk]; ok {
 			m, ok := masteryFromKey(startTier)
@@ -534,25 +545,32 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 		ensureFixed(SkillHalflingGuile)
 	case "dark_elf":
 		ensureFixed(SkillDarkElfBinding)
-	case "half_orc":
-		if c.Class != ClassKnight {
-			break
-		}
+	}
+	if replaced, replacement, ok := c.racialSkillReplacement(); ok {
 		mastery := MasteryNovice
-		if old := c.Skills[SkillImpenetrableDefense]; old != nil {
+		if old := c.Skills[replaced]; old != nil {
 			mastery = old.Mastery
-			delete(c.Skills, SkillImpenetrableDefense)
+			delete(c.Skills, replaced)
 			changed = true
 		}
-		if fury := c.Skills[SkillOrcishFury]; fury == nil {
-			c.Skills[SkillOrcishFury] = &Skill{Mastery: mastery}
+		if skill := c.Skills[replacement]; skill == nil {
+			c.Skills[replacement] = &Skill{Mastery: mastery}
 			changed = true
-		} else if mastery > fury.Mastery {
-			fury.Mastery = mastery
+		} else if mastery > skill.Mastery {
+			skill.Mastery = mastery
 			changed = true
 		}
 	}
 	return changed
+}
+
+// racialSkillReplacement is shared by class-kit initialization and racial
+// migration, so a replaced skill cannot be reintroduced on the next load.
+func (c *MMCharacter) racialSkillReplacement() (SkillType, SkillType, bool) {
+	if c.Race == "half_orc" && c.Class == ClassKnight {
+		return SkillImpenetrableDefense, SkillOrcishFury, true
+	}
+	return 0, 0, false
 }
 
 // derivedStatMultipliers returns the HP/SP formula multipliers, falling back to
@@ -584,16 +602,16 @@ func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 }
 
 // CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current
-// HP/SP - character creation and level-up only. Everything else (equip, stat
-// spend, buff change) goes through RecalculateMaxStatsKeepingCurrent.
+// HP/SP for character creation. Level-ups use RecalculateMaxStatsKeepingCurrent;
+// explicit stat/skill gains use RecalculateMaxStatsGrantingGain.
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.recomputeMaxFromEffective(cfg)
 	c.HitPoints = c.MaxHitPoints
 	c.SpellPoints = c.MaxSpellPoints
 }
 
-// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for REVERSIBLE
-// stat changes (equip/unequip, buff apply/expire): the maxima move, the
+// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for level-ups and
+// reversible stat changes (equip/unequip, buff apply/expire): the maxima move, the
 // CURRENT values never grow - only get capped. Granting current on a gain
 // here would be a pump: equip +End (+HP granted) -> unequip (cap can't take it
 // back) -> repeat until full. Irreversible gains (spending a stat point,
@@ -818,6 +836,9 @@ func (c *MMCharacter) ApplyCardRegenTick() {
 
 // ApplyPoison applies or refreshes a poison effect for the given duration in frames.
 func (c *MMCharacter) ApplyPoison(frames int) {
+	if c.HasSkill(SkillFieldMedicine) && frames > 0 {
+		frames = max(1, frames*(100-FieldMedicinePoisonReductionPct(c.SkillTier(SkillFieldMedicine)))/100)
+	}
 	if frames <= 0 {
 		return
 	}
@@ -834,6 +855,18 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 func (c *MMCharacter) CurePoison() {
 	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	c.RemoveCondition(ConditionPoisoned)
+}
+
+// CureRestConditions clears living heroes' afflictions and their simulation
+// timers together. Death and eradication require a separate revival action.
+func (c *MMCharacter) CureRestConditions() {
+	if c.HasCondition(ConditionDead) || c.HasCondition(ConditionEradicated) {
+		return
+	}
+	c.CurePoison()
+	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
+	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.Conditions = nil
 }
 
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
@@ -914,6 +947,8 @@ func (c CharacterClass) String() string {
 		return "Monk"
 	case ClassBattleMage:
 		return "Battle Mage"
+	case ClassSniper:
+		return "Sniper"
 	default:
 		return "Unknown"
 	}
@@ -948,6 +983,8 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassMonk, true
 	case "battle_mage":
 		return ClassBattleMage, true
+	case "sniper":
+		return ClassSniper, true
 	default:
 		return 0, false
 	}
@@ -1164,8 +1201,10 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*items.WeaponDefinitionFro
 	return items.GlobalWeaponAccessor(weaponKey)
 }
 
-// EquipItem attempts to equip an item from inventory, returns (previousItem, hadPreviousItem, success)
-func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
+// EquipDestination resolves the default destination used by inventory equip and
+// comparison. Eligibility remains in ItemFitsSlot; an untrained hero can still
+// inspect the hypothetical result before learning the required skill.
+func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) {
 	var slot items.EquipSlot
 	switch item.Type {
 	case items.ItemWeapon:
@@ -1184,7 +1223,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	case items.ItemAccessory:
 		slot = item.PreferredSlot(items.SlotRing1)
 	default:
-		return items.Item{}, false, false
+		return 0, false
 	}
 
 	// Rings share two interchangeable slots, but equip_slot resolves every ring
@@ -1198,7 +1237,15 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		}
 	}
 
-	// EquipItemToSlot enforces the class/armor gates and places the item.
+	return slot, true
+}
+
+// EquipItem attempts to equip an item from inventory.
+func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
+	slot, ok := c.EquipDestination(item)
+	if !ok {
+		return items.Item{}, false, false
+	}
 	return c.EquipItemToSlot(item, slot)
 }
 
@@ -1366,16 +1413,23 @@ func (c *MMCharacter) GetEffectiveLuck() int {
 	return c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqBonus
 }
 
+// ItemAttributeScalingBonuses uses base attributes, excluding gear and buffs.
+func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, personality int) {
+	if div := item.Attributes["intellect_scaling_divisor"]; div > 0 {
+		intellect = c.Intellect / div
+	}
+	if div := item.Attributes["personality_scaling_divisor"]; div > 0 {
+		personality = c.Personality / div
+	}
+	return
+}
+
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
 func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus int) {
 	for _, it := range c.Equipment {
-		// Scaling divisor bonuses (stat / divisor)
-		if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
-			intellectBonus += c.Intellect / div
-		}
-		if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
-			personalityBonus += c.Personality / div
-		}
+		intBonus, perBonus := c.ItemAttributeScalingBonuses(it)
+		intellectBonus += intBonus
+		personalityBonus += perBonus
 		// endurance_scaling_divisor is deliberately NOT a stat bonus: it is the
 		// armor piece's AC formula input (AC = base + effective End / divisor,
 		// see CalculateArmorClassContribution). Feeding it back into Endurance
@@ -1450,23 +1504,54 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 	}
 }
 
-func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {
-	if len(set.RequiredPieces) == 0 {
-		return count >= set.PiecesRequired
+// HasCompletedEquipmentSet exposes the same completion rule used by combat bonuses.
+func (c *MMCharacter) HasCompletedEquipmentSet(key string) bool {
+	set := config.GetItemSet(key)
+	if set == nil {
+		return false
 	}
-	for _, requiredKey := range set.RequiredPieces {
-		found := false
+	count := 0
+	for _, item := range c.Equipment {
+		if item.Set == key {
+			count++
+		}
+	}
+	return c.hasCompletedSet(key, set, count)
+}
+
+func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {
+	return c.equipmentSetPieceCount(setKey, set, count) >= set.RequiredPieceCount()
+}
+
+// EquipmentSetProgress counts exact required pieces only once, matching combat.
+func (c *MMCharacter) EquipmentSetProgress(key string) (int, int) {
+	set := config.GetItemSet(key)
+	if set == nil {
+		return 0, 0
+	}
+	count := 0
+	for _, item := range c.Equipment {
+		if item.Set == key {
+			count++
+		}
+	}
+	return c.equipmentSetPieceCount(key, set, count), set.RequiredPieceCount()
+}
+
+func (c *MMCharacter) equipmentSetPieceCount(key string, set *config.ItemSetConfig, count int) int {
+	if len(set.RequiredPieces) == 0 {
+		return count
+	}
+	count = 0
+	for _, required := range set.RequiredPieces {
 		for _, equipped := range c.Equipment {
-			if equipped.Set == setKey && setPieceKey(equipped) == requiredKey {
-				found = true
+			if equipped.Set == key && setPieceKey(equipped) == required {
+				count++
 				break
 			}
 		}
-		if !found {
-			return false
-		}
 	}
-	return true
+	return count
 }
 
 // setPieceKey resolves a saved equipped item to its data key. Exact-piece

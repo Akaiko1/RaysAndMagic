@@ -55,6 +55,8 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 			g.levelUpChoiceOpen = true
 		}, pauses: true},
+		{name: "camp", want: modalLayerCamp, set: func(g *MMGame, _ *UISystem) { g.campConfirmOpen = true }, pauses: true},
+		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest() }, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))
@@ -74,6 +76,9 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.gameLoop = &GameLoop{game: g, ui: ui}
 			if got := g.gameplayPausedByOverlay(); got != tt.pauses {
 				t.Fatalf("%s: gameplayPausedByOverlay = %v, want %v", tt.name, got, tt.pauses)
+			}
+			if got := g.worldClickAllowed(); got != (tt.want == modalLayerNone) {
+				t.Fatalf("world click ownership disagrees with layer %s", tt.name)
 			}
 		})
 		if seen[tt.want] {
@@ -106,6 +111,7 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 	g.rosterScreenOpen = true
 	g.stashScreenOpen = true
 	ui.stackSplitPicker.open = true
+	g.campConfirmOpen = true
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 	g.levelUpChoiceOpen = true
 
@@ -113,6 +119,10 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 		t.Fatalf("top modal = %d, want last-drawn level choice %d", got, modalLayerLevelChoice)
 	}
 	g.levelUpChoiceOpen = false
+	if got := ui.topModalLayer(); got != modalLayerCamp {
+		t.Fatalf("top modal after level choice = %d, want camp %d", got, modalLayerCamp)
+	}
+	g.campConfirmOpen = false
 	if got := ui.topModalLayer(); got != modalLayerStackSplit {
 		t.Fatalf("top modal after level choice = %d, want stack split %d", got, modalLayerStackSplit)
 	}
@@ -179,6 +189,7 @@ func TestMainMenuContentChangeActivatesRedrawBarrier(t *testing.T) {
 func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	g.sprites = graphics.NewSpriteManager()
 	ui := NewUISystem(g)
 	g.gameLoop = &GameLoop{game: g, ui: ui}
 	g.gameVictory = true
@@ -189,13 +200,12 @@ func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	g.levelUpChoiceOpen = true
 	req := g.currentLevelUpChoice()
 	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	defer screen.Deallocate()
+	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{{x: popupX + popupW/2, y: startY + rowH/2}}
 
-	ih := NewInputHandler(g)
-	ih.keys.BeginFrame()
-	if !ih.handleTopModalInput() {
-		t.Fatal("top modal did not claim input")
-	}
+	ui.dispatchDisplayedInput()
 	if len(g.levelUpChoiceQueue) != 0 {
 		t.Fatal("visible level choice did not receive input above victory")
 	}
@@ -274,23 +284,6 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 				t.Fatal("modal content mutation did not activate the redraw barrier")
 			}
 		})
-	}
-}
-
-// MenuSettings: Down (select channel) then Right (adjust) across two catch-up
-// Updates must not change a channel whose highlight has not been drawn yet.
-func TestAudioSettingsSelectionActivatesRedrawBarrier(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	g.appScreen = AppScreenInGame
-	g.mainMenuOpen = true
-	g.mainMenuMode = MenuSettings
-	ui := NewUISystem(g)
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-
-	g.audioSettingsSelection++
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("audio channel selection change did not activate the redraw barrier")
 	}
 }
 
@@ -437,6 +430,7 @@ func TestPickerEscapeIsConsumedInUpdate(t *testing.T) {
 		{"revival", func(g *MMGame) { g.revivalPickerOpen = true }, func(g *MMGame) bool { return !g.revivalPickerOpen }},
 		{"heal", func(g *MMGame) { g.healPickerOpen = true }, func(g *MMGame) bool { return !g.healPickerOpen }},
 		{"town portal", func(g *MMGame) { g.townPortalPickerOpen = true }, func(g *MMGame) bool { return !g.townPortalPickerOpen }},
+		{"camp", func(g *MMGame) { g.campConfirmOpen = true }, func(g *MMGame) bool { return !g.campConfirmOpen }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -24,9 +24,6 @@ monsters:
     box_h: 48
     size_class: medium
     resistances: {}
-    habitat_preferences:
-      - "empty"
-      - "clearing"
 
   orc:
     name: "Orc"
@@ -50,8 +47,6 @@ monsters:
     box_h: 48
     size_class: person
     resistances: {}
-    habitat_preferences:
-      - "empty"
   wolf:
     name: "Wolf"
     banding: true
@@ -72,9 +67,6 @@ monsters:
     box_h: 48
     size_class: medium
     resistances: {}
-    habitat_preferences:
-      - "clearing"
-      - "empty"
 
   bear:
     name: "Bear"
@@ -95,8 +87,6 @@ monsters:
     box_h: 48
     size_class: person
     resistances: {}
-    habitat_preferences:
-      - "empty"
 
   spider:
     name: "Spider"
@@ -117,8 +107,6 @@ monsters:
     box_h: 48
     size_class: medium
     resistances: {}
-    habitat_preferences:
-      - "empty"
 
   skeleton:
     type: "undead"
@@ -127,7 +115,7 @@ monsters:
     level: 3
     max_hit_points: 86
     armor_class: 20
-    experience: 45
+    experience: 64
     damage_min: 7
     damage_max: 12
     alert_radius: 4  # Minimum aggro range
@@ -144,8 +132,6 @@ monsters:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
       light: -50
-    habitat_preferences:
-      - "empty"
 
   mummy:
     type: "undead"
@@ -153,7 +139,7 @@ monsters:
     level: 5
     max_hit_points: 180
     armor_class: 30
-    experience: 180
+    experience: 220
     damage_min: 17
     damage_max: 25
     poison_chance: 0.20
@@ -175,15 +161,13 @@ monsters:
       fire: -25
       dark: 50
       light: -50     # undead: vulnerable to light
-    habitat_preferences:
-      - "pyramid_floor"
 
   minotaur:
     name: "Minotaur"
     level: 8
     max_hit_points: 360
     armor_class: 33
-    experience: 620
+    experience: 532
     damage_min: 24
     damage_max: 38
     attacks_per_round: 2
@@ -201,8 +185,6 @@ monsters:
     biomes: ["pyramid"]
     resistances:
       physical: 25
-    habitat_preferences:
-      - "pyramid_floor"
 
   isis:
     name: "Isis"
@@ -210,7 +192,7 @@ monsters:
     max_hit_points: 460
     armor_class: 40
     perfect_dodge: 10
-    experience: 950
+    experience: 920
     damage_min: 20
     damage_max: 32
     projectile_spell: "lightning"
@@ -230,8 +212,6 @@ monsters:
       air: 50
       mind: 40
       physical: 15
-    habitat_preferences:
-      - "pyramid_floor"
 
   troll:
     name: "Troll"
@@ -256,8 +236,6 @@ monsters:
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
-    habitat_preferences:
-      - "empty"
 
   dragon:
     type: "dragon"
@@ -288,8 +266,7 @@ monsters:
       fire: 90
       physical: 10
       air: 75
-    habitat_preferences:
-      - "empty"
+    walkable_tile_overrides:
       - "desert_dune"
       - "large_dune"
 
@@ -329,8 +306,6 @@ monsters:
       dark: 90
       physical: 10
       fire: 40
-    habitat_preferences:
-      - "empty"
 
   dragon_green:
     type: "dragon"
@@ -364,8 +339,6 @@ monsters:
       earth: 90
       physical: 25
       fire: -25                # nature dragon: vulnerable to fire
-    habitat_preferences:
-      - "empty"
 
   dragon_gold:
     type: "dragon"
@@ -401,8 +374,6 @@ monsters:
       air: 90
       physical: 10
       water: -25               # vulnerable to water/ice
-    habitat_preferences:
-      - "empty"
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
@@ -560,8 +531,6 @@ monsters:
     size_class: person
     resistances:
       earth: 25
-    habitat_preferences:
-      - "empty"
   dire_wolf:
     name: "Dire Wolf"
     level: 5
@@ -581,16 +550,13 @@ monsters:
     box_h: 48
     size_class: medium
     resistances: {}
-    habitat_preferences:
-      - "clearing"
-      - "empty"
 
   alien:
     name: "Alien"
     level: 5
     max_hit_points: 500
     armor_class: 38
-    experience: 550
+    experience: 660
     damage_min: 25
     damage_max: 35
     alert_radius: 6
@@ -609,8 +575,6 @@ monsters:
       fire: 25
       dark: 30
       physical: -50
-    habitat_preferences:
-      - "empty"
 
   forest_spider:
     name: "Forest Spider"
@@ -631,10 +595,8 @@ monsters:
     box_h: 48
     size_class: medium
     resistances: {}
-    habitat_preferences:
-      - "fern_patch"
+    walkable_tile_overrides:
       - "thicket"
-      - "empty"
   treant:
     name: "Treant"
     level: 8
@@ -658,8 +620,6 @@ monsters:
       water: 50
       fire: -25     # Vulnerable to fire
       physical: 30
-    habitat_preferences:
-      - "empty"
   pixie:
     name: "Pixie"
     level: 2
@@ -692,10 +652,33 @@ monsters:
     resistances:
       spirit: 50
       mind: 75
-    habitat_preferences:
-      - "mushroom_ring"
-      - "firefly_swarm"
-      - "empty"
+  desert_dervish:
+    name: "Desert Dervish"
+    level: 24
+    max_hit_points: 900
+    armor_class: 32
+    perfect_dodge: 20
+    experience: 1200
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 4
+    attack_radius: 2
+    projectile_weapon: "throwing_knife"
+    ranged_attack_range: 2
+    speed: 1.8
+    gold_min: 80
+    gold_max: 160
+    sprite: "desert_dervish"
+    letter: "q"
+    biomes: ["desert"]
+    box_w: 48
+    box_h: 48
+    size_class: person
+    resistances:
+      fire: 40
+    walkable_tile_overrides:
+      - "desert_dune"
+
   bandit:
     name: "Bandit"
     level: 3
@@ -717,9 +700,6 @@ monsters:
     box_h: 48
     size_class: person
     resistances: {}
-    habitat_preferences:
-      - "empty"
-      - "clearing"
 
   # Water-specific monsters
   medusa:
@@ -727,7 +707,7 @@ monsters:
     level: 6
     max_hit_points: 360
     armor_class: 38
-    experience: 260
+    experience: 300
     damage_min: 15
     damage_max: 23
     alert_radius: 5
@@ -749,15 +729,13 @@ monsters:
       water: 60
       air: 35
       physical: 10
-    habitat_preferences:
-      - "empty"
 
   octopus:
     name: "Octopus"
     level: 5
     max_hit_points: 330
     armor_class: 20
-    experience: 240
+    experience: 280
     damage_min: 17
     damage_max: 23
     attacks_per_round: 4
@@ -777,8 +755,6 @@ monsters:
       water: 60
       physical: 10
       air: -25
-    habitat_preferences:
-      - "empty"
 
   # ---------------------------------------------------------------------------
   # Highlands monsters (target party levels 6-12), ascending power. Biome-scoped
@@ -812,9 +788,6 @@ monsters:
     pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
     pounce_cooldown_seconds: 4
     resistances: {}
-    habitat_preferences:
-      - "highlands_floor"
-      - "highlands_heather"
   # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
@@ -840,9 +813,6 @@ monsters:
     size_class: person
     biomes: ["highlands"]
     resistances: {}
-    habitat_preferences:
-      - "highlands_floor"
-      - "highlands_heather"
   # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
@@ -867,15 +837,13 @@ monsters:
     biomes: ["highlands"]
     resistances:
       physical: 30
-    habitat_preferences:
-      - "highlands_floor"
   # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
     level: 10
     max_hit_points: 480
     armor_class: 34
-    experience: 720
+    experience: 480
     damage_min: 28
     damage_max: 44
     alert_radius: 4
@@ -892,15 +860,13 @@ monsters:
     resistances:
       physical: 40
       fire: -25
-    habitat_preferences:
-      - "highlands_floor"
   # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
     level: 11
     max_hit_points: 360
     armor_class: 24
-    experience: 880
+    experience: 700
     damage_min: 16
     damage_max: 26
     projectile_spell: "fireball"
@@ -920,8 +886,6 @@ monsters:
     resistances:
       fire: 50
       dark: 30
-    habitat_preferences:
-      - "highlands_floor"
   # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
@@ -953,9 +917,6 @@ monsters:
       physical: 40
       fire: -25
       light: -50     # undead: vulnerable to light
-    habitat_preferences:
-      - "highlands_floor"
-      - "lich_nexus_floor"
   revenant:
     type: "undead"
     name: "Revenant"
@@ -963,7 +924,7 @@ monsters:
     level: 10
     max_hit_points: 420
     armor_class: 32
-    experience: 760
+    experience: 840
     damage_min: 24
     damage_max: 38
     alert_radius: 6
@@ -984,8 +945,6 @@ monsters:
       physical: 35
       fire: -20
       light: -35
-    habitat_preferences:
-      - "lich_nexus_floor"
 
   # Summoned ONLY by the Summon Ice Elemental spell (no map letter, never spawns
   # from a map). Its HP and damage are overwritten at summon time from the
@@ -1018,8 +977,6 @@ monsters:
       mind: 100      # elemental: no mind to break
       body: 100
       fire: -50      # ice melts
-    habitat_preferences:
-      - "empty"
 
   lich_king:
     type: "undead"
@@ -1050,8 +1007,6 @@ monsters:
       physical: 45
       fire: -20
       light: -50
-    habitat_preferences:
-      - "lich_nexus_floor"
 
   # --- Culverts (Seabright sewers). Mobs tuned for party L5-8; the Golden Thief
   # Bug is the boss (see ignores_armor / inferno_chance / teleport_* / passive_until_quest). ---
@@ -1175,7 +1130,7 @@ monsters:
     level: 12
     max_hit_points: 420
     armor_class: 18
-    experience: 900
+    experience: 760
     damage_min: 26
     damage_max: 40
     piercing_shot_chance: 0.50
@@ -1206,7 +1161,7 @@ monsters:
     max_hit_points: 640
     armor_class: 20
     perfect_dodge: 5
-    experience: 1400
+    experience: 1200
     damage_min: 30
     damage_max: 46
     piercing_shot_chance: 0.25
@@ -1238,7 +1193,7 @@ monsters:
     max_hit_points: 500
     armor_class: 20
     perfect_dodge: 15
-    experience: 1000
+    experience: 880
     damage_min: 26
     damage_max: 40
     attacks_per_round: 2
@@ -1270,7 +1225,7 @@ monsters:
     max_hit_points: 740
     armor_class: 32
     perfect_dodge: 20
-    experience: 1500
+    experience: 1280
     damage_min: 32
     damage_max: 48
     attacks_per_round: 2          # elite inherits the base ningyo's double strike
@@ -1370,7 +1325,7 @@ monsters:
     max_hit_points: 660
     armor_class: 30
     perfect_dodge: 30
-    experience: 1000
+    experience: 960
     damage_min: 30
     damage_max: 48
     attacks_per_round: 2          # a hopping flurry of tongue and rib strikes
@@ -1398,7 +1353,7 @@ monsters:
     max_hit_points: 780
     armor_class: 26
     perfect_dodge: 20
-    experience: 1200
+    experience: 1120
     damage_min: 36
     damage_max: 52
     attacks_per_round: 2
@@ -1427,7 +1382,7 @@ monsters:
     max_hit_points: 760
     armor_class: 24
     perfect_dodge: 10
-    experience: 1600
+    experience: 1440
     damage_min: 28
     damage_max: 44
     projectile_spell: "firebolt"  # foxfire
@@ -1502,7 +1457,7 @@ monsters:
     max_hit_points: 640
     armor_class: 20
     perfect_dodge: 15
-    experience: 700
+    experience: 880
     damage_min: 32
     damage_max: 48
     attacks_per_round: 2          # fast predator: rapid claw swipes (tier L18-24 cadence)
@@ -1528,7 +1483,7 @@ monsters:
     level: 18
     max_hit_points: 760
     armor_class: 15
-    experience: 800
+    experience: 1000
     damage_min: 40
     damage_max: 60
     attack_radius: 1
@@ -1553,7 +1508,7 @@ monsters:
     max_hit_points: 800
     armor_class: 20
     perfect_dodge: 10
-    experience: 1100
+    experience: 1400
     damage_min: 36
     damage_max: 54
     true_damage: 10  # typed physical true damage: bypasses armor/flat/dodge, not resistance
@@ -1584,7 +1539,7 @@ monsters:
     max_hit_points: 720
     armor_class: 38
     perfect_dodge: 25
-    experience: 1300
+    experience: 1640
     damage_min: 30
     damage_max: 46
     attacks_per_round: 2          # whirling blades
@@ -1613,7 +1568,7 @@ monsters:
     max_hit_points: 780
     armor_class: 26
     perfect_dodge: 10
-    experience: 1700
+    experience: 2120
     damage_min: 30
     damage_max: 46
     dispel_chance: 0.10           # 10% to strip a random active party buff on hit
@@ -1727,7 +1682,7 @@ monsters:
     level: 20
     max_hit_points: 500
     armor_class: 45
-    experience: 300
+    experience: 360
     damage_min: 0
     damage_max: 0
     attack_radius: 0
@@ -1859,7 +1814,7 @@ monsters:
     level: 22
     max_hit_points: 950
     armor_class: 26
-    experience: 1000
+    experience: 680
     damage_min: 42
     damage_max: 58
     alert_radius: 4
@@ -1875,8 +1830,6 @@ monsters:
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     # A wad of grey lint: blades pass through, fire eats it alive.
     resistances: { physical: 25, fire: -30 }
-    habitat_preferences:
-      - "empty"
 
   # Floor 2 caster: a maintenance manual that learned to hold a grudge.
   possessed_tome:
@@ -1885,7 +1838,7 @@ monsters:
     level: 25
     max_hit_points: 880
     armor_class: 30
-    experience: 1300
+    experience: 760
     damage_min: 48
     damage_max: 66
     alert_radius: 5
@@ -1902,8 +1855,6 @@ monsters:
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 50, fire: -25 }
-    habitat_preferences:
-      - "empty"
 
   # Floor 3 sentinel: fast, loud, and it WAKES THE WHOLE FLOOR when it rings.
   alarm_clock:
@@ -1912,7 +1863,7 @@ monsters:
     level: 28
     max_hit_points: 1150
     armor_class: 38
-    experience: 1700
+    experience: 1000
     damage_min: 50
     damage_max: 68
     alert_radius: 7
@@ -1931,8 +1882,6 @@ monsters:
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 100, spirit: 30 }
-    habitat_preferences:
-      - "empty"
 
   # Floor 3 heavy: the tower's old longcase clocks, pendulums swung like mauls.
   grandfather_clock:
@@ -1941,7 +1890,7 @@ monsters:
     level: 30
     max_hit_points: 1900
     armor_class: 52
-    experience: 2400
+    experience: 960
     damage_min: 62
     damage_max: 84
     alert_radius: 4
@@ -1960,8 +1909,6 @@ monsters:
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 100, physical: 15, fire: -20 }
-    habitat_preferences:
-      - "empty"
 
   # Boss-only adds. They deliberately have their own definitions instead of
   # scaling the ordinary map mobs: each encounter can be balanced independently,
@@ -1987,8 +1934,6 @@ monsters:
     box_h: 48
     size_class: person
     resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
-    habitat_preferences:
-      - "empty"
 
   enforcer_alien:
     type: "formless"
@@ -2013,8 +1958,6 @@ monsters:
     box_h: 48
     size_class: person
     resistances: { fire: 35, dark: 45, physical: -35 }
-    habitat_preferences:
-      - "empty"
 
   # ============ ENDGAME BOSS TRIAD (L32-35) ============
   # Three capstones above the Orc Warlord tier. All formless (no Bind Undead
@@ -2037,6 +1980,7 @@ monsters:
     alert_radius: 14
     attack_radius: 2
     speed: 0
+    animate_when_idle: true
     gold_min: 3000
     gold_max: 6000
     boss: true
@@ -2065,8 +2009,6 @@ monsters:
     box_h: 48
     size_class: huge
     resistances: { fire: 100, dark: 50, physical: 30, mind: 60, water: -25 }
-    habitat_preferences:
-      - "empty"
 
   # Dormant on the sanctum dais (grey seal) until every Elder Dragon falls -
   # the reaper comes to collect when the four god-machines are dead.
@@ -2106,8 +2048,6 @@ monsters:
     box_h: 48
     size_class: huge
     resistances: { dark: 100, mind: 100, body: 75, physical: 35, light: -80 }
-    habitat_preferences:
-      - "empty"
 
   # The Pursuers' field commander. Dormant in the depths until the party purges
   # their scouts (water_purge); then he hunts from anywhere on the map. His
@@ -2151,5 +2091,169 @@ monsters:
     box_h: 48
     size_class: huge
     resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
-    habitat_preferences:
-      - "empty"
+
+  ring_tailed_lemur:
+    name: "Ring-tailed Lemur"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 18
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.1
+    sprite: "ring_tailed_lemur"
+    box_w: 18
+    box_h: 18
+    size_class: small
+    biomes: [jungle]
+    arboreal:
+      tree_tiles: [jungle_vine_tree, jungle_palm]
+      height_tiles: 1.15
+      jump_range_tiles: 3
+      climb_seconds: 1.4
+      jump_seconds: 0.8
+      rest_seconds: 4
+
+  red_ruffed_lemur:
+    name: "Red Ruffed Lemur"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 24
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.25
+    sprite: "red_ruffed_lemur"
+    box_w: 20
+    box_h: 20
+    size_class: small
+    biomes: [jungle]
+    arboreal:
+      tree_tiles: [jungle_vine_tree, jungle_palm]
+      height_tiles: 1.3
+      jump_range_tiles: 3.5
+      climb_seconds: 1.5
+      jump_seconds: 0.9
+      rest_seconds: 5
+
+  desert_rabbit:
+    name: "Desert Rabbit"
+    type: "beast"
+    disposition: wildlife
+    level: 1
+    max_hit_points: 18
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.8
+    sprite: "desert_rabbit"
+    box_w: 18
+    box_h: 18
+    size_class: small
+    biomes: [desert]
+
+  fennec:
+    name: "Fennec"
+    type: "beast"
+    disposition: wildlife
+    prey: [desert_rabbit]
+    prey_radius: 7
+    level: 2
+    max_hit_points: 35
+    armor_class: 2
+    experience: 0
+    damage_min: 6
+    damage_max: 9
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.07
+    sprite: "fennec"
+    box_w: 22
+    box_h: 22
+    size_class: small
+    biomes: [desert]
+
+  desert_caravan:
+    name: "Dunehold Caravan"
+    disposition: caravan
+    level: 20
+    max_hit_points: 2400
+    armor_class: 35
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 1
+    speed: 0.7
+    sprite: "desert_caravan"
+    box_w: 36
+    box_h: 36
+    size_class: large
+
+  common_carp:
+    name: "Common Carp"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: common_carp
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [forest]
+
+  koi:
+    name: "Koi"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: koi
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [sakura_garden]
+
+  rainbow_salmon:
+    name: "Rainbow Salmon"
+    type: beast
+    disposition: fish
+    level: 1
+    max_hit_points: 4
+    armor_class: 0
+    experience: 0
+    damage_min: 0
+    damage_max: 0
+    alert_radius: 0
+    attack_radius: 0
+    speed: 0
+    sprite: rainbow_salmon
+    box_w: 24
+    box_h: 24
+    size_class: small
+    biomes: [highlands]

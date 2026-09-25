@@ -32,7 +32,6 @@ func (ih *InputHandler) handleCombatLogInput() {
 		return
 	}
 
-	ih.handleCombatLogMouseInput()
 	if !g.combatLogOpen {
 		return
 	}

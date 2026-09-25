@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/items"
 
@@ -177,17 +178,17 @@ func TrapKeysOrdered() []string {
 func (t *TrapDefinitionConfig) EffectLines() []string {
 	var out []string
 	if t.DamageBase > 0 {
-		out = append(out, fmt.Sprintf("Base damage %d (%s), scales with Intellect & Accuracy", t.DamageBase, t.Element))
+		out = append(out, uitext.Text("trap.base_damage_scales_with_intellect_accuracy", t.DamageBase, t.Element))
 	}
 	if t.AoeRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Hits everything within %.1f tiles", t.AoeRadiusTiles))
+		out = append(out, uitext.Text("trap.hits_everything_within_tiles", t.AoeRadiusTiles))
 	}
 	if t.StunTurns > 0 {
-		out = append(out, fmt.Sprintf("Stuns: %d turns / %d sec (+Trapper mastery)", t.StunTurns, t.StunSeconds))
+		out = append(out, uitext.Text("trap.stuns_turns_sec_trapper_mastery", t.StunTurns, t.StunSeconds))
 	}
 	if t.RootTurns > 0 {
-		out = append(out, fmt.Sprintf("Pins in place (no stun): %d turns / %d sec (+Trapper mastery)", t.RootTurns, t.RootSeconds))
+		out = append(out, uitext.Text("trap.pins_in_place_no_stun_turns_sec", t.RootTurns, t.RootSeconds))
 	}
-	out = append(out, "Triggers when a monster steps on it")
+	out = append(out, uitext.Text("trap.triggers_when_a_monster_steps_on_it"))
 	return out
 }

@@ -94,6 +94,7 @@ func TestLevelUpSystem(t *testing.T) {
 		initialStatPoints := testChar.FreeStatPoints
 		initialMaxHP := testChar.MaxHitPoints
 		initialMaxSP := testChar.MaxSpellPoints
+		initialHP, initialSP := testChar.HitPoints, testChar.SpellPoints
 
 		// Give enough experience for level 2 (level 1 requires 100 exp)
 		testChar.Experience = 100
@@ -126,13 +127,13 @@ func TestLevelUpSystem(t *testing.T) {
 			t.Errorf("Expected MaxSpellPoints to increase from %d, got %d", initialMaxSP, testChar.MaxSpellPoints)
 		}
 
-		// Verify full health/mana restoration
-		if testChar.HitPoints != testChar.MaxHitPoints {
-			t.Errorf("Expected full HP restoration: %d/%d", testChar.HitPoints, testChar.MaxHitPoints)
+		// Level-up increases capacity without replenishing current resources.
+		if testChar.HitPoints != initialHP {
+			t.Errorf("Current HP changed: got %d, want %d", testChar.HitPoints, initialHP)
 		}
 
-		if testChar.SpellPoints != testChar.MaxSpellPoints {
-			t.Errorf("Expected full SP restoration: %d/%d", testChar.SpellPoints, testChar.MaxSpellPoints)
+		if testChar.SpellPoints != initialSP {
+			t.Errorf("Current SP changed: got %d, want %d", testChar.SpellPoints, initialSP)
 		}
 	})
 

@@ -1,78 +1,89 @@
 package game
 
 import (
+	"image"
+	"image/color"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/graphics"
 )
 
-// Every generated 512px frame has 32px caps around a 128px periodic core in
-// each edge and both centre axes.
-func TestPatternFrame_MeasuresTheRealArt(t *testing.T) {
-	t.Chdir("../..")
-	want := stripPattern{capA: 32, capB: 32, period: 128}
-	for _, name := range []string{
-		"menu_panel_frame",
-		"menu_panel_slot",
-		"menu_panel_tall",
-		"menu_panel_wide",
-		"menu_panel_slatted",
-		"menu_panel_parchment",
-		"character_scroll_panel",
-	} {
-		pf := analyzePatternFrame(name, generatedPatternFrameSlice)
-		if pf == nil {
-			t.Errorf("%s did not analyze as a pattern frame", name)
-			continue
-		}
-		for stripName, got := range map[string]stripPattern{
-			"top": pf.top, "bottom": pf.bottom, "left": pf.left, "right": pf.right,
-			"centreH": pf.centreH, "centreV": pf.centreV,
-		} {
-			if got != want {
-				t.Errorf("%s %s = %+v, want %+v", name, stripName, got, want)
+// Pattern detection remains covered independently of retired artwork.
+func TestPatternFrame_MeasuresPeriodicStrips(t *testing.T) {
+	for _, horizontal := range []bool{true, false} {
+		img := image.NewNRGBA(image.Rect(0, 0, 320, 320))
+		for y := 0; y < 320; y++ {
+			for x := 0; x < 320; x++ {
+				pos := y
+				if horizontal {
+					pos = x
+				}
+				c := color.NRGBA{R: uint8((pos - 32 + 128) % 128), A: 255}
+				if pos < 32 || pos >= 288 {
+					c.G = uint8(pos%32 + 1)
+				}
+				img.SetNRGBA(x, y, c)
 			}
+		}
+		got, ok := analyzeStrip(img, img.Bounds(), horizontal)
+		want := stripPattern{capA: 32, capB: 32, period: 128}
+		if !ok || got != want {
+			t.Fatalf("horizontal=%v: %+v, %v; want %+v", horizontal, got, ok, want)
 		}
 	}
 }
 
-// Authored classification of every UI frame sprite: painted art must keep
-// falling back to stretch. If new or re-authored art becomes pixel-periodic,
-// move it to the tiling list here - it starts tiling automatically in game.
+// All legacy panel roles must draw current metal masters without their retired
+// PNGs. Cells: seven role aliases plus retained painted art. Persistence: N/A.
 func TestPatternFrame_UIFrameInventory(t *testing.T) {
 	t.Chdir("../..")
-	tiling := map[string]int{
-		"menu_panel_frame":       generatedPatternFrameSlice,
-		"menu_panel_slot":        generatedPatternFrameSlice,
-		"menu_panel_tall":        generatedPatternFrameSlice,
-		"menu_panel_wide":        generatedPatternFrameSlice,
-		"menu_panel_slatted":     generatedPatternFrameSlice,
-		"menu_panel_parchment":   generatedPatternFrameSlice,
-		"character_scroll_panel": generatedPatternFrameSlice,
+	ui := &UISystem{game: &MMGame{sprites: graphics.NewSpriteManager()}}
+	ui.game.validateInterfaceArt()
+	screen := ebiten.NewImage(520, 360)
+	defer screen.Deallocate()
+	for _, tc := range []struct {
+		name  string
+		style interfaceFrame
+	}{
+		{"menu_panel_frame", frameGold},
+		{"menu_panel_slot", frameGold},
+		{"menu_panel_tall", frameSilver},
+		{"menu_panel_wide", frameGold},
+		{"menu_panel_slatted", frameSilver},
+		{"menu_panel_parchment", frameBronze},
+		{"character_scroll_panel", frameBronze},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui.patternPlans = patternPlanCache{}
+			ui.drawPatternFrame(screen, tc.name, 0, 0, 520, 360, generatedPatternFrameSlice)
+			if len(ui.patternPlans.entries) != 1 || ui.patternPlans.entries[0].name != interfaceFrames[tc.style].name {
+				t.Fatal("panel role did not resolve to its current metal master")
+			}
+		})
 	}
-	painted := map[string]int{
-		"menu_btn":             menuFrameSlice,
-		"inventory_grid_panel": 16,
-		"party_member_panel":   16,
-	}
-	for name, slice := range tiling {
-		if analyzePatternFrame(name, slice) == nil {
-			t.Errorf("%s no longer analyzes as a pattern frame - its art lost the exact period", name)
+	for _, name := range []string{"inventory_grid_panel", "party_member_panel"} {
+		if !ui.game.sprites.HasSprite(name) {
+			t.Fatalf("retained painted frame %s missing", name)
+		}
+		if got := analyzePatternFrame(name, 16); got != nil {
+			t.Errorf("%s now analyzes as periodic %+v", name, got)
 		}
 	}
-	for name, slice := range painted {
-		if got := analyzePatternFrame(name, slice); got != nil {
-			t.Errorf("%s now analyzes as periodic %+v - move it to the tiling list", name, got)
-		}
-	}
+}
+
+// Geometry fixture for periodic blit coverage and cache tests. Runtime masters
+// have plain rails; periodic planning must remain independent of retired PNGs.
+func testPeriodicFrame() *patternFrame {
+	sp := stripPattern{capA: 32, capB: 32, period: 128}
+	return &patternFrame{w: 512, h: 512, slice: generatedPatternFrameSlice,
+		top: sp, bottom: sp, left: sp, right: sp, centreH: sp, centreV: sp}
 }
 
 // Every plan is pure 1:1 blits that cover the panel exactly once - no gaps,
 // no double-drawn pixels, no source reads outside the sprite.
 func TestPatternFramePlan_CoversEveryPixelExactlyOnce(t *testing.T) {
-	t.Chdir("../..")
-	pf := analyzePatternFrame("menu_panel_frame", generatedPatternFrameSlice)
-	if pf == nil {
-		t.Fatal("menu_panel_frame did not analyze")
-	}
+	pf := testPeriodicFrame()
 	for _, size := range [][2]int{{520, 360}, {800, 120}, {130, 130}, {521, 363}, {97, 97}} {
 		assertPlanCoverage(t, pf, size[0], size[1], generatedCompactFrameSourceScale, true)
 	}
@@ -110,8 +121,11 @@ func TestGeneratedFrameInsetsClearUIContent(t *testing.T) {
 		t.Errorf("character dashboard top sections do not align: profile=%d attributes=%d magic=%d",
 			character.profile.y, character.attributes.y, character.magic.y)
 	}
-	if partyHeroCardPortraitInset < slotCorner {
-		t.Errorf("party card portrait inset %d is smaller than its %dpx frame", partyHeroCardPortraitInset, slotCorner)
+	for _, card := range []rect{{10, 20, 98, 147}, {10, 20, 120, 180}, {10, 20, 140, 210}} {
+		picture := heroCardPortraitRect(card)
+		if picture.x <= card.x || picture.y <= card.y || picture.x+picture.w >= card.x+card.w || picture.y+picture.h >= card.y+card.h*75/100 {
+			t.Fatalf("portrait %+v overlaps the trading-card rim or name area %+v", picture, card)
+		}
 	}
 }
 

@@ -12,7 +12,9 @@ import (
 // keytracker's injectable key source. Hover checks inside draw passes keep
 // calling ebiten directly: they read a position, they don't resolve a gesture.
 var (
+	pointerCancelJustPress = func() bool { return inpututil.IsKeyJustPressed(ebiten.KeyEscape) }
 	pointerPosition        = ebiten.CursorPosition
+	pointerWheel           = ebiten.Wheel
 	pointerLeftPressed     = func() bool { return ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) }
 	pointerLeftJustPressed = func() bool { return inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) }
 	pointerLeftJustRelease = func() bool { return inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) }

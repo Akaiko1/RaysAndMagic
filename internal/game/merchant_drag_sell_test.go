@@ -501,6 +501,7 @@ func TestBulkBuyGearGetsDistinctInstanceIDs(t *testing.T) {
 // sequence, so the fix has to live in the input pipeline, not in a helper.
 func TestDragStartDoesNotTradeOnTheClickThatBeginsIt(t *testing.T) {
 	g, ui := merchantDragGame(t)
+	g.appScreen = AppScreenInGame
 	loop := &GameLoop{game: g, ui: ui}
 	g.gameLoop = loop
 	ih := NewInputHandler(g)
@@ -514,9 +515,10 @@ func TestDragStartDoesNotTradeOnTheClickThatBeginsIt(t *testing.T) {
 
 	screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	frame := func() {
+		ui.Draw(screen)
 		ui.updateMouseState()
+		ui.dispatchDisplayedInput()
 		ih.HandleInput()
-		ui.drawMerchantDialog(screen, dlg.x, dlg.y, dlg.w, dlg.h)
 	}
 
 	// Gesture 1: a plain click on the cell (press, release in place) SELECTS.
@@ -599,6 +601,7 @@ func TestPickerBackspaceEndsTheTypingRun(t *testing.T) {
 func TestOrdinaryDialogStillReceivesClicks(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
+	g.appScreen = AppScreenInGame
 	g.sprites = graphics.NewSpriteManager()
 	ui := NewUISystem(g)
 	loop := &GameLoop{game: g, ui: ui}
@@ -627,8 +630,12 @@ func TestOrdinaryDialogStillReceivesClicks(t *testing.T) {
 	x, y, w, h := g.dialogueChoiceRect(npc, 1, dlg.x, dlg.y, dlg.w) // the Leave row
 	fp.moveTo(x+w/2, y+h/2)
 
+	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	defer screen.Deallocate()
 	frame := func() {
+		ui.Draw(screen)
 		ui.updateMouseState()
+		ui.dispatchDisplayedInput()
 		ih.HandleInput()
 	}
 	// Two clicks: dialog lists act on the second (double-click convention).

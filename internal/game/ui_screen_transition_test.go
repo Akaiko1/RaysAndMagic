@@ -84,7 +84,7 @@ func TestMainMenuTransitionDoesNotReuseTheOpeningPress(t *testing.T) {
 }
 
 func TestTitleBackDoesNotArmRootButtons(t *testing.T) {
-	for _, mode := range []EntryMenuMode{EntryMenuLoad, EntryMenuScores, EntryMenuAchievements, EntryMenuSettings} {
+	for _, mode := range []EntryMenuMode{EntryMenuLoad, EntryMenuScores, EntryMenuAchievements, EntryMenuSettings, EntryMenuStatistics} {
 		for _, draw := range []bool{false, true} {
 			t.Run(fmt.Sprintf("mode=%d/draw=%v", mode, draw), func(t *testing.T) {
 				h := newDisplayedModalHarness(t, 1024, 768)
@@ -97,8 +97,9 @@ func TestTitleBackDoesNotArmRootButtons(t *testing.T) {
 					y = (768-entryLoadPanelH)/2 + menuFrameInset + 22 + saveRowsPerPage*entryLoadRowH + 6 + 26 + 12
 				case EntryMenuScores:
 					x, y = 20, 768-44
-				case EntryMenuAchievements:
-					x, y = (1024-640)/2+menuFrameInset, (768-480)/2+480-menuFrameInset-30
+				case EntryMenuAchievements, EntryMenuStatistics:
+					r := profilePanelRect(1024, 768)
+					x, y = r.x+menuFrameInset, r.y+r.h-menuFrameInset-menuBackButtonH
 				case EntryMenuSettings:
 					layout := makeAudioSettingsPanelLayout(1024, 768, true)
 					back := audioBackRect(layout.px, layout.py, layout.panelH, layout.contentInset)

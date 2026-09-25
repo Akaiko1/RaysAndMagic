@@ -9,13 +9,11 @@ import (
 	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // The thief's trap book - rendered in the spellbook tab slot for characters
 // with the Trapper skill (they have no magic schools). Spell-like controls:
-// click / Up-Down browse a selection, Enter/F or double-click equip it as the
-// QuickTrap that Space arms in the world.
+// click / Up-Down browse, double-click equips, and Enter/F uses the selection.
 
 // drawTrapBookContent mirrors the spellbook layout on the trap_recipe book art.
 func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect) {
@@ -59,32 +57,9 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 			continue
 		}
 
-		// Spell-like mouse controls: click selects, double-click ARMS the
-		// clicked trap in the world (spells cast on double-click; Enter/F
-		// equip the quick slot). TB consumes an action like a book-cast spell.
-		ui.onDisplayedInput(uiCommandClick, layoutRect{cardX, cardY, (cardX + bl.cardW) - (cardX), (cardY + bl.cardH) - (cardY)}, func() {
-			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
-				now := ui.game.mouseLeftClickAt
-				if ui.lastClickedTrap == i && withinDoubleClickWindow(now, ui.lastTrapClickTime) {
-					canArm := ui.game.canSpendCombatAction(ui.game.selectedChar)
-					if canArm {
-						placed := ui.game.dispatchCharacterHubWorldAction(func() bool {
-							_, ok := ui.game.combat.placeTrapByKey(currentChar, key, true)
-							return ok
-						})
-						if placed {
-							ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.TrapCooldownFrames(currentChar, key))
-						}
-					}
-					ui.lastTrapClickTime = 0
-					ui.lastClickedTrap = -1
-				} else {
-					ui.lastTrapClickTime = now
-					ui.lastClickedTrap = i
-				}
-				ui.game.selectedTrap = i
-			}
-		})
+		ui.handleBookEntryClick(layoutRect{cardX, cardY, bl.cardW, bl.cardH}, -1, i, func() {
+			ui.game.selectedTrap = i
+		}, func() { equipTrap(currentChar, key) })
 		ui.quickTrapCardDragSource(key, cardX, cardY, bl.cardW, bl.cardH)
 		ui.drawTrapCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, key, def, currentChar, i == ui.game.selectedTrap)
 
@@ -102,19 +77,12 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 		ui.game.selectedTrap = ui.spellPage * perSpread
 	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
+	drawCenteredDebugText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 // drawTrapCard renders one trap entry: icon, name, SP/level row. The browse
-// SELECTION gets a light outline; the EQUIPPED quick trap gets the gold one
-// (both can sit on different cards, like spell selection vs the quick slot).
+// selection and quick-slot marker use the same icon treatment as spells.
 func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int, key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, selected bool) {
-	if selected {
-		vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 2, color.RGBA{210, 205, 190, 255}, false)
-	}
-	if armed, ok := equippedTrapKey(char); ok && armed == key {
-		vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(w-4), float32(h-4), 3, color.RGBA{170, 115, 30, 255}, false)
-	}
 	iconX := x + (w-iconSize)/2
 	iconY := y + 6
 	if ui.game.sprites.HasSprite(def.Icon) {
@@ -132,14 +100,9 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 	drawCenteredDebugText(screen, truncateName(def.Name, 12), x+4, nameY, w-8, debugTextCharHeight)
 	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+debugTextCharHeight+2, w-8, debugTextCharHeight)
 
-	locked := char.Level < def.Level
-	if locked {
-		// Level lock: dark veil + red outline.
-		drawFilledRect(screen, x, y, w, h, color.RGBA{0, 0, 0, 110})
-		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
-	} else if char.SpellPoints < cost {
-		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
-	}
+	armed, equipped := equippedTrapKey(char)
+	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
+		selected, equipped && armed == key, char.Level < def.Level, char.SpellPoints >= cost, SchoolColor(def.Element))
 }
 
 // trapTooltip renders the unified template card for a trap (the same builder

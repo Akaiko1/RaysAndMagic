@@ -70,7 +70,7 @@ func (g *MMGame) updateUtilityStatus(spellID spells.SpellID, duration int, activ
 // legacy token (bless, torch, ...) maps to its dedicated status_* sprite. For any
 // other token (e.g. a spell key) it PREFERS a dedicated "status_<token>" sprite
 // if one exists, otherwise falls back to the spellbook icon "icon_spell_<token>"
-// (which drawSpellIcon shrinks to the bar), and finally to a text label.
+// without its decorative content frame, and finally to a text label.
 func (g *MMGame) resolveStatusIconSprite(token string) (icon, fallback string) {
 	icon, fallback = resolveStatusIcon(token)
 	if icon != token {
@@ -81,13 +81,13 @@ func (g *MMGame) resolveStatusIconSprite(token string) (icon, fallback string) {
 			return status, fallback
 		}
 		if spellIcon := "icon_spell_" + token; g.sprites.HasSprite(spellIcon) {
-			return spellIcon, fallback
+			return g.sprites.HUDIconName(spellIcon), fallback
 		}
 		// An ITEM-backed buff (a draught) shows its own bottle: without this the
 		// only match left was a spell icon, so a fire-resist potion sat in the
 		// status bar wearing the Fire Shield spell's icon.
 		if itemIcon := "icon_item_" + token; g.sprites.HasSprite(itemIcon) {
-			return itemIcon, fallback
+			return g.sprites.HUDIconName(itemIcon), fallback
 		}
 	}
 	return icon, fallback

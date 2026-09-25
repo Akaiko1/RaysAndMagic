@@ -34,7 +34,7 @@ func TestJungleIconsResolve(t *testing.T) {
 		"jaguar_pelt_jerkin", "feathered_headdress", "vinewoven_cloak", "serpent_idol_amulet",
 		"warlords_signet", "mantle_of_the_idol_king", "ocelot_pelt", "serpent_skin", "tribal_mask",
 		"gorilla_heart", "golden_idol", "antivenom", "ocelot_card", "gorilla_titan_card",
-		"masked_huntress_card", "orc_warlord_card",
+		"masked_huntress_card", "orc_warlord_card", "lemur_fur",
 	}
 
 	check := func(item items.Item, want string) {

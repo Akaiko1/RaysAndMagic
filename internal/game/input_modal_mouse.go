@@ -3,8 +3,8 @@ package game
 import "ugataima/internal/character"
 
 // These adapters consume only buffered clicks. Draw registers the visible
-// surface; Update runs it before discarding unmatched modal events. They also
-// serve the existing direct input entry points without polling keys or wheels.
+// surface; Update runs it before discarding unmatched modal events. Keyboard
+// and wheel handlers never invoke these adapters.
 func (ih *InputHandler) handleMainMenuMouseInput() {
 	g := ih.game
 	panelW, panelH := menuPanelSize(g.mainMenuMode)

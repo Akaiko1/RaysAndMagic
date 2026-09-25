@@ -208,6 +208,8 @@ const (
 	modalLayerRoster
 	modalLayerStash
 	modalLayerStackSplit
+	modalLayerCamp
+	modalLayerCampRest
 	modalLayerLevelChoice
 	modalLayerCount
 )
@@ -241,6 +243,10 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 	switch {
 	case g.currentLevelUpChoice() != nil:
 		return modalLayerLevelChoice
+	case g.campRest != nil:
+		return modalLayerCampRest
+	case g.campConfirmOpen:
+		return modalLayerCamp
 	case stackSplitOpen:
 		return modalLayerStackSplit
 	case g.stashScreenOpen:
@@ -359,9 +365,6 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[1] = g.mainMenuSelection
 		s.state[2] = g.slotSelection
 		s.state[3] = g.savePage
-		// MenuSettings: Down then Right across two pre-Draw Updates must not
-		// adjust a channel whose highlight the player has not seen move.
-		s.state[4] = g.audioSettingsSelection
 	case modalLayerSaveRename:
 		s.state[0] = int(g.mainMenuMode)
 		s.state[1] = g.saveRenameSlot
@@ -423,9 +426,8 @@ func isOverlayModalLayer(layer modalLayerID) bool {
 	}
 }
 
-// dropQueuedClicks discards both buffered click queues. Used wherever a modal
-// layer owns the frame: a press it did not consume was aimed at its dim, and a
-// press queued before it opened was aimed at the interface it replaced.
+// dropQueuedClicks ends a click batch at the Update boundary or when its layer
+// changes mid-dispatch. Double-click history and held gestures are separate.
 func (ui *UISystem) dropQueuedClicks() {
 	if ui == nil || ui.game == nil {
 		return
@@ -461,27 +463,7 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 }
 
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
-	if src == nil || w <= 0 || h <= 0 {
-		return
-	}
-	bounds := src.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= 0 || srcH <= 0 {
-		return
-	}
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
-	opts.GeoM.Translate(float64(x), float64(y))
-	// Shrinking with the default nearest filter drops whole source rows/columns,
-	// which clips thin baked-in details - e.g. an icon's frame on the trailing
-	// (right/bottom) edges. Linear filtering (mipmaps kick in automatically for
-	// shrink) resamples instead and keeps them. Upscales stay nearest so pixel
-	// art is not blurred.
-	if w < srcW || h < srcH {
-		opts.Filter = ebiten.FilterLinear
-	}
-	dst.DrawImage(src, opts)
+	graphics.DrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
 }
 
 func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w, h int) {
@@ -503,62 +485,56 @@ func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, c
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
 // reads as "already pressed" (the map overlay used to paint the hover colour
 // permanently), and three hand-rolled variants had drifted apart.
-var (
-	closeButtonRestColor  = color.RGBA{100, 100, 100, 150}
-	closeButtonHoverColor = color.RGBA{150, 50, 50, 200}
-)
-
-// drawCloseButtonVisual paints the shared close button WITHOUT touching the
-// click queue, for layers whose input is claimed in an earlier pass.
 func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) {
 	mouseX, mouseY := ebiten.CursorPosition()
-	col := closeButtonRestColor
-	if mouseX >= x && mouseX < x+w && mouseY >= y && mouseY < y+h {
-		col = closeButtonHoverColor
+	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+	col := color.RGBA{193, 161, 99, 255}
+	if hover {
+		col = color.RGBA{255, 226, 160, 255}
+		drawFilledRect(screen, x+2, y+2, w-4, h-4, color.RGBA{80, 49, 26, 170})
 	}
-	drawFilledRect(screen, x, y, w, h, col)
-	ui.drawInterfaceIcon(screen, "icon_close", x, y, w, h)
+	inset := max(5, min(w, h)/4)
+	vector.StrokeLine(screen, float32(x+inset), float32(y+inset), float32(x+w-inset), float32(y+h-inset), 2, col, true)
+	vector.StrokeLine(screen, float32(x+w-inset), float32(y+inset), float32(x+inset), float32(y+h-inset), 2, col, true)
 }
 
-// drawNineSlice: corners 1:1, edges and centre STRETCHED. Right for painted
-// panels drawn near their native size (menu_panel_wide and kin); pattern
-// frames go through drawPatternFrame instead.
-func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
-	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
-		return
+// Nine-slice preserves square corners even when a destination is smaller than
+// two corners. Shrink all corners uniformly; never stretch the whole frame.
+func planNineSlice(srcW, srcH, w, h, slice, corner int) []frameOp {
+	if srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 || slice <= 0 || corner <= 0 {
+		return nil
 	}
-	bounds := src.Bounds()
-	srcW := bounds.Dx()
-	srcH := bounds.Dy()
-	if srcW <= slice*2 || srcH <= slice*2 || w <= slice*2 || h <= slice*2 {
-		drawImageScaled(dst, src, x, y, w, h)
-		return
+	slice = min(slice, (min(srcW, srcH)-1)/2)
+	if slice <= 0 {
+		return []frameOp{{0, 0, srcW, srcH, 0, 0, w, h}}
 	}
-
-	drawPart := func(srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH int) {
-		if dstW <= 0 || dstH <= 0 {
-			return
+	corner = min(corner, min(w, h)/2)
+	sx := [4]int{0, slice, srcW - slice, srcW}
+	sy := [4]int{0, slice, srcH - slice, srcH}
+	dx := [4]int{0, corner, w - corner, w}
+	dy := [4]int{0, corner, h - corner, h}
+	ops := make([]frameOp, 0, 9)
+	for row := range 3 {
+		for col := range 3 {
+			if dx[col+1] == dx[col] || dy[row+1] == dy[row] {
+				continue
+			}
+			ops = append(ops, frameOp{sx[col], sy[row], sx[col+1] - sx[col], sy[row+1] - sy[row], dx[col], dy[row], dx[col+1] - dx[col], dy[row+1] - dy[row]})
 		}
-		part := src.SubImage(image.Rect(srcX, srcY, srcX+srcW, srcY+srcH)).(*ebiten.Image)
-		drawImageScaled(dst, part, dstX, dstY, dstW, dstH)
 	}
+	return ops
+}
 
-	centerSrcW := srcW - slice*2
-	centerSrcH := srcH - slice*2
-	centerDstW := w - slice*2
-	centerDstH := h - slice*2
-
-	drawPart(0, 0, slice, slice, x, y, slice, slice)
-	drawPart(srcW-slice, 0, slice, slice, x+w-slice, y, slice, slice)
-	drawPart(0, srcH-slice, slice, slice, x, y+h-slice, slice, slice)
-	drawPart(srcW-slice, srcH-slice, slice, slice, x+w-slice, y+h-slice, slice, slice)
-
-	drawPart(slice, 0, centerSrcW, slice, x+slice, y, centerDstW, slice)
-	drawPart(slice, srcH-slice, centerSrcW, slice, x+slice, y+h-slice, centerDstW, slice)
-	drawPart(0, slice, slice, centerSrcH, x, y+slice, slice, centerDstH)
-	drawPart(srcW-slice, slice, slice, centerSrcH, x+w-slice, y+slice, slice, centerDstH)
-
-	drawPart(slice, slice, centerSrcW, centerSrcH, x+slice, y+slice, centerDstW, centerDstH)
+func drawNineSliceScaled(dst, src *ebiten.Image, x, y, w, h, slice, corner int) {
+	if dst == nil || src == nil {
+		return
+	}
+	b := src.Bounds()
+	for _, op := range planNineSlice(b.Dx(), b.Dy(), w, h, slice, corner) {
+		part := src.RecyclableSubImage(image.Rect(b.Min.X+op.sx, b.Min.Y+op.sy, b.Min.X+op.sx+op.sw, b.Min.Y+op.sy+op.sh))
+		drawImageScaled(dst, part, x+op.dx, y+op.dy, op.dw, op.dh)
+		part.Recycle()
+	}
 }
 
 // SOFT GLOW - the halo that bleeds outward from a box with a quadratic falloff,
@@ -678,29 +654,9 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 }
 
 const tooltipCompareGap = 8
-const tooltipIconSize = 64
+const tooltipScreenMargin = 8
+const tooltipIconSize = 128
 const tooltipIconGap = 8
-
-func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
-	if len(lines) == 0 {
-		return 0, 0
-	}
-	iconSpace := 0
-	if hasIcon {
-		iconSpace = tooltipIconSize + tooltipIconGap
-	}
-	bgWidth := 0
-	for _, line := range lines {
-		if w := debugTextWidth(line) + 12 + iconSpace; w > bgWidth {
-			bgWidth = w
-		}
-	}
-	bgHeight := len(lines)*16 + 8
-	if hasIcon && bgHeight < tooltipIconSize+12 {
-		bgHeight = tooltipIconSize + 12
-	}
-	return bgWidth, bgHeight
-}
 
 // drawTooltip draws a tooltip with the given text lines at the specified
 // position. Lines that don't fit between the tooltip's x position and the
@@ -712,13 +668,10 @@ func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 // too. The caller resolves this ONCE for side-by-side cards (main + compare)
 // so they share a top edge instead of flipping independently.
 func flipTooltipY(y, bgHeight, screenH int) int {
-	if y+bgHeight > screenH {
+	if y+bgHeight > screenH-tooltipScreenMargin {
 		y = y - bgHeight - 16 // y-8 = cursor, then an 8px gap above it
-		if y < 0 {
-			y = 0
-		}
 	}
-	return y
+	return tooltipAxisPosition(y, bgHeight, screenH)
 }
 
 // maxRight bounds word-wrapping: lines wrap to fit between x and maxRight. Callers
@@ -726,46 +679,8 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 // side-by-side cards (item + its comparison) each wrap within their own column.
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	lines, colors = wrapTooltipLines(lines, colors, x, maxRight, tooltipTextOffset(hasIcon))
-	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
-
-	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
-	// defensive top clamp only.
-	if y < 0 {
-		y = 0
-	}
-
-	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
-	textX := x + 6
-	if hasIcon {
-		drawImageScaled(screen, sprites.GetSprite(iconName), x+6, y+6, tooltipIconSize, tooltipIconSize)
-		textX += tooltipIconSize + tooltipIconGap
-	}
-
-	// Rarity nameplate: a brushed-metal band (darkened metal of the rarity hue)
-	// behind the first line, with the name drawn in its normal rarity color +
-	// black outline so the shiny text still reads.
-	titleStart := 0
-	if titlePlate != nil && len(lines) > 0 {
-		if plateW := x + bgWidth - 4 - (textX - 4); plateW > 0 {
-			drawMetalPlate(screen, textX-4, y+4, plateW, 18, metalPlateBase(titlePlate))
-		}
-		if titleText != nil {
-			drawDebugTextColored(screen, lines[0], textX, y+6, titleText)
-		} else {
-			drawDebugText(screen, lines[0], textX, y+6) // "as before": plain white + outline
-		}
-		titleStart = 1
-	}
-
-	hasColors := len(colors) == len(lines) && len(colors) > 0
-	for i := titleStart; i < len(lines); i++ {
-		if hasColors {
-			drawDebugTextColored(screen, lines[i], textX, y+6+i*16, colors[i])
-		} else {
-			drawDebugText(screen, lines[i], textX, y+6+i*16)
-		}
-	}
+	layout := layoutTooltip(lines, hasIcon, maxRight-x, screen.Bounds().Dy())
+	drawTooltipLayout(screen, lines, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 
 // metalPlateBase returns the nameplate's base color: a darkened metal of the
@@ -840,9 +755,30 @@ func tooltipTextOffset(hasIcon bool) int {
 	return 0
 }
 
-func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW int) (int, int) {
-	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
-	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
+func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW, screenH int) (int, int) {
+	layout := layoutTooltip(lines, hasIcon, screenW-x, screenH)
+	return layout.w, layout.h
+}
+
+// Measure before positioning, as for comparison cards. Wrapping at the cursor
+// first can force the minimum text column beyond the right edge.
+func singleTooltipLayout(lines []string, colors []color.Color, hasIcon bool, x, y, screenW, screenH int) layoutRect {
+	w, h := tooltipBoxSizeForScreen(lines, colors, hasIcon, 0, tooltipColumnWidth(screenW, 1), screenH)
+	return positionTooltipBox(x, y, w, h, screenW, screenH)
+}
+
+func tooltipColumnWidth(screenW, columns int) int {
+	return (screenW - 2*tooltipScreenMargin - (columns-1)*tooltipCompareGap) / columns
+}
+
+func positionTooltipBox(x, y, w, h, screenW, screenH int) layoutRect {
+	x = tooltipAxisPosition(x, w, screenW)
+	y = flipTooltipY(y, h, screenH)
+	return layoutRect{x, y, w, h}
+}
+
+func tooltipAxisPosition(position, span, screenSpan int) int {
+	return max(tooltipScreenMargin, min(position, screenSpan-tooltipScreenMargin-span))
 }
 
 // tooltipPairX positions two side-by-side hover cards (main + comparison) near
@@ -851,13 +787,7 @@ func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool,
 // columns can never overlap - unlike the old "place compare by its unwrapped width
 // then clamp to the screen edge", which buried the main under a very wide compare.
 func tooltipPairX(cursorX, mainW, compareW, gap, screenW int) (mainX, compareX int) {
-	mainX = cursorX
-	if mainX+mainW+gap+compareW > screenW {
-		mainX = screenW - (mainW + gap + compareW)
-	}
-	if mainX < 0 {
-		mainX = 0
-	}
+	mainX = tooltipAxisPosition(cursorX, mainW+gap+compareW, screenW)
 	return mainX, mainX + mainW + gap
 }
 
@@ -922,9 +852,9 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 
 // queueTitledTooltipIcon queues a tooltip whose first line (the name) gets a
 // metallic nameplate (plate base) with the name in titleText (nil = plain white
-// name). bodyColors tints lines BELOW the name (nil = plain white body); gear
-// keeps its rarity-metal body, spells/traps stay white. Plate hue: rarity for
-// gear, school for spells, wood for traps.
+// name). bodyColors overrides individual semantic rows; nil uses the shared
+// section/result/detail palette. Plate hue: rarity for gear, school for
+// spells, wood for traps.
 func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Color, plate, titleText color.Color, icon string, x, y int) {
 	if len(lines) == 0 {
 		return
@@ -959,6 +889,7 @@ func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color)
 	ui.tooltipCompareLines = lines
 	ui.tooltipCompareColors = colors
 	ui.tooltipCompareTitle = nil
+	ui.tooltipCompareText = nil
 }
 
 // queueTitledTooltipComparison queues the side-by-side comparison card with a
@@ -973,23 +904,6 @@ func (ui *UISystem) queueTitledTooltipComparison(lines []string, bodyColors []co
 	ui.tooltipCompareText = titleText
 }
 
-// rarityBodyColors paints every tooltip line in the item's rarity metal - the
-// original gear-tooltip body look (the name line's color is overridden by the
-// nameplate's titleText).
-func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
-	if n <= 0 {
-		return nil
-	}
-	c := ui.itemRarityColor(item)
-	colors := make([]color.Color, n)
-	for i := range colors {
-		colors[i] = c
-	}
-	return colors
-}
-
-// schoolPlateColor maps a magic school to its nameplate base hue (darkened +
-// brushed by drawMetalPlate). Used for spell-item / spellbook nameplates.
 func schoolPlateColor(school string) color.Color {
 	switch convertToMonsterDamageType(school) {
 	case monsterPkg.DamageFire:
@@ -1168,16 +1082,15 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	ensureDebugTextScratch(w, h)
 	debugTextScratch.Fill(color.RGBA{0, 0, 0, 0})
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
+	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
+	defer glyphs.Recycle()
 	x := float64(cx) - float64(w)*scale/2
 	y := float64(cy) - float64(h)*scale/2
 	blit := func(ox, oy float64, c color.Color) {
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Scale(scale, scale)
-		op.GeoM.Translate(x+ox, y+oy)
 		r, g, b, a := c.RGBA()
 		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
-		screen.DrawImage(glyphs, op)
+		graphics.DrawImageScaled(screen, glyphs, x+ox, y+oy, float64(w)*scale, float64(h)*scale, op)
 	}
 	outline := color.RGBA{0, 0, 0, 235}
 	for _, d := range textOutlineOffsets {
@@ -1204,15 +1117,11 @@ func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy 
 	img := outlinedLabelImage(text, base)
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
-	op.GeoM.Translate(
-		float64(cx)-float64(w)*scale/2,
-		float64(cy)-float64(h)*scale/2,
-	)
+
 	if alpha < 1 {
 		op.ColorScale.ScaleAlpha(float32(alpha))
 	}
-	screen.DrawImage(img, op)
+	graphics.DrawImageScaled(screen, img, float64(cx)-float64(w)*scale/2, float64(cy)-float64(h)*scale/2, float64(w)*scale, float64(h)*scale, op)
 }
 
 // drawDebugText draws left-aligned OUTLINED white text - the game-wide default,
@@ -1271,7 +1180,8 @@ func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 
 	// Offset by -1 so the rendered text aligns with DebugPrintAt's left edge.
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
+	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
+	defer glyphs.Recycle()
 
 	img := ebiten.NewImage(w+2, h+2)
 	blit := func(dx, dy int, c color.Color) {
@@ -1337,12 +1247,13 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 			sh = h - sy
 		}
 		c := metalShade(base, (float64(sy)+float64(sh)/2)/float64(h))
-		strip := debugTextScratch.SubImage(image.Rect(0, sy, w, sy+sh)).(*ebiten.Image)
+		strip := debugTextScratch.RecyclableSubImage(image.Rect(0, sy, w, sy+sh))
 		op := &ebiten.DrawImageOptions{}
 		r, g, b, a := c.RGBA()
 		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
 		op.GeoM.Translate(float64(x), float64(y+sy))
 		screen.DrawImage(strip, op)
+		strip.Recycle()
 	}
 }
 
@@ -1351,11 +1262,11 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 // drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
 // rather than a flat fill.
 var (
-	raritySilver   = color.RGBA{210, 216, 230, 255} // uncommon
-	rarityGold     = color.RGBA{255, 215, 0, 255}   // rare
-	rarityFire     = color.RGBA{220, 80, 20, 255}   // legendary
-	rarityEmerald  = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
-	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
+	raritySilver   = config.RaritySilver
+	rarityGold     = config.RarityGold
+	rarityFire     = config.RarityLegendary
+	rarityEmerald  = config.RarityUnique
+	focusModeMetal = color.RGBA{70, 155, 235, 255} // focus-mode blue steel
 )
 
 // metallicColors marks which base tints get the metal-gradient text treatment.
@@ -1386,18 +1297,7 @@ func rarityColor(rarity string) color.Color {
 // needs the concrete RGBA (a metal heading, a plate) calls this, so retinting a
 // rarity here moves every surface that shows it.
 func rarityRGBA(rarity string) color.RGBA {
-	switch strings.ToLower(rarity) {
-	case "uncommon":
-		return raritySilver
-	case "rare":
-		return rarityGold
-	case "legendary":
-		return rarityFire
-	case "unique":
-		return rarityEmerald
-	default:
-		return color.RGBA{255, 255, 255, 255} // Common/default
-	}
+	return config.RarityRGBA(rarity)
 }
 
 var (
@@ -1406,6 +1306,7 @@ var (
 	combatMessagePurple = color.RGBA{190, 100, 255, 255}
 	combatMessageOrange = color.RGBA{255, 140, 40, 255}
 	combatMessageYellow = color.RGBA{255, 230, 90, 255}
+	combatMessageRed    = color.RGBA{255, 70, 70, 255}
 )
 
 func lootMessageColor(drops []items.Item) color.Color {
@@ -1445,7 +1346,7 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 // statTooltipText quotes the canonical stat description from the character
 // catalog - one source for the in-game tooltip and the map editor.
 func statTooltipText(stat string) string {
-	return character.StatDescription(stat)
+	return referenceTooltipText(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
 }
 
 // masteryTooltipTextForSkill returns the canonical skill description. The text
@@ -1453,11 +1354,24 @@ func statTooltipText(stat string) string {
 // tooltip, combat, and the map editor all share one source - see
 // character.SkillType.Description.
 func masteryTooltipTextForSkill(skill character.SkillType) string {
-	return skill.Description()
+	return referenceTooltipText(skill.String(), "EFFECTS", skill.Description())
 }
 
 func magicMasteryTooltipText(school character.MagicSchoolID) string {
-	return character.MagicMasteryDescription(school)
+	return referenceTooltipText(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
+}
+
+// Reference prose stays canonical. Only paragraph boundaries and headings are
+// added here; no tooltip independently restates a skill's formulas or effects.
+func referenceTooltipText(title, section, description string) string {
+	if description == "" {
+		return ""
+	}
+	text := strings.ReplaceAll(description, ". ", ".\n")
+	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
+		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
+	}
+	return title + "\n\n" + section + "\n" + text
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

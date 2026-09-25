@@ -19,19 +19,44 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 			return err
 		}
 	}
+	g.applyTerrainChanges(g.terrainChanges, true)
+	g.terrainChanges = nil
+	g.cancelDayNightSkip()
+	g.cancelCampPresentation()
+	g.profileKilled = nil
+	g.discardFish()
+	wm.RandomizeEnvironmentSprites()
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
+	g.updatePartyLevelUnlocks()
 	legacyRewards := g.restoreSavedMonsters(wm, save)
 	g.restoreSavedNPCs(wm, save)
 	g.restoreSavedTurnState(save)
 	g.restoreSavedEffects(save)
 	g.restoreSavedContainers(wm, save)
+	g.reconcilePartyAgainstStash()
+	g.party.MergeStacks()
+	// The aggregate is DERIVED from the restored registry (never trusted from
+	// the save) - a drifted legacy save can't turn a buff expiry into a
+	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
+	g.recomputeStatBonuses()
 	// Containers must exist before migrated rewards can suppress duplicate chests.
 	if legacyRewards != nil {
 		g.addTreasureChestsFromRewards(legacyRewards)
 	}
 	g.restoreSavedEffectPresentation(wm, save)
 	g.restoreSavedQuests(save)
+	g.restoreTerrainChanges(save.TerrainChanges)
+	// A position saved on an older map layout can sit inside what is now a
+	// wall; clamp it to walkable ground. Runs here, after the buff restore
+	// above, so water/Fly saves keep their legal mid-lake or airborne spot.
+	if sx, sy := g.safePartyDestination(g.camera.X, g.camera.Y); sx != g.camera.X || sy != g.camera.Y {
+		g.setPartyPosition(sx, sy)
+	}
+	g.ecology = cloneEcologyState(save.Ecology)
+	g.ecologyViews = nil
+	g.caravanAttackAlertUntil = time.Time{}
+	g.syncCaravanStock()
 	// A restored journal is not news, and the loaded run must not inherit the old
 	// one's heading or focus identity (loading does NOT reload maps, so NPC
 	// pointers survive). One reset, after the journal has settled.
@@ -63,6 +88,7 @@ func prepareSaveRestore(wm *world.WorldManager, save *GameSave) (*GameSave, *wor
 	if targetWorld == nil {
 		return nil, nil, fmt.Errorf("saved map is not loaded: %s", save.MapKey)
 	}
+	migrateRespawnDays(save)
 	return save, targetWorld, nil
 }
 
@@ -83,6 +109,7 @@ func (g *MMGame) restoreSavedTimeline(wm *world.WorldManager, save *GameSave, ta
 	// Restore the day/night clock BEFORE the sky refresh below so the panorama
 	// resolves to the saved phase. Recomputed silently (no flip side effects):
 	// the save's pack monsters are restored as part of MapMonsters.
+	g.maxPartyLevel = save.MaxPartyLevel
 	g.dayNightFrames = save.DayNightFrames
 	g.dayNightDay = save.DayNightDay
 	g.calendarDay, g.calendarWeek, g.calendarMonth = calendarFromSave(save.CalendarDay, save.CalendarWeek, save.CalendarMonth, save.DayNightDay, g.config.DayNight)

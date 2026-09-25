@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_build_lib.sh
 source "${SCRIPT_DIR}/_build_lib.sh"
 
+# Collect with the pinned engine; compile available native shader backends.
+go run ./tools/shadergen
+
 APP_NAME="RaysAndMagic"
 VIEWER_NAME="RaysAndMagicMapViewer"
 OUT_DIR="dist"
@@ -27,20 +30,13 @@ build_target() {
     go build -trimpath -ldflags "${ldflags}" -o "${out_dir}/${out_name}" "${package_path}"
 }
 
-bundle_runtime_files() {
-  local out_dir="$1"
-  cp -R assets "${out_dir}/assets"
-  rm -rf "${out_dir}/assets/map_viewer"
-  cp config.yaml "${out_dir}/config.yaml"
-}
-
-# macOS (Intel + Apple Silicon) - Ebiten needs cgo on macOS
-build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 1 .
-build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
+# macOS (Intel + Apple Silicon) - Ebitengine 2.10 uses pure Go
+build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 0 .
+build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
 bundle_runtime_files "${OUT_DIR}/mac_amd64"
 
-build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 1 .
-build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
+build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 0 .
+build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
 bundle_runtime_files "${OUT_DIR}/mac_arm64"
 
 build_macos_app_bundle "${OUT_DIR}/mac_amd64/${APP_NAME}.app"    "${APP_NAME}"    "${OUT_DIR}/mac_amd64/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"

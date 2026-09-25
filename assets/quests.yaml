@@ -8,10 +8,11 @@ quests:
   # errand at a time instead of a full journal on turn one.
   goblin_hunt:
     name: "Goblin Hunt"
-    description: "Kill 5 Goblins on the herb paths south of the forest clearing for Wenna the Herb-Picker and report back to her."
+    description: "Goblins have driven Wenna the Herb-Picker off the southern herb paths. Kill {target_count} Goblins south of the forest clearing, then return to Wenna for payment."
     type: "kill"
     target_monster: "goblin"
     target_count: 5
+    target_map: "forest"
     is_starting_quest: false
     rewards:
       gold: 50
@@ -19,10 +20,11 @@ quests:
 
   wolf_pack:
     name: "Wolf Pack"
-    description: "Kill 3 Wolves on the north forest road for Wenna the Herb-Picker and report back to her."
+    description: "Wenna can gather herbs to the south again, but wolves have stopped the carts on the north forest road. Kill {target_count} Wolves there and report back to her."
     type: "kill"
     target_monster: "wolf"
     target_count: 3
+    target_map: "forest"
     is_starting_quest: false
     rewards:
       gold: 75
@@ -31,15 +33,31 @@ quests:
   # The bather's nightly errand: the lake spiders come with the dark, so this one
   # is repeatable - cleared again at every nightfall (see refreshRepeatableQuests)
   # and paid in whatever draught she has on her.
+  toll_of_blades:
+    name: "The Toll of Blades"
+    description: "Safiya's caravan guards have paid enough unlawful tolls. Kill {target_count} Desert Dervishes in the desert and collect your payment. Their bands travel by day; unfinished work carries over to the next band."
+    type: kill
+    target_monster: desert_dervish
+    progress_text: "desert dervishes killed"
+    target_map: desert
+    target_count: 5
+    fixed_quota: true
+    repeatable: 3d
+    rewards:
+      gold: 600
+      experience: 600
+      item_pool: [mirage_salt]
+
   lake_spiders:
     name: "The Lake at Night"
-    description: "Kill 5 Forest Spiders at the forest lake for Ilsa and report back to her. She asks again each night."
+    description: "Ilsa wants a bath without Forest Spiders gathering on the bank. Kill {target_count} at the forest lake and return to her for a reward. More arrive each night; she will pay for another clearing."
     type: "kill"
     target_monster: "forest_spider"
+    fixed_quota: true
     target_count: 5
     target_map: "forest"
     is_starting_quest: false
-    repeatable: true
+    repeatable: night
     rewards:
       gold: 60
       experience: 120
@@ -54,7 +72,7 @@ quests:
   # Archmage trial - given by the Mage Tower; turning it in promotes a member.
   archmage_trial:
     name: "The Archmage's Trial"
-    description: "Slay the Lich King in the Lich Nexus and report back to the Mage Tower to be raised to Archmage. The raising is not a title. They put something into the one raised, and it stays in there."
+    description: "The Mage Tower offers one of us the rank of Archmage and command of Light magic. First we must slay the Lich King in the Lich Nexus and return. The tower warns that the Light will remain within whoever accepts it."
     type: "kill"
     target_monster: "lich_king"
     target_count: 1
@@ -65,7 +83,7 @@ quests:
 
   dragon_cliffs_troll_cull:
     name: "Cliffwatch Troll Cull"
-    description: "Kill 3 Mountain Trolls on the Dragon Cliffs for Maera Cliffwatch and report back to her."
+    description: "Mountain Trolls are blocking the bridges on the Dragon Cliffs. Maera Cliffwatch needs {target_count} killed before the caravans can pass. Return to her when the work is done."
     type: "kill"
     target_monster: "mountain_troll"
     target_count: 3
@@ -73,11 +91,11 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 900
-      experience: 800
+      experience: 600
 
   culverts_valves:
     name: "Stem the Flow"
-    description: "Shut the 7 sluice valves in the Seabright Culverts for Sewerman Garran and report back to him. Shutting them opens the Golden Thief Bug's lair. It hoards rings and crowns, and things that are neither: small warm cases that spark when pried at."
+    description: "Grist the Sluice-Rat needs all 7 sluice valves shut in the Seabright Culverts. This will drain the Golden Thief Bug's lair and open the way to its hoard. Among the stolen jewels are warm cases that spit sparks. Report back to Grist."
     type: "interact"
     target_monster: "valve"   # interaction tag matched by OnInteract
     target_count: 7
@@ -89,7 +107,7 @@ quests:
 
   castle_armory:
     name: "The Warlord's Armoury"
-    description: "Strip the 5 katana racks behind the shoji screens of the eastern castle for the old retainer and report back to him. Taking the castle's steel wakes the Samurai Warlord. The temple sealed him for what the eastern rot put inside him. It is still in there, and it works his arms for him."
+    description: "Shozo the Ronin has a way to wake the Samurai Warlord: take the weapons from all 5 katana racks behind the eastern castle's shoji screens. Return to Shozo afterward. The temple sealed his lord in the keep, but the eastern rot still moves the dead man's hands."
     type: "interact"
     target_monster: "sword_rack"   # interaction tag matched by OnInteract
     target_count: 5
@@ -97,7 +115,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2500
-      experience: 1600
+      experience: 1400
 
   # --- Sakura Garden (eastern island, L18-24) ---
   # Four local errands: three ward quests in any order, then Hina's capstone
@@ -106,7 +124,7 @@ quests:
   # level - the quest definitions themselves stay flat.
   silent_bells:
     name: "The Silent Bells"
-    description: "Kill 5 Kasa Obake in the Sakura Garden for Shiori the shrine keeper and report back to her. The umbrellas carry pieces of the castle's broken ward chimes, and the shrine bells will not settle while they hop."
+    description: "The Kasa Obake in the Sakura Garden have lodged fragments of the broken ward chimes in their umbrella ribs. Shiori needs {target_count} of these creatures killed to stop the bells. Return to her at the shrine."
     type: "kill"
     target_monster: "kasa_obake"
     target_count: 5
@@ -114,7 +132,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1000
-      experience: 1000
+      experience: 750
       item_pool:
         - "flame_ward_draught"
         - "storm_ward_draught"
@@ -123,7 +141,7 @@ quests:
 
   stolen_water_seal:
     name: "The Stolen Water Seals"
-    description: "Kill 4 Kappa at the Moon Pond in the Sakura Garden for Ayame the pond keeper and report back to her. They stole the carved seals that work the koi channels."
+    description: "Kappa stole the carved seals that control the koi channels. Kill {target_count} Kappa at the Moon Pond in the Sakura Garden, then report to Ayame the pond keeper so she can put the waterworks right."
     type: "kill"
     target_monster: "kappa"
     target_count: 4
@@ -131,7 +149,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1200
-      experience: 1100
+      experience: 850
       item_pool:
         - "health_potion"
         - "mana_potion"
@@ -139,7 +157,7 @@ quests:
 
   feathers_false_oath:
     name: "Feathers of the False Oath"
-    description: "Kill 4 Karasu Tengu on the ridge in the Sakura Garden for Kuroha the exile and report back. The flock swore a new oath to what stirs in the castle."
+    description: "Kuroha's flock has sworn itself to the power that possesses the castle's dead warlord. Kill {target_count} Karasu Tengu on the Sakura Garden ridge and return to the exile Kuroha."
     type: "kill"
     target_monster: "karasu_tengu"
     target_count: 4
@@ -147,13 +165,13 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1600
-      experience: 1500
+      experience: 1100
       item_pool:
         - "tengu_feather"
 
   fivefold_web:
     name: "The Fivefold Web"
-    description: "Kill the Sakura Jorogumo in the orchard of the Sakura Garden for Hina the onmyoji apprentice and report back to her. The spider has tied the garden's three broken wards into one web and feeds on their echo."
+    description: "Hina has traced the garden's damaged wards to the Sakura Jorogumo. The spider bride feeds on their magic through a web in the orchard. Kill her in the Sakura Garden and return to Hina."
     type: "kill"
     target_monster: "sakura_jorogumo"
     target_count: 1
@@ -161,18 +179,18 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 3000
-      experience: 3000
+      experience: 2300
       item_pool:
         - "spider_lily_obi"
         - "fivefold_ceremonial_ribbon"
         - "moonspun_silk"
 
-  # Aldric's wolf cull: completes when NO living wolf remains on the forest map
+  # Mira's wolf cull: completes when NO living wolf remains on the forest map
   # (extermination check), not just at the kill quota. Completion swaps the two
   # water tiles east of the lake trader for bridge planks.
   forest_wolf_cull:
     name: "Wolves of the Lakeshore"
-    description: "Kill every Wolf in the Elvish Forest for Mystic Trader Aldric and report back to him. He will lay a bridge across the lake."
+    description: "Apprentice Mira has the planks for a bridge to Priestess Liora's shrine, but wolves keep her from finishing it. Kill every Wolf in the Elvish Forest and return to Mira. She will lay the bridge across the lake."
     type: "kill"
     target_monster: "wolf"
     target_count: 21
@@ -188,7 +206,7 @@ quests:
 
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
-    description: "Kill 2 Archmages on the Dragon Cliffs for Old Varric and report back to him. They chant over the dragon bones, and lately a light answers back from inside the rock, blinking slow."
+    description: "Old Varric has seen lights flashing inside the Dragon Cliffs in answer to a rite over the dragon bones. Kill {target_count} Archmages conducting it before they wake the buried fire. Return to Varric for payment."
     type: "kill"
     target_monster: "archmage"
     target_count: 2
@@ -196,13 +214,13 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1200
-      experience: 1200
+      experience: 900
 
   # The dragon hunt: a rewarded quest that also unseals the reaper
   # (victory itself now belongs to endgame_triad).
   dragon_slayer:
     name: "Dragon Slayer"
-    description: "Slay all 4 Elder Dragons at the desert seals for Sylwen the Pilgrim and report back to her. The seals will not open until you swear the hunt. The dragons do not bleed. Cut one and it sparks, and the hide under the scorch is riveted plate."
+    description: "Swear Sylwen the Pilgrim's hunt, then slay {target_count} Elder Dragons at the desert seals and return to her. Each seal needs a matching colored statuette from the Pyramid Sanctum's reliquaries. Beneath the dragons' scorched hides lie riveted plates; sword cuts throw sparks."
     type: "kill"
     target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
     target_count: 4
@@ -226,7 +244,7 @@ quests:
 
   archive_missing_volumes:
     name: "The Archive's Missing Volumes"
-    description: "Kill 3 Possessed Tomes in the Gearworks of the Clock Tower for Keeper Ilthaea and report back to her. The Archive lent the tower three books. They walk the floor down there on their own legs."
+    description: "The Starlight Archive's missing books have grown legs and teeth. Destroy {target_count} Possessed Tomes in the Clock Tower's Gearworks and report to Keeper Ilthaea. She will then sell us the Archive's advanced spells."
     type: "kill"
     target_monster: "possessed_tome"
     target_count: 3
@@ -234,11 +252,11 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2000
-      experience: 2000
+      experience: 1500
 
   shrine_lamps:
     name: "The Shrine's Lamps"
-    description: "Recover the 3 shrine lamps from the Pyramid for Yusra of the Oasis and return them to her. There is no oil in them and they are still warm."
+    description: "Yusra lent three shrine lamps to pilgrims who never returned from the Pyramid. Recover all 3, one on each floor, and bring them to her to reopen the shrine's spell shop. The lamps burn without oil."
     type: "interact"
     target_monster: "shrine_lamp"   # interaction tag matched by OnInteract
     target_count: 3
@@ -246,11 +264,11 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2000
-      experience: 2200
+      experience: 1800
 
   pit_standing:
     name: "Standing in the Pit"
-    description: "Win 3 duels in the Grand Arena for Blademaster Nadira and report back to her. She sharpens no mastery for a student who has not stood on the sand."
+    description: "Nadira has heard enough boasts from passing caravans. Win 3 duels in the Grand Arena at any stakes, then return to her in Dunehold. She offers Grandmaster lessons to those who already hold Master rank."
     type: "interact"
     target_monster: "arena_duel"   # bumped when a challenged champion falls (arenaDuelQuestTag)
     target_count: 3
@@ -258,7 +276,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 2500
-      experience: 2500
+      experience: 1500
 
   # ============ ENDGAME TRIAD GATES ============
   # Starting quests so they are active on every run AND on loaded old saves
@@ -268,7 +286,7 @@ quests:
   # no dragon is left alive on the cliffs (on_complete_spawns fires once).
   broodmother_nests:
     name: "The Silent Nests"
-    description: "Leave no Dragon alive on the Dragon Cliffs. The Brood Mother wakes in the Ember Crater when the cliffs fall silent. The cliff dragons vent smoke without drawing breath, and their eyes light up before they turn."
+    description: "Slay every Dragon on the Dragon Cliffs to draw the Brood Mother into the Ember Crater. The cliff dragons give off smoke without breathing; their eyes light before their heads turn. Something built these creatures."
     type: "kill"
     target_monster: "dragon"
     target_count: 7   # nominal; exterminate snapshots the live census at accept
@@ -277,7 +295,7 @@ quests:
     is_starting_quest: true
     rewards:
       gold: 3000
-      experience: 3000
+      experience: 2300
     on_complete_spawns:
       - { id: brood_mother_crater, map: dragon_cliffs, x: 39, y: 12, monster: dragon_brood_mother }
 
@@ -286,7 +304,7 @@ quests:
   # spawn past the purge visit - the tavern rumor sends you back).
   water_purge:
     name: "The Quiet Deep"
-    description: "Kill every Alien in the Ocean Depths, then dive again. The Alien Enforcer surfaces on your return. They do not drown and they do not surface, and their lamps burn steady down there in rows."
+    description: "Alien lamps burn in rows on the floor of the Ocean Depths. Kill every Alien there, leave the depths, then dive again. The Alien Enforcer will rise from deeper water to meet us on our return."
     type: "kill"
     target_monster: "alien"
     target_count: 3   # nominal; exterminate snapshots the live census at accept
@@ -295,7 +313,7 @@ quests:
     is_starting_quest: true
     rewards:
       gold: 3000
-      experience: 3500
+      experience: 1800
     on_complete_spawns:
       - { id: enforcer_depths, map: water, x: 28, y: 43, monster: alien_enforcer, on_entry: true }
 
@@ -303,7 +321,7 @@ quests:
   # Its only reward is the victory itself (user decree): no gold, no xp.
   endgame_triad:
     name: "The Last Reckoning"
-    description: "Slay the Brood Mother in the Ember Crater, the Ancient God of Death beneath the pyramid, the Alien Enforcer in the Ocean Depths, and save the realm."
+    description: "Three enemies remain between the realm and safety: the Brood Mother in the Ember Crater, the Ancient God of Death beneath the pyramid, and the Alien Enforcer in the Ocean Depths. Find and slay all three."
     type: "kill"
     target_monsters: ["brood_mother", "ancient_god_of_death", "alien_enforcer"]
     target_count: 3

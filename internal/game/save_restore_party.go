@@ -2,7 +2,6 @@ package game
 
 import (
 	"ugataima/internal/character"
-	"ugataima/internal/items"
 )
 
 func (g *MMGame) restoreSavedParty(save *GameSave) {
@@ -14,34 +13,10 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	// Restore the monster-card collection (party-wide). New saves carry the
 	// physical card item + InstanceID; the legacy key-only field is load-only
 	// migration and cannot prove ownership against the shared stash.
-	g.cardSlots = [MaxCardSlots]cardSlot{}
-	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollectionItems); i++ {
-		it := save.Party.CardCollectionItems[i]
-		if it.Name == "" {
-			continue
-		}
-		normalizeItemFromConfig(&it)
-		hadID := it.InstanceID != 0
-		if g.setCardCollectionSlot(i, it) && !hadID {
-			g.loadNeedsResave = true
-		}
-	}
-	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
-		if g.cardCollectionKey(i) != "" {
-			continue
-		}
-		key := save.Party.CardCollection[i]
-		if cardDef(key) == nil {
-			continue
-		}
-		if g.stashOwnsCardKey(key) {
-			g.loadNeedsResave = true
-			continue
-		}
-		if g.setCardCollectionSlot(i, items.CreateItemFromYAML(key)) {
-			g.loadNeedsResave = true
-		}
-	}
+	g.ensureStashLoaded()
+	var migrated bool
+	g.cardSlots, migrated = resolveSavedCardSlots(save.Party, g.stash)
+	g.loadNeedsResave = g.loadNeedsResave || migrated
 	restoreRoster := func(dst *[]*character.MMCharacter, saves []CharacterSave) {
 		for _, cs := range saves {
 			member := restoreCharacterSave(cs)
@@ -57,6 +32,7 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	restoreRoster(&g.party.Members, save.Party.Members)
 	restoreRoster(&g.party.Reserve, save.Party.Reserve)
 	restoreRoster(&g.party.Captive, save.Party.Captive)
+	g.ensureAdditionalRecruits()
 	if save.TotalExperienceEarned > 0 {
 		g.totalExperienceEarned = save.TotalExperienceEarned
 	} else {
@@ -70,17 +46,12 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 			g.totalGoldEarned = 0
 		}
 	}
-	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
-	// the bag anything the shared chest already owns. A stamp means this slot was
-	// migrated - flag it so LoadGameFromFile persists the ids once (the strip is
-	// idempotent per load and needs no resave).
+	// Stamp legacy party identities once. Ownership reconciliation runs after
+	// ground containers are restored, before stack merging and stat derivation.
 	if g.stampPartyInstanceIDs() {
 		g.loadNeedsResave = true
 	}
-	g.reconcilePartyAgainstStash()
-	// Fold duplicate stackables (pre-stacking saves) into stacks AFTER the
-	// stash strip, so a chest-owned copy is removed before it can merge.
-	g.party.MergeStacks()
+
 	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too -
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members
@@ -90,5 +61,38 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	}
 	for _, m := range g.party.Captive {
 		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
+}
+
+// Authored opt-in brings newly released recruits into older saves once.
+func (g *MMGame) ensureAdditionalRecruits() {
+	for _, entry := range g.config.Characters.TavernRecruits {
+		if !entry.AvailableInExistingSaves {
+			continue
+		}
+		found := false
+		experience := 0
+		for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+			for _, ch := range roster {
+				if ch.Name == entry.Name {
+					found = true
+				}
+				if xp := earnedExperienceForCharacter(ch.Level, ch.Experience); xp > experience {
+					experience = xp
+				}
+			}
+		}
+		if found {
+			continue
+		}
+		ch := character.CreateRosterCharacter(entry, g.config)
+		if ch == nil {
+			continue
+		}
+		g.party.Recruit(ch)
+		ch.Experience = experience
+		NewCombatSystem(g).checkLevelUp(ch, false)
+		ch.HitPoints, ch.SpellPoints = ch.MaxHitPoints, ch.MaxSpellPoints
+		g.loadNeedsResave = true
 	}
 }

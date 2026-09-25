@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
@@ -72,13 +71,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.IsInertSetPiece() {
+			if m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.IsInertSetPiece() {
+			if i == owner || m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
@@ -98,7 +97,7 @@ func (g *MMGame) scatterMonsterToFreeTile(m *monster.Monster3D, ctx, cty int, ti
 			continue
 		}
 		nx, ny := TileCenterFromTile(key[0], key[1], tile)
-		if g.collisionSystem.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+		if g.collisionSystem.CanMoveToWithTileOverrides(m.ID, nx, ny, m.WalkableTileOverrides, m.Flying) {
 			used[key] = true
 			m.X, m.Y = nx, ny
 			g.collisionSystem.UpdateEntity(m.ID, nx, ny)
@@ -137,6 +136,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
+	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
+
 	// Process each monster's turn (only those in vision range).
 	for _, m := range gl.game.world.Monsters {
 		if !m.IsAlive() {
@@ -146,41 +147,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
-		if tickTurnStatuses {
-			m.TickPoisonTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
-			m.TickBurnTurn(turnBasedPeriodicEffectFrames(gl.game.config.GetTPS()))   // Drakefang ignite; stacks with poison
-			m.TickArmorShredTurn()                                                   // Pit Labrys shred decays regardless of stun
-			m.TickSlowTurn()                                                         // Tarn Trident silt decays regardless of stun
-			m.TickWeakenTurn()                                                       // Scalebreaker roar decays regardless of stun
-			m.TickSoakTurn()                                                         // Champion Stone Skin rated dual clock
-			if !m.IsAlive() {
-				// Matches RT: HandleMonsterInteractions skips a monster the parallel
-				// Update's TickPoison just killed. finalizeIndirectKills (end of
-				// frame) does the actual XP/loot/collision cleanup for both modes.
-				continue
-			}
-		}
-		if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
-			// Stun-free this turn: count toward clearing the diminishing-returns chain.
-			m.StunDRMemoryTurns--
-			if m.StunDRMemoryTurns == 0 {
-				m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
-			}
-		}
-		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
-			// Expiry clears the RT clock too, or the stun-star overlay and
-			// bossDisabled keep reading the monster as stunned.
-			status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
+		if gl.game.tickMonsterTurnStatuses(m, tickTurnStatuses) {
 			gl.game.turnBasedMonsterStunned[m] = true
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		}
-		// Root (bear trap) burns one turn per monster TURN - whether it moves
-		// or stands adjacent and attacks (root pins movement, not actions).
-		// MUST tick before the Pacified/Bound branches: a bound undead still
-		// moves through monsterMoveTurnBased and its root must hold and decay.
-		if tickTurnStatuses {
-			m.TickRootTurn()
+		if !m.IsAlive() {
+			continue
 		}
 
 		// CurrentAIBehavior is the mode-independent owner of high-level precedence.
@@ -188,6 +161,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// branch must not silently fall through into ordinary party combat.
 		behavior := m.CurrentAIBehavior()
 		switch behavior {
+		case monster.AIBehaviorAmbient:
+			m.UpdateAmbient(gl.game.collisionSystem, m.AITargetX, m.AITargetY, true)
+			gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+			gl.game.refreshMonsterCollisionState(m)
+			continue
 		case monster.AIBehaviorInert:
 			// Sealed bosses, warded warlords, and ward idols hold their placed tile.
 			gl.game.refreshMonsterCollisionState(m)
@@ -226,7 +204,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			if tickTurnStatuses {
 				elapsedFrames = gl.game.config.GetTPS()
 			}
-			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && !m.RootHeld() {
+			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && gl.monsterCanStepTB(m) {
 				wx, wy := TileCenterFromTile(nx, ny, tileSize)
 				gl.commitMonsterMoveTB(m, wx, wy)
 			}
@@ -382,7 +360,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				axisDist = adY
 			}
 			hasLOS := gl.game.collisionSystem == nil ||
-				gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+				gl.game.combat.attackLineClear(m.X, m.Y, playerX, playerY)
 			if aligned && axisDist >= 1 && axisDist <= rangeTiles && hasLOS {
 				if gl.game.tryClaimMonsterAttackPost(m) {
 					m.State = monster.StateAttacking
@@ -451,10 +429,15 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 }
 
 // commitMonsterMoveTB moves the monster to the tile-center (wx, wy) when the
-// habitat-aware collision check passes, updating its collision entity and turn
+// monster-terrain-aware collision check passes, updating its collision entity and turn
 // stamp. Returns whether the monster moved.
 func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
-	if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+	if blocked := gl.attackTargetTile(m); blocked != nil &&
+		TileIndex(wx, gl.game.config.GetTileSize()) == blocked.X &&
+		TileIndex(wy, gl.game.config.GetTileSize()) == blocked.Y {
+		return false
+	}
+	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
@@ -462,6 +445,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 	if movedTile {
 		gl.game.releaseMonsterAttackPost(m)
 	}
+	oldX, oldY := m.X, m.Y
 	m.X = wx
 	m.Y = wy
 	if movedTile {
@@ -470,7 +454,9 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 		m.ResetPathCache()
 	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
-	m.LastMoveTick = gl.game.frameCount
+	if movedTile {
+		gl.game.observeOverwatchMovement(m, oldX, oldY)
+	}
 	return true
 }
 
@@ -491,20 +477,14 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 // attacker kind (melee: adjacent tile; ranged vs party: firing lane; ranged vs
 // a monster foe: plain approach).
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
+	if !monster.SpendAmbientTurnMove() {
+		return
+	}
 	// A mob that is searching for a post is transit even if it reached this
 	// method from an old held position. Physical overlap remains allowed; only
 	// its attack claim is released.
 	gl.game.releaseMonsterAttackPost(monster)
-	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
-	// lives in TickRootTurn (root != stun - attacks still happen).
-	if monster.RootHeld() {
-		return
-	}
-	// Slowed (Tarn Trident silt): TB movement is tile-stepped, so the RT speed
-	// drag converts to skipping this turn's step SlowPct% of the time - the
-	// same average ground lost per turn, attacks unaffected. ActiveSlowPct
-	// keeps the latched value for the turn that consumed the final tick.
-	if pct := monster.ActiveSlowPct(); pct > 0 && rand.Intn(100) < pct {
+	if !gl.monsterCanStepTB(monster) {
 		return
 	}
 	tileSize := float64(gl.game.config.GetTileSize())
@@ -567,7 +547,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		// against a monster foe there is no alignment rule - plain approach.
 		if monster.AIFoe == nil && !monster.Bound && gl.game.collisionSystem != nil {
 			if goals := gl.turnBasedRangedGoalTiles(monster); len(goals) > 0 {
-				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(monster)); ok {
 					wx, wy := TileCenterFromTile(nx, ny, tileSize)
 					if gl.commitMonsterMoveTB(monster, wx, wy) {
 						return
@@ -597,7 +577,7 @@ func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monste
 	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
 		return false
 	}
-	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(m)); ok {
 		wx, wy := TileCenterFromTile(nx, ny, tileSize)
 		if gl.commitMonsterMoveTB(m, wx, wy) {
 			return true
@@ -619,10 +599,10 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		if gl.game.monsterHasAttackTarget(m) && gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if requireLOS && !gl.game.collisionSystem.CheckLineOfSight(wx, wy, targetX, targetY) {
+		if requireLOS && !gl.game.combat.attackLineClear(wx, wy, targetX, targetY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
@@ -643,7 +623,7 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 // turnBasedBlockedMeleeApproachGoalTiles supplies a second A* goal ring only
 // when no adjacent attack post is currently free. These are never attack posts:
 // they let a pouncer advance after its landing ring is occupied without using a
-// separate greedy step that could disagree with terrain/habitat pathing.
+// separate greedy step that could disagree with terrain override pathing.
 // The ring itself is shared with RT pursuit (MeleeApproachRingGoals).
 func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
 	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
@@ -712,10 +692,10 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if !gl.game.collisionSystem.CheckLineOfSight(wx, wy, playerX, playerY) {
+		if !gl.game.combat.attackLineClear(wx, wy, playerX, playerY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
@@ -739,4 +719,55 @@ func (gl *GameLoop) endMonsterTurn() {
 	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages
+}
+
+// attackTargetTile uses the same resolved target as movement and combat.
+func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
+	_, x, y, ok := gl.game.monsterAttackTarget(m)
+	if !ok {
+		return nil
+	}
+	ts := gl.game.config.GetTileSize()
+	return &monster.TileCoord{X: TileIndex(x, ts), Y: TileIndex(y, ts)}
+}
+
+// tickMonsterTurnStatuses owns the status clock for visible and remote turns.
+// It returns whether stun consumed this actor's action.
+func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses bool) bool {
+	if tickTurnStatuses {
+		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
+		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
+		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun
+		m.TickSlowTurn()                                                   // Tarn Trident silt decays regardless of stun
+		m.TickWeakenTurn()                                                 // Scalebreaker roar decays regardless of stun
+		m.TickSoakTurn()                                                   // Champion Stone Skin rated dual clock
+		if !m.IsAlive() {
+			// Matches RT: HandleMonsterInteractions skips a monster the parallel
+			// Update's TickPoison just killed. finalizeIndirectKills (end of
+			// frame) does the actual XP/loot/collision cleanup for both modes.
+			return false
+		}
+	}
+	if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
+		// Stun-free this turn: count toward clearing the diminishing-returns chain.
+		m.StunDRMemoryTurns--
+		if m.StunDRMemoryTurns == 0 {
+			m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
+		}
+	}
+	if tickTurnStatuses && m.StunTurnsRemaining > 0 {
+		// Expiry clears the RT clock too, or the stun-star overlay and
+		// bossDisabled keep reading the monster as stunned.
+		status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
+		return true
+	}
+	// Root (bear trap) burns one turn per monster TURN - whether it moves
+	// or stands adjacent and attacks (root pins movement, not actions).
+	// MUST tick before the Pacified/Bound branches: a bound undead still
+	// moves through monsterMoveTurnBased and its root must hold and decay.
+	if tickTurnStatuses {
+		m.TickRootTurn()
+	}
+
+	return false
 }

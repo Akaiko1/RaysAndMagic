@@ -9,6 +9,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v5
 
@@ -25,15 +30,22 @@ jobs:
             pkg-config xvfb
 
       - name: go vet
+        if: matrix.shard == 0
         run: go vet ./...
 
       - name: go build
+        if: matrix.shard == 0
         run: go build ./...
 
+      - name: Check race-test partitioning
+        if: matrix.shard == 0
+        run: python3 .github/scripts/test-race-shard_test.py
+
       - name: Tests with race detector
-        # Ebiten init opens a GLFW window at package init time, which fails on
-        # headless CI without DISPLAY. xvfb-run provides a virtual framebuffer
-        # so package init succeeds and tests can run.
-        # 15m: internal/game under -race takes 210-260s on a fast machine; a
-        # 2-core runner with a cold cache blows straight through 5m.
-        run: xvfb-run --auto-servernum go test -race -timeout 15m ./...
+        # Ebitengine 2.10 is pure Go, but still needs desktop runtime
+        # libraries and a display/graphics context. xvfb-run supplies
+        # the virtual display for graphics-dependent tests.
+        # Split internal/game across runners: its cumulative race-test time
+        # exceeds 15m on CI. Each group keeps the same timeout and detector.
+        # Shard 0 also runs every other package.
+        run: xvfb-run --auto-servernum bash .github/scripts/test-race-shard.sh ${{ matrix.shard }} ${{ strategy.job-total }}

@@ -140,9 +140,33 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 	return cs.placeTrapByKey(caster, trapKey, announce)
 }
 
-// placeTrapByKey arms a SPECIFIC trap (the trap book's double-click casts the
-// clicked entry, slotted or not) - gates and placement shared with the quick
-// slot path.
+// quickTrapAvailable reports whether the slotted trap passes every gate except
+// the tile, which depends on where the party faces.
+func (cs *CombatSystem) quickTrapAvailable(caster *character.MMCharacter) bool {
+	trapKey, armed := equippedTrapKey(caster)
+	if !armed || !caster.CanUseCombatAction() || !hasTrapBook(caster) {
+		return false
+	}
+	def, ok := config.GetTrapDefinition(trapKey)
+	return ok && cs.trapRefusal(caster, def) == ""
+}
+
+// trapRefusal is the caster-side placement gate; "" means the trap may be armed.
+func (cs *CombatSystem) trapRefusal(caster *character.MMCharacter, def *config.TrapDefinitionConfig) string {
+	if caster.Level < def.Level {
+		return fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name)
+	}
+	if spCost := cs.effectiveSpellCost(caster, def.SPCost); caster.SpellPoints < spCost {
+		return fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)", caster.Name, def.Name, caster.SpellPoints, spCost)
+	}
+	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
+		return fmt.Sprintf("%s already has %d traps armed.", caster.Name, MaxTrapsPerOwner)
+	}
+	return ""
+}
+
+// placeTrapByKey arms a specific trap (Enter/F in the book uses the selected
+// entry, slotted or not). Gates and placement are shared with the quick slot.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
 	if !caster.CanUseCombatAction() || !hasTrapBook(caster) {
 		return "", false
@@ -157,17 +181,10 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 		}
 		return "", false
 	}
-	if caster.Level < def.Level {
-		return refuse(fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name))
+	if msg := cs.trapRefusal(caster, def); msg != "" {
+		return refuse(msg)
 	}
 	spCost := cs.effectiveSpellCost(caster, def.SPCost)
-	if caster.SpellPoints < spCost {
-		return refuse(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
-			caster.Name, def.Name, caster.SpellPoints, spCost))
-	}
-	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
-		return refuse(fmt.Sprintf("%s already has %d traps armed.", caster.Name, MaxTrapsPerOwner))
-	}
 
 	tileX, tileY, ok := cs.pickTrapTile()
 	if !ok {
@@ -198,7 +215,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 // previous tile (which may be the party's own - refused); otherwise max range.
 func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	ts := float64(cs.game.config.GetTileSize())
-	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
+	dirX, dirY := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	curX, curY := TileIndex(cs.game.camera.X, ts), TileIndex(cs.game.camera.Y, ts)
 	lastX, lastY := curX, curY
 
@@ -232,12 +249,16 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 
 // nearestPulledFlankMonster returns the closest monster currently pulled onto a
 // turn-based front DIAGONAL slot (drawn at screen-center), or nil. Uses the
-// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees.
+// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees, and
+// the party auto-target policy so a trap never lands under an ally.
 func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
+	if cs.partyAimTarget != nil {
+		return nil // explicit aim must not acquire a different pulled flank
+	}
 	var best *monsterPkg.Monster3D
 	var bestD float64
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() {
 			continue
 		}
 		side, _, _, pulled, ok := cs.pulledFrontSlot(m)
@@ -301,6 +322,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s springs under %s!", def.Name, victim.Name))
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
+	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
@@ -309,13 +331,29 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 					Distance(t.X, t.Y, m.X, m.Y) > radius {
 					continue
 				}
+				if cs.tryDarkElfBindInstead(t.Owner, m) {
+					if m == victim {
+						boundVictim = true
+					}
+					continue
+				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			}
 		} else {
-			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
+			if cs.tryDarkElfBindInstead(t.Owner, victim) {
+				boundVictim = true
+			} else {
+				cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
+			}
 		}
 	}
 
+	if boundVictim {
+		return
+	}
+	if def.DamageBase <= 0 && cs.tryDarkElfBindInstead(t.Owner, victim) {
+		return
+	}
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
 	if victim.IsDamageInvulnerable() {

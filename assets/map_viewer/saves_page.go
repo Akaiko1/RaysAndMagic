@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
@@ -387,7 +386,7 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []in
 		addpHeader("%s", title)
 		for _, cs := range members {
 			addp(color.White, "%s  Lv.%d %s", cs.Name, cs.Level, character.CharacterClass(cs.Class).String())
-			addp(mobStatHP, "  HP %d/%d   SP %d/%d", cs.HitPoints, cs.MaxHitPoints, cs.SpellPoints, cs.MaxSpellPoints)
+			addp(mobStatHP, "  Saved HP %d/%d   SP %d/%d", cs.HitPoints, cs.MaxHitPoints, cs.SpellPoints, cs.MaxSpellPoints)
 			equipped := make(map[items.EquipSlot]items.Item, len(cs.Equipment))
 			for _, eq := range cs.Equipment {
 				equipped[items.EquipSlot(eq.Slot)] = eq.Item
@@ -434,23 +433,16 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []in
 
 	addlHeader("Card Collection")
 	cards := 0
-	for _, it := range gs.Party.CardCollectionItems {
+	shared, err := game.ReadStashSnapshot()
+	if err != nil {
+		addl(mobStatDamage, "Could not verify shared stash: %s", err)
+	}
+	for _, it := range game.PreviewSavedCardCollection(gs.Party, shared) {
 		if it.Name == "" {
 			continue
 		}
-		game.RefreshItemFromConfig(&it)
 		addlItem(it, "  %s", it.Name)
 		cards++
-	}
-	if cards == 0 {
-		// Legacy saves carry only the key list.
-		for _, key := range gs.Party.CardCollection {
-			if key == "" {
-				continue
-			}
-			addl(mobStatDefault, "  %s", key)
-			cards++
-		}
 	}
 	if cards == 0 {
 		addl(mobStatHeader, "(no cards)")
@@ -465,7 +457,7 @@ func buildStashDetail() (party, loot []infoLine) {
 		{text: "stash.json - one chest shared by every save", col: mobStatDefault},
 		{text: "Managed in-game at the tavern (Manage your stash)", col: mobStatDefault},
 	}
-	s, err := stash.Load()
+	s, err := game.ReadStashSnapshot()
 	if err != nil {
 		loot = []infoLine{{text: "failed to read stash: " + err.Error(), col: mobStatDamage}}
 		return party, loot
@@ -511,7 +503,7 @@ func savesButtons() []saveButton {
 	y := pageBarHeight + 10
 	var btns []saveButton
 	add := func(id, label string) {
-		w := len(label)*7 + 22
+		w := game.ShadedTextWidth(label) + 22
 		btns = append(btns, saveButton{id: id, label: label, r: rect{x: x, y: y, w: w, h: saveButtonH}})
 		x += w + 8
 	}
@@ -659,27 +651,13 @@ func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []infoLine, scr
 // renders it through the SAME card builders the Items/Spells pages use, so the
 // hover tooltip in the saves browser can't drift from the catalog pages.
 func cardForSavedItem(it items.Item) contentCard {
+	kind := cardItem
 	switch it.Type {
 	case items.ItemWeapon:
-		if def, key, ok := config.GetWeaponDefinitionByName(it.Name); ok && def != nil {
-			return weaponCard(titleCase(def.Category), key, def)
-		}
-	case items.ItemTrap:
-		if def, ok := config.GetTrapDefinition(string(it.SpellEffect)); ok {
-			return trapCard("Trap", string(it.SpellEffect), def)
-		}
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		if config.GlobalSpells != nil {
-			key := string(it.SpellEffect)
-			if def, ok := config.GlobalSpells.Spells[key]; ok && def != nil {
-				return spellCard(titleCase(def.School), key, def)
-			}
-		}
-	default:
-		if def, key, ok := config.GetItemDefinitionByName(it.Name); ok && def != nil {
-			return itemCard(wearableKindLabel(def), key, def)
-		}
+		kind = cardWeapon
+	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap:
+		kind = cardSpell
 	}
-	// No definition found (renamed/removed content): show what the save carries.
-	return contentCard{name: it.Name, rarity: it.Rarity, description: it.Description}
+	return contentCard{kind: kind, name: it.Name, rarity: it.Rarity,
+		tooltipRows: strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")}
 }

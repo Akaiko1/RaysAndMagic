@@ -17,6 +17,11 @@ import (
 // debugSimJobs carries one closure per Draw frame from a sim to the loop.
 var debugSimJobs = make(chan func(*ebiten.Image))
 
+// Optional production game driven by the engine's real Update/Draw cadence.
+// Install and remove only in runOnDrawFrame jobs; ordinary GPU tests keep
+// their existing one-job-per-frame behavior.
+var debugLiveGame ebiten.Game
+
 // runOnDrawFrame executes fn inside a live Draw frame and blocks until done.
 // Only call from debug sims (RAM_DEBUG_SIM=1) - without the game loop running
 // there is nothing to drain the channel.
@@ -50,6 +55,9 @@ func (g *testMainGame) Update() error {
 	case <-g.done:
 		return ebiten.Termination
 	default:
+		if debugLiveGame != nil {
+			return debugLiveGame.Update()
+		}
 		return nil
 	}
 }
@@ -61,10 +69,18 @@ func (g *testMainGame) Draw(screen *ebiten.Image) {
 	case job := <-debugSimJobs:
 		job(screen)
 	default:
+		if debugLiveGame != nil {
+			debugLiveGame.Draw(screen)
+		}
 	}
 }
 
-func (*testMainGame) Layout(int, int) (int, int) { return 320, 240 }
+func (*testMainGame) Layout(w, h int) (int, int) {
+	if debugLiveGame != nil {
+		return debugLiveGame.Layout(w, h)
+	}
+	return 320, 240
+}
 
 func TestMain(m *testing.M) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
@@ -73,6 +89,7 @@ func TestMain(m *testing.M) {
 	g := &testMainGame{m: m, code: 1, done: make(chan struct{})}
 	ebiten.SetWindowSize(320, 240)
 	ebiten.SetWindowTitle("RaysAndMagic debug sims")
+	ebiten.SetRunnableOnUnfocused(true)
 	ebiten.SetVsyncEnabled(false) // measurement frames, not display frames
 	ebiten.SetTPS(ebiten.SyncWithFPS)
 	if err := ebiten.RunGame(g); err != nil {

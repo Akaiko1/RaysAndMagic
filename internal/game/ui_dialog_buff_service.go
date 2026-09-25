@@ -1,8 +1,8 @@
 package game
 
 import (
-	"fmt"
 	"image/color"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
@@ -108,7 +108,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 
 	greeting := ui.game.npcShopHeaderLine(npc, "")
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
-	drawDebugText(screen, clipDebugText(fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), layout.balance.w),
+	drawDebugText(screen, clipDebugText(uitext.Text("dialog.party_gold", ui.game.party.Gold), layout.balance.w),
 		layout.balance.x, layout.balance.y)
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -123,18 +123,10 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		buyable := affordable && !alreadyActive
 		hovered := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 
-		bg := color.RGBA{30, 30, 50, 220}
+		ui.drawButtonFrame(screen, x, y, w, h, buyable && hovered)
 		if !buyable {
-			bg = color.RGBA{40, 28, 28, 200}
-		} else if hovered {
-			bg = color.RGBA{50, 55, 85, 240}
+			drawFilledRect(screen, x+4, y+4, w-8, h-8, color.RGBA{25, 3, 3, 55})
 		}
-		drawFilledRect(screen, x, y, w, h, bg)
-		border := color.RGBA{100, 100, 130, 255}
-		if buyable && hovered {
-			border = color.RGBA{210, 170, 80, 240}
-		}
-		drawRectBorder(screen, x, y, w, h, 2, border)
 
 		iconX := x + buffServiceIconGap
 		iconY := y + (h-buffServiceIconSize)/2
@@ -143,24 +135,26 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		textX := iconX + buffServiceIconSize + buffServiceIconGap
 		textW := x + w - textX - 12
 		drawDebugText(screen, clipDebugText(choice.Text, textW), textX, y+10)
-		detail := fmt.Sprintf("%s for %s - %d gold",
+		detail := uitext.Text("dialog.for_gold",
 			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost)
 		if alreadyActive {
-			detail += " (already active)"
+			detail += uitext.Text("dialog.already_active")
 		} else if !affordable {
-			detail += " (too costly)"
+			detail += uitext.Text("dialog.too_costly")
 		}
 		drawDebugText(screen, clipDebugText(detail, textW), textX, y+10+debugTextCharHeight+4)
 
 		if hovered {
 			lines := []string{
 				buffServiceLabel(choice.Buff),
-				fmt.Sprintf("Cast on the whole party for %s.", buffServiceDurationLabel(choice.DurationSeconds)),
-				fmt.Sprintf("Cost: %d gold", choice.Cost),
-				"A service - the party does not learn the spell.",
+				"", "EFFECTS",
+				uitext.Text("dialog.cast_on_the_whole_party_for", buffServiceDurationLabel(choice.DurationSeconds)),
+				"", "USAGE",
+				uitext.Text("dialog.cost_gold", choice.Cost),
+				uitext.Text("dialog.a_service_the_party_does_not_learn"),
 			}
 			if alreadyActive {
-				lines = append(lines, "Already woven over the party.")
+				lines = append(lines, uitext.Text("dialog.already_woven_over_the_party"))
 			}
 			ui.queueTooltip(lines, mouseX+12, mouseY+8)
 		}
@@ -176,7 +170,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		})
 	}
 
-	drawDebugText(screen, "Double-click a charm to have it cast. ESC to leave.",
+	drawDebugText(screen, uitext.Text("dialog.double_click_a_charm_to_have_it"),
 		layout.footer[0].x, layout.footer[0].y)
 }
 
@@ -191,11 +185,11 @@ func buffServiceLabel(buff string) string {
 
 func buffServiceDurationLabel(seconds int) string {
 	if seconds < 60 {
-		return fmt.Sprintf("%d sec", seconds)
+		return uitext.Text("dialog.sec", seconds)
 	}
 	minutes, remainder := seconds/60, seconds%60
 	if remainder == 0 {
-		return fmt.Sprintf("%d min", minutes)
+		return uitext.Text("dialog.min", minutes)
 	}
-	return fmt.Sprintf("%d min %d sec", minutes, remainder)
+	return uitext.Text("dialog.min_sec", minutes, remainder)
 }

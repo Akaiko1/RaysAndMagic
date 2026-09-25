@@ -78,7 +78,7 @@ func NewFxPreview(cfg *config.Config) (*FxPreview, error) {
 	world.GlobalWorldManager.LoadedMaps[fxStageMapKey] = p.arena
 	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 
-	p.g = NewMMGame(cfg)
+	p.g = newMMGame(cfg, true)
 	p.g.turnBasedMode = false
 	p.g.selectedChar = 0
 
@@ -246,7 +246,7 @@ func (p *FxPreview) clearTransient() {
 	// qualify for the next exhibit. Reuse the shared effect reset, without
 	// gameplay expiry callbacks such as return teleports.
 	g.resetTimedEffects()
-	g.world.SetFlyActive(false)
+	g.world.SetTerrainPassageActive(false)
 	g.world.SetWalkOnWaterActive(false)
 	g.world.SetWaterBreathingActive(false)
 	for i := range g.magicProjectiles {

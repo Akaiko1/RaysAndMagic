@@ -13,6 +13,8 @@ import (
 func TestChampionSetDropsOnePieceMax(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
+	g.world = newTestWorldSized(g.config, 10, 10)
+	g.collisionSystem.UpdateTileChecker(g.world)
 	if _, err := config.LoadChampionConfig("../../assets/champions.yaml"); err != nil {
 		t.Fatalf("load champions: %v", err)
 	}

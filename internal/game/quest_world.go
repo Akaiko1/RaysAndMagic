@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,23 +14,26 @@ import (
 	"ugataima/internal/world"
 )
 
-// refreshRepeatableQuests clears every finished repeatable errand at nightfall
+// refreshRepeatableQuests clears claimed errands when their schedule is due
 // so its giver offers the same task again. The quest is dropped rather than
 // rewound: an absent quest is exactly the "never taken" state the NPC dialogue
 // machine already reads as an offer. The giver's Visited flag is cleared with
 // it - turn-in sets Visited to conclude a giver, and a nightly errand must not
 // stay concluded.
-func (g *MMGame) refreshRepeatableQuests() {
+func (g *MMGame) refreshRepeatableQuests(event quests.RepeatSchedule) {
 	if g.questManager == nil {
 		return
 	}
 	refreshed := make(map[string]bool)
 	for id, def := range g.questManager.Definitions() {
-		if def == nil || !def.Repeatable {
+		if def == nil || def.Repeatable == "" {
 			continue
 		}
 		q := g.questManager.GetQuest(id)
 		if q == nil || !q.Completed || !q.RewardsClaimed {
+			continue
+		}
+		if !def.Repeatable.Due(q.ClaimedAtDay, g.currentQuestDay(), event) {
 			continue
 		}
 		g.questManager.RemoveQuest(id)
@@ -126,12 +130,26 @@ func questMonsterTag(m *monster.Monster3D) string {
 // scopes the census to one map or merged-world region; an empty target scans
 // every loaded world.
 func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
+	return g.countQuestTargetsFromSource(def, "", false)
+}
+
+// During kill finalization, a dead actor not yet queued for removal still owes
+// its kill credit. Count it until finishMonsterKill processes it; otherwise a
+// batch of deaths temporarily looks like a permanently smaller population.
+// Acceptance and restore census only living actors, including for legacy saves.
+func (g *MMGame) countQuestTargetsFromSource(def *quests.QuestDefinition, questID string, includePendingDeaths bool) int {
 	if def == nil {
 		return 0
 	}
 	targetMap := def.TargetMap
-	matches := func(m *monster.Monster3D) bool {
-		return def.MatchesTarget(questMonsterTag(m))
+	matches := func(w *world.World3D, m *monster.Monster3D) bool {
+		if m == nil || m.QuestProgressIgnored {
+			return false
+		}
+		if !m.IsAlive() && !(includePendingDeaths && w == g.world && !slices.Contains(g.deadMonsterIDs, m.ID)) {
+			return false
+		}
+		return def.MatchesTarget(questMonsterTag(m)) && (!def.EncounterOnly || (m.IsEncounterMonster && m.EncounterRewards != nil && m.EncounterRewards.QuestID == questID))
 	}
 	scan := func(w *world.World3D) int {
 		if w == nil {
@@ -139,10 +157,7 @@ func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 		}
 		count := 0
 		for _, m := range w.Monsters {
-			if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
-				continue
-			}
-			if matches(m) {
+			if matches(w, m) {
 				count++
 			}
 		}
@@ -159,15 +174,13 @@ func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 			ts := g.config.GetTileSize()
 			count := 0
 			for _, m := range wm.OpenWorld.Monsters {
-				if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
+				if !matches(wm.OpenWorld, m) {
 					continue
 				}
 				if wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) != r {
 					continue
 				}
-				if matches(m) {
-					count++
-				}
+				count++
 			}
 			return count
 		}
@@ -182,30 +195,34 @@ func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 }
 
 // syncKillQuestCensus returns the live target count for an active kill quest.
-// Exterminate counters are derived from that same census, keeping the world
-// roster as their single source of truth.
-func (g *MMGame) syncKillQuestCensus(q *quests.Quest) (int, bool) {
+// Available targets include deferred spawns. Fixed quotas can shrink; kill-all
+// counters remain anchored to their initial census.
+func (g *MMGame) syncKillQuestCensus(q *quests.Quest, includePendingDeaths bool) (int, bool) {
 	if g.questManager == nil || q == nil || q.Completed || q.Definition == nil ||
-		q.Definition.Type != quests.QuestTypeKill ||
-		q.Definition.EncounterOnly ||
+		q.Definition.Type != quests.QuestTypeKill || q.Definition.FixedQuota ||
 		(q.Definition.TargetMonster == "" && len(q.Definition.TargetMonsters) == 0) {
 		return 0, false
 	}
 
-	living := g.countLivingQuestTargets(q.Definition)
+	living, valid := g.availableKillQuestTargets(q, includePendingDeaths)
+	if !valid {
+		return 0, false
+	}
 	if q.Definition.Exterminate {
-		if q.DynamicTarget == 0 {
+		if !q.DynamicTargetSet && q.DynamicTarget == 0 {
 			g.questManager.SetDynamicTarget(q.ID, living+q.CurrentCount)
 		}
 		g.questManager.SetCurrentCount(q.ID, q.Target()-living)
+	} else {
+		g.questManager.SetDynamicTarget(q.ID, min(q.Target(), q.CurrentCount+living))
 	}
 	return living, true
 }
 
 // completeKillQuestIfCleared performs the one census-backed transition from an
 // active kill quest to completed and owns its completion announcement.
-func (g *MMGame) completeKillQuestIfCleared(q *quests.Quest) bool {
-	living, ok := g.syncKillQuestCensus(q)
+func (g *MMGame) completeKillQuestIfCleared(q *quests.Quest, includePendingDeaths bool) bool {
+	living, ok := g.syncKillQuestCensus(q, includePendingDeaths)
 	if !ok || living > 0 {
 		return false
 	}
@@ -265,7 +282,7 @@ func (g *MMGame) creditQuestIfCleared(questID string) bool {
 	if g.questManager == nil {
 		return false
 	}
-	return g.completeKillQuestIfCleared(g.questManager.GetQuest(questID))
+	return g.completeKillQuestIfCleared(g.questManager.GetQuest(questID), false)
 }
 
 // questTileKey identifies one quest-changed tile position across maps.
@@ -417,6 +434,12 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	if q == nil || q.Definition == nil {
 		return
 	}
+	// This hook runs only on completion transitions, not journal rendering
+	// or restoration of completed quests. Automatic objectives and payouts resolve
+	// here; ordinary quests are counted later at their committed turn-in.
+	if q.RewardsClaimed {
+		g.recordProfileQuestResolution(q)
+	}
 	g.playSound(soundQuestComplete)
 	if message != "" {
 		g.AddCombatMessage(message)
@@ -453,11 +476,9 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 		if q == nil || !q.Completed {
 			continue
 		}
-		legacyDone := g.questSpawnsDone[id]
-		for i, sp := range def.OnCompleteSpawns {
+		for _, sp := range def.OnCompleteSpawns {
 			key := fmt.Sprintf("%s#%s", id, sp.ID)
-			legacyIndexKey := fmt.Sprintf("%s#%d", id, i)
-			if legacyDone || g.questSpawnsDone[key] || g.questSpawnsDone[legacyIndexKey] {
+			if g.questSpawnFired(key) {
 				continue
 			}
 			w := g.worldByKey(sp.Map)
@@ -499,24 +520,19 @@ func (g *MMGame) worldByKey(mapKey string) *world.World3D {
 	return g.world
 }
 
-// reconcileExterminationQuests re-anchors every ACTIVE exterminate quest to the
-// live world. Starting quests never pass through handleGiveQuest - the only
-// DynamicTarget assigner - so on a fresh run the journal would show the static
-// nominal count, and on a loaded save whose targets are ALREADY all dead no
-// future kill would ever run the completion check (the Brood Mother could
-// never spawn). Must run AFTER the monster rosters exist: new game (post
-// world reset) and save load (post monster restore).
-func (g *MMGame) reconcileExterminationQuests() {
+// reconcileKillQuests resolves every active kill quota after new-game or save
+// restoration has populated monsters, NPC source flags and spawn history.
+func (g *MMGame) reconcileKillQuests() {
 	if g.questManager == nil {
 		return
 	}
 	completed := false
 	for _, q := range g.questManager.GetActiveQuests() {
 		if q.Completed || q.Definition == nil ||
-			q.Definition.Type != quests.QuestTypeKill || !q.Definition.Exterminate {
+			q.Definition.Type != quests.QuestTypeKill {
 			continue
 		}
-		if g.completeKillQuestIfCleared(q) {
+		if g.completeKillQuestIfCleared(q, false) {
 			completed = true
 		}
 	}
@@ -551,19 +567,19 @@ func (g *MMGame) flushPendingQuestSpawns() {
 	g.pendingQuestSpawns = nil
 }
 
-// completeClearedKillQuestsForTarget finishes map-scoped kill quests the moment
+// completeClearedKillQuestsForTarget finishes kill quests the moment
 // their last living target dies, regardless of the kill counter. The shared
 // census helper also keeps Exterminate counters aligned with the live roster.
-func (g *MMGame) completeClearedKillQuestsForTarget(monsterType string) {
+func (g *MMGame) completeClearedKillQuestsForTarget(monsterType string, includePendingDeaths bool) {
 	if g.questManager == nil {
 		return
 	}
 	for _, q := range g.questManager.GetActiveQuests() {
 		if q.Definition == nil || q.Definition.Type != quests.QuestTypeKill ||
-			q.Definition.TargetMap == "" || !q.Definition.MatchesTarget(monsterType) {
+			!q.Definition.MatchesTarget(monsterType) {
 			continue
 		}
-		g.completeKillQuestIfCleared(q)
+		g.completeKillQuestIfCleared(q, includePendingDeaths)
 	}
 }
 

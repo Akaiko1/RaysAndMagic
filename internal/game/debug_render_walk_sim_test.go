@@ -31,6 +31,10 @@ package game
 // RAM_WALK_OPEN_WORLD=1 uses the stitched physical world.
 // RAM_WALK_PREWARM_REGIONS=desert,deep_jungle simulates region residency.
 // RAM_WALK_GC_AFTER_PREWARM=1 logs live memory and standee texture footprint.
+// RAM_WALK_PREWARM_NEIGHBORS=1 uses production open-world neighbor residency.
+// RAM_WALK_GPU_BUDGET_MB=1536 checks peak engine image bytes, not total driver VRAM.
+// RAM_WALK_FAST_PREWARM=1 batches eight updates per Draw for memory-only probes.
+// Its prewarm timing is a batch duration, not a production frame measurement.
 // RAM_WALK_OFFSET_PX=0,30 moves that pose within the selected tile.
 // RAM_WALK_SCREENSHOT=/tmp/river.png saves the final rendered frame.
 // RAM_WALK_TREES_ONLY=1 removes every other unified-sprite category.
@@ -68,11 +72,12 @@ type walkFrame struct {
 	angleDeg  float64
 	riverDist int
 
-	spritesMs float64 // min over reps - the overlay's "sprites:" number
-	floorMs   float64
-	wallsMs   float64
-	trees     int // statTreesDrawn
-	standeeDC int // statStandeeCalls
+	spritesMs                          float64 // min over reps - the overlay's "sprites:" number
+	floorMs                            float64
+	wallsMs                            float64
+	trees                              int // statTreesDrawn
+	standeeDC                          int // statStandeeCalls
+	drawP50, drawP95, drawP99, drawMax float64
 }
 
 // walkHarness owns the real game + offscreen target and measures poses.
@@ -90,6 +95,12 @@ func logRenderWalkMemory(t *testing.T, label string, r *Renderer) {
 	runtime.GC()
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
+	var gpu ebiten.DebugInfo
+	ebiten.ReadDebugInfo(&gpu)
+	residency := r.renderResourceStats()
+	t.Logf("%s GPU images (engine estimate)=%dMB registry owned=%dMB readbacks=%d (%dMB)", label,
+		gpu.TotalGPUImageMemoryUsageInBytes/(1<<20), residency.ownedGPUBytes/(1<<20),
+		r.loadDiagnostics.readbacks, r.loadDiagnostics.readbackBytes/(1<<20))
 	images := make(map[*ebiten.Image]struct{})
 	groupImages := make(map[string]map[*ebiten.Image]struct{})
 	var pixels int64
@@ -150,14 +161,17 @@ func logRenderWalkMemory(t *testing.T, label string, r *Renderer) {
 func (h *walkHarness) measure(x, y, angleRad float64) walkFrame {
 	h.g.camera.X, h.g.camera.Y, h.g.camera.Angle = x, y, angleRad
 	best := walkFrame{spritesMs: math.MaxFloat64}
+	draws := make([]float64, h.reps)
 	for i := 0; i < h.reps; i++ {
 		runOnDrawFrame(func(_ *ebiten.Image) {
+			started := time.Now()
 			h.screen.Clear()
 			if h.fullFrame {
 				h.g.gameLoop.Draw(h.screen)
 			} else {
 				h.r.RenderFirstPersonView(h.screen)
 			}
+			draws[i] = float64(time.Since(started)) / float64(time.Millisecond)
 		})
 		if h.r.statSpritesMs < best.spritesMs {
 			best.spritesMs = h.r.statSpritesMs
@@ -167,6 +181,7 @@ func (h *walkHarness) measure(x, y, angleRad float64) walkFrame {
 			best.standeeDC = h.r.statStandeeCalls
 		}
 	}
+	best.drawP50, best.drawP95, best.drawP99, best.drawMax = renderTimingPercentiles(draws)
 	best.x, best.y, best.angleDeg = x, y, angleRad*180/math.Pi
 	return best
 }
@@ -245,6 +260,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("debug module; run with RAM_DEBUG_SIM=1")
 	}
+	ebiten.SetRunnableOnUnfocused(true)
 	fast := os.Getenv("RAM_WALK_FAST") != ""
 	t.Chdir("../..")
 
@@ -263,6 +279,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
+	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 	// NPC config AFTER spells (loader validation order) - with it loaded the
 	// river NPCs (traders, gates, shipwreck) exist and render like in the game.
@@ -272,7 +289,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 
 	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
 	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
-	world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+	world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
@@ -280,11 +297,11 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("map configs: %v", err)
 	}
+	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
+	}
 	openWorld := os.Getenv("RAM_WALK_OPEN_WORLD") != ""
 	if openWorld {
-		if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
-			t.Fatalf("special tiles: %v", err)
-		}
 		owc, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
 		if err != nil {
 			t.Fatalf("open world config: %v", err)
@@ -350,8 +367,21 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 		}
 	}
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	if os.Getenv("RAM_WALK_PREWARM_NEIGHBORS") != "" {
+		g.gameLoop.renderer.syncVisibleMapRenderResidency()
+	}
+	var peakGPUBytes int64
+	sampleGPU := func() {
+		var info ebiten.DebugInfo
+		ebiten.ReadDebugInfo(&info)
+		peakGPUBytes = max(peakGPUBytes, info.TotalGPUImageMemoryUsageInBytes)
+	}
 	if os.Getenv("RAM_SKIP_MAP_PREWARM") == "" && os.Getenv("RAM_SKIP_TREE_PREWARM") == "" {
 		var prewarmStats mapRenderPrewarmStats
+		prewarmBatch := 1
+		if os.Getenv("RAM_WALK_FAST_PREWARM") != "" {
+			prewarmBatch = 8
+		}
 		var maxPrewarmStep time.Duration
 		maxPrewarmStepIndex := -1
 		maxPrewarmResource := ""
@@ -362,8 +392,12 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 					stepIndex = task.nextStep
 				}
 				started := time.Now()
-				if stats := g.gameLoop.renderer.prewarmPendingMapRenderResources(); stats.uploadImages > 0 {
-					prewarmStats = stats
+				for step := 0; step < prewarmBatch; step++ {
+					if stats := g.gameLoop.renderer.prewarmPendingMapRenderResources(); stats.uploadImages > 0 {
+						prewarmStats = stats
+						t.Logf("prewarmed residents=%v", g.gameLoop.renderer.mapRenderResidentMapKeys)
+					}
+					sampleGPU()
 				}
 				if elapsed := time.Since(started); elapsed > maxPrewarmStep {
 					maxPrewarmStep = elapsed
@@ -374,12 +408,14 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 				}
 				g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
 				g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+				sampleGPU()
 			})
 		}
 		for frame := 0; len(g.gameLoop.renderer.mapRenderUploadQueue) > 0 && frame < 10000; frame++ {
 			runOnDrawFrame(func(frame *ebiten.Image) {
 				g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
 				g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+				sampleGPU()
 			})
 		}
 		if g.gameLoop.renderer.mapRenderResourcePrewarmPending {
@@ -453,12 +489,14 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 					maxPrewarmStep = max(maxPrewarmStep, time.Since(started))
 					g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
 					g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+					sampleGPU()
 				})
 			}
 			for frame := 0; len(g.gameLoop.renderer.mapRenderUploadQueue) > 0 && frame < 10000; frame++ {
 				runOnDrawFrame(func(frame *ebiten.Image) {
 					g.gameLoop.renderer.drawMapRenderShaderWarm(screen)
 					g.gameLoop.renderer.drawMapRenderPrewarmUploads(frame)
+					sampleGPU()
 				})
 			}
 			t.Logf("region prewarm %s: sprites=%d animations=%d standees=%d walls=%d uploads=%d residents=%v",
@@ -523,6 +561,17 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 			}
 		}
 		got := h.measure(g.camera.X, g.camera.Y, g.camera.Angle)
+		sampleGPU()
+		t.Logf("peak engine GPU image estimate=%dMiB residents=%v", peakGPUBytes/(1<<20), h.r.mapRenderResidentMapKeys)
+		if value := os.Getenv("RAM_WALK_GPU_BUDGET_MB"); value != "" {
+			var budget int64
+			if _, err := fmt.Sscanf(value, "%d", &budget); err != nil || budget <= 0 {
+				t.Fatal("invalid GPU budget")
+			}
+			if peakGPUBytes > budget*(1<<20) {
+				t.Errorf("GPU image estimate %dMiB exceeds %dMiB budget", peakGPUBytes/(1<<20), budget)
+			}
+		}
 		if profileFile != nil {
 			pprof.StopCPUProfile()
 			if err := profileFile.Close(); err != nil {
@@ -547,6 +596,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 		}
 		t.Logf("single pose tile=(%d,%d) world=(%.1f,%.1f) angle=%.1f reps=%d: sprites=%.2fms floor=%.2fms walls=%.2fms trees=%d standeeDC=%d",
 			poseTileX, poseTileY, g.camera.X, g.camera.Y, poseAngleDeg, h.reps, got.spritesMs, got.floorMs, got.wallsMs, got.trees, got.standeeDC)
+		t.Logf("Draw CPU submission including cold samples: p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms", got.drawP50, got.drawP95, got.drawP99, got.drawMax)
 		return
 	}
 	tileSize := float64(cfg.GetTileSize())
@@ -707,4 +757,14 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if !fast {
 		attribution("B river", riverFramesB, 8)
 	}
+}
+
+// Nearest-rank percentiles retain cold and GC stalls instead of discarding them.
+func renderTimingPercentiles(samples []float64) (p50, p95, p99, maximum float64) {
+	if len(samples) == 0 {
+		return
+	}
+	sort.Float64s(samples)
+	at := func(q float64) float64 { return samples[max(0, int(math.Ceil(q*float64(len(samples))))-1)] }
+	return at(0.50), at(0.95), at(0.99), samples[len(samples)-1]
 }

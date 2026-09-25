@@ -1,4 +1,26 @@
 loots:
+  common_carp:
+    - {type: item, key: carp_scale, chance: 1}
+  koi:
+    - {type: item, key: koi_scale, chance: 1}
+  rainbow_salmon:
+    - {type: item, key: rainbow_salmon_scale, chance: 1}
+  ring_tailed_lemur:
+    - type: "item"
+      key: "lemur_fur"
+      chance: 0.20
+  red_ruffed_lemur:
+    - type: "item"
+      key: "lemur_fur"
+      chance: 0.20
+  desert_rabbit:
+    - type: "item"
+      key: "rabbit_pelt"
+      chance: 0.70
+  fennec:
+    - type: "item"
+      key: "fennec_pelt"
+      chance: 0.70
   pixie:
     - type: "item"
       key: "magic_ring"
@@ -28,6 +50,26 @@ loots:
       chance: 0.15
     - type: "item"
       key: "dragon_card"
+      chance: 0.01
+
+  desert_dervish:
+    - type: "item"
+      key: "health_potion"
+      chance: 0.10
+    - type: "item"
+      key: "mana_potion"
+      chance: 0.10
+    - type: "item"
+      key: "flame_ward_draught"
+      chance: 0.08
+    - type: "item"
+      key: "ordinary_key"
+      chance: 0.04
+    - type: "item"
+      key: "sun_bleached_silk"
+      chance: 0.25
+    - type: "item"
+      key: "bandit_card"
       chance: 0.01
 
   bandit:
@@ -942,6 +984,7 @@ crates:
     bonus_chance_pct: 50
 
   chest_wooden:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -968,6 +1011,7 @@ crates:
         amount: 1000
         chance_pct: 5
   chest_iron:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -996,6 +1040,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 10
   chest_golden:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
@@ -1014,6 +1059,7 @@ crates:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
   # Clock tower chests: hands + parts below, the regal box hides real gear.
   chest_gearwood:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
@@ -1027,6 +1073,7 @@ crates:
         item_type: "consumable"
         weight: 15
   chest_chrono:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
@@ -1047,6 +1094,7 @@ crates:
     trap_ignite: true
     trap_ignite_seconds: 8
   chest_regal:
+    treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:

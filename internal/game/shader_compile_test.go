@@ -15,6 +15,7 @@ import (
 func TestKageShadersCompile(t *testing.T) {
 	for name, src := range map[string]string{
 		"floor":            floorShaderSrc,
+		"campDissolve":     campDissolveShaderSrc,
 		"sky":              skyShaderSrc,
 		"standeeTrilinear": standeeTrilinearShaderSrc,
 		"standeeVolume":    standeeVolumeShaderSrc,
@@ -227,10 +228,10 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	const heightScale = 64
 	const bottomScale = 32
 	vertices := []ebiten.Vertex{
-		{DstX: 0, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 0, Custom3: 0},
-		{DstX: 8, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 1, Custom3: 1},
-		{DstX: 0, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 0, Custom3: 0},
-		{DstX: 8, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 1, Custom3: 1},
+		{DstX: 0, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 0.1, Custom1: 0.125, Custom2: 0, Custom3: 0},
+		{DstX: 8, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 0.1, Custom1: 0.125, Custom2: 0.1, Custom3: 0.125},
+		{DstX: 0, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 0.1, Custom1: 0.125, Custom2: 0, Custom3: 0},
+		{DstX: 8, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 0.1, Custom1: 0.125, Custom2: 0.1, Custom3: 0.125},
 	}
 	indices := []uint16{0, 1, 2, 1, 3, 2}
 	opts := &ebiten.DrawTrianglesShaderOptions{}

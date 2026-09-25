@@ -87,6 +87,17 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
 	for name, biome := range mapConfigs.Biomes {
 		biome.FloorTextureGroups = mergeSharedFloorTextureGroups(biome.FloorTextureGroups, mapConfigs.SharedFloorTextureGroups)
+		profiles := make(map[string]config.FloorTransition, len(mapConfigs.SharedFloorTransitions)+len(biome.FloorTransitions))
+		for group, profile := range mapConfigs.SharedFloorTransitions {
+			profiles[group] = profile
+		}
+		for group, profile := range biome.FloorTransitions {
+			profiles[group] = profile
+		}
+		biome.FloorTransitions = profiles
+		if err := biome.ValidateFloorTransitions(); err != nil {
+			return fmt.Errorf("biome %q: %w", name, err)
+		}
 		wm.Biomes[name] = biome
 	}
 
@@ -251,6 +262,7 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	world.StartX = mapData.StartX
 	world.StartY = mapData.StartY
 	world.Tiles = mapData.Tiles
+	world.entityFloors = mapData.entityFloors
 
 	// Per-biome off-map backdrop wall (defaults to "seaview" set in NewWorld3D).
 	if biome, ok := wm.Biomes[mapConfig.Biome]; ok && biome.OutOfBoundsTile != "" {

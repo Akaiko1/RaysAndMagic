@@ -6,8 +6,6 @@ import (
 	"image/color"
 	"image/draw"
 	_ "image/png"
-	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,18 +15,20 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
-	"ugataima/internal/assetmanifest"
+	"ugataima/internal/spritecatalog"
 )
 
 type SpriteManager struct {
+	iconFrames      map[string]iconFrameEntry
 	deferResource   func(SpriteResourceRequest) bool
 	failedResources map[SpriteResourceRequest]bool
 
-	imageResources   map[*ebiten.Image]SpriteResourceRequest
-	sprites          map[string]*ebiten.Image
-	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
-	animations       map[animationCacheKey]*SpriteAnimation
-	animationMissing map[animationCacheKey]bool
+	imageResources       map[*ebiten.Image]SpriteResourceRequest
+	sprites              map[string]*ebiten.Image
+	spriteTypeCache      map[string]string // Cache sprite types to avoid repeated file checks
+	animations           map[animationCacheKey]*SpriteAnimation
+	animationMissing     map[animationCacheKey]bool
+	animationFrameCounts map[animationCacheKey]int
 	// CPU alpha masks for the rare pixel-perfect hit tests. Reading an
 	// *ebiten.Image with At/ReadPixels flushes the GPU command queue, and At
 	// reads the WHOLE image back - a stall per interaction probe.
@@ -176,15 +176,33 @@ const despillHueFloor = 8
 // for edge-only despill sprites when the config leaves the radius unset.
 const despillEdgeRadiusDefault = 3
 
-// SetDespillEdgeOnly marks sprites (by name; animation sheets as
-// "<name>_<animType>") whose interior magenta must be preserved - despill on
-// them is restricted to within `radius` px of a transparent edge.
+// SetDespillEdgeOnly preserves interior purple across a whole animation family,
+// whether the configuration names its base sprite or any directional sheet.
+// Other sprite names remain exact matches. Configure before loading resources.
 func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeOnly = make(map[string]bool, len(names))
 	for _, n := range names {
-		sm.keyEdgeOnly[n] = true
+		sm.keyEdgeOnly[spriteDespillFamily(n)] = true
 	}
 	sm.keyEdgeRadius = radius
+}
+
+// Directional motion suffixes belong to one source identity. Strip only the
+// complete suffix, never an arbitrary prefix (lich and lich_king are distinct).
+func spriteDespillFamily(name string) string {
+	if !strings.HasSuffix(name, "_r") && !strings.HasSuffix(name, "_l") {
+		return name
+	}
+	stem := name[:len(name)-2]
+	separator := strings.LastIndexByte(stem, '_')
+	if separator < 1 {
+		return name
+	}
+	switch stem[separator+1:] {
+	case "walking", "attacking", "dying", "climbing", "descending", "jumping", "perched", "leaping":
+		return stem[:separator]
+	}
+	return name
 }
 
 // SetColorKey enables/configures the load-time color key (see SpriteManager).
@@ -229,7 +247,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 		return near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB)
 	}
 
-	edgeOnly := sm.keyEdgeOnly[name]
+	edgeOnly := sm.keyEdgeOnly[spriteDespillFamily(name)]
 	// Transparency mask, needed only when despill is limited to the fringe band.
 	var trans []bool
 	if edgeOnly {
@@ -298,6 +316,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 
 func NewSpriteManager() *SpriteManager {
 	return &SpriteManager{
+		iconFrames:         loadIconFrameEntries(),
 		sprites:            make(map[string]*ebiten.Image),
 		spriteTypeCache:    make(map[string]string),
 		animations:         make(map[animationCacheKey]*SpriteAnimation),
@@ -307,72 +326,13 @@ func NewSpriteManager() *SpriteManager {
 	}
 }
 
-// spriteBaseDirs are the roots indexed by basename (recursively). Each maps to
-// the placeholder type used when a named sprite is missing. floor/ and sky/ are
-// loaded separately via resolveNamedPNG and intentionally omitted here.
-var spriteBaseDirs = []struct{ dir, typ string }{
-	{"assets/sprites/mobs", "npc_mob"},
-	{"assets/sprites/characters", "npc_mob"},
-	{"assets/sprites/environment", "environment"},
-	{"assets/sprites/interface", "interface"},
-}
-
-// isIgnoredSpriteDir reports folders excluded from the sprite index: archives
-// (any case) and any name starting with "_" or "." - a convention to park
-// unused/duplicate art in the tree without it shadowing live sprites.
-func isIgnoredSpriteDir(name string) bool {
-	return strings.EqualFold(name, "archive") ||
-		strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".")
-}
-
-// buildSpriteIndex walks the sprite roots recursively (skipping ignored dirs)
-// and returns basename->path and basename->placeholder-type maps. Sprites may
-// therefore be grouped into arbitrary subfolders; basenames must be unique
-// across the whole tree. On a seeded install a current shipped path wins over
-// untracked legacy/custom duplicates; equal ownership keeps root/lexical order.
-// Shared by SpriteManager.ensureIndex and the package-level resolver.
-func buildSpriteIndex() (paths, dirType map[string]string) {
-	shipped := assetmanifest.Load(".")
-	paths = make(map[string]string)
-	dirType = make(map[string]string)
-	for _, root := range spriteBaseDirs {
-		_ = filepath.WalkDir(root.dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil // missing root (e.g. tests run outside the repo) - skip
-			}
-			if d.IsDir() {
-				if isIgnoredSpriteDir(d.Name()) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if filepath.Ext(path) != ".png" {
-				return nil
-			}
-			base := strings.TrimSuffix(d.Name(), ".png")
-			if existing, dup := paths[base]; dup {
-				keep := existing
-				if shipped.ContainsRuntimePath(path) && !shipped.ContainsRuntimePath(existing) {
-					keep = path
-					paths[base], dirType[base] = path, root.typ
-				}
-				log.Printf("sprite index: duplicate basename %q (%q vs %q); keeping %q", base, existing, path, keep)
-				return nil
-			}
-			paths[base] = path
-			dirType[base] = root.typ
-			return nil
-		})
-	}
-	return paths, dirType
-}
-
 // ensureIndex lazily builds this manager's basename->path index.
 func (sm *SpriteManager) ensureIndex() {
 	if sm == nil || sm.spritePaths != nil {
 		return
 	}
-	sm.spritePaths, sm.spriteDirType = buildSpriteIndex()
+	sm.spritePaths, sm.spriteDirType = spritecatalog.BuildIndex()
+	sm.indexHUDIcons()
 }
 
 var (
@@ -386,7 +346,7 @@ var (
 // external tools (e.g. the map editor) resolve sprites by name, layout-agnostic.
 func ResolveSpritePath(name string) (string, bool) {
 	sharedIndexOnce.Do(func() {
-		sharedSpritePaths, _ = buildSpriteIndex()
+		sharedSpritePaths, _ = spritecatalog.BuildIndex()
 	})
 	p, ok := sharedSpritePaths[name]
 	return p, ok
@@ -447,7 +407,7 @@ func (sm *SpriteManager) prepareResources(ctx context.Context, requests []Sprite
 				return
 			}
 			prepared := sm.decodePreparedResourceAtPath(job.request, job.path)
-			if interactive && prepared.Found {
+			if interactive && prepared.Found && prepared.alpha == nil {
 				prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
 			}
 			prepared.QueueLease = lease
@@ -495,12 +455,17 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	if request.AnimationType != "" {
 		indexedName += "_" + request.AnimationType
 	}
-	prepared.Image = sm.applyColorKey(indexedName, img)
+	prepared.Image = sm.prepareSpritePixels(indexedName, img)
 	prepared.Found = prepared.Image != nil
 	if prepared.Found {
 		prepared.CPU = rgbaFromImage(prepared.Image)
 		prepared.metadataReady = true
 		prepared.visible = spriteVisibleFrameBoundsFromImage(prepared.Image)
+		// World actors are pointer targets too. Prepare their mask with the
+		// source pixels so clicking a published frame never decodes on input.
+		if sm.spriteDirType[indexedName] == "npc_mob" {
+			prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
+		}
 		if request.AnimationType != "" {
 			prepared.Frames = animationCPUFrames(prepared.CPU)
 		}
@@ -644,7 +609,7 @@ func (c *PreparedSpriteCommit) Advance(maxBytes int) (map[*ebiten.Image]*image.R
 		start := target.cpu.PixOffset(bounds.Min.X, bounds.Min.Y+target.row)
 		end := start + rows*target.cpu.Stride
 		region := image.Rect(0, target.row, width, target.row+rows)
-		target.image.SubImage(region).(*ebiten.Image).WritePixels(target.cpu.Pix[start:end])
+		WritePixelsRegion(target.image, region, target.cpu.Pix[start:end])
 		target.row += rows
 		if maxBytes > 0 {
 			budget -= rows * rowBytes
@@ -881,6 +846,39 @@ func (sm *SpriteManager) SpriteOpaqueAt(name string, x, y int) (opaque, known bo
 	return mask.alpha[y*mask.width+x] != 0, true
 }
 
+// ImageOpaqueAt resolves a published sprite or animation frame against its
+// existing CPU alpha mask, without a GPU readback or a second frame registry.
+func (sm *SpriteManager) ImageOpaqueAt(img *ebiten.Image, x, y int) (opaque, known bool) {
+	request, ok := sm.ResourceForImage(img)
+	if !ok {
+		return false, false
+	}
+	name := request.Name
+	if request.AnimationType == "" {
+		return sm.SpriteOpaqueAt(name, x, y)
+	}
+	name += "_" + request.AnimationType
+	mask := sm.alphaMasks[name]
+	if mask == nil {
+		return false, false
+	}
+	anim := sm.GetAnimation(request.Name, request.AnimationType)
+	if anim == nil {
+		return false, false
+	}
+	rects := animationFrameRects(image.Rect(0, 0, mask.width, mask.height))
+	for i, frame := range anim.Frames {
+		if frame == img && i < len(rects) {
+			r := rects[i]
+			if x < 0 || y < 0 || x >= r.Dx() || y >= r.Dy() {
+				return false, true
+			}
+			return mask.alpha[(r.Min.Y+y)*mask.width+r.Min.X+x] != 0, true
+		}
+	}
+	return false, false
+}
+
 // SpriteVisibleFrameBounds returns the visible alpha bounds inside one logical
 // animation frame. A horizontal 4-frame sheet is folded into one union bound,
 // keeping its scale stable while frames animate. The data comes from the same
@@ -923,7 +921,7 @@ func (sm *SpriteManager) loadSpriteVisibleFrameBounds(name string) spriteVisible
 	if err != nil {
 		return spriteVisibleFrameBounds{}
 	}
-	return spriteVisibleFrameBoundsFromImage(sm.applyColorKey(name, img))
+	return spriteVisibleFrameBoundsFromImage(sm.prepareSpritePixels(name, img))
 }
 
 func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds {
@@ -940,12 +938,12 @@ func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds
 		frameWidth = height
 	}
 	const visibleAlphaThreshold = uint8(24)
+	alphaAt := spriteAlphaReader(img)
 	minX, minY := frameWidth, height
 	maxX, maxY := -1, -1
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			_, _, _, alpha := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			if uint8(alpha>>8) < visibleAlphaThreshold {
+			if alphaAt(bounds.Min.X+x, bounds.Min.Y+y) < visibleAlphaThreshold {
 				continue
 			}
 			frameX := x % frameWidth
@@ -980,7 +978,7 @@ func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {
 	if err != nil {
 		return nil
 	}
-	img = sm.applyColorKey(name, img)
+	img = sm.prepareSpritePixels(name, img)
 	return spriteAlphaMaskFromImage(img)
 }
 
@@ -998,13 +996,32 @@ func spriteAlphaMaskFromImage(img image.Image) *spriteAlphaMask {
 		height: height,
 		alpha:  make([]uint8, width*height),
 	}
+	alphaAt := spriteAlphaReader(img)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			_, _, _, a := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			mask.alpha[y*width+x] = uint8(a >> 8)
+			mask.alpha[y*width+x] = alphaAt(bounds.Min.X+x, bounds.Min.Y+y)
 		}
 	}
 	return mask
+}
+
+// Avoid boxing a color through image.Image.At for every decoded pixel. Both
+// metadata consumers share the exact alpha rule, including subimage origins
+// and row strides. Uncommon image types retain the image.Image contract.
+func spriteAlphaReader(img image.Image) func(int, int) uint8 {
+	switch src := img.(type) {
+	case *image.RGBA:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+	case *image.NRGBA:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)+3] }
+	case *image.Alpha:
+		return func(x, y int) uint8 { return src.Pix[src.PixOffset(x, y)] }
+	default:
+		return func(x, y int) uint8 {
+			_, _, _, a := img.At(x, y).RGBA()
+			return uint8(a >> 8)
+		}
+	}
 }
 
 func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
@@ -1050,6 +1067,38 @@ func (sm *SpriteManager) spriteExists(name string) bool {
 	sm.ensureIndex()
 	_, ok := sm.spritePaths[name]
 	return ok
+}
+
+// AnimationFrameCount reads only the PNG header for a cold sheet. Death
+// presentation can select a sheet without uploading an off-screen GPU texture.
+// Counts share the loader's frame-layout rule and survive resource eviction.
+func (sm *SpriteManager) AnimationFrameCount(name, animType string) int {
+	if sm == nil {
+		return 0
+	}
+	key := animationKey(name, animType)
+	if animation := sm.animations[key]; animation != nil {
+		return len(animation.Frames)
+	}
+	if count, ok := sm.animationFrameCounts[key]; ok {
+		return count
+	}
+	sm.ensureIndex()
+	count := 0
+	if path := sm.spritePaths[name+"_"+animType]; path != "" {
+		if f, err := os.Open(path); err == nil {
+			metadata, _, err := image.DecodeConfig(f)
+			f.Close()
+			if err == nil {
+				count = len(animationFrameRects(image.Rect(0, 0, metadata.Width, metadata.Height)))
+			}
+		}
+	}
+	if sm.animationFrameCounts == nil {
+		sm.animationFrameCounts = make(map[animationCacheKey]int)
+	}
+	sm.animationFrameCounts[key] = count
+	return count
 }
 
 func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {

@@ -1,13 +1,30 @@
 # How to Add a New Tile
 
-Tiles are defined in YAML and loaded by the TileManager at startup.
+Tiles are loaded by `TileManager` at startup. Read
+[shared authoring rules](docs/content-authoring.md) first.
 
 ## Overview
 - Base tiles: `assets/tiles.yaml`
 - Special tiles: `assets/special_tiles.yaml` (merged into the same tile database)
 - Map placement: single-letter symbols in `.map` files
-- `render_type` must be one of: `wall`, `crossed_standee`, `standee`, `floor`, `landmark_standee` (validated at load - an unknown value refuses to boot)
+- `render_type` must be one of: `wall`, `crossed_standee`, `crossed_prop`, `standee`, `floor`, `landmark_standee` (validated at load - an unknown value refuses to boot)
 - `transparent` controls raycast pass vs sprite pass; be explicit to avoid visual artifacts.
+
+## Choose the render type first
+
+| Type | Intended use and size |
+| --- | --- |
+| `floor` | Ground color/texture, no vertical sprite |
+| `wall` | Opaque vertical texture slices; source fills its square |
+| `crossed_standee` | Natural trees/rocks; size class controls frame width; tree mechanics apply |
+| `crossed_prop` | Built blockers such as crates/logs; size class controls visible height; no tree mechanics or billboard LOD |
+| `standee` | Camera-facing prop; must be walkable unless wall-mounted |
+| `landmark_standee` | Landmark sprite; shared prop size class |
+
+`solid`, `walkable`, `transparent`, and `render_type` are separate controls.
+Choose collision, standing permission, ray continuation, and drawing explicitly.
+`wall_mounted` is valid only on `standee`; `no_spin` only on `standee` or
+`landmark_standee`. A cross already has fixed planes.
 
 ## Step 1: Add the tile
 Add a new entry under `tiles:` in `assets/tiles.yaml`.
@@ -17,6 +34,7 @@ Example:
 tiles:
   magic_crystal:
     name: "Magic Crystal"
+    type: prop
     solid: false
     transparent: true
     walkable: true
@@ -24,7 +42,7 @@ tiles:
     sprite: "moss_rock"    # must exist in assets/sprites/environment/
     render_type: "standee"
     floor_color: [150, 100, 255]
-    letter: "X"
+    short_label: "magic_crystal"
 ```
 
 Sprite files live in `assets/sprites/environment/` (no `.png` suffix in YAML).
@@ -37,19 +55,28 @@ non-walkable `floor`), `light` (`enabled`, `radius_tiles`, `intensity` - the
 tile lights the scene), `floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
-Use the `letter` in the map ASCII grid:
+Use a general-tile placeholder and its label for this letterless prop:
+```text
+....$....>[tile:magic_crystal]
 ```
-....X....
-```
+A tile with an authored `letter` instead uses that character directly.
+
+Ordinary tiles also require a `type` from the editor taxonomy (`floor`, `water`,
+`marker`, `wall`, `wall_decor`, `nature`, `rock`, `structure`, `prop`). This is
+separate from `render_type`. Special tiles use their own behavior type.
 
 ## Letter rules
 - Letters must be unique per biome. TileManager errors on conflicts.
 - If `biomes` is omitted, the letter must be unique globally.
+- Lowercase letters are reserved for monsters. Terrain uses uppercase letters,
+  digits, or punctuation.
+- Letterless general decor uses `short_label` in YAML and `$` with
+  `>[tile:short_label]` in the map. See [map syntax](docs/adding-maps.md#map-syntax).
 
 ## Special tiles (data-driven placement)
 Special tiles in `assets/special_tiles.yaml` can be placed by key using:
 ```
-%...@....%  >[stile:spike_trap]
+....@.....>[stile:spike_trap]
 ```
 This replaces the `@` with the special tile matching `spike_trap`.
 
@@ -58,7 +85,14 @@ Teleporter behavior is driven by `special_tiles.yaml` properties. Example:
 ```yaml
 special_tiles:
   vteleporter:
+    name: "Violet Teleporter"
     type: "teleporter"
+    solid: false
+    transparent: true
+    walkable: true
+    render_type: "floor"
+    floor_color: [138, 43, 226]
+    inherit_floor: true
     properties:
       cooldown_seconds: 5
       teleporter_group: "violet"
@@ -72,20 +106,28 @@ special_tiles:
 Special tiles like `spike_trap` or `magic_circle` are now placeable by key, but their gameplay effects are still not implemented.
 
 ## Floor textures, color, and the biome default
-Floor textures are biome-driven. The named texture groups live per-biome in the
-top-level `biomes:` section of `assets/map_configs.yaml` (NOT on the tile and
-NOT per-map). A tile picks a group with `floor_texture_group`:
-- Set `floor_texture_group: "water"` (etc.) to use that biome group.
-- Omit it and the tile borrows the biome's `"default"` group - UNLESS the tile
-  sets a `floor_color`, in which case the color IS its look and stays
-  untextured (teleporters, traps, spawn are coloured squares this way).
-- Empty `.` (and any tile on the biome default) bordering water auto-uses the
-  biome's `"beach"` group, if defined, for shoreline sand.
 
-`floor_color` is a BASE color blended UNDER the texture (~80% texture up close,
-fading to more color with distance), and shown 100% when no texture resolves
-(no group, or the group isn't defined for the current biome). `floor_near_color`
-is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
+Floor textures are biome-driven. Named groups live in `biomes:` in
+`assets/map_configs.yaml`; a tile selects one with `floor_texture_group`.
+
+- An explicit group selects that biome's textures.
+- With no explicit group, `inherit_floor` resolves surrounding ground first,
+  falling back to the biome's `default` group. Spawn markers and teleporters use
+  inherited ground with their decoration drawn over it.
+- Without inheritance, an explicit nonzero `floor_color` and no group keep the
+  tile untextured. Otherwise it uses `default`.
+- Near water, resolved `default` ground can receive the biome's natural `beach`
+  layer. This blends over the ground; it does not replace the tile.
+
+Choose a `floor_transitions` profile for each group. See
+[Floor texture transitions](docs/floor-transitions.md) for `hard`, `natural`,
+`water`, `void`, directional cliff rules, inheritance, and YAML examples.
+
+`floor_color` supplies the base tint under a resolved texture (80% texture,
+20% base before other rendering effects), or the full base when no texture
+resolves. Distance shading and lighting apply afterward. `floor_near_color`
+tints adjacent empty floor and explicit inheriting marker tiles; generic
+inheriting objects take the surrounding floor without that neighbor tint.
 
 ## Supported fields
 Core fields are fully supported:
@@ -126,12 +168,11 @@ radius together do not emit in synchronized bursts. Later rolls keep the exact
 configured interval.
 
 ## Testing checklist
-- YAML loads without errors.
+- Run the [shared validation checklist](docs/content-authoring.md#verification).
 - Letter is unique for its biome.
 - Sprite exists if specified.
 - Tile renders and collides as expected.
 - Special tile placement with `>[stile:key]` works.
 
 ## Known limitations
-- Audio and particle effects are not implemented.
 - Non-teleporter special tile behaviors require code changes.

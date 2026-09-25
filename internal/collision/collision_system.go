@@ -72,7 +72,7 @@ func (cs *CollisionSystem) GetAllEntities() []*Entity {
 // TileChecker interface for checking if tiles block movement and sight
 type TileChecker interface {
 	IsTileBlocking(tileX, tileY int) bool
-	IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool
+	IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool
 	IsTileOpaque(tileX, tileY int) bool
 	GetWorldBounds() (width, height int)
 }
@@ -94,7 +94,7 @@ type TileChecker interface {
 //
 // The parallel MONSTER updater does NOT qualify for the above: a monster's
 // movement/AI decision reads OTHER entities' bounding boxes and collision types
-// (CanMoveToWithHabitat -> canMoveToEntityPosition scans the whole map), which
+// (CanMoveToWithTileOverrides -> canMoveToEntityPosition scans the whole map), which
 // violates (2) - those other entities are concurrently being written by their
 // OWN workers. It instead uses Snapshot(): each worker reads an immutable,
 // frozen CollisionSnapshot (taken once, single-threaded, before the parallel
@@ -221,8 +221,8 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 	return true
 }
 
-// CanMoveToWithHabitat checks if an entity can move to a position, allowing habitat tiles for monsters.
-func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string, flying bool) bool {
+// CanMoveToWithTileOverrides checks if an entity can move to a position, applying explicit tile overrides and flight rules.
+func (cs *CollisionSystem) CanMoveToWithTileOverrides(entityID string, newX, newY float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
@@ -231,8 +231,8 @@ func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY floa
 	// Create a temporary bounding box at the new position
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
 
-	// Check collision with world tiles (habitat-aware)
-	if !cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying) {
+	// Check collision with world tiles (monster-terrain-aware)
+	if !cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying) {
 		return false
 	}
 
@@ -283,14 +283,14 @@ func tilesAllowPosition(tileChecker TileChecker, tileSize float64, boundingBox *
 	return true
 }
 
-// canMoveToWorldPositionWithHabitat checks collision with world tiles using habitat preferences.
-func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
-	return tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, boundingBox, habitatPrefs, flying)
+// canMoveToWorldPositionWithTileOverrides checks collision with world tiles using walkable tile overrides.
+func (cs *CollisionSystem) canMoveToWorldPositionWithTileOverrides(boundingBox *BoundingBox, walkableTileOverrides []string, flying bool) bool {
+	return tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, boundingBox, walkableTileOverrides, flying)
 }
 
-// tilesAllowPositionWithHabitat is the habitat-aware counterpart of
+// tilesAllowPositionWithTileOverrides is the monster-terrain-aware counterpart of
 // tilesAllowPosition - same sharing rationale (see its doc comment).
-func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
+func tilesAllowPositionWithTileOverrides(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, walkableTileOverrides []string, flying bool) bool {
 	width, height := tileChecker.GetWorldBounds()
 
 	// Get the tile range that the bounding box covers
@@ -310,8 +310,8 @@ func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, bo
 				return false
 			}
 
-			// Check if any overlapping tile blocks movement (habitat-aware)
-			if tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs, flying) {
+			// Check if any overlapping tile blocks movement (monster-terrain-aware)
+			if tileChecker.IsTileBlockingForMonster(tileX, tileY, walkableTileOverrides, flying) {
 				return false
 			}
 		}
@@ -400,16 +400,16 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 	return shouldIgnoreCollisionTypes(moving.CollisionType, other.CollisionType)
 }
 
-// CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
+// CanOccupyTilesWithTileOverrides checks only world tiles (no entity collision).
 // Recovery and path-start checks use it when the actor already occupies an
 // entity-blocked position and must validate terrain without vetoing itself.
-func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+func (cs *CollisionSystem) CanOccupyTilesWithTileOverrides(entityID string, x, y float64, walkableTileOverrides []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
 	}
 	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
-	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
+	return cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying)
 }
 
 // RaycastHit represents the result of a raycast operation
@@ -489,14 +489,11 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 	}
 
 	width, height := tileChecker.GetWorldBounds()
-	maxT := math.Hypot(dx, dy) / math.Max(tileSize, 1)
+	maxSteps := int(math.Abs(float64(gx-tx))+math.Abs(float64(gy-ty))) + 1
 
-	// Check starting tile. A sight ray always sees OUT of the observer's own
-	// tile: the only way to occupy an opaque tile is a flying mob perched on a
-	// solid-but-transparent sprite tile (boulder/canopy), which IsTileOpaque
-	// reports opaque - bailing here would blind it to its own line of fire and
-	// make ranged flyers shuffle instead of shooting. Movement is still blocked
-	// by the start tile.
+	// Detection can see out of the observer's occupied tile, including flight
+	// or terrain overrides. AttackLineClear separately rejects firing positions
+	// inside objects; movement still checks the starting tile here.
 	if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 	}
@@ -507,10 +504,35 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 		return RaycastHit{Hit: false}, false
 	}
 
+	blocked := func(x, y int) bool {
+		if x < 0 || y < 0 || x >= width || y >= height {
+			return true
+		}
+		if sightOnly {
+			return tileChecker.IsTileOpaque(x, y) || hasSightBlockers && sightBlockerTiles[sightTileKey{x: x, y: y}] > 0
+		}
+		return tileChecker.IsTileBlocking(x, y)
+	}
 	t := 0.0
-	for steps := 0; steps < int(maxT)+2; steps++ {
-		// DDA step
-		if tMaxX < tMaxY {
+	for steps := 0; steps < maxSteps; steps++ {
+		// A corner touches both side cells. Test both before entering the
+		// diagonal cell, independent of travel direction (live and snapshot).
+		if stepX != 0 && stepY != 0 && math.Abs(tMaxX-tMaxY) <= 1e-12 {
+			t = tMaxX
+			if t > 1 {
+				break
+			}
+			for _, side := range [][2]int{{tx + stepX, ty}, {tx, ty + stepY}} {
+				if blocked(side[0], side[1]) {
+					hitX, hitY := x1+dx*t, y1+dy*t
+					return RaycastHit{Hit: true, TileX: side[0], TileY: side[1], Dist: math.Hypot(hitX-x1, hitY-y1), HitX: hitX, HitY: hitY}, true
+				}
+			}
+			tx += stepX
+			ty += stepY
+			tMaxX += tDeltaX
+			tMaxY += tDeltaY
+		} else if tMaxX < tMaxY {
 			tx += stepX
 			t = tMaxX
 			tMaxX += tDeltaX
@@ -518,6 +540,9 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 			ty += stepY
 			t = tMaxY
 			tMaxY += tDeltaY
+		}
+		if t > 1 {
+			break
 		}
 
 		// Check bounds
@@ -553,6 +578,14 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, sightBlockerTiles m
 // CheckLineOfSight checks if there's a clear line of sight between two points
 func (cs *CollisionSystem) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	hit, _ := cs.CastRay(x1, y1, x2, y2, true)
+	return !hit.Hit
+}
+
+// CheckMovementLine tests a terrain segment, including both endpoints and
+// diagonal corner contacts, using the caller's movement policy. It shares the
+// ray traversal with sight without changing sight or projectile semantics.
+func CheckMovementLine(checker TileChecker, tileSize, x1, y1, x2, y2 float64) bool {
+	hit, _ := castRayTiles(checker, tileSize, nil, x1, y1, x2, y2, false)
 	return !hit.Hit
 }
 

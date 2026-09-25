@@ -29,9 +29,14 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                *MMGame
-	displayedInput      uiDisplayedInput
-	justOpenedStatPopup bool
+	patternPlans            patternPlanCache
+	profileViewport         *ebiten.Image
+	profileArt              *profileArt
+	profileExplorationReady bool
+	profileExploration      profileExplorationSummary
+	game                    *MMGame
+	displayedInput          uiDisplayedInput
+	justOpenedStatPopup     bool
 	// renderedModalSnapshot is the complete top-modal state in the last completed
 	// Draw. Comparing it with topModalSnapshot catches layer changes and visible
 	// content replacement while Ebiten runs Updates before the new frame lands.
@@ -54,16 +59,12 @@ type UISystem struct {
 	inventoryContextY     int
 	inventoryContextIndex int
 	stackSplitPicker      stackSplitPickerState
-	inventoryPage         int    // current inventory grid page (0-based)
-	inventoryTab          int    // active inventory category filter (index into inventoryTabs)
-	questPage             int    // current quest log page (0-based)
-	spellPage             int    // current spell/trap book spread (0-based)
-	campNotice            string // result line under the Camp button
-	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
+	inventoryPage         int // current inventory grid page (0-based)
+	inventoryTab          int // active inventory category filter (index into inventoryTabs)
+	questPage             int // current quest log page (0-based)
+	spellPage             int // current spell/trap book spread (0-based)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
-	lastTrapClickTime     int64
-	lastClickedTrap       int
 	hubInteractionOpen    bool
 	hubInteractionChar    int
 	hubInteractionTab     MenuTab
@@ -78,11 +79,20 @@ type UISystem struct {
 	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
 	tooltipCompareTitle   color.Color // nameplate base for the comparison card
 	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
-	fullArtCardKey        string      // card under the cursor this frame; SHIFT shows its full art
+	cardEffectsPage       int
+	fullArtCardKey        string // card under the cursor this frame; SHIFT shows its full art
 	// Cached radar dot images for wizard eye (avoid vector.FillCircle every frame)
-	radarDotClose  *ebiten.Image // Red dot for close enemies
-	radarDotMedium *ebiten.Image // Orange dot for medium distance
-	radarDotFar    *ebiten.Image // Yellow dot for far enemies
+	radarDotClose   *ebiten.Image // Red dot for close enemies
+	radarDotMedium  *ebiten.Image // Orange dot for medium distance
+	radarDotFar     *ebiten.Image // Yellow dot for far enemies
+	radarDotAlly    *ebiten.Image // Green dot for party-controlled allies
+	radarDotNeutral *ebiten.Image // Blue dot for non-hostile ambient actors
+	// Radius-dependent static frame layers, independent of the minimap world.
+	compassFrameBackground *ebiten.Image
+	compassFrameOutline    *ebiten.Image
+	compassFrameRadius     int
+	compassMapMask         *ebiten.Image
+
 	// Compass minimap tile-layer cache: the ~80 static tile visuals only change
 	// when the player crosses a tile boundary (or the world swaps), so they're
 	// baked into one image and blitted per frame instead of redrawing their
@@ -100,7 +110,6 @@ func NewUISystem(game *MMGame) *UISystem {
 		game:               game,
 		lastClickedItem:    -1,
 		lastClickedSlot:    items.EquipSlot(-1),
-		lastClickedTrap:    -1,
 		hubInteractionChar: -1,
 	}
 	ui.initRadarDots()
@@ -119,6 +128,10 @@ func (ui *UISystem) initRadarDots() {
 	// Create far enemy dot (yellow)
 	ui.radarDotFar = ebiten.NewImage(dotSize, dotSize)
 	drawCircleToImage(ui.radarDotFar, dotSize, color.RGBA{255, 255, 50, 255})
+	ui.radarDotAlly = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotAlly, dotSize, color.RGBA{80, 220, 110, 255})
+	ui.radarDotNeutral = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotNeutral, dotSize, color.RGBA{80, 160, 255, 255})
 }
 
 // drawCircleToImage draws a filled radar dot with a dark one-pixel rim.
@@ -145,6 +158,11 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
+	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
+		ui.profileExplorationReady = false
+		ui.profileExploration = profileExplorationSummary{}
+	}
+	defer ui.drawScreenBanner(screen)
 	ui.beginDisplayedInput()
 	defer ui.endDisplayedInput()
 	ui.tooltipLines = nil
@@ -180,14 +198,6 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	} else {
 		ui.drawOverlayInterfaces(screen)
 	}
-
-	// The screen banner sits ABOVE the dialog. Quest news and legendary drops are
-	// allowed through while a conversation is open (visibleScreenBanner), and the
-	// dialog fills the screen with a 50% dim - painting the banner with the rest of
-	// the HUD would leave the turn-in heading half-lit under it. It stays BELOW
-	// everything drawn after this point: those either pause the world (the banner
-	// is hidden then) or are full screens of their own.
-	ui.drawScreenBanner(screen)
 
 	if ui.game.combatLogOpen {
 		ui.drawCombatLogOverlay(screen)
@@ -236,6 +246,12 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.stackSplitPicker.open {
 		ui.drawStackSplitPicker(screen)
 	}
+	if ui.game.campConfirmOpen {
+		ui.drawCampConfirmation(screen)
+	}
+	if ui.game.campRest != nil {
+		ui.drawCampRest(screen)
+	}
 
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
@@ -252,39 +268,32 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	ui.drawQueuedTooltips(screen)
+}
+
+func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
-		hasIcon := ui.tooltipIcon != ""
-
 		if ui.tooltipCompareLines == nil {
-			_, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, screenW)
-			y := flipTooltipY(ui.tooltipY, mainH, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
+			w, h := ui.mainTooltipSize(tooltipColumnWidth(screenW, 1), screenH)
+			r := positionTooltipBox(ui.tooltipX, ui.tooltipY, w, h, screenW, screenH)
+			ui.drawMainTooltip(screen, r.x, r.y, w)
 		} else {
-			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
-			// the pair always fits, then place the comparison flush to the right of
-			// the main and shift the pair left to stay on screen. Sizing and drawing
-			// use the same column width (cardCap) so the measured and painted boxes
-			// match; the flip is resolved once against the taller card so they share
-			// a top edge.
+			// Measure the pair together. A long card may borrow width from
+			// its comparison; drawing uses those exact same column limits.
 			gap := tooltipCompareGap
-			cardCap := screenW/2 - gap
-			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap)
-			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap)
-			h := mainH
-			if compareH > h {
-				h = compareH
-			}
+			pair := ui.queuedTooltipPairLayout(screenW, screenH)
+			h := max(pair.mainH, pair.compareH)
 			y := flipTooltipY(ui.tooltipY, h, screenH)
 
-			mainX, compareX := tooltipPairX(ui.tooltipX, mainW, compareW, gap, screenW)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+cardCap, ui.game.sprites)
+			mainX, compareX := tooltipPairX(ui.tooltipX, pair.mainW, pair.compareW, gap, screenW)
+			ui.drawMainTooltip(screen, mainX, y, pair.mainCap)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+pair.compareCap, ui.game.sprites)
 		}
 	}
 }

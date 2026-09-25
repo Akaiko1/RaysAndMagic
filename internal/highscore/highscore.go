@@ -76,8 +76,8 @@ func path() string {
 	return storage.AppSavePath(fileName)
 }
 
-// Load reads the leaderboard from disk. A missing or unparseable file yields
-// an empty board rather than an error so the UI can render unconditionally.
+// Load returns an empty board only for a missing file. Read/decode errors
+// must reach callers so a later write cannot erase existing records.
 func Load() (*Board, error) {
 	data, err := os.ReadFile(path())
 	if err != nil {
@@ -88,7 +88,7 @@ func Load() (*Board, error) {
 	}
 	var b Board
 	if err := json.Unmarshal(data, &b); err != nil {
-		return &Board{Entries: []Entry{}}, nil
+		return nil, err
 	}
 	return &b, nil
 }

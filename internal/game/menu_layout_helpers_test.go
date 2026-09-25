@@ -54,9 +54,7 @@ func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, option.key), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
 		_ = textY
 	}
-	for i, tip := range mainMenuControlTips {
-		boxes = append(boxes, textLineBox(fmt.Sprintf("tip-%d", i), tip, px+16, py+mainMenuTipsTopY()+i*debugTextCharHeight))
-	}
+
 	return region, boxes
 }
 
@@ -96,7 +94,6 @@ func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		namedLayoutBox("paperdoll", l.paper),
 		namedLayoutBox("inventory-grid", l.grid),
 		namedLayoutBox("pager", l.pager),
-		namedLayoutBox("camp", l.camp),
 		namedLayoutBox("quick-slots", l.quickSlots),
 		namedLayoutBox("instructions-1", l.instructions[0]),
 		namedLayoutBox("instructions-2", l.instructions[1]),

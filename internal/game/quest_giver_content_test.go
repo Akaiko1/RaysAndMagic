@@ -218,7 +218,7 @@ func TestBatherIsNightOnly(t *testing.T) {
 func TestLakeSpidersRepeatEachNight(t *testing.T) {
 	g, qm := bootQuestGiverTest(t)
 	def := qm.Definitions()["lake_spiders"]
-	if def == nil || !def.Repeatable {
+	if def == nil || def.Repeatable != "night" {
 		t.Fatal("lake_spiders must be repeatable")
 	}
 	if len(def.Rewards.ItemPool) == 0 {
@@ -243,7 +243,7 @@ func TestLakeSpidersRepeatEachNight(t *testing.T) {
 		t.Fatalf("claim: %v", err)
 	}
 
-	g.refreshRepeatableQuests()
+	g.refreshRepeatableQuests("night")
 	if q := qm.GetQuest("lake_spiders"); q != nil {
 		t.Error("a claimed repeatable errand must be cleared at nightfall")
 	}
@@ -258,7 +258,7 @@ func TestLakeSpidersRepeatEachNight(t *testing.T) {
 		t.Fatalf("re-activate: %v", err)
 	}
 	qm.SetCurrentCount("lake_spiders", 3)
-	g.refreshRepeatableQuests()
+	g.refreshRepeatableQuests("night")
 	q := qm.GetQuest("lake_spiders")
 	if q == nil || q.CurrentCount != 3 {
 		t.Error("an in-progress errand must not be wiped by nightfall")

@@ -171,7 +171,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 // (load validation rejects that combination, so this is a belt-and-suspenders
 // guard against hand-built test monsters).
 func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
-	if m.InfernoRangeTiles <= 0 {
+	if m.InfernoRangeTiles <= 0 || cs.attackOriginBlocked(m.X, m.Y) {
 		return false
 	}
 	reach := m.InfernoRangeTiles * float64(cs.game.config.GetTileSize())
@@ -376,7 +376,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
 			continue
 		}
-		if cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+		if cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
 			cs.game.releaseMonsterAttackPost(m)
 			m.X, m.Y = cx, cy
 			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
@@ -390,16 +390,19 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
+	defer cs.game.observeOverwatchAttack(m)
+	defer cs.game.beginProfileMonsterHit(m, m.Name)()
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
-		dealt := cs.damagePartyMemberParts(
+		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,
 			parts,
 			monsterPkg.DamageFire.String(),
 			true, // boss Inferno is a cast - absorbable
+			m,
 		)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))

@@ -131,7 +131,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 	}
 
 	if spellDef.IsProjectile {
-		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle)
+		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return castRejected
@@ -151,7 +151,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
 			disintegrateChance = spellDefConfig.DisintegrateChance
 		}
-		disintegrateChance += float64(cs.game.cardDisintegratePct()) / 100
+		disintegrateChance = cs.game.partyDisintegrateChance(disintegrateChance)
 
 		// Luck-based spell crit doubles the normal and typed-true components
 		// together. Elemental GM converts only the regular mastery bonus.
@@ -161,6 +161,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		projectile.Damage = parts.Normal
 
 		magicProjectile := MagicProjectile{
+			WorldAim:           cs.partyAimTarget != nil,
 			ID:                 cs.game.GenerateProjectileID(string(spellID)),
 			Attacker:           caster,
 			X:                  projectile.X,
@@ -287,6 +288,9 @@ func (cs *CombatSystem) activateUtilityTimedBuff(
 	}
 	if spellDef.Fly {
 		activate("fly")
+	} else if spellDef.TerrainPassage {
+		// Other passage spells own their timer and do not become Fly aliases.
+		activate(spellID)
 	}
 	if result.WaterBreathing {
 		activate("water_breathing")

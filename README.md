@@ -17,154 +17,126 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
 
 ## Features
 
-- **Explore a hand-built realm** - the seaside city of Seabright, forests and deserts, ancient pyramids, the ocean depths, a lich's nexus, windswept dragon cliffs, and the sewers beneath it all
-- **Build your party** from six classes: Knight, Paladin, Archer, Cleric, Sorcerer, and Druid
-- **Fight your way** - switch between real-time and turn-based combat whenever the moment calls for it
-- **Master nine schools of magic** spanning the elements, mind and body, and light and dark - then choose your damage to exploit what each foe can't withstand
-- **Loot and outfit your party** with weapons, armor, and consumables, each with the full stats laid bare before you commit
-- **Take on quests** from the realm's townsfolk and traders, and the bosses that lurk in the depths
-- **Retro raycast visuals** - sprite enemies, scrolling skies, biome textures, and spell-effect particles
+- A four-member party, with classes including Knight, Paladin, Archer, Cleric,
+  Sorcerer, Druid, Thief, Arms Master, Monk, Battle Mage, and Sniper.
+- Real-time and turn-based combat, weapon mastery, nine schools of magic,
+  equipment sets, and collectible monster cards.
+- Connected outdoor regions, separate towns and dungeons, day/night encounters,
+  wildlife, and tree-climbing jungle lemurs.
+- Quests, class promotions, arena duels, merchants, and persistent achievements
+  and player statistics.
+- A map editor with live content catalogs and monster previews.
 
-## Quick Start
+## Run and build
 
-**Requirements:** Go 1.25+, Ebiten v2.9
+Install Go 1.25 or newer; dependencies are pinned in [go.mod](go.mod).
+From the repository root:
 
-```bash
-go mod tidy
+```sh
+go mod download
 go run .
 ```
 
-**Build local binaries:**
+Run the editor with `go run ./assets/map_viewer`. For the standard local build
+(game and editor, including app bundles):
 
-```bash
-mkdir -p bin
-go build -o bin/raysandmagic .
-go build -o bin/map_viewer ./assets/map_viewer
-```
-
-The game and map viewer locate `config.yaml`/`assets/` next to the binary or one directory above it, so local `bin/` builds run against the repo-root data files.
-
-**Build icon-bearing app bundles (.app + .exe):**
-
-```bash
+```sh
 ./build_bin.sh
 ```
 
-**Release archives** for macOS Intel, macOS Apple Silicon, and Windows (game + map viewer):
+Release archives are built with `./build_mac_release.sh`. Windows-only builds
+use `pwsh ./build_debug_console.ps1` or `pwsh ./build_no_console.ps1`.
+Optional shader precompilation tools, caches, and rendering diagnostics are
+covered in [Rendering and loading](RENDERING.md).
 
-```bash
-./build_mac_release.sh
-```
-
-## Running on macOS (downloaded `.app`)
-
-The `.app` bundles are **not code-signed or notarized**, so a freshly downloaded
-copy is blocked by Gatekeeper. As of macOS Sequoia (15) and macOS Tahoe (26, the
-current release in 2026), the old Control-click -> *Open* shortcut **no longer
-bypasses** this - you must approve the app in System Settings.
-
-**To run it:**
-
-1. Move `RaysAndMagic.app` (and `RaysAndMagicMapViewer.app`) out of the download
-   archive into a normal folder such as `~/Applications`.
-2. Double-click it once - macOS refuses and shows a security prompt.
-3. Open **System Settings -> Privacy & Security**, scroll to the **Security**
-   section, and click **Open Anyway** next to RaysAndMagic, then confirm. You
-   only do this once per app.
-
-Alternatively, clear the quarantine flag from a terminal (also avoids Gatekeeper
-**App Translocation**, which runs a quarantined app from a read-only temp path):
-
-```bash
-xattr -dr com.apple.quarantine /path/to/RaysAndMagic.app
-xattr -dr com.apple.quarantine /path/to/RaysAndMagicMapViewer.app
-```
-
-**Where your data lives.** A `.app` cannot reliably write inside its own bundle
-(App Translocation makes it read-only, and each bundle carries a *private* copy
-of `assets/`). So on first launch each bundle seeds a shared, writable copy of
-`config.yaml` + `assets/` into:
-
-```text
-~/Library/Application Support/RaysAndMagic/
-```
-
-Both the game and the map editor run out of that folder, so **saves persist** and
-**maps edited in the editor are picked up by the game**. Shipped read-only content
-(sprites, YAML) refreshes from the bundle when the app updates; your edited `.map`
-files are preserved. Delete that folder to reset to the shipped content.
-
-> Bare binaries (and the Windows `.exe`) are unaffected - they read/write
-> `assets/` and `saves/` next to the executable exactly as before.
+Local `bin/` builds find repository data one directory above the executable.
+macOS app bundles use a shared writable data directory at
+`~/Library/Application Support/RaysAndMagic/`; bundled YAML and sprites refresh
+on updates, while edited maps are preserved. Use the repository build when
+editing content. Saves and `player_profile.json` live in the active data
+directory's `saves/` folder. Downloaded app bundles are unsigned; macOS may require
+approval in System Settings -> Privacy & Security before launch.
 
 ## Controls
 
-| Key             | Action                              |
-| --------------- | ----------------------------------- |
-| WASD / Arrows   | Move and turn                       |
-| Q / E           | Strafe left / right                 |
-| R               | Weapon attack (melee or ranged)     |
-| Space           | Smart attack / confirm action       |
-| F               | Cast the selected spell             |
-| C or H          | Cast your best healing spell        |
-| 1-4             | Select active party member          |
-| Tab             | Toggle real-time / turn-based       |
-| I               | Inventory & paperdoll               |
-| P               | Character sheets                    |
-| M               | Spellbook                           |
-| J               | Quest log                           |
-| T               | Talk to a nearby NPC                |
-| ESC             | Menu / close dialogs                |
+| Key | Action |
+| --- | --- |
+| WASD / Arrows | Move and turn |
+| Q / E | Strafe |
+| R | Weapon attack |
+| Space | Smart attack / confirm |
+| Left click / hold on a monster | Aim smart attack / repeat while held on that monster |
+| F | Cast selected spell |
+| C or H | Quick heal |
+| 1-4 | Select party member |
+| Tab | Toggle real-time / turn-based combat |
+| I | Inventory and paperdoll |
+| P | Character sheets |
+| M | Spellbook |
+| J | Quest log |
+| T | Interact with nearby NPC |
+| Esc | Menu / close dialogs |
 
-## Project Structure
+Mouse smart attack uses the same healing, spell, and weapon priorities and
+cooldowns as Space, without turning the view. Holding repeats after a short
+delay. Release, leaving the target, losing it behind a wall, or opening a menu
+ends the hold; press again to acquire a target. Friendly party-controlled
+creatures and transparent sprite margins are not attack targets. The monster
+under the pointer brightens to show which target the click will select.
+Background doors and NPCs do not intercept a foreground monster's click.
+Explicit mouse aim keeps the selected direction through melee resolution and
+projectile flight; the usual weapon arcs, splash and physical interception apply.
+Clicks use the last displayed view in both combat modes. An unmatched click
+expires in the same input update; turning or moving cannot give it a new target.
 
-```text
-+-- main.go              # Entry point
-+-- assets/              # Game data (YAML configs, maps, sprites)
-|   +-- *.yaml           # Items, weapons, spells, monsters, quests, NPCs, tiles, maps
-|   +-- *.map            # ASCII map files
-|   +-- sprites/         # Character, monster, and tile sprites
-|   +-- map_viewer/      # Standalone map viewer tool
-+-- internal/            # Game packages
-    +-- game/            # Core loop, combat, UI, rendering, effects
-    +-- character/       # Party, classes, stats, equipment, NPCs
-    +-- monster/         # Monster & boss AI and configuration
-    +-- items/           # Item system
-    +-- spells/          # Spell casting system
-    +-- quests/          # Quest tracking
-    +-- world/           # Map loading and tile system
-    +-- config/          # YAML loaders
-```
+Equipped item tooltips mark completed set bonuses in green with `[ACTIVE]`.
+Loose items show the set requirements without claiming that the bonus is active.
+Overwatch also reacts to enemy attacks against the party, at half its movement
+reaction chance. Ballistics adds 2/4/6/8 percentage points of bow/blaster critical
+chance from novice through grandmaster; these values share
+`internal/character/catalog.go` with other skill effects.
+Automatic potion use applies to every class and is configured separately under
+`characters.auto_drink` (`threshold_pct`, `interval_seconds`). Field Medicine
+increases recovery from both manual and automatic drinking; it does not enable it.
 
-## Content Files
+## Add content
 
-All game content is data-driven - add or tune content by editing YAML, no code changes required for most additions.
+Start with [Content authoring](docs/content-authoring.md) for shared conventions,
+asset requirements, damage rules, and verification. Most additions use existing
+YAML behaviors; a new behavior still needs runtime support.
 
-| File               | Purpose                                                              | Guide                                           |
-| ------------------ | ------------------------------------------------------------------- | ----------------------------------------------- |
-| `items.yaml`       | Armor, accessories, consumables, resistances                        |                                                 |
-| `weapons.yaml`     | Melee and ranged weapons                                            | [Adding a weapon](how_to_add_a_new_weapon.md)   |
-| `spells.yaml`      | Spells with damage, healing, and effects                           | [Adding a spell](how_to_add_a_new_spell.md)     |
-| `monsters.yaml`    | Monster/boss stats, AI flags, and map letters                      | [Adding a monster](how_to_add_a_new_monster.md) |
-| `quests.yaml`      | Quest definitions and rewards                                      |                                                 |
-| `npcs.yaml`        | NPCs (merchants, spell traders, encounters, quest-givers)          | [Adding an NPC](how_to_add_a_new_npc.md)        |
-| `loots.yaml`       | Monster drop tables                                                |                                                 |
-| `tiles.yaml`       | Tile types per biome                                               | [Adding a tile](how_to_add_a_new_tile.md)       |
-| `map_configs.yaml` | Per-map settings, per-biome floor textures, clear-encounter chests |                                                 |
+| Content | Definition files | Guide |
+| --- | --- | --- |
+| Weapons | `assets/weapons.yaml` | [Weapons](how_to_add_a_new_weapon.md) |
+| Spells | `assets/spells.yaml` | [Spells](how_to_add_a_new_spell.md) |
+| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md) |
+| Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
+| NPCs and services | `assets/npcs.yaml` | [NPCs](how_to_add_a_new_npc.md) |
+| Quests | `assets/quests.yaml` | [Quests](docs/adding-quests.md) |
+| Terrain and props | `assets/tiles.yaml`, `assets/special_tiles.yaml` | [Tiles](how_to_add_a_new_tile.md), [Floor transitions](docs/floor-transitions.md) |
+| Maps and connections | `assets/*.map`, `assets/map_configs.yaml`, `assets/open_world.yaml` | [Maps](docs/adding-maps.md) |
 
-## Map Format
-
-Maps are ASCII files where each character represents a tile or entity:
-
-- `.` Floor / `#` Wall / `+` Player start
-- `T` Tree (biome-dependent) / `W` Water / `D` Door
-- Lowercase letters spawn monsters (resolved biome-first, e.g. `r` = rat, `c` = puma)
-- `@` marks an NPC/special tile position, defined at the end of the line with `>[npc:key]`
+Use the [map editor](assets/map_viewer/README.md) to place content and inspect
+catalogs. Follow the [dialogue guidelines](docs/content-authoring.md#dialogue) when writing NPC or
+quest prose.
 
 ## Development
 
-```bash
-go fmt ./... && go vet ./...    # Format and lint
-go test ./...                    # Run tests
-go test -race -cover ./...       # Race detector + coverage
+`internal/game` owns gameplay and rendering orchestration; `internal/character`,
+`monster`, `items`, `spells`, and `quests` own their respective systems.
+`internal/config` owns shared schemas, `internal/world` loads maps and tiles,
+and `internal/graphics` loads sprites. Shared contributor conventions are in the
+[content guide](docs/content-authoring.md).
+
+```sh
+go test ./internal/game -run '^TestContentGuideExamples$' -count=1
+go test ./...
+go vet ./...
+./build_bin.sh
 ```
+
+Format changed Go files with `gofmt`. After Go or game-code changes,
+`./build_bin.sh` is the required final build verification. Content changes also
+need an in-game check of appearance, interaction, and save/load behavior; loader
+tests cannot prove visual quality. Keep generated previews and intermediate
+files in a system temporary directory outside the repository.

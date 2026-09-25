@@ -20,6 +20,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/quests"
 	"ugataima/internal/sound"
 	"ugataima/internal/spells"
@@ -62,6 +63,7 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -98,6 +100,9 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	Overwatch          bool // Reaction provenance; never changes weapon or proc classification.
+	CritChance         int
+	WorldAim           bool
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -172,6 +177,17 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	terrainChanges          []TerrainChange
+	editorPreview           *editorPreviewState
+	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
+	ecology                 EcologyState
+	ecologyOwner            *MMGame
+	ecologyCaravan          *monster.Monster3D
+	ecologyViews            map[*world.World3D]*MMGame
+	ecologyRosterIDs        map[string]bool
+	caravanAttackAlertUntil time.Time // Session-only HUD notification throttle.
+
+	tactics tacticalState
 	menuState
 	dialogState
 	world     *world.World3D
@@ -232,12 +248,12 @@ type MMGame struct {
 	prevWorldClickAllowed bool
 
 	// Double-click support for spellbook
-	lastSpellClickTime int64 // Time of last spell click in milliseconds
-	lastClickedSpell   int   // Index of last clicked spell
-	lastClickedSchool  int   // Index of last clicked school
+	lastBookClickTime    int64 // Time of last book entry click in milliseconds
+	lastClickedBookEntry int   // Index of last clicked spell or trap
+	lastClickedBookGroup int   // School index, or -1 for the trap book
 	// Double-click support for spellbook school collapse
 	lastSchoolClickTime  int64 // Time of last school click in milliseconds
-	lastSchoolClickedIdx int   // Index of last clicked school header
+	lastSchoolClickedIdx int   // School index, or -1 for the trap book header
 
 	// Quick-slot drag-and-drop (sampled in updateMouseState, resolved in Draw).
 	// A drag is only armed while the menu is open; the in-game bar is double-click
@@ -286,6 +302,7 @@ type MMGame struct {
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
 	// during the phase-flip crossfade.
+	maxPartyLevel           int
 	dayNightFrames          int
 	dayNightIsNight         bool
 	dayNightSkipActive      bool
@@ -299,7 +316,8 @@ type MMGame struct {
 	// Combat effects
 	magicProjectiles []MagicProjectile
 	arrows           []Arrow
-	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
+	groundContainers []GroundContainer
+	monsterCorpses   []monsterCorpse // unified loot bags + treasure chests on the ground
 	// containerFanOffsets caches each container's render-only fan offset for the
 	// current frame (see groundContainerRenderOffset): rebuilt in one O(n) tile
 	// grouping pass, then O(1) per lookup - the render + hit-test paths query
@@ -322,6 +340,8 @@ type MMGame struct {
 	screenShakeOffsetX     float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
 	screenShakeOffsetY     float64
 	hitEffectsMu           sync.Mutex
+
+	cameraPresentation cameraPresentation
 
 	// Smooth turn-based rotation: logic snaps camera.Angle 90deg instantly (no
 	// gameplay change), but the RENDER uses viewAngleRender, which eases toward it
@@ -406,9 +426,9 @@ type MMGame struct {
 	// current map (doors_locked.go).
 	lockedDoorEntityIDs map[string]bool
 
-	// dayNightDay counts day/night phase changes (the arena's refresh clock).
-	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
-	// a tier unlocks again when the day advances. Both persisted in saves.
+	// dayNightDay counts phase changes for arena refresh, rumors and old saves.
+	// arenaTierFoughtDay: difficulty tier -> phase last challenged;
+	// a tier unlocks at either dusk or dawn. Both persisted in saves.
 	dayNightDay        int
 	arenaTierFoughtDay map[string]int
 	// Calendar advances only at dawn. Unlike dayNightDay it represents real
@@ -548,8 +568,10 @@ type MMGame struct {
 	// Dead monster IDs to remove - populated when monster dies, processed once per frame
 	deadMonsterIDs []string
 	// Stat distribution popup UI state
-	statPopupOpen    bool // Is the stat distribution popup open?
-	statPopupCharIdx int  // Which character is being edited in the popup?
+	statPopupOpen    bool                  // Is the stat distribution popup open?
+	statPopupCharIdx int                   // Which character is being edited in the popup?
+	campConfirmOpen  bool                  // Transient; supplies are spent only after confirmation.
+	campRest         *campRestPresentation // Transient presentation, never saved.
 	// Level-up choice queue
 	levelUpChoiceQueue []levelUpChoiceRequest
 	levelUpChoiceOpen  bool
@@ -595,6 +617,7 @@ type MMGame struct {
 	// rosterSelectedActive is the active slot the player picked first (-1 = none).
 	rosterScreenOpen     bool
 	rosterSelectedActive int
+	rosterScroll         int
 
 	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
 	// chest is lazy-loaded on first open and persisted on every transfer.
@@ -669,8 +692,17 @@ type MMGame struct {
 	// Top-level screen state (entry menu / party creation / gameplay). See
 	// AppScreen. The entry menu and party-creation screens live in
 	// screen_entry.go and screen_party_create.go.
-	appScreen          AppScreen
-	entryMenuMode      EntryMenuMode
+	appScreen                              AppScreen
+	entryMenuMode                          EntryMenuMode
+	playerProfile                          *playerprofile.Store
+	playerProfileError                     string
+	profileLastTick, profileLastCheckpoint time.Time
+	profileKilled                          map[string]bool
+	pendingAchievements                    []config.AchievementDef
+	statisticsTab                          int
+	statisticsPage                         int
+	statisticsScroll                       int
+
 	achievementsScroll int               // achievements list scroll offset (rows)
 	partyCreate        *partyCreateState // built lazily on entering AppScreenPartyCreate
 }
@@ -703,6 +735,7 @@ const (
 	EntryMenuScores
 	EntryMenuAchievements
 	EntryMenuSettings
+	EntryMenuStatistics
 )
 
 // MainMenuMode represents sub-modes of the ESC menu
@@ -713,6 +746,7 @@ const (
 	MenuSaveSelect
 	MenuLoadSelect
 	MenuSettings
+	MenuControlTips
 )
 
 // MenuTab represents the different tabs in the main menu
@@ -751,6 +785,12 @@ func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 }
 
 func NewMMGame(cfg *config.Config) *MMGame {
+	return newMMGame(cfg, false)
+}
+
+// Preview arenas use the same game systems without a campaign journal or
+// campaign-map requirements. Content and rendering validation still apply.
+func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	sprites := graphics.NewSpriteManager()
 	ApplySpriteColorKey(sprites, cfg)
 
@@ -761,8 +801,13 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	}
 	// Content check that needs loaded MAPS (boot sees only configs): every
 	// duel-offering NPC must stand on a map with a duel: block.
-	if err := ValidateDuelGrounds(world.GlobalWorldManager); err != nil {
-		panic(err)
+	if !preview {
+		if err := ValidateDuelGrounds(world.GlobalWorldManager); err != nil {
+			panic(err)
+		}
+		if err := ValidateEcologyContent(cfg, quests.GlobalQuestManager); err != nil {
+			panic(err)
+		}
 	}
 
 	// Create a 4-character party
@@ -786,7 +831,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Initialize threading components
 	threadingComponents := threading.NewThreadingComponents(cfg)
 
+	var editorPreview *editorPreviewState
+	if preview {
+		editorPreview = &editorPreviewState{}
+	}
 	game := &MMGame{
+		editorPreview:    editorPreview,
 		menuState:        newMenuState(),
 		dialogState:      newDialogState(),
 		world:            currentWorld,
@@ -813,9 +863,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		currentTab: TabInventory,
 
 		// Double-click support for spellbook
-		lastSpellClickTime:   0,
-		lastClickedSpell:     -1,
-		lastClickedSchool:    -1,
+		lastBookClickTime:    0,
+		lastClickedBookEntry: -1,
+		lastClickedBookGroup: -1,
 		lastSchoolClickTime:  0,
 		lastSchoolClickedIdx: -1,
 
@@ -861,9 +911,14 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
 	game.gameLoop = NewGameLoop(game)
+	if err := game.validateTraversalBuffs(); err != nil {
+		panic(err)
+	}
 
 	// Connect global quest manager
-	game.questManager = quests.GlobalQuestManager
+	if !preview {
+		game.questManager = quests.GlobalQuestManager
+	}
 	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
@@ -890,17 +945,20 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	}
 	// Every interact quest must be finishable: its tag credited by something, and
 	// enough of those props actually standing. Runs HERE, with its siblings, so
-	// every boot path is covered - the headless sim, the map viewer and the test
-	// fixtures all build a game, and only the shipped binary called it before.
+	// every campaign boot path is covered, including headless simulations.
+	// Editor arenas deliberately contain no campaign quest props.
 	// It stands down on a world with no props (a blank fixture) and warns instead.
-	if err := ValidateInteractTagProducers(quests.GlobalQuestManager); err != nil {
-		panic(err)
+	if !preview {
+		if err := ValidateInteractTagProducers(game.questManager); err != nil {
+			panic(err)
+		}
 	}
 
 	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite
 	// index is ready by now).
 	game.validateBuffFxSprites()
 	game.validatePartyCardPanelAsset()
+	game.validateInterfaceArt()
 	validateWeaponFxStyles()
 	validateProjectileFxStyles()
 	validateTrapFxStyles()
@@ -937,6 +995,15 @@ func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	if m == nil {
 		return
+	}
+	if err := m.ValidateFishLeap(); err != nil {
+		panic(err)
+	}
+	if m.IsFish() {
+		if g.fishWorlds == nil {
+			g.fishWorlds = make(map[*world.World3D]struct{})
+		}
+		g.fishWorlds[g.world] = struct{}{}
 	}
 	g.world.Monsters = append(g.world.Monsters, m)
 	width, height := m.GetSize()
@@ -1031,7 +1098,13 @@ func (g *MMGame) updateFocusedNPC() {
 		if dist > bestDist {
 			continue
 		}
+		if g.npcIsWalkUpProp(npc) && g.collisionSystem != nil &&
+			!g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, ex, ey) {
+			continue
+		}
+		restore := g.beginPresentedCameraSwap()
 		screenX, _, ok := g.renderHelper.projectToScreenX(ex, ey)
+		restore()
 		if !ok || math.Abs(float64(screenX)-halfW) > band {
 			continue
 		}
@@ -1055,7 +1128,7 @@ func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc.HideWhenVisited && npc.Visited {
 		return true
 	}
-	return npc.NightOnly && !g.dayNightIsNight
+	return !g.partyLevelUnlocked(npc.MinPartyLevel) || (npc.NightOnly && !g.dayNightIsNight)
 }
 
 func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
@@ -1079,7 +1152,7 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 		if dist >= bestDist {
 			continue
 		}
-		if !g.npcScreenHitTest(n, ex, ey, dist, clickX, clickY) {
+		if !g.npcScreenHitTest(n, ex, ey, clickX, clickY) {
 			continue
 		}
 		npc = n
@@ -1093,7 +1166,9 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 // mostly-transparent sprite margins don't catch clicks). ex/ey is the NPC's
 // effective (rendered) position - see npcEffectivePos. Occlusion is checked
 // against the wall depth buffer at the sprite's centre column.
-func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, x, y int) bool {
+func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) bool {
+	defer g.beginPresentedCameraSwap()()
+	distance := Distance(g.camera.X, g.camera.Y, ex, ey)
 	screenX, screenY, spriteSize, visible := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 	if !visible || spriteSize <= 0 {
 		return false
@@ -1255,8 +1330,8 @@ func (g *MMGame) settleAshore(message string) {
 // or a remembered per-map entry pose can point inside what is now a wall, and
 // placing the party there leaves it with no legal move out. Legal destinations
 // pass through unchanged (preserving sub-tile precision): walkable ground,
-// water under an active water effect, and - while Fly holds - anything Fly
-// itself may occupy (its expiry runs its own eject). Legality comes from
+// water under an active water effect, and terrain under an active passage
+// capability (losing the last provider grounds the party). Legality comes from
 // static tile data plus game-side buffs, never the world's transient
 // fly/water flags: callers run before the per-frame flag sync, and a
 // revisited map keeps its flags stale from the previous visit.
@@ -1267,14 +1342,14 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 	}
 	ts := float64(g.config.GetTileSize())
 	tx, ty := TileIndex(x, ts), TileIndex(y, ts)
-	if g.flyActive {
-		if !w.IsTileBlockingForFly(tx, ty) {
+	if g.partyHasTerrainPassage() {
+		if !w.IsTileBlockingForTerrainPassage(tx, ty) {
 			return x, y
 		}
-		// The clamp must land where the flying party may actually stand: the
-		// border ring is statically walkable but solid to Fly.
+		// The clamp must respect passage boundaries: the border ring can be
+		// statically walkable while still blocking this traversal mode.
 		return g.findNearestWalkableTileMustSucceed(x, y, func(ctx, cty int) bool {
-			return !w.IsTileBlockingForFly(ctx, cty)
+			return !w.IsTileBlockingForTerrainPassage(ctx, cty)
 		})
 	}
 	if tx >= 0 && tx < w.Width && ty >= 0 && ty < w.Height {
@@ -1296,7 +1371,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 // Checks tile type directly: buff expiry runs before the per-frame world-flag
 // sync, so the world's own water flags are still stale here.
 func (g *MMGame) settleAfterWalkOnWater() {
-	if g.flyActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+	if g.partyHasTerrainPassage() || g.waterBreathingActive || g.hasCardWalkOnWater() {
 		return
 	}
 	w := g.GetCurrentWorld()
@@ -1314,12 +1389,9 @@ func (g *MMGame) settleAfterWalkOnWater() {
 	g.settleAshore("Walk on Water fades - the party wades ashore.")
 }
 
-// ejectFromWallAfterFly surfaces the party to the nearest walkable tile when
-// Fly lapses while they hover inside solid terrain (Fly lets movement pass
-// through walls). Without it the party is stuck against a wall bbox with no
-// legal move out. Walkability here is terrain-only, so it works regardless of
-// the world's Fly flag sync order.
-func (g *MMGame) ejectFromWallAfterFly() {
+// settleAfterTerrainPassage surfaces the party when its last terrain-passage
+// provider expires. Raw terrain checks do not depend on world flag sync order.
+func (g *MMGame) settleAfterTerrainPassage() {
 	w := g.GetCurrentWorld()
 	if w == nil {
 		return
@@ -1328,7 +1400,7 @@ func (g *MMGame) ejectFromWallAfterFly() {
 	if !w.IsTileBlockingTerrainAt(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)) {
 		return // already on open ground
 	}
-	g.settleAshore("The wings fade - the party settles onto solid ground.")
+	g.settleAshore("The party settles onto solid ground.")
 }
 
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
@@ -1600,9 +1672,16 @@ func (g *MMGame) turnViewFrames() int {
 
 // setPartyPosition is the single point for placing the party: it moves the
 // camera AND the party's collision entity together. Writing the camera alone
-// leaves projectiles, monster reach and habitat checks resolving against the old
+// leaves projectiles, monster reach and terrain override checks resolving against the old
 // spot until the next ordinary step.
 func (g *MMGame) setPartyPosition(x, y float64) {
+	g.resetCameraPresentation()
+	g.movePartyPosition(x, y)
+}
+
+// movePartyPosition keeps the last displayed pose available for input until
+// Draw publishes the ordinary step. Teleports and restores use setPartyPosition.
+func (g *MMGame) movePartyPosition(x, y float64) {
 	g.camera.X, g.camera.Y = x, y
 	if g.collisionSystem != nil {
 		g.collisionSystem.UpdateEntity("player", x, y)
@@ -1614,23 +1693,33 @@ func (g *MMGame) setPartyPosition(x, y float64) {
 // the rendered view together and cancels any in-flight turn glide, so the view
 // can never ease from a stale heading. Gliding turns go through rotateTurnBased.
 func (g *MMGame) snapFacing(angle float64) {
+	g.resetCameraPresentation()
 	g.camera.Angle = angle
 	g.viewAngleRender = angle
 	g.viewTurnFramesLeft = 0
 }
 
-// beginViewAngleSwap points the camera at the eased display angle for a draw
-// pass and returns the restore for the logical angle. The restore only undoes
-// OUR swap: a Draw-time UI handler may re-aim the camera mid-Draw, and that
-// write must survive the frame.
-func (g *MMGame) beginViewAngleSwap() (restore func()) {
-	logicalAngle := g.camera.Angle
-	displayAngle := g.viewAngleRender
-	g.camera.Angle = displayAngle
+// beginScreenShakeSwap confines cosmetic displacement to the scene pass.
+// Restore the original coordinates exactly, not by subtracting rounded offsets.
+func (g *MMGame) beginScreenShakeSwap() func() {
+	if g.camera == nil || g.screenShake <= 0 {
+		return func() {}
+	}
+	camera := g.camera
+	x, y := camera.X, camera.Y
+	ox := -math.Sin(camera.Angle) * g.screenShake
+	oy := math.Cos(camera.Angle) * g.screenShake
+	if g.frameCount%2 == 0 {
+		ox, oy = -ox, -oy
+	}
+	camera.X, camera.Y = x+ox, y+oy
+	shakenX, shakenY := camera.X, camera.Y
+	g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
 	return func() {
-		if g.camera.Angle == displayAngle {
-			g.camera.Angle = logicalAngle
+		if g.camera == camera && camera.X == shakenX && camera.Y == shakenY {
+			camera.X, camera.Y = x, y
 		}
+		g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
 	}
 }
 
@@ -1699,6 +1788,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 		len(g.wallTopBuffer) == screenWidth {
 		return
 	}
+	g.resetCameraPresentation()
 	g.config.Display.ScreenWidth = screenWidth
 	g.config.Display.ScreenHeight = screenHeight
 
@@ -1719,6 +1809,19 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
+	g.cancelCampPresentation()
+	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
+		g.gameLoop.ui.profileViewport.Deallocate()
+		g.gameLoop.ui.profileViewport = nil
+	}
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		g.gameLoop.ui.releaseCompassFrame()
+		g.gameLoop.ui.profileArt.close()
+		g.gameLoop.ui.profileArt = nil
+	}
+	if err := g.playerProfile.Close(); err != nil {
+		fmt.Printf("Warning: player profile save failed: %v\n", err)
+	}
 	if g.gameLoop != nil {
 		g.gameLoop.closeResourceLoading()
 	}
@@ -1877,7 +1980,7 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 
 // hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
 // given wrapped-line count. It grows upward above the party UI and, when its
-// right-side span meets the visible quick bar, clears that bar as well. Shared by
+// right-side span meets the action rail, clears camping and quick slots as well. Shared by
 // the renderer and the click hit-region.
 func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	h = lineCount*hudMessageSpacing + 10
@@ -1885,9 +1988,9 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	x = g.config.GetScreenWidth() - w - 15
 	_, _, _, partyStartY := partyPortraitLayout(g)
 	bottom := partyStartY - hudMessageBottomGap
-	if quickBar, visible := inGameQuickSlotBarLayout(g); visible &&
-		x < quickBar.right() && quickBar.x < x+w {
-		if clearBottom := quickBar.y - hudMessageBottomGap; clearBottom < bottom {
+	if actions, visible := inGameActionBarLayout(g); visible &&
+		x < actions.bounds.right() && actions.bounds.x < x+w {
+		if clearBottom := actions.bounds.y - hudMessageBottomGap; clearBottom < bottom {
 			bottom = clearBottom
 		}
 	}
@@ -2043,7 +2146,11 @@ func (g *MMGame) refreshMonsterAIState() {
 	// single warded boss, which is all the content has. Recomputed per frame => no
 	// save state, self-heals on reload.
 	liveIdols := 0
+	g.ecologyCaravan = nil
 	for _, m := range g.world.Monsters {
+		if m != nil && m.IsAlive() && m.IsCaravan() {
+			g.ecologyCaravan = m
+		}
 		if m != nil && m.WarlordIdol && m.IsAlive() {
 			liveIdols++
 		}
@@ -2131,7 +2238,7 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 			candidate := collision.NewBoundingBox(x, y, mw, mh)
 			if candidate.Intersects(player.BoundingBox) ||
 				g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) ||
-				!g.collisionSystem.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying) {
+				!g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) {
 				return false
 			}
 			m.X, m.Y = x, y
@@ -2282,6 +2389,26 @@ func (g *MMGame) firstEligiblePartyIndex() int {
 	return -1
 }
 
+// ensureTBActor hands a turn-based action request to the next member who has
+// an action slot and can take it, mirroring the real-time chain. A manual
+// selection stays for UI inspection until an action is requested. Reports
+// whether anyone can act.
+func (g *MMGame) ensureTBActor(kind rtActionKind) bool {
+	ready := func(idx int) bool { return g.canSelectChar(idx) && g.actionCapable(idx, kind) }
+	if ready(g.selectedChar) {
+		return true
+	}
+	n := len(g.party.Members)
+	for off := 1; off < n; off++ {
+		if idx := (g.selectedChar + off) % n; ready(idx) {
+			g.selectedChar = idx
+			g.parkSelection = false
+			return true
+		}
+	}
+	return false
+}
+
 // advanceToNextEligibleChar moves selectedChar forward to the next party
 // member that can still act this round, wrapping from the end back to the
 // start. No-op if none are eligible.
@@ -2326,15 +2453,20 @@ const (
 )
 
 // rtActionCapable reports whether a party member CAN perform a real-time action
-// right now (ignoring cooldown): alive, plus has the weapon / slotted spell /
-// known heal AND enough SP for it. Smart-attack always falls back to a weapon
-// swing, so everyone is "capable" of it.
+// right now (ignoring cooldown). Real time also honors focus mode.
 func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
-	if !g.combatActorAllowed(idx) {
+	return g.combatActorAllowed(idx) && g.actionCapable(idx, kind)
+}
+
+// actionCapable is the mode-neutral capability for an action: alive, plus has
+// the weapon / slotted spell / known heal AND enough SP for it. Smart-attack
+// needs one of SmartAttack's branches; an unarmed member without one cannot.
+func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
+	if g == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
 		return false
 	}
 	m := g.party.Members[idx]
-	if !m.CanUseCombatAction() {
+	if m == nil || !m.CanUseCombatAction() {
 		return false
 	}
 	switch kind {
@@ -2365,7 +2497,10 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 		def, err := spells.GetSpellDefinitionByID(id)
 		return err == nil && m.SpellPoints >= g.combat.effectiveSpellCost(m, def.SpellPointsCost)
 	default: // rtActSmart
-		return true
+		if g.combat == nil {
+			return m.HasWeaponInEitherHand()
+		}
+		return g.combat.smartActionAvailable(m)
 	}
 }
 
@@ -2468,7 +2603,14 @@ func (g *MMGame) sweepLethalDoTVictims() {
 }
 
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
-func (g *MMGame) startPartyTurn() {
+func (g *MMGame) startPartyTurn(initial ...bool) {
+	g.tactics.movedTB = false
+	if len(initial) == 0 || !initial[0] {
+		for _, ch := range g.party.Members {
+			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+		}
+	}
 	g.parkSelection = false // a new round clears any manual park
 	tps := g.config.GetTPS()
 	// Poison/ignite consume the seconds this round represents and deal that many
@@ -2677,10 +2819,38 @@ func (g *MMGame) endPartyTurnAfterMovement() {
 	if g.partyActionsUsed > 0 {
 		g.turnBasedExtraMonsterAction = true
 	}
+	g.forfeitPartyTurn()
+}
+
+// forfeitPartyTurn spends every remaining action slot and hands the round to
+// the monsters.
+func (g *MMGame) forfeitPartyTurn() {
 	for _, m := range g.party.Members {
 		m.ActionsRemaining = 0
 	}
 	g.endPartyTurn()
+}
+
+// passTBAttackRequest ends the party turn when an attack request (click,
+// Space, R) finds no member with an action slot who can attack. Those slots
+// could still cast from the book before the request; the pass names them.
+func (g *MMGame) passTBAttackRequest() bool {
+	if !g.turnBasedMode || g.currentTurn != 0 || g.partyAllExhausted() {
+		return false
+	}
+	var idle []string
+	for i, m := range g.party.Members {
+		if !g.canSelectChar(i) {
+			continue
+		}
+		if g.actionCapable(i, rtActSmart) {
+			return false
+		}
+		idle = append(idle, m.Name)
+	}
+	g.AddCombatMessage(fmt.Sprintf("Nothing left to attack with (%s) - the party ends its turn.", strings.Join(idle, ", ")))
+	g.forfeitPartyTurn()
+	return true
 }
 
 // parkedOnSelected reports whether the player manually selected the current
@@ -2782,6 +2952,7 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 }
 
 func (g *MMGame) ToggleTurnBasedMode() {
+	defer g.resetOverwatch()
 	if g.turnBasedMode {
 		// Keep both action economies intact. RT cooldowns already pause while
 		// TB is active; clearing them here made Tab an attack/cast reset.
@@ -2814,7 +2985,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.monsterTurnState.resetPasses()
-		g.startPartyTurn()
+		g.startPartyTurn(true)
 	}
 	g.turnBasedTurnSuspended = false
 	g.AddCombatMessage("Turn-based mode activated!")
@@ -2916,7 +3087,17 @@ const partyAttackTargetID = "player"
 // attack target; a normal hostile targets either its closer AIFoe or the party.
 func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
 	frame := g.monsterFrameContext()
-	return monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+	id, x, y, ok = monsterAttackTargetAt(m, frame.partyX, frame.partyY, frame.hasParty)
+	// This wrapper runs serially. Foes may have moved or died since the AI
+	// snapshot, especially earlier in the same TB pass. Workers call the
+	// snapshot-only helper directly and must never read another actor's state.
+	if ok && m.AIFoe != nil {
+		if !m.AIFoe.IsAlive() {
+			return "", 0, 0, false
+		}
+		x, y = m.AIFoe.X, m.AIFoe.Y
+	}
+	return
 }
 
 func monsterAttackTargetAt(m *monster.Monster3D, partyX, partyY float64, hasParty bool) (id string, x, y float64, ok bool) {
@@ -2987,7 +3168,7 @@ func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
 		return false
 	}
 	targetID, targetX, targetY, hasTarget := g.monsterAttackTarget(m)
-	if !hasTarget {
+	if !hasTarget || (g.combat != nil && g.combat.attackOriginBlocked(m.X, m.Y)) {
 		return false
 	}
 	tileSize := float64(g.config.GetTileSize())

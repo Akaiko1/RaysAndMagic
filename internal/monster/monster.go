@@ -37,6 +37,7 @@ const (
 	AIBehaviorFleeing
 	AIBehaviorPassive
 	AIBehaviorSeekParty
+	AIBehaviorAmbient
 )
 
 // EncounterRewards represents rewards for completing an encounter
@@ -103,7 +104,7 @@ func (m *Monster3D) IsPassiveUntilProvoked() bool {
 // monster behavior. It intentionally does not decide whether a normal monster
 // can first see the party; CanStartPlayerEngagement owns that geometry gate.
 func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
-	if m == nil || m.IsInertSetPiece() {
+	if m == nil || m.IsInertSetPiece() || m.IsFish() {
 		return AIBehaviorInert
 	}
 	if m.Bound {
@@ -115,11 +116,14 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.BossEvasive {
 		return AIBehaviorEvasive
 	}
+	if m.IsCaravan() || (m.IsWildlife() && (m.AmbientFlee || m.AIFoe == nil)) {
+		return AIBehaviorAmbient
+	}
 	if m.AIFoe != nil {
 		// A stale crossfire target must not wake a passive creature. Normal
 		// selection clears it too, but keeping the policy here makes every AI
 		// consumer obey the same passive-until-hit contract.
-		if m.IsPassiveUntilProvoked() {
+		if m.IsPassiveUntilProvoked() && !m.AIFoe.IsCaravan() {
 			return AIBehaviorPassive
 		}
 		return AIBehaviorFightFoe
@@ -154,7 +158,7 @@ func (m *Monster3D) TargetsParty() bool {
 	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorBoundAlly,
-		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive:
+		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive, AIBehaviorAmbient:
 		return false
 	case AIBehaviorRelentlessParty:
 		return true
@@ -172,7 +176,7 @@ func (m *Monster3D) IsInCombat() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive, AIBehaviorAmbient:
 		return false
 	case AIBehaviorBoundAlly:
 		return m.AIFoe != nil
@@ -193,7 +197,7 @@ func (m *Monster3D) IsCalmForSocialBehavior() bool {
 	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
-		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
+		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing, AIBehaviorAmbient:
 		return false
 	}
 	return m.State == StateIdle || m.State == StatePatrolling
@@ -235,6 +239,19 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Arboreal          *ArborealConfig
+	Arbor             ArborealState
+	FishLeap          *FishLeapState
+	Disposition       string
+	Prey              []string
+	PreyRadius        float64
+	AmbientBounds     *[4]int
+	AmbientMoveCredit float64
+	Population        string
+	AmbientFlee       bool
+	Threat            AmbientThreat
+	NoKillRewards     bool
+
 	X, Y         float64
 	Name         string
 	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements
@@ -267,11 +284,13 @@ type Monster3D struct {
 	StateTimer   int
 	AttackCount  int // Number of attacks made in current engagement
 
+	// Presentation policy from YAML, restored from the definition rather than saved.
+	AnimateWhenIdle bool
+
 	// Pathfinding state - prevents oscillation when stuck between obstacles
 	LastChosenDir float64 // Last direction chosen by pathfinding
 	StuckCounter  int     // Counts consecutive frames where monster couldn't move
 	LastX, LastY  float64 // Position last frame to detect stuck state
-	LastMoveTick  int64   // Last game frame when the monster moved (for animations)
 
 	// Pursuit pathfinding state (tile-based A*)
 	PathTiles        []TileCoord
@@ -307,16 +326,19 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
 	FaceAccY            float64
-	StunTurnsRemaining  int  // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining int  // Real-time stun duration in frames
-	StunRate            int  // Persisted frames-per-turn exchange rate keeping mode switches proportional
-	StunDRStacks        int  // Stun diminishing-returns chain length (0=fresh; caps -> immune)
-	StunDRMemoryTurns   int  // TB: stun-free turns left before the DR chain resets
-	StunDRMemoryFrames  int  // RT: stun-free frames left before the DR chain resets
-	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
-	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
-	RootRate            int  // Persisted frames-per-turn rate for the root clocks
-	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
+	StunTurnsRemaining  int // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int // Real-time stun duration in frames
+	StunRate            int // Persisted frames-per-turn exchange rate keeping mode switches proportional
+	StunDRStacks        int // Stun diminishing-returns chain length (0=fresh; caps -> immune)
+	StunDRMemoryTurns   int // TB: stun-free turns left before the DR chain resets
+	StunDRMemoryFrames  int // RT: stun-free frames left before the DR chain resets
+	RootTurnsRemaining  int // TB root (bear trap): can't move, CAN attack
+	RootFramesRemaining int // RT root in frames: position pinned, attacks work
+	RootRate            int // Persisted frames-per-turn rate for the root clocks
+
+	movementHeldThisFrame bool // RT: retain the final stun/root frame through social reconciliation
+	rootHeldThisTurn      bool // TB: rooted at the start of the current turn (runtime-only)
+
 	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
 	// ArmorShredPct percent. Refreshes on hit, never stacks.
 	ArmorShredPct             int
@@ -419,8 +441,8 @@ type Monster3D struct {
 	// Resistances and immunities
 	Resistances map[DamageType]int
 
-	// Habitat preferences - tiles this monster can walk on even if normally blocked
-	HabitatPrefs []string
+	// Walkable tile overrides - blocked terrain this monster may traverse
+	WalkableTileOverrides []string
 
 	// Ranged attack configuration
 	ProjectileSpell  string
@@ -707,6 +729,11 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 
 	// Mark as attacked - prevents AI from disengaging due to distance
 	m.WasAttacked = true
+	// Caravans keep their current route and path when hit. Combat engagement
+	// resets pathfinding, so repeated attacks used to interrupt their travel.
+	if m.IsCaravan() {
+		return dealt
+	}
 
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
@@ -1301,4 +1328,21 @@ func (m *Monster3D) GetDirectionToSpawn() float64 {
 // CanMoveWithinTether checks if moving in a direction would keep monster within tether
 func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 	return distance(newX, newY, m.SpawnX, m.SpawnY) <= m.TetherRadius
+}
+
+// MovementHeld is the shared non-random movement gate. Slow percentages below
+// 100 are applied by RT speed or one TB roll per attempted movement action.
+func (m *Monster3D) MovementHeld(turnBased bool) bool {
+	if m == nil || !m.IsAlive() || m.Speed <= 0 {
+		return true
+	}
+	// Charm may wander on the ground, but cannot hand an unfinished canopy
+	// trajectory to ground pathfinding. Preserve all anchors until it ends.
+	if m.Pacified && m.Arbor.Phase != "" {
+		return true
+	}
+	if turnBased {
+		return m.StunTurnsRemaining > 0 || m.RootTurnsRemaining > 0 || m.RootHeld() || m.ActiveSlowPct() >= 100
+	}
+	return m.movementHeldThisFrame || m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
 }

@@ -161,18 +161,15 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 	ui.lastClickTime = time.UnixMilli(1000)
 	ui.lastClickedSlot = items.SlotMainHand
 	ui.lastEquipClickTime = time.UnixMilli(1000)
-	ui.lastClickedTrap = 2
-	ui.lastTrapClickTime = 1000
-	g.lastClickedSpell = 1
-	g.lastClickedSchool = 0
-	g.lastSpellClickTime = 1000
+	g.lastClickedBookEntry = 1
+	g.lastClickedBookGroup = 0
+	g.lastBookClickTime = 1000
 
 	g.selectedChar = 1
 	ui.syncCharacterHubClickContext()
 	if ui.lastClickedItem != -1 || !ui.lastClickTime.IsZero() ||
 		ui.lastClickedSlot != items.EquipSlot(-1) || !ui.lastEquipClickTime.IsZero() ||
-		ui.lastClickedTrap != -1 || ui.lastTrapClickTime != 0 ||
-		g.lastClickedSpell != -1 || g.lastClickedSchool != -1 || g.lastSpellClickTime != 0 {
+		g.lastClickedBookEntry != -1 || g.lastClickedBookGroup != -1 || g.lastBookClickTime != 0 {
 		t.Fatal("character switch preserved a double-click chain from the previous character")
 	}
 }
@@ -188,11 +185,11 @@ func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
 			t.Fatalf("%dx%d quick slots bottom=%d, paperdoll bottom=%d",
 				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom())
 		}
-		noticeBottom := inventory.camp.bottom()
+		pagerBottom := inventory.pager.bottom()
 		quickLabelTop := inventory.quickSlots.y - quickSlotTabLabelSpace
-		if gap := quickLabelTop - noticeBottom; gap < inventoryCampToQuickLabelGap {
-			t.Fatalf("%dx%d camp notice to quick-slot label gap=%d, want >=%d",
-				res[0], res[1], gap, inventoryCampToQuickLabelGap)
+		if gap := quickLabelTop - pagerBottom; gap < inventoryPagerToQuickGap {
+			t.Fatalf("%dx%d pager to quick-slot label gap=%d, want >=%d",
+				res[0], res[1], gap, inventoryPagerToQuickGap)
 		}
 	}
 }
@@ -404,7 +401,7 @@ func TestSpellbookDoubleClickEquipsFastSpellWithoutCasting(t *testing.T) {
 func TestSpellbookKeyboardActionClosesHubBeforeSuccessfulCast(t *testing.T) {
 	g, ih, caster, _, _ := setupSorcererFireboltSelection(t)
 	beforeSP := caster.SpellPoints
-	if !ih.castSelectedSpellFromHub() {
+	if !ih.useSelectedBookEntryFromHub() {
 		t.Fatal("selected Firebolt did not cast")
 	}
 	if g.menuOpen {

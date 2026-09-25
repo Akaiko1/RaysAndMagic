@@ -137,7 +137,7 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 		t.Fatalf("co-located post/transit mobs must be fanned, counts=%d/%d", holder.TransitStackCount, transit.TransitStackCount)
 	}
 	if !game.collisionSystem.CanMoveTo("player", holder.X, holder.Y) ||
-		!game.collisionSystem.Snapshot().CanMoveToWithHabitat(transit.ID, holder.X, holder.Y, transit.HabitatPrefs, transit.Flying) {
+		!game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(transit.ID, holder.X, holder.Y, transit.WalkableTileOverrides, transit.Flying) {
 		t.Fatal("the party and transit monster must pass through the claimed post")
 	}
 	if !game.combat.monsterCanAttackParty(holder, Distance(game.camera.X, game.camera.Y, holder.X, holder.Y), holder.GetAttackRangePixels()) {

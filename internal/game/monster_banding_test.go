@@ -13,7 +13,7 @@ type bandingTileChecker struct{}
 
 func (bandingTileChecker) IsTileBlocking(tileX, tileY int) bool { return false }
 
-func (bandingTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
+func (bandingTileChecker) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	return false
 }
 
@@ -138,6 +138,7 @@ func addBandingTestMonster(game *MMGame, id, key string, x, y float64, bandID in
 		X:         x,
 		Y:         y,
 		HitPoints: 1,
+		Speed:     1,
 		State:     monsterPkg.StatePatrolling,
 		Banding:   true,
 		BandID:    bandID,

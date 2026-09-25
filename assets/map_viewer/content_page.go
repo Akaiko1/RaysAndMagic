@@ -39,7 +39,7 @@ func pageTabLayout() []pageTabRect {
 	rects := make([]pageTabRect, 0, len(pageTabDefs))
 	x := 8
 	for _, def := range pageTabDefs {
-		w := utf8.RuneCountInString(def.label)*7 + 60
+		w := game.ShadedTextWidth(def.label) + 60
 		rects = append(rects, pageTabRect{page: def.page, x: x + 4, w: w})
 		x += 4 + w + 4
 	}
@@ -233,7 +233,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int, hovered b
 	// Wrap the subtitle to the text column width instead of truncating, so long
 	// stat lines like "Dmg 7  Range 6  +Intellect" stay fully readable.
 	textW := contentCardW - (8 + contentIconSize + 10) - 8
-	maxChars := textW / 7
+	maxChars := game.ShadedTextColumns(textW)
 	if maxChars < 6 {
 		maxChars = 6
 	}
@@ -284,6 +284,28 @@ func isTooltipSection(text string) bool {
 }
 
 func cardTooltipLines(c *contentCard) []tooltipLine {
+	if len(c.tooltipRows) > 0 {
+		var lines []tooltipLine
+		for i, text := range c.tooltipRows {
+			kind := tooltipLineBody
+			switch {
+			case i == 0:
+				kind = tooltipLineTitle
+			case i == 1:
+				kind = tooltipLineCategory
+			case text == "":
+				kind = tooltipLineSpacer
+			case isTooltipSection(text):
+				kind = tooltipLineSection
+			case strings.HasPrefix(text, "\""):
+				kind = tooltipLineFlavor
+			}
+			for _, row := range wrapTooltipLines(text, 80) {
+				lines = append(lines, tooltipLine{text: row, kind: kind})
+			}
+		}
+		return lines
+	}
 	lines := []tooltipLine{{text: c.name, kind: tooltipLineTitle}}
 	if c.section != "" {
 		lines = append(lines, tooltipLine{text: c.section, kind: tooltipLineCategory})
@@ -297,25 +319,6 @@ func cardTooltipLines(c *contentCard) []tooltipLine {
 		appendSpacer()
 		for _, line := range wrapTooltipLines(c.description, 64) {
 			lines = append(lines, tooltipLine{text: line, kind: tooltipLineDescription})
-		}
-	}
-	if c.flavor != "" {
-		appendSpacer()
-		for _, line := range wrapTooltipLines(`"`+c.flavor+`"`, 64) {
-			lines = append(lines, tooltipLine{text: line, kind: tooltipLineFlavor})
-		}
-	}
-	if len(c.tooltipRows) > 0 {
-		appendSpacer()
-		for _, text := range c.tooltipRows {
-			kind := tooltipLineBody
-			switch {
-			case text == "":
-				kind = tooltipLineSpacer
-			case isTooltipSection(text):
-				kind = tooltipLineSection
-			}
-			lines = append(lines, tooltipLine{text: text, kind: kind})
 		}
 	}
 	return lines
@@ -338,7 +341,7 @@ func cardTooltipSize(c *contentCard) (width, height int) {
 	lines := cardTooltipLines(c)
 	maxLineW := 0
 	for _, line := range lines {
-		if w := utf8.RuneCountInString(line.text) * 7; w > maxLineW {
+		if w := game.ShadedTextWidth(line.text); w > maxLineW {
 			maxLineW = w
 		}
 	}
@@ -421,8 +424,12 @@ func drawTooltipBodyLine(screen *ebiten.Image, text string, x, y int) {
 	}
 	label += ":"
 	game.DrawShadedText(screen, label, x, y, color.RGBA{145, 170, 205, 255})
-	valueX := x + utf8.RuneCountInString(label)*7 + 5
+	valueX := tooltipValueX(x, label)
 	game.DrawShadedText(screen, strings.TrimSpace(value), valueX, y, color.RGBA{225, 225, 235, 255})
+}
+
+func tooltipValueX(x int, label string) int {
+	return x + game.ShadedTextWidth(label+" ")
 }
 
 func drawTooltipSectionLine(screen *ebiten.Image, text string, x, y, w, h int) {

@@ -12,7 +12,9 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -474,13 +476,7 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 	img := ebiten.NewImage(w, h)
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 	scale := math.Max(float64(w)/float64(sw), float64(h)/float64(sh)) // cover-fit
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(scale, scale)
-	opts.GeoM.Translate((float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2)
-	if scale < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink, no nearest mush
-	}
-	img.DrawImage(src, opts)
+	graphics.DrawImageScaled(img, src, (float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2, float64(sw)*scale, float64(sh)*scale, nil)
 
 	if usePartyAperture {
 		if w != panelPortraitW || h != panelPortraitH {
@@ -598,6 +594,7 @@ func (ui *UISystem) hudClicksBlocked() bool {
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
 	ui.drawInGameQuickSlots(screen)
+	ui.drawCampHUD(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
@@ -850,6 +847,13 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			selectionX, selectionY, selectionW, selectionH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, selectionGap)
 			drawPartySolidFrame(screen, selectionX, selectionY, selectionW, selectionH, 1.5, color.RGBA{232, 190, 86, 245})
 		}
+		if ui.game.overwatchReady(member) {
+			cx, cy := float32(px+pw-11), float32(py+11)
+			drawTacticalReticle(screen, cx, cy, 9)
+			if isMouseHoveringBox(mouseX, mouseY, int(cx)-9, int(cy)-9, int(cx)+9, int(cy)+9) {
+				ui.queueOverwatchTooltip(member, mouseX+12, mouseY+8)
+			}
+		}
 		if ui.game.partyMemberFocused(i) {
 			// Focus belongs to the portrait, not to the whole party slot. Its tip
 			// deliberately overlaps the authored top rim so the marker reads as
@@ -880,6 +884,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		})
 	}
+	// The exposed party strip is UI even while the character hub is open.
+	// Register it after its badges so those controls retain first claim, and
+	// resolve selection before the dispatcher retires unmatched UI clicks.
+	ui.onDisplayedInput(uiCommandClick, layoutRect{baseLeft, startY, portraitWidth * len(ui.game.party.Members), portraitHeight}, func() {
+		if ui.partyCardClicksBlocked() || ui.game.dragPickedUp || ui.game.stashDragPickedUp {
+			return
+		}
+		handler := InputHandler{game: ui.game}
+		handler.handlePartyPortraitMouseInput(shiftModifierHeld())
+	})
 }
 
 // drawCardFlames draws rising flame-tongue particles over a party card while
@@ -1221,8 +1235,8 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	iconPitch := iconSize + iconGap
 	barX := 10
 	rightEdge := ui.game.config.GetScreenWidth() - 10
-	if quickBar, visible := inGameQuickSlotBarLayout(ui.game); visible {
-		rightEdge = quickBar.x - 10
+	if actions, visible := inGameActionBarLayout(ui.game); visible {
+		rightEdge = actions.bounds.x - 10
 	}
 	if lines := ui.game.hudMessageLines(); len(lines) > 0 {
 		messageX, _, _, _ := ui.game.hudMessageBlockRect(len(lines))
@@ -1268,14 +1282,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 
 	if icon != "" {
 		sprite := ui.game.sprites.GetSprite(icon)
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(float64(size)/float64(sprite.Bounds().Dx()), float64(size)/float64(sprite.Bounds().Dy()))
-		opts.GeoM.Translate(float64(x), float64(y))
-		// Linear (mipmapped) on the typical downscale keeps spell icons crisp.
-		if size < sprite.Bounds().Dx() || size < sprite.Bounds().Dy() {
-			opts.Filter = ebiten.FilterLinear
-		}
-		screen.DrawImage(sprite, opts)
+		drawImageScaled(screen, sprite, x, y, size, size)
 	} else if fallback != "" {
 		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
@@ -1381,19 +1388,18 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 func (ui *UISystem) drawCompassAt(screen *ebiten.Image, compassX, compassY int) {
 	compassRadius := ui.compassRadius()
 
-	vector.FillCircle(screen, float32(compassX+2), float32(compassY+3), float32(compassRadius+6), color.RGBA{0, 0, 0, 170}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+5), color.RGBA{66, 48, 24, 245}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+3), color.RGBA{194, 153, 66, 255}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{8, 14, 23, 235}, true)
+	ui.drawCompassFrame(screen, compassX, compassY, compassRadius, false)
 
 	ui.drawCompassMinimap(screen, compassX, compassY, compassRadius)
 
-	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), 2, color.RGBA{98, 140, 181, 245}, true)
-	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius+4), 1, color.RGBA{255, 218, 115, 245}, true)
+	ui.drawCompassFrame(screen, compassX, compassY, compassRadius, true)
 
 	// A single north-up map and a rotating player pointer avoid the ambiguity of
 	// the old red line, which looked like either a heading or a target marker.
 	angle := ui.game.camera.Angle
+	if ui.game.viewTurnFramesLeft > 0 {
+		angle = ui.game.viewAngleRender
+	}
 	tipRadius := float64(compassRadius - 9)
 	tipX := float64(compassX) + math.Cos(angle)*tipRadius
 	tipY := float64(compassY) + math.Sin(angle)*tipRadius
@@ -1439,21 +1445,12 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	playerTileX := TileIndex(ui.game.camera.X, tileSize)
 	playerTileY := TileIndex(ui.game.camera.Y, tileSize)
 
-	// Number of tiles to show in each direction from center
-	viewRange := 6
-	// Size of each minimap tile in pixels
-	miniTileSize := float32(radius) / float32(viewRange+1)
-	if miniTileSize < 3 {
-		miniTileSize = 3
-	}
-	if miniTileSize > 8 {
-		miniTileSize = 8
-	}
+	const miniTileSize = float32(compassMapTilePixels)
 
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != radius*2 ||
 		ui.compassCacheWorld != ui.game.world ||
 		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
-		ui.rebuildCompassTileLayer(playerTileX, playerTileY, viewRange, miniTileSize, radius)
+		ui.rebuildCompassTileLayer(playerTileX, playerTileY, radius)
 	}
 
 	opts := &ebiten.DrawImageOptions{}
@@ -1470,27 +1467,37 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		dx := npcTileX - playerTileX
 		dy := npcTileY - playerTileY
 
-		// Only show NPCs within view range
-		if dx*dx+dy*dy <= viewRange*viewRange {
+		// Keep the entire live marker inside the same circular map viewport.
+		dotRadius := max(float32(2), miniTileSize/2)
+		markerLimit := float32(radius) - dotRadius - 1
+		if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
 			screenX := float32(centerX) + float32(dx)*miniTileSize
 			screenY := float32(centerY) + float32(dy)*miniTileSize
-			dotRadius := max(float32(2), miniTileSize/2)
 			vector.FillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
 			vector.FillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
 		}
 	}
 }
 
+// Fixed pixel scale: a larger circle reveals more tiles rather than enlarging
+// the same six-tile field and leaving a dark annulus around it.
+const compassMapTilePixels = 6
+
 // rebuildCompassTileLayer bakes the compass minimap's floor backgrounds and
-// environment thumbnails into a 2R x 2R layer centered on the player's tile.
-// Like the map editor, floor tiles remain clean color fields while walls,
-// trees, structures, and props show their actual authored sprite.
-func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
+// environment thumbnails into a circular viewport centered on the player's
+// tile. Partial edge cells are clipped per pixel, not culled by tile center.
+func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, radius int) {
+	ui.ensureCompassFrame(radius)
+	const miniTileSize = float32(compassMapTilePixels)
+	viewRange := (radius + compassMapTilePixels - 1) / compassMapTilePixels
 	// A deferred sprite can unwind this draw. Publish the cache identity only
 	// after the whole layer is complete, including on a same-position resize.
 	ui.compassCacheWorld = nil
 	side := 2 * radius
 	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
+		if ui.compassTileLayer != nil {
+			ui.compassTileLayer.Deallocate()
+		}
 		ui.compassTileLayer = ebiten.NewImage(side, side)
 	} else {
 		ui.compassTileLayer.Clear()
@@ -1504,11 +1511,6 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 
 			// Skip tiles outside world bounds
 			if tileX < 0 || tileX >= ui.game.world.Width || tileY < 0 || tileY >= ui.game.world.Height {
-				continue
-			}
-
-			// Check if this tile is within the circular compass area
-			if dx*dx+dy*dy > viewRange*viewRange {
 				continue
 			}
 
@@ -1535,6 +1537,10 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 			drawCompassTileSprite(ui.compassTileLayer, ui.game.sprites.GetSprite(appearance.sprite), drawX, drawY, miniTileSize)
 		}
 	}
+	// Clip tile pixels, not tile centers: partial edge cells fill the disk
+	// without the stair-step gaps left by a circular tile-center cutoff.
+	opts := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
+	ui.compassTileLayer.DrawImage(ui.compassMapMask, opts)
 	ui.compassCacheWorld = ui.game.world
 	ui.compassCacheTileX = playerTileX
 	ui.compassCacheTileY = playerTileY
@@ -1573,8 +1579,7 @@ func (ui *UISystem) compassTileAppearance(tileX, tileY int, regionFloor color.RG
 	// renderer instead of sitting on the region-wide fallback color.
 	floorData := data
 	if tm.InheritsFloor(tile) {
-		if inherited, ok := tm.DominantNeighbourFloorForTile(tile, ui.game.world.Tiles,
-			ui.game.world.Width, ui.game.world.Height, tileX, tileY, nil); ok {
+		if inherited, ok := ui.game.world.InheritedFloorAt(tileX, tileY); ok {
 			floorData = tm.GetTileData(inherited)
 		}
 	}
@@ -1623,11 +1628,7 @@ func drawCompassTileSprite(dst, sprite *ebiten.Image, x, y, size float32) {
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		return
 	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(size)/float64(bounds.Dx()), float64(size)/float64(bounds.Dy()))
-	op.GeoM.Translate(float64(x), float64(y))
-	op.Filter = ebiten.FilterLinear
-	dst.DrawImage(sprite, op)
+	graphics.DrawImageScaled(dst, sprite, float64(x), float64(y), float64(size), float64(size), nil)
 }
 
 // drawWizardEyeRadar draws enemy dots on the compass when wizard eye is active
@@ -1667,26 +1668,28 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 			dotX := compassX + int(dx*radarScale)
 			dotY := compassY + int(dy*radarScale)
 
-			// Select cached dot image based on distance for threat assessment
-			// Using squared distances to avoid sqrt
-			closeDistSq := (tileSize * 3) * (tileSize * 3)
-			mediumDistSq := (tileSize * 6) * (tileSize * 6)
-
-			var dotImg *ebiten.Image
-			if dist < closeDistSq {
-				dotImg = ui.radarDotClose // Red for close enemies
-			} else if dist < mediumDistSq {
-				dotImg = ui.radarDotMedium // Orange for medium distance
-			} else {
-				dotImg = ui.radarDotFar // Yellow for far enemies
-			}
-
 			// Draw cached dot image (much faster than vector.FillCircle)
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM.Translate(float64(dotX-3), float64(dotY-3))
-			screen.DrawImage(dotImg, opts)
+			screen.DrawImage(ui.radarDot(monster, dist, tileSize), opts)
 		}
 	}
+}
+
+// radarDot colors enemies by squared distance; allies and non-hostile ambient
+// actors get their own safe colors.
+func (ui *UISystem) radarDot(m *monster.Monster3D, distSq, tileSize float64) *ebiten.Image {
+	switch {
+	case m.IsPartyControlled():
+		return ui.radarDotAlly // summons, bound former enemies, charmed
+	case m.IsAmbient() && !m.TargetsParty():
+		return ui.radarDotNeutral // caravan, wildlife and fish until they attack
+	case distSq < (tileSize*3)*(tileSize*3):
+		return ui.radarDotClose
+	case distSq < (tileSize*6)*(tileSize*6):
+		return ui.radarDotMedium
+	}
+	return ui.radarDotFar
 }
 
 const hudMessageSpacing = 18
@@ -1701,6 +1704,15 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	}
 
 	bx, by, bw, bh := ui.game.hudMessageBlockRect(len(lines))
+	ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, bw, bh}, func() {
+		if ui.hudClicksBlocked() {
+			return
+		}
+		handler := InputHandler{game: ui.game}
+		if handler.handleCombatLogOpenInput() {
+			ui.displayedInput.capturedGameplay = true
+		}
+	})
 	vector.FillRect(screen, float32(bx), float32(by), float32(bw), float32(bh), color.RGBA{0, 0, 0, 150}, false)
 
 	// Draw lines from top to bottom (most recent at bottom)
@@ -1733,18 +1745,11 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	drawCenteredDebugText(screen, "GAME LOG", x, y+18, w, 20)
 
 	closeX, closeY := x+w-30, y+8
-	mouseX, mouseY := ebiten.CursorPosition()
-	closeColor := color.RGBA{100, 100, 100, 180}
-	if isMouseHoveringBox(mouseX, mouseY, closeX, closeY, closeX+20, closeY+20) {
-		closeColor = color.RGBA{170, 60, 60, 220}
-	}
-	drawFilledRect(screen, closeX, closeY, 20, 20, closeColor)
-	ui.drawInterfaceIcon(screen, "icon_close", closeX, closeY, 20, 20)
+	ui.drawCloseButtonVisual(screen, closeX, closeY, 20, 20)
 
 	contentX, contentY := x+28, y+54
 	contentW, contentH := w-72, h-88
-	drawFilledRect(screen, contentX, contentY, contentW, contentH, color.RGBA{8, 8, 18, 210})
-	drawRectBorder(screen, contentX, contentY, contentW, contentH, 1, color.RGBA{100, 100, 145, 220})
+	ui.drawThemeFrame(screen, frameGold, contentX, contentY, contentW, contentH)
 
 	maxChars := (contentW - 24) / debugTextCharWidth
 	rowY := contentY + contentH - 22
@@ -1768,7 +1773,7 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 		{contentY + 8, "^"},
 		{contentY + contentH - 30, "v"},
 	} {
-		drawFilledRect(screen, buttonX, btn.y, 22, 22, color.RGBA{65, 65, 95, 220})
+		ui.drawButtonFrame(screen, buttonX, btn.y, 22, 22, false)
 		drawCenteredDebugText(screen, btn.label, buttonX, btn.y+2, 22, 18)
 	}
 	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})

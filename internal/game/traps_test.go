@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -159,6 +160,48 @@ func TestTrap_AutoTargetsPulledFrontDiagonal(t *testing.T) {
 	}
 }
 
+// Case table: the flank actor on (2,0) is listed first, so it wins a distance
+// tie with the enemy on (2,2) exactly when the auto-target policy allows it.
+func TestTrap_FlankAutoTargetFollowsAutoTargetPolicy(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	kinds := []string{"hostile", "bound", "passive", "wildlife", "caravan", "charmed"}
+	for _, s := range partySummonKinds(g) {
+		kinds = append(kinds, s.kind)
+	}
+	for _, kind := range kinds {
+		t.Run(kind, func(t *testing.T) {
+			g, _ := newThiefTestGame(t)
+			g.turnBasedMode = true
+			flank := spawnTestMonsterAt(g, 2, 0)
+			switch kind {
+			case "bound":
+				flank.Bound = true
+			case "passive":
+				flank.PassiveUntilAttacked = true
+			case "wildlife":
+				flank.Disposition = monsterPkg.DispositionWildlife
+			case "caravan":
+				flank.Disposition = monsterPkg.DispositionCaravan
+			case "charmed":
+				flank.Pacified = true
+			}
+			summon := markPartySummonKind(g, flank, kind)
+			if summon != isPurePartySummon(flank) {
+				t.Fatal("bad summon fixture")
+			}
+			enemy := spawnTestMonsterAt(g, 2, 2)
+			enemy.IsEngagingPlayer, enemy.WasAttacked = true, true
+			wantY := 0
+			if summon || kind == "caravan" || kind == "charmed" {
+				wantY = 2
+			}
+			if tx, ty, ok := g.combat.pickTrapTile(); !ok || tx != 2 || ty != wantY {
+				t.Fatalf("trap tile = (%d,%d) ok=%v, want (2,%d)", tx, ty, ok, wantY)
+			}
+		})
+	}
+}
+
 // Per-owner arming limit: the 4th trap is refused.
 func TestTrap_OwnerLimit(t *testing.T) {
 	g, thief := newThiefTestGame(t)
@@ -205,7 +248,7 @@ func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
 		if line := cooldownLine(g.combat, want); !strings.Contains(tip, line) {
 			t.Fatalf("trap tooltip must show effective cooldown %q:\n%s", line, tip)
 		}
-		if !strings.Contains(tip, "Scales with caster Speed") {
+		if !strings.Contains(tip, fmt.Sprintf("Speed (%d):", thief.GetEffectiveSpeed())) {
 			t.Fatalf("trap tooltip must disclose Speed scaling:\n%s", tip)
 		}
 		return thief.RTCooldown

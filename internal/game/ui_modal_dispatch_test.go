@@ -27,6 +27,9 @@ type displayedModalHarness struct {
 func newDisplayedModalHarness(t *testing.T, width, height int) *displayedModalHarness {
 	t.Helper()
 	g, ui := merchantDragGame(t)
+	// Pointer scenarios place world rewards beyond the merchant's tiny room.
+	g.world = newTestWorldSized(g.config, 40, 40)
+	g.collisionSystem.UpdateTileChecker(g.world)
 	g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = width, height
 	g.appScreen = AppScreenInGame
 	g.dialogActive = false
@@ -453,7 +456,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 		{"trainer portrait and training", func(h *displayedModalHarness) {
 			g := h.g
 			g.dialogActive = true
-			g.dialogNPC = &character.NPC{Name: "Trainer", Type: character.NPCTypeSkillTrainer}
+			g.dialogNPC = &character.NPC{Name: "Trainer", Type: character.NPCTypeSkillTrainer, Training: map[string]int{"expert": 1000, "master": 4000}}
 			g.party.Gold = 100000
 			dlg := npcDialogLayout(g)
 			x, y, _, _ := skillTrainerPortraitRect(dlg.x, dlg.y, dlg.w, 0)
@@ -461,7 +464,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			if !g.skillTrainerPopup {
 				h.t.Fatal("trainer portrait did not open its popup")
 			}
-			options := trainerOptions(g.party.Members[0])
+			options := trainerOptions(g.party.Members[0], g.dialogNPC)
 			if len(options) == 0 {
 				h.t.Fatal("fixture has no trainable skill")
 			}
@@ -545,13 +548,13 @@ func TestDisplayedTrainerPagerOwnsItsPopup(t *testing.T) {
 			h := newDisplayedModalHarness(t, 1024, 768)
 			g := h.g
 			g.dialogActive, g.skillTrainerPopup = true, true
-			g.dialogNPC = &character.NPC{Name: "Trainer", Type: character.NPCTypeSkillTrainer}
+			g.dialogNPC = &character.NPC{Name: "Trainer", Type: character.NPCTypeSkillTrainer, Training: map[string]int{"expert": 1000, "master": 4000}}
 			for _, school := range character.AllMagicSchools {
 				g.party.Members[0].MagicSchools[school] = &character.MagicSkill{Mastery: character.MasteryNovice}
 			}
 			dlg := npcDialogLayout(g)
 			px, py, _, height := skillTrainerPopupRect(dlg.x, dlg.y, dlg.w, dlg.h)
-			if len(trainerOptions(g.party.Members[0])) <= skillTrainerPageSize(height) {
+			if len(trainerOptions(g.party.Members[0], g.dialogNPC)) <= skillTrainerPageSize(height) {
 				t.Fatal("fixture needs two trainer pages")
 			}
 			if covered {

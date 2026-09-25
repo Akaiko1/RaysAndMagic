@@ -59,6 +59,7 @@ func (g *MMGame) containerDefaultSizeTiles(kind ContainerKind) float64 {
 // the loot bag (monster drop) and treasure chest (encounter reward) systems
 // that previously had near-identical parallel implementations.
 type GroundContainer struct {
+	hop       lootHop // visual only; saves store the final landing coordinates
 	Kind      ContainerKind
 	ID        string // optional dedup key; "" disables dedup
 	MapKey    string // "" -> current map only; set for cross-map containers
@@ -154,8 +155,10 @@ func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
 	if g == nil || (len(drops) == 0 && gold <= 0) {
 		return
 	}
+	recipient := g.rewardOwner()
+	recipient.recordProfileLoot(drops)
 	ts := g.config.GetTileSize()
-	g.addGroundContainer(GroundContainer{
+	recipient.addGroundContainer(GroundContainer{
 		Kind: ContainerKindLootBag,
 		// The region the bag FELL in, resolved from the drop tile - the same rule
 		// kills credit to a region (questKillMapKey). currentMapKey() is the
@@ -352,7 +355,9 @@ func (g *MMGame) findGroundContainerIndexAtScreen(clickX, clickY int, maxDist fl
 		return -1
 	}
 	return g.findGroundContainerIndex(maxDist, func(c *GroundContainer, distance float64) bool {
-		info := g.groundContainerRenderInfo(c, distance)
+		defer g.beginPresentedCameraSwap()()
+		info := g.groundContainerRenderInfo(c, -1)
+		info.Distance = distance // Logical reach, displayed projection.
 		return g.groundContainerHitTestFromInfo(info, c.effectiveSprite(), clickX, clickY, maxDist)
 	})
 }
@@ -377,13 +382,16 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 	bestDistSq := 0.0
 	for i := range g.groundContainers {
 		c := &g.groundContainers[i]
-		if !c.onCurrentWorld() {
+		if !c.onCurrentWorld() || c.hop.active(g.frameCount) {
 			continue
 		}
 		dx := c.X - playerX
 		dy := c.Y - playerY
 		distSq := dx*dx + dy*dy
 		if distSq > maxDistSq {
+			continue
+		}
+		if !g.canReachWorldReward(c.X, c.Y) {
 			continue
 		}
 		if accept != nil && !accept(c, math.Sqrt(distSq)) {
@@ -405,6 +413,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		return
 	}
 	c := g.groundContainers[index]
+	if c.hop.active(g.frameCount) || !g.canReachWorldReward(c.X, c.Y) {
+		return
+	}
 	defaults := groundContainerDefaults[c.Kind]
 
 	if len(c.Items) == 0 && c.Gold <= 0 {
@@ -422,6 +433,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	// sight names them now that the party has walked to it.
 	if c.Kind == ContainerKindTreasureChest {
 		g.announceLegendaryDrops(c.Items)
+		g.recordProfileLootSource(c.Items, true)
 	}
 
 	for _, it := range c.Items {
@@ -472,6 +484,7 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
 	info.ScreenXF, info.BottomF, info.SizeF, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetricsF(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.BottomF -= g.lootHopHeight(c) * info.SizeF / g.containerRenderSizeTiles(c)
 	info.ScreenX = int(info.ScreenXF)
 	info.SpriteSize = int(info.SizeF)
 	info.ScreenY = int(info.BottomF) - info.SpriteSize
@@ -487,10 +500,12 @@ func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float
 		return 0, 0
 	}
 	g.ensureContainerFanOffsets()
-	if off, ok := g.containerFanOffsets[c]; ok {
-		return off[0], off[1]
+	off := g.containerFanOffsets[c]
+	if c.hop.active(g.frameCount) {
+		t := c.hop.progress(g.frameCount)
+		return (c.hop.fromX-c.X)*(1-t) + off[0]*t, (c.hop.fromY-c.Y)*(1-t) + off[1]*t
 	}
-	return 0, 0 // solo container (absent from the cache) or stale pointer
+	return off[0], off[1]
 }
 
 // invalidateContainerFanCache marks the fan-offset cache stale after the

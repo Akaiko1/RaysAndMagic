@@ -1,0 +1,230 @@
+//go:build debug
+
+package game
+
+import (
+	"bytes"
+	"fmt"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
+	"ugataima/internal/graphics"
+)
+
+// Native-size icon QA, not a gameplay-scene prerender. Exercise the actual
+// game loader and editor cache, then their shared scaler at HUD/icon sizes.
+func TestDebugSim_IconFrameGallery(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live GPU")
+	}
+	loadTestConfig(t)
+	t.Chdir("../..")
+	old := config.GlobalIconFrames
+	t.Cleanup(func() { config.GlobalIconFrames = old })
+	if err := config.LoadIconFrames("assets/icon_frames.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	frames := config.GlobalIconFrames
+	var canvas *ebiten.Image
+	runOnDrawFrame(func(*ebiten.Image) { canvas = ebiten.NewImage(960, 720); canvas.Fill(color.RGBA{22, 22, 25, 255}) })
+	defer runOnDrawFrame(func(*ebiten.Image) { canvas.Deallocate() })
+	name := "icon_item_carp_scale"
+	definition := config.GlobalItems.Items["carp_scale"]
+	oldRarity := definition.Rarity
+	t.Cleanup(func() { definition.Rarity = oldRarity })
+	for row, style := range []string{"basic", "asian", "boss"} {
+		for col, rarity := range []string{"common", "rare", "legendary"} {
+			definition.Rarity = rarity
+			config.GlobalIconFrames = &config.IconFramesConfig{Frames: frames.Frames, Icons: map[string]string{name: style}}
+			var gameSprite *ebiten.Image
+			var manager *graphics.SpriteManager
+			var editor *graphics.AsyncImageCache
+			runOnDrawFrame(func(*ebiten.Image) {
+				manager = graphics.NewSpriteManager()
+				gameSprite = manager.GetSprite(name)
+				editor = graphics.NewAsyncImageCache(1 << 20)
+			})
+			ready := false
+			deadline := time.Now().Add(5 * time.Second)
+			for !ready && time.Now().Before(deadline) {
+				runOnDrawFrame(func(*ebiten.Image) {
+					editor.Advance(256 << 10)
+					var editorSprite *ebiten.Image
+					editorSprite, ready = editor.Get(name)
+					if ready {
+						if editorSprite == nil || !bytes.Equal(snapshotUIImage(gameSprite).Pix, snapshotUIImage(editorSprite).Pix) {
+							t.Error("game/editor icon mismatch")
+							return
+						}
+						x, y := col*320+16, row*190+34
+						drawDebugText(canvas, fmt.Sprintf("%s / %s", style, rarity), x, y-20)
+						for i, size := range []int{128, 64, 32} {
+							drawImageScaled(canvas, gameSprite, x+i*136, y, size, size)
+							if i == 2 {
+								drawImageScaled(canvas, gameSprite, x+206, y+74, 24, 24)
+							}
+						}
+					}
+				})
+			}
+			if !ready {
+				t.Error("editor icon load timed out")
+			}
+			runOnDrawFrame(func(*ebiten.Image) { editor.Close(); manager.EvictResource(name, "") })
+		}
+	}
+	config.GlobalIconFrames = frames
+	definition.Rarity = oldRarity
+	runOnDrawFrame(func(*ebiten.Image) {
+		sm := graphics.NewSpriteManager()
+		for i, key := range []string{"carp_scale", "koi_scale", "rainbow_salmon_scale"} {
+			n := "icon_item_" + key
+			x := 16 + i*190
+			drawImageScaled(canvas, sm.GetSprite(n), x, 582, 96, 96)
+			drawDebugText(canvas, key, x, 685)
+			sm.EvictResource(n, "")
+		}
+		if folder := os.Getenv("RAM_ICON_GALLERY"); folder != "" {
+			if err := os.MkdirAll(folder, 0755); err != nil {
+				t.Error(err)
+				return
+			}
+			p := filepath.Join(folder, "icon-frame-gallery-native-960x720.png")
+			f, err := os.Create(p)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer f.Close()
+			if err := png.Encode(f, snapshotUIImage(canvas)); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+}
+
+// Inspect actual composed content assets at inventory/book and compact sizes.
+// Status HUD icons have their own presentation and catalog test.
+func TestDebugSim_MigratedIconCatalog(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live GPU")
+	}
+	loadTestConfig(t)
+	t.Chdir("../..")
+	old := config.GlobalIconFrames
+	t.Cleanup(func() { config.GlobalIconFrames = old })
+	if err := config.LoadIconFrames("assets/icon_frames.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(config.GlobalIconFrames.Icons))
+	for name := range config.GlobalIconFrames.Icons {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	runOnDrawFrame(func(*ebiten.Image) {
+		sm := graphics.NewSpriteManager()
+		canvas := ebiten.NewImage(960, 720)
+		defer canvas.Deallocate()
+		for start := 0; start < len(names); start += 24 {
+			canvas.Fill(color.RGBA{22, 22, 25, 255})
+			for i, name := range names[start:min(start+24, len(names))] {
+				sprite := sm.GetSprite(name)
+				if sprite == nil {
+					t.Errorf("missing migrated icon %s", name)
+					continue
+				}
+				x, y := (i%6)*160+8, (i/6)*180+4
+				drawImageScaled(canvas, sprite, x, y, 128, 128)
+				label := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name, "icon_item_"), "icon_weapon_"), "icon_spell_"), "icon_trap_")
+				drawDebugText(canvas, label, x, y+132)
+				drawImageScaled(canvas, sprite, x, y+146, 24, 24)
+				drawImageScaled(canvas, sprite, x+34, y+146, 32, 32)
+				sm.EvictResource(name, "")
+			}
+			if folder := os.Getenv("RAM_ICON_GALLERY"); folder != "" {
+				p := filepath.Join(folder, fmt.Sprintf("icon-catalog-native-960x720-%02d.png", start/24+1))
+				f, err := os.Create(p)
+				if err != nil {
+					t.Error(err)
+					continue
+				}
+				if err := png.Encode(f, snapshotUIImage(canvas)); err != nil {
+					t.Error(err)
+				}
+				f.Close()
+			}
+		}
+	})
+}
+
+// Show each inventory card beside its independent full illustration through
+// the production loader/scaler. These are asset galleries, not world renders.
+func TestDebugSim_CardArtworkGallery(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live GPU")
+	}
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+	old := config.GlobalIconFrames
+	t.Cleanup(func() { config.GlobalIconFrames = old })
+	if err := config.LoadIconFrames("assets/icon_frames.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for key, def := range config.GlobalItems.Items {
+		if def.Type == "card" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	runOnDrawFrame(func(*ebiten.Image) {
+		sm := graphics.NewSpriteManager()
+		ApplySpriteColorKey(sm, cfg)
+		canvas := ebiten.NewImage(960, 880)
+		defer canvas.Deallocate()
+		for start := 0; start < len(keys); start += 12 {
+			canvas.Fill(color.RGBA{22, 22, 25, 255})
+			for i, key := range keys[start:min(start+12, len(keys))] {
+				iconName, fullName := "icon_item_"+key, "full_art_"+key
+				icon, full := sm.GetSprite(iconName), sm.GetSprite(fullName)
+				if icon == nil || full == nil {
+					t.Errorf("missing icon/full artwork: %s", key)
+					continue
+				}
+				if icon.Bounds().Dx() != 128 || icon.Bounds().Dy() != 128 || full.Bounds().Dx() < 512 || full.Bounds().Dy() < 512 {
+					t.Errorf("wrong art resolution: %s", key)
+				}
+				x, y := i%3*320, i/3*220
+				drawImageScaled(canvas, icon, x+4, y+32, 96, 96)
+				drawImageScaled(canvas, icon, x+32, y+144, 32, 32)
+				drawImageScaled(canvas, full, x+112, y+4, 192, 192)
+				drawDebugText(canvas, key, x+4, y+201)
+				sm.EvictResource(iconName, "")
+				sm.EvictResource(fullName, "")
+			}
+			if folder := os.Getenv("RAM_ICON_GALLERY"); folder != "" {
+				if err := os.MkdirAll(folder, 0755); err != nil {
+					t.Error(err)
+					return
+				}
+				f, err := os.Create(filepath.Join(folder, fmt.Sprintf("cards-native-960x880-%02d.png", start/12+1)))
+				if err != nil {
+					t.Error(err)
+					continue
+				}
+				if err := png.Encode(f, snapshotUIImage(canvas)); err != nil {
+					t.Error(err)
+				}
+				f.Close()
+			}
+		}
+	})
+}
