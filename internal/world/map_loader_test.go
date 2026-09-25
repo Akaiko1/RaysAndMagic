@@ -157,23 +157,14 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
 
-	// 'W' (water) is render_type "floor" but NOT walkable: it must never be
-	// voted as floor. '@' ringed only by water -> no floor neighbour -> biome '.'
-	// fallback (cobble), never the impassable water tile.
-	water, ok := tm.GetTileTypeFromLetterForBiome("W", "japanese_castle")
-	if !ok {
-		t.Fatalf("water tile not found")
-	}
+	// Automatic entity ground stays walkable; water requires an explicit override.
 	md = load(t, "WWW\nW@W  >[npc:merchant]\nWWW\n")
-	if got := md.Tiles[1][1]; got == water {
-		t.Fatalf("under-entity tile became impassable water %v", water)
-	}
 	if got := md.Tiles[1][1]; got != cobble {
-		t.Fatalf("under-entity tile = %v, want '.' fallback cobble %v (water excluded)", got, cobble)
+		t.Fatalf("under-entity tile = %v, want walkable fallback %v", got, cobble)
 	}
 }
 
-func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.T) {
+func TestResolveFloorsHonorsExcludedUnderFloorTiles(t *testing.T) {
 	tm := NewTileManager(testTileSizeClasses())
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
@@ -206,11 +197,14 @@ func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.
 		{stream, tree, stream},
 		{stream, stream, stream},
 	}
-	if got, ok := tm.DominantNeighbourFloor(tiles, 3, 3, 1, 1, nil); !ok || got != stream {
+	rock, _ := tm.GetTileTypeFromKey("moss_rock")
+	tiles[1][1] = rock
+	if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != stream {
 		t.Fatalf("ordinary dominant floor = %v, %t; want forest stream %v, true", got, ok, stream)
 	}
 	for _, owner := range []TileType3D{tree, ancientTree} {
-		if got, ok := tm.DominantNeighbourFloorForTile(owner, tiles, 3, 3, 1, 1, nil); !ok || got != grass {
+		tiles[1][1] = owner
+		if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != grass {
 			t.Fatalf("tree %q inherited floor = %v, %t; want grass %v, true", tm.GetTileKey(owner), got, ok, grass)
 		}
 	}

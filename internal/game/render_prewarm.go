@@ -642,6 +642,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			if name = normalizedAuthoredSpriteName(name); name == "" {
 				continue
 			}
+			// The per-cell selection is also needed by the flat tree fallback,
+			// even when crossed-standee prewarming is disabled.
+			tileSprites[name] = struct{}{}
 			priorities.observe(name, streamScoreAt(r.treeTilesCache[i].worldX, r.treeTilesCache[i].worldY))
 			// Prop crosses are tracked apart from trees: they draw as crosses
 			// whatever trees_as_billboards says, so their prewarm cannot hide

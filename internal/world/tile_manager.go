@@ -57,6 +57,24 @@ func NewTileManager(sizeClasses map[string]float64) *TileManager {
 // digits); free-standing decor uses the letterless [tile:short_label] form.
 func (tm *TileManager) validateTileConfiguration() error {
 	for key, data := range tm.tileData {
+		if data.ExcludeAsUnderFloor && data.RenderType != config.TileRenderFloor {
+			return fmt.Errorf("tile %q exclude_as_under_floor requires render_type floor", key)
+		}
+		if len(data.SpriteVariants) > 0 {
+			if data.RenderType != config.TileRenderCrossedStandee {
+				return fmt.Errorf("tile %q sprite_variants requires crossed_standee", key)
+			}
+			if data.SpriteVariants[0] != data.Sprite {
+				return fmt.Errorf("tile %q sprite_variants must start with sprite %q", key, data.Sprite)
+			}
+			seen := make(map[string]bool, len(data.SpriteVariants))
+			for _, name := range data.SpriteVariants {
+				if name == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, "/\\.") || seen[name] {
+					return fmt.Errorf("tile %q has invalid or duplicate sprite variant %q", key, name)
+				}
+				seen[name] = true
+			}
+		}
 		if !config.IsTileRenderType(data.RenderType) {
 			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: %s)", key, data.RenderType, strings.Join(config.TileRenderTypes(), "|"))
 		}
@@ -423,6 +441,21 @@ func (tm *TileManager) IsWalkable(tileType TileType3D) bool {
 	return data.Walkable
 }
 
+// BlocksPickup reports the authored physical-reward reach rule. Missing values
+// follow walkability; terrain passage bypasses only authored open airspace.
+// The caller checks visibility and world boundaries separately.
+func (tm *TileManager) BlocksPickup(tileType TileType3D, terrainPassage bool) bool {
+	data := tm.GetTileData(tileType)
+	if data == nil {
+		return false
+	}
+	blocked := !data.Walkable
+	if data.BlocksPickup != nil {
+		blocked = *data.BlocksPickup
+	}
+	return blocked && !(terrainPassage && data.FlyOver)
+}
+
 // CanFlyOver reports whether a flying monster may ignore this tile's ordinary
 // movement block. Transparent solid scenery keeps its established fly-over
 // behavior; open gaps such as water and chasms opt in explicitly in content.
@@ -528,62 +561,6 @@ func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
 var floorVoteNeighbours = []struct{ dx, dy, w int }{
 	{0, -1, 2}, {0, 1, 2}, {-1, 0, 2}, {1, 0, 2},
 	{-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1},
-}
-
-// DominantNeighbourFloor returns the dominant authored, steppable floor tile among
-// the 8 neighbours of (x,y) - orthogonal neighbours weighted double, with a
-// deterministic tie-break by neighbour order. It has no owner-specific exclusions;
-// use DominantNeighbourFloorForTile when choosing the floor beneath a tile that
-// declares excluded_under_floor_tiles. Cells where skip(nx,ny) is true are ignored
-// (e.g. other entity-placeholder cells). ok is false when no floor neighbour exists,
-// leaving the fallback to the caller.
-func (tm *TileManager) DominantNeighbourFloor(tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
-	return tm.dominantNeighbourFloorForTile(TileEmpty, tiles, width, height, x, y, skip)
-}
-
-// DominantNeighbourFloorForTile is the shared inherited-floor vote for an object
-// tile. Its excluded_under_floor_tiles keys are ignored without changing which
-// floors other objects or ordinary entity cells may choose.
-func (tm *TileManager) DominantNeighbourFloorForTile(tileType TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
-	return tm.dominantNeighbourFloorForTile(tileType, tiles, width, height, x, y, skip)
-}
-
-func (tm *TileManager) dominantNeighbourFloorForTile(owner TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
-	ownerData := tm.GetTileData(owner)
-	isFloor := func(t TileType3D) bool {
-		if ownerData != nil {
-			candidateKey := tm.GetTileKey(t)
-			for _, excludedKey := range ownerData.ExcludedUnderFloorTiles {
-				if candidateKey == excludedKey {
-					return false
-				}
-			}
-		}
-		return tm.GetRenderType(t) == config.TileRenderFloor &&
-			tm.IsWalkable(t) && !tm.IsSolid(t) && !tm.InheritsFloor(t)
-	}
-	counts := make(map[TileType3D]int)
-	best := TileEmpty
-	bestScore := 0
-	for _, n := range floorVoteNeighbours {
-		nx, ny := x+n.dx, y+n.dy
-		if nx < 0 || ny < 0 || ny >= height || nx >= width {
-			continue
-		}
-		if skip != nil && skip(nx, ny) {
-			continue
-		}
-		t := tiles[ny][nx]
-		if !isFloor(t) {
-			continue
-		}
-		counts[t] += n.w
-		if counts[t] > bestScore {
-			bestScore = counts[t]
-			best = t
-		}
-	}
-	return best, bestScore > 0
 }
 
 // GetFloorNearColor returns the floor color to use near this tile type

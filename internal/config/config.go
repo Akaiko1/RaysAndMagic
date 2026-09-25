@@ -686,11 +686,13 @@ type SpellDefinitionConfig struct {
 	ResistBuffSchool    string `yaml:"resist_buff_school,omitempty"`
 	ResistBuffSchoolPct int    `yaml:"resist_buff_school_pct,omitempty"`
 
-	// Fly: terrain collision allows every tile except the map's border while the
-	// buff lasts. Entity-based doors still block. OutdoorOnly gates casting to
-	// maps with a day/night sky.
+	// Fly activates the legacy flight buff state. TerrainPassage grants its
+	// movement capability; OutdoorOnly gates casting to maps with a day/night sky.
 	Fly         bool `yaml:"fly,omitempty"`
 	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
+	// TerrainPassage grants collision bypass while this registered timed buff
+	// is active. Movement and physical reward reach consume this capability.
+	TerrainPassage bool `yaml:"terrain_passage,omitempty"`
 
 	// TownPortal opens the visited-destination picker; confirming teleports the party.
 	TownPortal bool `yaml:"town_portal,omitempty"`
@@ -1013,9 +1015,13 @@ type TileData struct {
 	Solid       bool   `yaml:"solid"`
 	Transparent bool   `yaml:"transparent"`
 	Walkable    bool   `yaml:"walkable"`
+	// BlocksPickup overrides the default !Walkable reach rule for physical
+	// rewards. Water opts out; FlyOver airspace accepts terrain-passage grants.
+	// Sight blockers still prevent reaching through walls and solid objects.
+	BlocksPickup *bool `yaml:"blocks_pickup,omitempty"`
 	// FlyOver explicitly marks transparent, non-walkable floor terrain such as
-	// water or a chasm as open airspace for flying monsters. It does not apply
-	// to walls, doors, or opaque terrain.
+	// water or a chasm as open airspace for flying monsters and party pickup
+	// reach with terrain passage. It does not apply to walls, doors, or opaque terrain.
 	FlyOver bool `yaml:"fly_over,omitempty"`
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
 	// HeightMultiplier remains only to reject legacy billboard authoring.
@@ -1026,6 +1032,10 @@ type TileData struct {
 	// content entry fails loudly instead of silently falling back to 1 tile.
 	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
 	Sprite           string   `yaml:"sprite"`
+	// SpriteVariants is the complete choice list for a natural crossed standee.
+	// Its first entry is Sprite, the preview/fallback art. A world picks one
+	// entry per tile and keeps that choice until the next world/save load.
+	SpriteVariants   []string `yaml:"sprite_variants,omitempty"`
 	RenderType       string   `yaml:"render_type"`
 	ProceduralEffect string   `yaml:"procedural_effect,omitempty"`
 	FloorColor       [3]int   `yaml:"floor_color"`
@@ -1041,6 +1051,9 @@ type TileData struct {
 	// non-floor objects without an authored floor inherit automatically; see
 	// InheritsNeighbourFloor.
 	InheritFloor bool `yaml:"inherit_floor,omitempty"`
+	// ExcludeAsUnderFloor keeps directional edges, paths and bridges from
+	// supplying automatically inherited ground. Their own appearance is unchanged.
+	ExcludeAsUnderFloor bool `yaml:"exclude_as_under_floor,omitempty"`
 	// ExcludedUnderFloorTiles lists tile keys this object must ignore when it
 	// inherits its floor from neighbouring cells. It is evaluated by the shared
 	// dominant-floor vote used by the game renderer and map viewer.
@@ -1696,6 +1709,12 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.Fly && !def.TerrainPassage {
+			return fmt.Errorf("spell '%s': fly requires terrain_passage", id)
+		}
+		if def.TerrainPassage && (!def.IsUtility || def.Duration <= 0) {
+			return fmt.Errorf("spell '%s': terrain_passage requires a timed utility spell", id)
+		}
 		if def.School != "" {
 			school, err := canonicalDamageSchool(def.School)
 			if err != nil {

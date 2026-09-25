@@ -686,11 +686,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 		}
 	}
 
-	// Tick every timed party buff and refresh its HUD status from ONE registry.
-	for _, b := range gl.game.timedBuffs() {
-		tickBuff(b.active, b.duration, b.onExpire)
-		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
-	}
+	gl.game.updateTimedBuffs()
 	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
 	// tick from their own list - see combat_buffs.go.
 	gl.game.tickCombatBuffs()
@@ -707,7 +703,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
-		gl.game.world.SetFlyActive(gl.game.flyActive)
+		gl.game.world.SetTerrainPassageActive(gl.game.partyHasTerrainPassage())
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
@@ -785,11 +781,6 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			id:       "fly",
 			active:   &g.flyActive,
 			duration: &g.flyDuration,
-			onExpire: func() {
-				// Fly let the party pass through walls; if it lapses while they hover
-				// inside solid terrain, surface them or movement stays wall-locked.
-				g.ejectFromWallAfterFly()
-			},
 		},
 		{
 			id:       "water_breathing",

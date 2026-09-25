@@ -111,9 +111,10 @@ type viewer struct {
 	// once the cursor leaves the cell, so a plain click still reaches the brush
 	// and the eraser. dragPainted remembers the cells a held brush already
 	// painted, so drag-painting writes each cell once.
-	pendingGrab dragState
-	grab        dragState
-	dragPainted map[[2]int]bool
+	pendingGrab   dragState
+	grab          dragState
+	dragPainted   map[[2]int]bool
+	brushFloorMap *mapInfo
 
 	// gameSprites renders popup sprites through the game's own load pipeline
 	// (color key / despill), so they look exactly as in-game.
@@ -295,6 +296,10 @@ func main() {
 }
 
 func (v *viewer) Update() error {
+	// Flush even when a modal/page switch consumes the release before drag input.
+	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || v.page != pageMaps {
+		v.finishBrushFloors()
+	}
 	v.iconImages.Advance(256 << 10)
 	if v.saveDialogOpen {
 		v.handleSaveDialogInput()
@@ -755,6 +760,9 @@ func appendTileTooltipLines(lines []string, data *config.TileData) []string {
 	if data.Sprite != "" {
 		lines = append(lines, "Sprite: "+data.Sprite)
 	}
+	if len(data.SpriteVariants) > 0 {
+		lines = append(lines, "Variants: "+strings.Join(data.SpriteVariants, ", "))
+	}
 	return lines
 }
 
@@ -1163,6 +1171,9 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 	txMax := clampInt((x+w-lay.originX)/tileSize+1, 0, lay.worldW-1)
 	tyMax := clampInt((y+h-lay.originY)/tileSize+1, 0, lay.worldH-1)
 
+	if m.Data.Floors == nil {
+		rebuildMapFloors(&m, tm)
+	}
 	floorColor := effectiveFloorColor(m, tm, tileDataByKey)
 
 	for ty := tyMin; ty <= tyMax; ty++ {
@@ -1667,6 +1678,7 @@ func (v *viewer) saveCurrentMap() error {
 		return fmt.Errorf("empty path")
 	}
 	m := v.maps[v.mapIndex]
+	rebuildMapFloors(&m, v.tileManager)
 	gridLines, err := encodeMapLines(&m, v.tileManager)
 	if err != nil {
 		return err
@@ -1826,6 +1838,7 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 		return
 	}
 
+	defer v.updateBrushFloors(m)
 	clearMapCellSpawns(m, tx, ty)
 
 	switch v.brush.kind {
@@ -2147,6 +2160,37 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 	return color.RGBA{}, false
 }
 
+// Rebuild once on release for a held stroke; direct edits still update at once.
+func (v *viewer) updateBrushFloors(m *mapInfo) {
+	if v.brushFloorMap != nil && v.brushFloorMap != m {
+		v.finishBrushFloors()
+	}
+	if v.dragPainted != nil {
+		v.brushFloorMap = m
+		return
+	}
+	rebuildMapFloors(m, v.tileManager)
+}
+
+func (v *viewer) finishBrushFloors() {
+	if v.brushFloorMap != nil {
+		rebuildMapFloors(v.brushFloorMap, v.tileManager)
+		v.brushFloorMap = nil
+	}
+}
+
+// rebuildMapFloors runs after edits and before save, not once per drawn tile.
+func rebuildMapFloors(m *mapInfo, tm *world.TileManager) {
+	if m == nil || m.Data == nil || tm == nil {
+		return
+	}
+	biome := ""
+	if m.Config != nil {
+		biome = m.Config.Biome
+	}
+	m.Data.RebuildFloors(tm, biome)
+}
+
 // floorUnderObjectColor is the ground shown under an object sprite. The
 // TileData inheritance policy is shared with the game renderer, so a prop in a
 // road patch sits on road rather than the biome default.
@@ -2159,7 +2203,10 @@ func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[s
 		}
 		return base
 	}
-	if t, ok := tm.DominantNeighbourFloorForTile(tile, m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
+	if m.Data.Floors == nil {
+		rebuildMapFloors(&m, tm)
+	}
+	if t, ok := m.Data.Floors.At(tx, ty); ok {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
 			return colorFromRGB(data.FloorColor)
 		}

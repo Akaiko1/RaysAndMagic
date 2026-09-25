@@ -98,11 +98,11 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 
 	g.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
 	g.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
-	// Sync the new world's Fly flag to the party NOW (not next frame): it may
-	// carry a stale flyActive from a previous visit, which would make walls read
+	// Sync the new world's traversal capability now, before placement: it may
+	// carry stale permissions from a previous visit, which would make walls read
 	// as passable to anything querying it before the frame's buff sync runs.
 	if g.world != nil {
-		g.world.SetFlyActive(g.flyActive)
+		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
 	g.clearTransientCombatState()
 	// A map change ends every approach: drop the focus identity and any nudge

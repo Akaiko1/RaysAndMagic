@@ -27,6 +27,9 @@ type displayedModalHarness struct {
 func newDisplayedModalHarness(t *testing.T, width, height int) *displayedModalHarness {
 	t.Helper()
 	g, ui := merchantDragGame(t)
+	// Pointer scenarios place world rewards beyond the merchant's tiny room.
+	g.world = newTestWorldSized(g.config, 40, 40)
+	g.collisionSystem.UpdateTileChecker(g.world)
 	g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = width, height
 	g.appScreen = AppScreenInGame
 	g.dialogActive = false

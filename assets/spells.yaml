@@ -839,6 +839,7 @@ spells:
     is_projectile: false
     is_utility: true
     fly: true                  # pass through all non-edge tiles; the tile you occupy turns transparent from inside
+    terrain_passage: true      # shared traversal capability, independent of the spell's identity
     outdoor_only: true         # castable only on maps with a day/night sky (never in dungeons)
     status_icon: "fly"
     message: "The party rises on unseen wings!"

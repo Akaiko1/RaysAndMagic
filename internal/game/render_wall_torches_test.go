@@ -26,8 +26,8 @@ func TestJapaneseCastleWallTorchesIgnoreFly(t *testing.T) {
 		t.Fatal("japanese castle should have authored wall torches")
 	}
 
-	castle.SetFlyActive(true)
-	t.Cleanup(func() { castle.SetFlyActive(false) })
+	castle.SetTerrainPassageActive(true)
+	t.Cleanup(func() { castle.SetTerrainPassageActive(false) })
 	r.buildWallTorches()
 	if !reflect.DeepEqual(r.wallTorches, walking) {
 		t.Fatalf("torch cache changed under Fly: got %d points, want %d", len(r.wallTorches), len(walking))

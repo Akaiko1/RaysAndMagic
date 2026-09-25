@@ -24,21 +24,64 @@ func crateTestGame(t *testing.T) *MMGame {
 	return game
 }
 
-// Loot crates are rotating world rewards. Keep them on a rotating render path
-// and forbid one-off no_spin overrides so a new chest cannot silently look
-// different from every other crate.
-func TestLootCratesUseDefaultSpin(t *testing.T) {
+// The box pile is stationary scenery; other loot crates keep their default spin.
+func TestLootCratesUseAuthoredSpin(t *testing.T) {
 	crateTestGame(t)
 	for key, npc := range character.NPCConfigInstance.NPCs {
 		if npc.Type != character.NPCTypeLootCrate {
 			continue
 		}
-		if npc.NoSpin {
-			t.Errorf("loot crate %q disables the default spin", key)
+		if want := key == "pile_of_old_boxes"; npc.NoSpin != want {
+			t.Errorf("loot crate %q no_spin = %v, want %v", key, npc.NoSpin, want)
 		}
 		cat := resolveNPCRenderCat(npc.RenderCategory)
 		if cat != catScenery && cat != catLandmark {
 			t.Errorf("loot crate %q render_category = %q, want rotating scenery or landmark", key, npc.RenderCategory)
+		}
+	}
+}
+
+func TestBoxPileSceneryMovement(t *testing.T) {
+	// Authored category and pose survive both visit states and NPC restoration.
+	// Walking and Fly must both cross the box pile after collision registration.
+	for _, state := range []struct {
+		name              string
+		visited, restored bool
+	}{
+		{name: "fresh"},
+		{name: "searched", visited: true},
+		{name: "loaded_fresh", restored: true},
+		{name: "loaded_searched", visited: true, restored: true},
+	} {
+		for _, mode := range []string{"walking", "flying"} {
+			t.Run(state.name+"/"+mode, func(t *testing.T) {
+				g := crateTestGame(t)
+				ts := float64(g.config.GetTileSize())
+				placePlayerAtTile(g, 4, 4, ts)
+				boxes := spawnCrate(t, g, "pile_of_old_boxes", g.camera.X+ts, g.camera.Y)
+				if state.restored {
+					wm := &world.WorldManager{LoadedMaps: map[string]*world.World3D{"test": g.world}}
+					g.restoreSavedNPCs(wm, &GameSave{NPCStates: []NPCSave{{
+						MapKey: "test", Name: boxes.Name, X: boxes.X, Y: boxes.Y, Visited: state.visited,
+					}}})
+				} else {
+					if state.visited {
+						g.useLootCrate(boxes)
+					}
+					g.registerMapStaticCollision()
+				}
+				g.refreshLandmarkCollision()
+				if boxes.Visited != state.visited {
+					t.Fatalf("visited = %v, want %v", boxes.Visited, state.visited)
+				}
+				if npcRenderCatOf(boxes) != catScenery || !boxes.NoSpin {
+					t.Fatal("box pile must load as stationary scenery")
+				}
+				g.world.SetTerrainPassageActive(mode == "flying")
+				if !g.collisionSystem.CanMoveTo("player", boxes.X, boxes.Y) {
+					t.Fatal("box pile blocks party movement")
+				}
+			})
 		}
 	}
 }

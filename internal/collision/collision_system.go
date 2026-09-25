@@ -581,6 +581,14 @@ func (cs *CollisionSystem) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return !hit.Hit
 }
 
+// CheckMovementLine tests a terrain segment, including both endpoints and
+// diagonal corner contacts, using the caller's movement policy. It shares the
+// ray traversal with sight without changing sight or projectile semantics.
+func CheckMovementLine(checker TileChecker, tileSize, x1, y1, x2, y2 float64) bool {
+	hit, _ := castRayTiles(checker, tileSize, nil, x1, y1, x2, y2, false)
+	return !hit.Hit
+}
+
 // CollisionPair represents a collision between two entities
 type CollisionPair struct {
 	Entity1 *Entity

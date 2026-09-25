@@ -867,28 +867,33 @@ func TestMouseSmartAttackHeldTargetNeedsViewport(t *testing.T) {
 // the portraits. C hands the cast to the healer, who heals the selected member
 // rather than themselves.
 func TestHealHandoffKeepsSelectedRecipient(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
-			g, ih, fp, _, tick := mouseCombatHarness(t, tb)
-			fp.moveTo(5, 5)
-			g.showPartyStats = false
-			for _, ch := range g.party.Members {
-				ch.MagicSchools = nil
-			}
-			patient, healer := g.party.Members[0], g.party.Members[1]
-			patient.HitPoints = 1
-			healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
-				character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
-			}
-			healer.MaxSpellPoints, healer.SpellPoints = 50, 50
-			g.selectedChar = 0
-			pressed := true
-			ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
-			tick()
-			pressed = false
-			if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
-				t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
-			}
-		})
+	for _, unconscious := range []bool{false, true} {
+		for _, tb := range []bool{false, true} {
+			t.Run(fmt.Sprintf("TB=%v/KO=%v", tb, unconscious), func(t *testing.T) {
+				g, ih, fp, _, tick := mouseCombatHarness(t, tb)
+				fp.moveTo(5, 5)
+				g.showPartyStats = false
+				for _, ch := range g.party.Members {
+					ch.MagicSchools = nil
+				}
+				patient, healer := g.party.Members[0], g.party.Members[1]
+				patient.HitPoints = 1
+				if unconscious {
+					patient.AddCondition(character.ConditionUnconscious)
+				}
+				healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
+					character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
+				}
+				healer.MaxSpellPoints, healer.SpellPoints = 50, 50
+				g.selectedChar = 0
+				pressed := true
+				ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
+				tick()
+				pressed = false
+				if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
+					t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
+				}
+			})
+		}
 	}
 }

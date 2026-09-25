@@ -264,7 +264,7 @@ func TestFlyTileRules(t *testing.T) {
 	if !w.IsTileBlocking(3, 3) {
 		t.Fatal("wall must block without Fly")
 	}
-	w.SetFlyActive(true)
+	w.SetTerrainPassageActive(true)
 	if w.IsTileBlocking(3, 3) {
 		t.Fatal("Fly must pass through interior walls")
 	}
@@ -275,12 +275,12 @@ func TestFlyTileRules(t *testing.T) {
 	}
 	// Projectiles keep REAL terrain collision while the party flies - a bolt
 	// must never sail through a wall just because Fly is up.
-	w.SetFlyActive(true)
+	w.SetTerrainPassageActive(true)
 	ts := float64(cfg.GetTileSize())
 	if w.CanProjectileMoveTo(3.5*ts, 3.5*ts) {
 		t.Fatal("projectiles must not pass through walls under Fly")
 	}
-	w.SetFlyActive(false)
+	w.SetTerrainPassageActive(false)
 	if !w.IsTileBlocking(3, 3) {
 		t.Fatal("expired Fly must restore collision")
 	}

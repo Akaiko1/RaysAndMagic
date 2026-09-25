@@ -1579,8 +1579,7 @@ func (ui *UISystem) compassTileAppearance(tileX, tileY int, regionFloor color.RG
 	// renderer instead of sitting on the region-wide fallback color.
 	floorData := data
 	if tm.InheritsFloor(tile) {
-		if inherited, ok := tm.DominantNeighbourFloorForTile(tile, ui.game.world.Tiles,
-			ui.game.world.Width, ui.game.world.Height, tileX, tileY, nil); ok {
+		if inherited, ok := ui.game.world.InheritedFloorAt(tileX, tileY); ok {
 			floorData = tm.GetTileData(inherited)
 		}
 	}

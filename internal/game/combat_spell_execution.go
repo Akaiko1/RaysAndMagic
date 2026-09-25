@@ -288,6 +288,9 @@ func (cs *CombatSystem) activateUtilityTimedBuff(
 	}
 	if spellDef.Fly {
 		activate("fly")
+	} else if spellDef.TerrainPassage {
+		// Other passage spells own their timer and do not become Fly aliases.
+		activate(spellID)
 	}
 	if result.WaterBreathing {
 		activate("water_breathing")

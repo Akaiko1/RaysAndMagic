@@ -46,6 +46,8 @@ type World3D struct {
 	Width              int
 	Height             int
 	Tiles              [][]TileType3D
+	floors             FloorResolution
+	entityFloors       map[[2]int]entityFloor
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
 	// MonsterSpawns is the authored roster (retained verbatim) and
@@ -67,18 +69,20 @@ type World3D struct {
 	StartX int
 	StartY int
 	// Magic effects
-	walkOnWaterActive    bool
-	waterBreathingActive bool
-	flyActive            bool // Fly spell: party passes through non-border tiles
+	walkOnWaterActive     bool
+	waterBreathingActive  bool
+	terrainPassageActive  bool // Active party capability: pass through non-border tiles
+	environmentSpriteSeed uint64
 }
 
 func NewWorld3D(cfg *config.Config) *World3D {
 	world := &World3D{
-		Monsters:           make([]*monster.Monster3D, 0),
-		InitialMonsterKeys: make(map[string]struct{}),
-		NPCs:               make([]*character.NPC, 0),
-		config:             cfg,
-		OutOfBoundsKey:     "oob_cliff",
+		Monsters:              make([]*monster.Monster3D, 0),
+		InitialMonsterKeys:    make(map[string]struct{}),
+		NPCs:                  make([]*character.NPC, 0),
+		config:                cfg,
+		OutOfBoundsKey:        "oob_cliff",
+		environmentSpriteSeed: rand.Uint64(),
 	}
 
 	// Note: Map loading is now handled by WorldManager
@@ -107,6 +111,7 @@ func (w *World3D) loadFromMapFile() {
 
 	// Copy loaded tiles directly (already converted to TileType3D)
 	w.Tiles = mapData.Tiles
+	w.entityFloors = mapData.entityFloors
 
 	// Load NPCs from map data
 	w.loadNPCsFromMapData(mapData.NPCSpawns)
@@ -347,22 +352,17 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
-	if w.flyActive {
-		return w.IsTileBlockingForFly(tileX, tileY)
+	if w.terrainPassageActive {
+		return w.IsTileBlockingForTerrainPassage(tileX, tileY)
 	}
 	return w.isTileBlockingTerrain(tileX, tileY)
 }
 
-// IsTileBlockingForFly is the Fly movement rule: the party passes through
-// ANYTHING except the map's border ring - the edge stays solid so the party
-// can never leave the map. The unified world adds its void filler
-// (flyBoundary) so flight cannot leave a region except through a carved
-// passage. MOVEMENT only: projectiles keep real terrain collision
-// (isTileBlockingTerrain), or every bolt would sail through walls while the
-// party flies. Exported separately from IsTileBlocking so game-side checks
-// that already know Fly is active don't depend on the world's transient fly
-// flag being synced.
-func (w *World3D) IsTileBlockingForFly(tileX, tileY int) bool {
+// IsTileBlockingForTerrainPassage is the shared terrain-bypass movement rule.
+// Map borders and stitched-world void remain blocked. Entity-based doors are
+// checked separately. Projectiles still use ordinary terrain collision.
+// This query uses no transient world flag, so placement can use live buffs.
+func (w *World3D) IsTileBlockingForTerrainPassage(tileX, tileY int) bool {
 	if tileX <= 0 || tileY <= 0 || tileX >= w.Width-1 || tileY >= w.Height-1 {
 		return true
 	}
@@ -483,9 +483,9 @@ func (w *World3D) GetWorldBounds() (width, height int) {
 	return w.Width, w.Height
 }
 
-// SetFlyActive sets the Fly state for the world (see IsTileBlocking).
-func (w *World3D) SetFlyActive(active bool) {
-	w.flyActive = active
+// SetTerrainPassageActive updates the aggregate party traversal capability.
+func (w *World3D) SetTerrainPassageActive(active bool) {
+	w.terrainPassageActive = active
 }
 
 // SetWalkOnWaterActive sets the walk on water state for the world
@@ -517,14 +517,13 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 		// invisible gate NPC, water under a lake chest). The placement's own
 		// [npc:key@tile] override wins over the NPC definition's ground_tile -
 		// specific over general.
-		groundTile := spawn.GroundTile
-		if groundTile == "" {
-			groundTile = npc.GroundTile
-		}
+		groundTile := spawn.groundTileKey()
 		if groundTile != "" && GlobalTileManager != nil &&
 			spawn.Y >= 0 && spawn.Y < len(w.Tiles) && spawn.X >= 0 && spawn.X < len(w.Tiles[spawn.Y]) {
 			if tileType, ok := GlobalTileManager.GetTileTypeFromKey(groundTile); ok {
 				w.Tiles[spawn.Y][spawn.X] = tileType
+				delete(w.entityFloors, [2]int{spawn.X, spawn.Y})
+				w.floors = nil
 			} else {
 				fmt.Printf("Warning: NPC %s ground_tile %q not found\n", spawn.NPCKey, groundTile)
 			}

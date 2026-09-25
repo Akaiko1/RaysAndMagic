@@ -142,7 +142,7 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
-		g.world.SetFlyActive(g.flyActive)
+		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 		g.dropFlyWithoutOpenSky() // an indoor save (or a pre-rule one) must not restore wings
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}

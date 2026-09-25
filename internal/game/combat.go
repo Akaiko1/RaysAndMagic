@@ -555,7 +555,7 @@ func (cs *CombatSystem) attackSlotFor(attacker *character.MMCharacter) items.Equ
 // exploit. Emits a throttled explanation so the refusal reads as a rule.
 func (cs *CombatSystem) partyInsideSolidTerrain() bool {
 	g := cs.game
-	if !g.flyActive || g.camera == nil {
+	if !g.partyHasTerrainPassage() || g.camera == nil {
 		return false
 	}
 	x, y := cs.logicalCameraXY()
@@ -569,7 +569,7 @@ func (cs *CombatSystem) partyEntombed() bool {
 	g := cs.game
 	if g.frameCount-g.entombedMsgFrame > int64(g.config.GetTPS()) {
 		g.entombedMsgFrame = g.frameCount
-		g.AddCombatMessage("Buried inside solid terrain, the party cannot fight - fly clear first!")
+		g.AddCombatMessage("Buried inside solid terrain, the party cannot fight - move clear first!")
 	}
 	return true
 }

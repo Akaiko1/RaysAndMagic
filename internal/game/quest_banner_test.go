@@ -13,6 +13,9 @@ func bannerGame(t *testing.T) *MMGame {
 	t.Helper()
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
+	// Banner tests also consume physical loot, which requires real terrain.
+	g.world = newTestWorldSized(g.config, 10, 10)
+	g.collisionSystem.UpdateTileChecker(g.world)
 	g.questManager = loadTestQuestManager(t)
 	g.resyncQuestBannerBaseline()
 	return g

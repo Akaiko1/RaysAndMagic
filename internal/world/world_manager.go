@@ -262,6 +262,7 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	world.StartX = mapData.StartX
 	world.StartY = mapData.StartY
 	world.Tiles = mapData.Tiles
+	world.entityFloors = mapData.entityFloors
 
 	// Per-biome off-map backdrop wall (defaults to "seaview" set in NewWorld3D).
 	if biome, ok := wm.Biomes[mapConfig.Biome]; ok && biome.OutOfBoundsTile != "" {

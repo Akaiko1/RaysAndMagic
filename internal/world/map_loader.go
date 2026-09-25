@@ -96,6 +96,8 @@ type MapData struct {
 	Width             int
 	Height            int
 	Tiles             [][]TileType3D
+	Floors            FloorResolution `json:"-" yaml:"-"` // Derived; rebuilt after editor mutations.
+	entityFloors      map[[2]int]entityFloor
 	MonsterSpawns     []MonsterSpawn
 	NPCSpawns         []NPCSpawn
 	SpecialTileSpawns []SpecialTileSpawn
@@ -132,7 +134,6 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
 	var generalTileSpawns []SpecialTileSpawn // letterless general tiles ([tile:short_label])
-	var atCells [][2]int                     // [x,y] of every '@' placeholder (auto-floored under an entity)
 	scanner := bufio.NewScanner(file)
 
 	// Read all non-comment lines and process as tile tokens
@@ -145,16 +146,13 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 
 		// Parse line into tiles and extract NPCs, special tiles, general tiles
 		y := len(lines)
-		parsedLine, lineNPCs, lineSpecialTiles, lineGeneralTiles, lineAt, err := ml.parseTileTokens(line, y)
+		parsedLine, lineNPCs, lineSpecialTiles, lineGeneralTiles, err := ml.parseTileTokens(line, y)
 		if err != nil {
 			return nil, fmt.Errorf("map %s: %w", mapPath, err)
 		}
 		npcSpawns = append(npcSpawns, lineNPCs...)
 		specialTileSpawns = append(specialTileSpawns, lineSpecialTiles...)
 		generalTileSpawns = append(generalTileSpawns, lineGeneralTiles...)
-		for _, ax := range lineAt {
-			atCells = append(atCells, [2]int{ax, y})
-		}
 		lines = append(lines, parsedLine)
 	}
 
@@ -250,25 +248,6 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		}
 	}
 
-	// Resolve the auto-default floor under placed entities (monsters + '@'
-	// placeholders) to the dominant nearby floor before special tiles override.
-	autoFloored := make(map[[2]int]bool, len(mapData.MonsterSpawns)+len(atCells))
-	for _, s := range mapData.MonsterSpawns {
-		autoFloored[[2]int{s.X, s.Y}] = true
-	}
-	for _, c := range atCells {
-		autoFloored[c] = true
-	}
-	ml.resolveUnderEntityFloors(mapData, autoFloored)
-
-	// Apply special tile spawns to the map
-	for _, specialTile := range mapData.SpecialTileSpawns {
-		if specialTile.Y >= 0 && specialTile.Y < mapData.Height &&
-			specialTile.X >= 0 && specialTile.X < mapData.Width {
-			mapData.Tiles[specialTile.Y][specialTile.X] = specialTile.TileType
-		}
-	}
-
 	// Apply general (letterless) tile spawns to the grid. Not stored on MapData:
 	// they live in the grid like any tile, distinguished by their short_label,
 	// and the editor re-encodes them by scanning the grid.
@@ -278,29 +257,9 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		}
 	}
 
-	return mapData, nil
-}
+	mapData.RebuildFloors(GlobalTileManager, ml.biome)
 
-// resolveUnderEntityFloors replaces the auto-default floor under placed entities
-// (monster spawns, '@' NPC/placeholder cells) with the dominant nearby floor, so an
-// entity dropped onto a floor-variant patch blends in instead of stamping the biome
-// default '.'. Other entity cells are skipped from the vote. Falls back to the biome
-// '.' floor when no floor neighbour exists. Uses the same vote as inherit_floor
-// markers - see TileManager.DominantNeighbourFloor.
-func (ml *MapLoader) resolveUnderEntityFloors(md *MapData, autoFloored map[[2]int]bool) {
-	if GlobalTileManager == nil || len(autoFloored) == 0 {
-		return
-	}
-	defFloor, hasDef := GlobalTileManager.GetTileTypeFromLetterForBiome(".", ml.biome)
-	skip := func(nx, ny int) bool { return autoFloored[[2]int{nx, ny}] }
-	for cell := range autoFloored {
-		x, y := cell[0], cell[1]
-		if best, ok := GlobalTileManager.DominantNeighbourFloor(md.Tiles, md.Width, md.Height, x, y, skip); ok {
-			md.Tiles[y][x] = best
-		} else if hasDef {
-			md.Tiles[y][x] = defFloor
-		}
-	}
+	return mapData, nil
 }
 
 // parseMapCharacter converts a map character to tile type and optional monster letter.
@@ -371,7 +330,7 @@ func (ml *MapLoader) LoadForestMap() (*MapData, error) {
 
 // parseTileTokens parses a line into tiles, handling both NPCs and special tiles:
 // Map tiles use single characters, definitions are at line end with >[npc:key] or >[stile:key] format
-func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []SpecialTileSpawn, []int, error) {
+func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []SpecialTileSpawn, error) {
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
 	var generalTileSpawns []SpecialTileSpawn
@@ -414,26 +373,26 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 			continue
 		}
 		if !ok {
-			return "", nil, nil, nil, nil, fmt.Errorf("line %d: malformed entity definition %q", lineY+1, cleanDef)
+			return "", nil, nil, nil, fmt.Errorf("line %d: malformed entity definition %q", lineY+1, cleanDef)
 		}
 		switch tag {
 		case MapDefNPC, MapDefStile:
 			if atIndex >= len(atPositions) {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: %s definition has no @ marker", lineY+1, tag)
+				return "", nil, nil, nil, fmt.Errorf("line %d: %s definition has no @ marker", lineY+1, tag)
 			}
 		case MapDefTile:
 			if dollarIndex >= len(dollarPositions) {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile definition has no $ marker", lineY+1)
+				return "", nil, nil, nil, fmt.Errorf("line %d: tile definition has no $ marker", lineY+1)
 			}
 		default:
-			return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown entity tag %q", lineY+1, tag)
+			return "", nil, nil, nil, fmt.Errorf("line %d: unknown entity tag %q", lineY+1, tag)
 		}
 
 		switch tag {
 		case MapDefNPC:
 			npcKey, groundTile, defOK := ParseNPCSpawnDefBody(body)
 			if !defOK {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: malformed npc def %q (want [npc:key] or [npc:key@tile])", lineY+1, body)
+				return "", nil, nil, nil, fmt.Errorf("line %d: malformed npc def %q (want [npc:key] or [npc:key@tile])", lineY+1, body)
 			}
 			if atIndex < len(atPositions) {
 				npcSpawns = append(npcSpawns, NPCSpawn{X: atPositions[atIndex], Y: lineY, NPCKey: npcKey, GroundTile: groundTile})
@@ -441,11 +400,11 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 			}
 		case MapDefStile:
 			if GlobalTileManager == nil {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
+				return "", nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
 			}
 			tileType, ok := GlobalTileManager.GetTileTypeFromKey(body)
 			if !ok {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown special tile key %q", lineY+1, body)
+				return "", nil, nil, nil, fmt.Errorf("line %d: unknown special tile key %q", lineY+1, body)
 			}
 			if atIndex < len(atPositions) {
 				specialTileSpawns = append(specialTileSpawns, SpecialTileSpawn{X: atPositions[atIndex], Y: lineY, TileKey: body, TileType: tileType})
@@ -454,11 +413,11 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 		case MapDefTile:
 			// General (universal, letterless) decoration tile placed by short_label.
 			if GlobalTileManager == nil {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
+				return "", nil, nil, nil, fmt.Errorf("line %d: tile catalog unavailable for %q", lineY+1, cleanDef)
 			}
 			tileType, ok := GlobalTileManager.GetTileTypeFromShortLabel(body)
 			if !ok {
-				return "", nil, nil, nil, nil, fmt.Errorf("line %d: unknown general tile label %q", lineY+1, body)
+				return "", nil, nil, nil, fmt.Errorf("line %d: unknown general tile label %q", lineY+1, body)
 			}
 			if dollarIndex < len(dollarPositions) {
 				generalTileSpawns = append(generalTileSpawns, SpecialTileSpawn{X: dollarPositions[dollarIndex], Y: lineY, TileKey: body, TileType: tileType})
@@ -468,15 +427,12 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 	}
 
 	if atIndex != len(atPositions) || dollarIndex != len(dollarPositions) {
-		return "", nil, nil, nil, nil, fmt.Errorf("line %d: unbound entity markers (@: %d, $: %d)", lineY+1, len(atPositions)-atIndex, len(dollarPositions)-dollarIndex)
+		return "", nil, nil, nil, fmt.Errorf("line %d: unbound entity markers (@: %d, $: %d)", lineY+1, len(atPositions)-atIndex, len(dollarPositions)-dollarIndex)
 	}
 
 	// Replace both placeholders with '.' (empty walkable) in the tile grid.
 	resultTiles := strings.ReplaceAll(tilesPart, string(MapCellInteractive), ".")
 	resultTiles = strings.ReplaceAll(resultTiles, string(MapCellGeneral), ".")
 
-	// Return all placeholder X's (interactive + general) so the caller floors
-	// the ground beneath every entity cell.
-	placeholders := append(append([]int(nil), atPositions...), dollarPositions...)
-	return resultTiles, npcSpawns, specialTileSpawns, generalTileSpawns, placeholders, nil
+	return resultTiles, npcSpawns, specialTileSpawns, generalTileSpawns, nil
 }

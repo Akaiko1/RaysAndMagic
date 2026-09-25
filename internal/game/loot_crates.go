@@ -39,7 +39,7 @@ func (g *MMGame) partyTrapAvoidChancePct() (int, *character.MMCharacter) {
 	return chance, best
 }
 
-// useLootCrate opens a chest: LOS-gated, one-shot, trap first, then loot.
+// useLootCrate opens a reachable chest: one-shot, trap first, then loot.
 // Tier behavior is fully data-driven from loots.yaml `crates:` (by NPC key).
 func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if npc.Visited {
@@ -57,9 +57,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		g.AddCombatMessage(fmt.Sprintf("No time to search the %s mid-fight!", npc.Name))
 		return
 	}
-	// Direct line of sight required: no opening through walls, and the
-	// axis-stepping ray already refuses diagonal gaps between trees.
-	if g.collisionSystem != nil && !g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, npc.X, npc.Y) {
+	if !g.canReachWorldReward(npc.X, npc.Y) {
 		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
 		return
 	}
@@ -463,6 +461,10 @@ func (g *MMGame) useSpellLectern(npc *character.NPC) {
 	}
 	lectern := npc.Lectern
 	if lectern == nil {
+		return
+	}
+	if !g.canReachWorldReward(npc.X, npc.Y) {
+		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
 		return
 	}
 	candidates := lectern.Pool

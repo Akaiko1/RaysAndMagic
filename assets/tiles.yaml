@@ -1,4 +1,6 @@
 tiles:
+  # Pickup follows !walkable unless blocks_pickup overrides it.
+  # Terrain passage bypasses a pickup block only on fly_over terrain; walls still block sight.
   # Basic terrain types
   empty:
     name: "Empty Space"
@@ -31,6 +33,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    blocks_pickup: false
     fly_over: true
     sprite: ""
     render_type: "floor"
@@ -45,6 +48,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    blocks_pickup: false
     fly_over: true
     sprite: ""
     render_type: "floor"
@@ -73,6 +77,7 @@ tiles:
     transparent: false
     walkable: false
     sprite: "forest_oak"
+    sprite_variants: ["forest_oak", "forest_tree_variant_a", "forest_tree_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [101, 67, 33]  # Brown tree bark
@@ -110,6 +115,7 @@ tiles:
     transparent: false
     walkable: false
     sprite: "sand_dune"
+    sprite_variants: ["sand_dune", "desert_dune_variant_a", "desert_dune_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [238, 203, 173]  # Sandy brown
@@ -124,6 +130,7 @@ tiles:
     transparent: false
     walkable: false
     sprite: "large_dune"
+    sprite_variants: ["large_dune", "large_dune_variant_a", "large_dune_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [222, 184, 135]  # Burlywood
@@ -138,6 +145,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "palm"
+    sprite_variants: ["palm", "palm_tree_variant_a", "palm_tree_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [96, 128, 56]  # Palm-frond green
@@ -152,6 +160,7 @@ tiles:
     transparent: false
     walkable: false
     sprite: "coral_reef"
+    sprite_variants: ["coral_reef", "coral_reef_variant_a", "coral_reef_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [255, 127, 80]  # Coral orange
@@ -166,6 +175,7 @@ tiles:
     transparent: false
     walkable: false
     sprite: "large_coral"
+    sprite_variants: ["large_coral", "large_coral_variant_a", "large_coral_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [220, 20, 60]  # Crimson coral
@@ -621,6 +631,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [100, 84, 56]
     floor_near_color: [145, 122, 82]
     floor_texture_group: "grass_edge"
@@ -635,6 +646,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [110, 116, 63]
     floor_near_color: [159, 168, 91]
     floor_texture_group: "path"
@@ -649,6 +661,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [79, 100, 73]
     floor_near_color: [114, 145, 105]
     floor_texture_group: "pond_edge"
@@ -663,6 +676,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [120, 90, 84]
     floor_near_color: [172, 128, 120]
     floor_texture_group: "stream"
@@ -1173,6 +1187,7 @@ tiles:
     transparent: false        # dense canopy: blocks sight, like the trunk wall it replaces
     walkable: false
     sprite: "tropical_vine_tree"
+    sprite_variants: ["tropical_vine_tree", "jungle_vine_tree_variant_a", "jungle_vine_tree_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [92, 70, 48]
@@ -1187,6 +1202,7 @@ tiles:
     transparent: true         # see-through like the desert palm - scattered decor, not a sight wall
     walkable: false
     sprite: "three_intertwined_palms"
+    sprite_variants: ["three_intertwined_palms", "jungle_palm_variant_a", "jungle_palm_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [96, 128, 56]
@@ -1882,6 +1898,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "highlands_pine"
+    sprite_variants: ["highlands_pine", "highlands_pine_variant_a", "highlands_pine_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [64, 92, 38]
@@ -1899,6 +1916,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "highlands_rock_outcrop"
+    sprite_variants: ["highlands_rock_outcrop", "highlands_rock_outcrop_variant_a", "highlands_rock_outcrop_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [124, 122, 112]
@@ -1913,6 +1931,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "highlands_boulder"
+    sprite_variants: ["highlands_boulder", "highlands_boulder_variant_a", "highlands_boulder_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [116, 116, 104]
@@ -2003,6 +2022,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [96, 72, 48]
     floor_near_color: [124, 94, 62]
     floor_texture_group: "quest_bridge"
@@ -2016,6 +2036,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [92, 70, 48]
     floor_near_color: [124, 94, 62]
     floor_texture_group: "bridge_0"
@@ -2030,6 +2051,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [126, 96, 58]
     floor_near_color: [150, 116, 72]
     floor_texture_group: "bridge_1"
@@ -2044,6 +2066,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [78, 76, 70]
     floor_near_color: [104, 98, 82]
     floor_texture_group: "chasm_edge_0"
@@ -2058,6 +2081,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [112, 104, 88]
     floor_near_color: [136, 126, 104]
     floor_texture_group: "chasm_edge_1"
@@ -2070,6 +2094,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    blocks_pickup: true
     fly_over: true
     sprite: ""
     render_type: "floor"
@@ -2086,6 +2111,7 @@ tiles:
     solid: false
     transparent: true
     walkable: false
+    blocks_pickup: true
     fly_over: true
     sprite: ""
     render_type: "floor"
@@ -2155,6 +2181,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "dragon_cliffs_wind_pine"
+    sprite_variants: ["dragon_cliffs_wind_pine", "dragon_cliffs_wind_pine_variant_a", "dragon_cliffs_wind_pine_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [62, 88, 48]
@@ -2169,6 +2196,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "dragon_cliffs_boulder"
+    sprite_variants: ["dragon_cliffs_boulder", "dragon_cliffs_rock_outcrop_variant_a", "dragon_cliffs_rock_outcrop_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [112, 112, 104]
@@ -2183,6 +2211,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "dragon_cliffs_boulder"
+    sprite_variants: ["dragon_cliffs_boulder", "dragon_cliffs_boulder_variant_a", "dragon_cliffs_boulder_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [108, 108, 100]
@@ -2209,6 +2238,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "dragon_cliffs_dragon_bones"
+    sprite_variants: ["dragon_cliffs_dragon_bones", "dragon_cliffs_dragon_bones_variant_a", "dragon_cliffs_dragon_bones_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [178, 158, 132]
@@ -2266,6 +2296,7 @@ tiles:
     transparent: true
     walkable: false
     sprite: "moss_rock"
+    sprite_variants: ["moss_rock", "moss_rock_variant_a", "moss_rock_variant_b"]
     size_class: tree
     render_type: "crossed_standee"
     map_color: [105, 105, 105]  # Gray rock

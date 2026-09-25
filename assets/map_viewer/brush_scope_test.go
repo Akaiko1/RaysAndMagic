@@ -145,7 +145,7 @@ func TestBrushScopeAcrossEntryPoints(t *testing.T) {
 					return
 				}
 				wantTile := "ground"
-				if tc.brush.kind == brushTile || tc.brush.kind == brushGeneral {
+				if tc.brush.kind == brushTile || tc.brush.kind == brushGeneral || tc.brush.kind == brushSpecialTile {
 					wantTile = tc.brush.tileKey
 				}
 				if got := v.tileManager.GetTileKey(m.Data.Tiles[0][0]); got != wantTile {

@@ -104,6 +104,7 @@ type SpellDefinition struct {
 	WaterWalk         bool     // For water walking spell
 	WaterBreathing    bool     // For water breathing spell
 	Fly               bool     // Fly: walk through non-border tiles
+	TerrainPassage    bool     // Shared traversal capability granted by a timed buff
 	OutdoorOnly       bool     // castable only under a day/night sky
 	TownPortal        bool     // opens the visited-destination picker
 	Message           string   // Effect message to display
@@ -200,6 +201,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		WaterWalk:         configDef.WaterWalk,
 		WaterBreathing:    configDef.WaterBreathing,
 		Fly:               configDef.Fly,
+		TerrainPassage:    configDef.TerrainPassage,
 		OutdoorOnly:       configDef.OutdoorOnly,
 		TownPortal:        configDef.TownPortal,
 		Message:           configDef.Message,
@@ -324,7 +326,7 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	if d.MortarRangeTiles > 0 {
 		out = append(out, uitext.Text("spell.arcs_over_everything_and_blooms_exactly_tiles", d.MortarRangeTiles))
 	}
-	if d.Fly {
+	if d.TerrainPassage {
 		out = append(out, uitext.Text("spell.the_party_crosses_terrain_and_walls_but"))
 	}
 	if d.OutdoorOnly {

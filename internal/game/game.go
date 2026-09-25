@@ -911,6 +911,9 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
 	game.gameLoop = NewGameLoop(game)
+	if err := game.validateTraversalBuffs(); err != nil {
+		panic(err)
+	}
 
 	// Connect global quest manager
 	if !preview {
@@ -1093,6 +1096,10 @@ func (g *MMGame) updateFocusedNPC() {
 		ex, ey := g.npcEffectivePos(npc)
 		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
 		if dist > bestDist {
+			continue
+		}
+		if g.npcIsWalkUpProp(npc) && g.collisionSystem != nil &&
+			!g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, ex, ey) {
 			continue
 		}
 		restore := g.beginPresentedCameraSwap()
@@ -1323,8 +1330,8 @@ func (g *MMGame) settleAshore(message string) {
 // or a remembered per-map entry pose can point inside what is now a wall, and
 // placing the party there leaves it with no legal move out. Legal destinations
 // pass through unchanged (preserving sub-tile precision): walkable ground,
-// water under an active water effect, and - while Fly holds - anything Fly
-// itself may occupy (its expiry runs its own eject). Legality comes from
+// water under an active water effect, and terrain under an active passage
+// capability (losing the last provider grounds the party). Legality comes from
 // static tile data plus game-side buffs, never the world's transient
 // fly/water flags: callers run before the per-frame flag sync, and a
 // revisited map keeps its flags stale from the previous visit.
@@ -1335,14 +1342,14 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 	}
 	ts := float64(g.config.GetTileSize())
 	tx, ty := TileIndex(x, ts), TileIndex(y, ts)
-	if g.flyActive {
-		if !w.IsTileBlockingForFly(tx, ty) {
+	if g.partyHasTerrainPassage() {
+		if !w.IsTileBlockingForTerrainPassage(tx, ty) {
 			return x, y
 		}
-		// The clamp must land where the flying party may actually stand: the
-		// border ring is statically walkable but solid to Fly.
+		// The clamp must respect passage boundaries: the border ring can be
+		// statically walkable while still blocking this traversal mode.
 		return g.findNearestWalkableTileMustSucceed(x, y, func(ctx, cty int) bool {
-			return !w.IsTileBlockingForFly(ctx, cty)
+			return !w.IsTileBlockingForTerrainPassage(ctx, cty)
 		})
 	}
 	if tx >= 0 && tx < w.Width && ty >= 0 && ty < w.Height {
@@ -1364,7 +1371,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 // Checks tile type directly: buff expiry runs before the per-frame world-flag
 // sync, so the world's own water flags are still stale here.
 func (g *MMGame) settleAfterWalkOnWater() {
-	if g.flyActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+	if g.partyHasTerrainPassage() || g.waterBreathingActive || g.hasCardWalkOnWater() {
 		return
 	}
 	w := g.GetCurrentWorld()
@@ -1382,12 +1389,9 @@ func (g *MMGame) settleAfterWalkOnWater() {
 	g.settleAshore("Walk on Water fades - the party wades ashore.")
 }
 
-// ejectFromWallAfterFly surfaces the party to the nearest walkable tile when
-// Fly lapses while they hover inside solid terrain (Fly lets movement pass
-// through walls). Without it the party is stuck against a wall bbox with no
-// legal move out. Walkability here is terrain-only, so it works regardless of
-// the world's Fly flag sync order.
-func (g *MMGame) ejectFromWallAfterFly() {
+// settleAfterTerrainPassage surfaces the party when its last terrain-passage
+// provider expires. Raw terrain checks do not depend on world flag sync order.
+func (g *MMGame) settleAfterTerrainPassage() {
 	w := g.GetCurrentWorld()
 	if w == nil {
 		return
@@ -1396,7 +1400,7 @@ func (g *MMGame) ejectFromWallAfterFly() {
 	if !w.IsTileBlockingTerrainAt(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts)) {
 		return // already on open ground
 	}
-	g.settleAshore("The wings fade - the party settles onto solid ground.")
+	g.settleAshore("The party settles onto solid ground.")
 }
 
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
@@ -2385,9 +2389,6 @@ func (g *MMGame) firstEligiblePartyIndex() int {
 	return -1
 }
 
-// advanceToNextEligibleChar moves selectedChar forward to the next party
-// member that can still act this round, wrapping from the end back to the
-// start. No-op if none are eligible.
 // ensureTBActor hands a turn-based action request to the next member who has
 // an action slot and can take it, mirroring the real-time chain. A manual
 // selection stays for UI inspection until an action is requested. Reports
@@ -2408,6 +2409,9 @@ func (g *MMGame) ensureTBActor(kind rtActionKind) bool {
 	return false
 }
 
+// advanceToNextEligibleChar moves selectedChar forward to the next party
+// member that can still act this round, wrapping from the end back to the
+// start. No-op if none are eligible.
 func (g *MMGame) advanceToNextEligibleChar() {
 	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)

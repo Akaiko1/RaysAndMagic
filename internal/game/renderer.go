@@ -166,6 +166,8 @@ type Renderer struct {
 	// crossed-standee billboard mode (config.Graphics.TreesAsBillboards). Built
 	// alongside transparentSpritesCache; unused in the per-column tree mode.
 	treeTilesCache []TransparentSpriteData
+	// Shared by cached standees and per-column ray hits; rebuilt with the map.
+	environmentSpriteNames map[[3]int]string
 	// mapRenderTileTypes is the unique authored tile inventory discovered by the
 	// same map scan that builds the sprite caches. The map-resource prewarmer uses
 	// it instead of rescanning the world or maintaining a parallel asset list.
@@ -334,6 +336,7 @@ func (r *Renderer) handleResize(screenWidth, screenHeight int) {
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
+	r.environmentSpriteNames = nil
 	r.treeSpatial = renderSpatialIndex{}
 	r.propSpatial = renderSpatialIndex{}
 	// A physical world switch is a real render-resource boundary. Generated
@@ -396,7 +399,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 			// Crossed tiles: cache one entry per tile for the crossed sprite pass.
 			if config.IsCrossedRenderType(world.GlobalTileManager.GetRenderType(tileType)) {
-				spriteName := world.GlobalTileManager.GetSprite(tileType)
+				spriteName := r.selectEnvironmentSpriteName(tileType, tileX, tileY)
 				palette, emitsNightMotes := nightMotePaletteForConfig(world.GlobalTileManager.GetTileData(tileType))
 				treeCache = append(treeCache, TransparentSpriteData{
 					tileX: tileX, tileY: tileY, worldX: worldX, worldY: worldY,
@@ -475,10 +478,29 @@ func (r *Renderer) reserveUnifiedSpriteCapacity() {
 }
 
 func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX, tileY int) string {
+	key := [3]int{int(tileType), tileX, tileY}
+	if name, ok := r.environmentSpriteNames[key]; ok {
+		return name
+	}
+	name := r.resolveEnvironmentSpriteName(tileType, tileX, tileY)
+	if r.environmentSpriteNames == nil {
+		r.environmentSpriteNames = make(map[[3]int]string)
+	}
+	r.environmentSpriteNames[key] = name
+	return name
+}
+
+func (r *Renderer) resolveEnvironmentSpriteName(tileType world.TileType3D, tileX, tileY int) string {
 	if world.GlobalTileManager == nil {
 		return ""
 	}
 	baseName := world.GlobalTileManager.GetSprite(tileType)
+	if data := world.GlobalTileManager.GetTileData(tileType); data != nil && len(data.SpriteVariants) > 0 {
+		return r.game.GetCurrentWorld().EnvironmentSprite(tileType, tileX, tileY)
+	}
+	if r.game.sprites == nil {
+		return baseName
+	}
 	variants := r.game.sprites.GetSpriteVariants(baseName)
 	if len(variants) == 0 {
 		return baseName
@@ -787,6 +809,7 @@ func (r *Renderer) applyTreeDepthShading(brightness, distance float64) float64 {
 
 // precomputeFloorColorCache precalculates the floor color for every tile in the world
 func (r *Renderer) precomputeFloorColorCache() {
+	r.game.world.RebuildInheritedFloors()
 	r.loadCurrentMapFloorTextures()
 
 	// Get map-specific default floor color
@@ -985,8 +1008,7 @@ func (r *Renderer) inheritedFloorTileData(tileX, tileY int, tileType world.TileT
 	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
 		return nil
 	}
-	t, ok := world.GlobalTileManager.DominantNeighbourFloorForTile(
-		tileType, r.game.world.Tiles, r.game.world.Width, r.game.world.Height, tileX, tileY, nil)
+	t, ok := r.game.world.InheritedFloorAt(tileX, tileY)
 	if !ok {
 		return nil
 	}
@@ -1412,6 +1434,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 // RaycastHit contains the result of a DDA raycast operation.
 // This follows the Digital Differential Analysis algorithm for efficient grid traversal.
 type RaycastHit struct {
+	TileX, TileY    int              // Authored cell identity, including the flat tree fallback.
 	Distance        float64          // Perpendicular distance to the wall (prevents fisheye effect)
 	TileType        world.TileType3D // Type of tile that was hit
 	WallSide        int              // 0 for north-south walls, 1 for east-west walls (used for shading)
@@ -1705,6 +1728,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 			}
 			// Transparent tiles: add as transparent hit but continue ray
 			hits = append(hits, RaycastHit{
+				TileX: currentTileX, TileY: currentTileY,
 				Distance:        perpendicularDistance * tileSize,
 				TileType:        tileType,
 				WallSide:        wallSide,
@@ -1716,6 +1740,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		} else {
 			// Solid tile: add hit and stop ray
 			hits = append(hits, RaycastHit{
+				TileX: currentTileX, TileY: currentTileY,
 				Distance:        perpendicularDistance * tileSize,
 				TileType:        tileType,
 				WallSide:        wallSide,
@@ -1733,9 +1758,10 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 
 // treeHitData stores tree hit information for sorted rendering
 type treeHitData struct {
-	screenX  int
-	distance float64
-	tileType world.TileType3D
+	tileX, tileY int
+	screenX      int
+	distance     float64
+	tileType     world.TileType3D
 }
 
 // renderRaycastResults processes and renders the results from parallel raycasting.
@@ -1799,6 +1825,7 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 					screenX:  screenX,
 					distance: hitInfo.Distance,
 					tileType: hitInfo.TileType,
+					tileX:    hitInfo.TileX, tileY: hitInfo.TileY,
 				})
 				continue
 			}
@@ -1827,6 +1854,7 @@ func (r *Renderer) renderRaycastHitStack(screen *ebiten.Image, screenX, width in
 				screenX:  screenX,
 				distance: hit.Distance,
 				tileType: hit.TileType,
+				tileX:    hit.TileX, tileY: hit.TileY,
 			})
 			continue
 		}
@@ -1850,7 +1878,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 		switch renderType {
 		case config.TileRenderCrossedStandee:
 			r.flushMipmappedWallBatch(screen)
-			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
+			r.drawTreeSprite(screen, screenX, hit.Distance, tileType, r.selectEnvironmentSpriteName(tileType, hit.TileX, hit.TileY))
 		case config.TileRenderCrossedProp:
 			// Always drawn as a cross by the sprite pass; the flat fallback would
 			// face the camera, which this class exists to prevent.
@@ -2030,7 +2058,7 @@ func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
 const flatTreeFallbackWidthTiles = 1.0
 
 // drawTreeSprite draws tree sprites in the 3D world.
-func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
+func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D, spriteName string) {
 	// Division guard only (collision keeps the camera farther out). A larger
 	// clamp freezes the projection for near rays and creases against the
 	// still-perspective far ones - same fix as walls.
@@ -2041,7 +2069,9 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	// Get the source before sizing: the flat fallback interprets a tree class as
 	// frame width, then derives height from the source aspect just like the
 	// crossed-standee path.
-	spriteName := treeStandeeSpriteName(tileType)
+	if spriteName == "" {
+		spriteName = treeStandeeSpriteName(tileType)
+	}
 	sprite := r.game.sprites.GetSprite(spriteName)
 	widthTiles := flatTreeFallbackWidthTiles
 	if world.GlobalTileManager != nil {
@@ -3466,6 +3496,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			screenX:    tree.screenX,
 			depthPerp:  tree.distance,
 			tileType:   tree.tileType,
+			tileX:      tree.tileX, tileY: tree.tileY,
+			spriteName: r.selectEnvironmentSpriteName(tree.tileType, tree.tileX, tree.tileY),
 		})
 	}
 	r.treeHits = r.treeHits[:0]
@@ -3750,7 +3782,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			if r.crossedTileDrawsAsStandee(renderType) {
 				r.drawCrossedTreeStandees(screen, s)
 			} else {
-				r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+				r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType, s.spriteName)
 			}
 		case SpriteTypeMonster:
 			r.drawUnifiedMonsterSprite(screen, s)

@@ -2105,7 +2105,8 @@ npcs:
     type: "loot_crate"
     description: "Splintered crates heaped into a leaning tower - something might have been left inside"
     sprite: "pile_of_old_boxes"
-    render_category: landmark
+    render_category: scenery
+    no_spin: true
     prompt_verb: search
     transparent: true
     size_class: small_prop

@@ -148,8 +148,10 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 	if !containsString(plan.wallSprites, "church_wall") {
 		t.Errorf("textured wall missing from wall plan: %v", plan.wallSprites)
 	}
-	if !containsString(plan.treeSprites, "forest_oak") {
-		t.Errorf("tree sprite missing from standee plan: %v", plan.treeSprites)
+	for _, cell := range [][2]int{{0, 0}, {1, 1}} {
+		if name := w.EnvironmentSprite(tree, cell[0], cell[1]); !containsString(plan.treeSprites, name) {
+			t.Errorf("selected tree sprite %q missing from standee plan: %v", name, plan.treeSprites)
+		}
 	}
 	if !containsEnvironmentResource(plan.environmentSprites, mushrooms, "mushroom_ring") {
 		t.Errorf("transparent environment sprite missing from plan: %+v", plan.environmentSprites)

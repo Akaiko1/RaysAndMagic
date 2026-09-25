@@ -368,7 +368,7 @@ func (g *MMGame) dropFlyWithoutOpenSky() {
 	g.flyActive = false
 	g.flyDuration = 0
 	if g.world != nil {
-		g.world.SetFlyActive(false)
+		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
 	g.AddCombatMessage("The close air presses down - Fly fades.")
 }

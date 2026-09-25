@@ -111,6 +111,7 @@ func (v *viewer) owRebuild() {
 	owPage.gridW, owPage.gridH = ow.Width, ow.Height
 	owPage.regions = append([]world.OpenWorldRegion(nil), wm.OpenWorldRegions...)
 
+	ow.RebuildInheritedFloors()
 	img := image.NewRGBA(image.Rect(0, 0, ow.Width, ow.Height))
 	voidColor := color.RGBA{12, 12, 18, 255}
 	for ty := 0; ty < ow.Height; ty++ {

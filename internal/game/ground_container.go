@@ -391,6 +391,9 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 		if distSq > maxDistSq {
 			continue
 		}
+		if !g.canReachWorldReward(c.X, c.Y) {
+			continue
+		}
 		if accept != nil && !accept(c, math.Sqrt(distSq)) {
 			continue
 		}
@@ -410,7 +413,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		return
 	}
 	c := g.groundContainers[index]
-	if c.hop.active(g.frameCount) {
+	if c.hop.active(g.frameCount) || !g.canReachWorldReward(c.X, c.Y) {
 		return
 	}
 	defaults := groundContainerDefaults[c.Kind]

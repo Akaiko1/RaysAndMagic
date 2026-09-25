@@ -589,6 +589,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 	merged.Width, merged.Height = totalW, totalH
 	merged.StartX, merged.StartY = -1, -1
 	merged.Tiles = make([][]TileType3D, totalH)
+	merged.entityFloors = make(map[[2]int]entityFloor)
 	regionGrid := make([][]int16, totalH)
 	for y := 0; y < totalH; y++ {
 		merged.Tiles[y] = make([]TileType3D, totalW)
@@ -609,6 +610,10 @@ func (wm *WorldManager) buildOpenWorld() error {
 				px, py := owXformTile(p.off.Orient, p.data.Width, p.data.Height, x, y)
 				merged.Tiles[p.off.Y+py][p.off.X+px] = p.data.Tiles[y][x]
 			}
+		}
+		for cell, floor := range p.data.entityFloors {
+			px, py := owXformTile(p.off.Orient, p.data.Width, p.data.Height, cell[0], cell[1])
+			merged.entityFloors[[2]int{p.off.X + px, p.off.Y + py}] = floor
 		}
 		for y := 0; y < ph; y++ {
 			for x := 0; x < pw; x++ {
@@ -743,12 +748,20 @@ func (wm *WorldManager) buildOpenWorld() error {
 // one map's freshly-loaded data. A listed key that is not present is a config
 // error (typo or stale entry), not a silent no-op.
 func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpawn, data *MapData, removal config.OpenWorldRemoval, mapKey string, defTile TileType3D) error {
+	clearedGround := false
 	for _, key := range removal.NPCs {
 		found := false
 		kept := (*npcSpawns)[:0]
 		for _, spawn := range *npcSpawns {
 			if spawn.NPCKey == key {
 				found = true
+				if data.ClearNPCGround(GlobalTileManager, spawn, defTile) {
+					if data.entityFloors == nil {
+						data.entityFloors = make(map[[2]int]entityFloor)
+					}
+					data.entityFloors[[2]int{spawn.X, spawn.Y}] = entityFloor{Tile: defTile, Fallback: defTile}
+					clearedGround = true
+				}
 				continue
 			}
 			kept = append(kept, spawn)
@@ -777,6 +790,11 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		if !found {
 			return fmt.Errorf("open world: removals for %q list special tile %q not present on the map", mapKey, key)
 		}
+	}
+	if clearedGround {
+		// Resolve all vacated stamps together so adjacent removed portals cannot
+		// donate their old ground to one another. Keep the walkable entity rule.
+		data.Floors = resolveEntityFloors(GlobalTileManager, data.Tiles, data.entityFloors)
 	}
 	return nil
 }

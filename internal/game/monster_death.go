@@ -4,9 +4,11 @@ import (
 	"math"
 	"math/rand"
 
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/world"
 )
 
 // monsterCorpse is presentation only. Dead actors leave AI, collision, combat
@@ -159,6 +161,58 @@ func (g *MMGame) monsterLootLanding(m *monster.Monster3D) (float64, float64) {
 	return m.X, m.Y
 }
 
+// A death sheet controls the hop, not whether loot may land inside a blocker.
+// Keep existing valid destinations (including water and Fly-accessible pits).
+// Otherwise search cardinally out of fly-over scenery, without crossing walls
+// or closed solid entities. This also handles clusters wider than one tile.
+func (g *MMGame) reachableMonsterLootLanding(x, y float64) (float64, float64) {
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return x, y
+	}
+	ts := g.config.GetTileSize()
+	terrain := rewardReachTerrain{World3D: w, passage: true}
+	var entities []*collision.Entity
+	if g.collisionSystem != nil {
+		entities = g.collisionSystem.GetAllEntities()
+	}
+	blockedByEntity := func(x, y float64) bool {
+		box := collision.NewBoundingBox(x, y, partyCollisionBoxSize, partyCollisionBoxSize)
+		for _, e := range entities {
+			if e.Solid && e.CollisionType != collision.CollisionTypePlayer && box.Intersects(e.BoundingBox) {
+				return true
+			}
+		}
+		return false
+	}
+	start := [2]int{TileIndex(x, ts), TileIndex(y, ts)}
+	if !terrain.IsTileBlocking(start[0], start[1]) && !blockedByEntity(x, y) {
+		return x, y
+	}
+	queue := [][2]int{start}
+	seen := map[[2]int]bool{start: true}
+	for head := 0; head < len(queue); head++ {
+		for _, offset := range [4][2]int{{1, 0}, {0, 1}, {-1, 0}, {0, -1}} {
+			cell := [2]int{queue[head][0] + offset[0], queue[head][1] + offset[1]}
+			if seen[cell] || w.IsTileBlockingForTerrainPassage(cell[0], cell[1]) {
+				continue
+			}
+			seen[cell] = true
+			wx, wy := TileCenterFromTile(cell[0], cell[1], ts)
+			if blockedByEntity(wx, wy) {
+				continue
+			}
+			if !terrain.IsTileBlocking(cell[0], cell[1]) {
+				return wx, wy
+			}
+			if tm := world.GlobalTileManager; tm != nil && tm.CanFlyOver(w.Tiles[cell[1]][cell[0]]) {
+				queue = append(queue, cell)
+			}
+		}
+	}
+	return x, y
+}
+
 // Both ordinary rewards and champion trophies use this path. The persistent
 // container is placed at its destination immediately, even during the hop.
 func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, gold int) {
@@ -183,6 +237,7 @@ func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, go
 			hop.started += int64(math.Ceil(settings.FallSeconds * float64(g.config.GetTPS())))
 		}
 	}
+	x, y = g.reachableMonsterLootLanding(x, y)
 	before := len(g.groundContainers)
 	g.addLootBagDrop(x, y, drops, gold)
 	if len(g.groundContainers) > before {

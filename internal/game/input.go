@@ -975,13 +975,14 @@ func (ih *InputHandler) handleCombatInput() {
 // whether dispatch passed the cooldown/capability gate, preserving Space's
 // same-press loot suppression semantics even when SmartAttack finds no action.
 func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool) bool {
-	// Off a corpse first, then onto a member who can actually do THIS action:
-	// holding F only visits casters, C only healers, R only the armed.
-	ih.game.ensureSelectedCanActRT()
+	// Capture the requested patient before actor selection can move off a KO.
 	healRecipient := -1
 	if kind == rtActHeal {
 		healRecipient = ih.healRecipient()
 	}
+	// Off a corpse first, then onto a member who can actually do THIS action:
+	// holding F only visits casters, C only healers, R only the armed.
+	ih.game.ensureSelectedCanActRT()
 	// (1) If the selected member can't do this action AT ALL, park on a capable
 	// one (preferring a ready one) - a single move so the waiting frame sits on a
 	// real actor, not a per-frame churn.
@@ -1128,9 +1129,6 @@ func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 	}
 }
 
-// castBestHealResolved performs the best-heal cast the C/H key triggers in both
-// modes: aim at the party member under the mouse, falling back to the selected
-// character. Reports whether it fired and the heal spell's ID for cooldown lookup.
 // healRecipient is the party member under the mouse, else the selected one.
 // Resolve it before an action chain hands the cast to another healer.
 func (ih *InputHandler) healRecipient() int {
@@ -1403,10 +1401,9 @@ func (ih *InputHandler) checkDeepWater() {
 		return
 	}
 
-	// Fly and Walk on Water keep the party ABOVE the surface - deep water is
-	// scenery to them, not a hazard. (A per-step warning here used to spam the
-	// log on every flight across a lake.)
-	if ih.game.flyActive || ih.game.walkOnWaterEffective() {
+	// Terrain passage and Walk on Water cross the surface without entering
+	// the underwater map. Check capabilities before water-breathing entry.
+	if ih.game.partyHasTerrainPassage() || ih.game.walkOnWaterEffective() {
 		return
 	}
 
