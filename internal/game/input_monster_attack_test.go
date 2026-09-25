@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 )
 
 func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePointer, *monster.Monster3D, func()) {
@@ -59,6 +61,26 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	return g, ih, fp, m, tick
 }
 
+// partySummonKinds lists every pure-summon source the party can own: card
+// allies, the druid's Animal Bonding bear and spell summons.
+func partySummonKinds(g *MMGame) []struct{ kind, owner string } {
+	return []struct{ kind, owner string }{
+		{"card summon", cardSummonOwnerPrefix + "test_card"},
+		{"druid summon", animalBondingOwner(g.party.Members[0])},
+		{"spell summon", summonSpellOwner("summon_ice_elemental")},
+	}
+}
+
+func markPartySummonKind(g *MMGame, m *monster.Monster3D, kind string) bool {
+	for _, s := range partySummonKinds(g) {
+		if s.kind == kind {
+			markPurePartySummon(m, s.owner)
+			return true
+		}
+	}
+	return false
+}
+
 func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		t.Run(map[bool]string{false: "RT", true: "TB"}[tb], func(t *testing.T) {
@@ -104,7 +126,7 @@ func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 
 func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, reason := range []string{"outside viewport", "dead", "removed", "friendly", "not drawn", "wall", "modal", "HUD", "mode", "drag", "stash picked up", "cooldown", "turn", "loading", "world"} {
+		for _, reason := range []string{"outside viewport", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "not drawn", "wall", "modal", "HUD", "mode", "drag", "stash picked up", "cooldown", "turn", "loading", "world"} {
 			t.Run(map[bool]string{false: "RT", true: "TB"}[tb]+"/"+reason, func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				fp.press()
@@ -117,8 +139,10 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 					m.HitPoints = 0
 				case "removed":
 					g.world.Monsters = nil
-				case "friendly":
-					m.Bound = true
+				case "charmed":
+					m.Pacified = true
+				case "card summon", "druid summon", "spell summon":
+					markPartySummonKind(g, m, reason)
 				case "not drawn":
 					g.gameLoop.renderer.beginMonsterPickFrame()
 				case "wall":
@@ -552,7 +576,7 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 }
 
 func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
-	for _, state := range []string{"visible", "leave", "dead", "removed", "friendly", "wall", "modal", "HUD", "drag", "world", "editor preview"} {
+	for _, state := range []string{"visible", "bound", "leave", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "wall", "modal", "HUD", "drag", "world", "editor preview"} {
 		t.Run(state, func(t *testing.T) {
 			g, _, fp, m, _ := mouseCombatHarness(t, false)
 			switch state {
@@ -562,8 +586,12 @@ func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
 				m.HitPoints = 0
 			case "removed":
 				g.world.Monsters = nil
-			case "friendly":
-				m.Bound = true
+			case "bound":
+				m.Bound = true // a former enemy stays an attack target
+			case "charmed":
+				m.Pacified = true
+			case "card summon", "druid summon", "spell summon":
+				markPartySummonKind(g, m, state)
 			case "wall":
 				g.depthBuffer = make([]float64, 640)
 				for i := range g.depthBuffer {
@@ -584,8 +612,282 @@ func TestMonsterHoverUsesPointerAttackGates(t *testing.T) {
 			r := g.gameLoop.renderer
 			r.hoveredMonster = m // A previous frame's selection must clear too.
 			r.selectMonsterHover()
-			if (r.hoveredMonster == m) != (state == "visible") {
+			if (r.hoveredMonster == m) != (state == "visible" || state == "bound") {
 				t.Fatal("hover disagrees with attack targeting")
+			}
+		})
+	}
+}
+
+// Case table: RT/TB x monster kind x how the pointer reaches it. Summons and
+// charmed monsters are never pointer targets; bound former enemies, passive
+// monsters and wildlife are. Hovering also skips the caravan, while a fresh
+// press on it is an explicit choice.
+func TestMouseSmartAttackHoverAcquisitionPolicy(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, kind := range []string{"hostile", "passive", "wildlife", "bound", "caravan", "charmed", "card summon", "druid summon", "spell summon"} {
+			for _, entry := range []string{"hover", "retarget", "press"} {
+				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, kind, entry), func(t *testing.T) {
+					g, ih, fp, first, tick := mouseCombatHarness(t, tb)
+					victim := *first
+					// Opposite the first actor, so a swing aimed at one never reaches the other.
+					ts := float64(g.config.GetTileSize())
+					victim.X, victim.Y = 9.5*ts, 10.5*ts
+					switch kind {
+					case "passive":
+						victim.PassiveUntilAttacked = true
+					case "wildlife":
+						victim.Disposition = monster.DispositionWildlife
+					case "bound":
+						victim.Bound = true // Bind Undead / dark-elf binding: a former enemy
+					case "caravan":
+						victim.Disposition = monster.DispositionCaravan
+					case "charmed":
+						victim.Pacified = true
+					}
+					summon := markPartySummonKind(g, &victim, kind)
+					if (kind == "passive") != victim.IsPassiveUntilProvoked() || (kind == "wildlife") != victim.IsWildlife() ||
+						(kind == "caravan") != victim.IsCaravan() || (kind == "charmed") != victim.Pacified ||
+						summon != isPurePartySummon(&victim) || (kind == "bound" || summon) != victim.Bound {
+						t.Fatal("bad fixture")
+					}
+					g.world.Monsters = append(g.world.Monsters, &victim)
+					r := g.gameLoop.renderer
+					victimHit := monsterPickHit{monster: &victim, left: 250, top: 150, size: 140, depth: 32}
+					switch entry {
+					case "hover":
+						r.monsterPick.hits = []monsterPickHit{victimHit}
+						fp.moveTo(50, 50)
+					case "press":
+						r.monsterPick.hits = []monsterPickHit{victimHit}
+					}
+					fp.press()
+					tick()
+					fp.hold()
+					switch entry {
+					case "hover":
+						fp.moveTo(320, 220)
+					case "retarget":
+						if ih.mouseAttackTarget != first {
+							t.Fatal("explicit press did not acquire the first target")
+						}
+						r.monsterPick.hits = append(r.monsterPick.hits, victimHit)
+					}
+					firstHP := first.HitPoints
+					for range rtHoldRepeatDelay + 120 {
+						tick()
+					}
+					acquirable := kind != "caravan" && kind != "charmed" && !summon
+					if entry == "press" {
+						acquirable = kind != "charmed" && !summon
+					}
+					var want *monster.Monster3D
+					switch {
+					case acquirable:
+						want = &victim
+					case entry == "retarget":
+						want = first
+					}
+					if ih.mouseAttackTarget != want {
+						t.Fatalf("held target = %v, want %v", ih.mouseAttackTarget, want)
+					}
+					if hit := victim.HitPoints < victim.MaxHitPoints; hit != acquirable {
+						t.Fatalf("victim damaged = %v, want %v", hit, acquirable)
+					}
+					if entry == "retarget" && !acquirable && first.HitPoints >= firstHP {
+						t.Fatal("excluded foreground actor interrupted the held enemy")
+					}
+				})
+			}
+		}
+	}
+}
+
+// Case table: RT/TB x action input x why the selected member cannot act. The
+// request chains to the next member who can; with nobody able, nothing fires
+// and the selection stays put.
+func TestPartyActionChainsPastSelectedMember(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, input := range []string{"space", "weapon key", "mouse"} {
+			for _, state := range []string{"spent", "dead parked", "nobody"} {
+				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, input, state), func(t *testing.T) {
+					g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+					spend := func(idx int) {
+						if tb {
+							g.party.Members[idx].ActionsRemaining = 0
+						} else {
+							g.party.Members[idx].RTCooldown = 5000
+						}
+					}
+					g.selectedChar = 0
+					switch state {
+					case "spent":
+						spend(0)
+					case "dead parked":
+						g.party.Members[0].HitPoints = 0
+						g.parkSelection = true
+					case "nobody":
+						for i := range g.party.Members {
+							spend(i)
+						}
+					}
+					acted := func(idx int) bool {
+						ch := g.party.Members[idx]
+						if tb {
+							return ch.ActionsRemaining < 10
+						}
+						return ch.RTCooldown > 0 && ch.RTCooldown != 5000
+					}
+					key := map[string]ebiten.Key{"space": ebiten.KeySpace, "weapon key": ebiten.KeyR}[input]
+					pressed := true
+					if input == "mouse" {
+						fp.press()
+					} else {
+						fp.moveTo(5, 5)
+						ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == key })
+					}
+					hp := m.HitPoints
+					tick()
+					pressed = false
+					if state == "nobody" {
+						if m.HitPoints != hp || g.selectedChar != 0 {
+							t.Fatalf("nobody could act, yet damaged=%v selected=%d", m.HitPoints != hp, g.selectedChar)
+						}
+						return
+					}
+					if m.HitPoints == hp || !acted(1) || (state == "spent" && tb && g.party.Members[0].ActionsRemaining != 0) {
+						t.Fatalf("request did not chain to member 1: damaged=%v acted1=%v selected=%d", m.HitPoints != hp, acted(1), g.selectedChar)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TB F and C chain by capability as well as by action slot: the selected
+// member without the spell or heal hands the request to one who has it.
+func TestEnsureTBActorUsesActionCapability(t *testing.T) {
+	g, _, _, _, _ := mouseCombatHarness(t, true)
+	caster := g.party.Members[2]
+	caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+	caster.SpellPoints = caster.MaxSpellPoints
+	if !g.actionCapable(2, rtActCast) || g.actionCapable(0, rtActCast) {
+		t.Fatal("bad caster fixture")
+	}
+	g.selectedChar, g.parkSelection = 0, true
+	if !g.ensureTBActor(rtActCast) || g.selectedChar != 2 || g.parkSelection {
+		t.Fatalf("cast request selected %d parked=%v, want the capable caster", g.selectedChar, g.parkSelection)
+	}
+	caster.ActionsRemaining = 0
+	g.selectedChar = 0
+	if g.ensureTBActor(rtActCast) || g.selectedChar != 0 {
+		t.Fatalf("cast request with no capable actor moved selection to %d", g.selectedChar)
+	}
+	if !g.ensureTBActor(rtActSmart) || g.selectedChar != 0 {
+		t.Fatalf("smart request left the able selected member: %d", g.selectedChar)
+	}
+}
+
+// Case table: RT/TB x billboard/standee x displayed pose after the press. The
+// actor stays in the render candidate list; ownership still requires some
+// column inside the viewport and in front of the walls.
+func TestMouseSmartAttackHeldTargetNeedsViewport(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, standee := range []bool{false, true} {
+			for _, pose := range []string{"above", "below", "side", "wall", "partly visible"} {
+				t.Run(fmt.Sprintf("TB=%v/standee=%v/%s", tb, standee, pose), func(t *testing.T) {
+					g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+					g.camera.Angle = 0
+					g.camera.FOV = squareProjectionFOV(640, 480)
+					g.config.Graphics.Standee.Enabled = standee
+					g.depthBuffer = make([]float64, 640)
+					for x := range g.depthBuffer {
+						g.depthBuffer[x] = math.Inf(1)
+					}
+					r := g.gameLoop.renderer
+					r.beginMonsterPickFrame()
+					s := UnifiedSpriteRenderData{monster: m, screenXF: 320, spriteSize: 140, sizeF: 140, bottomF: 290,
+						depthPerp: float64(g.config.GetTileSize()), monsterRenderX: m.X, monsterRenderY: m.Y, sprite: hudWhiteImg}
+					hit, ok := r.prepareMonsterPick(s)
+					if !ok || hit.standee != standee {
+						t.Fatal("bad pick fixture")
+					}
+					hit.sprite = nil // geometry only: every covered pixel is opaque
+					r.monsterPick.hits = []monsterPickHit{hit}
+					fp.moveTo(320, 220)
+					if g.monsterAtScreen(320, 220) != m {
+						t.Fatal("cursor misses the fixture")
+					}
+					fp.press()
+					tick()
+					fp.hold()
+					moved := hit
+					ts := float64(g.config.GetTileSize())
+					switch pose {
+					case "above":
+						moved.top, moved.bottom = -300, -144
+					case "below":
+						moved.top, moved.bottom = 500, 640
+					case "side":
+						moved.left, moved.p0y = 700, moved.p0y+20*ts
+					case "wall":
+						for x := range g.depthBuffer {
+							g.depthBuffer[x] = 1
+						}
+					case "partly visible":
+						moved.top, moved.bottom = -120, 20
+					}
+					if moved.standee {
+						// Slab columns scale by depth about the horizon: push the
+						// whole oblique plane out of frame, not just its centre.
+						switch pose {
+						case "above":
+							moved.bottom = -2000
+						case "below":
+							moved.bottom = 5000
+						}
+						moved.top = moved.bottom - moved.size
+					}
+					r.monsterPick.hits = []monsterPickHit{moved}
+					hp := m.HitPoints
+					for range rtHoldRepeatDelay + 120 {
+						tick()
+					}
+					keep := pose == "partly visible"
+					if (ih.mouseAttackTarget == m) != keep || (m.HitPoints < hp) != keep {
+						t.Fatalf("target kept=%v damaged=%v, want %v", ih.mouseAttackTarget == m, m.HitPoints < hp, keep)
+					}
+				})
+			}
+		}
+	}
+}
+
+// RT/TB: an injured member without a heal is selected and the cursor is off
+// the portraits. C hands the cast to the healer, who heals the selected member
+// rather than themselves.
+func TestHealHandoffKeepsSelectedRecipient(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
+			g, ih, fp, _, tick := mouseCombatHarness(t, tb)
+			fp.moveTo(5, 5)
+			g.showPartyStats = false
+			for _, ch := range g.party.Members {
+				ch.MagicSchools = nil
+			}
+			patient, healer := g.party.Members[0], g.party.Members[1]
+			patient.HitPoints = 1
+			healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
+				character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
+			}
+			healer.MaxSpellPoints, healer.SpellPoints = 50, 50
+			g.selectedChar = 0
+			pressed := true
+			ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
+			tick()
+			pressed = false
+			if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
+				t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
 			}
 		})
 	}

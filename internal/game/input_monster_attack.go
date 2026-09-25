@@ -33,7 +33,7 @@ func (ih *InputHandler) repeatMouseAttack() {
 	}
 	// Empty pixels keep the acquired actor through animation and movement.
 	// Retargeting still requires the same opaque-pixel pick as a fresh press.
-	if target := g.monsterAtScreen(x, y); target != nil {
+	if target := g.monsterAtScreen(x, y); target != nil && heldHoverAcquirable(target) {
 		ih.mouseAttackTarget = target
 	}
 	ih.mouseAttackHoldFrames++
@@ -42,16 +42,29 @@ func (ih *InputHandler) repeatMouseAttack() {
 	}
 }
 
+// pointerAttackable follows the ally categories: summons are never party
+// targets and Charm keeps a monster friendly, while bound former enemies (Bind
+// Undead, dark-elf binding), passive monsters and wildlife stay hittable.
+func pointerAttackable(m *monster.Monster3D) bool {
+	return m != nil && m.IsAlive() && !isPurePartySummon(m) && !m.Pacified
+}
+
+// heldHoverAcquirable is automatic selection and follows the party
+// auto-target policy. A fresh press on the caravan stays an explicit choice.
+func heldHoverAcquirable(m *monster.Monster3D) bool {
+	return pointerAttackable(m) && !isExcludedFromPartyAutoTarget(m)
+}
+
 func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) {
 	g := ih.game
-	if !target.IsAlive() || target.IsPartyControlled() || !g.worldClickAllowed() || g.combat == nil {
+	if !pointerAttackable(target) || !g.worldClickAllowed() || g.combat == nil {
 		return
 	}
 	if !g.combat.attackLineClear(g.camera.X, g.camera.Y, target.X, target.Y) {
 		return
 	}
 	if g.turnBasedMode {
-		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || !g.canSelectChar(g.selectedChar) || g.spellInputCooldown != 0 {
+		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.spellInputCooldown != 0 || !g.ensureTBActor(rtActSmart) {
 			return
 		}
 	} else if ih.isRunning() && !g.partyFireWhileRunning() {

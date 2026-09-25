@@ -813,9 +813,8 @@ func (cs *CombatSystem) trySpawnArrowRicochet(ar *Arrow, victim *monsterPkg.Mons
 	cs.spawnArrowContinuation(cont, weaponDef)
 }
 
-// nearestRicochetTarget picks the closest other living ENEMY monster within
-// seek range of the struck victim (bound allies and pure party summons are
-// never ricochet food).
+// nearestRicochetTarget picks the closest other living monster within seek
+// range of the struck victim that the party auto-target policy allows.
 func (cs *CombatSystem) nearestRicochetTarget(victim *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) *monsterPkg.Monster3D {
 	if victim == nil || weaponDef == nil || weaponDef.RicochetRangeTiles <= 0 || cs.game.world == nil {
 		return nil

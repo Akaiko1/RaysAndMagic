@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -1668,26 +1669,28 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 			dotX := compassX + int(dx*radarScale)
 			dotY := compassY + int(dy*radarScale)
 
-			// Select cached dot image based on distance for threat assessment
-			// Using squared distances to avoid sqrt
-			closeDistSq := (tileSize * 3) * (tileSize * 3)
-			mediumDistSq := (tileSize * 6) * (tileSize * 6)
-
-			var dotImg *ebiten.Image
-			if dist < closeDistSq {
-				dotImg = ui.radarDotClose // Red for close enemies
-			} else if dist < mediumDistSq {
-				dotImg = ui.radarDotMedium // Orange for medium distance
-			} else {
-				dotImg = ui.radarDotFar // Yellow for far enemies
-			}
-
 			// Draw cached dot image (much faster than vector.FillCircle)
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM.Translate(float64(dotX-3), float64(dotY-3))
-			screen.DrawImage(dotImg, opts)
+			screen.DrawImage(ui.radarDot(monster, dist, tileSize), opts)
 		}
 	}
+}
+
+// radarDot colors enemies by squared distance; allies and non-hostile ambient
+// actors get their own safe colors.
+func (ui *UISystem) radarDot(m *monster.Monster3D, distSq, tileSize float64) *ebiten.Image {
+	switch {
+	case m.IsPartyControlled():
+		return ui.radarDotAlly // summons, bound former enemies, charmed
+	case m.IsAmbient() && !m.TargetsParty():
+		return ui.radarDotNeutral // caravan, wildlife and fish until they attack
+	case distSq < (tileSize*3)*(tileSize*3):
+		return ui.radarDotClose
+	case distSq < (tileSize*6)*(tileSize*6):
+		return ui.radarDotMedium
+	}
+	return ui.radarDotFar
 }
 
 const hudMessageSpacing = 18

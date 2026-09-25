@@ -978,6 +978,10 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 	// Off a corpse first, then onto a member who can actually do THIS action:
 	// holding F only visits casters, C only healers, R only the armed.
 	ih.game.ensureSelectedCanActRT()
+	healRecipient := -1
+	if kind == rtActHeal {
+		healRecipient = ih.healRecipient()
+	}
 	// (1) If the selected member can't do this action AT ALL, park on a capable
 	// one (preferring a ready one) - a single move so the waiting frame sits on a
 	// real actor, not a per-frame churn.
@@ -1038,7 +1042,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 	case rtActCast:
 		ih.castSlottedSpell(sel)
 	case rtActHeal:
-		ih.castBestHeal(sel)
+		ih.castBestHeal(sel, healRecipient)
 	}
 	return true
 }
@@ -1127,19 +1131,20 @@ func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 // castBestHealResolved performs the best-heal cast the C/H key triggers in both
 // modes: aim at the party member under the mouse, falling back to the selected
 // character. Reports whether it fired and the heal spell's ID for cooldown lookup.
-func (ih *InputHandler) castBestHealResolved() (bool, spells.SpellID) {
+// healRecipient is the party member under the mouse, else the selected one.
+// Resolve it before an action chain hands the cast to another healer.
+func (ih *InputHandler) healRecipient() int {
 	mouseX, mouseY := ebiten.CursorPosition()
-	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-	if targetCharIndex < 0 {
-		targetCharIndex = ih.game.selectedChar
+	if idx := ih.getPartyMemberUnderMouse(mouseX, mouseY); idx >= 0 {
+		return idx
 	}
-	return ih.game.combat.CastBestHealOnTarget(targetCharIndex)
+	return ih.game.selectedChar
 }
 
-// castBestHeal casts the selected character's strongest known heal (C key),
-// aimed at the party member under the mouse (or self). No-op if they know none.
-func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
-	if cast, spellID := ih.castBestHealResolved(); cast {
+// castBestHeal casts the selected character's strongest known heal (C key) on
+// the recipient resolved when the key was pressed. No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel *character.MMCharacter, recipient int) {
+	if cast, spellID := ih.game.combat.CastBestHealOnTarget(recipient); cast {
 		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
@@ -2331,18 +2336,13 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// round (alive + conscious + has an action slot). Same key scheme as
 	// real-time (R/Space/F/C); turn-based gates on action slots (not frame
 	// cooldowns) and consumes a slot per action via consumeSelectedCharAction.
-	selected := ih.game.party.Members[ih.game.selectedChar]
-	canAct := ih.game.canSelectChar(ih.game.selectedChar)
-	if !canAct || ih.game.spellInputCooldown != 0 {
+	if ih.game.spellInputCooldown != 0 {
 		return
 	}
-
+	kind := rtActNone
 	switch {
 	case ih.keys.Consume(ebiten.KeyR): // melee/ranged weapon attack
-		if ih.game.combat.EquipmentMeleeAttack() {
-			ih.game.consumeSelectedCharWeaponAction()
-		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		kind = rtActWeapon
 	case ih.keys.Consume(ebiten.KeySpace): // smart attack
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
@@ -2352,14 +2352,44 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		}
-		ih.performTurnBasedSmartAttack()
+		kind = rtActSmart
 	case ih.keys.Consume(ebiten.KeyF): // cast slotted spell
+		kind = rtActCast
+	case ih.keys.Consume(ebiten.KeyC) || ih.keys.Consume(ebiten.KeyH): // cast best known heal (H = legacy alias)
+		kind = rtActHeal
+	}
+	if kind == rtActNone {
+		return
+	}
+	// Like the real-time chain, a member who cannot take this action hands it
+	// to the next one who can. F still says why the selected caster could not.
+	if kind == rtActCast && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActCast) {
+		ih.announceCastShortfall(ih.game.selectedChar)
+	}
+	healRecipient := -1
+	if kind == rtActHeal {
+		healRecipient = ih.healRecipient()
+	}
+	if !ih.game.ensureTBActor(kind) {
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		return
+	}
+	selected := ih.game.party.Members[ih.game.selectedChar]
+	switch kind {
+	case rtActWeapon:
+		if ih.game.combat.EquipmentMeleeAttack() {
+			ih.game.consumeSelectedCharWeaponAction()
+		}
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
+	case rtActSmart:
+		ih.performTurnBasedSmartAttack()
+	case rtActCast:
 		if fired, spellID := ih.castSlottedSpellResolved(selected); fired {
 			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
-	case ih.keys.Consume(ebiten.KeyC) || ih.keys.Consume(ebiten.KeyH): // cast best known heal (H = legacy alias)
-		if cast, spellID := ih.castBestHealResolved(); cast {
+	case rtActHeal:
+		if cast, spellID := ih.game.combat.CastBestHealOnTarget(healRecipient); cast {
 			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)

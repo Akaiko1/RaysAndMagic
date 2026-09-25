@@ -148,8 +148,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
 	for _, m := range cs.game.world.Monsters {
-		// This automatic movement proc hits nearby foes only. It must not damage
-		// pure summons, bound undead, or charmed monsters controlled by the party.
+		// This automatic movement proc follows the party auto-target policy.
 		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() || m.IsDamageInvulnerable() ||
 			math.Hypot(m.X-px, m.Y-py) > radius {
 			continue
@@ -347,11 +346,13 @@ func isPurePartySummon(m *monsterPkg.Monster3D) bool {
 		strings.HasPrefix(m.SummonedBy, spellSummonOwnerPrefix)
 }
 
-// isExcludedFromPartyAutoTarget is the stricter faction policy for automatic
-// effects such as movement bursts and ricochets. They may choose enemies only,
-// never a bound summon or a pacified monster whose Charm they would break.
+// isExcludedFromPartyAutoTarget is the faction policy for automatic target
+// selection: movement bursts, ricochets, trap flank placement and held-pointer
+// hover. Summons are never party targets, a charmed monster keeps its Charm and
+// the caravan is never picked automatically. Bound former enemies (Bind Undead,
+// dark-elf binding), passive monsters and wildlife remain valid targets.
 func isExcludedFromPartyAutoTarget(m *monsterPkg.Monster3D) bool {
-	return m == nil || m.IsPartyControlled() || m.IsCaravan()
+	return m == nil || isPurePartySummon(m) || m.Pacified || m.IsCaravan()
 }
 
 // crumbleBoundAlliesOnDeparture removes the party's bound allies from the world

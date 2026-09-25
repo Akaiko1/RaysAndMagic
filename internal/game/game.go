@@ -2388,6 +2388,26 @@ func (g *MMGame) firstEligiblePartyIndex() int {
 // advanceToNextEligibleChar moves selectedChar forward to the next party
 // member that can still act this round, wrapping from the end back to the
 // start. No-op if none are eligible.
+// ensureTBActor hands a turn-based action request to the next member who has
+// an action slot and can take it, mirroring the real-time chain. A manual
+// selection stays for UI inspection until an action is requested. Reports
+// whether anyone can act.
+func (g *MMGame) ensureTBActor(kind rtActionKind) bool {
+	ready := func(idx int) bool { return g.canSelectChar(idx) && g.actionCapable(idx, kind) }
+	if ready(g.selectedChar) {
+		return true
+	}
+	n := len(g.party.Members)
+	for off := 1; off < n; off++ {
+		if idx := (g.selectedChar + off) % n; ready(idx) {
+			g.selectedChar = idx
+			g.parkSelection = false
+			return true
+		}
+	}
+	return false
+}
+
 func (g *MMGame) advanceToNextEligibleChar() {
 	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)
@@ -2429,15 +2449,20 @@ const (
 )
 
 // rtActionCapable reports whether a party member CAN perform a real-time action
-// right now (ignoring cooldown): alive, plus has the weapon / slotted spell /
-// known heal AND enough SP for it. Smart-attack always falls back to a weapon
-// swing, so everyone is "capable" of it.
+// right now (ignoring cooldown). Real time also honors focus mode.
 func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
-	if !g.combatActorAllowed(idx) {
+	return g.combatActorAllowed(idx) && g.actionCapable(idx, kind)
+}
+
+// actionCapable is the mode-neutral capability for an action: alive, plus has
+// the weapon / slotted spell / known heal AND enough SP for it. Smart-attack
+// always falls back to a weapon swing, so everyone is "capable" of it.
+func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
+	if g == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
 		return false
 	}
 	m := g.party.Members[idx]
-	if !m.CanUseCombatAction() {
+	if m == nil || !m.CanUseCombatAction() {
 		return false
 	}
 	switch kind {

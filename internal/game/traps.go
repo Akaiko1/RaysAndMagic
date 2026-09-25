@@ -231,7 +231,8 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 
 // nearestPulledFlankMonster returns the closest monster currently pulled onto a
 // turn-based front DIAGONAL slot (drawn at screen-center), or nil. Uses the
-// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees.
+// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees, and
+// the party auto-target policy so a trap never lands under an ally.
 func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 	if cs.partyAimTarget != nil {
 		return nil // explicit aim must not acquire a different pulled flank
@@ -239,7 +240,7 @@ func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 	var best *monsterPkg.Monster3D
 	var bestD float64
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() {
 			continue
 		}
 		side, _, _, pulled, ok := cs.pulledFrontSlot(m)

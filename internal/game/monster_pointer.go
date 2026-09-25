@@ -94,23 +94,61 @@ func (g *MMGame) monsterPointerFrameAllowed(x, y int) bool {
 	return f.world == g.world && f.width == g.config.GetScreenWidth() && f.height == g.config.GetScreenHeight() && x >= 0 && y >= 0 && x < f.width && y < f.height
 }
 
-// heldMonsterVisible uses the last displayed actor list, which the renderer
-// already culls against view distance and walls. Sprite alpha, shake and yaw
-// affect acquisition, not continued ownership of a held attack.
+// heldMonsterVisible requires some displayed column of the target inside the
+// viewport and in front of the walls. Sprite alpha, shake and yaw affect
+// acquisition, not continued ownership of a held attack.
 func (g *MMGame) heldMonsterVisible(target *monster.Monster3D) bool {
-	if target == nil || !target.IsAlive() || target.IsPartyControlled() {
+	if !pointerAttackable(target) {
 		return false
 	}
+	f := &g.gameLoop.renderer.monsterPick
 	for _, live := range g.world.Monsters {
 		if live != target {
 			continue
 		}
-		for _, hit := range g.gameLoop.renderer.monsterPick.hits {
-			if hit.monster == target {
+		for _, hit := range f.hits {
+			if hit.monster == target && g.monsterPickHitVisible(f, hit) {
 				return true
 			}
 		}
 		break
+	}
+	return false
+}
+
+// column projects one screen column of a hit with the geometry the renderer
+// drew, so pointer picking and held-target visibility cannot disagree.
+func (f *monsterPickFrame) column(h monsterPickHit, x int) (depth, top, bottom, u float64, ok bool) {
+	if h.standee {
+		rx, ry := standeeRayAtScreenX(float64(x)+0.5, f.width, f.dirX, f.dirY, f.planeX, f.planeY)
+		t, columnU, hit := standeeColumnHit(f.camX, f.camY, rx, ry, h.p0x, h.p0y, h.dx, h.dy)
+		if !hit {
+			return 0, 0, 0, 0, false
+		}
+		horizon := float64(f.height) / 2
+		bottom = horizon + (h.bottom-horizon)*h.depth/t
+		return t, bottom - h.size*h.depth/t, bottom, columnU, true
+	}
+	if float64(x) < h.left || float64(x) >= h.left+h.size {
+		return 0, 0, 0, 0, false
+	}
+	return h.depth, h.top, h.top + h.size, (float64(x) + 0.5 - h.left) / h.size, true
+}
+
+func (g *MMGame) monsterPickHitVisible(f *monsterPickFrame, h monsterPickHit) bool {
+	x0, x1 := 0, f.width
+	if !h.standee {
+		x0, x1 = max(x0, int(math.Floor(h.left))), min(x1, int(math.Ceil(h.left+h.size)))
+	}
+	for x := x0; x < x1; x++ {
+		depth, top, bottom, _, ok := f.column(h, x)
+		if !ok || bottom <= 0 || top >= float64(f.height) {
+			continue
+		}
+		if x < len(g.depthBuffer) && standeeColumnOccluded(depth, g.depthBuffer[x], 0) {
+			continue
+		}
+		return true
 	}
 	return false
 }
@@ -124,23 +162,11 @@ func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
 	nearest := math.Inf(1)
 	for _, h := range f.hits {
 		m := h.monster
-		if m == nil || !m.IsAlive() || m.IsPartyControlled() {
+		if !pointerAttackable(m) {
 			continue
 		}
-		depth, top, bottom := h.depth, h.top, h.top+h.size
-		u := (float64(x) + 0.5 - h.left) / h.size
-		if h.standee {
-			rx, ry := standeeRayAtScreenX(float64(x)+0.5, f.width, f.dirX, f.dirY, f.planeX, f.planeY)
-			t, columnU, ok := standeeColumnHit(f.camX, f.camY, rx, ry, h.p0x, h.p0y, h.dx, h.dy)
-			if !ok {
-				continue
-			}
-			depth = t
-			u = columnU
-			horizon := float64(f.height) / 2
-			bottom = horizon + (h.bottom-horizon)*h.depth/t
-			top = bottom - h.size*h.depth/t
-		} else if float64(x) < h.left || float64(x) >= h.left+h.size {
+		depth, top, bottom, u, ok := f.column(h, x)
+		if !ok {
 			continue
 		}
 		if float64(y) < top || float64(y) >= bottom || depth >= nearest {

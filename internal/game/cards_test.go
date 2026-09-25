@@ -274,9 +274,9 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits foes only. It must not damage pure summons,
-// bound undead, or charmed monsters controlled by the party.
-func TestCardMoveBurst_SkipsPartyControlledMonsters(t *testing.T) {
+// The Gorilla move-burst follows the party auto-target policy: foes and bound
+// former enemies take the hit; summons, charmed monsters and the caravan do not.
+func TestCardMoveBurst_FollowsAutoTargetPolicy(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	if g.world == nil {
@@ -289,11 +289,20 @@ func TestCardMoveBurst_SkipsPartyControlledMonsters(t *testing.T) {
 		return m
 	}
 	foe := mk("foe", func(m *monster.Monster3D) {})
-	pure := mk("pure", func(m *monster.Monster3D) { markCardAlly(m) })
 	bound := mk("bound", func(m *monster.Monster3D) { m.Bound = true })
 	charmed := mk("charmed", func(m *monster.Monster3D) { m.Pacified = true })
+	caravan := mk("caravan", func(m *monster.Monster3D) { m.Disposition = monster.DispositionCaravan })
 	warded := mk("warded", func(m *monster.Monster3D) { m.BossWarded = true })
-	g.world.Monsters = []*monster.Monster3D{foe, pure, bound, charmed, warded}
+	g.world.Monsters = []*monster.Monster3D{foe, bound, charmed, caravan, warded}
+	var summons []*monster.Monster3D
+	for _, s := range partySummonKinds(g) {
+		m := mk(s.kind, func(m *monster.Monster3D) { markPurePartySummon(m, s.owner) })
+		if !isPurePartySummon(m) {
+			t.Fatalf("%s fixture is not a pure summon", s.kind)
+		}
+		summons = append(summons, m)
+		g.world.Monsters = append(g.world.Monsters, m)
+	}
 
 	if !cs.cardMoveBurstApply(50) {
 		t.Fatal("burst should report a hit on the foe")
@@ -301,15 +310,20 @@ func TestCardMoveBurst_SkipsPartyControlledMonsters(t *testing.T) {
 	if foe.HitPoints != 50 {
 		t.Errorf("foe should take 50 pure (hp=%d, want 50)", foe.HitPoints)
 	}
-	if pure.HitPoints != 100 || pure.WasAttacked {
-		t.Errorf("pure summon must be transparent to the burst (hp=%d attacked=%v)", pure.HitPoints, pure.WasAttacked)
+	if bound.HitPoints != 50 {
+		t.Errorf("bound former enemy should take the burst (hp=%d, want 50)", bound.HitPoints)
 	}
-	if bound.HitPoints != 100 || bound.WasAttacked {
-		t.Errorf("bound undead must be ignored by the burst (hp=%d attacked=%v)", bound.HitPoints, bound.WasAttacked)
+	for _, m := range summons {
+		if m.HitPoints != 100 || m.WasAttacked {
+			t.Errorf("%s must be transparent to the burst (hp=%d attacked=%v)", m.Name, m.HitPoints, m.WasAttacked)
+		}
 	}
 	if charmed.HitPoints != 100 || !charmed.Pacified || charmed.WasAttacked {
 		t.Errorf("burst must preserve Charm (hp=%d pacified=%v attacked=%v)",
 			charmed.HitPoints, charmed.Pacified, charmed.WasAttacked)
+	}
+	if caravan.HitPoints != 100 || caravan.WasAttacked {
+		t.Errorf("burst must not pick the caravan (hp=%d attacked=%v)", caravan.HitPoints, caravan.WasAttacked)
 	}
 	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.
 	if warded.HitPoints != 100 || warded.HitTintFrames != 0 {

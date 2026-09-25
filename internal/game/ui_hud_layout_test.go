@@ -5,8 +5,10 @@ import (
 	"math"
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 )
 
 func TestPartyPortraitLayoutSpansViewportAndStaysProportional(t *testing.T) {
@@ -597,5 +599,46 @@ func TestCooldownHistoryFollowsReadoutModeChange(t *testing.T) {
 	_, later, _ := ui.partyCooldownProgress(member, partySingleHandCooldown(member))
 	if later <= progress {
 		t.Fatalf("off-hand fill did not advance: %.2f then %.2f", progress, later)
+	}
+}
+
+// Wizard Eye keeps enemy threat colors by distance; allies show green and
+// non-hostile ambient actors blue instead of reading as nearby enemies.
+func TestWizardEyeRadarDotCategories(t *testing.T) {
+	g, _, _, _, _ := mouseCombatHarness(t, false)
+	ui := &UISystem{game: g}
+	ui.initRadarDots()
+	ts := float64(g.config.GetTileSize())
+	mk := func(mod func(*monster.Monster3D)) *monster.Monster3D {
+		m := monster.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+		mod(m)
+		return m
+	}
+	type row struct {
+		name  string
+		m     *monster.Monster3D
+		tiles float64
+		want  *ebiten.Image
+	}
+	hostile := mk(func(*monster.Monster3D) {})
+	rows := []row{
+		{"close enemy", hostile, 1, ui.radarDotClose},
+		{"medium enemy", hostile, 4, ui.radarDotMedium},
+		{"far enemy", hostile, 8, ui.radarDotFar},
+		{"passive enemy", mk(func(m *monster.Monster3D) { m.PassiveUntilAttacked = true }), 1, ui.radarDotClose},
+		{"bound", mk(func(m *monster.Monster3D) { m.Bound = true }), 1, ui.radarDotAlly},
+		{"charmed", mk(func(m *monster.Monster3D) { m.Pacified = true }), 1, ui.radarDotAlly},
+		{"caravan", mk(func(m *monster.Monster3D) { m.Disposition = monster.DispositionCaravan }), 1, ui.radarDotNeutral},
+		{"wildlife", mk(func(m *monster.Monster3D) { m.Disposition = monster.DispositionWildlife }), 1, ui.radarDotNeutral},
+		{"fish", mk(func(m *monster.Monster3D) { m.Disposition = monster.DispositionFish }), 1, ui.radarDotNeutral},
+	}
+	for _, s := range partySummonKinds(g) {
+		rows = append(rows, row{s.kind, mk(func(m *monster.Monster3D) { markPurePartySummon(m, s.owner) }), 1, ui.radarDotAlly})
+	}
+	for _, r := range rows {
+		distSq := (r.tiles * ts) * (r.tiles * ts)
+		if got := ui.radarDot(r.m, distSq, ts); got != r.want {
+			t.Errorf("%s: wrong radar dot", r.name)
+		}
 	}
 }

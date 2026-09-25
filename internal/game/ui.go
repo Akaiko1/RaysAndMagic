@@ -82,9 +82,11 @@ type UISystem struct {
 	cardEffectsPage       int
 	fullArtCardKey        string // card under the cursor this frame; SHIFT shows its full art
 	// Cached radar dot images for wizard eye (avoid vector.FillCircle every frame)
-	radarDotClose  *ebiten.Image // Red dot for close enemies
-	radarDotMedium *ebiten.Image // Orange dot for medium distance
-	radarDotFar    *ebiten.Image // Yellow dot for far enemies
+	radarDotClose   *ebiten.Image // Red dot for close enemies
+	radarDotMedium  *ebiten.Image // Orange dot for medium distance
+	radarDotFar     *ebiten.Image // Yellow dot for far enemies
+	radarDotAlly    *ebiten.Image // Green dot for party-controlled allies
+	radarDotNeutral *ebiten.Image // Blue dot for non-hostile ambient actors
 	// Radius-dependent static frame layers, independent of the minimap world.
 	compassFrameBackground *ebiten.Image
 	compassFrameOutline    *ebiten.Image
@@ -126,6 +128,10 @@ func (ui *UISystem) initRadarDots() {
 	// Create far enemy dot (yellow)
 	ui.radarDotFar = ebiten.NewImage(dotSize, dotSize)
 	drawCircleToImage(ui.radarDotFar, dotSize, color.RGBA{255, 255, 50, 255})
+	ui.radarDotAlly = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotAlly, dotSize, color.RGBA{80, 220, 110, 255})
+	ui.radarDotNeutral = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotNeutral, dotSize, color.RGBA{80, 160, 255, 255})
 }
 
 // drawCircleToImage draws a filled radar dot with a dark one-pixel rim.
