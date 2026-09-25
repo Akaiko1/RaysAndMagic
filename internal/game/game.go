@@ -2460,7 +2460,7 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 
 // actionCapable is the mode-neutral capability for an action: alive, plus has
 // the weapon / slotted spell / known heal AND enough SP for it. Smart-attack
-// always falls back to a weapon swing, so everyone is "capable" of it.
+// needs one of SmartAttack's branches; an unarmed member without one cannot.
 func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 	if g == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
 		return false
@@ -2497,7 +2497,10 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 		def, err := spells.GetSpellDefinitionByID(id)
 		return err == nil && m.SpellPoints >= g.combat.effectiveSpellCost(m, def.SpellPointsCost)
 	default: // rtActSmart
-		return true
+		if g.combat == nil {
+			return m.HasWeaponInEitherHand()
+		}
+		return g.combat.smartActionAvailable(m)
 	}
 }
 
@@ -2816,10 +2819,38 @@ func (g *MMGame) endPartyTurnAfterMovement() {
 	if g.partyActionsUsed > 0 {
 		g.turnBasedExtraMonsterAction = true
 	}
+	g.forfeitPartyTurn()
+}
+
+// forfeitPartyTurn spends every remaining action slot and hands the round to
+// the monsters.
+func (g *MMGame) forfeitPartyTurn() {
 	for _, m := range g.party.Members {
 		m.ActionsRemaining = 0
 	}
 	g.endPartyTurn()
+}
+
+// passTBAttackRequest ends the party turn when an attack request (click,
+// Space, R) finds no member with an action slot who can attack. Those slots
+// could still cast from the book before the request; the pass names them.
+func (g *MMGame) passTBAttackRequest() bool {
+	if !g.turnBasedMode || g.currentTurn != 0 || g.partyAllExhausted() {
+		return false
+	}
+	var idle []string
+	for i, m := range g.party.Members {
+		if !g.canSelectChar(i) {
+			continue
+		}
+		if g.actionCapable(i, rtActSmart) {
+			return false
+		}
+		idle = append(idle, m.Name)
+	}
+	g.AddCombatMessage(fmt.Sprintf("Nothing left to attack with (%s) - the party ends its turn.", strings.Join(idle, ", ")))
+	g.forfeitPartyTurn()
+	return true
 }
 
 // parkedOnSelected reports whether the player manually selected the current

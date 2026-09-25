@@ -2368,6 +2368,9 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		healRecipient = ih.healRecipient()
 	}
 	if !ih.game.ensureTBActor(kind) {
+		if kind == rtActSmart || kind == rtActWeapon {
+			ih.game.passTBAttackRequest()
+		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 		return
 	}

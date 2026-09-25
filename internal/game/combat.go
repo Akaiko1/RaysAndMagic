@@ -434,23 +434,13 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	// off hand; it cannot sneak in a spell or heal. TB uses action slots instead,
 	// so a preserved RT cooldown must not change its smart-action priority.
 	if cs.game.turnBasedMode || caster.RTCooldown <= 0 {
-		if healID, def, target, ok := cs.smartHealPlan(caster); ok {
-			if caster.SpellPoints >= cs.effectiveSpellCost(caster, def.SpellPointsCost) &&
-				cs.castKnownHealOn(healID, def, target) {
-				return true, healID
-			}
-			// Can't pay / can't land it -> fall through to attack.
+		// Can't pay / can't land it -> fall through to attack.
+		if healID, def, target, ok := cs.smartHealReady(caster); ok && cs.castKnownHealOn(healID, def, target) {
+			return true, healID
 		}
 
-		if caster.Class != character.ClassMonk {
-			if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
-				spellID := spells.SpellID(spell.SpellEffect)
-				def, err := spells.GetSpellDefinitionByID(spellID)
-				canPay := caster.SpellPoints >= cs.effectiveSpellCost(caster, spell.SpellCost)
-				if err == nil && def.IsOffensive() && canPay && cs.CastEquippedSpell() {
-					return true, spellID
-				}
-			}
+		if spellID, ok := cs.smartOffensiveSpell(caster); ok && cs.CastEquippedSpell() {
+			return true, spellID
 		}
 
 		// Trap book (thief): Space arms the slotted trap before falling back to
@@ -462,6 +452,51 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	}
 
 	return cs.EquipmentMeleeAttack(), ""
+}
+
+// smartActionAvailable reports whether SmartAttack has any branch for this
+// member, without acting. Target, range and trap room are left to the action.
+func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool {
+	if caster == nil || !caster.CanUseCombatAction() {
+		return false
+	}
+	if caster.HasWeaponInEitherHand() {
+		return true
+	}
+	if _, _, _, ok := cs.smartHealReady(caster); ok {
+		return true
+	}
+	if _, ok := cs.smartOffensiveSpell(caster); ok {
+		return true
+	}
+	return cs.quickTrapAvailable(caster)
+}
+
+// smartHealReady is smartHealPlan restricted to a heal the caster can pay for.
+func (cs *CombatSystem) smartHealReady(caster *character.MMCharacter) (spells.SpellID, spells.SpellDefinition, int, bool) {
+	id, def, target, ok := cs.smartHealPlan(caster)
+	if !ok || caster.SpellPoints < cs.effectiveSpellCost(caster, def.SpellPointsCost) {
+		return "", spells.SpellDefinition{}, -1, false
+	}
+	return id, def, target, true
+}
+
+// smartOffensiveSpell returns the slotted offensive spell Space may cast.
+// Monks fight with their weapon only.
+func (cs *CombatSystem) smartOffensiveSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
+	if caster.Class == character.ClassMonk {
+		return "", false
+	}
+	spell, ok := caster.Equipment[items.SlotSpell]
+	if !ok {
+		return "", false
+	}
+	spellID := spells.SpellID(spell.SpellEffect)
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil || !def.IsOffensive() || caster.SpellPoints < cs.effectiveSpellCost(caster, spell.SpellCost) {
+		return "", false
+	}
+	return spellID, true
 }
 
 // smartHealPlan decides which heal Space should cast and on whom: the

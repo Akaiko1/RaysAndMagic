@@ -140,6 +140,31 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 	return cs.placeTrapByKey(caster, trapKey, announce)
 }
 
+// quickTrapAvailable reports whether the slotted trap passes every gate except
+// the tile, which depends on where the party faces.
+func (cs *CombatSystem) quickTrapAvailable(caster *character.MMCharacter) bool {
+	trapKey, armed := equippedTrapKey(caster)
+	if !armed || !caster.CanUseCombatAction() || !hasTrapBook(caster) {
+		return false
+	}
+	def, ok := config.GetTrapDefinition(trapKey)
+	return ok && cs.trapRefusal(caster, def) == ""
+}
+
+// trapRefusal is the caster-side placement gate; "" means the trap may be armed.
+func (cs *CombatSystem) trapRefusal(caster *character.MMCharacter, def *config.TrapDefinitionConfig) string {
+	if caster.Level < def.Level {
+		return fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name)
+	}
+	if spCost := cs.effectiveSpellCost(caster, def.SPCost); caster.SpellPoints < spCost {
+		return fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)", caster.Name, def.Name, caster.SpellPoints, spCost)
+	}
+	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
+		return fmt.Sprintf("%s already has %d traps armed.", caster.Name, MaxTrapsPerOwner)
+	}
+	return ""
+}
+
 // placeTrapByKey arms a specific trap (Enter/F in the book uses the selected
 // entry, slotted or not). Gates and placement are shared with the quick slot.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
@@ -156,17 +181,10 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 		}
 		return "", false
 	}
-	if caster.Level < def.Level {
-		return refuse(fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name))
+	if msg := cs.trapRefusal(caster, def); msg != "" {
+		return refuse(msg)
 	}
 	spCost := cs.effectiveSpellCost(caster, def.SPCost)
-	if caster.SpellPoints < spCost {
-		return refuse(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
-			caster.Name, def.Name, caster.SpellPoints, spCost))
-	}
-	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
-		return refuse(fmt.Sprintf("%s already has %d traps armed.", caster.Name, MaxTrapsPerOwner))
-	}
 
 	tileX, tileY, ok := cs.pickTrapTile()
 	if !ok {

@@ -64,7 +64,13 @@ func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) {
 		return
 	}
 	if g.turnBasedMode {
-		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.spellInputCooldown != 0 || !g.ensureTBActor(rtActSmart) {
+		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.spellInputCooldown != 0 {
+			return
+		}
+		if !g.ensureTBActor(rtActSmart) {
+			if g.passTBAttackRequest() {
+				g.spellInputCooldown = ih.actionCooldown(15)
+			}
 			return
 		}
 	} else if ih.isRunning() && !g.partyFireWhileRunning() {
