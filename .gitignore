@@ -55,5 +55,8 @@ assets/app_icons/*.iconset/
 # Disposable derived CPU graphics; never bundle or commit.
 .render-cache/
 
+# Generated art previews and intermediate files.
+/output/
+
 /internal/shadercache/data/*.gz
 /internal/shadercache/data/*.tmp
