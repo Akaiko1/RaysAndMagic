@@ -22,6 +22,10 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 		return castNotHandled
 	}
 	g := cs.game
+	if g.partyRooted() {
+		g.AddCombatMessage("The party is rooted in place.")
+		return castNoEffect
+	}
 	ts := float64(g.config.GetTileSize())
 	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	landX := g.camera.X + dx*def.JumpTiles*ts

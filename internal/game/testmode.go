@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math/rand"
 
 	"ugataima/internal/character"
@@ -10,59 +9,6 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
-
-// Test-arena tunables. This mode fast-forwards the party to a mid-game state so
-// later content (highlands, pyramid, lich nexus) can be exercised without
-// replaying the early game. Values intentionally live here, not in YAML: this
-// is a developer fixture, not shipped game balance.
-//
-// The party LEVEL is NOT set here - it emerges from the experience actually
-// earned clearing the forest + church + shipwreck (mirroring the live award
-// rules), which lands the party around level 6. The stat points those level-ups
-// hand out (StatPointsPerLevel each) are then SPENT level-consistently: up to
-// the speed/endurance targets below, with everything left over going into the
-// class's primary damage stat. So the damage stat scales with the level reached
-// rather than being a fixed number.
-const (
-	testArenaSpeed     = 16
-	testArenaEndurance = 20
-)
-
-// ApplyTestArena mutates a freshly constructed game into a pre-progressed test
-// state: the forest and abandoned church cleared (loot, gold and experience
-// collected), the shipwreck-bandit encounter completed, and the party levelled
-// by that experience (~L6) with pumped stats and an UNSPENT skill choice.
-//
-// It is invoked from main.go only when the --test-arena flag is present, after
-// NewMMGame has fully wired the world, party and collision system.
-func (g *MMGame) ApplyTestArena() {
-	if g == nil || g.party == nil {
-		return
-	}
-	// Skip the entry/party-creation menus and drop straight into gameplay.
-	g.appScreen = AppScreenInGame
-	// Clear the two locations: per monster, roll its loot exactly as the live
-	// kill path does, and tally the per-member XP share and the gold it carries
-	// (same split the live kill path uses) as the monsters are removed.
-	perMemberXP, gold := 0, 0
-	for _, mapKey := range []string{"forest", "church"} {
-		xp, gp := g.clearMapAndTally(mapKey)
-		perMemberXP += xp
-		gold += gp
-	}
-	g.awardGold(gold)
-
-	g.completeTestEncounters()   // shipwreck quest (gold + XP) + church chest reward
-	g.grantSharedXP(perMemberXP) // forest + church kill XP -> natural level-ups
-	g.setupTestParty()           // pump stats / full heal on top of the earned level
-
-	level := 0
-	if len(g.party.Members) > 0 && g.party.Members[0] != nil {
-		level = g.party.Members[0].Level
-	}
-	g.AddCombatMessage(fmt.Sprintf("[TEST ARENA] Forest & church cleared, shipwreck done, party at L%d.", level))
-	fmt.Printf("[TEST ARENA] Party at level %d; +%d gold from mobs; loot + encounters collected.\n", level, gold)
-}
 
 // addMainDamageStat adds v to the attribute that scales a class's primary
 // damage source: Intellect for arcane casters, Personality for clerics (their
@@ -100,31 +46,6 @@ func raiseStat(stat *int, target, budget int) int {
 	return need
 }
 
-// setupTestParty spends each member's earned level-up stat points and full-
-// heals them. It runs AFTER experience has been awarded, so the level (and the
-// pending level-3 skill choice queued by the level-up path) are already in
-// place. The points are spent level-consistently: speed up to testArenaSpeed,
-// endurance up to testArenaEndurance, and whatever remains into the primary
-// damage stat - so a higher level yields a higher damage stat.
-func (g *MMGame) setupTestParty() {
-	for _, m := range g.party.Members {
-		if m == nil {
-			continue
-		}
-		pts := m.FreeStatPoints
-		pts -= raiseStat(&m.Speed, testArenaSpeed, pts)
-		pts -= raiseStat(&m.Endurance, testArenaEndurance, pts)
-		addMainDamageStat(m, pts) // remainder -> primary damage stat
-		m.FreeStatPoints = 0
-
-		learnAllSchoolSpells(m) // every spell of each school the member already has
-
-		m.CalculateDerivedStats(g.config)
-		m.HitPoints = m.MaxHitPoints
-		m.SpellPoints = m.MaxSpellPoints
-	}
-}
-
 // learnAllSchoolSpells fills in every available spell of each magic school the
 // member already knows - a test-arena convenience so casters can exercise their
 // full kit without buying/levelling into spells. Monster-only spells are already
@@ -142,22 +63,11 @@ func learnAllSchoolSpells(m *character.MMCharacter) {
 	}
 }
 
-// completeTestEncounters finishes the two forest-side encounters the way the
-// game would, reading every value from config so it can't drift:
-//   - shipwreck bandits: an NPC encounter quest (npcs.yaml) - registered and
-//     completed in the quest log, gold + experience granted.
-//   - abandoned church: its chest reward (map_configs.yaml). The skeletons
-//     themselves are cleared (and tallied for XP/gold) in clearMapAndTally.
-func (g *MMGame) completeTestEncounters() {
-	g.completeShipwreckEncounter()
-	g.completeChurchEncounter()
-}
-
-func (g *MMGame) completeShipwreckEncounter() {
+func (g *MMGame) completeTestNPCEncounter(key string) {
 	if character.NPCConfigInstance == nil {
 		return
 	}
-	data, ok := character.NPCConfigInstance.GetNPCData("shipwreck_bandit_camp")
+	data, ok := character.NPCConfigInstance.GetNPCData(key)
 	if !ok || data.Encounter == nil {
 		return
 	}
@@ -213,11 +123,11 @@ func rollCount(min, max int) int {
 	return min + rand.Intn(max-min+1)
 }
 
-func (g *MMGame) completeChurchEncounter() {
+func (g *MMGame) completeTestMapEncounter(key string) {
 	if world.GlobalWorldManager == nil {
 		return
 	}
-	mc, ok := world.GlobalWorldManager.MapConfigs["church"]
+	mc, ok := world.GlobalWorldManager.MapConfigs[key]
 	if !ok || mc.ClearEncounter == nil || mc.ClearEncounter.Rewards == nil {
 		return
 	}

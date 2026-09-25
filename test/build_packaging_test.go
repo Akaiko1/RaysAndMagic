@@ -44,7 +44,7 @@ func TestBuildRuntimePackaging(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for _, script := range []string{tc.script, "_build_lib.sh"} {
+			for _, script := range []string{tc.script, "_build_lib.sh", "scripts/test_scenario.command", "scripts/test_arena.command", "scripts/test_pilgrimage.command"} {
 				data, err := os.ReadFile(filepath.Join("..", script))
 				if err != nil {
 					t.Fatal(err)
@@ -99,6 +99,16 @@ exit 1
 					cmd.Env = append(os.Environ(), "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
 					if output, err := cmd.CombinedOutput(); err != nil {
 						t.Fatalf("build script failed: %v\n%s", err, output)
+					}
+					if tc.script == "build_bin.sh" {
+						for _, name := range []string{"test_scenario.command", "test_arena.command", "test_pilgrimage.command"} {
+							source, _ := os.ReadFile(filepath.Join(dir, "scripts", name))
+							copied, err := os.ReadFile(filepath.Join(dir, "bin", name))
+							info, statErr := os.Stat(filepath.Join(dir, "bin", name))
+							if err != nil || statErr != nil || string(source) != string(copied) || info.Mode()&0111 == 0 {
+								t.Fatalf("launcher %s was not installed executable: %v, %v", name, err, statErr)
+							}
+						}
 					}
 					log, err := os.ReadFile(filepath.Join(dir, "shader-build.log"))
 					wantRuns := 1

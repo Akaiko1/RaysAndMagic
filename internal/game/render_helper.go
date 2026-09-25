@@ -436,7 +436,7 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 				return value
 			}
 			aspectFromWidth := category == catLandmark && rh.game.config.Graphics.Standee.Enabled
-			return value * rh.visibleHeightFrameScale(npcSpriteName(npc), aspectFromWidth)
+			return value * rh.visibleHeightFrameScale(rh.game.activityNPCSprite(npc), aspectFromWidth)
 		}
 	}
 	return 1.0

@@ -20,6 +20,15 @@ import (
 )
 
 func main() {
+	scenario, err := game.TestScenarioArg(os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
+	if scenario != "" {
+		if err := storage.UseTestScenarioDirectory(scenario); err != nil {
+			log.Fatal(err)
+		}
+	}
 	shadercache.Initialize()
 
 	// Shared content configs (also loaded by the map editor).
@@ -112,9 +121,10 @@ func main() {
 	g.LoadPlayerProfile()
 	defer g.Shutdown()
 
-	// --test-arena: fast-forward the party to a mid-game state for testing.
-	if hasFlag("--test-arena") {
-		g.ApplyTestArena()
+	if scenario != "" {
+		if err := g.ApplyTestScenario("assets/test_scenarios.yaml", scenario); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if err := ebiten.RunGame(g); err != nil {
 		if errors.Is(err, game.ErrExit) {
@@ -134,14 +144,4 @@ func knownMusicBiomes(manager *world.WorldManager) []string {
 		biomes = append(biomes, biome)
 	}
 	return biomes
-}
-
-// hasFlag reports whether the given command-line flag was passed.
-func hasFlag(name string) bool {
-	for _, arg := range os.Args[1:] {
-		if arg == name {
-			return true
-		}
-	}
-	return false
 }

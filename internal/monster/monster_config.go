@@ -130,8 +130,15 @@ type MonsterDefinition struct {
 	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
 	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
 	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
-	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
-	Banding bool `yaml:"banding,omitempty"`
+	// scatter to a ring of nearby tiles. BandGroup opts into a named mixed
+	// party with shared aggro. See [[project_monster_banding]].
+	Banding             bool    `yaml:"banding,omitempty"`
+	BandGroup           string  `yaml:"band_group,omitempty"`
+	RootPartyChance     float64 `yaml:"root_party_chance,omitempty"`
+	RootPartySeconds    int     `yaml:"root_party_seconds,omitempty"`
+	RootPartyTurns      int     `yaml:"root_party_turns,omitempty"`
+	RearBlinkChance     float64 `yaml:"rear_blink_chance,omitempty"`
+	RearBlinkRangeTiles float64 `yaml:"rear_blink_range_tiles,omitempty"`
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
@@ -206,6 +213,19 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
+		if monster.BandGroup != "" && !monster.Banding {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' band_group requires banding", key))
+		}
+		if monster.RootPartyChance < 0 || monster.RootPartyChance > 1 ||
+			(monster.RootPartyChance > 0 && (monster.RootPartySeconds <= 0 || monster.RootPartyTurns <= 0)) ||
+			(monster.RootPartyChance == 0 && (monster.RootPartySeconds != 0 || monster.RootPartyTurns != 0)) {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' requires root_party_chance in (0,1] and positive root durations", key))
+		}
+		if monster.RearBlinkChance < 0 || monster.RearBlinkChance > 1 ||
+			(monster.RearBlinkChance > 0 && (monster.RearBlinkRangeTiles < 2 || monster.RearBlinkRangeTiles > monster.RangedAttackRange || (monster.ProjectileSpell == "" && monster.ProjectileWeapon == ""))) ||
+			(monster.RearBlinkChance == 0 && monster.RearBlinkRangeTiles != 0) {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' rear blink requires chance in (0,1], a ranged attack and distance within its range", key))
+		}
 		if monster.Letter != "" && (len(monster.Letter) != 1 || monster.Letter[0] < 'a' || monster.Letter[0] > 'z') {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has map letter %q - monster spawns must use one lowercase ASCII letter (a-z)", key, monster.Letter))
 		}
@@ -606,6 +626,9 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
 	m.Banding = def.Banding
+	m.BandGroup = def.BandGroup
+	m.RootPartyChance, m.RootPartySeconds, m.RootPartyTurns = def.RootPartyChance, def.RootPartySeconds, def.RootPartyTurns
+	m.RearBlinkChance, m.RearBlinkRangeTiles = def.RearBlinkChance, def.RearBlinkRangeTiles
 	if len(def.TintColor) == 3 {
 		m.TintR = float32(def.TintColor[0])
 		m.TintG = float32(def.TintColor[1])

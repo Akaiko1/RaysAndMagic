@@ -1,5 +1,7 @@
 package game
 
+import "ugataima/internal/quests"
+
 type layoutRect struct{ x, y, w, h int }
 
 func (r layoutRect) right() int  { return r.x + r.w }
@@ -259,6 +261,33 @@ func questCardCopyFor(description string, cardW, maxDescRows int) questCardCopy 
 	}
 	shown := truncateWrappedLines(full, maxDescRows, textW)
 	return questCardCopy{descLines: shown, fullLines: full, height: questCardHeight(len(shown))}
+}
+
+const questRewardIconSize = 36
+const questRewardIconStep = 42
+
+// Reserve the claim button independently of status, so reward icons stay in
+// place as a quest progresses from active to ready to claimed.
+func questRewardIconColumns(cardW int) int {
+	return max(1, (cardW/2-26-148)/questRewardIconStep)
+}
+
+func questCardCopyForQuest(q *quests.Quest, cardW, maxDescRows int) questCardCopy {
+	c := questCardCopyFor(q.Description(), cardW, maxDescRows)
+	n := len(q.Definition.Rewards.Items) + len(q.Definition.Rewards.ItemPool)
+	if n > 0 {
+		cols := questRewardIconColumns(cardW)
+		rows := (n + cols - 1) / cols
+		c.height += max(0, rows*questRewardIconStep-questCardBarH)
+	}
+	return c
+}
+
+func questRewardIconRect(r layoutRect, c questCardCopy, index int) layoutRect {
+	cols := questRewardIconColumns(r.w)
+	return layoutRect{r.x + r.w/2 + 10 + (index%cols)*questRewardIconStep,
+		r.y + questCardDescTop + len(c.descLines)*questCardLineHeight + questCardProgressGap + (index/cols)*questRewardIconStep,
+		questRewardIconSize, questRewardIconSize}
 }
 
 type questContentLayout struct {

@@ -670,6 +670,10 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
+	if !gl.game.turnBasedMode {
+		gl.game.tickPartyRoot(false)
+	}
+
 	// Tick down each party member's real-time action cooldown. Off in
 	// turn-based mode (which gates on action slots, not frame cooldowns).
 	if !gl.game.turnBasedMode {

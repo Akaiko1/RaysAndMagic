@@ -2257,3 +2257,58 @@ monsters:
     box_h: 24
     size_class: small
     biomes: [highlands]
+
+
+  bronze_gatekeeper:
+    banding: true
+    band_group: unbroken_trial
+    root_party_chance: 0.07
+    root_party_seconds: 2
+    root_party_turns: 1
+    name: Bronze Gatekeeper
+    level: 16
+    max_hit_points: 950
+    armor_class: 38
+    experience: 750
+    damage_min: 32
+    damage_max: 48
+    alert_radius: 5
+    attack_radius: 1
+    speed: 0.8
+    gold_min: 0
+    gold_max: 0
+    sprite: bronze_gatekeeper
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes:
+      - highlands
+    resistances: {}
+    attack_cooldown_multiplier: 1.8
+
+  gale_novice:
+    banding: true
+    band_group: unbroken_trial
+    rear_blink_chance: 0.07
+    rear_blink_range_tiles: 4
+    name: Gale Novice
+    level: 15
+    max_hit_points: 470
+    armor_class: 20
+    experience: 750
+    damage_min: 20
+    damage_max: 30
+    alert_radius: 5
+    attack_radius: 4
+    speed: 1.6
+    gold_min: 0
+    gold_max: 0
+    sprite: gale_novice
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes:
+      - highlands
+    resistances: {}
+    projectile_spell: lightning
+    ranged_attack_range: 4

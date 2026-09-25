@@ -1459,7 +1459,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 
 	// Draw NPCs on minimap
 	for _, npc := range ui.game.world.NPCs {
-		if ui.game.npcAbsent(npc) {
+		if !ui.game.npcMapMarkerVisible(npc) {
 			continue
 		}
 		npcTileX := TileIndex(npc.X, tileSize)

@@ -16,6 +16,18 @@ tooltip_usage_defaults:
 # exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
 # Bonuses use the same attribute vocabulary as items (bonus_*) plus set-only effects.
 item_sets:
+  unbroken_road:
+    name: Vestments of the Unbroken Road
+    pieces_required: 6
+    required_pieces:
+      - unbroken_headband
+      - unbroken_handwraps
+      - unbroken_sandals
+      - unbroken_sash
+      - unbroken_mantle
+      - unbroken_robe
+    bonus_armor_class: 35
+    bonus_personality: 8
   padded:
     name: "Pit Fighter's Quilt"
     pieces_required: 4
@@ -2285,3 +2297,95 @@ items:
     description: "A glimmering scale shed by a leaping fish."
     rarity: common
     value: 3
+
+
+  unbroken_headband:
+    name: Unbroken Headband
+    type: armor
+    armor_category: cloth
+    equip_slot: helmet
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 10
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_personality: 6
+    bonus_luck: 4
+
+  unbroken_handwraps:
+    name: Unbroken Handwraps
+    type: armor
+    armor_category: cloth
+    equip_slot: gauntlets
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_might: 12
+
+  unbroken_sandals:
+    name: Unbroken Sandals
+    type: armor
+    armor_category: cloth
+    equip_slot: boots
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_speed: 8
+
+  unbroken_sash:
+    name: Unbroken Sash
+    type: accessory
+    equip_slot: belt
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_endurance: 8
+
+  unbroken_mantle:
+    name: Unbroken Mantle
+    type: accessory
+    equip_slot: cloak
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_speed: 4
+    bonus_personality: 4
+
+  unbroken_robe:
+    name: Unbroken Robe
+    type: armor
+    equip_slot: armor
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 18
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    armor_category: cloth
+    bonus_might: 4
+    bonus_endurance: 4

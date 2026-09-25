@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
 
@@ -29,6 +30,9 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
+	journalRewardItems      map[string]items.Item
+	journalItemsCatalog     *config.ItemSystemConfig
+	journalWeaponsCatalog   *config.WeaponSystemConfig
 	patternPlans            patternPlanCache
 	profileViewport         *ebiten.Image
 	profileArt              *profileArt

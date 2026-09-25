@@ -90,12 +90,11 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	if !cs.monsterAttackStillValid(m, target, cadence) {
 		return false
 	}
-	// A normal RT contender claims a post only when its action is ready.
-	// Champions retain independent main/off-hand streams.
-	if cadence == monsterAttackRealtime && !(m.IsChampion() && !m.Bound && (target.foe != nil || cs.monsterUsesMeleeAgainstParty(m))) {
-		if m.AttackCDFrames != 0 || (target.foe == nil && m.StateTimer != 1) {
-			return false
-		}
+	// Champions own independently timed hands; ordinary attacks have one clock.
+	independentHands := m.IsChampion() && !m.Bound && (target.foe != nil || cs.monsterUsesMeleeAgainstParty(m))
+	actionReady := cadence != monsterAttackRealtime || (m.AttackCDFrames == 0 && (target.foe != nil || m.StateTimer == 1))
+	if !actionReady && !independentHands {
+		return false
 	}
 	if !cs.game.tryClaimMonsterAttackPost(m) {
 		return false
@@ -114,6 +113,9 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 			cs.game.observeOverwatchAttack(m)
 		}
 	}()
+	if target.foe == nil && actionReady {
+		cs.tryMonsterPartyAbilities(m, cadence)
+	}
 	m.State = monster.StateAttacking
 	if cadence == monsterAttackTurn {
 		for hit := 0; hit < m.GetTurnBasedAttackCount() && cs.monsterAttackStillValid(m, target, cadence); hit++ {
@@ -137,14 +139,11 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 		if m.IsChampion() && !m.Bound {
 			return cs.championRTCrossfireStrike(m, target.foe)
 		}
-		if m.AttackCDFrames != 0 {
-			return false
-		}
 	} else {
 		if m.IsChampion() && cs.monsterUsesMeleeAgainstParty(m) && cs.championRTDualStrike(m, m.StateTimer == 1) {
 			return true
 		}
-		if m.StateTimer != 1 || m.AttackCDFrames != 0 {
+		if !actionReady {
 			return false
 		}
 	}

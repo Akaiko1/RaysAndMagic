@@ -90,6 +90,7 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 // game must not trigger the underwater return teleport). The ONE reset for
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {
+	g.partyRoot = PartyRootState{}
 	g.statBuffs = nil
 	g.recomputeStatBonuses()
 	g.combatBuffs = nil

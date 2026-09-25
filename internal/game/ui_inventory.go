@@ -318,14 +318,11 @@ func (ui *UISystem) inventoryInputBlocked() bool {
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
-	switch item.Type {
-	case items.ItemWeapon:
-		return currentChar.CanEquipWeaponByName(item.Name)
-	case items.ItemArmor:
-		return currentChar.CanEquipArmor(item)
-	default:
+	if item.Type != items.ItemWeapon && item.Type != items.ItemArmor && item.Type != items.ItemAccessory {
 		return true
 	}
+	slot, ok := currentChar.EquipDestination(item)
+	return ok && currentChar.ItemFitsSlot(item, slot)
 }
 
 func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item, x, y, w, h int, pad int, enabled bool) {
@@ -882,30 +879,15 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 			if item.Type == items.ItemConsumable {
 				// Use consumable item
 				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
-			} else if item.Type == items.ItemWeapon {
-				if currentChar.CanEquipWeaponByName(item.Name) {
-					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-							currentChar.Name, item.Name))
-					}
-				} else {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot use %s!",
-						currentChar.Name, item.Name))
-				}
-			} else if item.Type == items.ItemArmor {
-				if currentChar.CanEquipArmor(item) {
-					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-							currentChar.Name, item.Name))
-					}
-				} else {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot wear %s!",
-						currentChar.Name, item.Name))
-				}
-			} else if item.Type == items.ItemAccessory {
+			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
 				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-						currentChar.Name, item.Name))
+					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!", currentChar.Name, item.Name))
+				} else {
+					verb := "use"
+					if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
+						verb = "wear"
+					}
+					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot %s %s!", currentChar.Name, verb, item.Name))
 				}
 			}
 			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;

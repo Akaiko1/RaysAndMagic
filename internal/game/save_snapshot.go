@@ -181,6 +181,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
+				BandInstance:            mon.BandInstance,
 				TurnBasedSightEngaged:   g.turnBasedMode && w == g.world && mon.IsEngagingPlayer && !mon.WasAttacked && !mon.LootGuardAlerted && mon.CurrentAIBehavior() == monster.AIBehaviorSeekParty,
 				LootGuarding:            mon.LootGuarding,
 				LootGuardTargetKey:      mon.LootGuardTargetKey,
@@ -337,6 +338,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if wm != nil {
 		appendNPCStates := func(mapKey string, npcs []*character.NPC, localize bool) {
 			for _, npc := range npcs {
+				if npc.QuestPropOwner != "" {
+					continue // derived from saved activity state, not NPC visited flags
+				}
 				key, x, y := mapKey, npc.X, npc.Y
 				if localize {
 					if k, lx, ly, ok := wm.LocalizeWorldPos(npc.X, npc.Y); ok {
@@ -370,6 +374,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		for _, quest := range g.questManager.GetAllQuests() {
 			questSaves = append(questSaves, QuestSave{
 				ID:               quest.ID,
+				Activity:         quest.Activity.Clone(),
 				Status:           string(quest.Status),
 				CurrentCount:     quest.CurrentCount,
 				DynamicTarget:    quest.DynamicTarget,
@@ -483,6 +488,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		NPCStates:                  nstates,
 		Quests:                     questSaves,
 		QuestSpawnsDone:            questSpawnsDone,
+		QuestPropLayouts:           cloneQuestPropLayouts(g.questPropLayouts),
 		BossFireTraps:              bossFireTrapSaves,
 		BossFireTrapsOwner:         g.bossFireTrapsOwner,
 		GroundContainers:           groundContainerSaves,
@@ -504,6 +510,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		StashTransferID:            g.pendingStashTransferID,
 		TurnBasedTurnSuspended:     g.turnBasedTurnSuspended,
 		CurrentTurn:                g.currentTurn,
+		PartyRoot:                  g.partyRoot,
 		PartyActionsUsed:           g.partyActionsUsed,
 		TurnBasedMoveCooldown:      g.turnBasedMoveCooldown,
 		TurnBasedRotCooldown:       g.turnBasedRotCooldown,

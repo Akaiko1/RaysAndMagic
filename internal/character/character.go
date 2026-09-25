@@ -1178,6 +1178,9 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 }
 
 func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
+	if !c.itemClassAllowed(item) {
+		return false
+	}
 	category := strings.ToLower(item.ArmorCategory)
 	if category == "" {
 		return false
@@ -1249,10 +1252,31 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	return c.EquipItemToSlot(item, slot)
 }
 
+func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
+	if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && len(def.AllowedClasses) > 0 {
+		allowed := false
+		for _, key := range def.AllowedClasses {
+			if key == c.Class.Key() {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ItemFitsSlot reports whether item can legally occupy slot for this character:
 // the type->slot mapping plus the class/armor gates. Single source of truth for
 // the model equip paths and the UI drag highlight / drop validation.
 func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	if !c.itemClassAllowed(item) {
+		return false
+	}
+
 	switch item.Type {
 	case items.ItemWeapon:
 		if !c.CanEquipWeaponByName(item.Name) {
@@ -1502,6 +1526,12 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 			fn(set)
 		}
 	}
+}
+
+// SetArmorClassBonus uses the same complete-set rule as attribute bonuses.
+func (c *MMCharacter) SetArmorClassBonus() (bonus int) {
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) { bonus += set.BonusArmorClass })
+	return
 }
 
 // HasCompletedEquipmentSet exposes the same completion rule used by combat bonuses.

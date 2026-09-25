@@ -193,11 +193,8 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			}
 			// The projectile carries one source-adjusted snapshot for delivery.
 			parts := damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-			// Champion spell riders (lightning/psychic-shock stun) resolve from
-			// the spell that actually flew - a weapon swing landing mid-flight
-			// may have re-stamped the mob's rider fields for a hand.
-			cs.stampChampionSpellRiders(mp.SourceMonster, mp.SpellType)
 			hit := monsterCharacterHit{
+				SpellID:            mp.SpellType,
 				Parts:              parts,
 				DamageType:         damageTypeStr,
 				IgnoresArmor:       mp.SourceMonster != nil && mp.SourceMonster.IgnoresArmor,

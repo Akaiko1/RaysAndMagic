@@ -36,9 +36,10 @@ const (
 
 // QuestRewards defines the rewards for completing a quest
 type QuestRewards struct {
-	Gold        int `yaml:"gold"`
-	ArenaPoints int `yaml:"arena_points,omitempty"`
-	Experience  int `yaml:"experience"`
+	Items       []string `yaml:"items,omitempty"`
+	Gold        int      `yaml:"gold"`
+	ArenaPoints int      `yaml:"arena_points,omitempty"`
+	Experience  int      `yaml:"experience"`
 	// ItemPool is a set of items.yaml keys; claiming rolls ONE of them at
 	// random. A repeatable errand pays a different draught each night without
 	// needing a full loot table.
@@ -75,10 +76,17 @@ type QuestSpawn struct {
 
 // QuestDefinition is the YAML configuration for a quest
 type QuestDefinition struct {
-	Name          string    `yaml:"name"`
-	Description   string    `yaml:"description"`
-	Type          QuestType `yaml:"type"`
-	TargetMonster string    `yaml:"target_monster"`
+	MinPartyLevel       int                 `yaml:"min_party_level,omitempty"`
+	NextQuest           string              `yaml:"next_quest,omitempty"`
+	OnAcceptSpawns      []QuestSpawn        `yaml:"on_accept_spawns,omitempty"`
+	Activity            *ActivityDefinition `yaml:"activity,omitempty"`
+	ActiveProps         []QuestProp         `yaml:"active_props,omitempty"`
+	ActivePropLayouts   []QuestPropLayout   `yaml:"active_prop_layouts,omitempty"`
+	MinPropSpacingTiles float64             `yaml:"min_prop_spacing_tiles,omitempty"`
+	Name                string              `yaml:"name"`
+	Description         string              `yaml:"description"`
+	Type                QuestType           `yaml:"type"`
+	TargetMonster       string              `yaml:"target_monster"`
 	// TargetMonsters extends TargetMonster to several normalized names when one
 	// quest hunts a mixed roster (the cliff nests hold green AND gold dragons).
 	TargetMonsters []string `yaml:"target_monsters,omitempty"`
@@ -151,6 +159,7 @@ func (d *QuestDefinition) MatchesTarget(tag string) bool {
 
 // Quest represents an active quest with progress tracking
 type Quest struct {
+	Activity     ActivityState
 	ID           string
 	Definition   *QuestDefinition
 	Status       QuestStatus
@@ -317,7 +326,10 @@ func validateQuestConfig(config *QuestConfig) error {
 			spawnIDs[spawn.ID] = true
 			def.OnCompleteSpawns[i] = spawn
 		}
-		if def.AutoClaim && (def.Rewards.Gold != 0 || def.Rewards.Experience != 0 || def.Rewards.ArenaPoints != 0) {
+		if err := validateActivity(id, def, config); err != nil {
+			return err
+		}
+		if def.AutoClaim && (len(def.Rewards.Items) > 0 || len(def.Rewards.ItemPool) > 0 || def.NextQuest != "" || def.Rewards.Gold != 0 || def.Rewards.Experience != 0 || def.Rewards.ArenaPoints != 0) {
 			return fmt.Errorf("quest %q: auto_claim is reserved for rewardless objective quests", id)
 		}
 		if !def.Victory {
@@ -394,6 +406,7 @@ func (qm *QuestManager) ActivateQuest(questID string) error {
 	}
 
 	qm.activeQuests[questID] = &Quest{
+		Activity:     newActivityState(def.Activity),
 		ID:           questID,
 		Definition:   def,
 		Status:       QuestStatusActive,
@@ -497,6 +510,9 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourc
 
 	for _, quest := range qm.activeQuests {
 		if quest.Status != QuestStatusActive || quest.Definition.Type != qType {
+			continue
+		}
+		if quest.Definition.Activity != nil {
 			continue
 		}
 		if onlyQuestID != "" && quest.ID != onlyQuestID {
@@ -639,6 +655,19 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 // is a content KEY ("elder_dragon") - player-facing text must never show
 // underscores.
 func (q *Quest) GetProgressString() string {
+	if a := q.Definition.Activity; a != nil && len(a.Forage) > 0 {
+		var parts []string
+		for _, group := range a.Forage {
+			count := 0
+			for _, token := range q.Activity.Collected {
+				if a.TokenPhase(token) == group.Phase {
+					count++
+				}
+			}
+			parts = append(parts, fmt.Sprintf("%d/%d %s", count, group.Count, group.Phase))
+		}
+		return strings.Join(parts, ", ") + " " + q.Definition.ProgressText
+	}
 	if text := q.Definition.ProgressText; text != "" {
 		return fmt.Sprintf("%d/%d %s", q.CurrentCount, q.Target(), text)
 	}

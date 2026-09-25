@@ -71,6 +71,13 @@ func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
 // so the two can never drift (tooltip parity contract).
 func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	var lines []string
+	if len(d.AllowedClasses) > 0 {
+		names := make([]string, len(d.AllowedClasses))
+		for i, key := range d.AllowedClasses {
+			names[i] = TitleWords(key)
+		}
+		lines = append(lines, "Classes: "+strings.Join(names, ", "))
+	}
 	hasTimedBuff := d.HasTimedBuff()
 	if d.ProjectileReflectPct > 0 {
 		lines = append(lines, uitext.Text("item.mirror_scales_chance_to_turn_a_projectile", d.ProjectileReflectPct))
@@ -297,7 +304,7 @@ func EquipmentSetLines(setKey string) []string {
 		label string
 		val   int
 	}{
-		{"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
+		{"Armor Class", set.BonusArmorClass}, {"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
 		{"Endurance", set.BonusEndurance}, {"Accuracy", set.BonusAccuracy}, {"Speed", set.BonusSpeed}, {"Luck", set.BonusLuck},
 	} {
 		if b.val != 0 {

@@ -274,12 +274,15 @@ func (nc *NPCConfig) EncounterByQuestID(id string) *NPCEncounter {
 // tag it credits and what the player reads. Content, so it lives in npcs.yaml
 // beside the prop's own greeting and choice text.
 type NPCPropCopy struct {
-	Tag       string `yaml:"tag"`                  // interact tag credited; must be the quest's target_monster
-	NotYet    string `yaml:"not_yet"`              // nothing asks for it yet
-	Took      string `yaml:"took"`                 // printed with the quest's counter
-	Completed string `yaml:"completed"`            // what changes in the world when the errand finishes
-	LootTable string `yaml:"loot_table,omitempty"` // optional loots.yaml table rolled into the party
-	LootLine  string `yaml:"loot_line,omitempty"`  // names what the loot came out of; required with LootTable
+	HideMapMarker bool   `yaml:"hide_map_marker,omitempty"`
+	Token         string `yaml:"token,omitempty"`
+	DormantSprite string `yaml:"dormant_sprite,omitempty"`
+	Tag           string `yaml:"tag"`                  // interact tag credited; must be the quest's target_monster
+	NotYet        string `yaml:"not_yet"`              // nothing asks for it yet
+	Took          string `yaml:"took"`                 // printed with the quest's counter
+	Completed     string `yaml:"completed"`            // what changes in the world when the errand finishes
+	LootTable     string `yaml:"loot_table,omitempty"` // optional loots.yaml table rolled into the party
+	LootLine      string `yaml:"loot_line,omitempty"`  // names what the loot came out of; required with LootTable
 }
 
 // NPCSpell is one row of a spell shop: what the SHOP knows about it. Identity

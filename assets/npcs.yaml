@@ -2573,3 +2573,251 @@ npcs:
         - text: "Report the seals empty"
           action: "turn_in_quest"
           quest_id: "dragon_slayer"
+
+
+  sister_mira:
+    name: Sister Mira
+    type: quest_giver
+    description: A young monk mending travelers' sandals
+    sprite: sister_mira
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: Mind the thread. This sandal belongs to a pilgrim who crossed half the desert with an empty flask. I am Mira, of the Unbroken Road. My teacher kept its wells running and brought jungle flowers to the sick. Since his death, the channels have fallen silent. I promised to finish his last pilgrimage. These travelers need my hands here; will you lend me yours along the road?
+      active_message: The bronze guardian is slow, but his companion has the wind at his back. They wait northeast of this meadow. Keep your feet, and choose your moment.
+      completed_message: The bronze has yielded, then. Sen used to say the gatekeeper was an excellent listener, once you knocked hard enough. Take the first parcels. There are empty bowls waiting in the desert.
+      visited_message: Six pieces, three lessons. Wear them well. If you start charging pilgrims for directions, I shall want my thread back.
+      quest_messages:
+        unbroken_desert:
+          active: "The wheels are scattered across the desert, far beyond the oasis. Follow the open paths north and south. Open the spring first, the travelers basin next, and the monastery last. Leave our cistern thirsty before you leave a traveler so."
+          completed: "You gave the first water to the road. The monastery can wait; it has had centuries of practice. Your next two seals are ready."
+        unbroken_jungle:
+          active: "Three Sunlotuses by day, two Moonbells by night. Search the whole west bank, from the northern clearings down to the landing tavern. The petals make a fever balm; take them gently. A closed bud is a promise, not an empty stalk."
+          completed: "Five flowers, gathered in their own hours. Enough for the balm Sen meant to make. Wells flowing, medicine gathered, and someone still willing to walk the road. I think he would have liked you. The last parcels are yours."
+      choices:
+        - text: Tell us about your teacher.
+          action: info
+          response: 'Brother Sen could split a roof tile with two fingers and never managed to mend his own boots. He said the road was our monastery: its thirsty were our guests, its sick our household. His last letter spoke of dry wells and fever at the jungle landing. Then his sandals came back without him. I would rather his work did not end there.'
+        - text: What must we do?
+          action: info
+          response: 'Begin in the meadow northeast of here. The Bronze Gatekeeper and Gale Novice guard our first seal; accepting the vow calls them to the old practice ground. Defeat both. Then find the desert wheels and send water to travelers before the monastery. Last, gather three Sunlotuses by day and two Moonbells by night along the jungle west bank. Only the first lesson asks you to fight.'
+        - text: What is inside the sealed parcels?
+          action: info
+          response: 'Six pieces of the Unbroken vestments, stitched for the road and warded against its blows. Sen entrusted them to the next pilgrim who finished his work. Each chapter releases two pieces; claim them in your journal to open the next chapter. You can also return to me. I should like to hear that water running again, even secondhand.'
+        - text: We will walk the road.
+          action: give_quest
+          quest_id: unbroken_mountain
+        - text: The guardians are defeated.
+          action: turn_in_quest
+          quest_id: unbroken_mountain
+        - text: The watercourses are restored.
+          action: turn_in_quest
+          quest_id: unbroken_desert
+          requires_quest: unbroken_mountain
+        - text: We gathered the five flowers.
+          action: turn_in_quest
+          quest_id: unbroken_jungle
+          requires_quest: unbroken_desert
+
+
+  pilgrim_sluice_spring:
+    name: Spring Sluice
+    type: encounter
+    sprite: pilgrim_sluice_spring
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: 'A sandstone wheel bears the sign of the spring. An inscription runs along its rim: First the spring, then the thirsty traveler, last the monastery.'
+      visited_message: Water threads the channels.
+      choices:
+        - text: Turn the spring wheel.
+          action: prop
+          quest_id: unbroken_desert
+          prop:
+            tag: pilgrim_sluice
+            token: spring
+            not_yet: The sluices wait for the desert chapter of Mira's pilgrimage.
+            took: Water stirs beneath the spring wheel.
+            completed: The travelers' basin fills before the monastery cistern. A stone compartment opens with two sealed parcels.
+        - text: Leave it.
+          action: leave
+
+  pilgrim_sluice_travelers:
+    name: Travelers Sluice
+    type: encounter
+    sprite: pilgrim_sluice_travelers
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: 'A carved pilgrim holds a bowl beneath this wheel. A narrow channel runs toward the road; the monastery cistern lies beyond it.'
+      visited_message: Water threads the channels.
+      choices:
+        - text: Turn the travelers wheel.
+          action: prop
+          quest_id: unbroken_desert
+          prop:
+            tag: pilgrim_sluice
+            token: travelers
+            not_yet: The sluices wait for the desert chapter of Mira's pilgrimage.
+            took: Water stirs beneath the travelers wheel.
+            completed: The travelers' basin fills before the monastery cistern. A stone compartment opens with two sealed parcels.
+        - text: Leave it.
+          action: leave
+
+  pilgrim_sluice_monastery:
+    name: Monastery Sluice
+    type: encounter
+    sprite: pilgrim_sluice_monastery
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: 'A chipped bell marks the last wheel. The monastery cistern is bone dry. Someone has scratched a smaller plea beneath the bell: The road first.'
+      visited_message: Water threads the channels.
+      choices:
+        - text: Turn the monastery wheel.
+          action: prop
+          quest_id: unbroken_desert
+          prop:
+            tag: pilgrim_sluice
+            token: monastery
+            not_yet: The sluices wait for the desert chapter of Mira's pilgrimage.
+            took: Water stirs beneath the monastery wheel.
+            completed: The travelers' basin fills before the monastery cistern. A stone compartment opens with two sealed parcels.
+        - text: Leave it.
+          action: leave
+
+  pilgrim_sun1:
+    name: Sunlotus
+    type: encounter
+    sprite: pilgrim_sunlotus
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: A sunlotus grows beside the old pilgrim trail. Its petals open only by day.
+      visited_message: Only the stem remains.
+      choices:
+        - text: Gather the flower.
+          action: prop
+          quest_id: unbroken_jungle
+          prop:
+            tag: pilgrim_flower
+            hide_map_marker: true
+            token: sun1
+            dormant_sprite: pilgrim_flower_bud
+            not_yet: The jungle chapter is not open.
+            took: You carefully gather a sunlotus.
+            completed: Five flowers, each in its proper hour. The last seals on Mira's parcels loosen.
+        - text: Leave it growing.
+          action: leave
+
+  pilgrim_sun2:
+    name: Sunlotus
+    type: encounter
+    sprite: pilgrim_sunlotus
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: A sunlotus grows beside the old pilgrim trail. Its petals open only by day.
+      visited_message: Only the stem remains.
+      choices:
+        - text: Gather the flower.
+          action: prop
+          quest_id: unbroken_jungle
+          prop:
+            tag: pilgrim_flower
+            hide_map_marker: true
+            token: sun2
+            dormant_sprite: pilgrim_flower_bud
+            not_yet: The jungle chapter is not open.
+            took: You carefully gather a sunlotus.
+            completed: Five flowers, each in its proper hour. The last seals on Mira's parcels loosen.
+        - text: Leave it growing.
+          action: leave
+
+  pilgrim_sun3:
+    name: Sunlotus
+    type: encounter
+    sprite: pilgrim_sunlotus
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: A sunlotus grows beside the old pilgrim trail. Its petals open only by day.
+      visited_message: Only the stem remains.
+      choices:
+        - text: Gather the flower.
+          action: prop
+          quest_id: unbroken_jungle
+          prop:
+            tag: pilgrim_flower
+            hide_map_marker: true
+            token: sun3
+            dormant_sprite: pilgrim_flower_bud
+            not_yet: The jungle chapter is not open.
+            took: You carefully gather a sunlotus.
+            completed: Five flowers, each in its proper hour. The last seals on Mira's parcels loosen.
+        - text: Leave it growing.
+          action: leave
+
+  pilgrim_moon1:
+    name: Moonbell
+    type: encounter
+    sprite: pilgrim_moonbell
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: A moonbell grows beside the old pilgrim trail. Its petals open only by night.
+      visited_message: Only the stem remains.
+      choices:
+        - text: Gather the flower.
+          action: prop
+          quest_id: unbroken_jungle
+          prop:
+            tag: pilgrim_flower
+            hide_map_marker: true
+            token: moon1
+            dormant_sprite: pilgrim_flower_bud
+            not_yet: The jungle chapter is not open.
+            took: You carefully gather a moonbell.
+            completed: Five flowers, each in its proper hour. The last seals on Mira's parcels loosen.
+        - text: Leave it growing.
+          action: leave
+
+  pilgrim_moon2:
+    name: Moonbell
+    type: encounter
+    sprite: pilgrim_moonbell
+    render_category: scenery
+    no_spin: true
+    transparent: true
+    size_class: small_prop
+    dialogue:
+      greeting: A moonbell grows beside the old pilgrim trail. Its petals open only by night.
+      visited_message: Only the stem remains.
+      choices:
+        - text: Gather the flower.
+          action: prop
+          quest_id: unbroken_jungle
+          prop:
+            tag: pilgrim_flower
+            hide_map_marker: true
+            token: moon2
+            dormant_sprite: pilgrim_flower_bud
+            not_yet: The jungle chapter is not open.
+            took: You carefully gather a moonbell.
+            completed: Five flowers, each in its proper hour. The last seals on Mira's parcels loosen.
+        - text: Leave it growing.
+          action: leave

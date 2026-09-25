@@ -29,7 +29,11 @@ func TestDesertNPCIdleContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{npcSpriteName(npc), "nomad_caravan_merchant", "desert_pilgrim"} {
+	mira, err := character.CreateNPCFromConfig("sister_mira", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{npcSpriteName(npc), "nomad_caravan_merchant", "desert_pilgrim", npcSpriteName(mira)} {
 		t.Run(name, func(t *testing.T) {
 			path, ok := graphics.ResolveSpritePath(name)
 			if !ok {
@@ -58,7 +62,7 @@ func TestDesertNPCIdleContent(t *testing.T) {
 					t.Fatalf("idle frame %d duplicates another pose", i)
 				}
 				seen[hash] = true
-				if name == npcSpriteName(npc) {
+				if name == npcSpriteName(npc) || name == npcSpriteName(mira) {
 					for foot := 0; foot < 2; foot++ {
 						x0, x1 := foot*h/2, (foot+1)*h/2
 						bottom := -1

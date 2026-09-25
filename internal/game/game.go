@@ -177,6 +177,7 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	partyRoot               PartyRootState
 	terrainChanges          []TerrainChange
 	editorPreview           *editorPreviewState
 	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
@@ -549,7 +550,8 @@ type MMGame struct {
 	questTileOriginals map[string]world.TileType3D
 	// questSpawnsDone: stable quest/spawn IDs that already fired this
 	// playthrough (persisted). Spawns are one-shot events, never re-applied.
-	questSpawnsDone map[string]bool
+	questSpawnsDone  map[string]bool
+	questPropLayouts map[string]string // per-run layout IDs, chosen before acceptance
 	// bossFireTraps: the Brood Mother's armed fire-trap field (persisted) and
 	// the collision ID of the boss that sowed it. See boss_fire_traps.go.
 	bossFireTraps      []bossFireTrap
@@ -922,6 +924,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
+	game.resetQuestPropLayouts(nil)
 	// Adopt the journal as it stands (the endgame gates start active) so boot
 	// itself raises no quest banners.
 	game.resyncQuestBannerBaseline()
@@ -1123,6 +1126,9 @@ func (g *MMGame) updateFocusedNPC() {
 // invisible).
 func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc == nil {
+		return true
+	}
+	if g.activityNPCAbsent(npc) {
 		return true
 	}
 	if npc.HideWhenVisited && npc.Visited {
@@ -2781,6 +2787,7 @@ func (g *MMGame) reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex 
 // RegenerateSpellPoints. Lives on MMGame so non-input callers (spellbook
 // double-click, future UI dialogs) can drive a turn end too.
 func (g *MMGame) endPartyTurn() {
+	g.tickPartyRoot(true)
 	g.turnBasedSpRegenCount++
 	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
 		g.turnBasedSpRegenCount = 0

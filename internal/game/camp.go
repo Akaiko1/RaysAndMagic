@@ -10,6 +10,7 @@ import (
 // restParty cures afflictions, fully restores every living member's HP/SP and wakes the
 // unconscious. The dead and eradicated stay down - revival is a separate rite.
 func (g *MMGame) restParty() {
+	g.partyRoot = PartyRootState{}
 	for i, m := range g.party.Members {
 		if m == nil || m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
 			continue

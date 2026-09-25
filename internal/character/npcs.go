@@ -5,6 +5,8 @@ import "ugataima/internal/items"
 type NPC struct {
 	FreeGoods bool
 
+	QuestPropOwner string // transient owner; reconstructed from quest YAML/state
+
 	X, Y          float64
 	Key           string // npcs.yaml key this NPC was created from
 	Name          string

@@ -135,6 +135,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	if !ready {
 		return
 	}
+	gl.game.updateAuthoredBandAggro()
 
 	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
 

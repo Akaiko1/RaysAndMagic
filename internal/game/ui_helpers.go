@@ -830,7 +830,7 @@ func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x,
 	if !clipped || len(fullLines) == 0 || w <= 0 || h <= 0 {
 		return
 	}
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := pointerPosition()
 	if !isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 		return
 	}

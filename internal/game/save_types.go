@@ -5,11 +5,13 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 )
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
+	PartyRoot      PartyRootState  `json:"party_root,omitempty"`
 	TerrainChanges []TerrainChange `json:"terrain_changes,omitempty"`
 	Ecology        EcologyState    `json:"ecology,omitempty"`
 
@@ -26,6 +28,7 @@ type GameSave struct {
 	NPCStates          []NPCSave                `json:"npc_states"`
 	Quests             []QuestSave              `json:"quests,omitempty"`
 	QuestSpawnsDone    []string                 `json:"quest_spawns_done,omitempty"`
+	QuestPropLayouts   map[string]string        `json:"quest_prop_layouts,omitempty"`
 	BossFireTraps      []bossFireTrap           `json:"boss_fire_traps,omitempty"`
 	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`
 	GroundContainers   []GroundContainerSave    `json:"ground_containers,omitempty"`
@@ -104,13 +107,14 @@ type GameSave struct {
 
 // QuestSave captures quest progress for save/load
 type QuestSave struct {
-	ID               string  `json:"id"`
-	Status           string  `json:"status"`
-	CurrentCount     int     `json:"current_count"`
-	DynamicTarget    int     `json:"dynamic_target,omitempty"`
-	DynamicTargetSet bool    `json:"dynamic_target_set,omitempty"`
-	RewardsClaimed   bool    `json:"rewards_claimed"`
-	ClaimedAtDay     float64 `json:"claimed_at_day,omitempty"`
+	Activity         quests.ActivityState `json:"activity,omitempty"`
+	ID               string               `json:"id"`
+	Status           string               `json:"status"`
+	CurrentCount     int                  `json:"current_count"`
+	DynamicTarget    int                  `json:"dynamic_target,omitempty"`
+	DynamicTargetSet bool                 `json:"dynamic_target_set,omitempty"`
+	RewardsClaimed   bool                 `json:"rewards_claimed"`
+	ClaimedAtDay     float64              `json:"claimed_at_day,omitempty"`
 }
 
 type PartySave struct {
@@ -250,6 +254,7 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	BandInstance      string                `json:"band_instance,omitempty"`
 	AmbientThreat     monster.AmbientThreat `json:"ambient_threat,omitzero"`
 	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
 	Population        string                `json:"population,omitempty"`

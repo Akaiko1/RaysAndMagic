@@ -43,6 +43,9 @@ func (gl *GameLoop) prepareMonsterFrame() {
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshMonsterAIState()
+	if !gl.game.turnBasedMode {
+		gl.game.updateAuthoredBandAggro()
+	}
 	// Reconcile restored or redirected combat attack posts before the next RT
 	// snapshot/TB action can use them.
 	gl.reconcileMonsterAttackPosts()

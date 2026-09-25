@@ -1901,6 +1901,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 }
 
 type monsterCharacterHit struct {
+	SpellID            string
 	ElementalAttack    bool
 	Parts              damagecalc.Parts
 	DamageType         string
@@ -2020,7 +2021,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
 		cs.tryApplyMonsterIgnite(monster, target)
-		cs.tryApplyMonsterStun(monster, target)
+		cs.tryApplyMonsterStun(monster, target, hit.SpellID)
 		cs.tryApplyMonsterDispel(monster, target)
 		cs.reflectMonsterDamage(monster, target, finalDamage, hit.Melee)
 	}
@@ -2309,11 +2310,16 @@ func (cs *CombatSystem) scaledStatusFrames(target *character.MMCharacter, frames
 
 // tryApplyMonsterStun rolls the attacker's StunCharChance and stuns the struck
 // character (skips its actions: RT seconds / TB turns).
-func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
-	if monster.StunCharChance <= 0 || rand.Float64() >= monster.StunCharChance {
+func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter, spellID string) {
+	chance, seconds, turns := monster.StunCharChance, monster.StunCharSeconds, monster.StunCharTurns
+	if spellID != "" {
+		rider := monster.ProjectileStun(spellID)
+		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
+	}
+	if chance <= 0 || rand.Float64() >= chance {
 		return
 	}
-	cs.applyScaledCharStun(target, cs.game.config.GetTPS()*monster.StunCharSeconds, monster.StunCharTurns)
+	cs.applyScaledCharStun(target, cs.game.config.GetTPS()*seconds, turns)
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s is stunned!", target.Name), combatMessageYellow)
 }
 

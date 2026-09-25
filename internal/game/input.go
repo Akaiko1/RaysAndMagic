@@ -391,6 +391,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		quests.GlobalQuestManager.Reset()
 	}
 	g.questManager = quests.GlobalQuestManager
+	g.resetQuestPropLayouts(nil)
 	// Fresh run: completion spawns may fire again (wm.Reset reloads maps
 	// pristine, so the old run's spawned bosses are gone with them).
 	g.questSpawnsDone = nil
@@ -412,6 +413,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		g.world = wm.GetCurrentWorld()
 	}
 	g.registerVisitedTownPortalDestination() // the fresh run's start map may be a Town Portal destination
+	g.syncQuestProps()
 	// Anchor starting exterminate quests to the fresh rosters (they never pass
 	// through handleGiveQuest, the only other DynamicTarget assigner).
 	g.reconcileKillQuests()
@@ -1213,6 +1215,9 @@ func (ih *InputHandler) handleUIInput() {
 // clear, so grazing a corner/obstacle no longer stops the party dead. Only one
 // axis slides (sliding both would just recreate the blocked diagonal and clip).
 func (ih *InputHandler) movePlayer(dx, dy float64) {
+	if ih.game.partyRooted() {
+		return
+	}
 	cam := ih.game.camera
 	oldX, oldY := cam.X, cam.Y
 	cs := ih.game.collisionSystem
@@ -2452,6 +2457,9 @@ func (ih *InputHandler) getDirectionFromAngle(angle float64) (int, int) {
 
 // moveTurnBasedInDirection handles grid-based movement with tile center snapping
 func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
+	if ih.game.partyRooted() {
+		return false
+	}
 	tileSize := float64(ih.game.config.GetTileSize())
 
 	// Get current tile coordinates
@@ -2782,20 +2790,17 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
 			return
 		}
-		if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
+		if err := g.activateQuest(questID); err != nil {
 			g.AddCombatMessage(uitext.Text("dialog.the_trial_is_already_underway_return_when"))
 			return
 		}
 		g.AddCombatMessage(uitext.Text("dialog.trial_accepted_slay_the_lich_king_then"))
-		if g.creditQuestIfCleared(questID) {
-			g.applyCompletedQuestTiles()
-		}
 		return
 	}
 
 	// Generic quest activation.
-	if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-		g.AddCombatMessage(uitext.Text("dialog.you_are_already_on_that_quest"))
+	if err := g.activateQuest(questID); err != nil {
+		g.AddCombatMessage(err.Error())
 		return
 	}
 	name := questID
@@ -2804,12 +2809,6 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	}
 	g.AddCombatMessage(uitext.Text("dialog.quest_accepted", name))
 
-	// Targets already wiped out before the quest was taken? Credit it on the
-	// spot (and apply any world changes) instead of showing 0/N until the next
-	// chat - the journal should never say "0/21" on a finished job.
-	if g.creditQuestIfCleared(questID) {
-		g.applyCompletedQuestTiles()
-	}
 }
 
 // handleTurnInQuest turns a completed quest in at the NPC. The Archmage's Trial
@@ -2869,6 +2868,9 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 	npc := g.dialogNPC
 	g.closeConversation()
 	if g.questManager == nil || npc == nil || words == nil {
+		return
+	}
+	if words.Token != "" && g.handleQuestActivity(npc, questID, words) {
 		return
 	}
 	// A used prop is CONCLUDED, so its action is normally hidden - but a prop

@@ -3617,7 +3617,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 						screenY = int(bf) - spriteSize
 					}
 				}
-				sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
+				sprite := r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
 				ts := float64(r.game.config.GetTileSize())
 				dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 				for i, c := range r.game.buildingFootprintTiles(npc) {
@@ -3664,7 +3664,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		screenX, spriteSize := int(screenXf), int(sizeF)
 		screenY := int(bottomF) - spriteSize
 
-		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
+		sprite := r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeNPC,
@@ -4347,7 +4347,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	sprite, frameW, frameH := r.selectNPCIdleSpriteFrame(s.sprite, r.game.frameCount)
 	// One source of truth for how this NPC renders (shared with the map editor).
 	cat := npcRenderCatOf(s.npc)
-	npcName := npcSpriteName(s.npc)
+	npcName := r.game.activityNPCSprite(s.npc)
 	npcKeyName := r.prefixedStandeeKeyName("npc", npcName)
 	visibleInRayDepth := r.spriteDepthBufferVisible(s)
 	if cat == catNPC && visibleInRayDepth {

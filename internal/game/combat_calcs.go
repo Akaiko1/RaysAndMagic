@@ -264,7 +264,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 	if cs == nil || cs.game == nil || char == nil {
 		return 0
 	}
-	total := 0
+	total := char.SetArmorClassBonus()
 	effEnd := char.GetEffectiveEndurance() // one equipment scan for all slots
 	armorSlots := []items.EquipSlot{
 		items.SlotArmor,

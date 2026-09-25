@@ -144,10 +144,9 @@ func npcIsPerson(npc *character.NPC) bool {
 	return npcRenderCatOf(npc) == catNPC
 }
 
-// npcSpriteName resolves the sprite an NPC currently shows: the authored
-// visited_sprite once Visited (an emptied barrel closes -> opens), else the
-// base sprite. Drives both the draw lookup and the standee cache keys, so a
-// swap can never serve a stale cached silhouette.
+// npcSpriteName resolves the base or visited sprite, with the default fallback.
+// activityNPCSprite applies activity overrides to this result and supplies the
+// displayed sprite for drawing, sizing and standee cache keys.
 func npcSpriteName(npc *character.NPC) string {
 	name := npc.Sprite
 	if npc.Visited && npc.VisitedSprite != "" {

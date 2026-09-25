@@ -1654,7 +1654,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	// NPCs overlay
 	npcColor := color.RGBA{255, 220, 0, 255}
 	for _, npc := range ui.game.world.NPCs {
-		if ui.game.npcAbsent(npc) {
+		if !ui.game.npcMapMarkerVisible(npc) {
 			continue
 		}
 		nx := int(npc.X / float64(ui.game.config.GetTileSize()))
@@ -1799,7 +1799,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 	// page shows as many quests as actually fit, not a fixed count.
 	copies := make([]questCardCopy, len(allQuests))
 	for i, quest := range allQuests {
-		copies[i] = questCardCopyFor(quest.Description(), layout.cardW, layout.maxDescRows)
+		copies[i] = questCardCopyForQuest(quest, layout.cardW, layout.maxDescRows)
 	}
 	layout = computeQuestContentLayout(content, copies, ui.questPage)
 	// Clamp every frame so the page stays valid when quests are added/removed.
@@ -1866,8 +1866,23 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if g.questManager == nil {
 		return false
 	}
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
+			g.AddCombatMessage("Cannot start next chapter: " + err.Error())
+			return false
+		}
+	}
 	var poolItem *items.Item
+	var guaranteed []items.Item
 	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		for _, key := range quest.Definition.Rewards.Items {
+			item, err := items.TryCreateItemFromYAML(key)
+			if err != nil {
+				g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err))
+				return false
+			}
+			guaranteed = append(guaranteed, item)
+		}
 		item, ok, err := rollQuestPoolItem(quest.Definition.Rewards.ItemPool)
 		if err != nil {
 			g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
@@ -1882,6 +1897,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
 		return false
 	}
+	g.syncQuestProps()
 	g.recordProfileQuestResolution(g.questManager.GetQuest(questID))
 	g.unlockCaravan()
 	if rewards.Gold > 0 {
@@ -1898,6 +1914,20 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if quest := g.questManager.GetQuest(questID); quest != nil {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
 			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
+	}
+	for _, item := range guaranteed {
+		g.party.AddItem(item)
+		g.AddCombatMessage("You receive " + item.Name + ".")
+	}
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
+		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
+				g.AddCombatMessage("Next chapter: " + err.Error())
+			} else {
+				next := g.questManager.GetQuest(q.Definition.NextQuest)
+				g.AddCombatMessage("Next chapter: " + next.Definition.Name + ". Read the journal for directions.")
+			}
+		}
 	}
 	if poolItem != nil {
 		g.party.AddItem(*poolItem)

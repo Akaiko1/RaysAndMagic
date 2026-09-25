@@ -1,12 +1,17 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
+	"fmt"
 	"image"
 	"image/color"
+	"strings"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	uitext "ugataima/assets/text"
+	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
 	"ugataima/internal/quests"
 )
 
@@ -120,7 +125,8 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 	half := r.w/2 - 28
 	drawDebugTextColored(dst, clipDebugText(progressText, half), r.x+16, bottom, style.body)
 	rewardsX := r.x + r.w/2 + 10
-	reward := uitext.Text("ui.reward", questRewardSummary(quest.Definition.Rewards.Gold, quest.Definition.Rewards.ArenaPoints, quest.Definition.Rewards.Experience))
+	reward := journalRewardText(quest.Definition.Rewards)
+	ui.offerClippedTextTooltip([]string{reward}, debugTextWidth(reward) > half, rewardsX, bottom, half, questCardLineHeight)
 	drawDebugTextColored(dst, clipDebugText(reward, half), rewardsX, bottom, style.body)
 	y := bottom + questCardProgressGap
 	if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
@@ -133,7 +139,7 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 		drawMetalPlate(dst, r.x+16, y+8, int(float64(width)*progress), 4, style.rim)
 	}
 	if quest.Completed && !quest.RewardsClaimed {
-		button := layoutRect{rewardsX, y, min(132, half), questCardBarH}
+		button := layoutRect{r.right() - 148, y, 132, questCardBarH}
 		mx, my := pointerPosition()
 		hover := isMouseHoveringBox(mx, my, button.x, button.y, button.right(), button.bottom())
 		tint := style.rim
@@ -149,6 +155,67 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 			}
 		})
 	}
+	i := -1
+	for _, keys := range [2][]string{quest.Definition.Rewards.Items, quest.Definition.Rewards.ItemPool} {
+		for _, key := range keys {
+			i++
+			item, ok := ui.journalRewardItem(key)
+			if !ok {
+				// Catalog validation reports invalid reward references.
+				continue
+			}
+			icon := questRewardIconRect(r, copy, i)
+			ui.drawInventoryItemIcon(dst, item, icon.x, icon.y, icon.w, icon.h, 0, true)
+			mx, my := pointerPosition()
+			if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, icon.x, icon.y, icon.right(), icon.bottom()) {
+				lines := strings.Split(GetItemTooltip(item, nil, ui.game.combat, tooltipDetailHeld()), "\n")
+				if i >= len(quest.Definition.Rewards.Items) {
+					lines = append(lines, "One random reward from this pool.")
+				}
+				ui.queueItemTooltip(lines, item, nil, mx+16, my+8)
+			}
+		}
+	}
+}
+
+func (ui *UISystem) journalRewardItem(key string) (items.Item, bool) {
+	if ui.journalItemsCatalog != config.GlobalItems || ui.journalWeaponsCatalog != config.GlobalWeapons {
+		ui.journalRewardItems = nil
+		ui.journalItemsCatalog, ui.journalWeaponsCatalog = config.GlobalItems, config.GlobalWeapons
+	}
+	if item, ok := ui.journalRewardItems[key]; ok {
+		return item, true
+	}
+	item, err := items.TryCreateItemFromYAML(key)
+	if err != nil {
+		return items.Item{}, false
+	}
+	if ui.journalRewardItems == nil {
+		ui.journalRewardItems = make(map[string]items.Item)
+	}
+	ui.journalRewardItems[key] = item
+	return item, true
+}
+
+func journalRewardText(rewards quests.QuestRewards) string {
+	var parts []string
+	if rewards.Gold != 0 || rewards.ArenaPoints != 0 || rewards.Experience != 0 {
+		parts = append(parts, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience))
+	}
+	if n := len(rewards.Items); n > 0 {
+		noun := "items"
+		if n == 1 {
+			noun = "item"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, noun))
+	}
+	if len(rewards.ItemPool) > 0 {
+		parts = append(parts, "one random item")
+	}
+	if len(parts) == 0 {
+		parts = append(parts, questRewardSummary(0, 0, 0))
+	}
+	return uitext.Text("ui.reward", strings.Join(parts, " + "))
 }
 
 // Tile the material uniformly so a wide journal row never turns fibres into

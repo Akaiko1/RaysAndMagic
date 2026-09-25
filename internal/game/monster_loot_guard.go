@@ -84,7 +84,7 @@ func lootGuardTargetOf(m *monster.Monster3D) lootGuardTargetID {
 // keep their authored behaviour instead of being pulled into ambient prop AI.
 func (gl *GameLoop) lootGuardEligible(m *monster.Monster3D) bool {
 	if m == nil || m.SummonedBy != "" || m.IsEncounterMonster || m.IsChampion() ||
-		m.PassiveUntilAttacked || m.IsBoss() {
+		m.PassiveUntilAttacked || m.IsBoss() || m.BandGroup != "" {
 		return false
 	}
 	return m.IsCalmForSocialBehavior()

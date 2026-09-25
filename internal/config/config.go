@@ -2084,9 +2084,10 @@ type ItemSystemConfig struct {
 // PiecesRequired equipped pieces carry its set key. RequiredPieces, when set,
 // names the exact YAML keys needed for a mixed weapon-and-armor set.
 type ItemSetConfig struct {
-	Name           string   `yaml:"name"`
-	PiecesRequired int      `yaml:"pieces_required"`
-	RequiredPieces []string `yaml:"required_pieces,omitempty"`
+	BonusArmorClass int      `yaml:"bonus_armor_class,omitempty"`
+	Name            string   `yaml:"name"`
+	PiecesRequired  int      `yaml:"pieces_required"`
+	RequiredPieces  []string `yaml:"required_pieces,omitempty"`
 	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
 	// halves them - the padded set's quilting).
 	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
@@ -2126,11 +2127,12 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType   string `yaml:"armor_category,omitempty"`
-	Description string `yaml:"description"`      // Gameplay-neutral summary (optional)
-	Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	AllowedClasses []string `yaml:"allowed_classes,omitempty"`
+	Name           string   `yaml:"name"`
+	Type           string   `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType      string   `yaml:"armor_category,omitempty"`
+	Description    string   `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor         string   `yaml:"flavor,omitempty"` // Short artistic line for tooltip
 	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
 	// Keeping their text in YAML lets the game tooltip and map-editor card share
 	// the same wording without item-key-specific presentation code.
@@ -2320,6 +2322,21 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		seenClasses := map[string]bool{}
+		for _, class := range def.AllowedClasses {
+			if class == "" || seenClasses[class] {
+				return fmt.Errorf("item %q: empty or duplicate allowed class %q", key, class)
+			}
+			seenClasses[class] = true
+			if GlobalConfig != nil {
+				if _, ok := GlobalConfig.Characters.Classes[class]; !ok {
+					return fmt.Errorf("item %q: unknown allowed class %q", key, class)
+				}
+			}
+		}
+		if len(seenClasses) > 0 && def.Type != "armor" && def.Type != "accessory" {
+			return fmt.Errorf("item %q: allowed_classes requires equipment", key)
 		}
 		resistances, err := canonicalDamageIntMap(def.Resistances)
 		if err != nil {

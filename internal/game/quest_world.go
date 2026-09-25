@@ -423,6 +423,7 @@ func (g *MMGame) refreshWorldTileRenderCaches() {
 // touchpoint: syncs quest world-tiles and fires any pending completion spawns.
 func (g *MMGame) applyCompletedQuestTiles() {
 	g.syncQuestTiles()
+	g.syncQuestProps()
 	g.spawnQuestCompletionMonsters(false)
 }
 
@@ -469,15 +470,19 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 	}
 	ts := float64(g.config.GetTileSize())
 	for id, def := range g.questManager.Definitions() {
-		if len(def.OnCompleteSpawns) == 0 {
-			continue
-		}
 		q := g.questManager.GetQuest(id)
-		if q == nil || !q.Completed {
+		if q == nil {
 			continue
 		}
-		for _, sp := range def.OnCompleteSpawns {
+		spawns := append([]quests.QuestSpawn(nil), def.OnAcceptSpawns...)
+		if q.Completed {
+			spawns = append(spawns, def.OnCompleteSpawns...)
+		}
+		for i, sp := range spawns {
 			key := fmt.Sprintf("%s#%s", id, sp.ID)
+			if i < len(def.OnAcceptSpawns) {
+				key = fmt.Sprintf("%s#accept:%s", id, sp.ID)
+			}
 			if g.questSpawnFired(key) {
 				continue
 			}
@@ -491,6 +496,9 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 			tx, ty := projectTileToCurrentWorld(sp.Map, sp.X, sp.Y)
 			x, y := TileCenterFromTile(tx, ty, ts)
 			m := monster.NewMonster3DFromConfig(x, y, sp.Monster, g.config)
+			if m.BandGroup != "" {
+				m.BandInstance = fmt.Sprintf("quest:%s:%s:%t:%s", sp.Map, id, i < len(def.OnAcceptSpawns), m.BandGroup)
+			}
 			if w == g.world {
 				// Defer to the frame boundary: completion fires MID-ATTACK
 				// (finishMonsterKill runs inside projectile/AoE processing), and
@@ -603,7 +611,7 @@ func placedNPCKeys(wm *world.WorldManager) map[string]bool {
 		}
 		loadedWorld = true
 		for _, npc := range w.NPCs {
-			if npc != nil && npc.Key != "" {
+			if npc != nil && npc.Key != "" && npc.QuestPropOwner == "" {
 				placed[npc.Key] = true
 			}
 		}
@@ -649,6 +657,12 @@ func questIsObtainableVia(qm *quests.QuestManager, questID string, catalog map[s
 	pending[questID] = true
 	defer delete(pending, questID)
 
+	for id, def := range qm.Definitions() {
+		if def.NextQuest == questID && questIsObtainableVia(qm, id, catalog, placed, pending, obtainable) {
+			obtainable[questID] = true
+			return true
+		}
+	}
 	for npcKey, npc := range catalog {
 		if npc == nil || (placed != nil && !placed[npcKey]) {
 			continue
@@ -708,6 +722,9 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 	if qm == nil || character.NPCConfigInstance == nil {
 		return nil
 	}
+	if err := validateQuestActiveProps(qm); err != nil {
+		return err
+	}
 	producers := interactTagProducers(character.NPCConfigInstance.NPCs)
 	placedPerTag, censusErr := placedPropTagCounts(world.GlobalWorldManager)
 	if censusErr != nil {
@@ -740,12 +757,17 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 				id, def.TargetCount, def.TargetMonster, failedMapsOf(world.GlobalWorldManager))
 			continue
 		}
+		// Activities validate every token's authored static or active placement
+		// below; random candidates are not all present in the live roster.
+		if def.Activity != nil {
+			continue
+		}
 		if placed := placedPerTag[def.TargetMonster]; placed < def.TargetCount {
 			return fmt.Errorf("quest %q asks for %d of tag %q but only %d such props are placed in the world - it could never be finished",
 				id, def.TargetCount, def.TargetMonster, placed)
 		}
 	}
-	return nil
+	return validateQuestActivityProps(qm, true)
 }
 
 // placedPropTagCounts counts distinct one-shot NPC props actually standing in
@@ -909,22 +931,32 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				return fmt.Errorf("quest %q on_complete_tiles: unknown map %q", id, tc.Map)
 			}
 		}
-		for _, sp := range def.OnCompleteSpawns {
-			if monster.MonsterConfig != nil {
-				if _, ok := monster.MonsterConfig.Monsters[sp.Monster]; !ok {
-					return fmt.Errorf("quest %q on_complete_spawns: unknown monster key %q", id, sp.Monster)
+		for _, source := range []struct {
+			field  string
+			spawns []quests.QuestSpawn
+		}{{"on_accept_spawns", def.OnAcceptSpawns}, {"on_complete_spawns", def.OnCompleteSpawns}} {
+			for i, sp := range source.spawns {
+				if monster.MonsterConfig != nil {
+					if _, ok := monster.MonsterConfig.Monsters[sp.Monster]; !ok {
+						return fmt.Errorf("quest %q %s[%d]: unknown monster key %q", id, source.field, i, sp.Monster)
+					}
+				}
+				if wm != nil && wm.WorldByKey(sp.Map) == nil {
+					return fmt.Errorf("quest %q %s[%d]: unknown map %q", id, source.field, i, sp.Map)
 				}
 			}
-			if wm != nil && wm.WorldByKey(sp.Map) == nil {
-				return fmt.Errorf("quest %q on_complete_spawns: unknown map %q", id, sp.Map)
-			}
 		}
-		for i, itemKey := range def.Rewards.ItemPool {
-			if itemKey == "" {
-				return fmt.Errorf("quest %q rewards.item_pool[%d] is empty", id, i)
-			}
-			if _, err := items.TryCreateItemFromYAML(itemKey); err != nil {
-				return fmt.Errorf("quest %q rewards.item_pool[%d]: %w", id, i, err)
+		for _, source := range []struct {
+			field string
+			keys  []string
+		}{{"items", def.Rewards.Items}, {"item_pool", def.Rewards.ItemPool}} {
+			for i, key := range source.keys {
+				if key == "" {
+					return fmt.Errorf("quest %q rewards.%s[%d] is empty", id, source.field, i)
+				}
+				if _, err := items.TryCreateItemFromYAML(key); err != nil {
+					return fmt.Errorf("quest %q rewards.%s[%d]: %w", id, source.field, i, err)
+				}
 			}
 		}
 	}
@@ -1025,8 +1057,8 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 							return fmt.Errorf("NPC %q prop action %q credits tag %q but quest %q counts %q",
 								npcKey, choice.Action, choice.Prop.Tag, choice.QuestID, def.TargetMonster)
 						}
-						if choice.Prop.NotYet == "" || choice.Prop.Took == "" || choice.Prop.Completed == "" {
-							return fmt.Errorf("NPC %q prop action %q is missing prop copy (not_yet/took/completed)", npcKey, choice.Action)
+						if err := validateQuestPropCopy(npcKey, choice.Prop); err != nil {
+							return err
 						}
 						// A spent prop must either LEAVE the world (hide_when_visited, like
 						// a lifted lamp) or be able to say it is spent - otherwise the
@@ -1095,5 +1127,5 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 			}
 		}
 	}
-	return nil
+	return validateQuestActivityProps(qm, false)
 }

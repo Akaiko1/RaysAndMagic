@@ -126,6 +126,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 	}
 
 	// Update visual systems
+	g.syncQuestProps()
 	g.UpdateSkyAndGroundColors()
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		// Refresh renderer caches that depend on world tiles

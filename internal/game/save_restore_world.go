@@ -137,6 +137,7 @@ func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) 
 }
 
 func (g *MMGame) restoreSavedQuests(save *GameSave) {
+	g.resetQuestPropLayouts(save.QuestPropLayouts)
 	// Completion-spawn history is save state even when quest content is
 	// temporarily unavailable; never retain it from the replaced timeline.
 	g.questSpawnsDone = make(map[string]bool, len(save.QuestSpawnsDone))
@@ -164,6 +165,9 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 					q.ClaimedAtDay = g.currentQuestDay()
 				}
 			}
+			if q := g.questManager.GetQuest(qs.ID); q != nil {
+				q.Activity = quests.RestoreActivityState(q.Definition.Activity, qs.Activity)
+			}
 			if qs.DynamicTargetSet {
 				g.questManager.SetDynamicTarget(qs.ID, qs.DynamicTarget)
 			}
@@ -176,6 +180,7 @@ func (g *MMGame) restoreSavedQuests(save *GameSave) {
 		// (SwitchToMap flips a key on the shared instances), so a bridge laid
 		// earlier this session must be actively taken back out here.
 		g.syncQuestTiles()
+		g.syncQuestProps()
 		g.spawnQuestCompletionMonsters(false) // self-heal: a completed-but-unspawned quest fires now
 		// Reconcile active quotas against the restored roster and future spawns.
 		g.reconcileKillQuests()
