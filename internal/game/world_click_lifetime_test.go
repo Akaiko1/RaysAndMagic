@@ -161,7 +161,7 @@ func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
 	}
 }
 
-func TestEmptyPressCannotArmMonsterHold(t *testing.T) {
+func TestEmptyWorldPressArmsDynamicMonsterHold(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
 			g, ih, fp, m, _ := mouseCombatHarness(t, tb)
@@ -183,19 +183,15 @@ func TestEmptyPressCannotArmMonsterHold(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if ih.mouseAttackTarget != nil || m.HitPoints != m.MaxHitPoints {
-				t.Fatal("empty press armed an attack on a later target")
+			if ih.mouseAttackTarget != m || m.HitPoints == m.MaxHitPoints {
+				t.Fatal("held empty-world press did not acquire a later target")
 			}
 			fp.release()
 			if err := g.gameLoop.Update(); err != nil {
 				t.Fatal(err)
 			}
-			fp.press()
-			if err := g.gameLoop.Update(); err != nil {
-				t.Fatal(err)
-			}
-			if ih.mouseAttackTarget != m || m.HitPoints == m.MaxHitPoints {
-				t.Fatal("fresh monster press failed to acquire and attack")
+			if ih.mouseAttackWorld != nil || ih.mouseAttackTarget != nil {
+				t.Fatal("release retained the dynamic acquisition gesture")
 			}
 		})
 	}

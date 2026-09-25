@@ -34,12 +34,12 @@ type InputHandler struct {
 	spaceHoldFrames  int  // frames Space specifically has been held (tap vs hold-repeat for loot pickup; unlike attackHoldFrames it ticks while sprinting)
 	spacePressActed  bool // this Space press already fired a combat action (blocks same-press loot pickup)
 
-	// Pointer ownership is transient and belongs to one displayed actor/world.
+	// Pointer ownership is transient and belongs to one world gesture; its
+	// displayed target can change or be absent while the button stays held.
 	mouseAttackTarget     *monster.Monster3D
 	mouseAttackWorld      *world.World3D
 	mouseAttackHoldFrames int
 	mouseAttackTurnBased  bool
-	mouseAttackInputTick  int64
 }
 
 // NewInputHandler creates a new input handler
@@ -1494,6 +1494,13 @@ func (ih *InputHandler) handleWorldMouseInput() {
 				}
 				return
 			}
+			// A press on empty world space arms dynamic target acquisition.
+			// UI, loot and NPC presses have already claimed their own gestures.
+			ih.game.consumeLeftClick()
+			if pointerLeftPressed() && ih.game.monsterPointerFrameAllowed(clickX, clickY) {
+				ih.beginMouseAttack(nil)
+			}
+			return
 		}
 	}
 

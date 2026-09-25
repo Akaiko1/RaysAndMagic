@@ -12,23 +12,32 @@ func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
 	ih.mouseAttackWorld = ih.game.world
 	ih.mouseAttackTurnBased = ih.game.turnBasedMode
 	ih.mouseAttackHoldFrames = 1
-	ih.mouseAttackInputTick = ih.game.uiFrameCount
-	ih.performMouseSmartAttack(target)
+	if target != nil {
+		ih.performMouseSmartAttack(target)
+	}
 }
 
 func (ih *InputHandler) repeatMouseAttack() {
 	g := ih.game
-	if ih.mouseAttackTarget == nil {
+	// The world owns the gesture even before it acquires a target.
+	if ih.mouseAttackWorld == nil {
 		return
 	}
 	x, y := pointerPosition()
-	if !pointerLeftPressed() || !g.worldClickAllowed() || g.world != ih.mouseAttackWorld || g.turnBasedMode != ih.mouseAttackTurnBased || g.uiFrameCount-ih.mouseAttackInputTick > 1 || g.monsterAtScreen(x, y) != ih.mouseAttackTarget {
+	if !pointerLeftPressed() || !g.worldClickAllowed() || g.world != ih.mouseAttackWorld || g.turnBasedMode != ih.mouseAttackTurnBased || !g.monsterPointerFrameAllowed(x, y) {
 		ih.cancelMouseAttack()
 		return
 	}
-	ih.mouseAttackInputTick = g.uiFrameCount
+	if !g.heldMonsterVisible(ih.mouseAttackTarget) {
+		ih.mouseAttackTarget = nil
+	}
+	// Empty pixels keep the acquired actor through animation and movement.
+	// Retargeting still requires the same opaque-pixel pick as a fresh press.
+	if target := g.monsterAtScreen(x, y); target != nil {
+		ih.mouseAttackTarget = target
+	}
 	ih.mouseAttackHoldFrames++
-	if ih.mouseAttackHoldFrames >= rtHoldRepeatDelay {
+	if ih.mouseAttackTarget != nil && ih.mouseAttackHoldFrames >= rtHoldRepeatDelay {
 		ih.performMouseSmartAttack(ih.mouseAttackTarget)
 	}
 }

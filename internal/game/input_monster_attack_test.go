@@ -7,6 +7,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game/keytracker"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 )
@@ -103,25 +104,34 @@ func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 
 func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, reason := range []string{"leave", "dead", "removed", "friendly", "wall", "modal", "HUD", "mode", "frame gap", "drag", "cooldown", "turn", "loading", "world"} {
+		for _, reason := range []string{"outside viewport", "dead", "removed", "friendly", "not drawn", "wall", "modal", "HUD", "mode", "drag", "stash picked up", "cooldown", "turn", "loading", "world"} {
 			t.Run(map[bool]string{false: "RT", true: "TB"}[tb]+"/"+reason, func(t *testing.T) {
-				g, _, fp, m, tick := mouseCombatHarness(t, tb)
+				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				fp.press()
 				tick()
 				fp.hold()
 				switch reason {
-				case "leave":
-					fp.moveTo(50, 50)
+				case "outside viewport":
+					fp.moveTo(-1, -1)
 				case "dead":
 					m.HitPoints = 0
 				case "removed":
 					g.world.Monsters = nil
 				case "friendly":
 					m.Bound = true
+				case "not drawn":
+					g.gameLoop.renderer.beginMonsterPickFrame()
 				case "wall":
 					g.depthBuffer = make([]float64, 640)
-					for i := range g.depthBuffer {
-						g.depthBuffer[i] = 1
+					for x := range g.depthBuffer {
+						g.depthBuffer[x] = 1
+					}
+					r := g.gameLoop.renderer
+					r.beginMonsterPickFrame()
+					sprite := ebiten.NewImage(1, 1)
+					t.Cleanup(sprite.Deallocate)
+					if hit, ok := r.prepareMonsterPick(UnifiedSpriteRenderData{monster: m, sprite: sprite, screenXF: 320, sizeF: 140, bottomF: 290, depthPerp: 64, monsterRenderX: m.X, monsterRenderY: m.Y}); ok {
+						r.monsterPick.hits = append(r.monsterPick.hits, hit)
 					}
 				case "modal":
 					g.menuOpen = true
@@ -134,11 +144,12 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 				case "world":
 					other := *g.world
 					g.world = &other
-				case "frame gap":
-					g.uiFrameCount += 4
 				case "drag":
+					// Inventory drag states only exist while their panel is open.
 					g.menuOpen = true
 					g.dragPickedUp = true
+				case "stash picked up":
+					g.stashDragPickedUp = true
 				case "cooldown":
 					g.spellInputCooldown = 1000
 				case "turn":
@@ -157,6 +168,12 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 				}
 				if len(g.slashEffects) != before {
 					t.Fatal("pointer hold bypassed " + reason)
+				}
+				if reason != "cooldown" && reason != "turn" && ih.mouseAttackTarget != nil {
+					t.Fatal("pointer hold retained ownership after " + reason)
+				}
+				if (reason == "cooldown" || reason == "turn") && ih.mouseAttackTarget != m {
+					t.Fatal("temporary action gate discarded held target")
 				}
 			})
 		}
@@ -192,6 +209,277 @@ func TestMonsterPointerDisplayedGeometry(t *testing.T) {
 		r.monsterPick.hits = append(r.monsterPick.hits, monsterPickHit{monster: &back, left: 250, top: 150, size: 140, depth: 2 * ts})
 		if g.monsterAtScreen(320, 220) != m {
 			t.Fatal("overlapping farther monster won")
+		}
+	}
+}
+
+// Case table: RT/TB x billboard/standee x changes to displayed pose. Every
+// case starts on an opaque edge pixel which becomes empty in the next pose.
+// The hold is transient; world/view replacement tests cover its reset on load.
+func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, standee := range []bool{false, true} {
+			for _, change := range []string{"hit shake", "attack frame", "mirror", "movement", "yaw"} {
+				if change == "yaw" && !standee {
+					continue // Billboards have no yaw.
+				}
+				t.Run(fmt.Sprintf("TB=%v/standee=%v/%s", tb, standee, change), func(t *testing.T) {
+					g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+					t.Chdir("../..")
+					g.camera.Angle = 0
+					g.camera.FOV = squareProjectionFOV(640, 480)
+					g.frameCount = 1
+					g.config.Graphics.Standee.Enabled = standee
+					g.sprites = graphics.NewSpriteManager()
+					t.Cleanup(func() {
+						g.sprites.EvictResource("goblin", "walking_r")
+						g.sprites.EvictResource("goblin", "attacking_r")
+					})
+					walking := g.sprites.GetAnimation("goblin", "walking_r")
+					attack := g.sprites.GetAnimation("goblin", "attacking_r")
+					if walking == nil || attack == nil {
+						t.Fatal("missing goblin animation fixtures")
+					}
+					g.depthBuffer = make([]float64, 640)
+					for x := range g.depthBuffer {
+						g.depthBuffer[x] = math.Inf(1)
+					}
+					r := g.gameLoop.renderer
+					r.beginMonsterPickFrame()
+					m.Direction = 0
+					s := UnifiedSpriteRenderData{monster: m, sprite: walking.Frames[0], screenXF: 320, spriteSize: 140, sizeF: 140, bottomF: 290, depthPerp: float64(g.config.GetTileSize()), monsterRenderX: m.X, monsterRenderY: m.Y}
+					before, ok := r.prepareMonsterPick(s)
+					if !ok {
+						t.Fatal("initial pose was culled")
+					}
+					switch change {
+					case "hit shake":
+						m.HitTintFrames = MonsterHitFlashFrames
+					case "attack frame":
+						s.sprite = attack.Frames[1]
+					case "mirror":
+						m.Direction = -math.Pi / 2
+						s.monsterFlip = true
+					case "movement":
+						s.screenXF += 20
+						s.monsterRenderY += 8
+					case "yaw":
+						m.Direction = math.Pi / 4
+						m.StandeeYawTick = 0
+					}
+					after, ok := r.prepareMonsterPick(s)
+					if !ok {
+						t.Fatal("changed pose was culled")
+					}
+					if _, known := g.sprites.ImageOpaqueAt(before.sprite, 0, 0); !known {
+						t.Fatal("fixture lacks the production alpha mask")
+					}
+					found := false
+					for y := 150; y < 290 && !found; y++ {
+						for x := 200; x < 440; x++ {
+							r.monsterPick.hits = []monsterPickHit{before}
+							if g.monsterAtScreen(x, y) != m {
+								continue
+							}
+							r.monsterPick.hits[0] = after
+							if g.monsterAtScreen(x, y) == nil {
+								fp.moveTo(x, y)
+								found = true
+								break
+							}
+						}
+					}
+					if !found {
+						t.Fatal("pose change did not expose an edge pixel")
+					}
+					r.monsterPick.hits = []monsterPickHit{before}
+					fp.press()
+					tick()
+					hp := m.HitPoints
+					fp.hold()
+					r.monsterPick.hits[0] = after
+					if tb {
+						g.currentTurn = 1
+						for range rtHoldRepeatDelay + 1 {
+							tick()
+						}
+						if ih.mouseAttackTarget != m || m.HitPoints != hp {
+							t.Fatal("monster turn lost ownership or allowed a party attack")
+						}
+						g.currentTurn = 0
+					}
+					for range rtHoldRepeatDelay + 120 {
+						tick()
+					}
+					if ih.mouseAttackTarget != m || m.HitPoints >= hp {
+						t.Fatal("empty edge pixel interrupted held attacks")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestMouseSmartAttackStickyInput(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, change := range []string{"empty", "skipped tick", "retarget"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, change), func(t *testing.T) {
+				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+				fp.press()
+				tick()
+				fp.hold()
+				want := m
+				switch change {
+				case "empty":
+					fp.moveTo(50, 50)
+				case "skipped tick":
+					g.uiFrameCount += 4
+				case "retarget":
+					other := *m
+					want = &other
+					g.world.Monsters = append(g.world.Monsters, want)
+					// A foreground actor crossing the cursor acquires the hold.
+					g.gameLoop.renderer.monsterPick.hits = append(g.gameLoop.renderer.monsterPick.hits, monsterPickHit{monster: want, left: 250, top: 150, size: 140, depth: 32})
+				}
+				hp := want.HitPoints
+				for range rtHoldRepeatDelay + 120 {
+					tick()
+				}
+				if ih.mouseAttackTarget != want || want.HitPoints >= hp {
+					t.Fatal("held input did not keep or switch its target")
+				}
+				fp.release()
+				tick()
+				if ih.mouseAttackTarget != nil {
+					t.Fatal("release retained sticky target")
+				}
+			})
+		}
+	}
+}
+
+func TestMouseSmartAttackDynamicAcquisition(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, entry := range []string{"empty press", "kill", "kill behind", "removed", "not drawn", "switch back"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, entry), func(t *testing.T) {
+				g, ih, fp, first, tick := mouseCombatHarness(t, tb)
+				second := *first
+				g.world.Monsters = append(g.world.Monsters, &second)
+				r := g.gameLoop.renderer
+				r.monsterPick.hits = append(r.monsterPick.hits, monsterPickHit{monster: &second, left: 410, top: 150, size: 140, depth: 64})
+				if entry == "kill behind" {
+					r.monsterPick.hits[1].left = 250
+					r.monsterPick.hits[1].depth = 128
+				}
+				if entry == "empty press" {
+					fp.moveTo(50, 50)
+				}
+				if entry == "kill" || entry == "kill behind" {
+					first.HitPoints = 1
+				}
+				fp.press()
+				tick()
+				fp.hold()
+				switch entry {
+				case "empty press":
+					if ih.mouseAttackTarget != nil || len(g.slashEffects) != 0 {
+						t.Fatal("empty press attacked before finding a target")
+					}
+				case "kill", "kill behind":
+					if first.IsAlive() {
+						t.Fatal("initial attack did not kill the first target")
+					}
+				case "removed":
+					g.world.Monsters = []*monster.Monster3D{&second}
+				case "not drawn":
+					r.monsterPick.hits = r.monsterPick.hits[1:]
+				}
+				// A targetless interval must not retire the held gesture.
+				if entry != "kill behind" {
+					fp.moveTo(50, 50)
+				}
+				for range rtHoldRepeatDelay {
+					tick()
+				}
+				if entry != "kill behind" {
+					fp.moveTo(480, 220)
+				}
+				for range 120 {
+					tick()
+				}
+				if ih.mouseAttackTarget != &second || second.HitPoints == second.MaxHitPoints {
+					t.Fatal("held gesture failed to acquire and attack the next target")
+				}
+				if entry == "switch back" {
+					hp := first.HitPoints
+					fp.moveTo(320, 220)
+					for range 120 {
+						tick()
+					}
+					if ih.mouseAttackTarget != first || first.HitPoints >= hp {
+						t.Fatal("moving the held pointer back did not resume attacks on the first target")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, reason := range []string{"release", "modal", "HUD", "world", "mode", "loading", "outside viewport", "HUD press", "outside press"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, reason), func(t *testing.T) {
+				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+				fp.moveTo(50, 50)
+				if reason == "HUD press" {
+					g.gameLoop.ui.displayedInput.commands = []uiInputCommand{{bounds: layoutRect{40, 40, 20, 20}}}
+				} else if reason == "outside press" {
+					fp.moveTo(-1, -1)
+				}
+				fp.press()
+				tick()
+				if reason == "HUD press" || reason == "outside press" {
+					if ih.mouseAttackWorld != nil {
+						t.Fatal("non-world press armed dynamic acquisition")
+					}
+				} else if ih.mouseAttackWorld != g.world {
+					t.Fatal("empty world press did not arm the gesture")
+				}
+				fp.hold()
+				originalWorld := g.world
+				switch reason {
+				case "release":
+					fp.release()
+				case "modal":
+					g.menuOpen = true
+				case "HUD":
+					g.gameLoop.ui.displayedInput.commands = []uiInputCommand{{bounds: layoutRect{40, 40, 20, 20}}}
+				case "world":
+					other := *g.world
+					g.world = &other
+				case "mode":
+					g.turnBasedMode = !tb
+				case "loading":
+					g.gameLoop.loading = &gameLoadingState{awaitingFrame: true}
+				case "outside viewport":
+					fp.moveTo(-1, -1)
+				}
+				tick()
+				if ih.mouseAttackWorld != nil {
+					t.Fatal("targetless hold survived cancellation")
+				}
+				g.menuOpen, g.turnBasedMode, g.world = false, tb, originalWorld
+				g.gameLoop.loading = nil
+				g.gameLoop.ui.displayedInput.commands = nil
+				fp.moveTo(320, 220)
+				fp.hold() // No fresh press edge after the cancelled gesture.
+				for range rtHoldRepeatDelay + 120 {
+					tick()
+				}
+				if ih.mouseAttackTarget != nil || m.HitPoints != m.MaxHitPoints {
+					t.Fatal("cancelled gesture reacquired a target without a fresh press")
+				}
+			})
 		}
 	}
 }

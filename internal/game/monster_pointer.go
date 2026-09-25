@@ -73,26 +73,53 @@ func (g *MMGame) monsterAtScreen(x, y int) *monster.Monster3D {
 	return m
 }
 
-func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
+// monsterPointerFrameAllowed shares the displayed UI and viewport gates between
+// pixel picking and an existing hold. HUD pixels must not count as empty world.
+func (g *MMGame) monsterPointerFrameAllowed(x, y int) bool {
 	if g.gameLoop == nil || g.gameLoop.renderer == nil {
-		return nil, 0
+		return false
 	}
 	if ui := g.gameLoop.ui; ui != nil {
 		if ui.modalRedrawBarrierActive() {
-			return nil, 0
+			return false
 		}
 		for _, cmd := range ui.displayedInput.commands {
 			b := cmd.bounds
 			if x >= b.x && x < b.x+b.w && y >= b.y && y < b.y+b.h {
-				return nil, 0
+				return false
 			}
 		}
 	}
-	r := g.gameLoop.renderer
-	f := &r.monsterPick
-	if f.world != g.world || f.width != g.config.GetScreenWidth() || f.height != g.config.GetScreenHeight() || x < 0 || y < 0 || x >= f.width || y >= f.height {
+	f := &g.gameLoop.renderer.monsterPick
+	return f.world == g.world && f.width == g.config.GetScreenWidth() && f.height == g.config.GetScreenHeight() && x >= 0 && y >= 0 && x < f.width && y < f.height
+}
+
+// heldMonsterVisible uses the last displayed actor list, which the renderer
+// already culls against view distance and walls. Sprite alpha, shake and yaw
+// affect acquisition, not continued ownership of a held attack.
+func (g *MMGame) heldMonsterVisible(target *monster.Monster3D) bool {
+	if target == nil || !target.IsAlive() || target.IsPartyControlled() {
+		return false
+	}
+	for _, live := range g.world.Monsters {
+		if live != target {
+			continue
+		}
+		for _, hit := range g.gameLoop.renderer.monsterPick.hits {
+			if hit.monster == target {
+				return true
+			}
+		}
+		break
+	}
+	return false
+}
+
+func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
+	if !g.monsterPointerFrameAllowed(x, y) {
 		return nil, 0
 	}
+	f := &g.gameLoop.renderer.monsterPick
 	var best *monster.Monster3D
 	nearest := math.Inf(1)
 	for _, h := range f.hits {
