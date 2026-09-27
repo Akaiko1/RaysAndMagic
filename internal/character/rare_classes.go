@@ -49,7 +49,7 @@ func AlchemyYield(tier int, family string) int {
 	case "protective":
 		return masteryTableValue([4]int{1, 2, 3, 4}, tier)
 	case "revival":
-		return masteryTableValue([4]int{1, 1, 1, 2}, tier)
+		return masteryTableValue([4]int{1, 2, 3, 4}, tier)
 	default:
 		return masteryTableValue([4]int{2, 3, 4, 6}, tier)
 	}

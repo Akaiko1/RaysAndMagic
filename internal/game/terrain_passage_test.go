@@ -78,6 +78,7 @@ func TestTerrainPassageProviders(t *testing.T) {
 	for _, provider := range []string{"fly", "spirit", "both", "non_provider"} {
 		t.Run(provider, func(t *testing.T) {
 			g, gl, ts := tbBehaviorGame(t, 12, 12)
+			g.turnBasedMode = false // This provider test advances individual RT frames.
 			setTestWorldManager(t, nil)
 			previous := world.GlobalTileManager
 			t.Cleanup(func() { world.GlobalTileManager = previous })

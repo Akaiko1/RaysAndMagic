@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -472,7 +473,7 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			if mem.Monster == "" || mem.Count <= 0 || !g.partyLevelUnlocked(mem.MinPartyLevel) {
 				continue
 			}
-			slots = g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress, slots)
+			slots = g.spawnPackMember(w, tag, mem, slots)
 		}
 	}
 }
@@ -603,27 +604,30 @@ func (g *MMGame) availablePackSpawnTiles(w *world.World3D, minPlayerDistTiles fl
 	return free
 }
 
-// spawnPackMonsters consumes distinct slots from the shared phase pool. Count
-// is an upper limit; a shortfall is skipped, never scattered onto other tiles.
-// Current-map spawns register collision now, inactive maps do so on arrival.
-func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, questProgress bool, slots [][2]int) [][2]int {
+// spawnPackMember consumes distinct slots from the shared phase pool. Count
+// is a cap; replacements retain the phase tag and quest policy.
+func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.PackMemberConfig, slots [][2]int) [][2]int {
 	if monster.MonsterConfig == nil {
 		return slots
 	}
-	if _, ok := monster.MonsterConfig.Monsters[monsterKey]; !ok {
-		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", monsterKey)
+	if _, ok := monster.MonsterConfig.Monsters[member.Monster]; !ok {
+		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", member.Monster)
 		return slots
 	}
-	for spawned := 0; spawned < count && len(slots) > 0; spawned++ {
+	for spawned := 0; spawned < member.Count && len(slots) > 0; spawned++ {
 		pos := slots[len(slots)-1]
 		slots = slots[:len(slots)-1]
 		x, y := TileCenterFromTile(pos[0], pos[1], float64(g.config.GetTileSize()))
-		m := monster.NewMonster3DFromConfig(x, y, monsterKey, g.config)
+		key := member.Monster
+		if r := member.Replacement; r != nil && g.partyLevelUnlocked(r.MinPartyLevel) && rand.Float64() < r.Chance {
+			key = r.Monster
+		}
+		m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 		if m == nil {
 			continue
 		}
 		m.PackKey = tag
-		m.QuestProgressIgnored = !questProgress
+		m.QuestProgressIgnored = !member.QuestProgress
 		if w == g.world {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)

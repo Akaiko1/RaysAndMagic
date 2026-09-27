@@ -392,6 +392,23 @@ func ValidateCatalogReferences(monsters *MonsterYAMLConfig, gameConfig *config.C
 	if monsters == nil {
 		return fmt.Errorf("monster catalog is nil")
 	}
+	if gameConfig != nil {
+		for _, pack := range gameConfig.DayNight.Packs {
+			for _, night := range []bool{false, true} {
+				for _, member := range pack.PhaseMembers(night) {
+					keys := []string{member.Monster}
+					if member.Replacement != nil {
+						keys = append(keys, member.Replacement.Monster)
+					}
+					for _, key := range keys {
+						if _, ok := monsters.Monsters[key]; !ok {
+							return fmt.Errorf("day_night pack %q references unknown monster %q", pack.Map, key)
+						}
+					}
+				}
+			}
+		}
+	}
 	for key, def := range monsters.Monsters {
 		if def.ProjectileSpell != "" {
 			if spell, ok := config.GetSpellDefinition(def.ProjectileSpell); !ok || spell == nil {

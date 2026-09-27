@@ -12,7 +12,7 @@ import (
 // the old single-slot dayGods*/hourPower* fields, so casting one buff no longer
 // clobbers another and any number of buff spells can coexist.
 type TimedCombatBuff struct {
-	CombatClock        bool
+	CombatClock        bool // Legacy save metadata; all party buffs now share the mode clock.
 	TechniqueTier      int
 	RecoveryPct        int
 	ExtraActions       int
@@ -275,7 +275,7 @@ func (g *MMGame) tickCombatBuffs() {
 			g.combatBuffs[i].DeferFirstTurnTick = false
 		}
 	}
-	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, func(b *TimedCombatBuff) *int { return &b.Frames })
+	g.advanceCombatBuffs(g.buffFrameElapsed(), false)
 }
 
 func (g *MMGame) combatBuffDodgePct() int {
@@ -286,22 +286,17 @@ func (g *MMGame) combatBuffDodgePct() int {
 	return total
 }
 
-func (b TimedCombatBuff) buffCombatClock() bool { return b.CombatClock }
 func (g *MMGame) tickCombatBuffsTurn(frames int) {
-	kept := g.combatBuffs[:0]
-	for _, b := range g.combatBuffs {
-		if b.CombatClock {
-			if b.DeferFirstTurnTick {
-				b.DeferFirstTurnTick = false
-			} else {
-				b.Frames = max(0, b.Frames-frames)
-			}
-		}
-		if b.Frames > 0 {
-			kept = append(kept, b)
+	g.advanceCombatBuffs(frames, true)
+}
+
+func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
+	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
+		if round && b.DeferFirstTurnTick {
+			b.DeferFirstTurnTick = false
 		} else {
-			g.updateUtilityStatus(spells.SpellID(b.SpellID), 0, false)
+			b.Frames = max(0, b.Frames-frames)
 		}
-	}
-	g.combatBuffs = kept
+		return b.Frames
+	})
 }

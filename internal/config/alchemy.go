@@ -219,6 +219,16 @@ func ValidateOrdinaryItemGrant(key string) error {
 	}
 	return nil
 }
+
+// Explicit monster herb drops do not open herbs to ordinary catalog grants.
+func ValidateMonsterHarvestGrant(key string) error {
+	d, ok := GetItemDefinition(key)
+	if !ok || d == nil || d.HarvestSprite == "" || d.CraftedOnly {
+		return fmt.Errorf("monster harvest drop %q must name a gathering ingredient", key)
+	}
+	return nil
+}
+
 func FlaskItem(key string) (items.Item, bool) {
 	d, _ := GetItemDefinition(key)
 	if d == nil || d.Flask == nil {

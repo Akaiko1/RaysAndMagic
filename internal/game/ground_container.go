@@ -300,6 +300,11 @@ func fixedItemRewards(keys []string) []items.Item {
 // crate rolls.
 func createLootItem(typ, key string) (items.Item, error) {
 	switch typ {
+	case "harvest":
+		if err := config.ValidateMonsterHarvestGrant(key); err != nil {
+			return items.Item{}, err
+		}
+		return items.TryCreateItemFromYAML(key)
 	case "weapon":
 		return items.TryCreateWeaponFromYAML(key)
 	case "item":

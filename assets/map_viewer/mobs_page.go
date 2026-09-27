@@ -475,7 +475,7 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	for _, e := range entries {
 		name, rarity := e.Key, ""
 		switch e.Type {
-		case "item":
+		case "item", "harvest":
 			if d, ok := config.GetItemDefinition(e.Key); ok && d != nil {
 				name, rarity = d.Name, d.Rarity
 			}
@@ -484,7 +484,11 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 				name, rarity = d.Name, d.Rarity
 			}
 		}
-		addc(game.RarityColor(rarity), "%4.1f%%  %s (%s)", e.Chance*100, name, e.Type)
+		rolls := ""
+		if e.RollCount() > 1 {
+			rolls = fmt.Sprintf(" x%d rolls", e.RollCount())
+		}
+		addc(game.RarityColor(rarity), "%4.1f%%%s  %s (%s)", e.Chance*100, rolls, name, e.Type)
 	}
 	return out
 }

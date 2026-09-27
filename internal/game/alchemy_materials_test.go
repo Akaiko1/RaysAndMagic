@@ -19,7 +19,7 @@ func TestAlchemySavedSourcesFollowCurrentRecipe(t *testing.T) {
 	}{
 		{"legacy_absent", nil, []int{0, 0}},
 		{"valid", []int{0, 1}, []int{0, 1}},
-		{"removed_source", []int{0, 3}, []int{0, 2}},
+		{"removed_source", []int{0, 99}, []int{0, 3}},
 		{"negative", []int{-1, -1}, []int{0, 0}},
 		{"changed_groups", []int{0}, []int{0, 0}},
 	} {
@@ -76,7 +76,7 @@ func TestAlchemyMaterialProvenanceAndQuantities(t *testing.T) {
 					switch key {
 					case "carp_scale", "koi_scale", "rainbow_salmon_scale":
 						want = 4
-					case "lemur_fur", "rabbit_pelt", "dawnleaf", "mooncap", "bitterroot", "embercap":
+					case "wolf_pelt", "spider_silk", "lemur_fur", "rabbit_pelt", "dawnleaf", "mooncap", "bitterroot", "embercap":
 						want = 2
 					}
 					if source.Count != want {

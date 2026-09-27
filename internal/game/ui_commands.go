@@ -99,7 +99,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	id := uiDisplayIdentity{world: g.world, party: g.party, partyCreate: g.partyCreate, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
 	id.state = [16]int{g.savePage,
 		boolInt(g.menuOpen), int(g.currentTab), g.selectedChar, ui.inventoryPage, ui.inventoryTab, ui.spellPage, ui.questPage,
-		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsPage, g.achievementsScroll, g.statisticsScroll}
+		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsRevision, g.achievementsScroll, g.statisticsScroll}
 	hash := uint64(14695981039346656037)
 	mix := func(v uint64) { hash ^= v; hash *= 1099511628211 }
 	item := func(it items.Item) { mix(uiItemIdentity(it)) }

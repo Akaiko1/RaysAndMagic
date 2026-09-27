@@ -29,6 +29,11 @@ recipes:
       - serpent_skin
       - fennec_pelt
       count: 1
+    - items:
+      - wolf_pelt
+      - spider_silk
+      count: 2
+
 - key: mana_potion
   output: brewed_mana_potion
   family: common
@@ -246,6 +251,10 @@ recipes:
     - items:
       - serpent_skin
       count: 1
+    - items:
+      - spider_silk
+      count: 2
+
 - key: venom_flask
   output: venom_flask
   family: common
@@ -303,6 +312,10 @@ recipes:
       - lacquered_umbrella_rib
       - lacquered_comb
       count: 1
+    - items:
+      - wolf_pelt
+      count: 2
+
 - key: revival_potion
   output: brewed_revival_potion
   family: revival
@@ -321,4 +334,7 @@ recipes:
     - items:
       - diamond
       - emerald
+      count: 1
+    - items:
+      - fairy_dust
       count: 1

@@ -889,11 +889,11 @@ func (g *MMGame) isTimedBuffID(id string) bool {
 // tickBuff decrements the duration of an active timed buff and runs onExpire
 // when it hits zero. Shared by all utility spells with active/duration pairs.
 // Returns true if the buff was active this tick (regardless of expiration).
-func tickBuff(active *bool, duration *int, onExpire func()) bool {
+func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
 	if !*active {
 		return false
 	}
-	*duration--
+	*duration -= frames
 	if *duration <= 0 {
 		*active = false
 		*duration = 0

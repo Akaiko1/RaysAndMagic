@@ -488,7 +488,7 @@ func (ih *InputHandler) handleVictoryInput() {
 	ih.handleVictoryNameInput()
 
 	// Enter to save score
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+	if ih.keyHeld(ebiten.KeyEnter) {
 		ih.saveVictoryScore()
 	}
 
@@ -854,26 +854,26 @@ func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest) {
 func (ih *InputHandler) handleMovementInput() {
 	moveScale := ih.movementScale()
 	// Rotation
-	if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
+	if ih.keyHeld(ebiten.KeyLeft) || ih.keyHeld(ebiten.KeyA) {
 		ih.game.camera.Angle -= ih.game.config.GetRotSpeed() * moveScale
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+	if ih.keyHeld(ebiten.KeyRight) || ih.keyHeld(ebiten.KeyD) {
 		ih.game.camera.Angle += ih.game.config.GetRotSpeed() * moveScale
 	}
 
 	// Forward/backward movement
-	if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW) {
+	if ih.keyHeld(ebiten.KeyUp) || ih.keyHeld(ebiten.KeyW) {
 		ih.moveForward()
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+	if ih.keyHeld(ebiten.KeyDown) || ih.keyHeld(ebiten.KeyS) {
 		ih.moveBackward()
 	}
 
 	// Strafe left/right
-	if ebiten.IsKeyPressed(ebiten.KeyQ) {
+	if ih.keyHeld(ebiten.KeyQ) {
 		ih.strafeLeft()
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyE) {
+	if ih.keyHeld(ebiten.KeyE) {
 		ih.strafeRight()
 	}
 }
@@ -896,11 +896,11 @@ func (ih *InputHandler) handleCombatInput() {
 	fJust := ih.keys.Consume(ebiten.KeyF)
 	cJust := ih.keys.Consume(ebiten.KeyC)
 	hJust := ih.keys.Consume(ebiten.KeyH)
-	rHeld := ebiten.IsKeyPressed(ebiten.KeyR)
-	spaceHeld := ebiten.IsKeyPressed(ebiten.KeySpace)
-	fHeld := ebiten.IsKeyPressed(ebiten.KeyF)
-	cHeld := ebiten.IsKeyPressed(ebiten.KeyC)
-	hHeld := ebiten.IsKeyPressed(ebiten.KeyH)
+	rHeld := ih.keyHeld(ebiten.KeyR)
+	spaceHeld := ih.keyHeld(ebiten.KeySpace)
+	fHeld := ih.keyHeld(ebiten.KeyF)
+	cHeld := ih.keyHeld(ebiten.KeyC)
+	hHeld := ih.keyHeld(ebiten.KeyH)
 
 	// No attacks/casts/shots while running - you must stop sprinting to act.
 	// Wyrmspine Wing or an active Grandmaster pathfinder frees the whole party.
@@ -1180,13 +1180,13 @@ func (ih *InputHandler) castBestHeal(sel *character.MMCharacter, recipient int) 
 func (ih *InputHandler) handleCharacterSelectionInput() {
 	target := -1
 	switch {
-	case ebiten.IsKeyPressed(ebiten.Key1):
+	case ih.keyHeld(ebiten.Key1):
 		target = 0
-	case ebiten.IsKeyPressed(ebiten.Key2):
+	case ih.keyHeld(ebiten.Key2):
 		target = 1
-	case ebiten.IsKeyPressed(ebiten.Key3):
+	case ih.keyHeld(ebiten.Key3):
 		target = 2
-	case ebiten.IsKeyPressed(ebiten.Key4):
+	case ih.keyHeld(ebiten.Key4):
 		target = 3
 	}
 	if target < 0 || target >= len(ih.game.party.Members) {
@@ -1704,7 +1704,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// Number-key selection has the same manual-park semantics as a portrait
 	// click, including for a dead or eradicated member whose inventory is open.
 	for idx, key := range [...]ebiten.Key{ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4} {
-		if ebiten.IsKeyPressed(key) && ih.game.selectPartyMemberManually(idx) {
+		if ih.keyHeld(key) && ih.game.selectPartyMemberManually(idx) {
 			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
 		}
 	}
@@ -1866,13 +1866,13 @@ func (ih *InputHandler) handleDialogInput() {
 	// skillTrainerPopup flag and peels off the popup before the dialog).
 
 	// Navigate characters with Left/Right arrows
-	if ebiten.IsKeyPressed(ebiten.KeyLeft) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyLeft) && ih.game.spellInputCooldown == 0 {
 		if ih.game.selectedCharIdx > 0 {
 			ih.game.selectedCharIdx--
 		}
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyRight) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyRight) && ih.game.spellInputCooldown == 0 {
 		if ih.game.selectedCharIdx < len(ih.game.party.Members)-1 {
 			ih.game.selectedCharIdx++
 		}
@@ -2598,7 +2598,7 @@ func (ih *InputHandler) handleArenaGladiatorInput() {
 	case 2:
 		// Wheel scrolls the board; the draw pass clamps against line count.
 		wheelX, wheelY := ebiten.Wheel()
-		detailHeld := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+		detailHeld := ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight)
 		if wheel := arenaBoardWheelDelta(wheelX, wheelY, detailHeld); wheel != 0 {
 			ih.game.arenaBoardScroll = arenaBoardScrollAfterWheel(ih.game.arenaBoardScroll, wheel)
 		}
@@ -2627,19 +2627,19 @@ func (ih *InputHandler) handleSpellTraderInput() {
 
 	spellKeys := npcSpellKeys(ih.game.dialogNPC)
 
-	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionDown(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
 	// Purchase spell with Enter
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
 		ih.purchaseSelectedSpell()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
@@ -2739,13 +2739,13 @@ func (ih *InputHandler) handleEncounterInput() {
 	}
 
 	// Navigate choices with Up/Down arrows
-	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		if ih.game.selectedChoice > 0 {
 			ih.game.selectedChoice--
 		}
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
 		if ih.game.selectedChoice < len(choices)-1 {
 			ih.game.selectedChoice++
 		}

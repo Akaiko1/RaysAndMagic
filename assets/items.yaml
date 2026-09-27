@@ -2390,6 +2390,25 @@ items:
     bonus_might: 4
     bonus_endurance: 4
 
+  wolf_pelt:
+    name: Wolf Pelt
+    type: trinket
+    description: Dense woodland fur for restorative stock and slow-burning oil.
+    rarity: common
+    value: 12
+  spider_silk:
+    name: Spider Silk
+    type: trinket
+    description: Strong silken thread used to bind wounds and suspend abrasive mixtures.
+    rarity: common
+    value: 18
+  fairy_dust:
+    name: Fairy Dust
+    type: trinket
+    description: Golden dust whose lingering spark can restore a fallen life.
+    rarity: rare
+    value: 90
+
   # Alchemical reagents and distinct brewed products.
   dawnleaf:
     name: Dawnleaf

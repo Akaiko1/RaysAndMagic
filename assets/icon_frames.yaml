@@ -6,6 +6,9 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_item_wolf_pelt: basic
+  icon_item_spider_silk: basic
+  icon_item_fairy_dust: basic
   icon_item_chainwork_greaves: basic
   icon_item_chainwork_hauberk: basic
   icon_item_chainwork_helm: basic

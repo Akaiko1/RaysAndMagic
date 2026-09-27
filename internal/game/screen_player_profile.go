@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func (ui *UISystem) profileButton(screen *ebiten.Image, label string, r layoutRe
 }
 
 func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, size int) {
-	if y+size < 0 || y >= screen.Bounds().Dy() {
+	if y+size <= screen.Bounds().Min.Y || y >= screen.Bounds().Max.Y {
 		return
 	}
 	var img *ebiten.Image
@@ -94,77 +95,97 @@ func profileText(s string, width int) string {
 	return truncateName(s, max(1, width/debugTextCharWidth))
 }
 
+type profileAchievementsLayout struct {
+	panel, body                         layoutRect
+	columns, columnW, contentH, footerY int
+}
+
+func makeProfileAchievementsLayout(w, h, count int) profileAchievementsLayout {
+	r := profilePanelRect(w, h)
+	iw := r.w - 2*menuFrameInset
+	cols := 1
+	if iw >= 820 {
+		cols = 2
+	}
+	footer := r.bottom() - menuFrameInset - menuBackButtonH
+	bodyY := r.y + menuFrameInset + 64
+	return profileAchievementsLayout{panel: r, body: layoutRect{r.x + menuFrameInset, bodyY, iw, max(1, footer-bodyY-16)}, columns: cols, columnW: (iw - 12 - (cols-1)*16) / cols, contentH: ((count + cols - 1) / cols) * 104, footerY: footer}
+}
+
+func (g *MMGame) updateAchievementsKeys(pressed func(ebiten.Key) bool) {
+	l := makeProfileAchievementsLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight(), len(config.GetAchievements()))
+	_, wheel := pointerWheel()
+	mx, my := pointerPosition()
+	if !isMouseHoveringBox(mx, my, l.body.x, l.body.y, l.body.right(), l.body.bottom()) {
+		wheel = 0
+	}
+	g.achievementsScroll = profileScrollInput(g.achievementsScroll, max(0, l.contentH-l.body.h), l.body.h, wheel, pressed)
+}
+
 func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	g := ui.game
-	r := profilePanelRect(w, h)
-	ui.drawPanel(screen, "menu_panel_wide", r.x, r.y, r.w, r.h)
+	defs := config.GetAchievements()
+	l := makeProfileAchievementsLayout(w, h, len(defs))
+	r := l.panel
+	ui.drawThemeFrame(screen, frameGold, r.x, r.y, r.w, r.h)
 	ui.drawPanelInlay(screen, frameGold, r.x+r.w/2, r.y)
 	ui.drawCornerDecor(screen, frameGold, r.x-8, r.y-8, r.w+16, r.h+16, decorAllCorners)
-	x, y, innerW := r.x+menuFrameInset, r.y+menuFrameInset, r.w-2*menuFrameInset
-	defs := config.GetAchievements()
-	unlocked := 0
+	x, y := l.body.x, r.y+menuFrameInset
+	unlockedCount := 0
 	for _, def := range defs {
 		if g.playerProfile != nil {
 			if _, ok := g.playerProfile.Data.Unlocked[def.Key]; ok {
-				unlocked++
+				unlockedCount++
 			}
 		}
 	}
 	drawScaledMetalCenteredTextAlpha(screen, "ACHIEVEMENTS", r.x+r.w/2, y+10, 2, profileGold, 1)
-	drawDebugTextColored(screen, fmt.Sprintf("%d / %d earned across all adventures", unlocked, len(defs)), x, y+36, profileMuted)
-	bottom := r.y + r.h - menuFrameInset - menuBackButtonH
-	cols := 2
-	if innerW < 820 {
-		cols = 1
-	}
-	rowH := 100
-	rows := max(1, (bottom-y-66)/rowH)
-	totalRows := (len(defs) + cols - 1) / cols
-	maxScroll := max(0, totalRows-rows)
-	g.achievementsScroll = max(0, min(g.achievementsScroll, maxScroll))
-	cw := (innerW - (cols-1)*16) / cols
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
-			idx := (g.achievementsScroll+row)*cols + col
-			if idx >= len(defs) {
+	drawDebugTextColored(screen, fmt.Sprintf("%d / %d earned across all adventures", unlockedCount, len(defs)), x, y+36, profileMuted)
+	drawFilledRect(screen, x, y+53, l.body.w, 3, color.RGBA{50, 41, 43, 255})
+	drawFilledRect(screen, x, y+53, l.body.w*unlockedCount/max(1, len(defs)), 3, profileGold)
+	g.achievementsScroll = max(0, min(g.achievementsScroll, max(0, l.contentH-l.body.h)))
+	clip := image.Rect(l.body.x, l.body.y, l.body.right(), l.body.bottom()).Intersect(screen.Bounds())
+	dst := screen.SubImage(clip).(*ebiten.Image)
+	for idx, def := range defs {
+		cx, cy := x+(idx%l.columns)*(l.columnW+16), l.body.y+(idx/l.columns)*104-g.achievementsScroll
+		if cy+96 <= clip.Min.Y || cy >= clip.Max.Y {
+			continue
+		}
+		stamp := time.Time{}
+		progress := int64(0)
+		if g.playerProfile != nil {
+			stamp = g.playerProfile.Data.Unlocked[def.Key]
+			progress = g.playerProfile.Data.AchievementProgress(def.AnyOf)
+		}
+		unlocked := !stamp.IsZero()
+		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 94}, unlocked)
+		ui.profileIcon(dst, def.Icon, def.Name, cx+10, cy+14, 64)
+		if !unlocked {
+			drawFilledRect(dst, cx+10, cy+14, 64, 64, color.RGBA{0, 0, 0, 115})
+		}
+		tx, tw := cx+86, l.columnW-100
+		drawDebugTextColored(dst, profileText(def.Name, tw), tx, cy+11, profileGold)
+		for i, line := range wrapArenaBoardLine(def.Description, tw) {
+			if i >= 2 {
 				break
 			}
-			def := defs[idx]
-			cx, cy := x+col*(cw+16), y+60+row*rowH
-			stamp := time.Time{}
-			progress := int64(0)
-			if g.playerProfile != nil {
-				stamp = g.playerProfile.Data.Unlocked[def.Key]
-				progress = g.playerProfile.Data.AchievementProgress(def.AnyOf)
-			}
-			unlocked := !stamp.IsZero()
-			ui.drawProfileCard(screen, layoutRect{cx, cy, cw, rowH - 12}, unlocked)
-			ui.profileIcon(screen, def.Icon, def.Name, cx+8, cy+10, 64)
-			if !unlocked {
-				drawFilledRect(screen, cx+8, cy+10, 64, 64, color.RGBA{0, 0, 0, 130})
-			}
-			tx, tw := cx+84, cw-96
-			drawDebugTextColored(screen, profileText(def.Name, tw), tx, cy+9, profileGold)
-			lines := wrapArenaBoardLine(def.Description, tw)
-			for i, line := range lines {
-				if i >= 2 {
-					break
-				}
-				drawDebugTextColored(screen, line, tx, cy+28+i*14, profileMuted)
-			}
-			status := fmt.Sprintf("Locked  %d/%d", min(progress, def.Target), def.Target)
-			clr := profileMuted
-			if unlocked {
-				status = "Earned " + stamp.Local().Format("02 Jan 2006")
-				clr = profileGreen
-			}
-			drawDebugTextColored(screen, status, tx, cy+62, clr)
+			drawDebugTextColored(dst, line, tx, cy+31+i*14, profileMuted)
 		}
+		status := fmt.Sprintf("%d / %d", min(progress, def.Target), def.Target)
+		clr := profileMuted
+		if unlocked {
+			status = "Earned " + stamp.Local().Format("02 Jan 2006")
+			clr = profileGreen
+			progress = def.Target
+		}
+		drawDebugTextColored(dst, status, tx, cy+64, clr)
+		drawFilledRect(dst, tx, cy+81, tw, 3, color.RGBA{47, 39, 45, 255})
+		drawFilledRect(dst, tx, cy+81, int(int64(tw)*min(progress, def.Target)/max(int64(1), def.Target)), 3, clr)
 	}
-	ui.drawBackButton(screen, x, bottom, func() { g.entryMenuMode = EntryMenuRoot })
-	ui.profileButton(screen, "< Prev", layoutRect{x + innerW - 190, bottom, 86, 30}, g.achievementsScroll > 0, func() { g.achievementsScroll = max(0, g.achievementsScroll-rows) })
-	ui.profileButton(screen, "Next >", layoutRect{x + innerW - 94, bottom, 94, 30}, g.achievementsScroll < maxScroll, func() { g.achievementsScroll = min(maxScroll, g.achievementsScroll+rows) })
-	ui.drawProfileError(screen, x, bottom-18, innerW)
+	drawProfileScrollbar(screen, layoutRect{l.body.right() - 5, l.body.y, 3, l.body.h}, g.achievementsScroll, l.contentH)
+	ui.drawBackButton(screen, x, l.footerY, func() { g.entryMenuMode = EntryMenuRoot })
+	drawDebugTextColored(screen, "Scroll / PgUp / PgDn", x+126, l.footerY+9, profileMuted)
+	ui.drawProfileError(screen, x, l.footerY-16, l.body.w)
 }
 
 type profileRankingSpec struct {
@@ -187,6 +208,7 @@ var profilePages = []profilePageSpec{
 	{"Discoveries", []profileCounterSpec{{"Loot found", "loot", "icon_achievement_jailbreak", false}, {"Gold earned", "gold", "icon_achievement_victory", false}, {"Regions explored", "exploration", "icon_item_world_map", false}}, []profileRankingSpec{{"Most common loot", "loot", "units found", false}, {"Regions explored", "exploration", "% of all region tiles", false}, {"Most valuable finds", "valuable_loot", "highest base gold per item", false}}},
 	{"Trophies", []profileCounterSpec{{"Bosses defeated", "bosses", "icon_achievement_warlord", false}, {"Items traded", "items_traded", "icon_item_clock_hand", false}, {"Quests completed", "quest_rewards", "icon_achievement_archmage", false}}, []profileRankingSpec{{"Bosses defeated", "bosses", "kills by boss", false}, {"Trade offerings", "items_traded", "item units paid to merchants", false}, {"Quests completed", "quest_rewards", "completions by quest", false}}},
 	{"Collecting", []profileCounterSpec{{"Cards found", "cards_found", "icon_item_goblin_card", false}, {"Chest loot", "chest_loot", "chest_golden", false}, {"Legendary drops", "legendary_loot", "icon_weapon_wyrmcleaver", false}}, []profileRankingSpec{{"Cards found", "cards_found", "units found, all rarities", false}, {"Loot from chests", "chest_loot", "item units, excludes gold", false}, {"Legendary loot", "legendary_loot", "units found, excludes cards", false}}},
+	{"Arena", []profileCounterSpec{{"Champions defeated", "arena_wins", "icon_achievement_warlord", false}, {"Arena points earned", "arena_points", "icon_achievement_victory", false}, {"Victorious parties", "arena_parties", "icon_achievement_full_roster", false}}, []profileRankingSpec{{"Defeated champions", "arena_champions", "victories", false}, {"Difficulty tiers", "arena_tiers", "victories", false}, {"Party records", "arena_parties", "points earned", false}}},
 }
 
 func profileTabRect(x, y, width, index int) layoutRect {
@@ -212,12 +234,13 @@ func profileValue(n int64, duration bool) string {
 	return s
 }
 
-const profileRanksPerPage = 5
+const profileRankingRowH = 64
 
 type profileStatsLayout struct {
 	panel, body                                                     layoutRect
 	columns, columnW, counterRows, rankRows, rankY, rankH, contentH int
 	footerY                                                         int
+	counterColumns, counterW                                        int
 }
 
 func makeProfileStatsLayout(w, h int, page profilePageSpec) profileStatsLayout {
@@ -232,40 +255,92 @@ func makeProfileStatsLayout(w, h int, page profilePageSpec) profileStatsLayout {
 	footer := r.y + r.h - menuFrameInset - 30
 	bodyY := r.y + menuFrameInset + 76
 	l := profileStatsLayout{panel: r, body: layoutRect{x, bodyY, iw, max(1, footer-bodyY-14)}, columns: columns, columnW: (iw - 12 - (columns-1)*14) / columns, footerY: footer}
-	l.counterRows = (len(page.counters) + columns - 1) / columns
+	l.counterColumns = columns
+	if iw >= 600 {
+		l.counterColumns = min(3, len(page.counters))
+	}
+	l.counterW = (iw - 12 - (l.counterColumns-1)*14) / l.counterColumns
+	l.counterRows = (len(page.counters) + l.counterColumns - 1) / l.counterColumns
 	l.rankRows = (len(page.rankings) + columns - 1) / columns
 	l.rankY = l.counterRows*100 + 8
-	l.rankH = 144 + (profileRanksPerPage-1)*50 + 24
+	l.rankH = 360
 	l.contentH = l.rankY + l.rankRows*(l.rankH+14) + 106
 	return l
 }
 
-func (g *MMGame) updatePlayerStatisticsKeys(pressed func(ebiten.Key) bool) {
-	l := makeProfileStatsLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight(), profilePages[max(0, min(g.statisticsTab, len(profilePages)-1))])
-	_, wheel := ebiten.Wheel()
-	mx, my := pointerPosition()
-	if isMouseHoveringBox(mx, my, l.body.x, l.body.y, l.body.x+l.body.w, l.body.y+l.body.h) {
-		g.statisticsScroll -= int(wheel * 48)
+func (l profileStatsLayout) rankingRect(i, scroll int) layoutRect {
+	return layoutRect{l.body.x + (i%l.columns)*(l.columnW+14), l.body.y - scroll + l.rankY + (i/l.columns)*(l.rankH+14), l.columnW, l.rankH}
+}
+
+func profileRankingBody(r layoutRect) layoutRect {
+	return layoutRect{r.x + 8, r.y + 48, r.w - 16, max(1, r.h-76)}
+}
+
+func (g *MMGame) setStatisticsTab(tab int) {
+	if g.statisticsTabScroll == nil {
+		g.statisticsTabScroll = make(map[int]int)
 	}
+	g.statisticsTabScroll[g.statisticsTab] = g.statisticsScroll
+	g.statisticsTab = tab
+	g.statisticsScroll = g.statisticsTabScroll[tab]
+}
+
+func profileScrollInput(offset, limit, viewport int, wheel float64, pressed func(ebiten.Key) bool) int {
+	delta := int(wheel * 48)
+	if delta == 0 && wheel != 0 {
+		if wheel > 0 {
+			delta = 1
+		} else {
+			delta = -1
+		}
+	}
+	offset -= delta
 	if pressed(ebiten.KeyDown) {
-		g.statisticsScroll += 48
+		offset += 48
 	}
 	if pressed(ebiten.KeyUp) {
-		g.statisticsScroll -= 48
+		offset -= 48
 	}
 	if pressed(ebiten.KeyPageDown) {
-		g.statisticsScroll += l.body.h - 40
+		offset += max(1, viewport-40)
 	}
 	if pressed(ebiten.KeyPageUp) {
-		g.statisticsScroll -= l.body.h - 40
+		offset -= max(1, viewport-40)
 	}
 	if pressed(ebiten.KeyHome) {
-		g.statisticsScroll = 0
+		offset = 0
 	}
 	if pressed(ebiten.KeyEnd) {
-		g.statisticsScroll = l.contentH
+		offset = limit
 	}
-	g.statisticsScroll = max(0, min(g.statisticsScroll, max(0, l.contentH-l.body.h)))
+	return max(0, min(offset, limit))
+}
+
+func (g *MMGame) updatePlayerStatisticsKeys(pressed func(ebiten.Key) bool) {
+	spec := profilePages[max(0, min(g.statisticsTab, len(profilePages)-1))]
+	l := makeProfileStatsLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight(), spec)
+	_, wheel := pointerWheel()
+	mx, my := pointerPosition()
+	if isMouseHoveringBox(mx, my, l.body.x, l.body.y, l.body.right(), l.body.bottom()) {
+		for i, rs := range spec.rankings {
+			r := profileRankingBody(l.rankingRect(i, g.statisticsScroll))
+			if isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()) {
+				if g.statisticsRankingScroll == nil {
+					g.statisticsRankingScroll = make(map[string]int)
+				}
+				before := g.statisticsRankingScroll[rs.group]
+				g.statisticsRankingScroll[rs.group] = profileScrollInput(before, g.statisticsRankingLimits[rs.group], r.h, wheel, pressed)
+				if before != g.statisticsRankingScroll[rs.group] {
+					g.statisticsRevision++
+					return
+				}
+				break
+			}
+		}
+	} else {
+		wheel = 0
+	}
+	g.statisticsScroll = profileScrollInput(g.statisticsScroll, max(0, l.contentH-l.body.h), l.body.h, wheel, pressed)
 }
 
 func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
@@ -281,10 +356,11 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	drawScaledMetalCenteredTextAlpha(screen, "PLAYER STATISTICS", r.x+r.w/2, y+10, 2, profileGold, 1)
 	for i, page := range profilePages {
 		label := page.title
+		tab := profileTabRect(x, y, iw, i)
+		ui.profileButton(screen, profileText(label, tab.w-20), tab, true, func() { g.setStatisticsTab(i) })
 		if i == g.statisticsTab {
-			label = "[ " + label + " ]"
+			drawFilledRect(screen, tab.x+10, tab.bottom()-4, tab.w-20, 2, profileGold)
 		}
-		ui.profileButton(screen, label, profileTabRect(x, y, iw, i), true, func() { g.statisticsTab = i; g.statisticsPage = 0; g.statisticsScroll = 0 })
 	}
 	var d playerprofile.Data
 	if g.playerProfile != nil {
@@ -292,11 +368,16 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	} else {
 		d = playerprofile.New()
 	}
-	maxPages := 1
-	for _, rs := range spec.rankings {
-		maxPages = max(maxPages, (len(ui.profileRankingEntries(rs, &d))+profileRanksPerPage-1)/profileRanksPerPage)
+	if spec.title == "Arena" {
+		ui.ensureProfileArena()
+		d = *ui.profileArena
 	}
-	g.statisticsPage = max(0, min(g.statisticsPage, maxPages-1))
+	if g.statisticsRankingLimits == nil {
+		g.statisticsRankingLimits = make(map[string]int)
+	}
+	if g.statisticsRankingScroll == nil {
+		g.statisticsRankingScroll = make(map[string]int)
+	}
 	maxScroll := max(0, l.contentH-l.body.h)
 	g.statisticsScroll = max(0, min(g.statisticsScroll, maxScroll))
 	if ui.profileViewport == nil || ui.profileViewport.Bounds().Dx() != l.body.w || ui.profileViewport.Bounds().Dy() != l.body.h {
@@ -309,19 +390,29 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	dst.Clear()
 	offset := -g.statisticsScroll
 	for i, c := range spec.counters {
-		cx, cy := (i%l.columns)*(l.columnW+14), offset+(i/l.columns)*100
-		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 86}, true)
-		ui.profileIcon(dst, c.icon, c.title, cx+12, cy+13, 60)
-		drawDebugTextColored(dst, profileText(c.title, l.columnW-92), cx+84, cy+14, profileMuted)
+		cx, cy := (i%l.counterColumns)*(l.counterW+14), offset+(i/l.counterColumns)*100
+		ui.drawProfileCard(dst, layoutRect{cx, cy, l.counterW, 86}, true)
+		iconSize := min(60, l.counterW/5)
+		tx := cx + iconSize + 24
+		tw := l.counterW - iconSize - 36
+		ui.profileIcon(dst, c.icon, c.title, cx+12, cy+(86-iconSize)/2, iconSize)
+		drawDebugTextColored(dst, profileText(c.title, tw), tx, cy+14, profileMuted)
 		val := ui.profileCounterValue(c, &d)
-		drawScaledMetalCenteredTextAlpha(dst, val, cx+84+(l.columnW-92)/2, cy+52, 2, profileGold, 1)
+		drawScaledMetalCenteredTextAlpha(dst, val, tx+tw/2, cy+52, 2, profileGold, 1)
 	}
 	for i, rs := range spec.rankings {
 		rr := layoutRect{(i % l.columns) * (l.columnW + 14), offset + l.rankY + (i/l.columns)*(l.rankH+14), l.columnW, l.rankH}
-		ui.drawProfileRanking(dst, rs, ui.profileRankingEntries(rs, &d), rr, g.statisticsPage*profileRanksPerPage, profileRanksPerPage)
+		entries := ui.profileRankingEntries(rs, &d)
+		limit := max(0, len(entries)*profileRankingRowH-profileRankingBody(rr).h)
+		g.statisticsRankingLimits[rs.group] = limit
+		g.statisticsRankingScroll[rs.group] = max(0, min(g.statisticsRankingScroll[rs.group], limit))
+		ui.drawProfileRanking(dst, rs, entries, rr, g.statisticsRankingScroll[rs.group])
 	}
 	sy := offset + l.rankY + l.rankRows*(l.rankH+14) + 4
 	summary := fmt.Sprintf("Bosses %s   Steps %s   Highest level %s   Party wipes %s", profileValue(d.Counters["bosses"], false), profileValue(d.Counters["steps"], false), profileValue(d.Counters["highest_level"], false), profileValue(d.Counters["defeats"], false))
+	if spec.title == "Arena" {
+		summary = "THE ARENA  /  Recorded victories across all adventures"
+	}
 	for _, line := range wrapArenaBoardLine(summary, iw-18) {
 		drawDebugTextColored(dst, line, 0, sy, profileGold)
 		sy += 15
@@ -344,6 +435,13 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	if g.statisticsTab == 4 {
 		detail = "Cards are separate from legendary loot. Chest item counts exclude gold and roadside boxes. Chest detail starts with new finds."
 	}
+	if spec.title == "Arena" {
+		note = "Records from the arena leaderboard, including earlier adventures."
+		detail = "Only credited champion victories count. Shop spending and quest points are excluded."
+		if ui.profileArenaError != "" {
+			note = ui.profileArenaError
+		}
+	}
 	for _, text := range []string{note, detail} {
 		sy += 5
 		for _, line := range wrapArenaBoardLine(text, iw-18) {
@@ -352,90 +450,68 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		}
 	}
 	drawImageScaled(screen, dst, l.body.x, l.body.y, l.body.w, l.body.h)
-	if maxScroll > 0 {
-		trackX := l.body.x + l.body.w - 6
-		drawFilledRect(screen, trackX, l.body.y, 4, l.body.h, color.RGBA{56, 46, 44, 255})
-		thumbH := max(24, l.body.h*l.body.h/l.contentH)
-		thumbY := l.body.y + (l.body.h-thumbH)*g.statisticsScroll/maxScroll
-		drawFilledRect(screen, trackX, thumbY, 4, thumbH, profileGold)
-	}
+	drawProfileScrollbar(screen, layoutRect{l.body.right() - 6, l.body.y, 4, l.body.h}, g.statisticsScroll, l.contentH)
 	bottom := l.footerY
 	ui.drawBackButton(screen, x, bottom, func() { g.entryMenuMode = EntryMenuRoot })
-	if maxScroll > 0 {
-		drawDebugTextColored(screen, "Scroll / PgUp / PgDn", x+126, bottom+9, profileMuted)
-	}
-	if iw >= 690 {
-		drawDebugTextColored(screen, fmt.Sprintf("Page %d/%d", g.statisticsPage+1, maxPages), x+iw-280, bottom+9, profileMuted)
-	}
-	changePage := func(delta int) {
-		g.statisticsPage = (g.statisticsPage + delta + maxPages) % maxPages
-		g.statisticsScroll = 0
-	}
-	ui.profileButton(screen, "< Prev", layoutRect{x + iw - 184, bottom, 86, 30}, maxPages > 1, func() { changePage(-1) })
-	ui.profileButton(screen, "Next >", layoutRect{x + iw - 90, bottom, 90, 30}, maxPages > 1, func() { changePage(1) })
+	drawDebugTextColored(screen, profileText("Scroll over a list to browse it", iw-138), x+126, bottom+9, profileMuted)
 	ui.drawProfileError(screen, x, y-16, iw)
 }
 
-func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, start, limit int) {
-	ui.drawProfileCard(screen, r, true)
-	drawDebugTextColored(screen, profileText(spec.title, r.w-24), r.x+12, r.y+12, profileGold)
-	drawDebugTextColored(screen, spec.unit, r.x+12, r.y+30, profileMuted)
-	if start >= len(entries) {
-		drawDebugTextColored(screen, "No records yet.", r.x+16, r.y+90, profileMuted)
+func drawProfileScrollbar(dst *ebiten.Image, track layoutRect, offset, contentH int) {
+	limit := max(0, contentH-track.h)
+	if limit == 0 {
 		return
 	}
-	maxValue := max(int64(1), spec.score(entries[0]))
-	if spec.group == "exploration" {
-		maxValue = 1000
-	}
-	total := int64(0)
-	for _, e := range entries {
-		total += e.Count
-	}
-	for row := 0; row < limit && start+row < len(entries); row++ {
-		e := entries[start+row]
-		if spec.group == "classes" {
-			e.Icon = ui.game.largePortraitSpriteName(e.Icon)
+	drawFilledRect(dst, track.x, track.y, track.w, track.h, color.RGBA{43, 37, 43, 255})
+	h := max(16, track.h*track.h/contentH)
+	y := track.y + (track.h-h)*min(offset, limit)/limit
+	drawFilledRect(dst, track.x, y, track.w, h, profileGold)
+}
+
+func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, scroll int) {
+	ui.drawProfileCard(screen, r, false)
+	drawDebugTextColored(screen, profileText(strings.ToUpper(spec.title), r.w-28), r.x+14, r.y+12, profileGold)
+	drawDebugTextColored(screen, profileText(spec.unit, r.w-28), r.x+14, r.y+29, profileMuted)
+	body := profileRankingBody(r)
+	clip := image.Rect(body.x, body.y, body.right(), body.bottom()).Intersect(screen.Bounds())
+	if !clip.Empty() {
+		dst := screen.SubImage(clip).(*ebiten.Image)
+		if len(entries) == 0 {
+			drawDebugTextColored(dst, "No records yet", body.x+10, body.y+20, profileMuted)
 		}
-		idx := start + row
-		if row == 0 {
-			size := min(76, r.w/3)
-			ix, iy := r.x+14, r.y+53
-			ui.profileIcon(screen, e.Icon, e.Name, ix, iy, size)
-			tx, tw := ix+size+12, r.w-size-40
-			drawDebugTextColored(screen, fmt.Sprintf("#%d", idx+1), tx, iy, profileMuted)
-			for i, line := range wrapArenaBoardLine(e.Name, tw) {
-				if i >= 2 {
-					break
-				}
-				drawDebugTextColored(screen, line, tx, iy+18+i*14, profileGold)
+		var maximum int64 = 1
+		if len(entries) > 0 {
+			maximum = max(maximum, spec.score(entries[0]))
+		}
+		if spec.group == "exploration" {
+			maximum = 1000
+		}
+		for i, e := range entries {
+			if spec.group == "classes" {
+				e.Icon = ui.game.largePortraitSpriteName(e.Icon)
 			}
-			drawDebugTextColored(screen, spec.entryValue(e), tx, iy+size-15, profileGreen)
+			cy := body.y + i*profileRankingRowH - scroll
+			if cy+profileRankingRowH <= clip.Min.Y || cy >= clip.Max.Y {
+				continue
+			}
+			if i%2 == 0 {
+				drawFilledRect(dst, body.x, cy, body.w-8, profileRankingRowH-2, color.RGBA{35, 30, 39, 130})
+			}
+			ui.profileIcon(dst, e.Icon, e.Name, body.x+5, cy+7, 44)
+			tx, tw := body.x+58, body.w-76
+			name := fmt.Sprintf("%d. %s", i+1, e.Name)
+			drawDebugTextColored(dst, profileText(name, tw), tx, cy+8, profileGold)
+			value := spec.entryValue(e)
 			if spec.group == "valuable_loot" {
-				drawDebugTextColored(screen, "Found: "+profileValue(e.Count, false), tx, iy+size+2, profileMuted)
+				value += "  /  Found " + profileValue(e.Count, false)
 			}
-			continue
+			drawDebugTextColored(dst, profileText(value, tw), tx, cy+27, profileGreen)
+			drawFilledRect(dst, tx, cy+47, tw, 3, color.RGBA{53, 44, 52, 255})
+			drawFilledRect(dst, tx, cy+47, max(1, int(float64(spec.score(e))/float64(maximum)*float64(tw))), 3, color.RGBA{151, 120, 66, 255})
 		}
-		cy := r.y + 144 + (row-1)*50
-		ui.profileIcon(screen, e.Icon, e.Name, r.x+12, cy, 38)
-		tx, tw := r.x+60, r.w-72
-		val := spec.entryValue(e)
-		drawDebugTextColored(screen, profileText(e.Name, tw-debugTextWidth(val)-12), tx, cy+1, profileMuted)
-		drawDebugTextColored(screen, val, r.x+r.w-12-debugTextWidth(val), cy+1, profileGold)
-		if spec.group == "valuable_loot" {
-			drawDebugTextColored(screen, "Found: "+profileValue(e.Count, false), tx, cy+14, profileMuted)
-		}
-		bw := int(float64(spec.score(e)) / float64(maxValue) * float64(tw))
-		barY := cy + 23
-		if spec.group == "valuable_loot" {
-			barY = cy + 32
-		}
-		drawFilledRect(screen, tx, barY, tw, 5, color.RGBA{43, 34, 45, 255})
-		drawFilledRect(screen, tx, barY, bw, 5, color.RGBA{128, 104, 62, 255})
+		drawProfileScrollbar(dst, layoutRect{body.right() - 4, body.y, 3, body.h}, scroll, len(entries)*profileRankingRowH)
 	}
-	if total > 0 || spec.group == "exploration" {
-		drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+16, r.y+r.h-24, profileMuted)
-	}
+	drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+14, r.bottom()-21, profileMuted)
 }
 
 func (ui *UISystem) drawProfileError(screen *ebiten.Image, x, y, w int) {

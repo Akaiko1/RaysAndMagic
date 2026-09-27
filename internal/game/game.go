@@ -717,10 +717,13 @@ type MMGame struct {
 	profileKilled                          map[string]bool
 	pendingAchievements                    []config.AchievementDef
 	statisticsTab                          int
-	statisticsPage                         int
+	statisticsRevision                     int
+	statisticsTabScroll                    map[int]int
+	statisticsRankingScroll                map[string]int
+	statisticsRankingLimits                map[string]int
 	statisticsScroll                       int
 
-	achievementsScroll int               // achievements list scroll offset (rows)
+	achievementsScroll int               // achievements list scroll offset (pixels)
 	partyCreate        *partyCreateState // built lazily on entering AppScreenPartyCreate
 }
 
@@ -2640,7 +2643,7 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	g.spatialStepThisTurn = false
 	if len(initial) == 0 || !initial[0] {
 		g.tickRareClassClocks(TurnBasedPeriodicEffectSeconds * g.config.GetTPS())
-		g.tickCombatBuffsTurn(TurnBasedPeriodicEffectSeconds * g.config.GetTPS())
+		g.tickPartyBuffsTurn()
 		for _, ch := range g.party.Members {
 			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
 			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())

@@ -283,10 +283,17 @@ type DayNightPackConfig struct {
 // QuestProgress opts this member into normal kill-quest tracking. Ambient pack
 // members are ignored by default so they do not block map-clear objectives.
 type PackMemberConfig struct {
-	Monster       string `yaml:"monster"`
-	Count         int    `yaml:"count"`
-	QuestProgress bool   `yaml:"quest_progress,omitempty"`
-	MinPartyLevel int    `yaml:"min_party_level,omitempty"`
+	Monster       string                 `yaml:"monster"`
+	Count         int                    `yaml:"count"`
+	QuestProgress bool                   `yaml:"quest_progress,omitempty"`
+	MinPartyLevel int                    `yaml:"min_party_level,omitempty"`
+	Replacement   *PackReplacementConfig `yaml:"replacement,omitempty"`
+}
+
+type PackReplacementConfig struct {
+	Monster       string  `yaml:"monster"`
+	MinPartyLevel int     `yaml:"min_party_level"`
+	Chance        float64 `yaml:"chance"`
 }
 
 // PhaseMembers resolves the monster kinds this pack spawns for the given phase:
@@ -1587,6 +1594,9 @@ func LoadConfig(filename string) (*Config, error) {
 				if member.MinPartyLevel < 0 {
 					return nil, fmt.Errorf("day_night pack %q: min_party_level must not be negative", pack.Map)
 				}
+				if r := member.Replacement; r != nil && (r.Monster == "" || r.MinPartyLevel < 1 || r.Chance <= 0 || r.Chance > 1) {
+					return nil, fmt.Errorf("day_night pack %q: invalid replacement", pack.Map)
+				}
 			}
 		}
 	}
@@ -2534,7 +2544,8 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 // ---------------- Loot Tables ----------------
 
 type LootTablesConfig struct {
-	Loots map[string][]LootEntry `yaml:"loots"`
+	Loots      map[string][]LootEntry `yaml:"loots"`
+	LootGroups map[string][]LootEntry `yaml:"loot_groups,omitempty"`
 	// BossLoot is appended to the normal loot table of every YAML-classified
 	// boss. This keeps universal boss drops data-driven without giving kills,
 	// theft, crates, and editor views divergent tables.
@@ -2667,6 +2678,9 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := yaml.Unmarshal(data, &loots); err != nil {
 		return nil, err
 	}
+	if err := expandMonsterLootGroups(&loots); err != nil {
+		return nil, err
+	}
 	if err := validateMonsterLoot(&loots); err != nil {
 		return nil, err
 	}
@@ -2689,6 +2703,9 @@ func validateLootEntry(scope string, index int, e LootEntry) error {
 	}
 	if e.Rolls < 0 {
 		return fmt.Errorf("%s[%d] %q: rolls must not be negative", scope, index, e.Key)
+	}
+	if e.Type == "harvest" {
+		return ValidateMonsterHarvestGrant(e.Key)
 	}
 	return validateLootCatalogReference(fmt.Sprintf("%s[%d]", scope, index), e.Type, e.Key)
 }

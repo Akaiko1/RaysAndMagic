@@ -166,8 +166,12 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 			if g.combatBuffDodgePct() != 15 || g.combatBuffSchoolResistPct("fire") != 30 || g.combatBuffs[0].Frames != 10 {
 				t.Fatal("load lost combined buff")
 			}
-			for i := 0; i < 10; i++ {
-				g.tickCombatBuffs()
+			if tb {
+				g.startPartyTurn()
+			} else {
+				for i := 0; i < 10; i++ {
+					g.tickCombatBuffs()
+				}
 			}
 			if g.combatBuffDodgePct() != 0 || g.combatBuffSchoolResistPct("fire") != 0 {
 				t.Fatal("expired buff still active")

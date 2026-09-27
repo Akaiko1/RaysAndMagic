@@ -7,6 +7,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -38,6 +39,8 @@ type UISystem struct {
 	profileArt              *profileArt
 	profileExplorationReady bool
 	profileExploration      profileExplorationSummary
+	profileArena            *playerprofile.Data
+	profileArenaError       string
 	game                    *MMGame
 	displayedInput          uiDisplayedInput
 	justOpenedStatPopup     bool
@@ -163,6 +166,8 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
+		ui.profileArena = nil
+		ui.profileArenaError = ""
 		ui.profileExplorationReady = false
 		ui.profileExploration = profileExplorationSummary{}
 	}

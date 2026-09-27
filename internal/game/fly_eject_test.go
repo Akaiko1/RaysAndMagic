@@ -22,9 +22,9 @@ func TestFlyEjectFromWall(t *testing.T) {
 	game.world.Tiles[5][5] = world.TileWall
 	placePlayerAtTile(game, 5, 5, ts)
 
-	// Fly ends this tick: tick the registry the way the game loop does.
+	// Fly ends at the next resolved TB round, not while the player thinks.
 	game.flyActive, game.flyDuration = true, 1
-	game.updateTimedBuffs()
+	game.startPartyTurn()
 
 	if game.flyActive {
 		t.Fatal("Fly should have expired")

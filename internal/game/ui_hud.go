@@ -1270,8 +1270,7 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		}
 		mouseX, mouseY := ebiten.CursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
-			seconds := float64(status.Duration) / float64(max(1, ui.game.config.GetTPS()))
-			ui.queueTooltipIcon([]string{statusLabel, fmt.Sprintf("%.1fs remaining", seconds), "Double-click to dispel"}, status.Icon, mouseX+12, mouseY+8)
+			ui.queueTooltipIcon([]string{statusLabel, ui.game.partyBuffDurationLabel(status.Duration), "Double-click to dispel"}, status.Icon, mouseX+12, mouseY+8)
 		}
 	}
 }

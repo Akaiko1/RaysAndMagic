@@ -53,7 +53,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillFieldMedicine:       {"15/25/40/60%", "10/20/30/40%", "Revival unchanged"},
 		character.SkillDesignateTarget:     {"6/9/12/15s", "5/8/12/15 percentage points", "One mark per user", "while the marker can act"},
 		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until next round in TB"},
-		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/1/1/2"},
+		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/2/3/4"},
 		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "adds to Field Medicine", "Revival unchanged"},
 		character.SkillBombThrowing:        {"Harm Flask: 24/30/36/42 + INT/3 physical damage", "Fire Flask: 12/16/20/24 + INT/3 fire damage", "Venom Flask: 8/12/16/20 + INT/3 body damage", "poison 6/9/12/15s"},
 		character.SkillTranslocation:       {"Fold Step: 3/4/6/8 tiles", "8/7/6/5 SP", "12/15/18/24s", "Return Step: 6/5/4/3 SP", "dodge +10/15/20/25%; 3/6/6/9s", "Purify: 12/11/10/9 SP", "RT recovery -20/25/30/35%", "TB +1/1/2/2 actions next turn"},

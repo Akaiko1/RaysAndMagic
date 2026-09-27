@@ -410,10 +410,10 @@ func (ih *InputHandler) handleSpatialStepInput() bool {
 		return false
 	}
 	key := "fold_step"
-	if ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight) {
+	if ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight) {
 		key = "return_step"
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyD) {
+	if ih.keyHeld(ebiten.KeyW) || ih.keyHeld(ebiten.KeyS) || ih.keyHeld(ebiten.KeyA) || ih.keyHeld(ebiten.KeyD) {
 		if ih.isRunning() && !ih.game.partyFireWhileRunning() {
 			return true
 		}

@@ -51,9 +51,13 @@ func (g *MMGame) partyHasTerrainPassage() bool {
 // updateTimedBuffs settles the party only when the last terrain-passage
 // provider expires. Expiry order cannot revoke another active provider.
 func (g *MMGame) updateTimedBuffs() {
+	g.advanceUtilityBuffs(g.buffFrameElapsed())
+}
+
+func (g *MMGame) advanceUtilityBuffs(frames int) {
 	hadPassage := g.partyHasTerrainPassage()
 	for _, buff := range g.timedBuffs() {
-		tickBuff(buff.active, buff.duration, buff.onExpire)
+		tickBuff(buff.active, buff.duration, frames, buff.onExpire)
 		g.updateUtilityStatus(buff.id, *buff.duration, *buff.active)
 	}
 	if hadPassage && !g.partyHasTerrainPassage() {

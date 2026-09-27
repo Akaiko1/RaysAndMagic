@@ -564,11 +564,20 @@ day_night:
   # Counts are caps: packs use vacant authored monster spawn points only.
   packs:
     - map: forest
-      day_monster: wolf
-      count: 8
+      day_monsters:
+        - monster: wolf
+          count: 8
+          replacement: {monster: dire_wolf, min_party_level: 20, chance: 0.20}
       night_monsters:
-        - { monster: forest_spider, count: 8, quest_progress: true }
+        - monster: forest_spider
+          count: 8
+          quest_progress: true
+          replacement: {monster: giant_spider, min_party_level: 20, chance: 0.20}
       min_player_dist_tiles: 8
+    - map: highlands
+      day_monster: puma
+      night_monster: mountain_troll
+      count: 5
     - map: desert
       day_monsters:
         - { monster: desert_dervish, count: 5, min_party_level: 20, quest_progress: true }

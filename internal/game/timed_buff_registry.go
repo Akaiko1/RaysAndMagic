@@ -1,6 +1,9 @@
 package game
 
-import "ugataima/internal/spells"
+import (
+	"fmt"
+	"ugataima/internal/spells"
+)
 
 // Generic plumbing shared by every spell-keyed timed buff list (combat buffs,
 // stat buffs): find / upsert / remove / tick all live here once, so the typed
@@ -62,22 +65,15 @@ func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, buffID string) ([]T, 
 // tickBuffList decrements every entry's frames, refreshes its HUD status, and
 // filters out the expired ones. Reports whether any entry expired so callers
 // can re-derive aggregates.
-func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) ([]T, bool) {
+func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance func(*T, int) int) ([]T, bool) {
 	if len(list) == 0 {
 		return list, false
 	}
 	w := 0
 	expired := false
 	for i := range list {
-		combatClock := false
-		if b, ok := any(list[i]).(interface{ buffCombatClock() bool }); ok {
-			combatClock = b.buffCombatClock()
-		}
-		if !combatClock || !g.turnBasedMode {
-			*frames(&list[i])--
-		}
+		left := advance(&list[i], elapsed)
 		b := list[i]
-		left := *frames(&b)
 		if left > 0 {
 			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), left, true)
 			list[w] = b
@@ -88,6 +84,35 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 		}
 	}
 	return list[:w], expired
+}
+
+// Budgets remain in frames across mode switches and saves. A thinking frame
+// spends nothing in TB; a resolved round spends the existing periodic budget.
+func (g *MMGame) buffFrameElapsed() int {
+	if g.turnBasedMode {
+		return 0
+	}
+	return 1
+}
+
+func (g *MMGame) partyBuffDurationLabel(frames int) string {
+	tps := max(1, g.config.GetTPS())
+	if g.turnBasedMode {
+		round := TurnBasedPeriodicEffectSeconds * tps
+		turns := (max(0, frames) + round - 1) / round
+		if turns == 1 {
+			return "1 turn remaining"
+		}
+		return fmt.Sprintf("%d turns remaining", turns)
+	}
+	return fmt.Sprintf("%.1fs remaining", float64(frames)/float64(tps))
+}
+
+func (g *MMGame) tickPartyBuffsTurn() {
+	frames := TurnBasedPeriodicEffectSeconds * g.config.GetTPS()
+	g.tickCombatBuffsTurn(frames)
+	g.advanceStatBuffs(frames)
+	g.advanceUtilityBuffs(frames)
 }
 
 // resetTimedEffects drops every timed party effect family at once: stat buffs
