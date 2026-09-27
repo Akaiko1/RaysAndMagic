@@ -954,6 +954,9 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				if key == "" {
 					return fmt.Errorf("quest %q rewards.%s[%d] is empty", id, source.field, i)
 				}
+				if err := config.ValidateOrdinaryItemGrant(key); err != nil {
+					return fmt.Errorf("quest %q rewards.%s[%d]: %w", id, source.field, i, err)
+				}
 				if _, err := items.TryCreateItemFromYAML(key); err != nil {
 					return fmt.Errorf("quest %q rewards.%s[%d]: %w", id, source.field, i, err)
 				}

@@ -82,6 +82,12 @@ const (
 	SkillFieldMedicine
 	SkillDesignateTarget
 	SkillOverwatch
+	SkillAlchemy
+	SkillPharmacology
+	SkillBombThrowing
+	SkillTranslocation
+	SkillFlowingStaff
+	SkillPathfinding
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -171,6 +177,18 @@ func (s SkillType) String() string {
 		return "Designate Target"
 	case SkillOverwatch:
 		return "Overwatch"
+	case SkillAlchemy:
+		return "Alchemy"
+	case SkillPharmacology:
+		return "Pharmacology"
+	case SkillBombThrowing:
+		return "Bomb Throwing"
+	case SkillTranslocation:
+		return "Translocation"
+	case SkillFlowingStaff:
+		return "Flowing Staff"
+	case SkillPathfinding:
+		return "Pathfinding"
 	default:
 		return "Unknown"
 	}
@@ -305,6 +323,12 @@ var skillTypeByKey = map[string]SkillType{
 	"field_medicine":       SkillFieldMedicine,
 	"designate_target":     SkillDesignateTarget,
 	"overwatch":            SkillOverwatch,
+	"alchemy":              SkillAlchemy,
+	"pharmacology":         SkillPharmacology,
+	"bomb_throwing":        SkillBombThrowing,
+	"translocation":        SkillTranslocation,
+	"flowing_staff":        SkillFlowingStaff,
+	"pathfinding":          SkillPathfinding,
 }
 
 // UsesMastery reports whether the skill can be trained through the four

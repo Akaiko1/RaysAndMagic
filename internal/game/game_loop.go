@@ -154,6 +154,7 @@ func (gl *GameLoop) updateExploration() {
 		return
 	}
 
+	gl.inputHandler.pendingRepeat = rtActNone
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
@@ -207,6 +208,11 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
 	gl.game.updateAutomaticConsumables()
+	if !gl.game.turnBasedMode {
+		gl.game.tickRareClassClocks(1)
+	}
+	gl.updateAutomaticTechniques()
+	gl.inputHandler.performPendingRepeat()
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
@@ -226,6 +232,7 @@ func (gl *GameLoop) updateExploration() {
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
 	gl.game.updateEcology()
+	gl.game.updateAlchemyHarvest()
 
 	// Each summon card's proc cooldown ticks independently in real time in both
 	// modes; these timers silence only their own proc.

@@ -342,6 +342,9 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 	}
 
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
+		if !ui.game.canOpenClassBook(tab) {
+			return
+		}
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
 			ui.game.selectedSpell = -1

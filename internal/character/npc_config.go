@@ -332,6 +332,9 @@ func LoadNPCConfig(filename string) error {
 	if err := backfillTraderSpells(); err != nil {
 		return err
 	}
+	if err := validateNPCItemSources(&config); err != nil {
+		return err
+	}
 	if err := validatePricedChoices(); err != nil {
 		return err
 	}
@@ -671,6 +674,39 @@ func buildRarityWeaponStock(rarity string, cost int) []*MerchantStockItem {
 	return stock
 }
 
+func validateNPCItemSources(c *NPCConfig) error {
+	for key, npc := range c.NPCs {
+		if npc == nil {
+			continue
+		}
+		if npc.Encounter != nil && npc.Encounter.Rewards != nil {
+			r := npc.Encounter.Rewards
+			chests := append([]monster.TreasureChestReward(nil), r.TreasureChests...)
+			if r.TreasureChest != nil {
+				chests = append(chests, *r.TreasureChest)
+			}
+			for _, chest := range chests {
+				for _, itemKey := range chest.Items {
+					if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+						return fmt.Errorf("NPC %q encounter chest: %w", key, err)
+					}
+				}
+			}
+		}
+		for _, entry := range npc.Inventory {
+			if entry == nil {
+				continue
+			}
+			if _, itemKey, ok := config.GetItemDefinitionByName(entry.Name); ok {
+				if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+					return fmt.Errorf("NPC %q stock: %w", key, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func createMerchantItem(entry *NPCItem) (items.Item, bool) {
 	itemType := strings.ToLower(entry.Type)
 	switch itemType {
@@ -683,7 +719,7 @@ func createMerchantItem(entry *NPCItem) (items.Item, bool) {
 		return weapon, true
 	default:
 		_, key, ok := config.GetItemDefinitionByName(entry.Name)
-		if !ok {
+		if !ok || config.ValidateOrdinaryItemGrant(key) != nil {
 			return items.Item{}, false
 		}
 		item, err := items.TryCreateItemFromYAML(key)

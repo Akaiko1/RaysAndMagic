@@ -25,7 +25,9 @@ import (
 
 // InputHandler handles all user input for the game
 type InputHandler struct {
-	game *MMGame
+	pendingRepeat rtActionKind
+	heldKeys      func(ebiten.Key) bool // nil uses the live keyboard
+	game          *MMGame
 	// keys is the ONE edge source for every keyboard press in the gameplay
 	// input tree: Consume claims a press for its call site, so the priority
 	// ladder in HandleInput doubles as the key-priority order.
@@ -131,6 +133,9 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	if ih.handleSpatialStepInput() {
+		return
+	}
 	// Handle normal gameplay input
 	if ih.game.turnBasedMode {
 		ih.handleTurnBasedInput()
@@ -376,6 +381,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.turnBasedMode = false
 	g.currentTurn = 0
 	g.partyActionsUsed = 0
+	g.partyTechniqueActionsUsed = 0
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
@@ -897,7 +903,7 @@ func (ih *InputHandler) handleCombatInput() {
 	hHeld := ebiten.IsKeyPressed(ebiten.KeyH)
 
 	// No attacks/casts/shots while running - you must stop sprinting to act.
-	// Exception: Wyrmspine Wing in ANY member's hands frees the whole party.
+	// Wyrmspine Wing or an active Grandmaster pathfinder frees the whole party.
 	running := ih.isRunning() && !ih.game.partyFireWhileRunning()
 
 	// The guard holds only for the duration of one press AFTER it acted: a fresh
@@ -968,6 +974,10 @@ func (ih *InputHandler) handleCombatInput() {
 		return
 	}
 
+	if !rJust && !spaceJust && !fJust && !cJust && !hJust {
+		ih.pendingRepeat = kind
+		return
+	}
 	if ih.performRTCombatAction(kind, fJust) && kind == rtActSmart {
 		ih.spacePressActed = true
 	}
@@ -977,6 +987,11 @@ func (ih *InputHandler) handleCombatInput() {
 // whether dispatch passed the cooldown/capability gate, preserving Space's
 // same-press loot suppression semantics even when SmartAttack finds no action.
 func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool) bool {
+	// A spatial step is an explicit selected-hero command, never part of the
+	// held action chain. It alone may bypass personal cooldown and TB AP.
+	if kind == rtActCast && freshCast && ih.tryExplicitSlottedStep() {
+		return true
+	}
 	// Capture the requested patient before actor selection can move off a KO.
 	healRecipient := -1
 	if kind == rtActHeal {
@@ -1023,6 +1038,10 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 			ih.game.advanceRTActor(rtActWeapon)
 		}
 	case rtActSmart:
+		if _, used := ih.game.useSlottedRareAction(ih.game.selectedChar, rtActSmart, false); used {
+			ih.game.advanceRTActor(rtActSmart)
+			return true
+		}
 		if sel.RTCooldown > 0 && sel.AnyWeaponHandReady() {
 			if ih.game.combat.EquipmentMeleeAttack() {
 				ih.commitRTWeaponAttack(rtActSmart, sel)
@@ -1126,6 +1145,12 @@ func (ih *InputHandler) castSlottedSpellResolved(sel *character.MMCharacter) (bo
 // castSlottedSpell casts the selected character's slotted spell (F key) and, in
 // real-time mode, applies the cooldown only if the cast actually fired.
 func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+	if handled, used := ih.game.useSlottedRareAction(ih.game.selectedChar, rtActCast, true); handled {
+		if used {
+			ih.game.advanceRTActor(rtActCast)
+		}
+		return
+	}
 	if fired, spellID := ih.castSlottedSpellResolved(sel); fired {
 		ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
@@ -1238,6 +1263,7 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
+	ih.game.notifyPilgrimDisplacement(oldX, oldY)
 	ih.game.recordProfileStep(oldX, oldY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
 	ih.applyLandingTileEffects()
@@ -1293,15 +1319,18 @@ func (ih *InputHandler) moveSpeed() float64 {
 	if pct := ih.game.cardMoveSpeedPct(); pct != 0 {
 		speed *= 1 + float64(pct)/100
 	}
+	if tier := ih.game.party.PathfindingTier(); tier >= 0 {
+		speed *= 1 + float64(character.PathfindingSpeedPct(tier))/100
+	}
 	return speed
 }
 
 // isRunning reports whether the party is sprinting (run key held) in real time.
 // Combat input normally blocks actions while this is true; an equipped weapon
-// may explicitly override that policy. Always false in turn-based mode.
+// or Grandmaster Pathfinding may override it. Always false in turn-based mode.
 func (ih *InputHandler) isRunning() bool {
 	return !ih.game.turnBasedMode &&
-		(ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight))
+		(ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight))
 }
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
@@ -1636,6 +1665,9 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 		g.spellInputCooldown = g.config.UI.SpellInputCooldown
 		return
 	}
+	if !g.canOpenClassBook(tab) {
+		return
+	}
 	g.currentTab = tab
 	if tab == TabSpellbook {
 		g.selectedSpell = -1 // clear highlight until the user picks one
@@ -1644,6 +1676,9 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 
 // openTabbedMenu opens the tabbed menu with the specified tab
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
+	if !ih.game.canOpenClassBook(tab) {
+		return
+	}
 	ih.game.menuOpen = true
 	ih.game.currentTab = tab
 	if tab == TabSpellbook {
@@ -1682,6 +1717,9 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 
 // handleSpellbookNavigation browses either book, then dispatches its shared use gesture.
 func (ih *InputHandler) handleSpellbookNavigation() {
+	if ih.handleRareBookInput() {
+		return
+	}
 	g := ih.game
 	currentChar := g.party.Members[g.selectedChar]
 	if hasTrapBook(currentChar) {
@@ -1772,6 +1810,10 @@ func (ih *InputHandler) tryFocusedNPCInteraction() bool {
 // openNPCInteraction starts a dialog with the given NPC - the single entry
 // point shared by the T key, Space-in-focus, and mouse click paths.
 func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
+	if npc.HarvestOwner != "" {
+		ih.game.gatherAlchemyReagent(npc)
+		return
+	}
 	// Pressing Space is the ANSWER to this object's nudge, whatever comes of it:
 	// settle it first, because the paths below return early (a ward that refuses
 	// to speak, a chest or a lectern that has no dialog at all) and would leave
@@ -2363,6 +2405,9 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	if kind == rtActNone {
 		return
 	}
+	if kind == rtActCast && ih.tryExplicitSlottedStep() {
+		return
+	}
 	// Like the real-time chain, a member who cannot take this action hands it
 	// to the next one who can. F still says why the selected caster could not.
 	if kind == rtActCast && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActCast) {
@@ -2380,6 +2425,11 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		return
 	}
 	selected := ih.game.party.Members[ih.game.selectedChar]
+	if kind == rtActCast {
+		if handled, _ := ih.game.useSlottedRareAction(ih.game.selectedChar, kind, true); handled {
+			return
+		}
+	}
 	switch kind {
 	case rtActWeapon:
 		if ih.game.combat.EquipmentMeleeAttack() {
@@ -2482,6 +2532,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
 	oldX, oldY := ih.game.camera.X, ih.game.camera.Y
 	ih.game.movePartyPosition(targetX, targetY)
+	ih.game.notifyPilgrimDisplacement(oldX, oldY)
 	ih.game.recordProfileStep(oldX, oldY)
 	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
 	ih.applyLandingTileEffects()
@@ -3252,4 +3303,24 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)
 	}
 	return false
+}
+
+// A held repeat is lower priority than a new manual command and automatic
+// drinking/techniques. The loop resets it before input and discards it at barriers.
+func (ih *InputHandler) performPendingRepeat() {
+	kind := ih.pendingRepeat
+	ih.pendingRepeat = rtActNone
+	if kind == rtActNone || ih.game.turnBasedMode || ih.game.gameplayPausedByOverlay() || (ih.isRunning() && !ih.game.partyFireWhileRunning()) {
+		return
+	}
+	if ih.performRTCombatAction(kind, false) && kind == rtActSmart {
+		ih.spacePressActed = true
+	}
+}
+
+func (ih *InputHandler) keyHeld(k ebiten.Key) bool {
+	if ih.heldKeys != nil {
+		return ih.heldKeys(k)
+	}
+	return ebiten.IsKeyPressed(k)
 }

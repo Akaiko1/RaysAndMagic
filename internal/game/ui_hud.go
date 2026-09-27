@@ -854,6 +854,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.queueOverwatchTooltip(member, mouseX+12, mouseY+8)
 			}
 		}
+		ui.drawFlowingStaffCharges(screen, member, px, py, pw, mouseX, mouseY)
 		if ui.game.partyMemberFocused(i) {
 			// Focus belongs to the portrait, not to the whole party slot. Its tip
 			// deliberately overlaps the authored top rim so the marker reads as

@@ -993,6 +993,13 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 				label += uitext.Text("dialog.need_gold")
 			}
 			drawDebugText(screen, label, x+6, y)
+			if hover {
+				tooltip := masteryTooltipTextForSkill(option.SkillType)
+				if option.IsMagic {
+					tooltip = magicMasteryTooltipText(option.School)
+				}
+				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+			}
 		}
 		// Pager sits between the last row slot and the instructions line and
 		// registers its navigation action for Update.

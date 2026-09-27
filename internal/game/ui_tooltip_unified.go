@@ -166,6 +166,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	formula := character.WeaponDamageFormula(def)
 	breakdown := character.WeaponDamageBreakdown(def, char)
 	armsBonus, furyBonus := breakdown.ArmsMaster, breakdown.OrcishFury
+	if breakdown.FlowingStaff > 0 {
+		dmg.AddDetail("Flowing Staff: +%d (%d charges)", breakdown.FlowingStaff, char.FlowingStaffCharges())
+	}
 	preview := cs.calculateWeaponDamagePreview(item, char)
 	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
 	dmg.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
@@ -665,6 +668,9 @@ func buildSimpleItemTooltipUnified(item items.Item, full bool, bearers ...*chara
 	if len(bearers) > 0 {
 		bearer = bearers[0]
 	}
+	return buildSimpleItemTooltipWithParty(item, full, bearer, nil)
+}
+func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party) string {
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := item.DisplayKind()
 	if ok && def != nil && def.Rarity != "" {
@@ -677,7 +683,30 @@ func buildSimpleItemTooltipUnified(item items.Item, full bool, bearers ...*chara
 		for _, ln := range def.EffectLinesWithoutRecovery() {
 			effect.Add("%s", ln)
 		}
-		character.AddConsumableDetails(&recovery, def, bearer)
+		var hpBonus, spBonus character.PotionSupport
+		if party != nil && bearer != nil {
+			hpBonus = party.PotionSupport(bearer, def.HealBase, def.HealEnduranceDivisor, false)
+			spBonus = party.PotionSupport(bearer, def.ManaBase, def.ManaPersonalityDivisor, true)
+		}
+		character.AddConsumableDetails(&recovery, def, bearer, hpBonus, spBonus)
+		if f := def.Flask; f != nil {
+			tier, damage := 0, f.Damage[0]
+			if bearer != nil {
+				tier = bearer.SkillTier(character.SkillBombThrowing)
+				damage = flaskDamage(bearer, f)
+			}
+			effect.Add("%d %s damage to each victim", damage, f.Element)
+			effect.Add("Range: %d tiles | Radius: %d tiles", f.RangeTiles, f.RadiusTiles)
+			if seconds := config.TierValue(f.PoisonSeconds, tier); seconds > 0 {
+				effect.Add("Poison: %d seconds", seconds)
+			}
+			if f.BurnSeconds > 0 {
+				effect.Add("Burning: %d seconds", f.BurnSeconds)
+			}
+			use.Add("Requires Bomb Throwing. Uses one flask from the bag.")
+			use.Add("1 action in TB; %.0fs base recovery in RT. No critical hits.", f.CooldownSeconds)
+			use.Add("Equip as a quick action, then use F or SmartAttack.")
+		}
 		character.AddConsumableUsage(&use, def)
 		for _, ln := range def.TooltipUsageLines() {
 			use.Add("%s", ln)

@@ -108,6 +108,11 @@ func IconFrameColor(icon string) (color.RGBA, bool) {
 			return color.RGBA{}, false
 		}
 		rarity = d.Rarity
+	case strings.HasPrefix(icon, "icon_technique_"):
+		if d := Technique(strings.TrimPrefix(icon, "icon_technique_")); d != nil {
+			return SchoolRGBA("air"), true
+		}
+		return color.RGBA{}, false
 	case strings.HasPrefix(icon, "icon_spell_"):
 		d, ok := GetSpellDefinition(strings.TrimPrefix(icon, "icon_spell_"))
 		if !ok {

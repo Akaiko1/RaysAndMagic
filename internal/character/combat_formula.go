@@ -59,8 +59,9 @@ func WeaponDamageFormula(def *config.WeaponDefinitionConfig) stats.Formula {
 
 type WeaponBreakdown struct {
 	stats.Breakdown
-	ArmsMaster int
-	OrcishFury int
+	FlowingStaff int
+	ArmsMaster   int
+	OrcishFury   int
 }
 
 func WeaponDamageBreakdown(def *config.WeaponDefinitionConfig, c *MMCharacter) WeaponBreakdown {
@@ -71,6 +72,10 @@ func WeaponDamageBreakdown(def *config.WeaponDefinitionConfig, c *MMCharacter) W
 			out.OrcishFury = OrcishFuryDamageBonus(c.SkillTier(SkillOrcishFury))
 		}
 		out.Total += out.ArmsMaster + out.OrcishFury
+		if def.Category == "staff" && c.FlowingStaffCharges() > 0 {
+			out.FlowingStaff = out.Total * FlowingStaffPct(c.SkillTier(SkillFlowingStaff)) / 100
+			out.Total += out.FlowingStaff
+		}
 	}
 	return out
 }

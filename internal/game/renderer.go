@@ -4764,6 +4764,10 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			continue
 		}
 
+		if magicProjectile.FlaskKey != "" {
+			r.drawFlaskProjectile(screen, magicProjectile)
+			continue
+		}
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
 		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
@@ -5345,6 +5349,14 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			scale := float64(screenHeight) / (depth * fov)
 			screenX := float64(anchorX) + particle.OffsetX*scale
 			screenY := centerY + particle.OffsetY*scale
+
+			if particle.DepthTest {
+				column := int(screenX)
+				if depth < 10 || depth > r.game.camera.ViewDist ||
+					(column >= 0 && column < len(r.game.depthBuffer) && depth > r.game.depthBuffer[column]+2) {
+					continue
+				}
+			}
 
 			if screenX < -20 || screenX > float64(screenWidth)+20 {
 				continue

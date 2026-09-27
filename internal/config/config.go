@@ -219,6 +219,7 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
+	StatusDamage  StatusDamageConfig  `yaml:"status_damage"`
 	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
 	Display       DisplayConfig       `yaml:"display"`
 	Engine        EngineConfig        `yaml:"engine"`
@@ -526,14 +527,16 @@ type ClassMagicEntry struct {
 }
 
 type ClassStats struct {
-	CardRarity  string `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
-	Might       int    `yaml:"might"`
-	Intellect   int    `yaml:"intellect"`
-	Personality int    `yaml:"personality"`
-	Endurance   int    `yaml:"endurance"`
-	Accuracy    int    `yaml:"accuracy"`
-	Speed       int    `yaml:"speed"`
-	Luck        int    `yaml:"luck"`
+	AutoStats   AutoStatsConfig   `yaml:"auto_stats,omitempty"`
+	Items       []ClassItemConfig `yaml:"items,omitempty"`
+	CardRarity  string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
+	Might       int               `yaml:"might"`
+	Intellect   int               `yaml:"intellect"`
+	Personality int               `yaml:"personality"`
+	Endurance   int               `yaml:"endurance"`
+	Accuracy    int               `yaml:"accuracy"`
+	Speed       int               `yaml:"speed"`
+	Luck        int               `yaml:"luck"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -714,9 +717,12 @@ type SpellDefinitionConfig struct {
 	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
 	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
 	// ZoneTickDamage to monsters inside it - every turn in TB, every ZoneTickSeconds in RT.
-	ZoneRadiusTiles float64 `yaml:"zone_radius_tiles,omitempty"`
-	ZoneTickDamage  int     `yaml:"zone_tick_damage,omitempty"`
-	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
+	ZoneRadiusTiles       float64 `yaml:"zone_radius_tiles,omitempty"`
+	ZoneTickDamage        int     `yaml:"zone_tick_damage,omitempty"`
+	ZoneTickSeconds       float64 `yaml:"zone_tick_seconds,omitempty"`
+	ZoneEdgeTiles         int     `yaml:"zone_edge_tiles,omitempty"`
+	ZoneEdgeDamagePercent int     `yaml:"zone_edge_damage_percent,omitempty"`
+	ZoneBurnSeconds       float64 `yaml:"zone_burn_seconds,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount           int `yaml:"heal_amount,omitempty"`
@@ -1572,6 +1578,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := config.StatusDamage.validate(); err != nil {
+		return nil, err
+	}
 	for _, pack := range config.DayNight.Packs {
 		for _, night := range []bool{false, true} {
 			for _, member := range pack.PhaseMembers(night) {
@@ -1582,6 +1591,9 @@ func LoadConfig(filename string) (*Config, error) {
 		}
 	}
 	for key, class := range config.Characters.Classes {
+		if err := validateClassProgression(key, class); err != nil {
+			return nil, err
+		}
 		switch class.CardRarity {
 		case "", "common", "uncommon", "rare", "legendary":
 		default:
@@ -1767,6 +1779,12 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		}
 		if (def.ZoneAheadTiles > 0 || def.ZoneWidthTiles > 0) && def.ZoneRadiusTiles <= 0 {
 			return fmt.Errorf("spell '%s': zone_ahead_tiles/zone_width_tiles require zone_radius_tiles", id)
+		}
+		if def.ZoneEdgeTiles < 0 || def.ZoneEdgeTiles > 8 || def.ZoneEdgeDamagePercent < 0 || def.ZoneEdgeDamagePercent > 100 || def.ZoneBurnSeconds < 0 {
+			return fmt.Errorf("spell '%s': invalid zone edge or burn settings", id)
+		}
+		if (def.ZoneEdgeTiles > 0) != (def.ZoneEdgeDamagePercent > 0) || def.ZoneEdgeTiles > 0 && def.ZoneWidthTiles < 2 || (def.ZoneEdgeTiles > 0 || def.ZoneBurnSeconds > 0) && def.ZoneRadiusTiles <= 0 {
+			return fmt.Errorf("spell '%s': zone edge settings require a wall zone; burn requires a damage zone", id)
 		}
 		if def.StandeeDestroyChance < 0 || def.StandeeDestroyChance > 1 {
 			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
@@ -2127,12 +2145,17 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	AllowedClasses []string `yaml:"allowed_classes,omitempty"`
-	Name           string   `yaml:"name"`
-	Type           string   `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType      string   `yaml:"armor_category,omitempty"`
-	Description    string   `yaml:"description"`      // Gameplay-neutral summary (optional)
-	Flavor         string   `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	BrewColor      [3]int           `yaml:"brew_color,omitempty"`
+	BrewedFrom     string           `yaml:"brewed_from,omitempty"`
+	CraftedOnly    bool             `yaml:"crafted_only,omitempty"`
+	HarvestSprite  string           `yaml:"harvest_sprite,omitempty"`
+	Flask          *FlaskDefinition `yaml:"flask,omitempty"`
+	AllowedClasses []string         `yaml:"allowed_classes,omitempty"`
+	Name           string           `yaml:"name"`
+	Type           string           `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType      string           `yaml:"armor_category,omitempty"`
+	Description    string           `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor         string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
 	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
 	// Keeping their text in YAML lets the game tooltip and map-editor card share
 	// the same wording without item-key-specific presentation code.
@@ -2266,6 +2289,9 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	if err := yaml.Unmarshal(data, &itemCfg); err != nil {
 		return nil, err
 	}
+	if err := resolveBrewedItems(&itemCfg); err != nil {
+		return nil, err
+	}
 	// Validate per-type required attributes for single source of truth
 	if err := validateItemConfig(&itemCfg); err != nil {
 		return nil, err
@@ -2322,6 +2348,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		if err := validateCraftedItem(key, def); err != nil {
+			return err
 		}
 		seenClasses := map[string]bool{}
 		for _, class := range def.AllowedClasses {
@@ -2680,6 +2709,9 @@ func validateLootCatalogReference(scope, entryType, key string) error {
 		if _, ok := GetItemDefinition(key); !ok {
 			return fmt.Errorf("%s: unknown item key %q", scope, key)
 		}
+		if err := ValidateOrdinaryItemGrant(key); err != nil {
+			return fmt.Errorf("%s: %w", scope, err)
+		}
 	default:
 		return fmt.Errorf("%s %q has bad type %q (want weapon|item)", scope, key, entryType)
 	}
@@ -2858,26 +2890,27 @@ func validRarityFilter(rarity string) bool {
 	}
 }
 
-func catalogItemFilterHasCandidates(itemType, rarity, minRarity, maxRarity string) bool {
-	if GlobalItems == nil {
+// CatalogItemMatchesFilter is shared by crate validation and runtime rolls.
+// A non-empty catalog must mean at least one item the chest can actually grant.
+func CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity string) bool {
+	def, ok := GetItemDefinition(key)
+	if !ok || def == nil || def.Type == "quest" || ValidateOrdinaryItemGrant(key) != nil {
 		return false
 	}
-	minTier := RarityTier(minRarity)
-	maxTier := RarityTier(maxRarity)
-	for _, def := range GlobalItems.Items {
-		if def == nil || def.Type != itemType {
-			continue
+	if itemType != "" && def.Type != itemType || rarity != "" && def.Rarity != rarity {
+		return false
+	}
+	tier := RarityTier(def.Rarity)
+	return tier >= RarityTier(minRarity) && (maxRarity == "" || tier <= RarityTier(maxRarity))
+}
+
+func catalogItemFilterHasCandidates(itemType, rarity, minRarity, maxRarity string) bool {
+	if GlobalItems != nil {
+		for key := range GlobalItems.Items {
+			if CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity) {
+				return true
+			}
 		}
-		if rarity != "" && def.Rarity != rarity {
-			continue
-		}
-		if minTier > 0 && RarityTier(def.Rarity) < minTier {
-			continue
-		}
-		if maxRarity != "" && RarityTier(def.Rarity) > maxTier {
-			continue
-		}
-		return true
 	}
 	return false
 }

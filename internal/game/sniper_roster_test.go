@@ -38,11 +38,11 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 				t.Fatal(err)
 			}
 			if legacy {
-				if len(g.party.Reserve) != 1 || g.party.Reserve[0].Name != "Mara" {
+				if len(g.party.Reserve) != 3 || g.party.Reserve[0].Name != "Mara" || g.party.Reserve[1].Name != "Elara" || g.party.Reserve[2].Name != "Kael" {
 					t.Fatal("old save did not receive new recruit")
 				}
 				g.ensureAdditionalRecruits()
-				if len(g.party.Reserve) != 1 {
+				if len(g.party.Reserve) != 3 {
 					t.Fatal("duplicate recruit")
 				}
 			} else {
@@ -182,7 +182,7 @@ func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 	}
 }
 
-func TestPartyCreateScrollingKeepsMaraSelectableAndDraggable(t *testing.T) {
+func TestPartyCreateScrollingKeepsLastDisplayedHeroSelectableAndDraggable(t *testing.T) {
 	for _, wheel := range []bool{false, true} {
 		t.Run(fmt.Sprint(wheel), func(t *testing.T) {
 			h := newDisplayedModalHarness(t, 800, 600)
@@ -215,15 +215,24 @@ func TestPartyCreateScrollingKeepsMaraSelectableAndDraggable(t *testing.T) {
 			}
 			pointerWheel = func() (float64, float64) { return 0, 0 }
 			lay := partyCreateLayout(pc, 800, 600)
-			i := len(pc.pool) - 1
+			i := -1
+			for j, r := range lay.pool {
+				if r.w > 0 && (i < 0 || r.y > lay.pool[i].y || (r.y == lay.pool[i].y && r.x > lay.pool[i].x)) {
+					i = j
+				}
+			}
+			if i < 0 {
+				t.Fatal("no hero visible at final scroll")
+			}
+			want := pc.pool[i]
 			r := lay.pool[i]
-			if r.w == 0 || pc.pool[i].char.Name != "Mara" {
+			if r.w == 0 || want.char.Name != "Mara" {
 				t.Fatal("last hero not visible")
 			}
 			fp.moveTo(r.x+r.w/2, r.y+r.h/2)
 			fp.press()
 			step()
-			if pc.detail.char.Name != "Mara" {
+			if pc.detail != want {
 				t.Fatal("scrolled hero cannot be selected")
 			}
 			slot := lay.slots[0]
@@ -232,7 +241,7 @@ func TestPartyCreateScrollingKeepsMaraSelectableAndDraggable(t *testing.T) {
 			step()
 			fp.release()
 			step()
-			if pc.slots[0].char.Name != "Mara" {
+			if pc.slots[0] != want {
 				t.Fatal("scrolled hero cannot be dragged into party")
 			}
 		})

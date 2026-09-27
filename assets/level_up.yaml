@@ -95,3 +95,87 @@ level_ups:
             school: "earth"
           - type: "spell"
             spell: "hot_steam"
+
+  alchemist:
+    levels:
+      - level: 3
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+      - level: 6
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+      - level: 9
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+      - level: 12
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+      - level: 15
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+      - level: 18
+        choices:
+          - {type: weapon_mastery, skill: alchemy}
+          - {type: weapon_mastery, skill: pharmacology}
+          - {type: weapon_mastery, skill: bomb_throwing}
+          - {type: weapon_mastery, skill: bodybuilding}
+
+  wayfarer:
+    levels:
+      - level: 3
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}
+      - level: 6
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}
+      - level: 9
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}
+      - level: 12
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}
+      - level: 15
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}
+      - level: 18
+        choices:
+          - {type: weapon_mastery, skill: translocation}
+          - {type: weapon_mastery, skill: flowing_staff}
+          - {type: weapon_mastery, skill: pathfinding}
+          - {type: weapon_mastery, skill: staff}
+          - {type: weapon_mastery, skill: meditation}

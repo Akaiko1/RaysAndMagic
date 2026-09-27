@@ -50,6 +50,28 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	// their sections. Pure formatter - no input read.
 	var core string
 	switch item.Type {
+	case items.ItemTechnique:
+		if d := config.Technique(string(item.SpellEffect)); d != nil {
+			tier := 0
+			if char != nil {
+				tier = char.SkillTier(character.SkillTranslocation)
+			}
+			cost := config.TierValue(d.SPCost, tier)
+			if combatSystem != nil && combatSystem.game != nil && char != nil {
+				cost = combatSystem.game.techniqueSPCost(char, d)
+			}
+			core = fmt.Sprintf("%s\nTechnique | Level %d | %d SP\n\n%s", d.Name, d.Level, cost, d.Description)
+			if char != nil {
+				tps := config.DefaultTPS
+				if combatSystem != nil && combatSystem.game != nil {
+					tps = combatSystem.game.config.GetTPS()
+				}
+				core += "\n" + techniqueMagnitude(char, d, tps)
+			}
+			if d.Automatic {
+				core += "\n\nAuto: " + d.Trigger
+			}
+		}
 	case items.ItemTrap:
 		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
 			core = buildTrapTooltipUnified(string(item.SpellEffect), def, char, combatSystem, full)
@@ -58,8 +80,12 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = buildWeaponTooltipUnified(item, char, combatSystem, full)
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnified(item, char, combatSystem, full)
-	case items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
-		core = buildSimpleItemTooltipUnified(item, full, char)
+	case items.ItemConsumable, items.ItemThrowable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
+		var party *character.Party
+		if combatSystem != nil && combatSystem.game != nil {
+			party = combatSystem.game.party
+		}
+		core = buildSimpleItemTooltipWithParty(item, full, char, party)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, item.DisplayKind())

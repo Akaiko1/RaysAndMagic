@@ -785,7 +785,6 @@ func (m *Monster3D) tickPercentDoT(remaining, timer *int, elapsedFrames, pct, mi
 const (
 	monsterPoisonPercentPerTick = 1
 	monsterPoisonMinimumDamage  = 1
-	monsterBurnPercentPerTick   = 3
 	monsterBurnMinimumDamage    = 3
 )
 
@@ -930,11 +929,14 @@ func (m *Monster3D) ApplyBurn(frames int) {
 }
 
 func (m *Monster3D) tickBurn(elapsedFrames int) {
+	if m.BurnFramesRemaining <= 0 || elapsedFrames <= 0 {
+		return
+	}
 	m.tickPercentDoT(
 		&m.BurnFramesRemaining,
 		&m.burnTickTimer,
 		elapsedFrames,
-		monsterBurnPercentPerTick,
+		config.BurnPercent(m.IsBoss()),
 		monsterBurnMinimumDamage,
 	)
 }

@@ -338,7 +338,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if wm != nil {
 		appendNPCStates := func(mapKey string, npcs []*character.NPC, localize bool) {
 			for _, npc := range npcs {
-				if npc.QuestPropOwner != "" {
+				if npc.QuestPropOwner != "" || npc.HarvestOwner != "" {
 					continue // derived from saved activity state, not NPC visited flags
 				}
 				key, x, y := mapKey, npc.X, npc.Y
@@ -474,21 +474,22 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
-		TerrainChanges:             append([]TerrainChange(nil), g.terrainChanges...),
-		MapKey:                     saveMapKey,
-		PlayerX:                    savePX,
-		PlayerY:                    savePY,
-		PlayerAngle:                saveAngle,
-		TurnBased:                  g.turnBasedMode,
-		SavedAt:                    time.Now().Format(time.RFC3339),
-		Party:                      ps,
-		Monsters:                   ms,
-		MapMonsters:                mapMonsters,
-		MapRespawnDay:              mapRespawnDays,
-		NPCStates:                  nstates,
-		Quests:                     questSaves,
-		QuestSpawnsDone:            questSpawnsDone,
-		QuestPropLayouts:           cloneQuestPropLayouts(g.questPropLayouts),
+		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
+		MapKey:           saveMapKey,
+		PlayerX:          savePX,
+		PlayerY:          savePY,
+		PlayerAngle:      saveAngle,
+		TurnBased:        g.turnBasedMode,
+		SavedAt:          time.Now().Format(time.RFC3339),
+		Party:            ps,
+		Monsters:         ms,
+		MapMonsters:      mapMonsters,
+		MapRespawnDay:    mapRespawnDays,
+		NPCStates:        nstates,
+		Quests:           questSaves,
+		QuestSpawnsDone:  questSpawnsDone,
+		QuestPropLayouts: cloneQuestPropLayouts(g.questPropLayouts),
+		Alchemy:          g.alchemy.Clone(), SpatialReuseFrames: g.spatialReuseFrames, SpatialStepThisTurn: g.spatialStepThisTurn,
 		BossFireTraps:              bossFireTrapSaves,
 		BossFireTrapsOwner:         g.bossFireTrapsOwner,
 		GroundContainers:           groundContainerSaves,
@@ -512,6 +513,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		CurrentTurn:                g.currentTurn,
 		PartyRoot:                  g.partyRoot,
 		PartyActionsUsed:           g.partyActionsUsed,
+		PartyTechniqueActionsUsed:  g.partyTechniqueActionsUsed,
 		TurnBasedMoveCooldown:      g.turnBasedMoveCooldown,
 		TurnBasedRotCooldown:       g.turnBasedRotCooldown,
 		MonsterTurnResolved:        g.monsterTurnResolved,

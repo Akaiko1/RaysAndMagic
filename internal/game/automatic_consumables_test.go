@@ -274,7 +274,16 @@ func TestAutomaticDrinkingAvailableToEveryClass(t *testing.T) {
 					if divisor := potion.Attributes[divisorKey]; divisor > 0 {
 						base += stat / divisor
 					}
-					want := 1 + base*(100+bonus)/100
+					flat := 0
+					if ch.Class == character.ClassAlchemist && ch.HasSkill(character.SkillPharmacology) {
+						if mana {
+							bonus += character.PharmacologySP(ch.SkillTier(character.SkillPharmacology))
+						} else {
+							bonus += character.PharmacologyHP(ch.SkillTier(character.SkillPharmacology))
+							flat = ch.GetEffectiveIntellect() / 3
+						}
+					}
+					want := 1 + base*(100+bonus)/100 + flat
 					g.updateAutomaticConsumables()
 					got := ch.HitPoints
 					if mana {

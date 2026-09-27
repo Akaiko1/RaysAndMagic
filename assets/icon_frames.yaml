@@ -337,3 +337,27 @@ icons:
   icon_item_unbroken_sash: basic
   icon_item_unbroken_mantle: basic
   icon_item_unbroken_robe: basic
+  icon_item_bitterroot: basic
+  icon_item_brewed_antivenom: basic
+  icon_item_brewed_clock_oil: basic
+  icon_item_brewed_flame_ward_draught: basic
+  icon_item_brewed_gloom_ward_draught: basic
+  icon_item_brewed_health_potion: basic
+  icon_item_brewed_mana_potion: basic
+  icon_item_brewed_mirage_salt: basic
+  icon_item_brewed_revival_potion: basic
+  icon_item_brewed_sake_flask: basic
+  icon_item_brewed_stoneskin_draught: basic
+  icon_item_brewed_storm_ward_draught: basic
+  icon_item_dawnleaf: basic
+  icon_item_embercap: basic
+  icon_item_fire_flask: basic
+  icon_item_grave_orchid: basic
+  icon_item_harm_flask: basic
+  icon_item_mooncap: basic
+  icon_item_venom_flask: basic
+  icon_technique_fold_step: basic
+  icon_technique_phase_veil: basic
+  icon_technique_purify: basic
+  icon_technique_quickening: basic
+  icon_technique_return_step: basic

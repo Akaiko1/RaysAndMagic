@@ -949,6 +949,12 @@ func (ui *UISystem) itemTitleColors(item items.Item) (plate, text color.Color) {
 
 func itemTooltipIconName(item items.Item) string {
 	switch item.Type {
+	case items.ItemTechnique:
+		if d := config.Technique(string(item.SpellEffect)); d != nil {
+			return d.Icon
+		}
+	case items.ItemThrowable:
+		return "icon_item_" + string(item.SpellEffect)
 	case items.ItemWeapon:
 		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
 		if !ok {
@@ -1368,6 +1374,7 @@ func referenceTooltipText(title, section, description string) string {
 		return ""
 	}
 	text := strings.ReplaceAll(description, ". ", ".\n")
+	text = strings.ReplaceAll(text, "\n\nGrand Master:\n", "\n\nGRAND MASTER\n")
 	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
 		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
 	}

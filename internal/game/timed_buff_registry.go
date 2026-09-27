@@ -69,7 +69,13 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 	w := 0
 	expired := false
 	for i := range list {
-		*frames(&list[i])--
+		combatClock := false
+		if b, ok := any(list[i]).(interface{ buffCombatClock() bool }); ok {
+			combatClock = b.buffCombatClock()
+		}
+		if !combatClock || !g.turnBasedMode {
+			*frames(&list[i])--
+		}
 		b := list[i]
 		left := *frames(&b)
 		if left > 0 {
@@ -91,6 +97,12 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {
 	g.partyRoot = PartyRootState{}
+	g.alchemy = AlchemyState{}
+	g.harvestRuntime = harvestRuntime{}
+	g.spatialReuseFrames = 0
+	g.spatialStepThisTurn = false
+	g.rareBookMessage = ""
+	g.brewAnimation = nil
 	g.statBuffs = nil
 	g.recomputeStatBonuses()
 	g.combatBuffs = nil

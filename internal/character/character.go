@@ -69,6 +69,7 @@ func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 const QuickSlotCount = 5
 
 type MMCharacter struct {
+	RareClass RareClassState
 	Name      string
 	Class     CharacterClass
 	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
@@ -307,6 +308,8 @@ const (
 	ClassMonk
 	ClassBattleMage
 	ClassSniper
+	ClassAlchemist
+	ClassWayfarer
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -949,6 +952,10 @@ func (c CharacterClass) String() string {
 		return "Battle Mage"
 	case ClassSniper:
 		return "Sniper"
+	case ClassAlchemist:
+		return "Alchemist"
+	case ClassWayfarer:
+		return "Pilgrim"
 	default:
 		return "Unknown"
 	}
@@ -985,6 +992,10 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassBattleMage, true
 	case "sniper":
 		return ClassSniper, true
+	case "alchemist":
+		return ClassAlchemist, true
+	case "wayfarer":
+		return ClassWayfarer, true
 	default:
 		return 0, false
 	}
@@ -1219,7 +1230,7 @@ func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) 
 				slot = items.SlotOffHand
 			}
 		}
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
+	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTechnique, items.ItemThrowable:
 		slot = items.SlotSpell
 	case items.ItemArmor:
 		slot = item.PreferredSlot(items.SlotArmor)
@@ -1287,6 +1298,11 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		}
 		// A second weapon only fits the off-hand with Dual Wielding.
 		return slot == items.SlotOffHand && c.CanDualWield()
+	case items.ItemTechnique:
+		d := config.Technique(string(item.SpellEffect))
+		return slot == items.SlotSpell && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
+	case items.ItemThrowable:
+		return slot == items.SlotSpell && c.HasSkill(SkillBombThrowing)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		return slot == items.SlotSpell
 	case items.ItemArmor:

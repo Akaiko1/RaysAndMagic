@@ -447,8 +447,9 @@ func TestLevelUpChoice_EveryClassAndLevelStaysFull(t *testing.T) {
 					if req == nil {
 						t.Fatalf("%s: no popup opened", name)
 					}
-					if len(req.options) != MinLevelUpOptions {
-						t.Errorf("%s: offered %d options, want %d", name, len(req.options), MinLevelUpOptions)
+					want := max(MinLevelUpOptions, len(buildLevelUpChoiceOptions(hero, choices)))
+					if len(req.options) != want {
+						t.Errorf("%s: offered %d options, want %d", name, len(req.options), want)
 					}
 					for _, opt := range req.options {
 						if strings.EqualFold(opt.choice.Type, "spell") {

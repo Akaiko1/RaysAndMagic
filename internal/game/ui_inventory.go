@@ -353,7 +353,11 @@ func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item,
 	// Stack count badge, bottom-right. Every icon surface (bag, quick slots,
 	// merchant grids, stash) shares this renderer, so stacks read the same
 	// everywhere.
-	if n := item.Count(); n > 1 {
+	n := item.Count()
+	if item.Type == items.ItemThrowable {
+		n = ui.game.flaskStock(string(item.SpellEffect))
+	}
+	if n > 1 || item.Type == items.ItemThrowable {
 		label := fmt.Sprintf("x%d", n)
 		lw := debugTextWidth(label)
 		bx := iconX + iconSize - lw - 4
@@ -666,6 +670,9 @@ func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label strin
 // contains spell cards only; identity, navigation, controls and quick slots
 // live in the surrounding fullscreen hub.
 func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRect) {
+	if ui.drawRareClassBook(screen, content) {
+		return
+	}
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	// Trappers (thief) carry a trap book instead of a magic spellbook.
 	if hasTrapBook(currentChar) {

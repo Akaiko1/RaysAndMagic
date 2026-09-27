@@ -63,6 +63,11 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	FlaskKey                           string
+	FlaskRemaining, FlaskRadius        float64
+	FlaskFlightRange                   float64
+	FlaskPoisonFrames, FlaskBurnFrames int
+
 	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
@@ -146,6 +151,7 @@ type SpellHitParticle struct {
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
 	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
 	Solid            bool    // drawn source-over, not additive: MATTER (dirt, rubble) instead of light
+	DepthTest        bool    // hide particles behind world walls at their projected position
 	Active           bool
 }
 
@@ -177,6 +183,14 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	alchemy                 AlchemyState
+	harvestRuntime          harvestRuntime
+	selectedRare            int
+	alchemyBatches          int
+	rareBookMessage         string
+	brewAnimation           *alchemyBrewAnimation
+	spatialReuseFrames      int
+	spatialStepThisTurn     bool
 	partyRoot               PartyRootState
 	terrainChanges          []TerrainChange
 	editorPreview           *editorPreviewState
@@ -651,11 +665,12 @@ type MMGame struct {
 	turnBasedMode bool // Whether game is in turn-based mode
 	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
 	// the same party/monster turn instead of granting a fresh party round.
-	turnBasedTurnSuspended bool
-	currentTurn            int // 0 = party turn, 1 = monster turn
-	partyActionsUsed       int // Actions used this turn (0-2)
-	turnBasedMoveCooldown  int // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown   int // Rotation cooldown in frames (18 FPS = 0.3 second)
+	turnBasedTurnSuspended    bool
+	currentTurn               int // 0 = party turn, 1 = monster turn
+	partyActionsUsed          int // Actions used this turn
+	partyTechniqueActionsUsed int // Subset exempt from the movement penalty
+	turnBasedMoveCooldown     int // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown      int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
 	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every 5 turns)
 
@@ -1126,6 +1141,9 @@ func (g *MMGame) updateFocusedNPC() {
 // invisible).
 func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc == nil {
+		return true
+	}
+	if npc.HarvestOwner != "" && (!g.hasHarvestAlchemist() || npc.Visited) {
 		return true
 	}
 	if g.activityNPCAbsent(npc) {
@@ -1880,6 +1898,7 @@ func (g *MMGame) enterPostVictoryFreeMode() {
 	g.turnBasedMode = false
 	g.currentTurn = 0
 	g.partyActionsUsed = 0
+	g.partyTechniqueActionsUsed = 0
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
@@ -2479,9 +2498,16 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 	case rtActWeapon:
 		return m.HasWeaponInEitherHand()
 	case rtActCast:
+		if key, ok := g.slottedTechnique(idx); ok {
+			d := config.Technique(key)
+			return d != nil && !d.FreeStep && g.techniqueRefusal(idx, key) == ""
+		}
 		spell, ok := m.Equipment[items.SlotSpell]
 		if !ok {
 			return false
+		}
+		if spell.Type == items.ItemThrowable {
+			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(string(spell.SpellEffect)) > 0
 		}
 		cost := spell.SpellCost
 		// Traps: the live traps.yaml cost is the truth (a rebalance must not
@@ -2611,7 +2637,10 @@ func (g *MMGame) sweepLethalDoTVictims() {
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn(initial ...bool) {
 	g.tactics.movedTB = false
+	g.spatialStepThisTurn = false
 	if len(initial) == 0 || !initial[0] {
+		g.tickRareClassClocks(TurnBasedPeriodicEffectSeconds * g.config.GetTPS())
+		g.tickCombatBuffsTurn(TurnBasedPeriodicEffectSeconds * g.config.GetTPS())
 		for _, ch := range g.party.Members {
 			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
 			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
@@ -2692,6 +2721,9 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	// Monster cards (e.g. the Puma Card) add to the party's bonus-action pool,
 	// distributed to the fastest members alongside Speed bonuses.
 	bonusActions += g.cardBonusActions()
+	if b, ok := g.combatBuffByID("quickening"); ok {
+		bonusActions += b.ExtraActions
+	}
 	for bonusActions > 0 {
 		bestIdx := -1
 		bestSpeed := -1
@@ -2738,6 +2770,11 @@ func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int) bool
 }
 
 func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
+	if slot == items.SlotSpell && itemIndex >= 0 && itemIndex < len(g.party.Inventory) {
+		if key, d := flaskDefinition(g.party.Inventory[itemIndex]); d != nil {
+			return g.equipFlask(characterIndex, key)
+		}
+	}
 	return g.applyEquipmentMutation(characterIndex, func() bool {
 		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot)
 	})
@@ -2823,7 +2860,7 @@ func (g *MMGame) skipTurnBasedPartyTurnWithoutActor() bool {
 // turn. Moving after at least one attack/cast grants monsters an extra action
 // pass as anti-kiting pressure; opening the round with movement remains normal.
 func (g *MMGame) endPartyTurnAfterMovement() {
-	if g.partyActionsUsed > 0 {
+	if g.partyActionsUsed > g.partyTechniqueActionsUsed {
 		g.turnBasedExtraMonsterAction = true
 	}
 	g.forfeitPartyTurn()
@@ -2903,33 +2940,10 @@ func (g *MMGame) ensureSelectedCharCanAct() {
 // auto-advances to the next eligible character. If nobody is left with
 // actions, ends the party turn so monsters can move.
 func (g *MMGame) consumeSelectedCharAction() {
-	if !g.turnBasedMode || g.currentTurn != 0 {
-		return
-	}
-	selected := g.party.Members[g.selectedChar]
-	if selected.ActionsRemaining > 0 {
-		selected.ActionsRemaining--
-		g.partyActionsUsed++
-	}
-	if selected.ActionsRemaining == 0 {
-		if g.partyAllExhausted() {
-			g.endPartyTurn()
-			return
-		}
-		g.advanceToNextEligibleChar()
-	}
+	g.consumeCharacterActionWithRTCooldown(g.selectedChar, 0)
 }
-
-// consumeSelectedCharActionWithRTCooldown commits a spell/trap action in either
-// mode. It arms the RT cooldown immediately and, in TB, also spends one action
-// slot. Retain a longer cooldown carried into TB across a mode switch.
 func (g *MMGame) consumeSelectedCharActionWithRTCooldown(cooldownFrames int) {
-	if cooldownFrames > 0 && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
-		if selected := g.party.Members[g.selectedChar]; selected != nil && cooldownFrames > selected.RTCooldown {
-			selected.RTCooldown = cooldownFrames
-		}
-	}
-	g.consumeSelectedCharAction()
+	g.consumeCharacterActionWithRTCooldown(g.selectedChar, cooldownFrames)
 }
 
 // consumeSelectedCharWeaponAction is consumeSelectedCharAction specialized for
@@ -2989,6 +3003,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// deliberately does not: its slots/current turn were left intact.
 		g.currentTurn = 0
 		g.partyActionsUsed = 0
+		g.partyTechniqueActionsUsed = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.monsterTurnState.resetPasses()
@@ -3295,6 +3310,20 @@ func (mpw *MagicProjectileWrapper) GetPosition() (float64, float64) {
 }
 
 func (mpw *MagicProjectileWrapper) SetPosition(x, y float64) {
+	p := mpw.MagicProjectile
+	if p.FlaskKey != "" && p.Active {
+		distance := math.Hypot(x-p.X, y-p.Y)
+		if distance >= p.FlaskRemaining && distance > 0 {
+			ratio := p.FlaskRemaining / distance
+			x = p.X + (x-p.X)*ratio
+			y = p.Y + (y-p.Y)*ratio
+			p.Active = false
+			mpw.pendingImpact = true
+			mpw.impactX, mpw.impactY = x, y
+		}
+		p.FlaskRemaining = max(0, p.FlaskRemaining-distance)
+	}
+
 	mpw.MagicProjectile.X = x
 	mpw.MagicProjectile.Y = y
 	// Update collision system position
@@ -3340,6 +3369,10 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 	}
 	mpw.pendingImpact = false
 	if mpw.MagicProjectile == nil || mpw.game == nil {
+		return
+	}
+	if mpw.MagicProjectile.FlaskKey != "" {
+		mpw.game.combat.detonateFlask(mpw.MagicProjectile, mpw.impactX, mpw.impactY)
 		return
 	}
 	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)

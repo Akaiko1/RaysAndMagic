@@ -50,6 +50,7 @@ const (
 	dragFromQuickSlot
 	dragFromSpell
 	dragFromTrap
+	dragFromRareAction
 	dragFromEquip // an equipped item dragged off the paperdoll
 )
 
@@ -92,7 +93,7 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		// (the single quick slot); the item stays in the bar.
 		ui.onDisplayedInput(uiCommandClick, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() {
 			if interactive && item != nil &&
-				(item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell || item.Type == items.ItemTrap) &&
+				item.VirtualAction() &&
 				ui.game.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 				ui.game.bindQuickSpellFromPanel(charIdx, *item)
 			}
@@ -204,6 +205,22 @@ func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
 	}
 }
 
+// Rare action cards use the existing non-owning book drag transaction.
+func (ui *UISystem) quickRareActionDragSource(item items.Item, rect layoutRect) {
+	if ui.displayedInput.building {
+		ui.onDisplayedInput(uiCommandDrag, rect, func() { ui.quickRareActionDragSource(item, rect) })
+		return
+	}
+	g := ui.game
+	if !g.menuOpen || ui.modalLayerOwnsInput() || !g.dragArmed || g.dragSrc != dragNone {
+		return
+	}
+	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(rect.x, rect.y, rect.right(), rect.bottom())) && canBindQuickItem(g.party.Members[g.selectedChar], &item) {
+		g.dragSrc = dragFromRareAction
+		g.dragItem = item
+	}
+}
+
 // bindQuickSpellFromPanel binds a spell/trap sitting in the quick-slot BAR (the
 // panel) as the character's single Space quick-spell (Equipment[SlotSpell]),
 // leaving the item in the bar. Right-click entry point for the bar cells.
@@ -213,6 +230,11 @@ func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
 	}
 	ch := g.party.Members[charIdx]
 	switch it.Type {
+	case items.ItemTechnique, items.ItemThrowable:
+		if canBindQuickItem(ch, &it) {
+			ch.Equipment[items.SlotSpell] = it
+		}
+
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		if !characterKnowsSpellByID(ch, spells.SpellID(it.SpellEffect)) {
 			return
@@ -274,6 +296,9 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 // highlight. Thin alias over the model's ItemFitsSlot (the SSoT; EquipItemToSlot
 // enforces the same check, so the UI gate is a preview, not the guard).
 func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.EquipSlot) bool {
+	if key, d := flaskDefinition(item); d != nil {
+		item, _ = config.FlaskItem(key)
+	}
 	return c.ItemFitsSlot(item, slot)
 }
 
@@ -393,6 +418,17 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 		if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.party.Inventory) || !canBindQuickItem(tch, &g.party.Inventory[g.dragInvIndex]) {
 			return
 		}
+		if key, d := flaskDefinition(g.party.Inventory[g.dragInvIndex]); d != nil {
+			if !tch.HasSkill(character.SkillBombThrowing) {
+				return
+			}
+			shortcut, _ := config.FlaskItem(key)
+			if previous := tch.QuickSlots[targetSlot]; previous != nil {
+				g.returnQuickItemToInventory(*previous)
+			}
+			tch.QuickSlots[targetSlot] = &shortcut
+			break
+		}
 		if item, ok := g.takeInventoryDragItem(); ok {
 			occ := tch.QuickSlots[targetSlot]
 			// Same-stack items pile up in the slot instead of displacing.
@@ -427,6 +463,15 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 				g.returnQuickItemToInventory(*occ)
 			}
 		}
+	case dragFromRareAction:
+		if !canBindQuickItem(tch, &g.dragItem) {
+			return
+		}
+		if old := tch.QuickSlots[targetSlot]; old != nil {
+			g.returnQuickItemToInventory(*old)
+		}
+		cp := g.dragItem
+		tch.QuickSlots[targetSlot] = &cp
 	case dragFromQuickSlot:
 		if !(g.dragQuickChar == targetChar && g.dragQuickSlot == targetSlot) {
 			sch := g.party.Members[g.dragQuickChar]
@@ -478,7 +523,7 @@ func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
 func (g *MMGame) returnQuickItemToInventory(item items.Item) {
 	// Spells and trap recipes are book-owned - they never belong in the bag.
 	switch item.Type {
-	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap:
+	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap, items.ItemTechnique, items.ItemThrowable:
 		return
 	}
 	g.party.AddItem(item)
@@ -676,7 +721,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		}
 		g.AddCombatMessage(fmt.Sprintf("%s equips %s!", ch.Name, item.Name))
 		// Swap: the displaced gear takes the freed slot (spells never leak here).
-		if had && prev.Type != items.ItemBattleSpell && prev.Type != items.ItemUtilitySpell {
+		if had && !prev.VirtualAction() {
 			cp := prev
 			ch.QuickSlots[slotIdx] = &cp
 		} else {
@@ -685,6 +730,14 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		return
 	}
 
+	if item.Type == items.ItemTechnique {
+		g.useTechnique(charIdx, string(item.SpellEffect), false, true)
+		return
+	}
+	if item.Type == items.ItemThrowable {
+		g.throwFlask(charIdx, string(item.SpellEffect), true)
+		return
+	}
 	// Spells and traps ARE combat actions: gated by readiness, and a successful one
 	// spends the action (TB) / sets the cooldown (RT).
 	if !g.canSpendCombatAction(charIdx) {
@@ -724,6 +777,13 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 func canBindQuickItem(ch *character.MMCharacter, item *items.Item) bool {
 	if item == nil {
 		return true
+	}
+	if item.Type == items.ItemTechnique {
+		d := config.Technique(string(item.SpellEffect))
+		return ch != nil && ch.Class == character.ClassWayfarer && d != nil && ch.Level >= d.Level
+	}
+	if item.Type == items.ItemThrowable {
+		return ch != nil && ch.HasSkill(character.SkillBombThrowing)
 	}
 	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
 		return characterKnowsSpellByID(ch, spells.SpellID(item.SpellEffect))

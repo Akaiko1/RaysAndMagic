@@ -3,7 +3,9 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
-	FreeGoods bool
+	HarvestOwner string
+	HarvestItem  string
+	FreeGoods    bool
 
 	QuestPropOwner string // transient owner; reconstructed from quest YAML/state
 
@@ -66,6 +68,7 @@ const (
 	NPCTypeCardCollector = "card_collector"
 	NPCTypeLootCrate     = "loot_crate"
 	NPCTypeSpellLectern  = "spell_lectern"
+	NPCTypeHarvest       = "alchemy_harvest"
 	NPCTypeDoor          = "door" // a doorway; door_behavior chooses its mechanics
 
 	// NPCDoorBehaviorLocked is a persisted door opened by a matching key or a

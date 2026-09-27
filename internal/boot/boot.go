@@ -30,6 +30,15 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	config.MustLoadItemConfig("assets/items.yaml")
+	if err := config.ValidateClassItems(cfg); err != nil {
+		log.Fatalf("Class supplies: %v", err)
+	}
+	if _, err := config.LoadAlchemyConfig("assets/alchemy_recipes.yaml"); err != nil {
+		log.Fatalf("Alchemy: %v", err)
+	}
+	if _, err := config.LoadAlchemySpawns("assets/alchemy_spawns.yaml"); err != nil {
+		log.Fatalf("Alchemy spawns: %v", err)
+	}
 	config.MustLoadLootTables("assets/loots.yaml")
 	if err := config.LoadEcology("assets/ecology.yaml"); err != nil {
 		log.Fatalf("Ecology: %v", err)
@@ -47,6 +56,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 
 	config.MustLoadTrapConfig("assets/traps.yaml")
+	if err := config.LoadTechniques("assets/techniques.yaml"); err != nil {
+		log.Fatalf("Techniques: %v", err)
+	}
 	if err := config.LoadIconFrames("assets/icon_frames.yaml"); err != nil {
 		log.Fatalf("Icon frames: %v", err)
 	}
@@ -59,6 +71,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 		log.Fatalf("Monster catalog links: %v", err)
 	}
 	character.MustLoadNPCConfig("assets/npcs.yaml")
+	if err := character.ValidateAlchemyTradeMaterials(config.GlobalAlchemy, character.NPCConfigInstance); err != nil {
+		log.Fatalf("Alchemy materials: %v", err)
+	}
 	config.MustLoadChampionConfig("assets/champions.yaml")
 
 	// Build every champion once so a bad class/skill/equipment key fails loud at

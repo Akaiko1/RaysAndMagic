@@ -56,7 +56,10 @@ func (p *Party) SwapActiveReserve(activeIdx, reserveIdx int) bool {
 		return false
 	}
 	p.contentRev++
+	p.Members[activeIdx].RareClass.Anchor = SpatialAnchor{}
+	p.Reserve[reserveIdx].RareClass.Anchor = SpatialAnchor{}
 	p.Members[activeIdx], p.Reserve[reserveIdx] = p.Reserve[reserveIdx], p.Members[activeIdx]
+	p.GrantClassItems(config.GlobalConfig)
 	return true
 }
 
@@ -193,6 +196,7 @@ func NewParty(cfg *config.Config) *Party {
 	}
 
 	party.addStartingItems()
+	party.GrantClassItems(cfg)
 	return party
 }
 
@@ -218,6 +222,7 @@ func NewPartyFromGroups(cfg *config.Config, active, captive, reserve []*MMCharac
 		}
 	}
 	party.addStartingItems()
+	party.GrantClassItems(cfg)
 	return party
 }
 
@@ -439,7 +444,7 @@ func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
 // returnDisplacedToBag puts an item displaced by an equip back into the inventory,
 // skipping spellbook-owned spell items (which never live in the bag).
 func (p *Party) returnDisplacedToBag(item items.Item, had bool) {
-	if had && item.Type != items.ItemBattleSpell && item.Type != items.ItemUtilitySpell {
+	if had && !item.VirtualAction() {
 		p.AddItem(item)
 	}
 }

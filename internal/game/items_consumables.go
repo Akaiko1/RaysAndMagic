@@ -102,7 +102,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 	if cannotReceiveOrdinaryHealing(ch) {
 		return
 	}
-	heal := character.ConsumableRestore(ch, base, div, false)
+	heal := character.ConsumableRestore(ch, base, div, false, g.party.PotionSupport(ch, base, div, false))
 	before := ch.HitPoints
 	ch.HitPoints += heal
 	if ch.HitPoints > ch.MaxHitPoints {
@@ -204,6 +204,9 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	if item.Type != items.ItemConsumable {
 		return false
 	}
+	if key, d := flaskDefinition(item); d != nil {
+		return g.equipFlask(selectedChar, key)
+	}
 	// Attribute-driven behaviors (single source of truth)
 	// Revive consumable: branch on number of revivable party members.
 	//   0 -> nothing to do, don't waste the potion
@@ -304,7 +307,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			g.AddCombatMessage(fmt.Sprintf("%s is already brimming with mana.", ch.Name))
 			return false
 		}
-		restore := character.ConsumableRestore(ch, base, div, true)
+		restore := character.ConsumableRestore(ch, base, div, true, g.party.PotionSupport(ch, base, div, true))
 		before := ch.SpellPoints
 		ch.SpellPoints += restore
 		if ch.SpellPoints > ch.MaxSpellPoints {

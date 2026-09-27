@@ -12,11 +12,18 @@ import (
 func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	// Restore mode
 	g.partyRoot = save.PartyRoot
+	g.alchemy = save.Alchemy.Clone()
+	g.harvestRuntime = harvestRuntime{}
+	g.spatialReuseFrames = save.SpatialReuseFrames
+	g.spatialStepThisTurn = save.SpatialStepThisTurn
+	g.rareBookMessage = ""
+	g.brewAnimation = nil
 	g.turnBasedMode = save.TurnBased
 	g.resetOverwatch()
 	g.turnBasedTurnSuspended = save.TurnBasedTurnSuspended
 	g.currentTurn = save.CurrentTurn
 	g.partyActionsUsed = save.PartyActionsUsed
+	g.partyTechniqueActionsUsed = max(0, min(save.PartyTechniqueActionsUsed, g.partyActionsUsed))
 	g.turnBasedMoveCooldown = save.TurnBasedMoveCooldown
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved

@@ -1,6 +1,8 @@
 package game
 
 import (
+	"math"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
 
@@ -34,9 +36,14 @@ func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
 	}
 	ts := float64(r.game.config.GetTileSize())
 
+	for _, key := range r.visibleZoneHeatTiles() {
+		tx, ty := key[0], key[1]
+		x, y := (float64(tx)+.5)*ts, (float64(ty)+.5)*ts
+		r.emitBubbleColumn(screen, bubbleColumnFx{wx: x, wy: y, hx: tx, hy: ty, hi: 0, maxDepth: flameFadeTiles * ts, riseFraction: .10, baseAlpha: .24, colBright: 1, perColumn: 2, periodTick: 48, jitterMin: .8, jitterSpan: .4, sizeFloor: 1.5, sizeCoef: .025, wobbleCoef: .3, sizeJitter: .2, color: flameCoreColor})
+	}
 	for zi := range r.game.persistentDamageZones {
 		z := &r.game.persistentDamageZones[zi]
-		if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
+		if z.FramesLeft <= 0 || z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 			continue
 		}
 		// Whole zone beyond view distance -> nothing of it can render.
@@ -104,6 +111,72 @@ func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
 			}
 		}
 	}
+}
+
+// visibleZoneHeatTiles computes the exterior of the whole live flame field,
+// not each cell independently. Culling precedes terrain/door ray checks.
+func (r *Renderer) visibleZoneHeatTiles() [][2]int {
+	g := r.game
+	ts := float64(g.config.GetTileSize())
+	core := map[[2]int]bool{}
+	var zones []*PersistentDamageZone
+	for i := range g.persistentDamageZones {
+		z := &g.persistentDamageZones[i]
+		def, _ := config.GetSpellDefinition(z.SpellID)
+		if z.FramesLeft <= 0 || z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) || def == nil || normalizeDamageTypeStr(def.School) != string(damagecalc.Fire) {
+			continue
+		}
+		cx, cy := TileIndex(z.X, ts), TileIndex(z.Y, ts)
+		reach := int(z.Radius/ts) + 1
+		for dy := -reach; dy <= reach; dy++ {
+			for dx := -reach; dx <= reach; dx++ {
+				x, y := (float64(cx+dx)+.5)*ts, (float64(cy+dy)+.5)*ts
+				if z.coversMonster(x, y, ts) {
+					core[[2]int{cx + dx, cy + dy}] = true
+				}
+			}
+		}
+		if def.ZoneEdgeTiles > 0 && z.isWallCell() {
+			zones = append(zones, z)
+		}
+	}
+	var tiles [][2]int
+	drawn := map[[2]int]bool{}
+	for _, z := range zones {
+		def, _ := config.GetSpellDefinition(z.SpellID)
+		reach := def.ZoneEdgeTiles
+		// A conservative field bound keeps visible edge tiles when the core is offscreen.
+		if !r.zoneHeatVisible(z.X, z.Y, float64(reach+1)*ts) {
+			continue
+		}
+		cx, cy := TileIndex(z.X, ts), TileIndex(z.Y, ts)
+		for dy := -reach; dy <= reach; dy++ {
+			for dx := -reach; dx <= reach; dx++ {
+				key := [2]int{cx + dx, cy + dy}
+				x, y := (float64(key[0])+.5)*ts, (float64(key[1])+.5)*ts
+				if core[key] || drawn[key] || !r.zoneHeatVisible(x, y, ts/2) {
+					continue
+				}
+				if g.combat.zoneDamageBand(z, x, y, ts) == 1 {
+					drawn[key] = true
+					tiles = append(tiles, key)
+				}
+			}
+		}
+	}
+	return tiles
+}
+
+func (r *Renderer) zoneHeatVisible(x, y, margin float64) bool {
+	cam := r.game.camera
+	dx, dy := x-cam.X, y-cam.Y
+	limit := min(cam.ViewDist, flameFadeTiles*float64(r.game.config.GetTileSize())) + margin
+	if dx*dx+dy*dy > limit*limit {
+		return false
+	}
+	forward := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
+	side := -dx*math.Sin(cam.Angle) + dy*math.Cos(cam.Angle)
+	return forward+margin > 0 && math.Abs(side) <= max(0, forward)*math.Tan(cam.FOV/2)+margin
 }
 
 // emitSteamColumn draws one rising bubble at a sampled point inside a steam-zone

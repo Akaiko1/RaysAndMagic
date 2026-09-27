@@ -24,6 +24,18 @@ func normalizeItemFromConfig(item *items.Item) {
 		}
 		return
 	}
+	if item.Type == items.ItemTechnique {
+		if fresh, ok := config.TechniqueItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
+	if item.Type == items.ItemThrowable {
+		if fresh, ok := config.FlaskItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
 	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
 	// reach saved slots), keyed by SpellEffect.
 	if item.Type == items.ItemTrap {
@@ -134,6 +146,13 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.QuickSlots[qs.Slot] = &item
 	}
+	m.RareClass = cs.RareClass.Clone()
+	// Old saves represented one charged attack by a timer. Preserve that one
+	// attack as a permanent charge; newer counts never inherit an expiry.
+	if m.RareClass.FlowCharges == 0 && m.RareClass.FlowFrames > 0 {
+		m.RareClass.FlowCharges = 1
+	}
+	m.RareClass.FlowFrames = 0
 	m.AutoDrinkCooldown = max(0, cs.AutoDrinkCooldown)
 	m.DesignatedTargetID, m.DesignationFrames = cs.DesignatedTargetID, max(0, cs.DesignationFrames)
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
@@ -208,6 +227,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
 		}
 	}
+	cs.RareClass = m.RareClass.Clone()
 	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
 	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining

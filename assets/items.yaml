@@ -2389,3 +2389,211 @@ items:
     armor_category: cloth
     bonus_might: 4
     bonus_endurance: 4
+
+  # Alchemical reagents and distinct brewed products.
+  dawnleaf:
+    name: Dawnleaf
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_dawnleaf
+  mooncap:
+    name: Mooncap
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_mooncap
+  bitterroot:
+    name: Bitterroot
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_bitterroot
+  embercap:
+    name: Embercap
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_embercap
+  grave_orchid:
+    name: Grave Orchid
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: rare
+    value: 2
+    harvest_sprite: alchemy_grave_orchid
+  brewed_health_potion:
+    brew_color: [216, 54, 68]
+    name: Brewed Health Potion
+    type: consumable
+    description: An Alchemist's preparation. Restores health
+    brewed_from: health_potion
+    rarity: common
+    value: 1
+  brewed_mana_potion:
+    brew_color: [66, 133, 236]
+    name: Brewed Mana Potion
+    type: consumable
+    description: An Alchemist's preparation. Restores spell points
+    brewed_from: mana_potion
+    rarity: common
+    value: 1
+  brewed_antivenom:
+    brew_color: [109, 205, 65]
+    name: Brewed Antivenom
+    type: consumable
+    description: An Alchemist's preparation. A bitter draught that purges venom from
+      the blood
+    brewed_from: antivenom
+    rarity: common
+    value: 1
+  brewed_sake_flask:
+    brew_color: [232, 188, 102]
+    name: Brewed Sake Flask
+    type: consumable
+    description: An Alchemist's preparation. A warm flask of rice wine that restores
+      vigor
+    brewed_from: sake_flask
+    rarity: common
+    value: 1
+  brewed_clock_oil:
+    brew_color: [223, 143, 40]
+    name: Brewed Clock Oil
+    type: consumable
+    description: An Alchemist's preparation. A vial of fine horologist's oil - loosens
+      joints and old wounds alike
+    brewed_from: clock_oil
+    rarity: uncommon
+    value: 1
+  brewed_flame_ward_draught:
+    brew_color: [238, 94, 44]
+    name: Brewed Flame Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A red draught that drinks the heat out
+      of dragonfire
+    brewed_from: flame_ward_draught
+    rarity: rare
+    value: 1
+  brewed_storm_ward_draught:
+    brew_color: [63, 185, 221]
+    name: Brewed Storm Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A pale blue swirl that grounds the lightning
+      around you
+    brewed_from: storm_ward_draught
+    rarity: rare
+    value: 1
+  brewed_gloom_ward_draught:
+    brew_color: [142, 83, 210]
+    name: Brewed Gloom Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A violet dark that swallows darker things
+    brewed_from: gloom_ward_draught
+    rarity: rare
+    value: 1
+  brewed_stoneskin_draught:
+    brew_color: [143, 179, 94]
+    name: Brewed Stoneskin Draught
+    type: consumable
+    description: An Alchemist's preparation. Earth and ore in suspension; your skin
+      remembers the mountain
+    brewed_from: stoneskin_draught
+    rarity: rare
+    value: 1
+  brewed_mirage_salt:
+    brew_color: [225, 186, 91]
+    name: Brewed Mirage Salt
+    type: consumable
+    description: An Alchemist's preparation. Pale salt from an oasis that appears on
+      no honest map
+    brewed_from: mirage_salt
+    rarity: rare
+    value: 1
+  brewed_revival_potion:
+    brew_color: [244, 201, 76]
+    name: Brewed Revival Potion
+    type: consumable
+    description: An Alchemist's preparation. A potent draught that restores breath and
+      vigor
+    brewed_from: revival_potion
+    rarity: rare
+    value: 1
+  harm_flask:
+    brew_color: [169, 74, 222]
+    name: Harm Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_harm_flask
+      element: physical
+      damage:
+      - 24
+      - 30
+      - 36
+      - 42
+      poison_seconds:
+      - 0
+      - 0
+      - 0
+      - 0
+      burn_seconds: 0
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3
+  venom_flask:
+    brew_color: [113, 222, 49]
+    name: Venom Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_venom_flask
+      element: body
+      damage:
+      - 8
+      - 12
+      - 16
+      - 20
+      poison_seconds:
+      - 6
+      - 9
+      - 12
+      - 15
+      burn_seconds: 0
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3
+  fire_flask:
+    brew_color: [249, 116, 33]
+    name: Fire Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_fire_flask
+      element: fire
+      damage:
+      - 12
+      - 16
+      - 20
+      - 24
+      poison_seconds:
+      - 0
+      - 0
+      - 0
+      - 0
+      burn_seconds: 3
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3

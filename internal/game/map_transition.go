@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -68,6 +69,11 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 		pose = MapPose{X: g.camera.X, Y: g.camera.Y, Angle: g.camera.Angle}
 		if x, y, ok := g.townPortalArrivalPoint(request.mapKey); ok {
 			pose.X, pose.Y = x, y
+		}
+	}
+	for _, c := range g.party.Members {
+		if c != nil {
+			c.RareClass.Anchor = character.SpatialAnchor{}
 		}
 	}
 	g.finishMapArrival(pose.X, pose.Y, pose.Angle)

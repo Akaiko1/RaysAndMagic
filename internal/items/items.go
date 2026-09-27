@@ -377,8 +377,10 @@ const (
 	// ItemTrap and ItemCard are APPENDED at the end and must never be reordered:
 	// saves serialize Type as an int, so inserting mid-enum re-types every item
 	// after the insertion point (trinkets were briefly read back as traps).
-	ItemTrap // Thief traps (quick-slot devices armed with Space/F)
-	ItemCard // Collectible monster cards (party-wide collection via the card collector)
+	ItemTrap      // Thief traps (quick-slot devices armed with Space/F)
+	ItemCard      // Collectible monster cards (party-wide collection via the card collector)
+	ItemThrowable // Non-owning bag-backed flask shortcut.
+	ItemTechnique // Pilgrim technique shortcut.
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -400,6 +402,10 @@ func (t ItemType) String() string {
 		return "Utility Spell"
 	case ItemTrap:
 		return "Trap"
+	case ItemTechnique:
+		return "Technique"
+	case ItemThrowable:
+		return "Flask action"
 	case ItemTrinket:
 		return "Trinket"
 	case ItemCard:
@@ -752,4 +758,13 @@ func (item Item) DisplayKind() string {
 		}
 	}
 	return item.Type.String()
+}
+
+// VirtualAction shortcuts reference a catalog action, never physical stock.
+func (i Item) VirtualAction() bool {
+	switch i.Type {
+	case ItemBattleSpell, ItemUtilitySpell, ItemTrap, ItemThrowable, ItemTechnique:
+		return true
+	}
+	return false
 }
