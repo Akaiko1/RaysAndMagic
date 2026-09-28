@@ -66,8 +66,8 @@ func sendFlaskInput(g *MMGame, ih *InputHandler, input string, target *monster.M
 
 func assertFlaskAim(t *testing.T, g *MMGame, key string, target *monster.Monster3D) {
 	t.Helper()
-	if len(g.magicProjectiles) != 1 || g.flaskStock(key) != 2 {
-		t.Fatalf("one launch must consume one bottle: shots=%d stock=%d", len(g.magicProjectiles), g.flaskStock(key))
+	if len(g.magicProjectiles) != 1 || g.flaskStock(g.party.Members[0], key) != 2 {
+		t.Fatalf("one launch must consume one bottle: shots=%d stock=%d", len(g.magicProjectiles), g.flaskStock(g.party.Members[0], key))
 	}
 	p := g.magicProjectiles[0]
 	wantAngle := g.camera.Angle
@@ -183,7 +183,7 @@ func TestAlchemyFlaskInputAndImpact(t *testing.T) {
 					hp := victim.HitPoints
 					wrapper.ApplyCollisionEffects()
 					g.combat.CheckProjectileMonsterCollisions()
-					if victim.HitPoints != hp || g.flaskStock(key) != 2 {
+					if victim.HitPoints != hp || g.flaskStock(g.party.Members[0], key) != 2 {
 						t.Fatal("impact spent another bottle or applied damage twice")
 					}
 				})

@@ -152,15 +152,15 @@ func TestAlchemyReceiptOverlappingGroupsAndFailures(t *testing.T) {
 }
 
 func TestAlchemyReceiptIconLayout(t *testing.T) {
-	for count := 1; count <= 5; count++ {
+	for count := 1; count <= 16; count++ {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			for i := 0; i < count; i++ {
-				r := alchemyBrewIngredientRect(i)
+				r := alchemyBrewIngredientRect(i, count)
 				if r.x < 0 || r.y < 0 || r.right() > 320 || r.bottom() > 210 || r.x < 226 && r.right() > 94 {
 					t.Fatal("ingredient icon leaves canvas or overlaps the vessel")
 				}
 				for j := 0; j < i; j++ {
-					other := alchemyBrewIngredientRect(j)
+					other := alchemyBrewIngredientRect(j, count)
 					if r.x < other.right() && r.right() > other.x && r.y < other.bottom() && r.bottom() > other.y {
 						t.Fatal("mixed ingredient icons overlap")
 					}

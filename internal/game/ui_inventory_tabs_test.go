@@ -141,29 +141,25 @@ func TestSetInventoryTab_DropsStaleViewState(t *testing.T) {
 	}
 }
 
-// The strip spans the grid exactly, in order, without overlaps - the drawn tab
-// IS the hitbox.
+// Compact icon targets stay equal, separate and centered over their own bag.
 func TestInventoryTabRects_TileTheStrip(t *testing.T) {
-	const x, y, w = 40, 100, inventoryGridSize
-	rects := inventoryTabRects(x, y, w)
-	if len(rects) != len(inventoryTabs) {
-		t.Fatalf("%d rects for %d tabs", len(rects), len(inventoryTabs))
-	}
-	if rects[0].x != x {
-		t.Fatalf("strip starts at %d, want %d", rects[0].x, x)
-	}
-	if last := rects[len(rects)-1]; last.right() != x+w {
-		t.Fatalf("strip ends at %d, want %d", last.right(), x+w)
-	}
-	for i, r := range rects {
-		if r.y != y || r.h != inventoryTabH {
-			t.Fatalf("tab %d = (y %d, h %d), want (%d, %d)", i, r.y, r.h, y, inventoryTabH)
+	for _, w := range []int{180, 225, 300, 520, 720} {
+		const x, y = 40, 100
+		rects := inventoryTabRects(x, y, w)
+		if len(rects) != len(inventoryTabs) {
+			t.Fatal("missing category target")
 		}
-		if label := inventoryTabs[i].label; r.w < debugTextWidth(label) {
-			t.Fatalf("tab %q is %dpx wide, narrower than its %dpx label", label, r.w, debugTextWidth(label))
+		first, last := rects[0], rects[len(rects)-1]
+		if first.x < x || last.right() > x+w || absInt((first.x-x)-(x+w-last.right())) > 1 {
+			t.Fatal("filter group is not centered inside the bag")
 		}
-		if i > 0 && r.x != rects[i-1].right() {
-			t.Fatalf("tab %d starts at %d, previous ends at %d", i, r.x, rects[i-1].right())
+		for i, r := range rects {
+			if r.y != y || r.h != inventoryFilterHeight(w) || r.w != r.h {
+				t.Fatal("filter targets are not uniform squares")
+			}
+			if i > 0 && r.x < rects[i-1].right()+4 {
+				t.Fatal("filter controls overlap")
+			}
 		}
 	}
 }

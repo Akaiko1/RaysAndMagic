@@ -88,6 +88,12 @@ func (c *MMCharacter) ConsumeFlowingStaffCharge() {
 	}
 }
 
+// Flowing Staff enhances only staff weapon attacks, including ranged staves.
+// Damage, critical chance and tooltips share the same charge eligibility.
+func (c *MMCharacter) HasChargedStaffAttack(def *config.WeaponDefinitionConfig) bool {
+	return def != nil && def.Category == "staff" && c.FlowingStaffCharges() > 0
+}
+
 func rareSkillDescription(skill SkillType) string {
 	switch skill {
 	case SkillAlchemy:
@@ -103,7 +109,7 @@ func rareSkillDescription(skill SkillType) string {
 	case SkillTranslocation:
 		return translocationDescription()
 	case SkillFlowingStaff:
-		return fmt.Sprintf("Moving one tile refills %s staff charges. Each adds +%s%% normal damage to one staff attack. Charges remain until spent.", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
+		return fmt.Sprintf("Moving one tile refills %s staff charges. Each adds +%s%% normal damage and guarantees a critical staff attack. Charges remain until spent.", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
 	case SkillPathfinding:
 		return fmt.Sprintf("Party RT movement speed +%s%%. Best capable active guide only.\n\nGrand Master:\nParty may attack and cast while running.", masteryProgression(PathfindingSpeedPct))
 	}
@@ -131,6 +137,9 @@ func bombThrowingDescription() string {
 		line := fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, masteryValues(f.Damage), BombThrowingIntellectDivisor, f.Element)
 		if f.PoisonSeconds != [4]int{} {
 			line += fmt.Sprintf("; poison %ss", masteryValues(f.PoisonSeconds))
+		}
+		if f.BurnSeconds != [4]int{} {
+			line += fmt.Sprintf("; burning %ss", masteryValues(f.BurnSeconds))
 		}
 		lines = append(lines, line+".")
 	}

@@ -147,7 +147,7 @@ func TestRareFlaskGroundVisibility(t *testing.T) {
 			d, _ := config.GetItemDefinition(key)
 			tile := float64(g.config.GetTileSize())
 			x, y := g.camera.X+4*tile, g.camera.Y
-			p := &MagicProjectile{FlaskRadius: 2 * tile, FlaskPoisonFrames: d.Flask.PoisonSeconds[0], FlaskBurnFrames: d.Flask.BurnSeconds}
+			p := &MagicProjectile{FlaskRadius: 2 * tile, FlaskPoisonFrames: d.Flask.PoisonSeconds[0], FlaskBurnFrames: d.Flask.BurnSeconds[0]}
 			g.createFlaskImpact(p, x, y, d.BrewColor)
 			initial := g.spellHitEffects[0]
 			initial.Particles = append([]SpellHitParticle(nil), initial.Particles...)

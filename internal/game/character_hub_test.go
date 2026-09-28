@@ -175,15 +175,17 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 }
 
 func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
-	for _, res := range [][2]int{{1024, 768}, {1280, 720}, {1280, 800}, {1920, 1080}, {3440, 1440}} {
+	for _, res := range [][2]int{{800, 680}, {1024, 768}, {1280, 720}, {1280, 800}, {1920, 1080}, {3440, 1440}} {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
 		inventory := computeInventoryContentLayout(menu.content)
-		if inventory.paper.y != inventory.grid.y {
+		if inventory.paper.y != inventory.grid.y || inventory.personalGrid.y != inventory.grid.y {
 			t.Fatalf("%dx%d paperdoll top=%d, inventory top=%d", res[0], res[1], inventory.paper.y, inventory.grid.y)
 		}
-		if inventory.quickSlots.bottom() != inventory.paper.bottom() {
-			t.Fatalf("%dx%d quick slots bottom=%d, paperdoll bottom=%d",
-				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom())
+		// Compact layouts reserve their bottom row for the bar even when the
+		// narrower paperdoll ends earlier. The complete group stays on screen.
+		if inventory.quickSlots.bottom() < inventory.paper.bottom() || inventory.quickSlots.bottom() > menu.content.bottom() {
+			t.Fatalf("%dx%d quick slots bottom=%d, expected between paperdoll=%d and content=%d",
+				res[0], res[1], inventory.quickSlots.bottom(), inventory.paper.bottom(), menu.content.bottom())
 		}
 		pagerBottom := inventory.pager.bottom()
 		quickLabelTop := inventory.quickSlots.y - quickSlotTabLabelSpace

@@ -32,17 +32,30 @@ func TestRareBookDisplayedPagesAndSources(t *testing.T) {
 						t.Fatalf("recipe %d selected %d", idx, g.selectedRare)
 					}
 					recipe := &config.GlobalAlchemy.Recipes[idx]
-					for gi, group := range recipe.Ingredients {
-						if len(group.Alternatives) < 2 {
-							continue
+					a := makeAlchemyMaterialLayout(l, recipe)
+					// All and None change only optional materials; the base stays pinned.
+					for _, all := range []bool{true, false} {
+						x := a.toolbar.right() - 24
+						if all {
+							x -= 58
 						}
-						for want := 1; want <= len(group.Alternatives); want++ {
-							ingredient := l.ingredient(gi)
-							h.clicks(false, ingredient.right()-40, ingredient.y+40, 1)
-							if got := g.alchemyChoices(recipe)[gi]; got != want%len(group.Alternatives) {
-								t.Fatalf("%s/source %d selected %d", recipe.Key, want, got)
+						h.clicks(false, x, a.toolbar.y+10, 1)
+						for gi, group := range recipe.Ingredients {
+							for key := range group.Materials() {
+								if g.alchemySelection(recipe)[gi][key] != (all || len(group.Materials()) == 1) {
+									t.Fatalf("%s/%s: All/None selection", recipe.Key, key)
+								}
 							}
 						}
+					}
+					cell := a.cells[0]
+					h.clicks(false, cell.rect.x+10, cell.rect.y+25, 1)
+					if !g.alchemySelection(recipe)[cell.group][cell.key] {
+						t.Fatal("material click did not select")
+					}
+					h.clicks(false, cell.rect.x+10, cell.rect.y+25, 1)
+					if g.alchemySelection(recipe)[cell.group][cell.key] {
+						t.Fatal("material click did not deselect")
 					}
 				}
 				if page+1 < pageCount(len(config.GlobalAlchemy.Recipes), l.rows) {
@@ -89,8 +102,13 @@ func TestRareBookLayoutSeparation(t *testing.T) {
 						t.Fatalf("checkbox %d outside row", i)
 					}
 				}
-				if alchemy && l.ingredient(1).bottom() > l.maxButton().y {
-					t.Fatal("ingredients overlap batch controls")
+				if alchemy {
+					for _, recipe := range config.GlobalAlchemy.Recipes {
+						a := makeAlchemyMaterialLayout(l, &recipe)
+						if a.title.bottom() > a.base.y || a.base.bottom() > a.toolbar.y || a.toolbar.bottom() > a.viewport.y || a.viewport.h < 130 || a.viewport.bottom() > a.controls.y || a.controls.bottom() > a.message.y || a.message.bottom() > l.detail.bottom() {
+							t.Fatal("materials lack readable space or overlap fixed controls")
+						}
+					}
 				}
 				if l.message.bottom() > l.detail.bottom() {
 					t.Fatal("message outside details")

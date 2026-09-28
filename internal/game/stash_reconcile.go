@@ -106,6 +106,11 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 		if m == nil {
 			return
 		}
+		for i := range m.Inventory {
+			if items.EnsureInstanceID(&m.Inventory[i]) {
+				changed = true
+			}
+		}
 		for slot, it := range m.Equipment {
 			if items.EnsureInstanceID(&it) {
 				m.Equipment[slot] = it
@@ -195,6 +200,13 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 		if m == nil {
 			return
 		}
+		keptBag := m.Inventory[:0]
+		for _, it := range m.Inventory {
+			if kept, ok := afterDedup(it); ok {
+				keptBag = append(keptBag, kept)
+			}
+		}
+		m.Inventory = keptBag
 		for slot, it := range m.Equipment {
 			if _, kept := afterDedup(it); !kept {
 				delete(m.Equipment, slot)

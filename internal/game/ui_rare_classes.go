@@ -51,18 +51,12 @@ func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	l.message = layoutRect{l.actions.x, l.actions.bottom() + 8, l.actions.w, 28}
 	return l
 }
-func (l rareBookLayout) ingredient(i int) layoutRect {
-	return layoutRect{l.detail.x + 12, l.detail.y + 80 + i*64, l.detail.w - 24, 60}
-}
 func (l rareBookLayout) row(i int) layoutRect {
 	return layoutRect{l.list.x + 8, l.list.y + 24 + i*l.rowHeight, l.list.w - 16, l.rowHeight - 6}
 }
 func (l rareBookLayout) auto(i int) layoutRect {
 	r := l.row(i)
 	return layoutRect{r.x + 54, r.y + 28, r.w - 60, 20}
-}
-func (l rareBookLayout) maxButton() layoutRect {
-	return layoutRect{l.actions.right() - 64, l.actions.y - 36, 64, 26}
 }
 
 func (ui *UISystem) rareBookButton(screen *ebiten.Image, r layoutRect, label string, enabled bool, action func()) {
@@ -142,7 +136,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 		ui.drawPilgrimTechniques(screen, c, l)
 	}
 	ui.drawTabQuickSlotBar(screen, l.quick.x, l.quick.y, l.quick.w)
-	hint := "Up/Down: recipe | Enter: brew | Hover icons for details"
+	hint := "Click materials to select | Scroll list | Enter: brew"
 	if !alchemist {
 		hint = "Drag icons to quick slots | Enter: use | V: Fold | Shift+V: Return"
 	}
@@ -171,58 +165,7 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 		ui.drawAlchemyBrewAnimation(screen, l.detail)
 		return
 	}
-	r := &rs[g.selectedRare]
-	it, _ := items.TryCreateItemFromYAML(r.Output)
-	x, y, w := l.detail.x+12, l.detail.y+12, l.detail.w-24
-	ui.rareBookItem(screen, it, layoutRect{x, y, 64, 64}, c)
-	ui.rareBookText(screen, it.Name, layoutRect{x + 76, y + 5, w - 76, 32})
-	yield := character.AlchemyYield(c.SkillTier(character.SkillAlchemy), r.Family)
-	drawDebugText(screen, fmt.Sprintf("%d per batch | In bag: %d", yield, g.party.CountItemsByName(it.Name)), x+76, y+42)
-	choices := g.alchemyChoices(r)
-	g.alchemyBatches = max(1, min(99, g.alchemyBatches))
-	for i, group := range r.Ingredients {
-		row := l.ingredient(i)
-		drawFilledRect(screen, row.x, row.y, row.w, row.h, color.RGBA{33, 39, 35, 255})
-		choice := choices[i]
-		a := group.Alternatives[choice]
-		have := 0
-		for _, key := range a.Items {
-			d, _ := config.GetItemDefinition(key)
-			have += g.party.CountItemsByName(d.Name)
-		}
-		label := group.Label
-		if len(group.Alternatives) > 1 {
-			label += fmt.Sprintf("  (%d/%d)", choice+1, len(group.Alternatives))
-		}
-		drawDebugText(screen, label, row.x+8, row.y+5)
-		// Every pooled source gets an icon; its tooltip supplies its full name.
-		for j, key := range a.Items {
-			source, _ := items.TryCreateItemFromYAML(key)
-			ui.rareBookItem(screen, source, layoutRect{row.x + 8 + j*38, row.y + 22, 34, 34}, c)
-		}
-		need := a.Count * g.alchemyBatches
-		drawDebugText(screen, fmt.Sprintf("Need %d | Have %d", need, have), row.right()-150, row.y+5)
-		if len(group.Alternatives) > 1 {
-			gi := i
-			ui.rareBookButton(screen, layoutRect{row.right() - 90, row.y + 28, 82, 26}, "Source >", true, func() { choices[gi] = (choices[gi] + 1) % len(r.Ingredients[gi].Alternatives); g.rareBookMessage = "" })
-		}
-	}
-	maxBatches := g.party.MaxAlchemyBatches(r, choices)
-	controls := layoutRect{l.actions.x, l.actions.y - 36, l.actions.w, 26}
-	ui.rareBookButton(screen, layoutRect{controls.x, controls.y, 26, 26}, "-", g.alchemyBatches > 1, func() { g.alchemyBatches-- })
-	ui.rareBookButton(screen, layoutRect{controls.x + 32, controls.y, 26, 26}, "+", g.alchemyBatches < maxBatches, func() { g.alchemyBatches++ })
-	drawCenteredDebugText(screen, fmt.Sprintf("%d batches / max %d", g.alchemyBatches, maxBatches), controls.x+64, controls.y, controls.w-134, 26)
-	ui.rareBookButton(screen, l.maxButton(), "Max", maxBatches > 0, func() { g.alchemyBatches = maxBatches })
-	reason, safe := g.safeToPrepare()
-	ui.rareBookButton(screen, l.actions, fmt.Sprintf("Brew %d items", yield*g.alchemyBatches), safe && g.alchemyBatches <= maxBatches, func() { g.brewSelectedRecipe() })
-	message := g.rareBookMessage
-	if message == "" {
-		message = "Choose a source; cheapest matching materials go first."
-	}
-	if !safe {
-		message = reason
-	}
-	ui.rareBookText(screen, message, l.message)
+	ui.drawAlchemyMaterials(screen, c, l, &rs[g.selectedRare])
 }
 func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMCharacter, l rareBookLayout) {
 	g := ui.game

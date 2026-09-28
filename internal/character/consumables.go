@@ -96,18 +96,20 @@ func AddConsumableUsage(section *CardSection, def *config.ItemDefinitionConfig) 
 		return
 	}
 	c := config.AutoDrinkSettings()
-	if c.ThresholdPct > 0 && def.SummonDistanceTiles <= 0 {
+	enabled := false
+	for _, mana := range []bool{false, true} {
+		threshold := config.GlobalConfig.AutoPotionThreshold(mana)
+		if threshold <= 0 || !config.GlobalConfig.AllowsAutoPotion(def, mana) {
+			continue
+		}
 		resource := "HP"
-		if def.HealBase <= 0 {
+		if mana {
 			resource = "SP"
-		} else if def.ManaBase > 0 {
-			resource = "HP or SP"
 		}
-		line := uitext.Text("item.auto_drink_condition", resource, c.ThresholdPct)
-		if def.CurePoison {
-			line = uitext.Text("item.auto_drink_when_poisoned", line)
-		}
-		section.Add("%s", line)
+		section.Add("%s", uitext.Text("item.auto_drink_condition", resource, threshold))
+		enabled = true
+	}
+	if enabled {
 		section.AddDetail("%s", uitext.Text("item.auto_drink_details", c.IntervalSeconds))
 	}
 }

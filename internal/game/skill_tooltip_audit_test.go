@@ -55,9 +55,9 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until next round in TB"},
 		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/2/3/4"},
 		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "adds to Field Medicine", "Revival unchanged"},
-		character.SkillBombThrowing:        {"Harm Flask: 24/30/36/42 + INT/3 physical damage", "Fire Flask: 12/16/20/24 + INT/3 fire damage", "Venom Flask: 8/12/16/20 + INT/3 body damage", "poison 6/9/12/15s"},
+		character.SkillBombThrowing:        {"Harm Flask: 72/90/108/126 + INT/3 physical damage", "Fire Flask: 36/48/60/72 + INT/3 fire damage", "Venom Flask: 24/36/48/60 + INT/3 body damage", "poison 6/9/12/15s", "burning 3/5/7/9s"},
 		character.SkillTranslocation:       {"Fold Step: 3/4/6/8 tiles", "8/7/6/5 SP", "12/15/18/24s", "Return Step: 6/5/4/3 SP", "dodge +10/15/20/25%; 3/6/6/9s", "Purify: 12/11/10/9 SP", "RT recovery -20/25/30/35%", "TB +1/1/2/2 actions next turn"},
-		character.SkillFlowingStaff:        {"1/2/3/4 staff charges", "25/50/75/100%", "remain until spent"},
+		character.SkillFlowingStaff:        {"1/2/3/4 staff charges", "25/50/75/100%", "guarantees a critical staff attack", "remain until spent"},
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
 	for _, s := range []character.SkillType{character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear, character.SkillBow, character.SkillMace, character.SkillStaff, character.SkillMartialArts, character.SkillBlaster} {
@@ -204,7 +204,8 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 				t.Cleanup(func() { *d.Flask = old })
 				d.Flask.Damage = [4]int{19, 27, 38, 53}
 				d.Flask.PoisonSeconds = [4]int{2, 4, 7, 11}
-				d.Flask.BurnSeconds, d.Flask.RangeTiles, d.Flask.RadiusTiles = 5, 9, 4
+				d.Flask.BurnSeconds = [4]int{2, 5, 8, 11}
+				d.Flask.RangeTiles, d.Flask.RadiusTiles = 9, 4
 				d.Flask.CooldownSeconds = 2.5
 				c.Skills[character.SkillBombThrowing].Mastery = character.SkillMastery(tier)
 				c.Intellect = 18
@@ -213,7 +214,7 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 					t.Fatal("retuned flask refused")
 				}
 				p := g.magicProjectiles[0]
-				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != 5*g.config.GetTPS() {
+				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
 					t.Fatal("projectile did not use the live mastery table")
 				}
 				text := masteryTooltipTextForSkill(character.SkillBombThrowing)

@@ -284,6 +284,10 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 // area. It is shared by the legacy standalone screen and the tavern Roster tab.
 func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, interactive bool) {
 	g := ui.game
+	if g.pendingRosterSwap != nil {
+		ui.drawRosterInventoryWarning(screen, area, interactive)
+		return
+	}
 	const rowH = 30
 	colW := (area.w - 16) / 2
 	leftX := area.x
@@ -365,7 +369,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 		ui.onDisplayedInput(uiCommandClick, layoutRect{rightX, y - 2, (rightX + colW) - (rightX), (y - 2 + rowH) - (y - 2)}, func() {
 			if interactive && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
 				if g.rosterSelectedActive >= 0 {
-					g.swapRosterMember(g.rosterSelectedActive, j)
+					g.requestRosterSwap(g.rosterSelectedActive, j)
 					g.rosterSelectedActive = -1
 				}
 			}
@@ -1165,7 +1169,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Only the sale half (drag sources, sell prices) needs a coin till.
 	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
 	{
-		inv := ui.game.party.Inventory
+		inv := ui.game.merchantBagItems()
 		sellPages := pageCount(len(inv), merchantPageSize)
 		clampPage(&ui.game.merchantSellPage, sellPages)
 		start := ui.game.merchantSellPage * merchantPageSize
@@ -1176,7 +1180,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			item := inv[idx]
 			x, y, w, h := merchantCellRect(rightX, gridTop, slot)
-			if merchantInteractive && buysGoods {
+			if merchantInteractive && buysGoods && idx < len(ui.game.party.Inventory) {
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			value := item.Attributes["value"]
@@ -1189,7 +1193,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				}
 			}
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
-			if buysGoods {
+			if buysGoods && idx < len(ui.game.party.Inventory) {
 				priceText := uitext.Text("dialog.no_value")
 				if value > 0 {
 					priceText = uitext.Text("dialog.gold_price_short", ui.game.merchantSellPrice(value))
@@ -1373,7 +1377,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 			break
 		}
 		x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
-		key := itemCardKey(ui.game.party.Inventory[cardIdx[i]])
+		key := itemCardKey(ui.game.party.CarriedItems()[cardIdx[i]])
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {

@@ -243,7 +243,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if totalCrit > 0 {
 		crit.Add("Chance: %d%%", totalCrit)
 		crit.Add("Critical Damage: %d", preview.CriticalTotal)
-		if char != nil {
+		if char.HasChargedStaffAttack(def) {
+			crit.AddDetail("Flowing Staff: guaranteed critical hit")
+		} else if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
 			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
@@ -700,10 +702,10 @@ func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *charact
 			if seconds := config.TierValue(f.PoisonSeconds, tier); seconds > 0 {
 				effect.Add("Poison: %d seconds", seconds)
 			}
-			if f.BurnSeconds > 0 {
-				effect.Add("Burning: %d seconds", f.BurnSeconds)
+			if seconds := config.TierValue(f.BurnSeconds, tier); seconds > 0 {
+				effect.Add("Burning: %d seconds", seconds)
 			}
-			use.Add("Requires Bomb Throwing. Uses one flask from the bag.")
+			use.Add("Requires Bomb Throwing. Uses own bag, then shared bag.")
 			use.Add("1 action in TB; %.0fs base recovery in RT. No critical hits.", f.CooldownSeconds)
 			use.Add("Equip as a quick action, then use F or SmartAttack.")
 		}

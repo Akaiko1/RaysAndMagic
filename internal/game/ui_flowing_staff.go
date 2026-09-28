@@ -36,7 +36,7 @@ func (ui *UISystem) drawFlowingStaffCharges(screen *ebiten.Image, member *charac
 	for _, box := range flowingStaffChargeRects(px, py, pw, charges) {
 		drawFlowingStaffCharge(screen, box)
 		if isMouseHoveringBox(mouseX, mouseY, box.x, box.y, box.right(), box.bottom()) {
-			ui.queueTooltip([]string{"Flowing Staff", fmt.Sprintf("%d charges | +%d%% staff damage", charges, character.FlowingStaffPct(member.SkillTier(character.SkillFlowingStaff))), "One charge per staff attack. No expiry.", "Move one tile to refill."}, mouseX+12, mouseY+8)
+			ui.queueTooltip([]string{"Flowing Staff", fmt.Sprintf("%d charges | +%d%% staff damage", charges, character.FlowingStaffPct(member.SkillTier(character.SkillFlowingStaff))), "Guaranteed critical hit. No expiry.", "Move one tile to refill."}, mouseX+12, mouseY+8)
 		}
 	}
 }

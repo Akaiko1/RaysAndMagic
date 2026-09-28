@@ -282,7 +282,8 @@ type MMGame struct {
 	dragCurY     int
 	dragSrc      dragSource // kind of source captured this drag
 	dragItem     items.Item // the carried item (copy, for rendering)
-	dragInvIndex int        // source: party inventory index
+	dragInvOwner *character.MMCharacter
+	dragInvIndex int // source: party inventory index
 	// dragSplitQuantity is zero for a whole-entry move. A positive value carries
 	// only that many units from a stack; the source remains visible until a
 	// valid destination consumes the fragment. dragPickedUp is the same partial
@@ -553,11 +554,13 @@ type MMGame struct {
 	wallTopBuffer []int
 
 	// Systems
-	gameLoop        *GameLoop
-	combat          *CombatSystem
-	collisionSystem *collision.CollisionSystem
-	questManager    *quests.QuestManager
-	soundManager    *sound.Manager
+	gameLoop            *GameLoop
+	combat              *CombatSystem
+	collisionSystem     *collision.CollisionSystem
+	questManager        *quests.QuestManager
+	soundManager        *sound.Manager
+	potionSettingsDirty bool
+	settingsSaveError   string
 	// questTileOriginals: pristine tile at every quest on_complete_tiles
 	// position, captured once (maps always load pristine from disk) so
 	// syncQuestTiles can REVERT a change when its quest isn't completed.
@@ -611,8 +614,9 @@ type MMGame struct {
 	// FROM (char<0 = opened from the inventory). The slot stays filled while the
 	// picker is up; on confirm it's cleared, on cancel the temp bag copy is dropped
 	// and the slot kept - so cancelling never silently moves the potion to the bag.
-	pickerQuickChar int
-	pickerQuickSlot int
+	pickerInventoryOwner *character.MMCharacter
+	pickerQuickChar      int
+	pickerQuickSlot      int
 
 	// parkSelection is set when the player selects a member BY HAND (portrait
 	// click / number key) and cleared on any auto-advance of the selection. While
@@ -625,14 +629,16 @@ type MMGame struct {
 	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
 	// the target promotion; promotionPickerItemIdx is the phylactery slot to
 	// consume on confirm (-1 for the quest-driven Archmage path).
-	promotionPickerOpen    bool
-	promotionPickerKind    character.Promotion
-	promotionPickerItemIdx int
+	promotionPickerOpen      bool
+	promotionPickerKind      character.Promotion
+	promotionPickerItemOwner *character.MMCharacter
+	promotionPickerItemIdx   int
 
 	// Tavern roster screen: swap active party members with the reserve roster.
 	// rosterSelectedActive is the active slot the player picked first (-1 = none).
 	rosterScreenOpen     bool
 	rosterSelectedActive int
+	pendingRosterSwap    *rosterSwapRequest
 	rosterScroll         int
 
 	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
@@ -916,6 +922,10 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		soundManager:     sound.Global(),
 	}
 
+	// Player preferences belong to the application, outside campaign saves.
+	if !preview && cfg.PlayerPotions == nil {
+		game.loadPotionPreferences()
+	}
 	// Initialize rendering helper
 	game.renderHelper = NewRenderingHelper(game)
 
@@ -2510,7 +2520,7 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 			return false
 		}
 		if spell.Type == items.ItemThrowable {
-			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(string(spell.SpellEffect)) > 0
+			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(m, string(spell.SpellEffect)) > 0
 		}
 		cost := spell.SpellCost
 		// Traps: the live traps.yaml cost is the truth (a rebalance must not
@@ -2766,20 +2776,21 @@ func (g *MMGame) applyEquipmentMutation(characterIndex int, mutate func() bool) 
 	return true
 }
 
-func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int) bool {
+func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int, owner ...*character.MMCharacter) bool {
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.EquipItemFromInventory(itemIndex, characterIndex)
+		return g.party.EquipItemFromInventory(itemIndex, characterIndex, owner...)
 	})
 }
 
-func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
-	if slot == items.SlotSpell && itemIndex >= 0 && itemIndex < len(g.party.Inventory) {
-		if key, d := flaskDefinition(g.party.Inventory[itemIndex]); d != nil {
+func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot, owner ...*character.MMCharacter) bool {
+	bag := g.party.Bag(owner...)
+	if slot == items.SlotSpell && itemIndex >= 0 && itemIndex < len(bag.Items()) {
+		if key, d := flaskDefinition(bag.Items()[itemIndex]); d != nil {
 			return g.equipFlask(characterIndex, key)
 		}
 	}
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot)
+		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot, owner...)
 	})
 }
 
@@ -2789,9 +2800,9 @@ func (g *MMGame) movePartyEquipmentSlot(srcSlot, dstSlot items.EquipSlot, charac
 	})
 }
 
-func (g *MMGame) unequipPartyItemToInventory(slot items.EquipSlot, characterIndex int) bool {
+func (g *MMGame) unequipPartyItemToInventory(slot items.EquipSlot, characterIndex int, owner ...*character.MMCharacter) bool {
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.UnequipItemToInventory(slot, characterIndex)
+		return g.party.UnequipItemToInventory(slot, characterIndex, owner...)
 	})
 }
 

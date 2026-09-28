@@ -82,6 +82,7 @@ func normalizeItemFromConfig(item *items.Item) {
 func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m := &character.MMCharacter{
 		Name:             cs.Name,
+		Inventory:        append([]items.Item(nil), cs.Inventory...),
 		Class:            character.CharacterClass(cs.Class),
 		Race:             cs.Race,
 		Promotion:        character.Promotion(cs.Promotion),
@@ -104,6 +105,9 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		Skills:           make(map[character.SkillType]*character.Skill),
 		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
 		Equipment:        make(map[items.EquipSlot]items.Item),
+	}
+	for i := range m.Inventory {
+		normalizeItemFromConfig(&m.Inventory[i])
 	}
 	if len(cs.Conditions) > 0 {
 		m.Conditions = make([]character.Condition, len(cs.Conditions))
@@ -178,6 +182,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
 		Name:             m.Name,
+		Inventory:        append([]items.Item(nil), m.Inventory...),
 		Class:            int(m.Class),
 		Race:             m.Race,
 		Promotion:        int(m.Promotion),

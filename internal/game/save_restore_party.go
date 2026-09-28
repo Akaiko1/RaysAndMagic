@@ -5,7 +5,20 @@ import (
 )
 
 func (g *MMGame) restoreSavedParty(save *GameSave) {
-	// Restore party
+	// Loading replaces all bag owners. No deferred inventory gesture may
+	// retain a pointer or index from the discarded party.
+	g.clearDrag()
+	g.healPickerOpen, g.revivalPickerOpen, g.promotionPickerOpen = false, false, false
+	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
+	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		ui := g.gameLoop.ui
+		ui.closeStackSplitPicker()
+		ui.inventoryContextOpen, ui.inventoryContextOwner = false, nil
+		ui.inventoryPage, ui.personalInventoryPage = 0, 0
+		ui.inventoryTab, ui.personalInventoryTab = inventoryTabAll, inventoryTabAll
+		ui.lastClickedItem, ui.lastClickedBagOwner = -1, nil
+	}
+	g.pickerInventoryOwner, g.promotionPickerItemOwner, g.dragInvOwner = nil, nil, nil
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])

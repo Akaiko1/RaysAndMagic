@@ -141,6 +141,7 @@ func TestAlchemyEveryMaterialCraftsIndependently(t *testing.T) {
 					}
 					g.selectedRare, g.alchemyBatches, g.brewAnimation = recipeIndex, 1, nil
 					g.alchemy.Choices = map[string][]int{recipe.Key: choices}
+					g.alchemy.Selections = nil // Simulate loading the legacy source choice.
 					if !g.brewSelectedRecipe() {
 						t.Fatal(g.rareBookMessage)
 					}

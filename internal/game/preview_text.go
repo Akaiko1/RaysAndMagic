@@ -14,8 +14,8 @@ import (
 // through the game's own outlined/metallic label pipeline, so both UIs shade
 // text identically.
 
-// DrawShadedText draws text with the game's dark 8-direction outline;
-// registered rarity metals (see rarityColor) get the vertical metal gradient.
+// DrawShadedText preserves the base tint and applies the game's metallic
+// gradient and dark 8-direction outline.
 func DrawShadedText(dst *ebiten.Image, text string, x, y int, col color.Color) {
 	drawDebugTextColored(dst, text, x, y, col)
 }

@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -19,18 +20,37 @@ func flaskDefinition(item items.Item) (string, *config.ItemDefinitionConfig) {
 	}
 	return "", nil
 }
-func (g *MMGame) flaskStock(key string) int {
+
+type flaskSupply struct {
+	count int
+	bag   character.InventoryBag
+	index int
+}
+
+// Count, availability and payment use the same acting hero's stock: personal
+// bag first, then shared. Another hero's personal bag is never a fallback.
+func (g *MMGame) availableFlasks(actor *character.MMCharacter, key string) flaskSupply {
+	supply := flaskSupply{index: -1}
 	d, ok := config.GetItemDefinition(key)
-	if !ok || g.party == nil {
-		return 0
+	if !ok || d.Flask == nil || g.party == nil || actor == nil || !slices.Contains(g.party.Members, actor) {
+		return supply
 	}
-	n := 0
-	for _, it := range g.party.Inventory {
-		if it.Type == items.ItemConsumable && it.Name == d.Name {
-			n += it.Count()
+	for _, bag := range [2]character.InventoryBag{g.party.Bag(actor), g.party.Bag()} {
+		for i, it := range bag.Items() {
+			if it.Type != items.ItemConsumable || it.Name != d.Name {
+				continue
+			}
+			supply.count += it.Count()
+			if supply.index < 0 {
+				supply.bag, supply.index = bag, i
+			}
 		}
 	}
-	return n
+	return supply
+}
+
+func (g *MMGame) flaskStock(actor *character.MMCharacter, key string) int {
+	return g.availableFlasks(actor, key).count
 }
 func (g *MMGame) equipFlask(idx int, key string) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
@@ -46,7 +66,7 @@ func (g *MMGame) equipFlask(idx int, key string) bool {
 		return false
 	}
 	c.Equipment[items.SlotSpell] = it
-	g.AddCombatMessage(fmt.Sprintf("%s readies %s (%d in bag).", c.Name, it.Name, g.flaskStock(key)))
+	g.AddCombatMessage(fmt.Sprintf("%s readies %s (%d in bag).", c.Name, it.Name, g.flaskStock(c, key)))
 	return true
 }
 func flaskDamage(c *character.MMCharacter, d *config.FlaskDefinition) int {
@@ -113,15 +133,9 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	if g.combat.partyInsideSolidTerrain() || g.collisionSystem == nil {
 		return refuse("No room to throw.")
 	}
-	stock := -1
-	for i, it := range g.party.Inventory {
-		if it.Name == d.Name && it.Type == items.ItemConsumable && it.Count() > 0 {
-			stock = i
-			break
-		}
-	}
-	if stock < 0 {
-		return refuse("No " + d.Name + " left in the bag.")
+	supply := g.availableFlasks(c, key)
+	if supply.index < 0 {
+		return refuse("No " + d.Name + " in this hero's bag or the shared bag.")
 	}
 	f := d.Flask
 	tier := c.SkillTier(character.SkillBombThrowing)
@@ -133,7 +147,7 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		ID:                g.GenerateProjectileID("flask"),
 		FlaskKey:          key,
 		FlaskPoisonFrames: config.TierValue(f.PoisonSeconds, tier) * tps,
-		FlaskBurnFrames:   f.BurnSeconds * tps,
+		FlaskBurnFrames:   config.TierValue(f.BurnSeconds, tier) * tps,
 		FlaskRadius:       float64(f.RadiusTiles) * tile,
 		FlaskRemaining:    distance,
 		FlaskFlightRange:  distance,
@@ -150,7 +164,7 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		Size:              12,
 		Owner:             ProjectileOwnerPlayer,
 	}
-	if !g.party.ConsumeOneAt(stock) {
+	if !supply.bag.Consume(supply.index, 1) {
 		return false
 	}
 	g.magicProjectiles = append(g.magicProjectiles, p)

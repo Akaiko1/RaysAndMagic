@@ -464,12 +464,7 @@ func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool
 		return true
 	}
 	if action := caster.Equipment[items.SlotSpell]; action.Type == items.ItemThrowable {
-		for _, member := range cs.game.party.Members {
-			if member != caster {
-				continue
-			}
-			return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(string(action.SpellEffect)) > 0
-		}
+		return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(caster, string(action.SpellEffect)) > 0
 	}
 	if _, _, _, ok := cs.smartHealReady(caster); ok {
 		return true

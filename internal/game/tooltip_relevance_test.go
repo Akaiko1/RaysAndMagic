@@ -118,8 +118,8 @@ func TestTooltipRecoveryKeepsRelevantResourceAndDetails(t *testing.T) {
 					if strings.Contains(card, "Auto-use when") != automatic || strings.Contains(card, "own quick slots") != (automatic && full) {
 						t.Fatalf("incorrect auto-use detail tier:\n%s", card)
 					}
-					if key == "antivenom" && !strings.Contains(card, "While poisoned:") {
-						t.Fatal("lost poison restriction")
+					if key == "antivenom" && strings.Contains(card, "While poisoned:") {
+						t.Fatal("antivenom incorrectly requires poison to heal")
 					}
 					for _, line := range def.RecoveryLines() {
 						want := ch == nil || def.Revive

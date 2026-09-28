@@ -72,7 +72,7 @@ func WeaponDamageBreakdown(def *config.WeaponDefinitionConfig, c *MMCharacter) W
 			out.OrcishFury = OrcishFuryDamageBonus(c.SkillTier(SkillOrcishFury))
 		}
 		out.Total += out.ArmsMaster + out.OrcishFury
-		if def.Category == "staff" && c.FlowingStaffCharges() > 0 {
+		if c.HasChargedStaffAttack(def) {
 			out.FlowingStaff = out.Total * FlowingStaffPct(c.SkillTier(SkillFlowingStaff)) / 100
 			out.Total += out.FlowingStaff
 		}

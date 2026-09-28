@@ -134,6 +134,7 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
+	Inventory          []items.Item             `json:"inventory,omitempty"`
 	RareClass          character.RareClassState `json:"rare_class,omitempty"`
 	AutoDrinkCooldown  int                      `json:"auto_drink_cooldown,omitempty"`
 	DesignatedTargetID string                   `json:"designated_target_id,omitempty"`

@@ -41,6 +41,9 @@ type UISystem struct {
 	profileExploration      profileExplorationSummary
 	profileArena            *playerprofile.Data
 	profileArenaError       string
+	alchemyScroll           map[string]int
+	alchemyRevision         uint64
+	alchemyPreview          alchemyPreviewCache
 	game                    *MMGame
 	displayedInput          uiDisplayedInput
 	justOpenedStatPopup     bool
@@ -61,11 +64,15 @@ type UISystem struct {
 	statHoldFrames        int
 	lastClickTime         time.Time
 	lastClickedItem       int
+	lastClickedBagOwner   *character.MMCharacter
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
+	inventoryContextOwner *character.MMCharacter
 	stackSplitPicker      stackSplitPickerState
+	personalInventoryTab  int
+	personalInventoryPage int
 	inventoryPage         int // current inventory grid page (0-based)
 	inventoryTab          int // active inventory category filter (index into inventoryTabs)
 	questPage             int // current quest log page (0-based)

@@ -69,6 +69,7 @@ func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 const QuickSlotCount = 5
 
 type MMCharacter struct {
+	Inventory []items.Item // Personal bag; travels with this hero through roster changes.
 	RareClass RareClassState
 	Name      string
 	Class     CharacterClass
@@ -118,7 +119,8 @@ type MMCharacter struct {
 	// QuickSlots is a small per-character container (like a 5-cell pocket) for
 	// mouse-driven quick use: weapons to swap to, potions to drink, spells to
 	// cast - all by double-click. An item dragged here LEAVES the shared party
-	// inventory and lives in the slot (nil = empty). Spells hold a temporary
+	// inventory and lives in the slot (nil = empty). Physical slot items still
+	// count as carried stock for quests, crafting and exchanges. Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
 	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
 	QuickSlots [QuickSlotCount]*items.Item

@@ -43,6 +43,7 @@ func TestRareRulesCheapestMaterial(t *testing.T) {
 					before := append([]items.Item(nil), g.party.Inventory...)
 					g.selectedRare, g.alchemyBatches, g.brewAnimation = ri, batches, nil
 					g.alchemy.Choices = map[string][]int{r.Key: {0, choice}}
+					g.alchemy.Selections = nil // Each case loads a different legacy source.
 					if g.party.MaxAlchemyBatches(&r, []int{0, choice}) != batches {
 						t.Fatal("preview disagrees with stocked base")
 					}

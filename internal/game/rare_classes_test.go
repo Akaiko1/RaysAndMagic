@@ -353,10 +353,10 @@ func TestRareFlaskStockShortcutAndAreaPacket(t *testing.T) {
 			stock, _ := items.TryCreateItemFromYAML(key)
 			stock.Quantity = 2
 			g.party.AddItem(stock)
-			if !g.equipFlask(0, key) || g.flaskStock(key) != 2 {
+			if !g.equipFlask(0, key) || g.flaskStock(g.party.Members[0], key) != 2 {
 				t.Fatal("equipping took stock")
 			}
-			if !g.throwFlask(0, key, false) || g.flaskStock(key) != 1 || c.ActionsRemaining != 1 || len(g.magicProjectiles) != 1 {
+			if !g.throwFlask(0, key, false) || g.flaskStock(g.party.Members[0], key) != 1 || c.ActionsRemaining != 1 || len(g.magicProjectiles) != 1 {
 				t.Fatal("throw did not commit exactly one stock/action")
 			}
 			p := &g.magicProjectiles[0]
@@ -382,7 +382,7 @@ func TestRareFlaskStockShortcutAndAreaPacket(t *testing.T) {
 				}
 			}
 			g.returnQuickItemToInventory(c.Equipment[items.SlotSpell])
-			if g.flaskStock(key) != 1 {
+			if g.flaskStock(g.party.Members[0], key) != 1 {
 				t.Fatal("virtual shortcut duplicated stock")
 			}
 		})
@@ -581,7 +581,7 @@ func TestRareFlaskRangeAndWallImpactOnce(t *testing.T) {
 			if hp != m.HitPoints {
 				t.Fatal("impact applied twice")
 			}
-			if p.Active || g.flaskStock("harm_flask") != 0 {
+			if p.Active || g.flaskStock(g.party.Members[0], "harm_flask") != 0 {
 				t.Fatal("finished flask survived")
 			}
 		})

@@ -150,6 +150,4 @@ weapon.wieldable_by_anyone_with_personality_no_skill: "Wieldable by anyone with 
 item.current_hp_recovery: "Current recovery: %d HP"
 item.current_sp_recovery: "Current recovery: %d SP"
 item.auto_drink_condition: "Auto-use when %s falls below %d%%"
-item.auto_drink_details: "Uses own quick slots, then shared bag; once per %.1fs in RT or round in TB"
-
-item.auto_drink_when_poisoned: "While poisoned: %s"
+item.auto_drink_details: "Uses own quick slots, then own bag, then shared bag; once per %.1fs in RT or round in TB"

@@ -98,7 +98,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
 		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
-		ui.drawAudioSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset, "Audio Settings")
+		ui.drawSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset)
 		back := audioBackRect(settingsLayout.px, settingsLayout.py, settingsLayout.panelH, settingsLayout.contentInset)
 		ui.drawBackButton(screen, back.x1, back.y1, func() {
 			ui.game.closeAudioSettings()
@@ -423,6 +423,8 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	if ui.hubInteractionOpen && ui.hubInteractionChar == ui.game.selectedChar && ui.hubInteractionTab == ui.game.currentTab {
 		return
 	}
+	ui.inventoryContextOpen, ui.inventoryContextOwner = false, nil
+	ui.personalInventoryPage = 0
 	ui.hubInteractionOpen = true
 	ui.hubInteractionChar = ui.game.selectedChar
 	ui.hubInteractionTab = ui.game.currentTab

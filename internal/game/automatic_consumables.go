@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -13,7 +14,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 		return
 	}
 	rules := g.config.Characters.AutoDrink
-	if rules.ThresholdPct <= 0 {
+	if g.config.AutoPotionThreshold(false) <= 0 && g.config.AutoPotionThreshold(true) <= 0 {
 		return
 	}
 	for index, ch := range g.party.Members {
@@ -27,23 +28,27 @@ func (g *MMGame) updateAutomaticConsumables() {
 			continue
 		}
 		resources := []string{}
-		if ch.HitPoints*100 < ch.MaxHitPoints*rules.ThresholdPct {
+		if ch.HitPoints*100 < ch.MaxHitPoints*g.config.AutoPotionThreshold(false) {
 			resources = append(resources, "heal_base")
 		}
-		if ch.MaxSpellPoints > 0 && ch.SpellPoints*100 < ch.MaxSpellPoints*rules.ThresholdPct {
+		if ch.MaxSpellPoints > 0 && ch.SpellPoints*100 < ch.MaxSpellPoints*g.config.AutoPotionThreshold(true) {
 			resources = append(resources, "mana_base")
 		}
 		used := false
 		for _, resource := range resources {
 			for slot, item := range ch.QuickSlots {
-				if automaticRestorative(item, resource, ch) && g.useQuickConsumable(index, slot) {
+				if g.automaticRestorative(item, resource) && g.useQuickConsumable(index, slot) {
 					used = true
 					break
 				}
 			}
-			if !used {
-				for itemIndex := range g.party.Inventory {
-					if automaticRestorative(&g.party.Inventory[itemIndex], resource, ch) && g.UseConsumableFromInventory(itemIndex, index) {
+			for _, owner := range []*character.MMCharacter{ch, nil} {
+				if used {
+					break
+				}
+				bag := g.party.Bag(owner)
+				for itemIndex := range bag.Items() {
+					if g.automaticRestorative(&bag.Items()[itemIndex], resource) && g.UseConsumableFromInventory(itemIndex, index, owner) {
 						used = true
 						break
 					}
@@ -64,8 +69,12 @@ func (g *MMGame) updateAutomaticConsumables() {
 	}
 }
 
-func automaticRestorative(item *items.Item, resource string, ch *character.MMCharacter) bool {
-	return item != nil && item.Type == items.ItemConsumable && item.Count() > 0 && item.Attributes[resource] > 0 && item.Attributes["revive"] <= 0 && (item.Attributes["cure_poison"] <= 0 || ch.HasCondition(character.ConditionPoisoned)) && item.Attributes["summon_distance_tiles"] <= 0
+func (g *MMGame) automaticRestorative(item *items.Item, resource string) bool {
+	if item == nil || item.Type != items.ItemConsumable || item.Count() <= 0 || item.Attributes[resource] <= 0 || item.Attributes["revive"] > 0 || item.Attributes["summon_distance_tiles"] > 0 {
+		return false
+	}
+	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	return ok && g.config.AllowsAutoPotion(def, resource == "mana_base")
 }
 
 // useQuickConsumable keeps the existing temporary-entry/picker ownership contract.

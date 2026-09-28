@@ -206,6 +206,9 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
+	if char.HasChargedStaffAttack(lookupWeaponConfigByName(weapon.Name)) {
+		return 100
+	}
 	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(weapon, char)
 	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
 	if total < 0 {

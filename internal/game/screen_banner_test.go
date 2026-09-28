@@ -138,8 +138,7 @@ func TestScreenBannerLayoutStaysClearOfTheHudCorners(t *testing.T) {
 	}
 }
 
-// The approach nudge is white and flat; the payoffs and the legendary drop wear
-// their own metal.
+// The approach nudge stays white; payoffs retain their authored rarity tints.
 func TestScreenBannerTintsPerKind(t *testing.T) {
 	if got := screenBannerTint(bannerInteractPrompt); got != (color.RGBA{255, 255, 255, 255}) {
 		t.Fatalf("interact prompt tint = %v, want plain white", got)
@@ -150,17 +149,10 @@ func TestScreenBannerTintsPerKind(t *testing.T) {
 	if got := screenBannerTint(bannerQuestDone); got != rarityGold {
 		t.Fatalf("quest-complete tint = %v, want %v", got, rarityGold)
 	}
-	// Every quest banner must wear the same treatment: the heading renderer only
-	// gives its brushed gradient to colours in metallicColors, so a tint left out
-	// would split the four quest kinds into flat and metal.
-	for _, kind := range []screenBannerKind{bannerQuestTaken, bannerQuestProgress, bannerQuestDone, bannerQuestPaid} {
-		if c := screenBannerTint(kind); !metallicColors[c] {
-			t.Fatalf("quest banner kind %d uses %v, which is not in metallicColors - it would render flat", kind, c)
+	for _, kind := range []screenBannerKind{bannerQuestTaken, bannerQuestProgress} {
+		if got := screenBannerTint(kind); got != bannerWorkTint {
+			t.Fatalf("work banner tint = %v, expected %v", got, bannerWorkTint)
 		}
-	}
-	// The nudge is deliberately the exception: a hint should look like a hint.
-	if metallicColors[screenBannerTint(bannerInteractPrompt)] {
-		t.Fatal("the interact nudge should stay flat white, not become a metal heading")
 	}
 }
 

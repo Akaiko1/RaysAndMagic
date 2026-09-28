@@ -15,8 +15,11 @@ func brewTint(rgb [3]int, light, alpha float64) color.NRGBA {
 
 // Logical positions beside the vessel, shared by icons and their streams.
 // Pooled sources may consume several distinct materials in the same batch.
-func alchemyBrewIngredientRect(index int) layoutRect {
-	return layoutRect{39 + (index%2)*212, 58 + (index/2)*42, 30, 30}
+func alchemyBrewIngredientRect(index, count int) layoutRect {
+	rows := max(1, (count+1)/2)
+	size := min(30, 156/rows-4)
+	stride := min(42, 156/rows)
+	return layoutRect{54 + (index%2)*212 - size/2, 48 + (index/2)*stride, size, size}
 }
 
 func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRect) {
@@ -143,7 +146,7 @@ func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRe
 		}
 		if p < .64 {
 			for i, it := range fx.Ingredients {
-				r := alchemyBrewIngredientRect(i)
+				r := alchemyBrewIngredientRect(i, len(fx.Ingredients))
 				ix, iy := float64(r.x+r.w/2), float64(r.y+r.h/2)
 				ui.drawInventoryItemIcon(screen, it, int(x(float64(r.x))), int(y(float64(r.y))), int(float64(r.w)*scale), int(float64(r.h)*scale), 1, true)
 				for j := 0; j < 8; j++ {

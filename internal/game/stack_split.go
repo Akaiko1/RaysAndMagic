@@ -42,6 +42,7 @@ func shiftModifierHeld() bool {
 // stackSplitPickerState holds only UI-transient selection state. The actual
 // item mutation remains in Party.TakeStackUnits / Item.SplitOff at drop time.
 type stackSplitPickerState struct {
+	owner    *character.MMCharacter
 	open     bool
 	source   stackSplitPickerSource
 	from     int // inventory index or encoded stash source
@@ -88,7 +89,7 @@ func stackSplitPickerRect(screenW, screenH int) image.Rectangle {
 	return image.Rect(x, y, x+stackSplitPickerW, y+stackSplitPickerH)
 }
 
-func (ui *UISystem) openStackSplitPicker(source stackSplitPickerSource, from int, item items.Item) {
+func (ui *UISystem) openStackSplitPicker(source stackSplitPickerSource, from int, item items.Item, owner ...*character.MMCharacter) {
 	// A SPLIT needs a stack to split; a SALE opens for any single item too -
 	// the picker doubles as its confirmation dialog.
 	if !stackSplitSourceAccepts(source, item) {
@@ -101,6 +102,9 @@ func (ui *UISystem) openStackSplitPicker(source stackSplitPickerSource, from int
 	ui.stackSplitPicker = stackSplitPickerState{
 		open: true, source: source, from: from, quantity: quantity,
 		name: item.Name, itemType: item.Type, id: item.InstanceID,
+	}
+	if source == stackSplitPickerInventory {
+		ui.stackSplitPicker.owner = ui.game.party.Bag(owner...).Owner
 	}
 	ui.inventoryContextOpen = false
 }
@@ -305,7 +309,13 @@ func (ui *UISystem) stackSplitPickerItem() (items.Item, bool) {
 			return items.Item{}, false
 		}
 		item = entry.Item
-	case stackSplitPickerInventory, stackSplitPickerMerchantSell:
+	case stackSplitPickerInventory:
+		bag := g.party.Bag(s.owner)
+		if s.from < 0 || s.from >= len(bag.Items()) {
+			return items.Item{}, false
+		}
+		item = bag.Items()[s.from]
+	case stackSplitPickerMerchantSell:
 		if s.from < 0 || s.from >= len(g.party.Inventory) {
 			return items.Item{}, false
 		}
@@ -355,6 +365,7 @@ func (ui *UISystem) beginPickedUpStackSplit(item items.Item) {
 		g.dragPickedUp = true
 		g.dragSrc = dragFromInventory
 		g.dragInvIndex = s.from
+		g.dragInvOwner = s.owner
 		g.dragSplitQuantity = quantity
 		g.dragItem = item
 		g.dragCurX, g.dragCurY = x, y

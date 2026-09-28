@@ -10,9 +10,10 @@ import (
 
 // AlchemyState stores campaign choices independently of a temporary book view.
 type AlchemyState struct {
-	Serial      uint64                            `json:"serial,omitempty"`
-	Choices     map[string][]int                  `json:"choices,omitempty"`
-	Populations map[string]HarvestPopulationState `json:"populations,omitempty"`
+	Serial      uint64                                `json:"serial,omitempty"`
+	Choices     map[string][]int                      `json:"choices,omitempty"`
+	Selections  map[string]character.AlchemySelection `json:"selections,omitempty"`
+	Populations map[string]HarvestPopulationState     `json:"populations,omitempty"`
 }
 type HarvestPopulationState struct {
 	Day   int           `json:"day"`
@@ -27,6 +28,10 @@ type HarvestNode struct {
 }
 
 func (s AlchemyState) Clone() AlchemyState {
+	s.Selections = maps.Clone(s.Selections)
+	for k, v := range s.Selections {
+		s.Selections[k] = v.Clone()
+	}
 	s.Choices = maps.Clone(s.Choices)
 	for k, v := range s.Choices {
 		s.Choices[k] = slices.Clone(v)
@@ -37,6 +42,35 @@ func (s AlchemyState) Clone() AlchemyState {
 		s.Populations[k] = v
 	}
 	return s
+}
+
+func (g *MMGame) alchemySelection(r *config.AlchemyRecipe) character.AlchemySelection {
+	if g.alchemy.Selections == nil {
+		g.alchemy.Selections = map[string]character.AlchemySelection{}
+	}
+	selected, exists := g.alchemy.Selections[r.Key]
+	if !exists || len(selected) != len(r.Ingredients) {
+		selected = character.AlchemySourceSelection(r, g.alchemyChoices(r))
+		g.alchemy.Selections[r.Key] = selected
+	}
+	for i, group := range r.Ingredients {
+		allowed := group.Materials()
+		if selected[i] == nil {
+			selected[i] = map[string]bool{}
+		}
+		for key := range selected[i] {
+			if _, ok := allowed[key]; !ok {
+				delete(selected[i], key)
+			}
+		}
+		// A single fixed ingredient is the required base, not an optional source.
+		if len(allowed) == 1 {
+			for key := range allowed {
+				selected[i][key] = true
+			}
+		}
+	}
+	return selected
 }
 func (g *MMGame) alchemyChoices(r *config.AlchemyRecipe) []int {
 	if g.alchemy.Choices == nil {
@@ -67,7 +101,7 @@ func (g *MMGame) brewSelectedRecipe() bool {
 	}
 	r := &config.GlobalAlchemy.Recipes[g.selectedRare]
 	batches := max(1, min(99, g.alchemyBatches))
-	n, ingredients, err := g.party.Brew(g.party.Members[g.selectedChar], r, g.alchemyChoices(r), batches)
+	n, ingredients, err := g.party.BrewSelected(g.party.Members[g.selectedChar], r, g.alchemySelection(r), batches)
 	if err != nil {
 		g.rareBookMessage = err.Error()
 		return false

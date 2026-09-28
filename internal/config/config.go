@@ -219,6 +219,7 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
+	PlayerPotions *PotionPreferences  `yaml:"-" json:"-"`
 	StatusDamage  StatusDamageConfig  `yaml:"status_damage"`
 	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
 	Display       DisplayConfig       `yaml:"display"`

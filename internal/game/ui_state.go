@@ -12,6 +12,8 @@ type menuState struct {
 	audioSettingsSelection int
 	audioSliderDrag        int
 	audioSettingsDirty     bool
+	settingsTab            int
+	potionSettingsScroll   [2]int
 	slotSelection          int
 	savePage               int
 	saveRenameOpen         bool
@@ -75,6 +77,7 @@ func (g *MMGame) beginConversation(npc *character.NPC) {
 // a completed service, travel, loading or a party wipe. A trainer popup's Escape
 // still closes only that child in the modal dispatcher.
 func (g *MMGame) closeConversation() {
+	g.pendingRosterSwap = nil
 	g.cancelStackSplitInteraction()
 	g.clearStashDrag()
 	g.rosterSelectedActive = -1

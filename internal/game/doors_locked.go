@@ -166,7 +166,7 @@ const (
 // partyMasterKeyName reports the held master key. The item attribute, not a
 // hard-coded display name, is the source of truth for that capability.
 func (g *MMGame) partyMasterKeyName() (string, bool) {
-	for _, it := range g.party.Inventory {
+	for _, it := range g.party.CarriedItems() {
 		if it.Attributes["master_key"] > 0 {
 			return it.Name, true
 		}

@@ -2553,16 +2553,16 @@ items:
       sprite: projectile_harm_flask
       element: physical
       damage:
-      - 24
-      - 30
-      - 36
-      - 42
+      - 72
+      - 90
+      - 108
+      - 126
       poison_seconds:
       - 0
       - 0
       - 0
       - 0
-      burn_seconds: 0
+      burn_seconds: [0, 0, 0, 0]
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3
@@ -2578,16 +2578,16 @@ items:
       sprite: projectile_venom_flask
       element: body
       damage:
-      - 8
-      - 12
-      - 16
-      - 20
+      - 24
+      - 36
+      - 48
+      - 60
       poison_seconds:
       - 6
       - 9
       - 12
       - 15
-      burn_seconds: 0
+      burn_seconds: [0, 0, 0, 0]
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3
@@ -2603,16 +2603,16 @@ items:
       sprite: projectile_fire_flask
       element: fire
       damage:
-      - 12
-      - 16
-      - 20
-      - 24
+      - 36
+      - 48
+      - 60
+      - 72
       poison_seconds:
       - 0
       - 0
       - 0
       - 0
-      burn_seconds: 3
+      burn_seconds: [3, 5, 7, 9]
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3

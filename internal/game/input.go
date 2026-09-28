@@ -3105,15 +3105,12 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 				})
 				continue
 			}
-			for _, it := range ih.game.party.Inventory {
-				if it.Name == s.Statuette {
-					choices = append(choices, &character.NPCDialogueChoice{
-						Text:               uitext.Text("dialog.offer_the_dragon_statuette", s.Label),
-						Action:             "summon_dragon",
-						RuntimeOptionIndex: i,
-					})
-					break
-				}
+			if ih.game.party.CountItemsByName(s.Statuette) > 0 {
+				choices = append(choices, &character.NPCDialogueChoice{
+					Text:               uitext.Text("dialog.offer_the_dragon_statuette", s.Label),
+					Action:             "summon_dragon",
+					RuntimeOptionIndex: i,
+				})
 			}
 		}
 	}
@@ -3127,22 +3124,15 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int) {
 	g := ih.game
 	g.closeConversation()
-	if npc == nil || summonIdx < 0 || summonIdx >= len(npc.Summons) {
+	if npc == nil || npc.Visited || summonIdx < 0 || summonIdx >= len(npc.Summons) {
 		return
 	}
 	s := npc.Summons[summonIdx]
-	// Re-find the statuette now (inventory may have shifted since the dialog opened).
-	itemIdx := -1
-	for i, it := range g.party.Inventory {
-		if it.Name == s.Statuette {
-			itemIdx = i
-			break
-		}
-	}
-	if itemIdx < 0 {
+	// Re-find carried stock now: a statuette may have moved between bags since
+	// the dialog opened. The same shared-first payment rule serves item barter.
+	if !g.partyHoldsQuest(s.QuestID) || !g.party.RemoveItemsByName(s.Statuette, 1) {
 		return
 	}
-	g.party.RemoveItem(itemIdx)
 
 	spawnX, spawnY := ih.findEncounterSpawnLocation(npc.X, npc.Y)
 	if spawnX == 0 && spawnY == 0 {

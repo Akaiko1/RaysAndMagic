@@ -1,8 +1,34 @@
-# Each recipe keeps its herbal base. Choose one thematic material source.
-# Materials within a source may be mixed; counts are totals per batch.
+# Every recipe uses the same material categories in the workbench.
+# Check individual materials to allow them; batch costs remain recipe-authored.
+# Alternative order is retained for migrating legacy saved source selections.
 # Ordinary recipes use mundane drops/common herbs; merchant currencies are reserved.
 # Renewable fish cost 4; abundant day wildlife costs 2; sparse/finite drops cost 1.
 # Specialty recipes may use rare trophies or gems, one per batch.
+categories:
+- key: plants
+  label: Plants and fungi
+  items: [dawnleaf, mooncap, bitterroot, embercap, grave_orchid, bound_cucumbers]
+- key: fish
+  label: Fish scales
+  items: [carp_scale, koi_scale, rainbow_salmon_scale]
+- key: hides
+  label: Furs and hides
+  items: [wolf_pelt, lemur_fur, rabbit_pelt, ocelot_pelt, fennec_pelt, serpent_skin]
+- key: textiles
+  label: Silk and cloth
+  items: [spider_silk, sun_bleached_silk, ancient_linen_wrap, ashigaru_matchcord]
+- key: animal_parts
+  label: Animal parts
+  items: [plague_rat_tail, echo_membrane, tengu_feather, minotaur_horn, gorilla_heart]
+- key: minerals
+  label: Stone and gems
+  items: [granite, ruby, diamond, emerald, soul_phylactery_gem]
+- key: parts
+  label: Crafted parts
+  items: [brass_gear, mainspring_coil, lacquered_umbrella_rib, lacquered_comb, revenant_blade_shard]
+- key: essences
+  label: Magical essences
+  items: [fairy_dust]
 recipes:
 - key: health_potion
   output: brewed_health_potion

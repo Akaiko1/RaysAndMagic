@@ -104,7 +104,7 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		if item != nil && !dragging {
 			// pad 0: the opaque icon fills the cell and covers the window's gold
 			// frame, so a filled slot shows the item's own frame, not two.
-			ui.drawInventoryItemIcon(screen, *item, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), 0, true)
+			ui.drawItemIcon(screen, *item, r.Min.X, r.Min.Y, r.Dx(), r.Dy(), 0, true, true, ch)
 		}
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, color.RGBA{210, 170, 80, 230})
@@ -139,9 +139,9 @@ func (ui *UISystem) quickSlotCellInteract(charIdx, slotIdx int, r image.Rectangl
 }
 
 // quickInvSlotDragSource captures an inventory grid cell as a drag source.
-func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
+func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.quickInvSlotDragSource(invIndex, x, y, w, h) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.quickInvSlotDragSource(invIndex, x, y, w, h, owner...) })
 		return
 	}
 
@@ -149,13 +149,14 @@ func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
 	if !g.menuOpen || ui.inventoryInputBlocked() || !g.dragArmed || g.dragSrc != dragNone {
 		return
 	}
-	if invIndex < 0 || invIndex >= len(g.party.Inventory) {
+	if invIndex < 0 || invIndex >= len(g.party.Bag(owner...).Items()) {
 		return
 	}
 	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
 		g.dragSrc = dragFromInventory
 		g.dragInvIndex = invIndex
-		g.dragItem = g.party.Inventory[invIndex]
+		g.dragInvOwner = g.party.Bag(owner...).Owner
+		g.dragItem = g.party.Bag(owner...).Items()[invIndex]
 		g.dragSplitQuantity = 0
 		if g.dragItem.Stackable() && g.dragItem.Count() > 1 && shiftModifierHeld() {
 			g.dragSplitQuantity = 1
@@ -261,13 +262,15 @@ func (g *MMGame) dragOver(x, y, w, h int) bool {
 // equipment. A modal can open earlier in the same Draw, after dragDropAt was
 // queued, so checking only when the drag was armed is not sufficient.
 func (ui *UISystem) inventoryDragOver(x, y, w, h int) bool {
-	return !ui.inventoryInputBlocked() && ui.game.dragOver(x, y, w, h)
+	// A picked fragment owns this destination click. It blocks ordinary item
+	// clicks, but only a real modal may block its drop.
+	return !ui.inventoryHardBlocked() && ui.game.dragOver(x, y, w, h)
 }
 
 // quickInvDropZone resolves a quick-slot item dropped back onto the inventory grid.
-func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
+func (ui *UISystem) quickInvDropZone(x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.quickInvDropZone(x, y, w, h) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.quickInvDropZone(x, y, w, h, owner...) })
 		return
 	}
 
@@ -275,19 +278,11 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	if !ui.inventoryDragOver(x, y, w, h) {
 		return
 	}
-	if g.dragSrc == dragFromQuickSlot {
-		sch := g.party.Members[g.dragQuickChar]
-		if it := sch.QuickSlots[g.dragQuickSlot]; it != nil {
-			g.returnQuickItemToInventory(*it)
-			sch.QuickSlots[g.dragQuickSlot] = nil
-		}
+	// Cell handlers resolve same-bag ordering first; the remaining frame is
+	// a target for transfers, unequips, and items returned from quick slots.
+	if g.dragSrc != dragFromInventory || g.dragInvOwner != g.party.Bag(owner...).Owner {
+		ui.transferInventoryDrag(g.party.Bag(owner...).Owner)
 	}
-	// Equipped item dropped anywhere on the grid -> unequip its OWNER (the char it
-	// was dragged from, not the possibly-switched selectedChar) back to the bag.
-	if g.dragSrc == dragFromEquip {
-		g.unequipPartyItemToInventory(g.dragEquipSlot, g.dragEquipChar)
-	}
-	// inventory->inventory (handled per-cell) and spell->inventory are no-ops here.
 	g.clearDrag()
 }
 
@@ -334,12 +329,12 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	if !ui.inventoryDragOver(x, y, w, h) {
 		return
 	}
-	if g.dragSrc == dragFromInventory && g.dragInvIndex >= 0 && g.dragInvIndex < len(g.party.Inventory) {
+	if g.dragSrc == dragFromInventory && g.dragInvIndex >= 0 && g.dragInvIndex < len(g.inventoryDragBag().Items()) {
 		ch := g.party.Members[g.selectedChar]
-		if equipItemMatchesSlot(ch, g.party.Inventory[g.dragInvIndex], slot) {
+		if equipItemMatchesSlot(ch, g.inventoryDragBag().Items()[g.dragInvIndex], slot) {
 			// Equip into the EXACT slot dropped on (so a ring lands on the finger
 			// under the cursor, not whichever one EquipItem would auto-pick).
-			g.equipPartyItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
+			g.equipPartyItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot, g.dragInvOwner)
 		}
 	}
 	// Equipped item dragged onto ANOTHER compatible slot (e.g. a ring between the
@@ -357,9 +352,9 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 
 // inventoryCellDropZone swaps two bag items when one is dragged onto another
 // (reorder within the inventory).
-func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
+func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryCellDropZone(dstIndex, x, y, w, h) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryCellDropZone(dstIndex, x, y, w, h, owner...) })
 		return
 	}
 
@@ -367,23 +362,23 @@ func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
 	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
 	}
+	if g.dragInvOwner != g.party.Bag(owner...).Owner {
+		ui.transferInventoryDrag(g.party.Bag(owner...).Owner)
+		return
+	}
 	if g.dragSplitQuantity > 0 {
-		return // bags stay canonical: partial stacks only move to another container
+		return
 	}
-	src := g.dragInvIndex
-	inv := g.party.Inventory
-	if src >= 0 && src < len(inv) && dstIndex >= 0 && dstIndex < len(inv) && src != dstIndex {
-		inv[src], inv[dstIndex] = inv[dstIndex], inv[src]
-	}
+	g.inventoryDragBag().Reorder(g.dragInvIndex, dstIndex)
 	g.clearDrag()
 }
 
 // inventoryEmptyDropZone moves a dragged bag item to the end of the inventory when
 // dropped onto an empty grid cell (the bag is a packed slice, so empty cells are
 // the tail - "put it in a free slot" = append at the end).
-func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
+func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryEmptyDropZone(x, y, w, h) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryEmptyDropZone(x, y, w, h, owner...) })
 		return
 	}
 
@@ -391,18 +386,15 @@ func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
 	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
 	}
+	if g.dragInvOwner != g.party.Bag(owner...).Owner {
+		ui.transferInventoryDrag(g.party.Bag(owner...).Owner)
+		return
+	}
 	if g.dragSplitQuantity > 0 {
-		return // see inventoryCellDropZone
+		return
 	}
-	src := g.dragInvIndex
-	inv := g.party.Inventory
-	if src >= 0 && src < len(inv) {
-		it := inv[src]
-		rest := make([]items.Item, 0, len(inv))
-		rest = append(rest, inv[:src]...)
-		rest = append(rest, inv[src+1:]...)
-		g.party.Inventory = append(rest, it)
-	}
+	bag := g.inventoryDragBag()
+	bag.Reorder(g.dragInvIndex, len(bag.Items()))
 	g.clearDrag()
 }
 
@@ -415,16 +407,16 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 	tch := g.party.Members[targetChar]
 	switch g.dragSrc {
 	case dragFromInventory:
-		if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.party.Inventory) || !canBindQuickItem(tch, &g.party.Inventory[g.dragInvIndex]) {
+		if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.inventoryDragBag().Items()) || !canBindQuickItem(tch, &g.inventoryDragBag().Items()[g.dragInvIndex]) {
 			return
 		}
-		if key, d := flaskDefinition(g.party.Inventory[g.dragInvIndex]); d != nil {
+		if key, d := flaskDefinition(g.inventoryDragBag().Items()[g.dragInvIndex]); d != nil {
 			if !tch.HasSkill(character.SkillBombThrowing) {
 				return
 			}
 			shortcut, _ := config.FlaskItem(key)
 			if previous := tch.QuickSlots[targetSlot]; previous != nil {
-				g.returnQuickItemToInventory(*previous)
+				g.returnQuickItemToInventory(*previous, g.dragInvOwner)
 			}
 			tch.QuickSlots[targetSlot] = &shortcut
 			break
@@ -439,7 +431,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			cp := item
 			tch.QuickSlots[targetSlot] = &cp
 			if occ != nil {
-				g.returnQuickItemToInventory(*occ)
+				g.returnQuickItemToInventory(*occ, g.dragInvOwner)
 			}
 		}
 	case dragFromSpell:
@@ -493,15 +485,15 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 // target accepts the carried bag item. This keeps cancelled partial drags from
 // changing the stack at all.
 func (g *MMGame) takeInventoryDragItem() (items.Item, bool) {
-	if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.party.Inventory) {
+	bag := g.inventoryDragBag()
+	if g.dragInvIndex < 0 || g.dragInvIndex >= len(bag.Items()) {
 		return items.Item{}, false
 	}
-	if g.dragSplitQuantity > 0 {
-		return g.party.TakeStackUnits(g.dragInvIndex, g.dragSplitQuantity)
+	n := g.dragSplitQuantity
+	if n <= 0 {
+		n = bag.Items()[g.dragInvIndex].Count()
 	}
-	item := g.party.Inventory[g.dragInvIndex]
-	g.party.RemoveItem(g.dragInvIndex)
-	return item, true
+	return bag.Take(g.dragInvIndex, n)
 }
 
 // decrementQuickSlot takes one unit off a quick-slot stack, emptying the slot
@@ -520,13 +512,13 @@ func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
 
 // returnQuickItemToInventory puts a displaced quick-slot item back into the bag,
 // except spells, which are spellbook-owned and simply vanish from the slot.
-func (g *MMGame) returnQuickItemToInventory(item items.Item) {
+func (g *MMGame) returnQuickItemToInventory(item items.Item, owner ...*character.MMCharacter) {
 	// Spells and trap recipes are book-owned - they never belong in the bag.
 	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap, items.ItemTechnique, items.ItemThrowable:
 		return
 	}
-	g.party.AddItem(item)
+	g.party.Bag(owner...).Add(item)
 }
 
 // clearDrag resets all drag state.
@@ -535,6 +527,7 @@ func (g *MMGame) clearDrag() {
 	g.dragActive = false
 	g.dragDropAt = 0
 	g.dragSrc = dragNone
+	g.dragInvOwner = nil
 	g.dragItem = items.Item{}
 	g.dragSplitQuantity = 0
 	g.dragPickedUp = false
@@ -605,7 +598,17 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 	g := ui.game
 	if g.dragActive && g.dragSrc != dragNone {
 		const sz = 48
-		ui.drawInventoryItemIcon(screen, g.dragItem, g.dragCurX-sz/2, g.dragCurY-sz/2, sz, sz, 0, true)
+		idx := g.selectedChar
+		if g.dragSrc == dragFromQuickSlot {
+			idx = g.dragQuickChar
+		} else if g.dragSrc == dragFromEquip {
+			idx = g.dragEquipChar
+		}
+		var actor *character.MMCharacter
+		if g.party != nil && idx >= 0 && idx < len(g.party.Members) {
+			actor = g.party.Members[idx]
+		}
+		ui.drawItemIcon(screen, g.dragItem, g.dragCurX-sz/2, g.dragCurY-sz/2, sz, sz, 0, true, false, actor)
 	}
 
 }
@@ -614,7 +617,11 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 // label above it. Callers position it in the free space of the open tab so it
 // clears the panel art.
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
-	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here",
+	label := "Quick Slots - drag items / spells here"
+	if debugTextWidth(label) > barW {
+		label = "Quick Slots"
+	}
+	drawCenteredDebugText(screen, label,
 		barX, barY-quickSlotTabLabelSpace, barW, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
 }

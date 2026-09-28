@@ -73,7 +73,7 @@ func TestRareInputCastCycles(t *testing.T) {
 					}
 					rareInputCast(g, ih, tb)
 					if state == "ready" {
-						if kind == "flask" && g.flaskStock("harm_flask") != 2 {
+						if kind == "flask" && g.flaskStock(g.party.Members[0], "harm_flask") != 2 {
 							t.Fatal("ready flask did not consume one bottle")
 						}
 						if kind == "veil" && c.SpellPoints != 92 {
@@ -398,12 +398,13 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 				g.party.AddItem(it)
 			}
 			l := computeRareBookLayout(layout.content, true)
-			maxButton := l.maxButton()
+			a := makeAlchemyMaterialLayout(l, r)
+			maxButton := a.maximum
 			h.clicks(false, maxButton.x+10, maxButton.y+10, 1)
 			if g.alchemyBatches != 7 {
 				t.Fatalf("Max selected %d batches", g.alchemyBatches)
 			}
-			h.clicks(false, l.actions.x+40, l.actions.y+15, 1)
+			h.clicks(false, a.brew.x+40, a.brew.y+15, 1)
 			if got := g.party.MaxAlchemyBatches(r, nil); got != 0 {
 				t.Fatalf("displayed Brew left %d batches", got)
 			}

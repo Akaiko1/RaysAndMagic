@@ -43,6 +43,9 @@ func TestAlchemyTradeMaterialsFailAtBoot(t *testing.T) {
 				if rawRecipes == recipes {
 					t.Fatal("recipe fixture missing")
 				}
+				// Keep the category valid so boot reaches the merchant-currency
+				// exclusion instead of rejecting an uncategorized ingredient first.
+				rawRecipes = strings.Replace(rawRecipes, "\nrecipes:", "\n- key: currency_test\n  label: Currency test\n  items: ["+tc.currency+"]\nrecipes:", 1)
 			} else if tc.name == "new_shop_currency" {
 				rawNPCs = strings.Replace(npcs, "item:clock_hand", "item:rabbit_pelt", 1)
 			} else if tc.name == "new_stock_currency" {

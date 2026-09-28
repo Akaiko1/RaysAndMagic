@@ -50,9 +50,10 @@ func TestAlchemyAnimationCommitAndLifetime(t *testing.T) {
 				}
 				before := append([]items.Item(nil), g.party.Inventory...)
 				l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true)
+				a := makeAlchemyMaterialLayout(l, r)
 				cast := func() {
 					if route == "click" {
-						h.clicks(false, l.actions.x+25, l.actions.y+10, 1)
+						h.clicks(false, a.brew.x+25, a.brew.y+10, 1)
 					} else {
 						ih := NewInputHandler(g)
 						ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyEnter })

@@ -14,7 +14,7 @@ type FlaskDefinition struct {
 	Element         string  `yaml:"element"`
 	Damage          [4]int  `yaml:"damage"`
 	PoisonSeconds   [4]int  `yaml:"poison_seconds"`
-	BurnSeconds     int     `yaml:"burn_seconds"`
+	BurnSeconds     [4]int  `yaml:"burn_seconds"`
 	RangeTiles      int     `yaml:"range_tiles"`
 	RadiusTiles     int     `yaml:"radius_tiles"`
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`
@@ -27,6 +27,43 @@ type AlchemyIngredient struct {
 	Label        string               `yaml:"label"`
 	Alternatives []AlchemyAlternative `yaml:"alternatives"`
 }
+
+// Materials returns the authored batch cost of every interchangeable item.
+// Alternative order remains stable only for migrating legacy source indices.
+func (g AlchemyIngredient) Materials() map[string]int {
+	result := map[string]int{}
+	for _, a := range g.Alternatives {
+		for _, key := range a.Items {
+			result[key] = a.Count
+		}
+	}
+	return result
+}
+
+// Units gives an exact integer denominator for mixed material contributions.
+func (g AlchemyIngredient) Units() (int, error) {
+	units := 1
+	for _, a := range g.Alternatives {
+		if a.Count < 1 || a.Count > 999 {
+			return 0, fmt.Errorf("invalid material quantity")
+		}
+		x, y := units, a.Count
+		for y != 0 {
+			x, y = y, x%y
+		}
+		if units/x > 4096/a.Count {
+			return 0, fmt.Errorf("material quantities require an excessive mixing denominator")
+		}
+		units = units / x * a.Count
+	}
+	return units, nil
+}
+
+type AlchemyCategory struct {
+	Key   string   `yaml:"key"`
+	Label string   `yaml:"label"`
+	Items []string `yaml:"items"`
+}
 type AlchemyRecipe struct {
 	Key         string              `yaml:"key"`
 	Output      string              `yaml:"output"`
@@ -34,7 +71,8 @@ type AlchemyRecipe struct {
 	Ingredients []AlchemyIngredient `yaml:"ingredients"`
 }
 type AlchemyConfig struct {
-	Recipes []AlchemyRecipe `yaml:"recipes"`
+	Categories []AlchemyCategory `yaml:"categories"`
+	Recipes    []AlchemyRecipe   `yaml:"recipes"`
 }
 
 var GlobalAlchemy *AlchemyConfig
@@ -75,6 +113,21 @@ func LoadAlchemyConfig(filename string) (*AlchemyConfig, error) {
 }
 func validateAlchemyConfig(c *AlchemyConfig) error {
 	seen := map[string]bool{}
+	categories := map[string]bool{}
+	materials := map[string]bool{}
+	for _, category := range c.Categories {
+		if category.Key == "" || category.Label == "" || categories[category.Key] || len(category.Items) == 0 {
+			return fmt.Errorf("alchemy: invalid material category %q", category.Key)
+		}
+		categories[category.Key] = true
+		for _, key := range category.Items {
+			d, _ := GetItemDefinition(key)
+			if materials[key] || d == nil || d.Type != "trinket" || d.CraftedOnly || d.DoorKey != 0 {
+				return fmt.Errorf("alchemy: invalid or multiply categorized material %q", key)
+			}
+			materials[key] = true
+		}
+	}
 	if len(c.Recipes) == 0 {
 		return fmt.Errorf("alchemy: no recipes")
 	}
@@ -97,17 +150,20 @@ func validateAlchemyConfig(c *AlchemyConfig) error {
 			if g.Label == "" || len(g.Alternatives) == 0 {
 				return fmt.Errorf("recipe %q: empty ingredient group", r.Key)
 			}
+			if _, err := g.Units(); err != nil {
+				return fmt.Errorf("recipe %q: %w", r.Key, err)
+			}
+			groupKeys := map[string]bool{}
 			for _, a := range g.Alternatives {
 				if a.Count < 1 || a.Count > 999 || len(a.Items) == 0 {
 					return fmt.Errorf("recipe %q: invalid ingredient quantity", r.Key)
 				}
-				keys := map[string]bool{}
 				for _, key := range a.Items {
 					d, _ := GetItemDefinition(key)
-					if keys[key] || d == nil || d.Type != "trinket" || d.CraftedOnly || d.DoorKey != 0 {
+					if groupKeys[key] || !materials[key] || d == nil || d.Type != "trinket" || d.CraftedOnly || d.DoorKey != 0 {
 						return fmt.Errorf("recipe %q: invalid ingredient %q", r.Key, key)
 					}
-					keys[key] = true
+					groupKeys[key] = true
 				}
 			}
 		}
@@ -196,11 +252,11 @@ func validateCraftedItem(key string, d *ItemDefinitionConfig) error {
 			return err
 		}
 		f.Element = element
-		if f.Sprite == "" || !d.CraftedOnly || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || f.BurnSeconds < 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
+		if f.Sprite == "" || !d.CraftedOnly || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
 			return fmt.Errorf("item %q: invalid throwable flask", key)
 		}
 		for i := range f.Damage {
-			if f.Damage[i] < 1 || f.PoisonSeconds[i] < 0 {
+			if f.Damage[i] < 1 || f.PoisonSeconds[i] < 0 || f.BurnSeconds[i] < 0 {
 				return fmt.Errorf("item %q: invalid flask mastery values", key)
 			}
 		}

@@ -263,136 +263,66 @@ func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
 
 // AddItem adds an item to the party inventory. Stackable items (consumables,
 // trinkets) merge into an existing same-name stack; everything else appends.
-func (p *Party) AddItem(item items.Item) {
-	p.contentRev++
-	if item.Stackable() {
-		for i := range p.Inventory {
-			if items.SameStack(p.Inventory[i], item) {
-				p.Inventory[i].MergeStack(item)
-				return
+func (p *Party) AddItem(item items.Item)          { p.Bag().Add(item) }
+func (p *Party) RemoveItem(index int)             { p.Bag().Remove(index) }
+func (p *Party) ConsumeOneAt(index int) bool      { return p.ConsumeUnitsAt(index, 1) }
+func (p *Party) ConsumeUnitsAt(index, n int) bool { return p.Bag().Consume(index, n) }
+func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
+	if index < 0 || index >= len(p.Inventory) || !p.Inventory[index].Stackable() {
+		return items.Item{}, false
+	}
+	return p.Bag().Take(index, quantity)
+}
+func (p *Party) MergeStacks() {
+	p.Bag().MergeStacks()
+	for _, roster := range [][]*MMCharacter{p.Members, p.Reserve, p.Captive} {
+		for _, ch := range roster {
+			if ch != nil {
+				p.Bag(ch).MergeStacks()
 			}
 		}
 	}
-	p.Inventory = append(p.Inventory, item)
 }
 
-// RemoveItem removes a whole inventory entry (the full stack) by index.
-func (p *Party) RemoveItem(index int) {
-	if index >= 0 && index < len(p.Inventory) {
-		p.contentRev++
-		p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
-	}
-}
-
-// ConsumeOneAt removes ONE unit from the entry at index: decrements a stack,
-// removes the entry when the last unit goes. Reports whether a unit was taken.
-func (p *Party) ConsumeOneAt(index int) bool {
-	return p.ConsumeUnitsAt(index, 1)
-}
-
-// ConsumeUnitsAt removes n units from the entry at index: decrements the
-// stack, removes the whole entry when the last unit goes. Reports whether the
-// units were taken (false on a bad index or more units than the entry holds).
-func (p *Party) ConsumeUnitsAt(index, n int) bool {
-	if index < 0 || index >= len(p.Inventory) || n < 1 || n > p.Inventory[index].Count() {
-		return false
-	}
-	if p.Inventory[index].Count() > n {
-		p.contentRev++
-		return p.Inventory[index].ConsumeStackUnits(n)
-	}
-	p.RemoveItem(index)
-	return true
-}
-
-// TakeStackUnits removes quantity units from one stackable bag entry and
-// returns them as a separate item. A full take preserves the usual whole-entry
-// move; a partial take delegates the lineage split to items.Item.SplitOff so
-// stash reconciliation remains correct across old saves.
-func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
-	if index < 0 || index >= len(p.Inventory) || quantity < 1 {
-		return items.Item{}, false
-	}
-	item := p.Inventory[index]
-	if !item.Stackable() || quantity > item.Count() {
-		return items.Item{}, false
-	}
-	if quantity == item.Count() {
-		p.RemoveItem(index)
-		return item, true
-	}
-	fragment, ok := p.Inventory[index].SplitOff(quantity)
-	if ok {
-		p.contentRev++
-	}
-	return fragment, ok
-}
-
-// MergeStacks folds duplicate stackable entries into single stacks (first
-// entry keeps its place and InstanceID). Load-time migration for saves
-// written before stacking existed.
-func (p *Party) MergeStacks() {
-	type stackKey struct {
-		name string
-		typ  items.ItemType
-	}
-	first := make(map[stackKey]int)
-	p.contentRev++
-	kept := p.Inventory[:0]
-	for _, it := range p.Inventory {
-		if !it.Stackable() {
-			kept = append(kept, it)
-			continue
-		}
-		k := stackKey{it.Name, it.Type}
-		if i, ok := first[k]; ok {
-			kept[i].MergeStack(it)
-			continue
-		}
-		first[k] = len(kept)
-		kept = append(kept, it)
-	}
-	p.Inventory = kept
-}
-
-// CountItemsByName counts inventory units of the named item, stacks included
-// (item-backed merchant currencies: clock hands).
+// CountItemsByName counts carried units available for crafting and item exchanges.
 func (p *Party) CountItemsByName(name string) int {
 	n := 0
-	for i := range p.Inventory {
-		if p.Inventory[i].Name == name {
-			n += p.Inventory[i].Count()
+	for stack := range p.carriedStacks() {
+		if it := stack.item(); it.Name == name {
+			n += it.Count()
 		}
 	}
 	return n
 }
 
-// RemoveItemsByName removes up to n units of the named item, draining stacks
-// as needed; reports whether all n were found and removed (payment in an
-// item-backed currency).
+// RemoveItemsByName pays from shared stock, active personal bags, then quick
+// slots. Stage the whole payment before mutating; consume backwards so bag
+// removals cannot retarget a later part of the same payment.
 func (p *Party) RemoveItemsByName(name string, n int) bool {
-	if p.CountItemsByName(name) < n {
+	if n < 0 {
 		return false
 	}
-	p.contentRev++
-	kept := p.Inventory[:0]
-	for _, it := range p.Inventory {
-		if n > 0 && it.Name == name {
-			c := it.Count()
-			if c <= n {
-				n -= c
-				continue
-			}
-			// Keep the provenance of a merged stack aligned with its remaining
-			// units. Currency can be stored in the shared stash just like any
-			// other trinket, so direct Quantity edits would make stale-save
-			// reconciliation count the wrong lineage after a partial payment.
-			it.ConsumeStackUnits(n)
-			n = 0
-		}
-		kept = append(kept, it)
+	type payment struct {
+		stack carriedStack
+		count int
 	}
-	p.Inventory = kept
+	var plan []payment
+	for stack := range p.carriedStacks() {
+		if n == 0 {
+			break
+		}
+		if it := stack.item(); it.Name == name {
+			take := min(n, it.Count())
+			plan = append(plan, payment{stack, take})
+			n -= take
+		}
+	}
+	if n != 0 {
+		return false
+	}
+	for i := len(plan) - 1; i >= 0; i-- {
+		plan[i].stack.consume(plan[i].count)
+	}
 	return true
 }
 
@@ -409,15 +339,16 @@ func (p *Party) GetTotalItems() int {
 // equipFromInventory validates the indices and conscious state, runs the given
 // equip call, and on success removes the item from the bag and returns any
 // displaced item to it. Shared core of the equip-from-inventory variants.
-func (p *Party) equipFromInventory(itemIndex, characterIndex int, equip func(*MMCharacter, items.Item) (items.Item, bool, bool)) bool {
-	if itemIndex < 0 || itemIndex >= len(p.Inventory) {
+func (p *Party) equipFromInventory(itemIndex, characterIndex int, equip func(*MMCharacter, items.Item) (items.Item, bool, bool), owner ...*MMCharacter) bool {
+	bag := p.Bag(owner...)
+	if itemIndex < 0 || itemIndex >= len(bag.Items()) {
 		return false
 	}
 	if characterIndex < 0 || characterIndex >= len(p.Members) {
 		return false
 	}
 
-	item := p.Inventory[itemIndex]
+	item := bag.Items()[itemIndex]
 	character := p.Members[characterIndex]
 
 	// Disallow equipping if character is unconscious
@@ -429,34 +360,28 @@ func (p *Party) equipFromInventory(itemIndex, characterIndex int, equip func(*MM
 	if !success {
 		return false
 	}
-	p.RemoveItem(itemIndex)
-	p.returnDisplacedToBag(previousItem, hadPreviousItem)
+	bag.Remove(itemIndex)
+	if hadPreviousItem && !previousItem.VirtualAction() {
+		bag.Add(previousItem)
+	}
 	return true
 }
 
 // EquipItemFromInventory attempts to equip an item from inventory to a character
-func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
+func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int, owner ...*MMCharacter) bool {
 	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
 		return c.EquipItem(item)
-	})
-}
-
-// returnDisplacedToBag puts an item displaced by an equip back into the inventory,
-// skipping spellbook-owned spell items (which never live in the bag).
-func (p *Party) returnDisplacedToBag(item items.Item, had bool) {
-	if had && !item.VirtualAction() {
-		p.AddItem(item)
-	}
+	}, owner...)
 }
 
 // EquipItemFromInventoryToSlot equips an inventory item into a SPECIFIC slot
 // (drag-drop onto an exact paperdoll slot), so a ring goes to the finger it was
 // dropped on. Mirrors EquipItemFromInventory otherwise (inventory removal +
 // displaced item returned to the bag).
-func (p *Party) EquipItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
+func (p *Party) EquipItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot, owner ...*MMCharacter) bool {
 	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
 		return c.EquipItemToSlot(item, slot)
-	})
+	}, owner...)
 }
 
 // MoveEquippedSlot moves a character's equipped item from srcSlot to dstSlot
@@ -472,7 +397,7 @@ func (p *Party) MoveEquippedSlot(srcSlot, dstSlot items.EquipSlot, characterInde
 // UnequipItemToInventory removes an item from a character's equipment and adds it to inventory.
 // Spell-slot items are never returned to inventory - the spellbook is the only owner
 // of learned spells, so unequipping just clears the slot.
-func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int) bool {
+func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int, owner ...*MMCharacter) bool {
 	if characterIndex < 0 || characterIndex >= len(p.Members) {
 		return false
 	}
@@ -484,7 +409,7 @@ func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int)
 		return false
 	}
 	if slot != items.SlotSpell {
-		p.AddItem(item)
+		p.Bag(owner...).Add(item)
 	}
 	return true
 }

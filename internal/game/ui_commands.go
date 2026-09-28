@@ -36,6 +36,7 @@ type uiDisplayIdentity struct {
 	partyCreate  *partyCreateState
 	questManager *quests.QuestManager
 	questState   uint64
+	rosterSwap   *rosterSwapRequest
 }
 
 // Screen ownership is shared by the display barrier and raw pointer gestures.
@@ -97,11 +98,22 @@ func (ui *UISystem) cancelScreenPointerGestures() {
 func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	g := ui.game
 	id := uiDisplayIdentity{world: g.world, party: g.party, partyCreate: g.partyCreate, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
+	id.rosterSwap = g.pendingRosterSwap
 	id.state = [16]int{g.savePage,
 		boolInt(g.menuOpen), int(g.currentTab), g.selectedChar, ui.inventoryPage, ui.inventoryTab, ui.spellPage, ui.questPage,
 		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsRevision, g.achievementsScroll, g.statisticsScroll}
 	hash := uint64(14695981039346656037)
 	mix := func(v uint64) { hash ^= v; hash *= 1099511628211 }
+	mix(uint64(g.selectedRare))
+	mix(uint64(g.alchemyBatches))
+	mix(ui.alchemyRevision)
+	mix(uint64(boolInt(g.brewAnimation != nil)))
+	mix(uint64(g.settingsTab))
+	mix(uint64(ui.personalInventoryPage))
+	mix(uint64(ui.personalInventoryTab))
+	for _, offset := range g.potionSettingsScroll {
+		mix(uint64(offset))
+	}
 	item := func(it items.Item) { mix(uiItemIdentity(it)) }
 	if g.party != nil {
 		mix(g.party.ContentRevision())
@@ -115,6 +127,10 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 				if ch == nil {
 					mix(0)
 					continue
+				}
+				mix(uint64(len(ch.Inventory)))
+				for _, it := range ch.Inventory {
+					item(it)
 				}
 				for schoolIndex, school := range character.AllMagicSchools {
 					mix(uint64(schoolIndex))
@@ -442,6 +458,7 @@ type uiDragIdentity struct {
 	world       *world.World3D
 	party       *character.Party
 	actor       *character.MMCharacter
+	bagOwner    *character.MMCharacter
 	kind, index int
 	item        uint64
 }
@@ -493,10 +510,11 @@ func (ui *UISystem) currentDragIdentity(stashDrag bool) uiDragIdentity {
 		switch g.dragSrc {
 		case dragFromInventory:
 			id.index = g.dragInvIndex
-			if id.index < 0 || id.index >= len(g.party.Inventory) {
+			id.bagOwner = g.dragInvOwner
+			if id.index < 0 || id.index >= len(g.inventoryDragBag().Items()) {
 				return id
 			}
-			it = g.party.Inventory[id.index]
+			it = g.inventoryDragBag().Items()[id.index]
 		case dragFromQuickSlot:
 			charIdx = g.dragQuickChar
 			id.index = g.dragQuickSlot

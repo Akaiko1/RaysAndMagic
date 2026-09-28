@@ -62,7 +62,10 @@ func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox
 	layout := makeAudioSettingsPanelLayout(screenW, screenH, ornate)
 	px, py, panelW, panelH := layout.px, layout.py, layout.panelW, layout.panelH
 	region := uiBox{"audio-settings", px, py, panelW, panelH}
-	boxes := []uiBox{textLineBox("title", "Audio Settings", px+layout.contentInset, py+layout.contentInset-2)}
+	boxes := []uiBox{{"title", px + (panelW-debugTextWidth("Settings")*2)/2, py + 22, debugTextWidth("Settings") * 2, debugTextCharHeight * 2}}
+	for tab := 0; tab < 2; tab++ {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, tab)))
+	}
 	for row, def := range audioSettingDefinitions {
 		r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
 		boxes = append(boxes, uiBox{fmt.Sprintf("slider-%s", def.label), r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1})
@@ -91,12 +94,18 @@ func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
 	l := computeInventoryContentLayout(menu.content)
 	return namedLayoutBox("inventory-content", menu.content), []uiBox{
+		namedLayoutBox("personal-grid", l.personalGrid), namedLayoutBox("personal-pager", l.personalPager),
+		namedLayoutBox("shared-filters", l.categories),
+		namedLayoutBox("personal-filters", l.personalCategories),
+		namedLayoutBox("equipment-heading", l.headings[0]),
+		namedLayoutBox("personal-heading", l.headings[1]),
+		namedLayoutBox("shared-heading", l.headings[2]),
+		namedLayoutBox("gold", l.resources[0]),
+		namedLayoutBox("food", l.resources[1]),
 		namedLayoutBox("paperdoll", l.paper),
 		namedLayoutBox("inventory-grid", l.grid),
 		namedLayoutBox("pager", l.pager),
 		namedLayoutBox("quick-slots", l.quickSlots),
-		namedLayoutBox("instructions-1", l.instructions[0]),
-		namedLayoutBox("instructions-2", l.instructions[1]),
 	}
 }
 

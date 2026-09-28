@@ -8,7 +8,8 @@ func TestAutoDrinkValidation(t *testing.T) {
 		config AutoDrinkConfig
 		bad    bool
 	}{
-		{"disabled", AutoDrinkConfig{}, false},
+		{"disabled", AutoDrinkConfig{0, 1}, false},
+		{"disabled without reusable interval", AutoDrinkConfig{}, true},
 		{"enabled", AutoDrinkConfig{35, 1}, false},
 		{"zero interval", AutoDrinkConfig{35, 0}, true},
 		{"negative interval", AutoDrinkConfig{0, -1}, true},

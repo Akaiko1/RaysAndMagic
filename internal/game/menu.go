@@ -40,8 +40,8 @@ const (
 	mainMenuPanelH     = 310
 	mainMenuListTopY   = 56
 	mainMenuRowPitch   = 32
-	settingsMenuPanelW = 480
-	settingsMenuPanelH = 300
+	settingsMenuPanelW = 720
+	settingsMenuPanelH = 510
 
 	// menuRowHeight is the highlight/hitbox height of one vertical-menu row,
 	// shared by Main-menu options and save/load slots (see menuRowRect).

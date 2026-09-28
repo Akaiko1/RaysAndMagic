@@ -45,13 +45,14 @@ func (g *MMGame) RevivablePartyIndices() []int {
 // if other inventory operations (drop/sell/use) shift the slice.
 // Returns true if the revive applied.
 func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
-	if itemIdx < 0 || itemIdx >= len(g.party.Inventory) {
+	bag := g.party.Bag(g.pickerInventoryOwner)
+	if itemIdx < 0 || itemIdx >= len(bag.Items()) {
 		return false
 	}
 	if targetIdx < 0 || targetIdx >= len(g.party.Members) {
 		return false
 	}
-	item := g.party.Inventory[itemIdx]
+	item := bag.Items()[itemIdx]
 	if item.Type != items.ItemConsumable || item.Attributes["revive"] <= 0 {
 		// Slot now holds something else - inventory shifted under us.
 		return false
@@ -64,7 +65,7 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	} else if ch.HitPoints <= 0 {
 		ch.HitPoints = 1
 	}
-	g.party.ConsumeOneAt(itemIdx)
+	bag.Consume(itemIdx, 1)
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
 	return true
 }
@@ -118,13 +119,14 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 // the item (the index can shift between picker-open and confirm) and refuses on
 // an invalid/full/incapacitated target. Returns true if the heal applied.
 func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
-	if itemIdx < 0 || itemIdx >= len(g.party.Inventory) {
+	bag := g.party.Bag(g.pickerInventoryOwner)
+	if itemIdx < 0 || itemIdx >= len(bag.Items()) {
 		return false
 	}
 	if targetIdx < 0 || targetIdx >= len(g.party.Members) {
 		return false
 	}
-	item := g.party.Inventory[itemIdx]
+	item := bag.Items()[itemIdx]
 	base := item.Attributes["heal_base"]
 	div := item.Attributes["heal_endurance_divisor"]
 	if item.Type != items.ItemConsumable || base <= 0 || div <= 0 {
@@ -139,7 +141,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	}
 	before := ch.HitPoints
 	g.applyFlatHeal(targetIdx, base, div)
-	g.party.ConsumeOneAt(itemIdx)
+	bag.Consume(itemIdx, 1)
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, ch.HitPoints-before))
 	return true
 }
@@ -150,6 +152,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 // filled - so cancelling never silently moves the potion to the backpack. No-op
 // when the picker was opened from the inventory (pickerQuickChar < 0).
 func (g *MMGame) resolvePickerQuickSource(itemIdx int, consumed bool) {
+	defer func() { g.pickerInventoryOwner = nil }()
 	if g.pickerQuickChar < 0 {
 		return
 	}
@@ -186,21 +189,28 @@ func (g *MMGame) cancelTownPortalPicker() {
 
 // UseConsumableFromInventory consumes a consumable item at inventory index for the selected character.
 // Handles game-side effects, inventory removal, and combat messages. Returns true if consumed.
-func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) bool {
+func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, owner ...*character.MMCharacter) bool {
 	if g == nil || g.party == nil {
 		return false
 	}
 	// Default any picker this opens to "from inventory"; the quick-slot caller
 	// re-tags it after the call if a picker actually opened.
+	bag := g.party.Bag(owner...)
+	g.pickerInventoryOwner = bag.Owner
+	defer func() {
+		if !g.healPickerOpen && !g.revivalPickerOpen {
+			g.pickerInventoryOwner = nil
+		}
+	}()
 	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
-	if itemIndex < 0 || itemIndex >= len(g.party.Inventory) {
+	if itemIndex < 0 || itemIndex >= len(bag.Items()) {
 		return false
 	}
 	if selectedChar < 0 || selectedChar >= len(g.party.Members) {
 		return false
 	}
 
-	item := g.party.Inventory[itemIndex]
+	item := bag.Items()[itemIndex]
 	if item.Type != items.ItemConsumable {
 		return false
 	}
@@ -232,15 +242,19 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	// at full HP). Applies any minor heal the item also carries.
 	if item.Attributes["cure_poison"] > 0 {
 		ch := g.party.Members[selectedChar]
-		if !ch.HasCondition(character.ConditionPoisoned) {
+		if ch.HasCondition(character.ConditionPoisoned) {
+			ch.CurePoison()
+			g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
+			bag.Consume(itemIndex, 1)
+			g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
+			return true
+		}
+		// Without poison, a restorative antidote follows ordinary healing below,
+		// including full-health rejection and incapacitated-owner redirection.
+		if item.Attributes["heal_base"] <= 0 {
 			g.AddCombatMessage(fmt.Sprintf("%s isn't poisoned.", ch.Name))
 			return false
 		}
-		ch.CurePoison()
-		g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
-		g.party.ConsumeOneAt(itemIndex)
-		g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
-		return true
 	}
 
 	// Healing consumable
@@ -285,7 +299,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			return false
 		}
 		g.addCombatBuff(buff)
-		g.party.ConsumeOneAt(itemIndex)
+		bag.Consume(itemIndex, 1)
 		g.AddCombatMessage(uitext.Text("combat.party_uses_timed_buff", item.Name, strings.Join(def.ItemMechanicLines(), "; ")))
 		return true
 	}
@@ -313,7 +327,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		if ch.SpellPoints > ch.MaxSpellPoints {
 			ch.SpellPoints = ch.MaxSpellPoints
 		}
-		g.party.ConsumeOneAt(itemIndex)
+		bag.Consume(itemIndex, 1)
 		g.AddCombatMessage(fmt.Sprintf("%s drinks %s and recovers %d SP!", ch.Name, item.Name, ch.SpellPoints-before))
 		return true
 	}
@@ -322,7 +336,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
 		if dist > 0 {
 			if g.SummonRandomMonsterNearPlayer(float64(dist)) {
-				g.party.ConsumeOneAt(itemIndex)
+				bag.Consume(itemIndex, 1)
 				g.AddCombatMessage("A ripple in the air answers your call.")
 				return true
 			}

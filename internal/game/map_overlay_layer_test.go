@@ -357,7 +357,7 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 		{Name: "World Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}},
 	}
 
-	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottomWithPartyHUD(cfg.GetScreenHeight()))
+	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	inv := computeInventoryContentLayout(hub.content)
 	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
 		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
@@ -411,7 +411,7 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 		{Name: "World Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}},
 	}
 
-	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottomWithPartyHUD(cfg.GetScreenHeight()))
+	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	inv := computeInventoryContentLayout(hub.content)
 	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
 		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])

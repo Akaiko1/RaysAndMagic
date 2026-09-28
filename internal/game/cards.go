@@ -463,7 +463,7 @@ func (g *MMGame) cardSummonOwnedSources() []cardSummonSource {
 		})
 	}
 	if g.party != nil {
-		for _, it := range g.party.Inventory {
+		for _, it := range g.party.CarriedItems() {
 			appendItem(it)
 		}
 	}
@@ -814,10 +814,11 @@ func (g *MMGame) firstFreeCardSlot() int {
 // free collection slot. Collector-only. Returns false if it isn't a card, the
 // index is bad, or the collection is full.
 func (g *MMGame) placeCardFromInventory(inv int) bool {
-	if inv < 0 || inv >= len(g.party.Inventory) {
+	carried := g.party.CarriedItems()
+	if inv < 0 || inv >= len(carried) {
 		return false
 	}
-	key := itemCardKey(g.party.Inventory[inv])
+	key := itemCardKey(carried[inv])
 	if key == "" {
 		return false
 	}
@@ -825,10 +826,10 @@ func (g *MMGame) placeCardFromInventory(inv int) bool {
 	if slot < 0 {
 		return false
 	}
-	if !g.setCardCollectionSlot(slot, g.party.Inventory[inv]) {
+	if !g.setCardCollectionSlot(slot, carried[inv]) {
 		return false
 	}
-	g.party.Inventory = append(g.party.Inventory[:inv], g.party.Inventory[inv+1:]...)
+	g.party.ConsumeCarriedUnitsAt(inv, 1)
 	g.recomputeStatBonuses() // fold the card's Speed bonus into the party stats
 	return true
 }
@@ -842,7 +843,7 @@ func (g *MMGame) removeCardToInventory(slot int) bool {
 	it := g.cardCollectionItem(slot)
 	g.clearCardCollectionSlot(slot)
 	if itemCardKey(it) != "" {
-		g.party.Inventory = append(g.party.Inventory, it)
+		g.party.AddItem(it)
 	}
 	g.recomputeStatBonuses()
 	return true
@@ -852,8 +853,9 @@ func (g *MMGame) removeCardToInventory(slot int) bool {
 // order - the left panel of the collector dialog and its click mapping.
 func (g *MMGame) inventoryCardIndices() []int {
 	var out []int
-	for i := range g.party.Inventory {
-		if itemCardKey(g.party.Inventory[i]) != "" {
+	carried := g.party.CarriedItems()
+	for i := range carried {
+		if itemCardKey(carried[i]) != "" {
 			out = append(out, i)
 		}
 	}
