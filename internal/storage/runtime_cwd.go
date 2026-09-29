@@ -9,22 +9,23 @@ import (
 // config.yaml + assets/. macOS .app bundles seed + chdir into the shared
 // writable per-user dir (so game and editor see the same files); bare
 // binaries fall back to probing next to the executable. No-op for "go run"
-// from the project root.
-func EnsureRuntimeCWD() {
-	if SetupBundleRuntime() {
-		return
+// from the project root. Errors only when a bundle has no content at all.
+func EnsureRuntimeCWD() error {
+	if handled, err := SetupBundleRuntime(); handled {
+		return err
 	}
 	if _, err := os.Stat("config.yaml"); err == nil {
-		return
+		return nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return
+		return nil
 	}
 	execDir := filepath.Dir(exe)
 	if runtimeDir, ok := findRuntimeCWD(execDir, os.Stat); ok {
 		_ = os.Chdir(runtimeDir)
 	}
+	return nil
 }
 
 func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (string, bool) {

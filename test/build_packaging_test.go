@@ -9,8 +9,11 @@ import (
 	"testing"
 )
 
-// Run the real build entry points against small assets. Compilation and signing
-// are stand-ins here; copying, filtering and output layouts are production code.
+// Run the real build entry points against small assets. Compilation, lipo,
+// otool and signing are stand-ins here; copying, filtering and output layouts
+// are production code. Content ships once per install unit: the game bundle
+// and the Windows folder carry it, the editor bundle only its icon, and the
+// release mac folder holds nothing but the two bundles.
 func TestBuildRuntimePackaging(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -18,18 +21,25 @@ func TestBuildRuntimePackaging(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		script string
-		roots  []string
+		roots  []string            // carry the full runtime content
+		exact  map[string][]string // directory -> its complete entry list
+		fat    []string            // executables that must be universal
 	}{
 		{"build_bin.sh", []string{
 			"bin/RaysAndMagic.app/Contents/Resources",
-			"bin/RaysAndMagicMapViewer.app/Contents/Resources",
-		}},
+		}, map[string][]string{
+			"bin/RaysAndMagicMapViewer.app/Contents/Resources": {"rays_and_magic_map_editor.icns"},
+		}, nil},
 		{"build_mac_release.sh", []string{
-			"dist/mac_amd64", "dist/mac_arm64", "dist/windows_amd64",
-			"dist/mac_amd64/RaysAndMagic.app/Contents/Resources",
-			"dist/mac_amd64/RaysAndMagicMapViewer.app/Contents/Resources",
-			"dist/mac_arm64/RaysAndMagic.app/Contents/Resources",
-			"dist/mac_arm64/RaysAndMagicMapViewer.app/Contents/Resources",
+			"dist/windows_amd64",
+			"dist/mac_universal/RaysAndMagic.app/Contents/Resources",
+		}, map[string][]string{
+			"dist":               {"mac_universal", "windows_amd64"},
+			"dist/mac_universal": {"RaysAndMagic.app", "RaysAndMagicMapViewer.app"},
+			"dist/mac_universal/RaysAndMagicMapViewer.app/Contents/Resources": {"rays_and_magic_map_editor.icns"},
+		}, []string{
+			"dist/mac_universal/RaysAndMagic.app/Contents/MacOS/RaysAndMagic",
+			"dist/mac_universal/RaysAndMagicMapViewer.app/Contents/MacOS/RaysAndMagicMapViewer",
 		}},
 	} {
 		t.Run(tc.script, func(t *testing.T) {
@@ -87,6 +97,24 @@ done
 exit 1
 `), 0755)
 			write("tools/codesign", []byte("#!/bin/bash\nexit 0\n"), 0755)
+			write("tools/otool", []byte("#!/bin/bash\nprintf '      cmd LC_BUILD_VERSION\\n    minos %s\\n' \"${FAKE_MINOS:-12.0}\"\n"), 0755)
+			write("tools/lipo", []byte(`#!/bin/bash
+set -eu
+[ "$1" = "-create" ] && [ "$2" = "-output" ]
+out="$3"; shift 3
+{ printf 'universal'; for slice in "$@"; do printf ' %s' "$(basename "$(dirname "$slice")")"; done; printf '\n'; } > "$out"
+`), 0755)
+			env := append(os.Environ(), "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Run("newer macOS floor fails", func(t *testing.T) {
+				cmd := exec.Command(bash, tc.script)
+				cmd.Dir = dir
+				cmd.Env = append(env, "FAKE_MINOS=27.0")
+				output, err := cmd.CombinedOutput()
+				if err == nil || !strings.Contains(string(output), "requires macOS 27.0, bundles promise 12.0") {
+					t.Fatalf("a binary needing macOS 27 was packaged: %v\n%s", err, output)
+				}
+				_ = os.Remove(filepath.Join(dir, "shader-build.log"))
+			})
 			for _, state := range []string{"fresh", "rebuild"} {
 				t.Run(state, func(t *testing.T) {
 					if state == "rebuild" {
@@ -96,7 +124,7 @@ exit 1
 					}
 					cmd := exec.Command(bash, tc.script)
 					cmd.Dir = dir
-					cmd.Env = append(os.Environ(), "PATH="+filepath.Join(dir, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
+					cmd.Env = env
 					if output, err := cmd.CombinedOutput(); err != nil {
 						t.Fatalf("build script failed: %v\n%s", err, output)
 					}
@@ -135,6 +163,21 @@ exit 1
 							return err
 						}); err != nil {
 							t.Fatal(err)
+						}
+					}
+					for root, want := range tc.exact {
+						entries, err := os.ReadDir(filepath.Join(dir, root))
+						var got []string
+						for _, e := range entries {
+							got = append(got, e.Name())
+						}
+						if err != nil || strings.Join(got, ",") != strings.Join(want, ",") {
+							t.Errorf("%s holds %v (%v), want exactly %v", root, got, err, want)
+						}
+					}
+					for _, exe := range tc.fat {
+						if data, err := os.ReadFile(filepath.Join(dir, exe)); err != nil || string(data) != "universal arm64 amd64\n" {
+							t.Errorf("%s is not the arm64+amd64 universal binary: %q, %v", exe, data, err)
 						}
 					}
 					for _, path := range sources {

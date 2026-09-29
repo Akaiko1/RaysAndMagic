@@ -21,7 +21,9 @@ import (
 // shared content configs. Binary-specific configs (quests, level-up choices,
 // maps) stay with their binary's main.
 func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
-	storage.EnsureRuntimeCWD()
+	if err := storage.EnsureRuntimeCWD(); err != nil {
+		log.Fatalf("Runtime data: %v", err)
+	}
 	if err := uitext.LoadDirectory("assets/text"); err != nil {
 		log.Fatalf("UI text: %v", err)
 	}

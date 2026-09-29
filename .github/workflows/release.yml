@@ -67,8 +67,7 @@ jobs:
       - name: Package release archives
         run: |
           cd dist
-          zip -r RaysAndMagic-mac-amd64.zip mac_amd64
-          zip -r RaysAndMagic-mac-arm64.zip mac_arm64
+          zip -r RaysAndMagic-mac-universal.zip mac_universal
           zip -r RaysAndMagic-windows-amd64.zip windows_amd64
 
       - name: Upload artifacts
@@ -81,3 +80,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.zip
+
+  downloads-page:
+    needs: build-release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

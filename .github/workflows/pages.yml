@@ -1,0 +1,59 @@
+name: Downloads Page
+
+# Rebuilds the GitHub Pages downloads site from the release list. release.yml
+# calls it after publishing (releases made with GITHUB_TOKEN raise no events);
+# the release trigger covers releases edited or deleted by hand.
+on:
+  workflow_call:
+  workflow_dispatch:
+  release:
+    types: [published, edited, deleted]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fetch release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[]' > "${RUNNER_TEMP}/releases.ndjson"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/tags?per_page=100" --jq '.[]' > "${RUNNER_TEMP}/tags.ndjson"
+
+      - name: Render page
+        run: |
+          go run ./tools/downloadspage \
+            -releases "${RUNNER_TEMP}/releases.ndjson" \
+            -tags "${RUNNER_TEMP}/tags.ndjson" \
+            -repo "${GITHUB_REPOSITORY}" \
+            -run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -image src/pyramid_isis.png \
+            -out site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
