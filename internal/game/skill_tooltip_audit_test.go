@@ -46,7 +46,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillCelestialProvidence: {"dawn/dusk", "Living active Celestial", "Master-tier", "Does not stack"},
 		character.SkillOrcishFury:          {"Normal weapon damage +3/5/7/10"},
 		character.SkillHalflingGuile:       {"Halves this hero's weight", "random party target"},
-		character.SkillDarkElfBinding:      {"10%", "including fields", "turn the target into an ally for this map", "undead, formless, bosses"},
+		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally for this map", "undead, formless, bosses"},
 		character.SkillSpellAbsorption:     {"15/30/45/60%", "both HP and SP", "damage before defenses"},
 		character.SkillStrongMagic:         {"damage +25/50/75/100%", "HP cost: 25/50/75/100% of paid SP", "leave 1 HP"},
 		character.SkillBallistics:          {"15/25/35/50%", "0/0/1/2 tiles", "2/4/6/8%"},

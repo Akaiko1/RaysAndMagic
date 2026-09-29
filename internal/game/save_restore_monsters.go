@@ -88,6 +88,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.BossDormant = m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
+				// The enrage EFFECT is derived from HP; only the announcement
+				// latch is saved, so a threshold crossed just before the save
+				// still announces on the boss's next tick.
+				m.Enraged = ms.EnrageAnnounced
 				m.ChampionTier = ms.ChampionTier
 				// Duel-cast state survives the reload: the opener fires once per
 				// DUEL (config contract), and an active Stone Skin keeps soaking.
@@ -166,10 +170,11 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					(save.TurnBased && m.WeakenTurnsRemaining <= 0) {
 					m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.WeakenRate = 0, 0, 0, 0
 				}
+				m.SlowTurnCount = ms.SlowTurnCount
 				if save.TurnBased {
-					m.RestoreTurnDebuffLatches(ms.SlowPctThisTurn, ms.WeakenPctThisTurn)
+					m.RestoreTurnDebuffLatches(ms.RootHeldThisTurn, ms.SlowPctThisTurn, ms.WeakenPctThisTurn)
 				} else {
-					m.RestoreTurnDebuffLatches(0, 0)
+					m.RestoreTurnDebuffLatches(false, 0, 0)
 				}
 				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames

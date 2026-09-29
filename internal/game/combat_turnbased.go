@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 )
@@ -734,7 +735,7 @@ func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
 }
 
 // tickMonsterTurnStatuses owns the status clock for visible and remote turns.
-// It returns whether stun consumed this actor's action.
+// It returns whether stun or the slow cadence consumed this actor's turn.
 func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses bool) bool {
 	if tickTurnStatuses {
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
@@ -750,12 +751,9 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 			return false
 		}
 	}
-	if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
+	if tickTurnStatuses && m.StunTurnsRemaining <= 0 {
 		// Stun-free this turn: count toward clearing the diminishing-returns chain.
-		m.StunDRMemoryTurns--
-		if m.StunDRMemoryTurns == 0 {
-			m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
-		}
+		m.StunDR().ForgetTurn()
 	}
 	if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 		// Expiry clears the RT clock too, or the stun-star overlay and
@@ -769,6 +767,11 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 	// moves through monsterMoveTurnBased and its root must hold and decay.
 	if tickTurnStatuses {
 		m.TickRootTurn()
+	}
+	// Slow costs one whole turn (movement and attacks) in every configured
+	// cadence; the root above still burned its turn.
+	if tickTurnStatuses && m.ConsumeSlowedTurn(config.SlowSkipEveryTurns()) {
+		return true
 	}
 
 	return false

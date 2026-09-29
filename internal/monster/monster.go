@@ -346,8 +346,8 @@ type Monster3D struct {
 	ArmorShredFramesRemaining int
 	ArmorShredRate            int  // Persisted frames-per-turn rate keeping mode switches proportional
 	Pilfered                  bool // Sleight of Hand already succeeded on this monster
-	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
-	// serpent dancer cards) - separate from monster-inflicted PoisonChance on
+	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/forest
+	// spider cards) - separate from monster-inflicted PoisonChance on
 	// characters. Ticks 1% of MaxHitPoints (min 1) per second of real time (RT)
 	// or once per monster turn (TB).
 	PoisonedFramesRemaining int
@@ -357,14 +357,17 @@ type Monster3D struct {
 	// WITH poison (independent clocks, same cadence contract).
 	BurnFramesRemaining int
 	burnTickTimer       int
-	// Slow (Tarn Trident silt): EffectiveSpeed drops by SlowPct while active.
-	// Same rated dual-clock contract as armor shred. The ThisTurn latch is the
-	// Root pattern: TB ticks the clock BEFORE the monster moves, so the turn
-	// that consumed the last tick must still suffer the debuff (runtime-only).
+	// Slow (Tarn Trident silt): real-time movement and attack cadence drop by
+	// SlowPct while active; turn-based play skips one turn in the configured
+	// cadence instead (SlowTurnCount). Same rated dual-clock contract as armor
+	// shred. The ThisTurn latch is the Root pattern: TB ticks the clock BEFORE
+	// the monster moves, so the turn that consumed the last tick must still
+	// suffer the debuff.
 	SlowPct             int
 	SlowTurnsRemaining  int
 	SlowFramesRemaining int
 	SlowRate            int
+	SlowTurnCount       int // TB turns spent slowed in the current spell of slow
 	slowPctThisTurn     int
 	// Weaken (Scalebreaker roar): outgoing damage drops by WeakenPct while
 	// active. Same rated dual-clock contract as armor shred; same TB latch.
@@ -1026,7 +1029,11 @@ func activeRatedPercent(activePct, framesRemaining, turnsRemaining, turnLatch in
 }
 
 // ApplySlow refreshes the slow debuff (never stacks; strongest percent wins).
+// A fresh slow restarts the TB skip cadence; a refresh keeps it running.
 func (m *Monster3D) ApplySlow(pct, frames, turns int) {
+	if m.ActiveSlowPct() <= 0 {
+		m.SlowTurnCount = 0
+	}
 	refreshRatedPercent(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, pct, frames, turns)
 }
 
@@ -1040,6 +1047,32 @@ func (m *Monster3D) TickSlowFrame() {
 // by this very turn still moves slowed through it.
 func (m *Monster3D) TickSlowTurn() {
 	tickRatedPercentTurn(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, &m.slowPctThisTurn)
+}
+
+// StunDR exposes this monster's diminishing-returns chain to the shared rule.
+func (m *Monster3D) StunDR() status.StunDRChain {
+	return status.StunDRChain{Stacks: &m.StunDRStacks, MemoryTurns: &m.StunDRMemoryTurns, MemoryFrames: &m.StunDRMemoryFrames}
+}
+
+// SlowCadenceFactor stretches a real-time interval (attack or pounce
+// cooldown) by the active slow: -30% speed means 1/0.7 of the wait.
+func (m *Monster3D) SlowCadenceFactor() float64 {
+	pct := m.ActiveSlowPct()
+	if pct <= 0 {
+		return 1
+	}
+	return 100 / float64(max(1, 100-pct))
+}
+
+// ConsumeSlowedTurn counts a turn-based turn under slow and reports whether
+// this is the turn the cadence skips. A turn without slow restarts the count.
+func (m *Monster3D) ConsumeSlowedTurn(every int) bool {
+	if m.ActiveSlowPct() <= 0 {
+		m.SlowTurnCount = 0
+		return false
+	}
+	m.SlowTurnCount++
+	return every > 1 && m.SlowTurnCount%every == 0
 }
 
 // ActiveSlowPct is the slow percentage in force RIGHT NOW: the live clocks, or
@@ -1087,19 +1120,20 @@ func (m *Monster3D) TickWeakenTurn() {
 
 // TurnDebuffLatches exposes the final-tick TB state needed by save/load while
 // keeping the runtime fields private.
-func (m *Monster3D) TurnDebuffLatches() (slowPct, weakenPct int) {
+func (m *Monster3D) TurnDebuffLatches() (rootHeld bool, slowPct, weakenPct int) {
 	if m == nil {
-		return 0, 0
+		return false, 0, 0
 	}
-	return m.slowPctThisTurn, m.weakenPctThisTurn
+	return m.rootHeldThisTurn, m.slowPctThisTurn, m.weakenPctThisTurn
 }
 
 // RestoreTurnDebuffLatches resumes a saved multi-pass TB turn. RT loads pass
 // zeroes because live frame clocks own status state there.
-func (m *Monster3D) RestoreTurnDebuffLatches(slowPct, weakenPct int) {
+func (m *Monster3D) RestoreTurnDebuffLatches(rootHeld bool, slowPct, weakenPct int) {
 	if m == nil {
 		return
 	}
+	m.rootHeldThisTurn = rootHeld
 	m.slowPctThisTurn = max(0, min(100, slowPct))
 	m.weakenPctThisTurn = max(0, min(100, weakenPct))
 }
@@ -1153,7 +1187,7 @@ func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
 	if tps <= 0 {
 		tps = config.GetTargetTPS()
 	}
-	frames := int(math.Round(m.PounceCooldownSeconds * float64(tps)))
+	frames := int(math.Round(m.PounceCooldownSeconds * float64(tps) * m.SlowCadenceFactor()))
 	if m.PounceCooldownSeconds > 0 && frames < 1 {
 		frames = 1
 	}

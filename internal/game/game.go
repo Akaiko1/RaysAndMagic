@@ -2700,7 +2700,11 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
 			m.ActionsRemaining = 0
-		} else if m.CanAct() {
+			continue
+		}
+		// Stun-free this turn: count toward clearing the diminishing-returns chain.
+		m.StunDR().ForgetTurn()
+		if m.CanAct() {
 			// The personal action floor combines dual wielding with any
 			// weapon-authored floor. The party-wide Speed pool below stacks on
 			// top of it.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -64,6 +65,11 @@ func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 }
 
 func TestWeaponStatusTurnsMatchesSharedTooltipFormula(t *testing.T) {
+	previous := GlobalConfig
+	t.Cleanup(func() { GlobalConfig = previous })
+	if _, err := LoadConfig("../../config.yaml"); err != nil {
+		t.Fatal(err)
+	}
 	if got := WeaponStatusTurns(5); got != 3 {
 		t.Fatalf("WeaponStatusTurns(5) = %d, want 3", got)
 	}
@@ -71,6 +77,9 @@ func TestWeaponStatusTurnsMatchesSharedTooltipFormula(t *testing.T) {
 	lines := strings.Join(weapon.EffectLines(), "\n")
 	if !strings.Contains(lines, "5s RT / 3 turns TB") {
 		t.Fatalf("weapon status tooltip does not use shared duration formula:\n%s", lines)
+	}
+	if want := fmt.Sprintf("by 30%% for 5s RT / 3 turns TB (TB: skips one turn in %d)", SlowSkipEveryTurns()); !strings.Contains(lines, want) {
+		t.Fatalf("slow tooltip does not state the TB skip cadence %q:\n%s", want, lines)
 	}
 }
 

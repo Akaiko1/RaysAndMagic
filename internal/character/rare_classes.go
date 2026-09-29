@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"ugataima/internal/status"
 
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -239,9 +238,7 @@ func (c *MMCharacter) Purify() bool {
 	if !c.Purifiable() {
 		return false
 	}
-	c.CurePoison()
-	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
-	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.clearAfflictionClocks()
 	kept := c.Conditions[:0]
 	for _, condition := range c.Conditions {
 		if !purifiableCondition(condition) {

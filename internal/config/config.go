@@ -164,6 +164,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 			"weapon.silt_hits_slow_the_target_for",
 			w.SlowPct,
 			weaponStatusDurationLabel(w.SlowSeconds),
+			SlowSkipEveryTurns(),
 		))
 	}
 	if w.WeakenPct > 0 && w.WeakenSeconds > 0 {
@@ -222,6 +223,7 @@ func TitleWords(s string) string {
 type Config struct {
 	PlayerPotions *PotionPreferences  `yaml:"-" json:"-"`
 	StatusDamage  StatusDamageConfig  `yaml:"status_damage"`
+	StatusEffects StatusEffectsConfig `yaml:"status_effects"`
 	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
 	Display       DisplayConfig       `yaml:"display"`
 	Engine        EngineConfig        `yaml:"engine"`
@@ -1418,7 +1420,8 @@ type WeaponDefinitionConfig struct {
 	// TrueDamage adds a flat component that bypasses armor and dodge, resisted
 	// only by the school (Broodspike).
 	TrueDamage int `yaml:"true_damage,omitempty"`
-	// Slow drags the target's movement by SlowPct for SlowSeconds (Tarn Trident).
+	// Slow drags the target's movement and attack cadence by SlowPct for
+	// SlowSeconds; in turn-based play it skips one turn in slow_skip_every_turns.
 	SlowPct     int `yaml:"slow_pct,omitempty"`
 	SlowSeconds int `yaml:"slow_seconds,omitempty"`
 	// Weaken cuts the target's outgoing damage by WeakenPct for WeakenSeconds
@@ -1585,6 +1588,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if err := config.StatusEffects.validate(); err != nil {
 		return nil, err
 	}
 	if err := config.StatusDamage.validate(); err != nil {

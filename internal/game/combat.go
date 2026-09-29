@@ -1703,7 +1703,7 @@ func (cs *CombatSystem) armMonsterRTAttackCooldowns(attacker *monsterPkg.Monster
 	if _, dual := championOffHandWeapon(champion); !dual {
 		return
 	}
-	if cooldown := cs.OffHandWeaponCooldownFrames(champion); cooldown > attacker.OffHandCDFrames {
+	if cooldown := cs.championOffHandCooldownFrames(attacker, champion); cooldown > attacker.OffHandCDFrames {
 		attacker.OffHandCDFrames = cooldown
 	}
 }
@@ -1998,8 +1998,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 
 	if hit.DisintegrateChance > 0 && rand.Float64() < hit.DisintegrateChance {
 		damage := target.HitPoints
-		target.HitPoints = 0
-		target.Conditions = []character.Condition{character.ConditionEradicated}
+		target.Eradicate()
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", target.Name, sourceName))
 		cs.game.TriggerDamageHit(targetIndex, damage)
 		return
@@ -2291,13 +2290,20 @@ func (cs *CombatSystem) tryApplyMonsterIgnite(monster *monsterPkg.Monster3D, tar
 // wearer's set stun-duration modifier (Pit Fighter's Quilt: the quilting soaks
 // the blow - floor of 1 so a landed stun is never a no-op). The one place the
 // stun-resist scaling lives, shared by weapon/monster stuns and champion casts.
-func (cs *CombatSystem) applyScaledCharStun(target *character.MMCharacter, frames, turns int) {
+func (cs *CombatSystem) applyScaledCharStun(target *character.MMCharacter, frames, turns int) bool {
 	// Sets (Pit Fighter's Quilt) and per-item shifts (Still Court aegis) stack;
 	// the same -90 floor keeps a landed stun from vanishing outright.
 	pct := clampHostileStatusDurationPct(target.SetStunDurationPct() + target.ItemStatusDurationPct())
 	frames = scaleHostileStatusDuration(frames, pct)
 	turns = scaleHostileStatusDuration(turns, pct)
+	// Heroes share the monsters' diminishing returns: repeated stuns shrink to
+	// immunity until the hero stays stun-free for the reset window.
+	turns, frames = target.StunDR().Step(turns, frames, cs.game.config.GetTPS())
+	if turns <= 0 && frames <= 0 {
+		return false
+	}
 	target.ApplyCharStun(frames, turns)
+	return true
 }
 
 func clampHostileStatusDurationPct(pct int) int {
@@ -2331,7 +2337,10 @@ func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, targe
 	if chance <= 0 || rand.Float64() >= chance {
 		return
 	}
-	cs.applyScaledCharStun(target, cs.game.config.GetTPS()*seconds, turns)
+	if !cs.applyScaledCharStun(target, cs.game.config.GetTPS()*seconds, turns) {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s resists the stun!", target.Name))
+		return
+	}
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s is stunned!", target.Name), combatMessageYellow)
 }
 
@@ -2987,8 +2996,8 @@ func weaponStunnedBonusMultiplier(weaponDef *config.WeaponDefinitionConfig, mons
 	return 1.0
 }
 
-// tryCardPoisonProc rolls the Venom-proc cards' (rat/spider/forest_spider/
-// masked serpent dancer) on-hit poison chance against a struck monster.
+// tryCardPoisonProc rolls the Venom-proc cards' (rat/spider/forest_spider)
+// on-hit poison chance against a struck monster.
 // Undead are immune, matching the genre convention (and this game's own
 // mind/body/light resist baseline for the type).
 func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
@@ -3420,19 +3429,6 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	return false
 }
 
-// ceilStunDRPct scales v by pct% (0-100), rounding UP. turns is usually
-// authored as 1 (the smallest nonzero TB unit) - floor division sent it to 0
-// at any pct below 100, so the 2nd/3rd stun in a DR chain silently stopped
-// skipping a TB turn at all while its much-larger RT-frames twin stayed
-// nonzero (stun-star overlay stuck on forever, nothing left to clear it). Only
-// pct==0 (the true immune tier) or v<=0 yields exactly 0.
-func ceilStunDRPct(v, pct int) int {
-	if v <= 0 || pct <= 0 {
-		return 0
-	}
-	return (v*pct + 99) / 100
-}
-
 // applyStunDR is the single entry point for stunning a monster. It applies
 // DIMINISHING RETURNS: the requested duration is scaled by StunDRFactorsPct for
 // the target's current DR chain length (100/50/25/0%), so repeated stuns shrink
@@ -3444,20 +3440,8 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 	if m == nil {
 		return false
 	}
-	i := m.StunDRStacks
-	if i >= len(StunDRFactorsPct) {
-		i = len(StunDRFactorsPct) - 1
-	}
-	mult := StunDRFactorsPct[i]
-	effTurns, effFrames := ceilStunDRPct(turns, mult), ceilStunDRPct(frames, mult)
 	wasStunned := m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0
-
-	// Advance the chain (caps at the immune step) and refresh both reset clocks.
-	if m.StunDRStacks < len(StunDRFactorsPct)-1 {
-		m.StunDRStacks++
-	}
-	m.StunDRMemoryTurns = StunDRResetTurns
-	m.StunDRMemoryFrames = StunDRResetSeconds * cs.game.config.GetTPS()
+	effTurns, effFrames := m.StunDR().Step(turns, frames, cs.game.config.GetTPS())
 
 	if effTurns <= 0 && effFrames <= 0 { // worn down -> immune this attempt
 		if announce && !wasStunned {
@@ -3550,11 +3534,12 @@ func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, t
 }
 
 // applyPacify (Charm) pacifies a LIVING target - it stops attacking and breaks
-// free on any hit it takes (see breakPacifyOnHit). No effect on undead, no
-// damage. A separate, mutually exclusive effect from Bind Undead.
+// free on any hit it takes (see breakPacifyOnHit). No effect on undead or
+// formless targets (formless covers every boss), no damage. A separate,
+// mutually exclusive effect from Bind Undead.
 func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellName string) {
-	if m.MonsterType == "undead" {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the undead %s.", spellName, m.Name))
+	if m.MonsterType == "undead" || m.MonsterType == "formless" {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the %s %s.", spellName, m.MonsterType, m.Name))
 		return
 	}
 	if m.Bound {

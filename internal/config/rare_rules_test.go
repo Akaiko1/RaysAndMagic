@@ -30,6 +30,9 @@ func TestRareRulesRequiredBalanceConfig(t *testing.T) {
 		{"missing_boss_burn", "status_damage", "boss_burn_percent", nil},
 		{"zero_burn", "status_damage", "burn_percent", 0},
 		{"invalid_boss_burn", "status_damage", "boss_burn_percent", 101},
+		{"missing_status_effects", "status_effects", "", nil},
+		{"missing_slow_skip", "status_effects", "slow_skip_every_turns", nil},
+		{"slow_skip_every_turn", "status_effects", "slow_skip_every_turns", 1},
 	}
 	for key := range baseline["characters"].(map[string]any)["classes"].(map[string]any) {
 		for _, field := range []string{"", "primary", "speed", "endurance"} {
@@ -45,14 +48,14 @@ func TestRareRulesRequiredBalanceConfig(t *testing.T) {
 			if err := yaml.Unmarshal(original, &data); err != nil {
 				t.Fatal(err)
 			}
-			expected := "status_damage"
-			if tc.section == "status_damage" {
+			expected := tc.section
+			if tc.section == "status_damage" || tc.section == "status_effects" {
 				if tc.key == "" {
-					delete(data, "status_damage")
+					delete(data, tc.section)
 				} else if tc.value == nil {
-					delete(data["status_damage"].(map[string]any), tc.key)
+					delete(data[tc.section].(map[string]any), tc.key)
 				} else {
-					data["status_damage"].(map[string]any)[tc.key] = tc.value
+					data[tc.section].(map[string]any)[tc.key] = tc.value
 				}
 			} else {
 				expected = "auto_stats"

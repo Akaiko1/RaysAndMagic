@@ -169,7 +169,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
+			rootHeldThisTurn, slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
 				AmbientThreat:     mon.Threat,
@@ -194,6 +194,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
 				OpeningSpellDone:        mon.OpeningSpellDone,
+				EnrageAnnounced:         mon.Enraged,
 				SoakDamage:              mon.SoakDamage,
 				SoakFrames:              mon.SoakFrames,
 				SoakTurns:               mon.SoakTurns,
@@ -224,6 +225,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SlowFrames:              mon.SlowFramesRemaining,
 				SlowTurns:               mon.SlowTurnsRemaining,
 				SlowRate:                mon.SlowRate,
+				SlowTurnCount:           mon.SlowTurnCount,
+				RootHeldThisTurn:        rootHeldThisTurn,
 				SlowPctThisTurn:         slowPctThisTurn,
 				WeakenPct:               mon.WeakenPct,
 				WeakenFrames:            mon.WeakenFramesRemaining,

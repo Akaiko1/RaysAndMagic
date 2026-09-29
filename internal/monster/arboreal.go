@@ -203,7 +203,7 @@ func (m *Monster3D) updateArboreal(c CollisionChecker, tx, ty float64, turn bool
 	dt := 1 / float64(max(1, tps))
 	if turn {
 		dt = m.tileSize() / speedPerSecond(math.Max(.01, m.Speed))
-		// Turn move credit already applies Slow before this method is called.
+		// Turn-based Slow costs whole turns (ConsumeSlowedTurn), never step size.
 	} else {
 		dt *= m.EffectiveSpeed() / math.Max(.01, m.Speed)
 	}

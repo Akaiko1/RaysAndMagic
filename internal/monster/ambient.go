@@ -110,11 +110,12 @@ func (m *Monster3D) stepAmbientPath(checker CollisionChecker, goal TileCoord, tu
 }
 
 // SpendAmbientTurnMove preserves relative walking speeds in tile-based combat.
+// Base speed: turn-based slow already costs whole turns (ConsumeSlowedTurn).
 func (m *Monster3D) SpendAmbientTurnMove() bool {
 	if !m.IsAmbient() || config.GlobalEcology == nil {
 		return true
 	}
-	m.AmbientMoveCredit += m.EffectiveSpeed() / config.GlobalEcology.TurnStepSpeed
+	m.AmbientMoveCredit += m.Speed / config.GlobalEcology.TurnStepSpeed
 	if m.AmbientMoveCredit < 1 {
 		return false
 	}

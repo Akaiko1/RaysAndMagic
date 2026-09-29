@@ -610,3 +610,8 @@ day_night:
 status_damage:
   burn_percent: 3
   boss_burn_percent: 1
+
+status_effects:
+  # A slowed monster loses one turn in this many turn-based turns (RT slows
+  # movement and attack cadence by the debuff's percent instead).
+  slow_skip_every_turns: 3

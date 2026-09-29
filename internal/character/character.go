@@ -142,6 +142,11 @@ type MMCharacter struct {
 	StunFramesRemaining int
 	StunTurnsRemaining  int
 	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// Stun diminishing returns (status.StunDRChain): chain step plus the
+	// stun-free TB turns / RT frames left before the chain resets.
+	StunDRStacks       int
+	StunDRMemoryTurns  int
+	StunDRMemoryFrames int
 	// ScaleStacks: equipped scale-growth armor accumulated this combat.
 	// Runtime-only - stacks shed the moment combat ends (never saved).
 	ScaleStacks int
@@ -684,9 +689,18 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
 // Rated: the TB clock drains proportionally so toggling combat mode cannot
 // hand the stun its frozen turn count back.
 func (c *MMCharacter) tickStunFrames() {
+	if !c.IsStunned() {
+		c.StunDR().ForgetFrame()
+		return
+	}
 	if status.TickFrameRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate) {
 		c.RemoveCondition(ConditionStunned)
 	}
+}
+
+// StunDR exposes this hero's diminishing-returns chain to the shared rule.
+func (c *MMCharacter) StunDR() status.StunDRChain {
+	return status.StunDRChain{Stacks: &c.StunDRStacks, MemoryTurns: &c.StunDRMemoryTurns, MemoryFrames: &c.StunDRMemoryFrames}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
@@ -874,16 +888,37 @@ func (c *MMCharacter) CurePoison() {
 	c.RemoveCondition(ConditionPoisoned)
 }
 
+// clearAfflictionClocks stops every running affliction timer. Callers own the
+// condition tags, so a tag and its clock always change together.
+func (c *MMCharacter) clearAfflictionClocks() {
+	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
+	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
+	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+}
+
+// clearRestState drops everything a full rest (or death's end) wipes: the
+// affliction clocks and the stun diminishing-returns chain.
+func (c *MMCharacter) clearRestState() {
+	c.clearAfflictionClocks()
+	c.StunDR().Reset()
+}
+
 // CureRestConditions clears living heroes' afflictions and their simulation
 // timers together. Death and eradication require a separate revival action.
 func (c *MMCharacter) CureRestConditions() {
 	if c.HasCondition(ConditionDead) || c.HasCondition(ConditionEradicated) {
 		return
 	}
-	c.CurePoison()
-	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
-	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.clearRestState()
 	c.Conditions = nil
+}
+
+// Eradicate ends the hero outright: 0 HP, Eradicated as the only state, and no
+// poison, burn or stun left running to resurface after Resurrect.
+func (c *MMCharacter) Eradicate() {
+	c.clearRestState()
+	c.HitPoints = 0
+	c.Conditions = []Condition{ConditionEradicated}
 }
 
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
