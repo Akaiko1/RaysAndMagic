@@ -12,7 +12,7 @@ func (g *MMGame) currentQuestDay() float64 {
 	if cycle <= 0 {
 		return day
 	}
-	dawn := 3*cycle/4 + 1
+	dawn := g.dayNightPhaseStartFrame(false)
 	phase := (g.dayNightFrames - dawn + cycle) % cycle
 	return day + float64(phase)/float64(cycle)
 }

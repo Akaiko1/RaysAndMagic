@@ -797,6 +797,18 @@ func (c *MMCharacter) ResetRealtimeRegenCadence() {
 	c.hpRegenTimer = 0
 }
 
+// RealtimeRegenProgress exposes the cadence phase for active and reserve saves.
+func (c *MMCharacter) RealtimeRegenProgress() (spell, hp int) {
+	return c.spellRegenTimer, c.hpRegenTimer
+}
+
+// RestoreRealtimeRegenProgress preserves valid partial progress. Missing legacy
+// fields start at zero; malformed phases cannot grant an immediate extra tick.
+func (c *MMCharacter) RestoreRealtimeRegenProgress(spell, hp int) {
+	c.spellRegenTimer = min(max(0, spell), ManaRegenIntervalFrames-1)
+	c.hpRegenTimer = min(max(0, hp), ManaRegenIntervalFrames-1)
+}
+
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount() int {
 	effectivePersonality := c.GetEffectivePersonality()
@@ -894,7 +906,7 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 }
 
 // PoisonDamagePerTick / BurnDamagePerTick: DoT damage per tick (once per RT
-// second, once per TB turn). Ignite burns 3x as hard as poison.
+// second, with the equivalent elapsed ticks per TB round). Ignite burns 3x as hard as poison.
 const (
 	PoisonDamagePerTick = 1
 	BurnDamagePerTick   = 3

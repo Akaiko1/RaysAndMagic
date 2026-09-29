@@ -6,11 +6,11 @@ package status
 //
 //   - dual-clock statuses (stun, root, shred, soak, cooldowns): an RT frame
 //     counter and a TB turn counter tied together by a frames-per-turn rate.
-//     Only the current mode's clock ticks; the other is clamped to the same
-//     remaining time, and whichever expires first ends the status and clears
+//     RT spends one frame; TB spends its authored frame share. The turn
+//     counter describes the rounded-up remainder; expiry ends the status and clears
 //     the rest - a mode switch can neither make it permanent nor refund time;
 //   - DoT statuses (poison, burn): a duration plus a once-per-second damage
-//     cadence in RT, or one damage tick per turn in TB;
+//     cadence in RT, or the same elapsed span per round in TB;
 //   - refresh-never-shortens application, so re-applying a status extends it
 //     but a weak source can't cut a strong one short.
 
@@ -52,8 +52,8 @@ func RefreshDualRated(frames, turns, rate *int, addFrames, addTurns int) bool {
 // one at its full value, so spending 2 of 3 turns in TB and switching to RT
 // handed a stun its whole RT duration back (and vice versa) - a mode-flip farm.
 // The rated ticks below keep both clocks proportionally synced through `rate`
-// (RT frames per TB turn): after every tick the inactive clock is clamped to the
-// active one's equivalent, so a mode switch can never revive spent time.
+// (RT frames per TB turn): turns round up for action gating, while the frame
+// budget keeps exact progress, so a mode switch can never revive spent time.
 // Callers keep rate in persisted state. Legacy saves have a zero rate, so
 // DualRate recovers the best available approximation from their remaining pair
 // on the next tick.
@@ -88,7 +88,8 @@ func TickFrameRated(frames, turns, rate *int) (expired bool) {
 	return false
 }
 
-// TickTurnRated mirrors TickFrameRated for one TB turn.
+// TickTurnRated spends one authored turn from the exact frame remainder.
+// Rounding the remainder up to a turn boundary would refund partial RT time.
 func TickTurnRated(turns, frames, rate *int) (expired bool) {
 	if *turns <= 0 {
 		return false
@@ -102,9 +103,12 @@ func TickTurnRated(turns, frames, rate *int) (expired bool) {
 		return true
 	}
 	if *rate > 0 {
-		if f := *turns * *rate; f < *frames {
-			*frames = f
+		*frames = max(0, *frames-*rate)
+		if *frames == 0 {
+			*turns, *rate = 0, 0
+			return true
 		}
+		*turns = min(*turns, (*frames+*rate-1) / *rate)
 	}
 	return false
 }

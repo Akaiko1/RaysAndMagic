@@ -275,7 +275,7 @@ func (g *MMGame) tickCombatBuffs() {
 			g.combatBuffs[i].DeferFirstTurnTick = false
 		}
 	}
-	g.advanceCombatBuffs(g.buffFrameElapsed(), false)
+	g.advanceCombatBuffs(g.combatFrameElapsed(), false)
 }
 
 func (g *MMGame) combatBuffDodgePct() int {
@@ -295,7 +295,7 @@ func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
 		if round && b.DeferFirstTurnTick {
 			b.DeferFirstTurnTick = false
 		} else {
-			b.Frames = max(0, b.Frames-frames)
+			b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
 		}
 		return b.Frames
 	})

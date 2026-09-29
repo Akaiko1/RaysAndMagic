@@ -135,6 +135,10 @@ func TestCharmAggressionAndReward(t *testing.T) {
 	game.combat.applyPacify(m2, 120, "Charm")
 	m2.PacifiedFramesRemaining = 1
 	gl.updateControlledMonsters()
+	if !m2.Pacified {
+		t.Fatal("TB thinking must not expire Charm")
+	}
+	game.startPartyTurn()
 	if m2.Pacified || !m2.WasAttacked || !m2.IsEngagingPlayer {
 		t.Errorf("charm expiry must re-aggro (Pacified=%v WasAttacked=%v Engaging=%v)", m2.Pacified, m2.WasAttacked, m2.IsEngagingPlayer)
 	}

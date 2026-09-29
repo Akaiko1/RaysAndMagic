@@ -238,13 +238,8 @@ func (g *MMGame) cardCollectionBonus(get func(*config.ItemDefinitionConfig) int)
 // Additive combine rules match their mechanics; summon fields are deliberately
 // removed and listed per source by cardCollectionEffectLines.
 func (g *MMGame) cardCollectionAggregate() *config.ItemDefinitionConfig {
-	var defs []*config.ItemDefinitionConfig
-	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
-			defs = append(defs, def)
-		}
-	}
-	return foldCardDefs(defs)
+	defs := g.cardCollectionDefinitions()
+	return foldCardDefs(defs[:])
 }
 
 // cardCollectionEffectLines keeps ordinary additive effects summarized while
@@ -324,12 +319,13 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 			}
 		}
 	}
-	// Not sums: poison duration is the max (cardPoisonProc), poison resist caps
-	// at 100% (the combat roll is rand(100) < pct).
+	// Not sums: movement reach and poison duration use the max; poison resist
+	// caps at 100% (the combat roll is rand(100) < pct).
 	agg.CardPoisonDurationSec = 0
+	agg.CardMoveAoeRadiusTiles = cardMoveRadius(defs)
 	for _, def := range defs {
-		if def != nil && def.CardPoisonDurationSec > agg.CardPoisonDurationSec {
-			agg.CardPoisonDurationSec = def.CardPoisonDurationSec
+		if def != nil {
+			agg.CardPoisonDurationSec = max(agg.CardPoisonDurationSec, def.CardPoisonDurationSec)
 		}
 	}
 	if agg.CardPoisonResistPct > 100 {
@@ -591,6 +587,30 @@ func (g *MMGame) cardMoveAoePct() int {
 
 func (g *MMGame) cardMoveAoeDmg() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMoveAoeDmg })
+}
+
+func (g *MMGame) cardCollectionDefinitions() [MaxCardSlots]*config.ItemDefinitionConfig {
+	var defs [MaxCardSlots]*config.ItemDefinitionConfig
+	for slot := range defs {
+		defs[slot] = cardDef(g.cardCollectionKey(slot))
+	}
+	return defs
+}
+
+// Radius describes one footprint, never the sum of overlapping copies.
+func cardMoveRadius(defs []*config.ItemDefinitionConfig) float64 {
+	var radius float64
+	for _, def := range defs {
+		if def != nil {
+			radius = max(radius, def.CardMoveAoeRadiusTiles)
+		}
+	}
+	return radius
+}
+
+func (g *MMGame) cardMoveAoeRadiusTiles() float64 {
+	defs := g.cardCollectionDefinitions()
+	return cardMoveRadius(defs[:])
 }
 
 func (g *MMGame) cardDisintegratePct() int {

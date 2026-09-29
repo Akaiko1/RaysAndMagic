@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -42,6 +43,7 @@ const (
 	FxTrap
 	FxTile
 	FxCard
+	FxStatus
 )
 
 // FxItem is one selectable effect in the editor's FX tab.
@@ -51,12 +53,48 @@ type FxItem struct {
 	Label string
 	// Tile exhibits: camera pose to view them.
 	camX, camY, camA float64
+	// Status exhibits: the motif, staged on the hero card or a stage monster.
+	status statusVisuals
+	onHero bool
 }
 
 const fxStageMapKey = "fx_stage"
 
 // fxRespawnTicks is how often the selected effect re-fires so it loops.
 const fxRespawnTicks = 75 // ~0.62s at 120 TPS
+
+// fxHeroIdx is the sandbox hero whose party card the card stage represents.
+const fxHeroIdx = 0
+
+// fxStatusDummyKey is the preferred stage actor for monster status motifs.
+const fxStatusDummyKey = "orc"
+
+// fxCardExhibits is the one list of party-card effects: catalog entry, what
+// starts it on the sandbox hero, and the HUD draw call that paints it.
+var fxCardExhibits = []struct {
+	key, label string
+	start      func(g *MMGame, hero *character.MMCharacter)
+	draw       func(ui *UISystem, dst *ebiten.Image, x, y, w, h int)
+}{
+	{"ignite", "Card: burning (ignite DoT)",
+		func(_ *MMGame, h *character.MMCharacter) { h.AddCondition(character.ConditionBurning) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardIgnite(dst, x, y, w, h, fxHeroIdx) }},
+	{"poison", "Card: poisoned (bubbles)",
+		func(_ *MMGame, h *character.MMCharacter) { h.AddCondition(character.ConditionPoisoned) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardPoisonBubbles(dst, x, y, w, h) }},
+	{"stun", "Card: stunned (stars)",
+		func(_ *MMGame, h *character.MMCharacter) { h.AddCondition(character.ConditionStunned) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardStunStars(dst, x, y, w, h) }},
+	{"flame", "Card: inferno flames",
+		func(g *MMGame, _ *character.MMCharacter) { g.TriggerPartyFlame(fxHeroIdx) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardFlames(dst, x, y, w, h, fxHeroIdx) }},
+	{"spark", "Card: damage taken (flash + sparks)",
+		func(g *MMGame, _ *character.MMCharacter) { g.triggerDamageFx(fxHeroIdx) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardSparks(dst, x, y, w, h, fxHeroIdx) }},
+	{"heal", "Card: heal (rising +)",
+		func(g *MMGame, _ *character.MMCharacter) { g.TriggerPartyHeal(fxHeroIdx) },
+		func(ui *UISystem, dst *ebiten.Image, x, y, w, h int) { ui.drawCardHealPlus(dst, x, y, w, h, fxHeroIdx) }},
+}
 
 // NewFxPreview builds the sandbox: a small flat arena world registered under
 // the global world manager (created if the host app never set one), a real
@@ -212,17 +250,45 @@ func (p *FxPreview) Items() []FxItem {
 
 	out = append(out, p.tileItems...)
 
-	for _, c := range []struct{ key, label string }{
-		{"ignite", "Card: burning (ignite DoT)"},
-		{"poison", "Card: poisoned (bubbles)"},
-		{"stun", "Card: stunned (stars)"},
-		{"flame", "Card: inferno flames"},
-		{"spark", "Card: damage taken (flash + sparks)"},
-		{"heal", "Card: heal (rising +)"},
-	} {
+	for _, c := range fxCardExhibits {
 		out = append(out, FxItem{Kind: FxCard, Key: c.key, Label: c.label})
 	}
+	for _, e := range statusVisualCatalog {
+		if e.monster != nil && fxStatusDummy() != "" {
+			out = append(out, FxItem{Kind: FxStatus, Key: "monster_" + e.key, Label: "Monster: " + e.label, status: e.flag})
+		}
+		if e.hero != nil {
+			out = append(out, FxItem{Kind: FxStatus, Key: "hero_" + e.key, Label: "Hero card: " + e.label, status: e.flag, onHero: true})
+		}
+	}
 	return out
+}
+
+// fxStatusDummy picks the stage actor for monster motifs: the preferred key,
+// else the first ordinary combatant in the catalog.
+func fxStatusDummy() string {
+	if monster.MonsterConfig == nil {
+		return ""
+	}
+	if _, ok := monster.MonsterConfig.Monsters[fxStatusDummyKey]; ok {
+		return fxStatusDummyKey
+	}
+	keys := make([]string, 0, len(monster.MonsterConfig.Monsters))
+	for k, def := range monster.MonsterConfig.Monsters {
+		if def.HasAttackStats() && !def.Boss && def.Disposition == "" && def.Champion == "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
+// usesCardStage reports whether the selection paints on the party-card box.
+func (it FxItem) usesCardStage() bool {
+	return it.Kind == FxCard || (it.Kind == FxStatus && it.onHero)
 }
 
 // Select switches the previewed effect and fires it immediately.
@@ -263,14 +329,30 @@ func (p *FxPreview) clearTransient() {
 	g.persistentDamageZones = g.persistentDamageZones[:0]
 	g.traps = g.traps[:0]
 	g.screenShake = 0
+	p.clearStage()
+}
+
+// clearStage removes staged status actors and every condition an exhibit put
+// on the sandbox hero, so one exhibit never leaks into the next.
+func (p *FxPreview) clearStage() {
+	g := p.g
+	for _, m := range g.world.Monsters {
+		g.collisionSystem.UnregisterEntity(m.ID)
+	}
+	g.world.Monsters = g.world.Monsters[:0]
+	g.partyRoot = PartyRootState{}
+	if len(g.party.Members) > fxHeroIdx {
+		h := g.party.Members[fxHeroIdx]
+		h.Conditions = h.Conditions[:0]
+	}
 }
 
 // caster returns the sandbox hero, topped up so any cast/attack succeeds.
 func (p *FxPreview) caster() *character.MMCharacter {
-	if len(p.g.party.Members) == 0 {
+	if len(p.g.party.Members) <= fxHeroIdx {
 		return nil
 	}
-	m := p.g.party.Members[0]
+	m := p.g.party.Members[fxHeroIdx]
 	m.SpellPoints = 9999
 	m.HitPoints = m.MaxHitPoints
 	m.RTCooldown = 0
@@ -350,22 +432,56 @@ func (p *FxPreview) spawn() {
 	case FxTile:
 		// Static world FX - nothing to spawn; the camera already points at it.
 	case FxCard:
-		idx := 0
-		switch p.sel.Key {
-		case "ignite":
-			m.AddCondition(character.ConditionBurning)
-		case "poison":
-			m.AddCondition(character.ConditionPoisoned)
-		case "stun":
-			m.AddCondition(character.ConditionStunned)
-		case "flame":
-			g.TriggerPartyFlame(idx)
-		case "spark":
-			g.triggerDamageFx(idx)
-		case "heal":
-			g.TriggerPartyHeal(idx)
+		for _, c := range fxCardExhibits {
+			if c.key == p.sel.Key {
+				c.start(g, m)
+			}
 		}
+	case FxStatus:
+		p.stageStatus(m)
 	}
+}
+
+// refreshStagedStatus re-applies the selected motif's state to the staged
+// actor; every catalog setter refreshes rather than stacks.
+func (p *FxPreview) refreshStagedStatus() {
+	e, ok := statusVisualEntryFor(p.sel.status)
+	if !ok {
+		return
+	}
+	if len(p.g.world.Monsters) != 1 {
+		p.stageStatus(p.caster())
+		return
+	}
+	e.monster(p.g.world.Monsters[0])
+}
+
+// stageStatus reproduces the motif from real game state: on the hero for card
+// motifs, on a fresh stage monster facing the camera for world motifs.
+func (p *FxPreview) stageStatus(hero *character.MMCharacter) {
+	e, ok := statusVisualEntryFor(p.sel.status)
+	if !ok {
+		return
+	}
+	p.clearStage()
+	g := p.g
+	if p.sel.onHero {
+		e.hero(g, hero)
+		return
+	}
+	key := fxStatusDummy()
+	def, err := monster.MonsterConfig.GetMonsterByKey(key)
+	if err != nil {
+		return
+	}
+	ts := float64(g.config.GetTileSize())
+	m := monster.NewMonster3DFromConfig(p.homeX+previewStageDistanceTiles(def)*ts, p.homeY, key, g.config)
+	if m == nil {
+		return
+	}
+	m.Direction = math.Atan2(p.homeY-m.Y, p.homeX-m.X)
+	e.monster(m)
+	g.registerSpawnedMonster(m)
 }
 
 // Step advances the sandbox one tick - the same sub-updates the game loop runs
@@ -384,21 +500,17 @@ func (p *FxPreview) Step() {
 	p.tick++
 	if p.tick >= fxRespawnTicks {
 		p.tick = 0
-		if p.sel.Kind == FxCard {
-			p.clearCardConditions()
+		// Refresh a staged monster in place: the effects pass ticks control
+		// timers (Charm, Bind), and a new actor would reseed its animation.
+		if p.sel.Kind == FxStatus && !p.sel.onHero {
+			p.refreshStagedStatus()
+			return
+		}
+		if p.sel.usesCardStage() {
+			p.clearStage()
 		}
 		p.spawn()
 	}
-}
-
-func (p *FxPreview) clearCardConditions() {
-	if len(p.g.party.Members) == 0 {
-		return
-	}
-	m := p.g.party.Members[0]
-	m.RemoveCondition(character.ConditionBurning)
-	m.RemoveCondition(character.ConditionPoisoned)
-	m.RemoveCondition(character.ConditionStunned)
 }
 
 // Scene renders the sandbox through the real renderer into an offscreen image
@@ -412,7 +524,7 @@ func (p *FxPreview) Scene() *ebiten.Image {
 	}
 	p.scene.Clear()
 	p.g.gameLoop.renderer.RenderFirstPersonView(p.scene)
-	if p.sel.Kind == FxCard {
+	if p.sel.usesCardStage() {
 		p.drawCardStage(p.scene)
 	}
 	return p.scene
@@ -427,19 +539,16 @@ func (p *FxPreview) drawCardStage(screen *ebiten.Image) {
 	drawFilledRect(screen, x, y, w, h, color.RGBA{30, 30, 50, 235})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{150, 150, 190, 255})
 	ui := p.g.gameLoop.ui
-	idx := 0
-	switch p.sel.Key {
-	case "ignite":
-		ui.drawCardIgnite(screen, x, y, w, h, idx)
-	case "poison":
-		ui.drawCardPoisonBubbles(screen, x, y, w, h)
-	case "stun":
-		ui.drawCardStunStars(screen, x, y, w, h)
-	case "flame":
-		ui.drawCardFlames(screen, x, y, w, h, idx)
-	case "spark":
-		ui.drawCardSparks(screen, x, y, w, h, idx)
-	case "heal":
-		ui.drawCardHealPlus(screen, x, y, w, h, idx)
+	if p.sel.Kind == FxStatus {
+		// Same painter and state derivation as the HUD's party card.
+		hero := p.g.party.Members[fxHeroIdx]
+		statusCanvas{dst: screen, x: float64(x), y: float64(y), w: float64(w), h: float64(h),
+			clock: ui.partyStatusClock(fxHeroIdx)}.draw(p.g.partyStatusVisuals(hero))
+		return
+	}
+	for _, c := range fxCardExhibits {
+		if c.key == p.sel.Key {
+			c.draw(ui, screen, x, y, w, h)
+		}
 	}
 }

@@ -57,7 +57,9 @@ func TestLemurCharmTrajectoryLifecycle(t *testing.T) {
 						stepLemur(g, m, false)
 					}
 					g.turnBasedMode = turn
-					g.combat.applyPacify(m, 120, "Charm")
+					// Keep Charm active throughout both 240-round trajectory probes.
+					// Its lifetime now advances with resolved TB rounds as well as RT.
+					g.combat.applyPacify(m, (2*240+1)*TurnBasedPeriodicEffectSeconds, "Charm")
 					before, x, y := m.Arbor, m.X, m.Y
 					for _, saved := range []bool{false, true} {
 						if saved {

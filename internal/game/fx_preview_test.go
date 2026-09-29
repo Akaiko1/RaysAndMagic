@@ -3,6 +3,7 @@ package game
 import (
 	"sort"
 	"testing"
+	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
 
@@ -25,7 +26,7 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 	for _, it := range items {
 		kinds[it.Kind]++
 	}
-	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard} {
+	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard, FxStatus} {
 		if kinds[k] == 0 {
 			t.Errorf("FX catalog has no entries of kind %d", k)
 		}
@@ -173,5 +174,84 @@ func TestFxPreview_AuraExhibitUsesEligibleAuthoredTile(t *testing.T) {
 				t.Fatalf("aura exhibit present=%v for %v", found, eligible)
 			}
 		})
+	}
+}
+
+// Every status motif is listed for each actor its catalog entry stages, is
+// derived from real state on that actor, survives the respawn loop without
+// piling up actors, and leaves nothing behind for the next exhibit.
+func TestFxPreview_StatusExhibitsStageRealState(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	var spell FxItem
+	listed := map[string]FxItem{}
+	for _, it := range p.Items() {
+		switch it.Kind {
+		case FxStatus:
+			listed[it.Key] = it
+		case FxSpell:
+			if spell.Key == "" {
+				spell = it
+			}
+		}
+	}
+	for _, e := range statusVisualCatalog {
+		for _, onHero := range []bool{false, true} {
+			if (onHero && e.hero == nil) || (!onHero && e.monster == nil) {
+				continue
+			}
+			key := "monster_" + e.key
+			if onHero {
+				key = "hero_" + e.key
+			}
+			t.Run(key, func(t *testing.T) {
+				it, ok := listed[key]
+				if !ok || it.status != e.flag || it.onHero != onHero {
+					t.Fatalf("catalog entry missing or mislabeled: %+v", it)
+				}
+				hero := p.g.party.Members[fxHeroIdx]
+				check := func(stage string) {
+					t.Helper()
+					if onHero {
+						if len(p.g.world.Monsters) != 0 || p.g.partyStatusVisuals(hero) != e.flag {
+							t.Fatalf("%s: hero visual=%v, stage monsters=%d", stage, p.g.partyStatusVisuals(hero), len(p.g.world.Monsters))
+						}
+						return
+					}
+					if len(p.g.world.Monsters) != 1 || monsterStatusVisuals(p.g.world.Monsters[0], false) != e.flag ||
+						p.g.partyStatusVisuals(hero) != 0 {
+						t.Fatalf("%s: want one stage monster showing %v", stage, e.flag)
+					}
+				}
+				p.Select(it)
+				check("select")
+				var staged *monster.Monster3D
+				if !onHero {
+					staged = p.g.world.Monsters[0]
+				}
+				for i := 0; i < fxRespawnTicks+5; i++ {
+					p.Step()
+				}
+				check("respawn")
+				// Outlive the staged state: loop-ticked timers (Charm, Bind, party
+				// root) must be refreshed, never left to expire mid-selection.
+				for i := 0; i < statusStageFrames+2*fxRespawnTicks; i++ {
+					p.Step()
+				}
+				check("past the staged duration")
+				// Re-staging would reseed the actor's animation phase mid-loop.
+				if !onHero && p.g.world.Monsters[0] != staged {
+					t.Fatal("respawn replaced the staged monster")
+				}
+				p.Select(spell)
+				if len(p.g.world.Monsters) != 0 || p.g.partyStatusVisuals(hero) != 0 || len(hero.Conditions) != 0 {
+					t.Fatal("status exhibit leaked into the next selection")
+				}
+			})
+		}
 	}
 }

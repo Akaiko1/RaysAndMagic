@@ -867,6 +867,13 @@ func (m *Monster3D) TickRootTurn() {
 	}
 }
 
+// EndTurnDebuffs releases only the completed turn's holds. Live clocks remain
+// intact, so a longer effect or a newly applied debuff survives the boundary.
+func (m *Monster3D) EndTurnDebuffs() {
+	m.rootHeldThisTurn = false
+	m.slowPctThisTurn, m.weakenPctThisTurn = 0, 0
+}
+
 // RootHeld reports whether this turn's movement is pinned by a root.
 func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
 
@@ -1048,13 +1055,18 @@ func (m *Monster3D) OutgoingDamage(parts damagecalc.Parts) damagecalc.Parts {
 	if m == nil {
 		return parts
 	}
-	pct := activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
+	pct := m.ActiveWeakenPct()
 	if pct <= 0 {
 		return parts
 	}
 	parts.Normal = parts.Normal * (100 - pct) / 100
 	parts.True = parts.True * (100 - pct) / 100
 	return parts
+}
+
+// ActiveWeakenPct includes the latched final TB turn for damage and visuals.
+func (m *Monster3D) ActiveWeakenPct() int {
+	return activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
 }
 
 // ApplyWeaken refreshes the weaken debuff (never stacks; strongest percent wins).

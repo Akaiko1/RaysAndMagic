@@ -904,30 +904,34 @@ func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
 	return true
 }
 
-// updateControlledMonsters ticks the one frame clock used by Bind Undead and
-// Charm in both RT and TB. When a bind expires the undead turns hostile again;
-// when a charm expires the living mob re-aggros.
+// updateControlledMonsters shares the buff clock: idle TB frames spend nothing.
 func (gl *GameLoop) updateControlledMonsters() {
-	if gl.game.world == nil {
+	gl.game.advanceControlledMonsters(gl.game.combatFrameElapsed())
+}
+
+// advanceControlledMonsters is also called once after a resolved TB round.
+// Zero-duration controls are permanent, including card summons.
+func (g *MMGame) advanceControlledMonsters(elapsed int) {
+	if g.world == nil || elapsed <= 0 {
 		return
 	}
-	for _, m := range gl.game.world.Monsters {
+	for _, m := range g.world.Monsters {
 		if m.Bound && m.BoundFramesRemaining > 0 {
-			m.BoundFramesRemaining--
+			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
 			if m.BoundFramesRemaining == 0 {
 				m.Bound = false
 				m.WasAttacked = true // sticky: a freed undead immediately turns hostile
 				m.BeginPlayerEngagement()
-				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
 		}
 		if m.Pacified && m.PacifiedFramesRemaining > 0 {
-			m.PacifiedFramesRemaining--
+			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
 			if m.PacifiedFramesRemaining == 0 {
 				m.Pacified = false
 				m.WasAttacked = true // sticky: Charm expiry restores hostility immediately
 				m.BeginPlayerEngagement()
-				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}
 		}
 	}

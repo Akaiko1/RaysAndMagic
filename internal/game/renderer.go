@@ -4227,10 +4227,12 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 // shared with the deprecated billboard fallback so the two can't drift -
 // call this for any new per-monster overlay instead of adding it to one path.
 func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRenderData, screenY int) {
-	if s.monster == nil {
+	if s.monster == nil || !s.monster.IsAlive() {
 		return
 	}
-	r.drawDesignationMarker(screen, s, screenY)
+	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
+	r.drawMonsterHeadBadges(screen, s, screenY, v)
+	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}

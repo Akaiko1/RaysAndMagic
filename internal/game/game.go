@@ -2649,14 +2649,23 @@ func (g *MMGame) sweepLethalDoTVictims() {
 
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn(initial ...bool) {
+	if w := g.GetCurrentWorld(); w != nil {
+		for _, m := range w.Monsters {
+			if m != nil {
+				m.EndTurnDebuffs()
+			}
+		}
+	}
 	g.tactics.movedTB = false
 	g.spatialStepThisTurn = false
 	if len(initial) == 0 || !initial[0] {
-		g.tickRareClassClocks(TurnBasedPeriodicEffectSeconds * g.config.GetTPS())
+		g.tickRareClassClocks(g.combatRoundFrames())
 		g.tickPartyBuffsTurn()
+		g.advanceControlledMonsters(g.combatRoundFrames())
+		g.advanceTrapLifetimes(g.combatRoundFrames())
 		for _, ch := range g.party.Members {
-			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
-			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-g.combatRoundFrames())
+			ch.DesignationFrames = max(0, ch.DesignationFrames-g.combatRoundFrames())
 		}
 	}
 	g.parkSelection = false // a new round clears any manual park
@@ -2672,16 +2681,19 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	// The sweep also has to finish BEFORE the action slots below - otherwise a
 	// member ticked to 0 HP reads as unable to act this round even when the card
 	// would have saved them, and the KO message lags a frame behind its cause.
-	for range TurnBasedPeriodicEffectSeconds {
-		for _, m := range g.party.Members {
-			m.TickPoisonTurn(tps, tps)
+	if len(initial) == 0 || !initial[0] {
+		for range TurnBasedPeriodicEffectSeconds {
+			for _, m := range g.party.Members {
+				m.TickPoisonTurn(tps, tps)
+			}
+			g.sweepLethalDoTVictims()
+			for _, m := range g.party.Members {
+				m.TickBurnTurn(tps, tps)
+			}
+			g.sweepLethalDoTVictims()
 		}
-		g.sweepLethalDoTVictims()
-		for _, m := range g.party.Members {
-			m.TickBurnTurn(tps, tps)
-		}
-		g.sweepLethalDoTVictims()
 	}
+
 	for _, m := range g.party.Members {
 		m.NextTBAttackOffHand = false // fresh round: next swing starts on the main hand
 		m.TBRoundActionFloor = 0

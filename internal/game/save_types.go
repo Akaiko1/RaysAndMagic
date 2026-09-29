@@ -170,6 +170,8 @@ type CharacterSave struct {
 	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty"`
 	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
 	BurnTickTimer         int                `json:"burn_tick_timer,omitempty"`
+	SpellRegenTimer       int                `json:"spell_regen_timer,omitempty"`
+	HPRegenTimer          int                `json:"hp_regen_timer,omitempty"`
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	StunRate              int                `json:"stun_rate,omitempty"`

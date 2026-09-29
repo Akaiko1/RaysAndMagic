@@ -162,6 +162,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
+	m.RestoreRealtimeRegenProgress(cs.SpellRegenTimer, cs.HPRegenTimer)
 	m.StunFramesRemaining = cs.StunFramesRemaining
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.StunRate = cs.StunRate
@@ -238,6 +239,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()
+	cs.SpellRegenTimer, cs.HPRegenTimer = m.RealtimeRegenProgress()
 	cs.StunFramesRemaining = m.StunFramesRemaining
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.StunRate = m.StunRate

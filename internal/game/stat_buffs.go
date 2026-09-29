@@ -45,13 +45,13 @@ func (g *MMGame) recomputeStatBonuses() {
 // and drops expired ones (re-deriving the aggregate). Called once per frame
 // next to tickCombatBuffs.
 func (g *MMGame) tickStatBuffs() {
-	g.advanceStatBuffs(g.buffFrameElapsed())
+	g.advanceStatBuffs(g.combatFrameElapsed())
 }
 
 func (g *MMGame) advanceStatBuffs(elapsed int) {
 	var expired bool
 	g.statBuffs, expired = tickBuffList(g, g.statBuffs, elapsed, func(b *TimedStatBuff, frames int) int {
-		b.Frames = max(0, b.Frames-frames)
+		b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
 		return b.Frames
 	})
 	if expired {

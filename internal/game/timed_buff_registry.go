@@ -88,17 +88,55 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance fu
 
 // Budgets remain in frames across mode switches and saves. A thinking frame
 // spends nothing in TB; a resolved round spends the existing periodic budget.
-func (g *MMGame) buffFrameElapsed() int {
+func (g *MMGame) combatFrameElapsed() int {
 	if g.turnBasedMode {
 		return 0
 	}
 	return 1
 }
 
+func (g *MMGame) combatRoundFrames() int {
+	return turnBasedPeriodicEffectFrames(g.config.GetTPS())
+}
+
+func (g *MMGame) phaseOwnsBuff(id string) bool {
+	if b, ok := g.statBuffByID(id); ok {
+		return b.SourceID == celestialProvidenceSourceID
+	}
+	if b, ok := g.combatBuffByID(id); ok {
+		return b.SourceID == celestialProvidenceSourceID
+	}
+	return false
+}
+
+func (g *MMGame) buffStatusTooltip(s *UtilitySpellStatus) []string {
+	label := s.Label
+	if label == "" {
+		label = spellDisplayName(s.SpellID)
+	}
+	if g.phaseOwnsBuff(string(s.SpellID)) {
+		boundary := "dusk"
+		if g.dayNightIsNight {
+			boundary = "dawn"
+		}
+		return []string{label, "Celestial Providence", "Until " + boundary}
+	}
+	return []string{label, g.partyBuffDurationLabel(s.Duration), "Double-click to dispel"}
+}
+
+// Providence belongs to the calendar phase, regardless of combat mode. Its
+// source already survives saves and is replaced by an ordinary same-spell cast.
+func (g *MMGame) remainingBuffFrames(source string, remaining, elapsed int) int {
+	if source == celestialProvidenceSourceID {
+		return g.celestialProvidenceFramesLeft()
+	}
+	return max(0, remaining-elapsed)
+}
+
 func (g *MMGame) partyBuffDurationLabel(frames int) string {
 	tps := max(1, g.config.GetTPS())
 	if g.turnBasedMode {
-		round := TurnBasedPeriodicEffectSeconds * tps
+		round := g.combatRoundFrames()
 		turns := (max(0, frames) + round - 1) / round
 		if turns == 1 {
 			return "1 turn remaining"
@@ -109,7 +147,7 @@ func (g *MMGame) partyBuffDurationLabel(frames int) string {
 }
 
 func (g *MMGame) tickPartyBuffsTurn() {
-	frames := TurnBasedPeriodicEffectSeconds * g.config.GetTPS()
+	frames := g.combatRoundFrames()
 	g.tickCombatBuffsTurn(frames)
 	g.advanceStatBuffs(frames)
 	g.advanceUtilityBuffs(frames)

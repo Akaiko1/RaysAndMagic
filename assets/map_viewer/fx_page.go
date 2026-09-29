@@ -150,6 +150,8 @@ func fxKindTag(k game.FxKind) string {
 		return "[tile]"
 	case game.FxCard:
 		return "[card]"
+	case game.FxStatus:
+		return "[status]"
 	}
 	return "[?]"
 }

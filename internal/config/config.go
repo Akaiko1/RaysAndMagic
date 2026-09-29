@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"sort"
@@ -2238,6 +2239,10 @@ type ItemDefinitionConfig struct {
 	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
 	CardBonusVs           map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
 	CardArmorPiercePct    int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+
+	// Duplicate cards use the largest movement-burst radius, not its sum.
+	CardMoveAoeRadiusTiles float64 `yaml:"card_move_aoe_radius_tiles,omitempty"`
+
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
 	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
@@ -2362,6 +2367,13 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if err := validateCraftedItem(key, def); err != nil {
 			return err
+		}
+		if def.CardMoveAoePct != 0 || def.CardMoveAoeDmg != 0 || def.CardMoveAoeRadiusTiles != 0 {
+			if def.Type != "card" || def.CardMoveAoePct <= 0 || def.CardMoveAoePct > 100 ||
+				def.CardMoveAoeDmg <= 0 || def.CardMoveAoeRadiusTiles <= 0 ||
+				math.IsNaN(def.CardMoveAoeRadiusTiles) || math.IsInf(def.CardMoveAoeRadiusTiles, 0) {
+				return fmt.Errorf("item %q: movement burst requires type card, card_move_aoe_pct in [1,100], positive card_move_aoe_dmg and finite positive card_move_aoe_radius_tiles", key)
+			}
 		}
 		seenClasses := map[string]bool{}
 		for _, class := range def.AllowedClasses {

@@ -365,6 +365,11 @@ const tileScatterMaxTiles = 84
 // patch of ground throws up. Shared by every "AoE that paints the ground it
 // covers" (Starburst's falling stars, Earthquake's rubble).
 func (g *MMGame) spawnTileScatterFx(cx, cy, radiusTiles float64, perTile func(wx, wy float64) []SpellHitParticle) {
+	g.spawnTileScatterFxWhere(cx, cy, radiusTiles, nil, perTile)
+}
+
+// Filter before the tile budget so inaccessible ground cannot crowd out visible FX.
+func (g *MMGame) spawnTileScatterFxWhere(cx, cy, radiusTiles float64, allowed func(wx, wy float64) bool, perTile func(wx, wy float64) []SpellHitParticle) {
 	tile := float64(g.config.GetTileSize())
 	reach := radiusTiles * tile
 	r := int(radiusTiles + 0.999)
@@ -381,7 +386,7 @@ func (g *MMGame) spawnTileScatterFx(cx, cy, radiusTiles float64, perTile func(wx
 			wx := (float64(tx) + 0.5) * tile
 			wy := (float64(ty) + 0.5) * tile
 			d := math.Hypot(wx-cx, wy-cy)
-			if d > reach {
+			if d > reach || (allowed != nil && !allowed(wx, wy)) {
 				continue
 			}
 			covered = append(covered, tilePos{wx, wy, d / tile})
@@ -505,12 +510,24 @@ func (g *MMGame) offsetYPerTileHeight() float64 {
 // into it.
 func (g *MMGame) spawnQuakeFx(cx, cy, radiusTiles float64) {
 	g.addScreenShake(quakeShakeAmp, quakeShakeAmp)
+	// The spell's nova is not visibility-gated; preserve its area policy.
+	g.spawnQuakeGroundFxWhere(cx, cy, radiusTiles, nil)
+}
 
+// spawnQuakeGroundFx shares the rubble and dust without shaking the camera.
+// Frequent movement procs use this presentation; the spell also adds rumble.
+func (g *MMGame) spawnQuakeGroundFx(cx, cy, radiusTiles float64) {
+	g.spawnQuakeGroundFxWhere(cx, cy, radiusTiles, func(wx, wy float64) bool {
+		return g.attackLineClear(cx, cy, wx, wy)
+	})
+}
+
+func (g *MMGame) spawnQuakeGroundFxWhere(cx, cy, radiusTiles float64, allowed func(wx, wy float64) bool) {
 	soil := mixColor(ElementColors[monsterPkg.DamageEarth.String()], [3]int{40, 26, 14}, 0.45) // dark turned earth
 	dust := [3]int{150, 126, 92}                                                               // dry dust off the same ground
 	ground := g.groundOffsetY()
 	perTileHeight := g.offsetYPerTileHeight()
-	g.spawnTileScatterFx(cx, cy, radiusTiles, func(wx, wy float64) []SpellHitParticle {
+	g.spawnTileScatterFxWhere(cx, cy, radiusTiles, allowed, func(wx, wy float64) []SpellHitParticle {
 		clods := 4 + rand.Intn(3)
 		particles := make([]SpellHitParticle, 0, clods+1)
 		for i := 0; i < clods; i++ {

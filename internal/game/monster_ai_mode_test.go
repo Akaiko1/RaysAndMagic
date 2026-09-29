@@ -74,7 +74,7 @@ func TestNonHostileBehaviorClearsStaleCombatInBothModes(t *testing.T) {
 			name: "pacified",
 			apply: func(m *monsterPkg.Monster3D, tps int) {
 				m.Pacified = true
-				m.PacifiedFramesRemaining = tps
+				m.PacifiedFramesRemaining = turnBasedPeriodicEffectFrames(tps) + 1
 			},
 		},
 		{

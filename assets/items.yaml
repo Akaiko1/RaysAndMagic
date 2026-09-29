@@ -1318,6 +1318,7 @@ items:
     type: "card"
     card_move_aoe_pct: 10
     card_move_aoe_dmg: 50
+    card_move_aoe_radius_tiles: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a great ape, fists raised over a flattened glade."
     rarity: "legendary"

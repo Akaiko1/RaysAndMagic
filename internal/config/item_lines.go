@@ -365,7 +365,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, uitext.Text("item.to_cheat_death_half_hp_sp", d.CardLethalSavePct))
 	}
 	if d.CardMoveAoePct != 0 {
-		p = append(p, uitext.Text("item.on_move_physical_true_damage_to_nearby", d.CardMoveAoePct, d.CardMoveAoeDmg))
+		p = append(p, uitext.Text("item.on_move_physical_true_damage_to_nearby", d.CardMoveAoePct, d.CardMoveAoeDmg, fmt.Sprintf("%g", d.CardMoveAoeRadiusTiles)))
 	}
 	if d.CardSummonChance != 0 {
 		line := uitext.Text("item.on_action_summon_allies_max", d.CardSummonChance, d.CardSummonLimit)

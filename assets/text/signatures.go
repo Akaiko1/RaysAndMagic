@@ -186,7 +186,7 @@ var signatures = map[string]string{
 	"item.on_direct_hit_stun_the_target":                     "d",
 	"item.on_melee_attack_strike_again":                      "d",
 	"item.on_melee_hit_ignore_armor":                         "d",
-	"item.on_move_physical_true_damage_to_nearby":            "dd",
+	"item.on_move_physical_true_damage_to_nearby":            "dds",
 	"item.on_ranged_weapon_attack_fire_an_extra":             "d",
 	"item.on_weapon_attack_fire_a_bonus_bolt":                "d",
 	"item.opens_the_world_map_overlay":                       "",

@@ -166,9 +166,9 @@ func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
 			m.PounceCDFrames, m.PounceCDTurns, 3*tps)
 	}
 	m.TickPounceCooldownTurn()
-	if m.PounceCDFrames != 2*tps || m.PounceCDTurns != 1 {
+	if m.PounceCDFrames != tps || m.PounceCDTurns != 1 {
 		t.Fatalf("RT-to-TB continuation = %d frames/%d turns, want %d/1",
-			m.PounceCDFrames, m.PounceCDTurns, 2*tps)
+			m.PounceCDFrames, m.PounceCDTurns, tps)
 	}
 	m.TickPounceCooldownTurn()
 	if m.PounceCDFrames != 0 || m.PounceCDTurns != 0 {

@@ -2,23 +2,24 @@
 
 A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Lead a four-member party through raycasted dungeons and open wilds, fight in real-time *or* turn-based combat, learn spells from nine schools of magic, and hunt the four dragons that menace the realm.
 
-![The winged guardian Isis advances through the pyramid's pillared hall](src/pyramid_isis.png)
+![Winged Isis guardians strike and hurl lightning in the pyramid's pillared hall](src/pyramid_isis.png)
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![A turn-based duel against rival champions under the night sky](src/champion_duel.png) | ![Bandits lurking among roadside rocks, crates, and barrels](src/bandit_ambush.png) |
-| *Day/night cycle - the world darkens, the fights don't stop* | *Bandit ambush in the wilds - roadside props and all* |
-| ![The Arena Duel Master's shop with a unique dagger tooltip](src/arena_shop.png) | ![A Monk's legendary Martial Arts tooltip on the paperdoll](src/inventory_tooltip.png) |
-| *Arena quartermaster - spend arena points on unique gear* | *Unique classes - a Monk's bare hands outhit steel* |
-| ![The monster-card collection tab with slotted cards](src/card_collection.png) | |
-| *Build customization with rare monster cards* | |
+| ![A mountain troll lunges while an elf archer looses from the crags](src/highlands_battle.png) | ![A kitsune onmyoji conjures foxfire before a torii under the night sky](src/sakura_night.png) |
+| *Open wilds - a mountain troll charges, elf archers shoot from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
+| ![A dragon rears over the bone field, its breath already glowing](src/dragon_bones.png) | ![The Arena Gatekeeper's shop with a unique axe tooltip](src/arena_shop.png) |
+| *Dragon hunt - a drake guards the bone field of the Ember Burn* | *Arena quartermaster - spend arena points on unique gear* |
+| ![An Alchemist's Fire Flask tooltip on the paperdoll, herbs in her personal bag](src/alchemist_flask.png) | ![The monster-card collection tab with slotted cards](src/card_collection.png) |
+| *Rare classes - an Alchemist throws the flasks she brews herself* | *Build customization with rare monster cards* |
 
 ## Features
 
 - A four-member party, with classes including Knight, Paladin, Archer, Cleric,
-  Sorcerer, Druid, Thief, Arms Master, Monk, Battle Mage, and Sniper.
+  Sorcerer, Druid, Thief, Arms Master, Monk, Battle Mage, and Sniper, plus the
+  rare Alchemist and Pilgrim.
 - Real-time and turn-based combat, weapon mastery, nine schools of magic,
   equipment sets, and collectible monster cards.
 - Connected outdoor regions, separate towns and dungeons, day/night encounters,

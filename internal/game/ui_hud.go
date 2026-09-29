@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -498,10 +497,11 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 // here, or the card silently loses that effect.
 type partyCardEffectSet struct {
 	poison, burn, stun, timed bool
+	status                    statusVisuals
 }
 
 func (s partyCardEffectSet) any() bool {
-	return s.poison || s.burn || s.stun || s.timed
+	return s.poison || s.burn || s.stun || s.timed || s.status != 0
 }
 
 // layerCardFx are the timer-driven overlays that paint into the effect layer.
@@ -672,22 +672,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			screen.DrawImage(card, portraitOpts)
 		}
 
-		// Darken overlay if unconscious
-		isUnconscious := false
-		isPoisoned := false
-		isBurning := false
-		for _, cond := range member.Conditions {
-			if cond == character.ConditionUnconscious {
-				isUnconscious = true
-			}
-			if cond == character.ConditionPoisoned {
-				isPoisoned = true
-			}
-			if cond == character.ConditionBurning {
-				isBurning = true
-			}
-		}
-		if isUnconscious {
+		isDown := partyCardDown(member)
+		isPoisoned := member.HasCondition(character.ConditionPoisoned)
+		isBurning := member.HasCondition(character.ConditionBurning)
+		if isDown {
 			vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{0, 0, 0, 140}, false)
 		}
 		// Status and feedback particles keep their full-card choreography, but a
@@ -695,10 +683,11 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// reserved cooldown/selection frames. The layer costs a render-target
 		// switch plus a full-card blit every frame, so an idle card skips it.
 		fx := partyCardEffectSet{
-			poison: isPoisoned && !isUnconscious,
-			burn:   isBurning && !isUnconscious,
-			stun:   member.IsStunned() && !isUnconscious,
+			poison: isPoisoned && !isDown,
+			burn:   isBurning && !isDown,
+			stun:   member.IsStunned() && !isDown,
 			timed:  ui.game.anyTimedCardFxActive(i),
+			status: ui.game.partyStatusVisuals(member),
 		}
 		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
 			if fx.poison {
@@ -710,6 +699,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if fx.stun {
 				ui.drawCardStunStars(effects, 0, 0, portraitColWidth, panelH)
 			}
+			statusCanvas{dst: effects, x: float64(px - panelX), y: float64(py - panelY), w: float64(pw), h: float64(ph), clock: ui.partyStatusClock(i)}.draw(fx.status)
 			ui.drawCardFlames(effects, 0, 0, panelW, panelH, i)
 			ui.drawCardSparks(effects, 0, 0, panelW, panelH, i)
 			ui.drawCardHealPlus(effects, 0, 0, panelW, panelH, i)
@@ -747,14 +737,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245})
 
 		// Add character condition status
-		statusText := "OK"
-		if len(member.Conditions) > 0 {
-			conds := make([]string, 0, len(member.Conditions))
-			for _, cond := range member.Conditions {
-				conds = append(conds, cond.String())
-			}
-			statusText = strings.Join(conds, ", ")
-		}
+		statusText := ui.game.partyConditionLabel(member)
 		statusColor := color.RGBA{126, 220, 154, 255}
 		if statusText != "OK" {
 			statusColor = color.RGBA{255, 174, 88, 255}
@@ -1148,6 +1131,18 @@ const (
 // poison bubbles, ignite, stun stars and the progression aura are presentation
 // on a panel the player is looking at - they must not freeze under an open hub,
 // and equally must not be driven by the world clock, which stops there.
+// partyCardDown reports the states that darken a party card instead of
+// animating it: unconscious, dead and eradicated.
+func partyCardDown(c *character.MMCharacter) bool {
+	return c.HasCondition(character.ConditionUnconscious) || c.HasCondition(character.ConditionDead) ||
+		c.HasCondition(character.ConditionEradicated)
+}
+
+// partyStatusClock phases each card's status motifs apart from its neighbours.
+func (ui *UISystem) partyStatusClock(card int) float64 {
+	return float64(ui.cardAnimClock()) + float64(card)*17
+}
+
 func (ui *UISystem) cardAnimClock() int64 {
 	if ui == nil || ui.game == nil {
 		return 0
@@ -1264,13 +1259,9 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		iconY := barY + barPadding + row*iconPitch
 		x, y, w, h := ui.drawSpellIcon(screen, iconX, iconY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
 		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
-		statusLabel := status.Label
-		if statusLabel == "" {
-			statusLabel = spellDisplayName(status.SpellID)
-		}
 		mouseX, mouseY := ebiten.CursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
-			ui.queueTooltipIcon([]string{statusLabel, ui.game.partyBuffDurationLabel(status.Duration), "Double-click to dispel"}, status.Icon, mouseX+12, mouseY+8)
+			ui.queueTooltipIcon(ui.game.buffStatusTooltip(status), status.Icon, mouseX+12, mouseY+8)
 		}
 	}
 }

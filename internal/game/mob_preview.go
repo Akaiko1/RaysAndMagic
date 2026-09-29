@@ -93,7 +93,7 @@ func (p *MobPreview) Select(key string) {
 	}
 	ts := float64(g.config.GetTileSize())
 	// Keep the original close framing; constrain the stage, not the camera.
-	stageX := g.camera.X + (1.1+0.35*def.GetSizeGameMultiplier())*ts
+	stageX := g.camera.X + previewStageDistanceTiles(def)*ts
 	patrolX := p.boundPatrolStage(stageX)
 	if def.Disposition == monster.DispositionCaravan {
 		x := int(patrolX / ts)
@@ -133,6 +133,12 @@ func (p *MobPreview) Select(key string) {
 		p.attackFrames = max(p.attackFrames, g.sprites.AnimationFrameCount(p.arena.Monsters[0].GetSpriteType(), direction))
 	}
 	g.gameLoop.renderer.scheduleMapRenderResourcePrewarm(mobStageMapKey)
+}
+
+// previewStageDistanceTiles is the close portrait framing editor previews use
+// for one actor: larger size classes stand proportionally further back.
+func previewStageDistanceTiles(def *monster.MonsterDefinition) float64 {
+	return 1.1 + 0.35*def.GetSizeGameMultiplier()
 }
 
 // Collision-only boundaries leave a two-dimensional patrol clearing. Unlike

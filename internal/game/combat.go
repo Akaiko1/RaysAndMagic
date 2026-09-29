@@ -133,24 +133,28 @@ func (cs *CombatSystem) tryCardMoveBurst() {
 	if pct <= 0 || rand.Intn(100) >= pct {
 		return
 	}
-	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg()) {
+	radiusTiles := cs.game.cardMoveAoeRadiusTiles()
+	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg(), radiusTiles) {
 		cs.game.AddCombatMessage(fmt.Sprintf("The Gorilla Titan Card erupts for %d physical true damage!", cs.game.cardMoveAoeDmg()))
 	}
+	// Play the existing ground FX on every successful roll, even over empty
+	// ground. This is only presentation, not an Earthquake spell cast.
+	cs.game.spawnQuakeGroundFx(cs.game.camera.X, cs.game.camera.Y, radiusTiles)
 }
 
 // cardMoveBurstApply deals `dmg` physical true damage to every living monster
-// within 1.5 tiles of the party. Resistance applies; armor and soak do not.
-func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
-	if dmg <= 0 || cs.game.world == nil {
+// within the authored radius. Resistance applies; armor and soak do not.
+func (cs *CombatSystem) cardMoveBurstApply(dmg int, radiusTiles float64) bool {
+	if dmg <= 0 || radiusTiles <= 0 || cs.game.world == nil {
 		return false
 	}
-	radius := float64(cs.game.config.GetTileSize()) * 1.5
+	radius := float64(cs.game.config.GetTileSize()) * radiusTiles
 	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
 	for _, m := range cs.game.world.Monsters {
 		// This automatic movement proc follows the party auto-target policy.
 		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() || m.IsDamageInvulnerable() ||
-			math.Hypot(m.X-px, m.Y-py) > radius {
+			math.Hypot(m.X-px, m.Y-py) > radius || !cs.attackLineClear(px, py, m.X, m.Y) {
 			continue
 		}
 		cs.applyMonsterDamagePacket(
