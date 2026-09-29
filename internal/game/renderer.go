@@ -3617,7 +3617,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 						screenY = int(bf) - spriteSize
 					}
 				}
-				sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
+				sprite := r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
 				ts := float64(r.game.config.GetTileSize())
 				dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 				for i, c := range r.game.buildingFootprintTiles(npc) {
@@ -3664,7 +3664,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		screenX, spriteSize := int(screenXf), int(sizeF)
 		screenY := int(bottomF) - spriteSize
 
-		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
+		sprite := r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeNPC,
@@ -4227,10 +4227,12 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 // shared with the deprecated billboard fallback so the two can't drift -
 // call this for any new per-monster overlay instead of adding it to one path.
 func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRenderData, screenY int) {
-	if s.monster == nil {
+	if s.monster == nil || !s.monster.IsAlive() {
 		return
 	}
-	r.drawDesignationMarker(screen, s, screenY)
+	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
+	r.drawMonsterHeadBadges(screen, s, screenY, v)
+	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}
@@ -4347,7 +4349,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	sprite, frameW, frameH := r.selectNPCIdleSpriteFrame(s.sprite, r.game.frameCount)
 	// One source of truth for how this NPC renders (shared with the map editor).
 	cat := npcRenderCatOf(s.npc)
-	npcName := npcSpriteName(s.npc)
+	npcName := r.game.activityNPCSprite(s.npc)
 	npcKeyName := r.prefixedStandeeKeyName("npc", npcName)
 	visibleInRayDepth := r.spriteDepthBufferVisible(s)
 	if cat == catNPC && visibleInRayDepth {
@@ -4764,6 +4766,10 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			continue
 		}
 
+		if magicProjectile.FlaskKey != "" {
+			r.drawFlaskProjectile(screen, magicProjectile)
+			continue
+		}
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
 		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
@@ -5345,6 +5351,14 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			scale := float64(screenHeight) / (depth * fov)
 			screenX := float64(anchorX) + particle.OffsetX*scale
 			screenY := centerY + particle.OffsetY*scale
+
+			if particle.DepthTest {
+				column := int(screenX)
+				if depth < 10 || depth > r.game.camera.ViewDist ||
+					(column >= 0 && column < len(r.game.depthBuffer) && depth > r.game.depthBuffer[column]+2) {
+					continue
+				}
+			}
 
 			if screenX < -20 || screenX > float64(screenWidth)+20 {
 				continue

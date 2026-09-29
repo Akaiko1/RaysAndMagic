@@ -11,16 +11,15 @@ import (
 )
 
 const (
-	audioSettingsRowTop   = 80
-	audioSettingsRowPitch = 54
-	audioSliderTrackX     = 150
-	audioSliderRightPad   = 80
-	audioSliderTrackH     = 8
-	audioSliderThumbW     = 10
+	audioSettingsRowTop   = 152
+	audioSettingsRowPitch = 88
+	audioSliderTrackX     = 246
+	audioSliderRightPad   = 90
+	audioSliderThumbW     = 16
 	audioSliderThumbH     = 20
-	audioSettingsInset    = 18
-	audioSettingsHint     = "Mouse drag or Left/Right"
-	audioMenuContentInset = 16
+	audioSettingsInset    = 28
+	audioSettingsHint     = "Drag sliders | Arrow keys adjust | Changes saved automatically"
+	audioMenuContentInset = 28
 	audioPercentGap       = 12
 )
 
@@ -78,16 +77,20 @@ func (g *MMGame) beginAudioSettings() {
 	g.audioSettingsSelection = 0
 	g.audioSliderDrag = -1
 	g.audioSettingsDirty = false
+	g.settingsTab = 0
+	if g.config != nil {
+		g.config.EnsurePotionPreferences()
+	}
 }
 
 func (g *MMGame) saveAudioSettings() {
-	if !g.audioSettingsDirty {
-		return
+	if g.audioSettingsDirty {
+		if g.soundManager != nil {
+			g.soundManager.SaveVolumes()
+		}
+		g.audioSettingsDirty = false
 	}
-	if g.soundManager != nil {
-		g.soundManager.SaveVolumes()
-	}
-	g.audioSettingsDirty = false
+	g.savePotionPreferences()
 }
 
 func (g *MMGame) closeAudioSettings() {
@@ -122,7 +125,7 @@ func audioSliderRect(px, py, panelW, row int) pagerRect {
 func audioSelectionRect(px, py, panelW, contentInset, row int) pagerRect {
 	r := audioSliderRect(px, py, panelW, row)
 	inset := contentInset
-	return pagerRect{px + inset, r.y1 - 6, px + panelW - inset, r.y2 + 6}
+	return pagerRect{px + inset, r.y1 - 24, px + panelW - inset, r.y2 + 24}
 }
 
 func audioBackRect(px, py, panelH, contentInset int) pagerRect {
@@ -133,7 +136,7 @@ func audioBackRect(px, py, panelH, contentInset int) pagerRect {
 
 func audioHintPosition(px, py, panelW, panelH, contentInset int) (string, int, int) {
 	y := py + panelH - contentInset - debugTextCharHeight
-	return audioSettingsHint, px + (panelW-debugTextWidth(audioSettingsHint))/2, y
+	return audioSettingsHint, px + panelW - contentInset - debugTextWidth(audioSettingsHint), y
 }
 
 func audioPercentX(px, panelW, contentInset int, label string) int {
@@ -146,6 +149,12 @@ func audioPercentX(px, panelW, contentInset int, label string) int {
 }
 
 func (g *MMGame) setSelectedAudioVolume(delta float64) {
+	if g.settingsTab == 1 {
+		mana := g.audioSettingsSelection == 1
+		g.setPotionThreshold(mana, g.config.AutoPotionThreshold(mana)+int(math.Round(delta*100)))
+		g.savePotionPreferences()
+		return
+	}
 	if g.soundManager == nil || g.audioSettingsSelection < 0 || g.audioSettingsSelection >= len(audioSettingDefinitions) {
 		return
 	}
@@ -207,10 +216,14 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 		}
 	}
 	selection := g.audioSettingsSelection
+	rows := len(audioSettingDefinitions)
+	if g.settingsTab == 1 {
+		rows = 2
+	}
 	if pressed(ebiten.KeyUp) && g.audioSettingsSelection > 0 {
 		g.audioSettingsSelection--
 	}
-	if pressed(ebiten.KeyDown) && g.audioSettingsSelection < len(audioSettingDefinitions)-1 {
+	if pressed(ebiten.KeyDown) && g.audioSettingsSelection < rows-1 {
 		g.audioSettingsSelection++
 	}
 	if selection != g.audioSettingsSelection {
@@ -224,52 +237,69 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 	}
 }
 
-func (ui *UISystem) drawAudioSettingsContent(screen *ebiten.Image, px, py, panelW, panelH, contentInset int, title string) {
+func (ui *UISystem) drawSettingsContent(screen *ebiten.Image, px, py, panelW, panelH, contentInset int) {
 	g := ui.game
+	ui.drawSettingsHeader(screen, px, py, panelW)
 	if ui.audioSettingsOwnsInput() {
 		ui.displayedInput.audioSelection = g.audioSettingsSelection
 		ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() {
-			g.updateAudioSettingsPointer(px, py, panelW)
+			if g.settingsTab == 0 {
+				g.updateAudioSettingsPointer(px, py, panelW)
+			} else {
+				g.updatePotionSettingsPointer(px, py, panelW)
+			}
 		})
 	}
-	drawDebugText(screen, title, px+contentInset, py+contentInset-2)
-	if g.soundManager == nil {
-		drawDebugText(screen, "Audio is unavailable", px+contentInset, py+64)
-		return
+	if g.settingsTab == 1 {
+		ui.drawPotionSettings(screen, px, py, panelW)
+	} else if g.soundManager == nil {
+		drawCenteredDebugText(screen, "Audio is unavailable", px+32, py+150, panelW-64, 24)
+	} else {
+		drawCenteredDebugText(screen, "Adjust the balance of your adventure", px+32, py+100, panelW-64, 18)
+		descriptions := []string{"Overall sound level", "Combat and world sounds", "Exploration and battle"}
+		for row, def := range audioSettingDefinitions {
+			r := audioSliderRect(px, py, panelW, row)
+			volume := g.soundManager.Volume(def.channel)
+			box := audioSelectionRect(px, py, panelW, contentInset, row)
+			selected := row == g.audioSettingsSelection
+			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{24, 27, 30, 255})
+			border := color.RGBA{68, 65, 55, 255}
+			if selected {
+				border = color.RGBA{177, 149, 89, 255}
+			}
+			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, border)
+			for bar := 0; bar < 4; bar++ {
+				height := 10 + bar*5
+				ink := color.RGBA{65, 61, 50, 255}
+				if float64(bar)/4 < volume {
+					ink = color.RGBA{209, 174, 93, 255}
+				}
+				drawFilledRect(screen, box.x1+14+bar*6, box.y1+46-height, 4, height, ink)
+			}
+			drawDebugTextColored(screen, def.label, box.x1+50, r.y1-6, color.RGBA{230, 213, 172, 255})
+			drawDebugTextColored(screen, descriptions[row], box.x1+50, r.y1+14, color.RGBA{156, 158, 158, 255})
+			drawSettingsSlider(screen, r, volume, color.RGBA{184, 144, 66, 255}, selected)
+			label := fmt.Sprintf("%d%%", int(math.Round(volume*100)))
+			drawDebugTextColored(screen, label, audioPercentX(px, panelW, contentInset, label), r.y1+4, color.RGBA{235, 221, 180, 255})
+		}
 	}
-	for row, def := range audioSettingDefinitions {
-		r := audioSliderRect(px, py, panelW, row)
-		volume := g.soundManager.Volume(def.channel)
-		if row == g.audioSettingsSelection {
-			highlight := audioSelectionRect(px, py, panelW, contentInset, row)
-			drawFilledRect(screen, highlight.x1, highlight.y1, highlight.x2-highlight.x1, highlight.y2-highlight.y1, color.RGBA{45, 70, 105, 190})
-		}
-		drawDebugText(screen, def.label, px+contentInset, r.y1+3)
-		trackY := (r.y1 + r.y2 - audioSliderTrackH) / 2
-		drawFilledRect(screen, r.x1, trackY, r.x2-r.x1, audioSliderTrackH, color.RGBA{35, 35, 55, 255})
-		filledW := int(math.Round(volume * float64(r.x2-r.x1)))
-		drawFilledRect(screen, r.x1, trackY, filledW, audioSliderTrackH, color.RGBA{170, 125, 45, 255})
-		thumbX := r.x1 + filledW - audioSliderThumbW/2
-		if thumbX < r.x1-audioSliderThumbW/2 {
-			thumbX = r.x1 - audioSliderThumbW/2
-		}
-		if thumbX > r.x2-audioSliderThumbW/2 {
-			thumbX = r.x2 - audioSliderThumbW/2
-		}
-		drawFilledRect(screen, thumbX, (r.y1+r.y2-audioSliderThumbH)/2, audioSliderThumbW, audioSliderThumbH, color.RGBA{225, 205, 145, 255})
-		percentLabel := fmt.Sprintf("%d%%", int(math.Round(volume*100)))
-		drawDebugText(screen, percentLabel, audioPercentX(px, panelW, contentInset, percentLabel), r.y1+3)
+	hint, hx, hy := audioHintPosition(px, py, panelW, panelH, contentInset)
+	if g.settingsSaveError != "" {
+		hint = g.settingsSaveError
+		hx = px + panelW - contentInset - debugTextWidth(hint)
 	}
-	hint, hintX, hintY := audioHintPosition(px, py, panelW, panelH, contentInset)
-	drawDebugText(screen, hint, hintX, hintY)
+	drawDebugTextColored(screen, hint, hx, hy, color.RGBA{169, 165, 149, 255})
 }
 
 func (ui *UISystem) drawEntryAudioSettings(screen *ebiten.Image, w, h int) {
+	ui.tooltipLines = nil
+	ui.tooltipCompareLines = nil
 	layout := makeAudioSettingsPanelLayout(w, h, true)
 	ui.drawPanel(screen, "menu_panel_wide", layout.px, layout.py, layout.panelW, layout.panelH)
-	ui.drawAudioSettingsContent(screen, layout.px, layout.py, layout.panelW, layout.panelH, layout.contentInset, "Audio Settings")
+	ui.drawSettingsContent(screen, layout.px, layout.py, layout.panelW, layout.panelH, layout.contentInset)
 	back := audioBackRect(layout.px, layout.py, layout.panelH, layout.contentInset)
 	ui.drawBackButton(screen, back.x1, back.y1, func() {
 		ui.game.closeAudioSettings()
 	})
+	ui.drawQueuedTooltips(screen)
 }

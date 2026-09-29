@@ -24,12 +24,9 @@ var entryButtonDefs = []entryButton{
 	{"start", "Start Game", func(g *MMGame) { g.enterPartyCreate() }},
 	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 	{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
-	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
+	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements }},
 	{"statistics", "Player Statistics", func(g *MMGame) {
 		g.entryMenuMode = EntryMenuStatistics
-		g.statisticsTab = 0
-		g.statisticsPage = 0
-		g.statisticsScroll = 0
 	}},
 	{"settings", "Settings", func(g *MMGame) {
 		g.entryMenuMode = EntryMenuSettings
@@ -178,12 +175,7 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 		}
 	}
 	if g.entryMenuMode == EntryMenuAchievements {
-		_, wy := ebiten.Wheel()
-		if wy < 0 {
-			g.achievementsScroll++
-		} else if wy > 0 && g.achievementsScroll > 0 {
-			g.achievementsScroll--
-		}
+		g.updateAchievementsKeys(pressed)
 	}
 }
 

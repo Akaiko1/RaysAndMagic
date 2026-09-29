@@ -22,6 +22,7 @@ func comparisonTestHero(ch *character.MMCharacter) {
 		ch.Skills[skill] = &character.Skill{Mastery: character.MasteryNovice}
 	}
 	ch.Race = "human"
+	ch.Class = character.ClassCleric
 	ch.Equipment = map[items.EquipSlot]items.Item{}
 	ch.Might, ch.Intellect, ch.Personality, ch.Endurance, ch.Accuracy, ch.Speed, ch.Luck = 60, 60, 60, 60, 60, 60, 0
 }

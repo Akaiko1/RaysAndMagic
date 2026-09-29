@@ -493,14 +493,20 @@ type Monster3D struct {
 	RallyMaxTargets   int     // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
 	// RallyDone is persisted. It is consumed either by ringing or by being
 	// woken by another bell, so an alarm relay can never cascade across a map.
-	RallyDone        bool
-	AggroWholeMap    bool   // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
-	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
-	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
-	BandID           int    // transient: stable runtime band membership; 0 = solo/unbanded
-	BandLeaderID     string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
-	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
-	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
+	RallyDone                            bool
+	AggroWholeMap                        bool         // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	DeathRalliesType                     string       // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
+	Banding                              bool         // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandGroup                            string       // static authored mixed party; shares aggro even after scattering
+	BandInstance                         string       // persisted placement identity; content tags may repeat
+	BandPeers                            []*Monster3D // transient local encounter index, rebuilt each simulation pass
+	RootPartyChance                      float64
+	RootPartySeconds, RootPartyTurns     int
+	RearBlinkChance, RearBlinkRangeTiles float64
+	BandID                               int    // transient: stable runtime band membership; 0 = solo/unbanded
+	BandLeaderID                         string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
+	BandStackIndex                       int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount                       int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	// AttackPost is a transient logical reservation for a monster's current
 	// combat tile, whether it is attacking the party or another monster. It is
 	// deliberately not physical collision: combatants can pass through every
@@ -779,7 +785,6 @@ func (m *Monster3D) tickPercentDoT(remaining, timer *int, elapsedFrames, pct, mi
 const (
 	monsterPoisonPercentPerTick = 1
 	monsterPoisonMinimumDamage  = 1
-	monsterBurnPercentPerTick   = 3
 	monsterBurnMinimumDamage    = 3
 )
 
@@ -862,6 +867,13 @@ func (m *Monster3D) TickRootTurn() {
 	}
 }
 
+// EndTurnDebuffs releases only the completed turn's holds. Live clocks remain
+// intact, so a longer effect or a newly applied debuff survives the boundary.
+func (m *Monster3D) EndTurnDebuffs() {
+	m.rootHeldThisTurn = false
+	m.slowPctThisTurn, m.weakenPctThisTurn = 0, 0
+}
+
 // RootHeld reports whether this turn's movement is pinned by a root.
 func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
 
@@ -924,11 +936,14 @@ func (m *Monster3D) ApplyBurn(frames int) {
 }
 
 func (m *Monster3D) tickBurn(elapsedFrames int) {
+	if m.BurnFramesRemaining <= 0 || elapsedFrames <= 0 {
+		return
+	}
 	m.tickPercentDoT(
 		&m.BurnFramesRemaining,
 		&m.burnTickTimer,
 		elapsedFrames,
-		monsterBurnPercentPerTick,
+		config.BurnPercent(m.IsBoss()),
 		monsterBurnMinimumDamage,
 	)
 }
@@ -1040,13 +1055,18 @@ func (m *Monster3D) OutgoingDamage(parts damagecalc.Parts) damagecalc.Parts {
 	if m == nil {
 		return parts
 	}
-	pct := activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
+	pct := m.ActiveWeakenPct()
 	if pct <= 0 {
 		return parts
 	}
 	parts.Normal = parts.Normal * (100 - pct) / 100
 	parts.True = parts.True * (100 - pct) / 100
 	return parts
+}
+
+// ActiveWeakenPct includes the latched final TB turn for damage and visuals.
+func (m *Monster3D) ActiveWeakenPct() int {
+	return activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
 }
 
 // ApplyWeaken refreshes the weaken debuff (never stacks; strongest percent wins).

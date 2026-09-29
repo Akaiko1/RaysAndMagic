@@ -1,0 +1,96 @@
+# Dynamic populations; no map glyphs or authored coordinates.
+respawn: dawn
+placement:
+  terrain_types: [floor]
+  exclude_tiles: [water, deep_water, forest_stream]
+populations:
+- map: forest
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 3
+    mooncap: 1
+    bitterroot: 3
+    embercap: 1
+- map: forest
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1
+- map: highlands
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 1
+    mooncap: 3
+    bitterroot: 3
+    embercap: 1
+- map: highlands
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1
+- map: dragon_cliffs
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 1
+    mooncap: 3
+    bitterroot: 1
+    embercap: 3
+- map: dragon_cliffs
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1
+- map: desert
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 1
+    mooncap: 1
+    bitterroot: 3
+    embercap: 3
+- map: desert
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1
+- map: sakura_garden
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 3
+    mooncap: 3
+    bitterroot: 1
+    embercap: 1
+- map: sakura_garden
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1
+- map: deep_jungle
+  key: ordinary
+  count: 8
+  yield: 1
+  weights:
+    dawnleaf: 3
+    mooncap: 3
+    bitterroot: 1
+    embercap: 1
+- map: deep_jungle
+  key: rare
+  count: 1
+  yield: 1
+  weights:
+    grave_orchid: 1

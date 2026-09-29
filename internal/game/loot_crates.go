@@ -19,7 +19,7 @@ import (
 // no near-cull, so they can't vanish just as the party reaches them.
 // Membership is the character package's single source of truth.
 func (g *MMGame) npcIsWalkUpProp(npc *character.NPC) bool {
-	return npc != nil && character.IsWalkUpPropType(npc.Type)
+	return npc != nil && (npc.HarvestOwner != "" || character.IsWalkUpPropType(npc.Type))
 }
 
 // partyTrapAvoidChancePct is the Disarm Trap mastery table for avoiding a
@@ -311,6 +311,9 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 			}
 		}
 		for _, e := range config.GetLootTable(key, isBoss) {
+			if e.Type != "weapon" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
+				continue
+			}
 			rarity := lootEntryRarity(e)
 			tier := rarityTier(rarity)
 			if exactRarity != "" && rarity != exactRarity {
@@ -361,11 +364,8 @@ func rollCatalogItemByRarity(rarity string) (items.Item, bool) {
 	}
 	var pool []candidate
 	if config.GlobalItems != nil {
-		for key, def := range config.GlobalItems.Items {
-			if def == nil || def.Rarity != rarity {
-				continue
-			}
-			if def.Type == "quest" {
+		for key := range config.GlobalItems.Items {
+			if !config.CatalogItemMatchesFilter(key, "", rarity, "", "") {
 				continue
 			}
 			pool = append(pool, candidate{key, false})
@@ -402,23 +402,11 @@ func rollCatalogItem(itemType, rarity, minRarity, maxRarity string) (items.Item,
 		key string
 	}
 	var pool []candidate
-	minTier := rarityTier(minRarity)
-	maxTier := rarityTier(maxRarity)
 	if config.GlobalItems != nil {
-		for key, def := range config.GlobalItems.Items {
-			if def == nil || def.Type != itemType {
-				continue
+		for key := range config.GlobalItems.Items {
+			if config.CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity) {
+				pool = append(pool, candidate{key: key})
 			}
-			if rarity != "" && def.Rarity != rarity {
-				continue
-			}
-			if minTier > 0 && rarityTier(def.Rarity) < minTier {
-				continue
-			}
-			if maxRarity != "" && rarityTier(def.Rarity) > maxTier {
-				continue
-			}
-			pool = append(pool, candidate{key: key})
 		}
 	}
 	if len(pool) == 0 {

@@ -206,7 +206,7 @@ func TestAutomaticConsumablesProductionLoop(t *testing.T) {
 	}
 }
 
-func TestAutomaticRestorativeAntivenomRequiresPoison(t *testing.T) {
+func TestAutomaticRestorativeAntivenomHealsWithOrWithoutPoison(t *testing.T) {
 	for _, poisoned := range []bool{false, true} {
 		g, _, ch, _ := sniperFixture(t, false)
 		ch.HitPoints = 1
@@ -215,7 +215,7 @@ func TestAutomaticRestorativeAntivenomRequiresPoison(t *testing.T) {
 			ch.ApplyPoison(1000)
 		}
 		g.updateAutomaticConsumables()
-		if (len(g.party.Inventory) == 0) != poisoned || ch.HasCondition(character.ConditionPoisoned) {
+		if len(g.party.Inventory) != 0 || ch.HitPoints <= 1 || ch.HasCondition(character.ConditionPoisoned) {
 			t.Fatal("automatic antivenom eligibility disagrees with its manual use")
 		}
 	}
@@ -274,7 +274,16 @@ func TestAutomaticDrinkingAvailableToEveryClass(t *testing.T) {
 					if divisor := potion.Attributes[divisorKey]; divisor > 0 {
 						base += stat / divisor
 					}
-					want := 1 + base*(100+bonus)/100
+					flat := 0
+					if ch.Class == character.ClassAlchemist && ch.HasSkill(character.SkillPharmacology) {
+						if mana {
+							bonus += character.PharmacologySP(ch.SkillTier(character.SkillPharmacology))
+						} else {
+							bonus += character.PharmacologyHP(ch.SkillTier(character.SkillPharmacology))
+							flat = ch.GetEffectiveIntellect() / 3
+						}
+					}
+					want := 1 + base*(100+bonus)/100 + flat
 					g.updateAutomaticConsumables()
 					got := ch.HitPoints
 					if mana {

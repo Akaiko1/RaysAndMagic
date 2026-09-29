@@ -99,8 +99,7 @@ func screenBannerTint(kind screenBannerKind) color.RGBA {
 	}
 }
 
-// bannerWorkTint is the pale gold of an errand in progress. Must stay in
-// metallicColors or it renders flat while the other quest banners do not.
+// bannerWorkTint is the pale gold of an errand in progress.
 var bannerWorkTint = color.RGBA{238, 219, 164, 255}
 
 // dropPrompts removes approach nudges; keepOnScreen spares the one on screen.

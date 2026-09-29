@@ -1,0 +1,366 @@
+# Every recipe uses the same material categories in the workbench.
+# Check individual materials to allow them; batch costs remain recipe-authored.
+# Alternative order is retained for migrating legacy saved source selections.
+# Ordinary recipes use mundane drops/common herbs; merchant currencies are reserved.
+# Renewable fish cost 4; abundant day wildlife costs 2; sparse/finite drops cost 1.
+# Specialty recipes may use rare trophies or gems, one per batch.
+categories:
+- key: plants
+  label: Plants and fungi
+  items: [dawnleaf, mooncap, bitterroot, embercap, grave_orchid, bound_cucumbers]
+- key: fish
+  label: Fish scales
+  items: [carp_scale, koi_scale, rainbow_salmon_scale]
+- key: hides
+  label: Furs and hides
+  items: [wolf_pelt, lemur_fur, rabbit_pelt, ocelot_pelt, fennec_pelt, serpent_skin]
+- key: textiles
+  label: Silk and cloth
+  items: [spider_silk, sun_bleached_silk, ancient_linen_wrap, ashigaru_matchcord]
+- key: animal_parts
+  label: Animal parts
+  items: [plague_rat_tail, echo_membrane, tengu_feather, minotaur_horn, gorilla_heart]
+- key: minerals
+  label: Stone and gems
+  items: [granite, ruby, diamond, emerald, soul_phylactery_gem]
+- key: parts
+  label: Crafted parts
+  items: [brass_gear, mainspring_coil, lacquered_umbrella_rib, lacquered_comb, revenant_blade_shard]
+- key: essences
+  label: Magical essences
+  items: [fairy_dust]
+recipes:
+- key: health_potion
+  output: brewed_health_potion
+  family: common
+  ingredients:
+  - label: Dawnleaf
+    alternatives:
+    - items:
+      - dawnleaf
+      count: 1
+  - label: Restorative stock
+    alternatives:
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - lemur_fur
+      - rabbit_pelt
+      count: 2
+    - items:
+      - ocelot_pelt
+      - serpent_skin
+      - fennec_pelt
+      count: 1
+    - items:
+      - wolf_pelt
+      - spider_silk
+      count: 2
+
+- key: mana_potion
+  output: brewed_mana_potion
+  family: common
+  ingredients:
+  - label: Mooncap
+    alternatives:
+    - items:
+      - mooncap
+      count: 1
+  - label: Resonant catalyst
+    alternatives:
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - echo_membrane
+      - tengu_feather
+      count: 1
+    - items:
+      - dawnleaf
+      - bitterroot
+      - embercap
+      count: 2
+- key: antivenom
+  output: brewed_antivenom
+  family: common
+  ingredients:
+  - label: Bitterroot
+    alternatives:
+    - items:
+      - bitterroot
+      count: 1
+  - label: Antidote source
+    alternatives:
+    - items:
+      - plague_rat_tail
+      - echo_membrane
+      - serpent_skin
+      - bound_cucumbers
+      count: 1
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - mooncap
+      - embercap
+      count: 2
+- key: sake_flask
+  output: brewed_sake_flask
+  family: common
+  ingredients:
+  - label: Dawnleaf
+    alternatives:
+    - items:
+      - dawnleaf
+      count: 1
+  - label: Ferment or fining agent
+    alternatives:
+    - items:
+      - bound_cucumbers
+      - fennec_pelt
+      count: 1
+    - items:
+      - mooncap
+      - bitterroot
+      - embercap
+      count: 2
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - lemur_fur
+      - rabbit_pelt
+      count: 2
+- key: clock_oil
+  output: brewed_clock_oil
+  family: common
+  ingredients:
+  - label: Embercap
+    alternatives:
+    - items:
+      - embercap
+      count: 1
+  - label: Oil-bearing material
+    alternatives:
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - lemur_fur
+      - rabbit_pelt
+      count: 2
+    - items:
+      - fennec_pelt
+      - ocelot_pelt
+      - serpent_skin
+      count: 1
+- key: flame_ward_draught
+  output: brewed_flame_ward_draught
+  family: protective
+  ingredients:
+  - label: Embercap
+    alternatives:
+    - items:
+      - embercap
+      count: 2
+  - label: Heat-bound catalyst
+    alternatives:
+    - items:
+      - ashigaru_matchcord
+      - sun_bleached_silk
+      - ruby
+      - fennec_pelt
+      count: 1
+- key: storm_ward_draught
+  output: brewed_storm_ward_draught
+  family: protective
+  ingredients:
+  - label: Mooncap
+    alternatives:
+    - items:
+      - mooncap
+      count: 2
+  - label: Storm-bound catalyst
+    alternatives:
+    - items:
+      - echo_membrane
+      - tengu_feather
+      - mainspring_coil
+      count: 1
+    - items:
+      - carp_scale
+      count: 4
+- key: gloom_ward_draught
+  output: brewed_gloom_ward_draught
+  family: protective
+  ingredients:
+  - label: Bitterroot
+    alternatives:
+    - items:
+      - bitterroot
+      count: 2
+  - label: Death-bound catalyst
+    alternatives:
+    - items:
+      - ancient_linen_wrap
+      - revenant_blade_shard
+      - soul_phylactery_gem
+      - grave_orchid
+      count: 1
+- key: stoneskin_draught
+  output: brewed_stoneskin_draught
+  family: protective
+  ingredients:
+  - label: Bitterroot
+    alternatives:
+    - items:
+      - bitterroot
+      count: 2
+  - label: Hardening material
+    alternatives:
+    - items:
+      - granite
+      - brass_gear
+      - minotaur_horn
+      - serpent_skin
+      count: 1
+- key: mirage_salt
+  output: brewed_mirage_salt
+  family: protective
+  ingredients:
+  - label: Embercap
+    alternatives:
+    - items:
+      - embercap
+      count: 2
+  - label: Light-bending material
+    alternatives:
+    - items:
+      - sun_bleached_silk
+      - fennec_pelt
+      - diamond
+      - lacquered_comb
+      count: 1
+- key: harm_flask
+  output: harm_flask
+  family: common
+  ingredients:
+  - label: Bitterroot
+    alternatives:
+    - items:
+      - bitterroot
+      count: 1
+  - label: Abrasive material
+    alternatives:
+    - items:
+      - granite
+      - brass_gear
+      - lacquered_umbrella_rib
+      - lacquered_comb
+      count: 1
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - serpent_skin
+      count: 1
+    - items:
+      - spider_silk
+      count: 2
+
+- key: venom_flask
+  output: venom_flask
+  family: common
+  ingredients:
+  - label: Bitterroot
+    alternatives:
+    - items:
+      - bitterroot
+      count: 1
+  - label: Organic catalyst
+    alternatives:
+    - items:
+      - plague_rat_tail
+      - serpent_skin
+      - echo_membrane
+      count: 1
+    - items:
+      - carp_scale
+      - koi_scale
+      - rainbow_salmon_scale
+      count: 4
+    - items:
+      - lemur_fur
+      - rabbit_pelt
+      count: 2
+    - items:
+      - fennec_pelt
+      - ocelot_pelt
+      count: 1
+- key: fire_flask
+  output: fire_flask
+  family: common
+  ingredients:
+  - label: Embercap
+    alternatives:
+    - items:
+      - embercap
+      count: 1
+  - label: Combustible material
+    alternatives:
+    - items:
+      - ashigaru_matchcord
+      - ancient_linen_wrap
+      - sun_bleached_silk
+      count: 1
+    - items:
+      - lemur_fur
+      - rabbit_pelt
+      count: 2
+    - items:
+      - fennec_pelt
+      - ocelot_pelt
+      count: 1
+    - items:
+      - lacquered_umbrella_rib
+      - lacquered_comb
+      count: 1
+    - items:
+      - wolf_pelt
+      count: 2
+
+- key: revival_potion
+  output: brewed_revival_potion
+  family: revival
+  ingredients:
+  - label: Grave Orchid
+    alternatives:
+    - items:
+      - grave_orchid
+      count: 2
+  - label: Vital catalyst
+    alternatives:
+    - items:
+      - gorilla_heart
+      - minotaur_horn
+      count: 1
+    - items:
+      - diamond
+      - emerald
+      count: 1
+    - items:
+      - fairy_dust
+      count: 1

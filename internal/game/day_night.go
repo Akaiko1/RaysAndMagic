@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -167,16 +168,18 @@ func (g *MMGame) restoreCelestialProvidenceOwnership(sourceVersion int) {
 }
 
 // refreshCelestialProvidence replaces the last race-granted party buff at a
-// real phase boundary. The duration is a safety clock; explicit replacement is
-// authoritative, including paid skips that cross several boundaries at once.
+// real phase boundary. Duration is derived from the calendar, never combat
+// rounds, including paid skips that cross several boundaries at once.
 func (g *MMGame) refreshCelestialProvidence() {
+	// Source ownership is authoritative; the legacy spell marker is only for
+	// save migration. Missing or stale markers must never strand a phase buff.
+	for g.removeStatBuff(celestialProvidenceSourceID) {
+	}
+	for g.removeCombatBuff(celestialProvidenceSourceID) {
+	}
+	g.celestialBuffSpellID = ""
 	if g.combat == nil {
 		return
-	}
-	if g.celestialBuffSpellID != "" {
-		g.removeStatBuff(celestialProvidenceSourceID)
-		g.removeCombatBuff(celestialProvidenceSourceID)
-		g.celestialBuffSpellID = ""
 	}
 	hasLivingCelestial := false
 	if g.party != nil {
@@ -215,10 +218,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 			character.MagicSchoolID(def.School): {Mastery: character.MasteryMaster},
 		},
 	}
-	frames := g.dayNightCycleFrames()/2 + 1
-	if frames <= 1 {
-		frames = g.config.GetTPS()
-	}
+	frames := g.celestialProvidenceFramesLeft()
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
 		g.combat.applyStatBuffSpellFromSource(spellID, celestialProvidenceSourceID, frames, g.combat.spellStatBuffBonuses(spellID, caster))
 	} else {
@@ -240,6 +240,21 @@ func (g *MMGame) refreshCelestialProvidence() {
 	g.AddCombatMessage(fmt.Sprintf("Celestial Providence grants Master-tier %s until the next dawn or dusk.", def.Name))
 }
 
+// The first frame after the quarter-cycle boundary belongs to the new phase.
+func (g *MMGame) dayNightPhaseStartFrame(night bool) int {
+	cycle := g.dayNightCycleFrames()
+	if night {
+		return cycle/4 + 1
+	}
+	return 3*cycle/4 + 1
+}
+
+func (g *MMGame) celestialProvidenceFramesLeft() int {
+	cycle := g.dayNightCycleFrames()
+	return min(dayNightForwardDistance(g.dayNightFrames, g.dayNightPhaseStartFrame(true), cycle),
+		dayNightForwardDistance(g.dayNightFrames, g.dayNightPhaseStartFrame(false), cycle))
+}
+
 // advanceDayNightToPhase queues every crossed phase start and lets the normal
 // panorama fade play each one. A daytime wait to the next dawn therefore shows
 // day -> night -> day while the game clock moves only forward.
@@ -253,7 +268,7 @@ func (g *MMGame) advanceDayNightToPhase(night bool) {
 	}
 	// Cycle: frac 0 = noon, night = (0.25, 0.75] (see dayNightIsNightAt); the
 	// phase flips entering the frame just past 1/4 (dusk) and 3/4 (dawn).
-	duskFrame, dawnFrame := cycle/4+1, 3*cycle/4+1
+	duskFrame, dawnFrame := g.dayNightPhaseStartFrame(true), g.dayNightPhaseStartFrame(false)
 	target := dawnFrame
 	if night {
 		target = duskFrame
@@ -296,12 +311,7 @@ func (g *MMGame) beginNextDayNightSkipPhase() {
 	}
 	night := g.dayNightSkipPhases[0]
 	g.dayNightSkipPhases = g.dayNightSkipPhases[1:]
-	cycle := g.dayNightCycleFrames()
-	if night {
-		g.dayNightFrames = cycle/4 + 1
-	} else {
-		g.dayNightFrames = 3*cycle/4 + 1
-	}
+	g.dayNightFrames = g.dayNightPhaseStartFrame(night)
 	g.applyDayNightPhase(night)
 }
 
@@ -472,7 +482,7 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			if mem.Monster == "" || mem.Count <= 0 || !g.partyLevelUnlocked(mem.MinPartyLevel) {
 				continue
 			}
-			slots = g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, mem.QuestProgress, slots)
+			slots = g.spawnPackMember(w, tag, mem, slots)
 		}
 	}
 }
@@ -603,27 +613,30 @@ func (g *MMGame) availablePackSpawnTiles(w *world.World3D, minPlayerDistTiles fl
 	return free
 }
 
-// spawnPackMonsters consumes distinct slots from the shared phase pool. Count
-// is an upper limit; a shortfall is skipped, never scattered onto other tiles.
-// Current-map spawns register collision now, inactive maps do so on arrival.
-func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, questProgress bool, slots [][2]int) [][2]int {
+// spawnPackMember consumes distinct slots from the shared phase pool. Count
+// is a cap; replacements retain the phase tag and quest policy.
+func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.PackMemberConfig, slots [][2]int) [][2]int {
 	if monster.MonsterConfig == nil {
 		return slots
 	}
-	if _, ok := monster.MonsterConfig.Monsters[monsterKey]; !ok {
-		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", monsterKey)
+	if _, ok := monster.MonsterConfig.Monsters[member.Monster]; !ok {
+		fmt.Printf("[DayNight] unknown pack monster %q - skipping spawn\n", member.Monster)
 		return slots
 	}
-	for spawned := 0; spawned < count && len(slots) > 0; spawned++ {
+	for spawned := 0; spawned < member.Count && len(slots) > 0; spawned++ {
 		pos := slots[len(slots)-1]
 		slots = slots[:len(slots)-1]
 		x, y := TileCenterFromTile(pos[0], pos[1], float64(g.config.GetTileSize()))
-		m := monster.NewMonster3DFromConfig(x, y, monsterKey, g.config)
+		key := member.Monster
+		if r := member.Replacement; r != nil && g.partyLevelUnlocked(r.MinPartyLevel) && rand.Float64() < r.Chance {
+			key = r.Monster
+		}
+		m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 		if m == nil {
 			continue
 		}
 		m.PackKey = tag
-		m.QuestProgressIgnored = !questProgress
+		m.QuestProgressIgnored = !member.QuestProgress
 		if w == g.world {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)

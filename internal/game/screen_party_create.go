@@ -49,8 +49,9 @@ func (r rect) contains(px, py int) bool {
 
 // partyCreateState holds the transient state of the party-creation screen.
 type partyCreateState struct {
-	pool             []*pcHero  // available heroes (drag source/target)
-	slots            [4]*pcHero // chosen active party (nil = empty)
+	cfg              *config.Config // shared card rarity definitions; presentation only
+	pool             []*pcHero      // available heroes (drag source/target)
+	slots            [4]*pcHero     // chosen active party (nil = empty)
 	poolScroll       int
 	detailScroll     int
 	detailMaxScroll  int
@@ -96,7 +97,7 @@ type pcLayout struct {
 // party slots with the default starting roster (the player can rearrange).
 func newPartyCreateState(cfg *config.Config) *partyCreateState {
 	active, captives, recruits := character.StartingRoster(cfg)
-	pc := &partyCreateState{jailTarget: len(captives), dragFromSlot: -1, dragFromPool: -1}
+	pc := &partyCreateState{cfg: cfg, jailTarget: len(captives), dragFromSlot: -1, dragFromPool: -1}
 
 	build := func(e config.RosterEntry, captive bool) *pcHero {
 		c := character.CreateRosterCharacter(e, cfg)
@@ -195,10 +196,19 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	lay.poolUp = rect{poolX + poolW - 64, poolY - 28, 28, 24}
 	lay.poolDown = rect{poolX + poolW - 30, poolY - 28, 28, 24}
 	lay.pool = make([]rect, len(pc.pool))
-	for i := range pc.pool {
-		row := i/cols - start
+	// Sort visual positions only. Pool indices still identify the same heroes for
+	// pointer gestures, drag origins and prison/tavern assignment.
+	order := make([]int, len(pc.pool))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return config.RarityTier(pc.pool[order[i]].cardRarity(pc.cfg)) < config.RarityTier(pc.pool[order[j]].cardRarity(pc.cfg))
+	})
+	for position, i := range order {
+		row := position/cols - start
 		if row >= 0 && row < visibleRows {
-			lay.pool[i] = rect{poolX + (i%cols)*(cardW+cardGap), poolY + row*(cardH+cardGap), cardW, cardH}
+			lay.pool[i] = rect{poolX + (position%cols)*(cardW+cardGap), poolY + row*(cardH+cardGap), cardW, cardH}
 		}
 	}
 

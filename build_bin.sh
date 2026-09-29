@@ -13,6 +13,9 @@ VIEWER_NAME="RaysAndMagicMapViewer"
 BIN_DIR="bin"
 
 mkdir -p "${BIN_DIR}"
+for launcher in scripts/test_*.command; do
+  install -m 755 "$launcher" "${BIN_DIR}/$(basename "$launcher")"
+done
 
 go build -o "${BIN_DIR}/raysandmagic" .
 go build -o "${BIN_DIR}/map_viewer" ./assets/map_viewer

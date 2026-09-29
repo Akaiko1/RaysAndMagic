@@ -154,6 +154,7 @@ func (gl *GameLoop) updateExploration() {
 		return
 	}
 
+	gl.inputHandler.pendingRepeat = rtActNone
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
@@ -207,6 +208,11 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
 	gl.game.updateAutomaticConsumables()
+	if !gl.game.turnBasedMode {
+		gl.game.tickRareClassClocks(1)
+	}
+	gl.updateAutomaticTechniques()
+	gl.inputHandler.performPendingRepeat()
 
 	// Track the party's region on the unified open world BEFORE anything below
 	// reads the current map key (sky, packs, quest scoping).
@@ -226,6 +232,7 @@ func (gl *GameLoop) updateExploration() {
 	// Day/night clock: runs in both RT and TB, pauses with menus (above).
 	gl.game.updateDayNight()
 	gl.game.updateEcology()
+	gl.game.updateAlchemyHarvest()
 
 	// Each summon card's proc cooldown ticks independently in real time in both
 	// modes; these timers silence only their own proc.
@@ -670,6 +677,10 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
+	if !gl.game.turnBasedMode {
+		gl.game.tickPartyRoot(false)
+	}
+
 	// Tick down each party member's real-time action cooldown. Off in
 	// turn-based mode (which gates on action slots, not frame cooldowns).
 	if !gl.game.turnBasedMode {
@@ -878,11 +889,11 @@ func (g *MMGame) isTimedBuffID(id string) bool {
 // tickBuff decrements the duration of an active timed buff and runs onExpire
 // when it hits zero. Shared by all utility spells with active/duration pairs.
 // Returns true if the buff was active this tick (regardless of expiration).
-func tickBuff(active *bool, duration *int, onExpire func()) bool {
+func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
 	if !*active {
 		return false
 	}
-	*duration--
+	*duration -= frames
 	if *duration <= 0 {
 		*active = false
 		*duration = 0
@@ -893,30 +904,34 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateControlledMonsters ticks the one frame clock used by Bind Undead and
-// Charm in both RT and TB. When a bind expires the undead turns hostile again;
-// when a charm expires the living mob re-aggros.
+// updateControlledMonsters shares the buff clock: idle TB frames spend nothing.
 func (gl *GameLoop) updateControlledMonsters() {
-	if gl.game.world == nil {
+	gl.game.advanceControlledMonsters(gl.game.combatFrameElapsed())
+}
+
+// advanceControlledMonsters is also called once after a resolved TB round.
+// Zero-duration controls are permanent, including card summons.
+func (g *MMGame) advanceControlledMonsters(elapsed int) {
+	if g.world == nil || elapsed <= 0 {
 		return
 	}
-	for _, m := range gl.game.world.Monsters {
+	for _, m := range g.world.Monsters {
 		if m.Bound && m.BoundFramesRemaining > 0 {
-			m.BoundFramesRemaining--
+			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
 			if m.BoundFramesRemaining == 0 {
 				m.Bound = false
 				m.WasAttacked = true // sticky: a freed undead immediately turns hostile
 				m.BeginPlayerEngagement()
-				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
 		}
 		if m.Pacified && m.PacifiedFramesRemaining > 0 {
-			m.PacifiedFramesRemaining--
+			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
 			if m.PacifiedFramesRemaining == 0 {
 				m.Pacified = false
 				m.WasAttacked = true // sticky: Charm expiry restores hostility immediately
 				m.BeginPlayerEngagement()
-				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}
 		}
 	}

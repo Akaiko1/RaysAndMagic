@@ -69,6 +69,8 @@ func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 const QuickSlotCount = 5
 
 type MMCharacter struct {
+	Inventory []items.Item // Personal bag; travels with this hero through roster changes.
+	RareClass RareClassState
 	Name      string
 	Class     CharacterClass
 	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
@@ -117,7 +119,8 @@ type MMCharacter struct {
 	// QuickSlots is a small per-character container (like a 5-cell pocket) for
 	// mouse-driven quick use: weapons to swap to, potions to drink, spells to
 	// cast - all by double-click. An item dragged here LEAVES the shared party
-	// inventory and lives in the slot (nil = empty). Spells hold a temporary
+	// inventory and lives in the slot (nil = empty). Physical slot items still
+	// count as carried stock for quests, crafting and exchanges. Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
 	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
 	QuickSlots [QuickSlotCount]*items.Item
@@ -307,6 +310,8 @@ const (
 	ClassMonk
 	ClassBattleMage
 	ClassSniper
+	ClassAlchemist
+	ClassWayfarer
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -792,6 +797,18 @@ func (c *MMCharacter) ResetRealtimeRegenCadence() {
 	c.hpRegenTimer = 0
 }
 
+// RealtimeRegenProgress exposes the cadence phase for active and reserve saves.
+func (c *MMCharacter) RealtimeRegenProgress() (spell, hp int) {
+	return c.spellRegenTimer, c.hpRegenTimer
+}
+
+// RestoreRealtimeRegenProgress preserves valid partial progress. Missing legacy
+// fields start at zero; malformed phases cannot grant an immediate extra tick.
+func (c *MMCharacter) RestoreRealtimeRegenProgress(spell, hp int) {
+	c.spellRegenTimer = min(max(0, spell), ManaRegenIntervalFrames-1)
+	c.hpRegenTimer = min(max(0, hp), ManaRegenIntervalFrames-1)
+}
+
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount() int {
 	effectivePersonality := c.GetEffectivePersonality()
@@ -889,7 +906,7 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 }
 
 // PoisonDamagePerTick / BurnDamagePerTick: DoT damage per tick (once per RT
-// second, once per TB turn). Ignite burns 3x as hard as poison.
+// second, with the equivalent elapsed ticks per TB round). Ignite burns 3x as hard as poison.
 const (
 	PoisonDamagePerTick = 1
 	BurnDamagePerTick   = 3
@@ -949,6 +966,10 @@ func (c CharacterClass) String() string {
 		return "Battle Mage"
 	case ClassSniper:
 		return "Sniper"
+	case ClassAlchemist:
+		return "Alchemist"
+	case ClassWayfarer:
+		return "Pilgrim"
 	default:
 		return "Unknown"
 	}
@@ -985,6 +1006,10 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassBattleMage, true
 	case "sniper":
 		return ClassSniper, true
+	case "alchemist":
+		return ClassAlchemist, true
+	case "wayfarer":
+		return ClassWayfarer, true
 	default:
 		return 0, false
 	}
@@ -1178,6 +1203,9 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 }
 
 func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
+	if !c.itemClassAllowed(item) {
+		return false
+	}
 	category := strings.ToLower(item.ArmorCategory)
 	if category == "" {
 		return false
@@ -1216,7 +1244,7 @@ func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) 
 				slot = items.SlotOffHand
 			}
 		}
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
+	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTechnique, items.ItemThrowable:
 		slot = items.SlotSpell
 	case items.ItemArmor:
 		slot = item.PreferredSlot(items.SlotArmor)
@@ -1249,10 +1277,31 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	return c.EquipItemToSlot(item, slot)
 }
 
+func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
+	if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && len(def.AllowedClasses) > 0 {
+		allowed := false
+		for _, key := range def.AllowedClasses {
+			if key == c.Class.Key() {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ItemFitsSlot reports whether item can legally occupy slot for this character:
 // the type->slot mapping plus the class/armor gates. Single source of truth for
 // the model equip paths and the UI drag highlight / drop validation.
 func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	if !c.itemClassAllowed(item) {
+		return false
+	}
+
 	switch item.Type {
 	case items.ItemWeapon:
 		if !c.CanEquipWeaponByName(item.Name) {
@@ -1263,6 +1312,11 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		}
 		// A second weapon only fits the off-hand with Dual Wielding.
 		return slot == items.SlotOffHand && c.CanDualWield()
+	case items.ItemTechnique:
+		d := config.Technique(string(item.SpellEffect))
+		return slot == items.SlotSpell && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
+	case items.ItemThrowable:
+		return slot == items.SlotSpell && c.HasSkill(SkillBombThrowing)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		return slot == items.SlotSpell
 	case items.ItemArmor:
@@ -1502,6 +1556,12 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 			fn(set)
 		}
 	}
+}
+
+// SetArmorClassBonus uses the same complete-set rule as attribute bonuses.
+func (c *MMCharacter) SetArmorClassBonus() (bonus int) {
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) { bonus += set.BonusArmorClass })
+	return
 }
 
 // HasCompletedEquipmentSet exposes the same completion rule used by combat bonuses.

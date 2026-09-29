@@ -181,7 +181,7 @@ func TestCardEffects_BatchB(t *testing.T) {
 		"archmage_card":      "25% of physical damage dealt as fire",
 		"ningyo_card":        "5% to self-heal 25 on weapon attack",
 		"lich_card":          "10% to cheat death (half HP+SP)",
-		"gorilla_titan_card": "10% on move: 50 physical true damage to nearby foes",
+		"gorilla_titan_card": "10% on move: 50 physical true damage within 5 tiles",
 	} {
 		if got := cardEffectText(cardDef(key)); got != want {
 			t.Errorf("cardEffectText(%s) = %q, want %q", key, got, want)
@@ -251,7 +251,7 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits living monsters within 1.5 tiles, not distant ones.
+// The Gorilla move-burst hits living monsters within its radius, not distant ones.
 func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -260,10 +260,10 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 	ts := float64(g.config.GetTileSize())
 	near := &monster.Monster3D{ID: "near", HitPoints: 100, MaxHitPoints: 100, X: g.camera.X, Y: g.camera.Y, Resistances: map[monster.DamageType]int{}}
-	far := &monster.Monster3D{ID: "far", HitPoints: 100, MaxHitPoints: 100, X: g.camera.X + ts*5, Y: g.camera.Y, Resistances: map[monster.DamageType]int{}}
+	far := &monster.Monster3D{ID: "far", HitPoints: 100, MaxHitPoints: 100, X: g.camera.X + ts*6, Y: g.camera.Y, Resistances: map[monster.DamageType]int{}}
 	g.world.Monsters = append(g.world.Monsters, near, far)
 
-	if !cs.cardMoveBurstApply(50) {
+	if !cs.cardMoveBurstApply(50, 5) {
 		t.Fatal("expected the burst to hit the nearby monster")
 	}
 	if near.HitPoints != 50 {
@@ -304,7 +304,7 @@ func TestCardMoveBurst_FollowsAutoTargetPolicy(t *testing.T) {
 		g.world.Monsters = append(g.world.Monsters, m)
 	}
 
-	if !cs.cardMoveBurstApply(50) {
+	if !cs.cardMoveBurstApply(50, 5) {
 		t.Fatal("burst should report a hit on the foe")
 	}
 	if foe.HitPoints != 50 {
@@ -345,7 +345,7 @@ func TestCardMoveBurst_TrueDamageUsesPhysicalResist(t *testing.T) {
 		Resistances: map[monster.DamageType]int{monster.DamagePhysical: 100}}
 	g.world.Monsters = append(g.world.Monsters, resistant, immune)
 
-	if !cs.cardMoveBurstApply(50) {
+	if !cs.cardMoveBurstApply(50, 5) {
 		t.Fatal("expected the burst to hit")
 	}
 	if resistant.HitPoints != 75 {

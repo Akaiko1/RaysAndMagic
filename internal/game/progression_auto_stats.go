@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 )
@@ -14,83 +15,59 @@ const (
 	autoSecondarySoftCap = 50
 )
 
-// autoSpeedTarget is the class-aware early Speed floor. Most classes stop at
-// the RT baseline; Monk reaches the first TB bonus-action threshold while also
-// feeding the Speed/4 term on Fists.
-func autoSpeedTarget(class character.CharacterClass) int {
-	if class == character.ClassMonk {
-		return autoMonkSpeedTarget
+// autoClassStats reads the same authored priorities for the game and champion builds.
+// Missing authoring is an error at load; never invent a balance fallback here.
+func autoClassStats(class character.CharacterClass, configs ...*config.Config) config.AutoStatsConfig {
+	cfg := config.GlobalConfig
+	if len(configs) > 0 {
+		cfg = configs[0]
 	}
-	return autoStatSpeedTarget
-}
-
-func autoEnduranceTarget(class character.CharacterClass) int {
-	switch class {
-	case character.ClassKnight:
-		return 28
-	case character.ClassBattleMage:
-		// Plate helps with mitigation, but Strong Magic spends HP to empower
-		// offensive casts, so the hybrid needs the highest early HP target.
-		return 36
-	case character.ClassMonk:
-		// No armor slots at all (Iron Body is the only AC source besides
-		// Endurance) - target as high as the tankiest class to compensate.
-		return 28
-	case character.ClassArmsMaster:
-		return 26
-	case character.ClassPaladin:
-		return 24
-	case character.ClassCleric:
-		return 22
-	case character.ClassDruid:
-		return 20
-	case character.ClassArcher, character.ClassThief, character.ClassSniper:
-		return 18
-	case character.ClassSorcerer:
-		return 16
-	default:
-		return 16
+	if cfg != nil {
+		if a := cfg.Characters.Classes[class.Key()].AutoStats; a.Primary != "" {
+			return a
+		}
 	}
+	panic(fmt.Sprintf("class %q: auto_stats not loaded", class.Key()))
 }
-
-func primaryDamageStat(member *character.MMCharacter) *int {
-	if member == nil {
+func autoSpeedTarget(class character.CharacterClass, cfg ...*config.Config) int {
+	return autoClassStats(class, cfg...).Speed
+}
+func autoEnduranceTarget(class character.CharacterClass, cfg ...*config.Config) int {
+	return autoClassStats(class, cfg...).Endurance
+}
+func autoStatField(m *character.MMCharacter, key string) *int {
+	if m == nil {
 		return nil
 	}
-	switch member.Class {
-	case character.ClassSorcerer, character.ClassDruid, character.ClassBattleMage:
-		return &member.Intellect
-	case character.ClassCleric:
-		return &member.Personality
-	case character.ClassArcher, character.ClassThief, character.ClassSniper:
-		return &member.Accuracy
-	default:
-		// Knight, Paladin, Arms Master, Monk: Might drives their weapon damage
-		// (fists included - Might/3 is the larger of the Monk's two terms).
-		return &member.Might
+	switch key {
+	case "might":
+		return &m.Might
+	case "intellect":
+		return &m.Intellect
+	case "personality":
+		return &m.Personality
+	case "endurance":
+		return &m.Endurance
+	case "accuracy":
+		return &m.Accuracy
+	case "speed":
+		return &m.Speed
+	case "luck":
+		return &m.Luck
 	}
+	return nil
 }
-
-func secondaryAutoStat(member *character.MMCharacter) *int {
-	if member == nil {
+func primaryDamageStat(m *character.MMCharacter, cfg ...*config.Config) *int {
+	if m == nil {
 		return nil
 	}
-	switch member.Class {
-	case character.ClassPaladin:
-		return &member.Personality
-	case character.ClassArcher, character.ClassThief:
-		return &member.Intellect
-	case character.ClassDruid:
-		return &member.Personality
-	case character.ClassMonk:
-		// Personality scales the offensive self-magic that Spiritual Training
-		// fires for free; Fists' Speed scaling is covered by autoSpeedTarget.
-		return &member.Personality
-	case character.ClassBattleMage:
-		return &member.Might
-	default:
+	return autoStatField(m, autoClassStats(m.Class, cfg...).Primary)
+}
+func secondaryAutoStat(m *character.MMCharacter, cfg ...*config.Config) *int {
+	if m == nil {
 		return nil
 	}
+	return autoStatField(m, autoClassStats(m.Class, cfg...).Secondary)
 }
 
 // autoDistributeStatPoints spends only base-stat points. Skill and spell choices
@@ -109,12 +86,12 @@ func autoDistributeStatPoints(member *character.MMCharacter, cfg *config.Config)
 		return true
 	}
 
-	primary := primaryDamageStat(member)
-	secondary := secondaryAutoStat(member)
-	enduranceTarget := autoEnduranceTarget(member.Class)
+	primary := primaryDamageStat(member, cfg)
+	secondary := secondaryAutoStat(member, cfg)
+	enduranceTarget := autoEnduranceTarget(member.Class, cfg)
 
 	// 1) Speed to its flat target.
-	for spendOne(&member.Speed, autoSpeedTarget(member.Class)) {
+	for spendOne(&member.Speed, autoSpeedTarget(member.Class, cfg)) {
 	}
 
 	// 2) Alternate Endurance / primary (1 each) until Endurance reaches its target.

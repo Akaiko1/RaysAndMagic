@@ -11,7 +11,8 @@ func (c AutoDrinkConfig) Validate() error {
 	if c.ThresholdPct < 0 || c.ThresholdPct > 100 || c.IntervalSeconds < 0 {
 		return fmt.Errorf("invalid characters.auto_drink timing or threshold")
 	}
-	if c.ThresholdPct > 0 && c.IntervalSeconds <= 0 {
+	// Players can enable auto-use independently of the authored default threshold.
+	if c.IntervalSeconds <= 0 {
 		return fmt.Errorf("automatic drinking requires a positive interval")
 	}
 	return nil

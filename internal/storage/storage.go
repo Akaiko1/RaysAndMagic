@@ -90,6 +90,26 @@ func SetDataRootForTesting(dir string) { dataRoot = dir }
 // dataRoot is the writable runtime root when running as a .app bundle (empty
 // otherwise). Set once by SetupBundleRuntime; AppSaveDir writes saves under it.
 var dataRoot string
+var scenarioRoot string
+
+// UseTestScenarioDirectory isolates all writable scenario state from normal
+// saves, profiles and stash. An unusable directory fails instead of falling
+// back to the player's ordinary save directory.
+func UseTestScenarioDirectory(key string) error {
+	if key == "" || strings.ContainsAny(key, "/\\.") {
+		return fmt.Errorf("invalid scenario key %q", key)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(filepath.Dir(exe), "test-runs", key)
+	if err := os.MkdirAll(filepath.Join(root, savesDirName), 0755); err != nil {
+		return err
+	}
+	scenarioRoot = root
+	return nil
+}
 
 // AppSaveDir returns the local saves directory, creating it on demand. Errors
 // during creation are logged to stderr; callers always receive a path string
@@ -113,6 +133,9 @@ func AppSaveDir() string {
 // appDataRoots is shared by saves and disposable rendering data. A standalone
 // executable owns its adjacent directory even when Finder supplies cwd="/".
 func appDataRoots() []string {
+	if scenarioRoot != "" {
+		return []string{scenarioRoot}
+	}
 	executable, _ := os.Executable()
 	cwd, _ := os.Getwd()
 	return dataDirectoryRoots(dataRoot, executable, cwd)

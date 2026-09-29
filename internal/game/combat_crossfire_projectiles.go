@@ -110,7 +110,8 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
 		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
-		stunChance, stunSeconds, stunTurns = spellDef.StunChance, spellDef.StunDurationSeconds, spellDef.StunDurationTurns
+		rider := srcMonster.ProjectileStun(mp.SpellType)
+		stunChance, stunSeconds, stunTurns = rider.Chance, rider.Seconds, rider.Turns
 	case "arrow":
 		ar := projectile.(*Arrow)
 		if !ar.Active || ar.LifeTime <= 0 {
@@ -225,6 +226,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		if srcMonster != nil && srcMonster.IsChampion() &&
 			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) {
 			hit := monsterCharacterHit{
+				SpellID:        spellFx,
 				Parts:          parts, // already weakened once at packet build
 				DamageType:     dmgTypeStr,
 				IgnoresArmor:   srcMonster.IgnoresArmor,

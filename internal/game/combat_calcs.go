@@ -206,6 +206,9 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
+	if char.HasChargedStaffAttack(lookupWeaponConfigByName(weapon.Name)) {
+		return 100
+	}
 	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(weapon, char)
 	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
 	if total < 0 {
@@ -264,7 +267,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 	if cs == nil || cs.game == nil || char == nil {
 		return 0
 	}
-	total := 0
+	total := char.SetArmorClassBonus()
 	effEnd := char.GetEffectiveEndurance() // one equipment scan for all slots
 	armorSlots := []items.EquipSlot{
 		items.SlotArmor,
@@ -448,7 +451,7 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, wea
 	}
 	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
 	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
-	result.TotalFrames = clampRTCooldown(result.RawFrames)
+	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
 	return result
 }
 
@@ -509,7 +512,7 @@ func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spel
 		}
 	}
 	result.RawFrames = int(math.Round(frames))
-	result.TotalFrames = clampRTCooldown(result.RawFrames)
+	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
 	return result
 }
 
@@ -520,6 +523,15 @@ func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey 
 // baseCastCooldownSeconds is shared by combat and character-free catalog cards.
 // Buffs spend an action in TB but have no personal cooldown in RT.
 func baseCastCooldownSeconds(id spells.SpellID) (float64, bool) {
+	if def := config.Technique(string(id)); def != nil {
+		if def.FreeStep {
+			return 0, true
+		}
+		return def.CooldownSeconds, true
+	}
+	if def, ok := config.GetItemDefinition(string(id)); ok && def.Flask != nil {
+		return def.Flask.CooldownSeconds, true
+	}
 	if def, ok := config.GetTrapDefinition(string(id)); ok {
 		return def.CooldownSeconds, true
 	}

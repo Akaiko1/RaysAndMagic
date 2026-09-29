@@ -1,5 +1,7 @@
 package game
 
+import "ugataima/internal/quests"
+
 type layoutRect struct{ x, y, w, h int }
 
 func (r layoutRect) right() int  { return r.x + r.w }
@@ -70,60 +72,57 @@ const (
 	inventoryPaperW          = inventoryPaperdollLayoutW
 	inventoryPaperH          = inventoryPaperdollLayoutH
 	inventoryGridSize        = inventoryGridLayoutSize
-	inventoryPanelGap        = 52
 	inventoryPagerToQuickGap = 8
 )
 
 type inventoryContentLayout struct {
-	paper        layoutRect
-	grid         layoutRect
-	pager        layoutRect
-	quickSlots   layoutRect
-	instructions [2]layoutRect
+	paper, grid, personalGrid                  layoutRect
+	pager, personalPager                       layoutRect
+	categories, personalCategories, quickSlots layoutRect
+	headings                                   [3]layoutRect
+	resources                                  [2]layoutRect
+	textScale                                  int
 }
 
 func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
-	const (
-		topReserve    = 42
-		bottomReserve = 34
-	)
-	bodyTop := content.y + topReserve
-	bodyBottom := content.bottom() - bottomReserve
-	bodyH := max(1, bodyBottom-bodyTop)
-	scale := min(1.35,
-		min(float64(bodyH)/float64(inventoryPaperH),
-			float64(content.w-40)/float64(inventoryPaperW+inventoryPanelGap+inventoryGridSize)))
-	if scale <= 0 {
-		scale = 1
+	// Compact windows give the bags more of the available width. The paperdoll
+	// retains its aspect ratio, while text switches only between native and 2x.
+	textScale, gap := readingTextScale, 24
+	paperW, paperH := float64(inventoryPaperW), float64(inventoryPaperH)
+	if content.w < 1200 || content.h < 600 {
+		textScale, gap = 1, 16
+		paperW, paperH = paperW*0.75, paperH*0.75
 	}
-	paperW := max(1, int(float64(inventoryPaperW)*scale))
-	paperH := max(1, int(float64(inventoryPaperH)*scale))
-	gridSize := max(1, int(float64(inventoryGridSize)*scale))
-	gap := max(18, int(float64(inventoryPanelGap)*scale))
-	blockW := paperW + gap + gridSize
-	paperX := content.x + (content.w-blockW)/2
-	paper := layoutRect{paperX, bodyTop + (bodyH-paperH)/2, paperW, paperH}
-	// The authored paperdoll and inventory panels share one top rail at every
-	// scale. Category tabs sit in the reserved space immediately above the grid.
-	grid := layoutRect{paper.right() + gap, paper.y, gridSize, gridSize}
-	pager := layoutRect{grid.x, grid.bottom() + 6, grid.w, pagerBtnH}
-	instructionY := content.bottom() - 2*debugTextCharHeight
-	// Quick slots share the paperdoll's bottom rail and clear the pager label.
-	quickTopMin := pager.bottom() + inventoryPagerToQuickGap + quickSlotTabLabelSpace
-	maxQuickH := max(1, paper.bottom()-quickTopMin)
-	maxQuickW := max(1, int(float64(maxQuickH)*quickSlotBarAspect))
-	quickW := min(grid.w, min(maxQuickW, max(160, int(260*scale))))
-	quickH := max(1, int(float64(quickW)/quickSlotBarAspect))
-	quickSlots := layoutRect{grid.x + (grid.w-quickW)/2, paper.bottom() - quickH, quickW, quickH}
+	labelH := (debugTextCharHeight + 2) * textScale
+	scale := min(2.4, float64(content.w-32)/float64(int(paperW)+2*inventoryGridSize+2*gap))
+	topH := labelH + 18 + max(2*labelH, inventoryFilterHeight(int(inventoryGridSize*scale)))
+	const footerH = 8 + pagerBtnH + inventoryPagerToQuickGap + quickSlotTabLabelSpace
+	const quickLogicalW = 320
+	scale = max(0.1, min(scale, min(float64(content.h-topH)/paperH, float64(content.h-topH-footerH)/(inventoryGridSize+quickLogicalW/quickSlotBarAspect))))
+	pw, ph := int(paperW*scale), int(paperH*scale)
+	gs, space := int(inventoryGridSize*scale), int(float64(gap)*scale)
+	filterH := inventoryFilterHeight(gs)
+	quickW := int(quickLogicalW * scale)
+	quickH := int(float64(quickW) / quickSlotBarAspect)
+	bodyH := max(ph, gs+footerH+quickH)
+	blockW, blockH := pw+2*gs+2*space, bodyH+topH
+	x, top := content.x+(content.w-blockW)/2, content.y+(content.h-blockH)/2
+	y := top + topH
+	paper := layoutRect{x, y, pw, ph}
+	personal := layoutRect{paper.right() + space, y, gs, gs}
+	shared := layoutRect{personal.right() + space, y, gs, gs}
+	pagerW := min(220, max(120, gs*2/3))
+	pager := layoutRect{shared.x + (gs-pagerW)/2, shared.bottom() + 8, pagerW, pagerBtnH}
+	personalPager := layoutRect{personal.x + (gs-pagerW)/2, personal.bottom() + 8, pagerW, pagerBtnH}
+	quick := layoutRect{personal.x + (shared.right()-personal.x-quickW)/2, y + bodyH - quickH, quickW, quickH}
+	resourceY := top + labelH + 8
+	filterY := resourceY + (topH-labelH-18-filterH)/2
 	return inventoryContentLayout{
-		paper:      paper,
-		grid:       grid,
-		pager:      pager,
-		quickSlots: quickSlots,
-		instructions: [2]layoutRect{
-			{paper.x, instructionY, content.right() - paper.x, debugTextCharHeight},
-			{paper.x, instructionY + debugTextCharHeight, content.right() - paper.x, debugTextCharHeight},
-		},
+		textScale: textScale,
+		paper:     paper, grid: shared, personalGrid: personal, pager: pager, personalPager: personalPager,
+		categories: layoutRect{shared.x, filterY, gs, filterH}, personalCategories: layoutRect{personal.x, filterY, gs, filterH}, quickSlots: quick,
+		headings:  [3]layoutRect{{paper.x, top, pw, labelH}, {personal.x, top, gs, labelH}, {shared.x, top, gs, labelH}},
+		resources: [2]layoutRect{{paper.x, resourceY, pw, labelH}, {paper.x, resourceY + labelH, pw, labelH}},
 	}
 }
 
@@ -259,6 +258,33 @@ func questCardCopyFor(description string, cardW, maxDescRows int) questCardCopy 
 	}
 	shown := truncateWrappedLines(full, maxDescRows, textW)
 	return questCardCopy{descLines: shown, fullLines: full, height: questCardHeight(len(shown))}
+}
+
+const questRewardIconSize = 36
+const questRewardIconStep = 42
+
+// Reserve the claim button independently of status, so reward icons stay in
+// place as a quest progresses from active to ready to claimed.
+func questRewardIconColumns(cardW int) int {
+	return max(1, (cardW/2-26-148)/questRewardIconStep)
+}
+
+func questCardCopyForQuest(q *quests.Quest, cardW, maxDescRows int) questCardCopy {
+	c := questCardCopyFor(q.Description(), cardW, maxDescRows)
+	n := len(q.Definition.Rewards.Items) + len(q.Definition.Rewards.ItemPool)
+	if n > 0 {
+		cols := questRewardIconColumns(cardW)
+		rows := (n + cols - 1) / cols
+		c.height += max(0, rows*questRewardIconStep-questCardBarH)
+	}
+	return c
+}
+
+func questRewardIconRect(r layoutRect, c questCardCopy, index int) layoutRect {
+	cols := questRewardIconColumns(r.w)
+	return layoutRect{r.x + r.w/2 + 10 + (index%cols)*questRewardIconStep,
+		r.y + questCardDescTop + len(c.descLines)*questCardLineHeight + questCardProgressGap + (index/cols)*questRewardIconStep,
+		questRewardIconSize, questRewardIconSize}
 }
 
 type questContentLayout struct {

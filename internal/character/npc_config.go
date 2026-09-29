@@ -274,12 +274,15 @@ func (nc *NPCConfig) EncounterByQuestID(id string) *NPCEncounter {
 // tag it credits and what the player reads. Content, so it lives in npcs.yaml
 // beside the prop's own greeting and choice text.
 type NPCPropCopy struct {
-	Tag       string `yaml:"tag"`                  // interact tag credited; must be the quest's target_monster
-	NotYet    string `yaml:"not_yet"`              // nothing asks for it yet
-	Took      string `yaml:"took"`                 // printed with the quest's counter
-	Completed string `yaml:"completed"`            // what changes in the world when the errand finishes
-	LootTable string `yaml:"loot_table,omitempty"` // optional loots.yaml table rolled into the party
-	LootLine  string `yaml:"loot_line,omitempty"`  // names what the loot came out of; required with LootTable
+	HideMapMarker bool   `yaml:"hide_map_marker,omitempty"`
+	Token         string `yaml:"token,omitempty"`
+	DormantSprite string `yaml:"dormant_sprite,omitempty"`
+	Tag           string `yaml:"tag"`                  // interact tag credited; must be the quest's target_monster
+	NotYet        string `yaml:"not_yet"`              // nothing asks for it yet
+	Took          string `yaml:"took"`                 // printed with the quest's counter
+	Completed     string `yaml:"completed"`            // what changes in the world when the errand finishes
+	LootTable     string `yaml:"loot_table,omitempty"` // optional loots.yaml table rolled into the party
+	LootLine      string `yaml:"loot_line,omitempty"`  // names what the loot came out of; required with LootTable
 }
 
 // NPCSpell is one row of a spell shop: what the SHOP knows about it. Identity
@@ -327,6 +330,9 @@ func LoadNPCConfig(filename string) error {
 
 	NPCConfigInstance = &config
 	if err := backfillTraderSpells(); err != nil {
+		return err
+	}
+	if err := validateNPCItemSources(&config); err != nil {
 		return err
 	}
 	if err := validatePricedChoices(); err != nil {
@@ -668,6 +674,39 @@ func buildRarityWeaponStock(rarity string, cost int) []*MerchantStockItem {
 	return stock
 }
 
+func validateNPCItemSources(c *NPCConfig) error {
+	for key, npc := range c.NPCs {
+		if npc == nil {
+			continue
+		}
+		if npc.Encounter != nil && npc.Encounter.Rewards != nil {
+			r := npc.Encounter.Rewards
+			chests := append([]monster.TreasureChestReward(nil), r.TreasureChests...)
+			if r.TreasureChest != nil {
+				chests = append(chests, *r.TreasureChest)
+			}
+			for _, chest := range chests {
+				for _, itemKey := range chest.Items {
+					if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+						return fmt.Errorf("NPC %q encounter chest: %w", key, err)
+					}
+				}
+			}
+		}
+		for _, entry := range npc.Inventory {
+			if entry == nil {
+				continue
+			}
+			if _, itemKey, ok := config.GetItemDefinitionByName(entry.Name); ok {
+				if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+					return fmt.Errorf("NPC %q stock: %w", key, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func createMerchantItem(entry *NPCItem) (items.Item, bool) {
 	itemType := strings.ToLower(entry.Type)
 	switch itemType {
@@ -680,7 +719,7 @@ func createMerchantItem(entry *NPCItem) (items.Item, bool) {
 		return weapon, true
 	default:
 		_, key, ok := config.GetItemDefinitionByName(entry.Name)
-		if !ok {
+		if !ok || config.ValidateOrdinaryItemGrant(key) != nil {
 			return items.Item{}, false
 		}
 		item, err := items.TryCreateItemFromYAML(key)

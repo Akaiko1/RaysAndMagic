@@ -90,7 +90,11 @@ func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, p
 			ResistPiercePct: component.ResistPiercePct,
 		})
 	}
-	return target.TakeDamagePacket(components)
+	dealt := target.TakeDamagePacket(components)
+	if target.BandGroup != "" {
+		cs.game.rallyAuthoredBandHit(target)
+	}
+	return dealt
 }
 
 func armorAfterPierce(armorClass, piercePct int) int {

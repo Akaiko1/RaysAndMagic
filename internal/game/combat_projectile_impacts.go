@@ -193,11 +193,8 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			}
 			// The projectile carries one source-adjusted snapshot for delivery.
 			parts := damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-			// Champion spell riders (lightning/psychic-shock stun) resolve from
-			// the spell that actually flew - a weapon swing landing mid-flight
-			// may have re-stamped the mob's rider fields for a hand.
-			cs.stampChampionSpellRiders(mp.SourceMonster, mp.SpellType)
 			hit := monsterCharacterHit{
+				SpellID:            mp.SpellType,
 				Parts:              parts,
 				DamageType:         damageTypeStr,
 				IgnoresArmor:       mp.SourceMonster != nil && mp.SourceMonster.IgnoresArmor,
@@ -388,6 +385,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// This guard is also kept at the resolver boundary for direct callers.
 	// Do not consume or unregister the projectile: pure summons are transparent.
 	if isPurePartySummon(monster) {
+		return
+	}
+	if p, ok := projectile.(*MagicProjectile); ok && p.FlaskKey != "" {
+		cs.detonateFlask(p, p.X, p.Y)
 		return
 	}
 	var damage int
@@ -680,39 +681,40 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 	if center == nil || radiusTiles <= 0 {
 		return
 	}
-	tileSize := float64(cs.game.config.GetTileSize())
-	radiusPx := radiusTiles * tileSize
-	radiusSq := radiusPx * radiusPx
-	cx, cy := center.X, center.Y
-
-	for _, m := range cs.game.world.Monsters {
-		// An invulnerable boss (sealed or idol-warded) takes no splash and triggers
-		// no hit-flash / pack-aggro / message: skip it entirely.
-		if m == nil || m == center || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
-			continue
-		}
-		dx := m.X - cx
-		dy := m.Y - cy
-		if dx*dx+dy*dy > radiusSq {
-			continue
-		}
-		if cs.tryDarkElfBindInstead(attack.Attacker, m) {
-			continue
-		}
-		actual := cs.applyPartyMonsterAttack(m, attack).Total()
+	cs.applyAoeSplashAt(center.X, center.Y, attack, radiusTiles, center, func(m *monsterPkg.Monster3D, actual int) {
 		cs.markMonsterHit(m)
 		primarySchool := monsterPkg.DamagePhysical.String()
 		if len(attack.Packet.Components) > 0 {
 			primarySchool = attack.Packet.Components[0].School.String()
 		}
 		cs.spawnMonsterHitBurst(m, primarySchool)
-
 		if !m.IsAlive() {
 			xpAwarded := cs.finishWeaponKill(m, attack.WeaponDef, attack.Attacker)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", attack.WeaponName, m.Name, xpAwarded))
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d damage.", attack.WeaponName, m.Name, actual))
 		}
+	})
+}
+
+// applyAoeSplashAt owns ground and target-centered party splash alike. An
+// optional primary exclusion avoids billing a projectile's direct victim twice.
+// Source-specific status, presentation and kill riders run after the shared hit.
+func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack, radiusTiles float64, exclude *monsterPkg.Monster3D, onHit func(*monsterPkg.Monster3D, int)) {
+	if radiusTiles <= 0 {
+		return
+	}
+	radius := radiusTiles * float64(cs.game.config.GetTileSize())
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || m == exclude || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
+			continue
+		}
+		dx, dy := m.X-x, m.Y-y
+		if dx*dx+dy*dy > radius*radius || cs.tryDarkElfBindInstead(attack.Attacker, m) {
+			continue
+		}
+		actual := cs.applyPartyMonsterAttack(m, attack).Total()
+		onHit(m, actual)
 	}
 }
 

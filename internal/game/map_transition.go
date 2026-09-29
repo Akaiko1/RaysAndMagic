@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -70,6 +71,11 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 			pose.X, pose.Y = x, y
 		}
 	}
+	for _, c := range g.party.Members {
+		if c != nil {
+			c.RareClass.Anchor = character.SpatialAnchor{}
+		}
+	}
 	g.finishMapArrival(pose.X, pose.Y, pose.Angle)
 	g.recordProfileTravel(originKey, request.mapKey)
 	return nil
@@ -126,6 +132,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 	}
 
 	// Update visual systems
+	g.syncQuestProps()
 	g.UpdateSkyAndGroundColors()
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		// Refresh renderer caches that depend on world tiles

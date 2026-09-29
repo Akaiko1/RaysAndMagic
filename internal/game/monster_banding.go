@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	// bandBindDistTiles: same-key calm mobs within this distance merge into a band.
+	// bandBindDistTiles: compatible calm mobs within this distance form a band.
 	// Kept near one tile so a band forms when a mob actually wanders into another
 	// (opportunistic), not by magnetically yanking distant mobs together.
 	bandBindDistTiles = 0.85
@@ -41,10 +41,11 @@ type monsterBandGroup struct {
 //
 // A hit propagates for free: TakeDamage makes the struck mob non-calm, so next
 // tick its existing band scatters and the whole band becomes sticky-hostile.
-// Mere sight only dissolves the band; each member still needs its own direct
+// Ordinary sight only dissolves the band; each member still needs its own direct
 // line of sight to join the party fight. A one-shot KILL can't propagate this
 // way (the dead member drops out of the collection), so finishMonsterKill calls
-// scatterBandOnMemberDeath explicitly.
+// scatterBandOnMemberDeath explicitly. Authored BandGroup parties opt into
+// mixed membership and immediate shared sight/retaliation before this pass.
 func (gl *GameLoop) updateMonsterBands() {
 	if gl.game.world == nil || gl.game.collisionSystem == nil {
 		return
@@ -237,6 +238,14 @@ func hoistBandLeader(members []*monster.Monster3D) {
 	}
 }
 
+// sameMonsterBand admits either one authored party or ordinary same-key peers.
+func sameMonsterBand(a, b *monster.Monster3D) bool {
+	if a.BandGroup != "" || b.BandGroup != "" {
+		return a.BandGroup != "" && a.BandGroup == b.BandGroup && (a.BandInstance == "" || b.BandInstance == "" || a.BandInstance == b.BandInstance)
+	}
+	return a.Key == b.Key
+}
+
 // withinBindDist reports whether two mobs are close enough to band together.
 func withinBindDist(a, b *monster.Monster3D, bindDistSq float64) bool {
 	dx := a.X - b.X
@@ -246,7 +255,7 @@ func withinBindDist(a, b *monster.Monster3D, bindDistSq float64) bool {
 
 func firstRecruitableSingle(band, singles []*monster.Monster3D, used map[*monster.Monster3D]bool, bindDistSq float64) *monster.Monster3D {
 	for _, single := range singles {
-		if used[single] || single.Key != band[0].Key {
+		if used[single] || !sameMonsterBand(single, band[0]) {
 			continue
 		}
 		for _, member := range band {
@@ -281,7 +290,7 @@ func (gl *GameLoop) soloBandClusters(singles []*monster.Monster3D, bindDistSq fl
 	}
 	for i := 0; i < len(singles); i++ {
 		for j := i + 1; j < len(singles); j++ {
-			if singles[i].Key != singles[j].Key {
+			if !sameMonsterBand(singles[i], singles[j]) {
 				continue
 			}
 			if withinBindDist(singles[i], singles[j], bindDistSq) {
@@ -424,7 +433,7 @@ func (gl *GameLoop) bandMemberSeesParty(m *monster.Monster3D) bool {
 // reaction. Sight is not: each member must already have, or independently gain,
 // direct party sight before it enters the fight.
 func engageBandMemberOnScatter(m *monster.Monster3D, wasHit, sawParty bool) {
-	if m == nil {
+	if m == nil || m.IsPartyControlled() {
 		return
 	}
 	if wasHit {

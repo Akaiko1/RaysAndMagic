@@ -24,6 +24,18 @@ func normalizeItemFromConfig(item *items.Item) {
 		}
 		return
 	}
+	if item.Type == items.ItemTechnique {
+		if fresh, ok := config.TechniqueItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
+	if item.Type == items.ItemThrowable {
+		if fresh, ok := config.FlaskItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
 	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
 	// reach saved slots), keyed by SpellEffect.
 	if item.Type == items.ItemTrap {
@@ -70,6 +82,7 @@ func normalizeItemFromConfig(item *items.Item) {
 func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m := &character.MMCharacter{
 		Name:             cs.Name,
+		Inventory:        append([]items.Item(nil), cs.Inventory...),
 		Class:            character.CharacterClass(cs.Class),
 		Race:             cs.Race,
 		Promotion:        character.Promotion(cs.Promotion),
@@ -92,6 +105,9 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		Skills:           make(map[character.SkillType]*character.Skill),
 		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
 		Equipment:        make(map[items.EquipSlot]items.Item),
+	}
+	for i := range m.Inventory {
+		normalizeItemFromConfig(&m.Inventory[i])
 	}
 	if len(cs.Conditions) > 0 {
 		m.Conditions = make([]character.Condition, len(cs.Conditions))
@@ -134,11 +150,19 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.QuickSlots[qs.Slot] = &item
 	}
+	m.RareClass = cs.RareClass.Clone()
+	// Old saves represented one charged attack by a timer. Preserve that one
+	// attack as a permanent charge; newer counts never inherit an expiry.
+	if m.RareClass.FlowCharges == 0 && m.RareClass.FlowFrames > 0 {
+		m.RareClass.FlowCharges = 1
+	}
+	m.RareClass.FlowFrames = 0
 	m.AutoDrinkCooldown = max(0, cs.AutoDrinkCooldown)
 	m.DesignatedTargetID, m.DesignationFrames = cs.DesignatedTargetID, max(0, cs.DesignationFrames)
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
+	m.RestoreRealtimeRegenProgress(cs.SpellRegenTimer, cs.HPRegenTimer)
 	m.StunFramesRemaining = cs.StunFramesRemaining
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.StunRate = cs.StunRate
@@ -159,6 +183,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
 		Name:             m.Name,
+		Inventory:        append([]items.Item(nil), m.Inventory...),
 		Class:            int(m.Class),
 		Race:             m.Race,
 		Promotion:        int(m.Promotion),
@@ -208,11 +233,13 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
 		}
 	}
+	cs.RareClass = m.RareClass.Clone()
 	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
 	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()
+	cs.SpellRegenTimer, cs.HPRegenTimer = m.RealtimeRegenProgress()
 	cs.StunFramesRemaining = m.StunFramesRemaining
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.StunRate = m.StunRate

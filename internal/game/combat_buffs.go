@@ -12,6 +12,12 @@ import (
 // the old single-slot dayGods*/hourPower* fields, so casting one buff no longer
 // clobbers another and any number of buff spells can coexist.
 type TimedCombatBuff struct {
+	CombatClock        bool // Legacy save metadata; all party buffs now share the mode clock.
+	TechniqueTier      int
+	RecoveryPct        int
+	ExtraActions       int
+	DeferFirstTurnTick bool
+
 	SpellID       string // spell id (HUD status icon + replace-on-recast key)
 	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
@@ -36,6 +42,9 @@ func (b TimedCombatBuff) buffSourceID() string { return b.SourceID }
 func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, frames int) (TimedCombatBuff, bool) {
 	if itemKey == "" || !def.HasTimedBuff() || frames <= 0 {
 		return TimedCombatBuff{}, false
+	}
+	if def.BrewedFrom != "" {
+		itemKey = def.BrewedFrom
 	}
 	return TimedCombatBuff{
 		SpellID:         itemKey,
@@ -129,6 +138,10 @@ func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 // Spell-derived magnitudes remain state, while static source metadata is
 // re-derived from spells.yaml or items.yaml on restore.
 type CombatBuffSave struct {
+	CombatClock        bool `json:"combat_clock,omitempty"`
+	TechniqueTier      int  `json:"technique_tier,omitempty"`
+	DeferFirstTurnTick bool `json:"defer_first_turn_tick,omitempty"`
+
 	SpellID         string `json:"spell_id"`
 	SourceID        string `json:"source_id,omitempty"`
 	Frames          int    `json:"frames"`
@@ -149,7 +162,8 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 	out := make([]CombatBuffSave, len(buffs))
 	for i, b := range buffs {
 		out[i] = CombatBuffSave{
-			SpellID:         b.SpellID,
+			SpellID:     b.SpellID,
+			CombatClock: b.CombatClock, TechniqueTier: b.TechniqueTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
 			SourceID:        b.SourceID,
 			Frames:          b.Frames,
 			OutBonus:        b.OutBonus,
@@ -178,7 +192,7 @@ func savedCombatBuffItem(s CombatBuffSave) (*config.ItemDefinitionConfig, string
 	var matched *config.ItemDefinitionConfig
 	var matchedKey string
 	for key, def := range config.GlobalItems.Items {
-		if !def.HasTimedBuff() {
+		if !def.HasTimedBuff() || def.BrewedFrom != "" {
 			continue
 		}
 		if s.ResistSchool != "" && (def.ResistBuffSchool != s.ResistSchool || def.ResistBuffSchoolPct != s.ResistSchoolPct) {
@@ -206,7 +220,8 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
 		b := TimedCombatBuff{
-			SpellID:         s.SpellID,
+			SpellID:     s.SpellID,
+			CombatClock: s.CombatClock, TechniqueTier: s.TechniqueTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
 			SourceID:        s.SourceID,
 			Frames:          s.Frames,
 			OutBonus:        s.OutBonus,
@@ -215,6 +230,15 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 			ResistSchoolPct: s.ResistSchoolPct,
 			ResistSchool:    s.ResistSchool, // draughts: not spell-backed, school rides the save
 			ArmorBonus:      s.ArmorBonus,
+		}
+		if d := config.Technique(s.SpellID); d != nil && (s.SpellID == "phase_veil" || s.SpellID == "quickening") {
+			b.CombatClock = true
+			if s.SpellID == "phase_veil" {
+				b.DodgePct = config.TierValue(d.Power, s.TechniqueTier)
+			} else {
+				b.RecoveryPct = config.TierValue(d.Power, s.TechniqueTier)
+				b.ExtraActions = config.TierValue(d.TBPower, s.TechniqueTier)
+			}
 		}
 		// Static source data is re-derived so a YAML rebalance reaches old saves.
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
@@ -246,7 +270,12 @@ func (g *MMGame) combatBuffArmorBonus() int {
 // tickCombatBuffs decrements every active buff, refreshes its HUD status, and
 // drops the expired ones. Called once per frame from updateSpecialEffects.
 func (g *MMGame) tickCombatBuffs() {
-	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, func(b *TimedCombatBuff) *int { return &b.Frames })
+	if !g.turnBasedMode {
+		for i := range g.combatBuffs {
+			g.combatBuffs[i].DeferFirstTurnTick = false
+		}
+	}
+	g.advanceCombatBuffs(g.combatFrameElapsed(), false)
 }
 
 func (g *MMGame) combatBuffDodgePct() int {
@@ -255,4 +284,19 @@ func (g *MMGame) combatBuffDodgePct() int {
 		total += b.DodgePct
 	}
 	return total
+}
+
+func (g *MMGame) tickCombatBuffsTurn(frames int) {
+	g.advanceCombatBuffs(frames, true)
+}
+
+func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
+	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
+		if round && b.DeferFirstTurnTick {
+			b.DeferFirstTurnTick = false
+		} else {
+			b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
+		}
+		return b.Frames
+	})
 }

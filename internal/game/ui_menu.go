@@ -98,7 +98,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
 		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
-		ui.drawAudioSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset, "Audio Settings")
+		ui.drawSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset)
 		back := audioBackRect(settingsLayout.px, settingsLayout.py, settingsLayout.panelH, settingsLayout.contentInset)
 		ui.drawBackButton(screen, back.x1, back.y1, func() {
 			ui.game.closeAudioSettings()
@@ -342,6 +342,9 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 	}
 
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
+		if !ui.game.canOpenClassBook(tab) {
+			return
+		}
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
 			ui.game.selectedSpell = -1
@@ -420,6 +423,8 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	if ui.hubInteractionOpen && ui.hubInteractionChar == ui.game.selectedChar && ui.hubInteractionTab == ui.game.currentTab {
 		return
 	}
+	ui.inventoryContextOpen, ui.inventoryContextOwner = false, nil
+	ui.personalInventoryPage = 0
 	ui.hubInteractionOpen = true
 	ui.hubInteractionChar = ui.game.selectedChar
 	ui.hubInteractionTab = ui.game.currentTab

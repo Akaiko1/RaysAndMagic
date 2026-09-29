@@ -16,6 +16,18 @@ tooltip_usage_defaults:
 # exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
 # Bonuses use the same attribute vocabulary as items (bonus_*) plus set-only effects.
 item_sets:
+  unbroken_road:
+    name: Vestments of the Unbroken Road
+    pieces_required: 6
+    required_pieces:
+      - unbroken_headband
+      - unbroken_handwraps
+      - unbroken_sandals
+      - unbroken_sash
+      - unbroken_mantle
+      - unbroken_robe
+    bonus_armor_class: 35
+    bonus_personality: 8
   padded:
     name: "Pit Fighter's Quilt"
     pieces_required: 4
@@ -1306,6 +1318,7 @@ items:
     type: "card"
     card_move_aoe_pct: 10
     card_move_aoe_dmg: 50
+    card_move_aoe_radius_tiles: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a great ape, fists raised over a flattened glade."
     rarity: "legendary"
@@ -2285,3 +2298,322 @@ items:
     description: "A glimmering scale shed by a leaping fish."
     rarity: common
     value: 3
+
+
+  unbroken_headband:
+    name: Unbroken Headband
+    type: armor
+    armor_category: cloth
+    equip_slot: helmet
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 10
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_personality: 6
+    bonus_luck: 4
+
+  unbroken_handwraps:
+    name: Unbroken Handwraps
+    type: armor
+    armor_category: cloth
+    equip_slot: gauntlets
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_might: 12
+
+  unbroken_sandals:
+    name: Unbroken Sandals
+    type: armor
+    armor_category: cloth
+    equip_slot: boots
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_speed: 8
+
+  unbroken_sash:
+    name: Unbroken Sash
+    type: accessory
+    equip_slot: belt
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_endurance: 8
+
+  unbroken_mantle:
+    name: Unbroken Mantle
+    type: accessory
+    equip_slot: cloak
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 8
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    bonus_speed: 4
+    bonus_personality: 4
+
+  unbroken_robe:
+    name: Unbroken Robe
+    type: armor
+    equip_slot: armor
+    allowed_classes:
+      - monk
+      - cleric
+    set: unbroken_road
+    armor_class_base: 18
+    rarity: legendary
+    value: 0
+    flavor: Mira stitched the road into every seam.
+    armor_category: cloth
+    bonus_might: 4
+    bonus_endurance: 4
+
+  wolf_pelt:
+    name: Wolf Pelt
+    type: trinket
+    description: Dense woodland fur for restorative stock and slow-burning oil.
+    rarity: common
+    value: 12
+  spider_silk:
+    name: Spider Silk
+    type: trinket
+    description: Strong silken thread used to bind wounds and suspend abrasive mixtures.
+    rarity: common
+    value: 18
+  fairy_dust:
+    name: Fairy Dust
+    type: trinket
+    description: Golden dust whose lingering spark can restore a fallen life.
+    rarity: rare
+    value: 90
+
+  # Alchemical reagents and distinct brewed products.
+  dawnleaf:
+    name: Dawnleaf
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_dawnleaf
+  mooncap:
+    name: Mooncap
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_mooncap
+  bitterroot:
+    name: Bitterroot
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_bitterroot
+  embercap:
+    name: Embercap
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: common
+    value: 2
+    harvest_sprite: alchemy_embercap
+  grave_orchid:
+    name: Grave Orchid
+    type: trinket
+    description: An alchemical reagent gathered in the wild.
+    rarity: rare
+    value: 2
+    harvest_sprite: alchemy_grave_orchid
+  brewed_health_potion:
+    brew_color: [216, 54, 68]
+    name: Brewed Health Potion
+    type: consumable
+    description: An Alchemist's preparation. Restores health
+    brewed_from: health_potion
+    rarity: common
+    value: 1
+  brewed_mana_potion:
+    brew_color: [66, 133, 236]
+    name: Brewed Mana Potion
+    type: consumable
+    description: An Alchemist's preparation. Restores spell points
+    brewed_from: mana_potion
+    rarity: common
+    value: 1
+  brewed_antivenom:
+    brew_color: [109, 205, 65]
+    name: Brewed Antivenom
+    type: consumable
+    description: An Alchemist's preparation. A bitter draught that purges venom from
+      the blood
+    brewed_from: antivenom
+    rarity: common
+    value: 1
+  brewed_sake_flask:
+    brew_color: [232, 188, 102]
+    name: Brewed Sake Flask
+    type: consumable
+    description: An Alchemist's preparation. A warm flask of rice wine that restores
+      vigor
+    brewed_from: sake_flask
+    rarity: common
+    value: 1
+  brewed_clock_oil:
+    brew_color: [223, 143, 40]
+    name: Brewed Clock Oil
+    type: consumable
+    description: An Alchemist's preparation. A vial of fine horologist's oil - loosens
+      joints and old wounds alike
+    brewed_from: clock_oil
+    rarity: uncommon
+    value: 1
+  brewed_flame_ward_draught:
+    brew_color: [238, 94, 44]
+    name: Brewed Flame Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A red draught that drinks the heat out
+      of dragonfire
+    brewed_from: flame_ward_draught
+    rarity: rare
+    value: 1
+  brewed_storm_ward_draught:
+    brew_color: [63, 185, 221]
+    name: Brewed Storm Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A pale blue swirl that grounds the lightning
+      around you
+    brewed_from: storm_ward_draught
+    rarity: rare
+    value: 1
+  brewed_gloom_ward_draught:
+    brew_color: [142, 83, 210]
+    name: Brewed Gloom Ward Draught
+    type: consumable
+    description: An Alchemist's preparation. A violet dark that swallows darker things
+    brewed_from: gloom_ward_draught
+    rarity: rare
+    value: 1
+  brewed_stoneskin_draught:
+    brew_color: [143, 179, 94]
+    name: Brewed Stoneskin Draught
+    type: consumable
+    description: An Alchemist's preparation. Earth and ore in suspension; your skin
+      remembers the mountain
+    brewed_from: stoneskin_draught
+    rarity: rare
+    value: 1
+  brewed_mirage_salt:
+    brew_color: [225, 186, 91]
+    name: Brewed Mirage Salt
+    type: consumable
+    description: An Alchemist's preparation. Pale salt from an oasis that appears on
+      no honest map
+    brewed_from: mirage_salt
+    rarity: rare
+    value: 1
+  brewed_revival_potion:
+    brew_color: [244, 201, 76]
+    name: Brewed Revival Potion
+    type: consumable
+    description: An Alchemist's preparation. A potent draught that restores breath and
+      vigor
+    brewed_from: revival_potion
+    rarity: rare
+    value: 1
+  harm_flask:
+    brew_color: [169, 74, 222]
+    name: Harm Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_harm_flask
+      element: physical
+      damage:
+      - 72
+      - 90
+      - 108
+      - 126
+      poison_seconds:
+      - 0
+      - 0
+      - 0
+      - 0
+      burn_seconds: [0, 0, 0, 0]
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3
+  venom_flask:
+    brew_color: [113, 222, 49]
+    name: Venom Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_venom_flask
+      element: body
+      damage:
+      - 24
+      - 36
+      - 48
+      - 60
+      poison_seconds:
+      - 6
+      - 9
+      - 12
+      - 15
+      burn_seconds: [0, 0, 0, 0]
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3
+  fire_flask:
+    brew_color: [249, 116, 33]
+    name: Fire Flask
+    type: consumable
+    description: Select as a quick action to throw. Requires Bomb Throwing.
+    rarity: common
+    value: 1
+    crafted_only: true
+    flask:
+      sprite: projectile_fire_flask
+      element: fire
+      damage:
+      - 36
+      - 48
+      - 60
+      - 72
+      poison_seconds:
+      - 0
+      - 0
+      - 0
+      - 0
+      burn_seconds: [3, 5, 7, 9]
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3

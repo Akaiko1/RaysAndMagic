@@ -87,6 +87,9 @@ func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) {
 }
 
 func (ih *InputHandler) performTurnBasedSmartAttack() {
+	if _, used := ih.game.useSlottedRareAction(ih.game.selectedChar, rtActSmart, false); used {
+		return
+	}
 	g := ih.game
 	selected := g.party.Members[g.selectedChar]
 	if acted, spellID := g.combat.SmartAttack(); acted {

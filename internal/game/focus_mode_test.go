@@ -300,10 +300,6 @@ func TestFocusModeClearsWhenLeavingGameplay(t *testing.T) {
 }
 
 func TestFocusModeIndicatorUsesMetallicBlueRamp(t *testing.T) {
-	base, ok := asMetal(focusModeMetal)
-	if !ok || base != focusModeMetal {
-		t.Fatal("Focus mode label is not registered for metallic text rendering")
-	}
 	top := metalShade(focusModeMetal, 0)
 	bottom := metalShade(focusModeMetal, 1)
 	if top.B <= focusModeMetal.B || bottom.B >= focusModeMetal.B {

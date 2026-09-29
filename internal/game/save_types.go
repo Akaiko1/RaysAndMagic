@@ -5,13 +5,18 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 )
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	TerrainChanges []TerrainChange `json:"terrain_changes,omitempty"`
-	Ecology        EcologyState    `json:"ecology,omitempty"`
+	Alchemy             AlchemyState    `json:"alchemy,omitempty"`
+	SpatialReuseFrames  int             `json:"spatial_reuse_frames,omitempty"`
+	SpatialStepThisTurn bool            `json:"spatial_step_this_turn,omitempty"`
+	PartyRoot           PartyRootState  `json:"party_root,omitempty"`
+	TerrainChanges      []TerrainChange `json:"terrain_changes,omitempty"`
+	Ecology             EcologyState    `json:"ecology,omitempty"`
 
 	MapKey             string                   `json:"map_key"`
 	PlayerX            float64                  `json:"player_x"`
@@ -26,6 +31,7 @@ type GameSave struct {
 	NPCStates          []NPCSave                `json:"npc_states"`
 	Quests             []QuestSave              `json:"quests,omitempty"`
 	QuestSpawnsDone    []string                 `json:"quest_spawns_done,omitempty"`
+	QuestPropLayouts   map[string]string        `json:"quest_prop_layouts,omitempty"`
 	BossFireTraps      []bossFireTrap           `json:"boss_fire_traps,omitempty"`
 	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`
 	GroundContainers   []GroundContainerSave    `json:"ground_containers,omitempty"`
@@ -51,14 +57,15 @@ type GameSave struct {
 	StashTransferID string `json:"stash_transfer_id,omitempty"`
 
 	// Turn-based state
-	TurnBasedTurnSuspended bool `json:"turn_based_turn_suspended,omitempty"`
-	CurrentTurn            int  `json:"current_turn,omitempty"`
-	PartyActionsUsed       int  `json:"party_actions_used,omitempty"`
-	TurnBasedMoveCooldown  int  `json:"turn_based_move_cooldown,omitempty"`
-	TurnBasedRotCooldown   int  `json:"turn_based_rot_cooldown,omitempty"`
-	MonsterTurnResolved    bool `json:"monster_turn_resolved,omitempty"`
-	TurnBasedSpRegenCount  int  `json:"turn_based_sp_regen_count,omitempty"`
-	ExtraMonsterAction     bool `json:"extra_monster_action,omitempty"`
+	TurnBasedTurnSuspended    bool `json:"turn_based_turn_suspended,omitempty"`
+	CurrentTurn               int  `json:"current_turn,omitempty"`
+	PartyActionsUsed          int  `json:"party_actions_used,omitempty"`
+	PartyTechniqueActionsUsed int  `json:"party_technique_actions_used,omitempty"`
+	TurnBasedMoveCooldown     int  `json:"turn_based_move_cooldown,omitempty"`
+	TurnBasedRotCooldown      int  `json:"turn_based_rot_cooldown,omitempty"`
+	MonsterTurnResolved       bool `json:"monster_turn_resolved,omitempty"`
+	TurnBasedSpRegenCount     int  `json:"turn_based_sp_regen_count,omitempty"`
+	ExtraMonsterAction        bool `json:"extra_monster_action,omitempty"`
 	// A save can land during the visible delay before an earned second monster
 	// pass. Preserve the in-progress scheduler instead of restarting the turn.
 	TurnBasedMonsterPassesLeft int      `json:"turn_based_monster_passes_left,omitempty"`
@@ -104,13 +111,14 @@ type GameSave struct {
 
 // QuestSave captures quest progress for save/load
 type QuestSave struct {
-	ID               string  `json:"id"`
-	Status           string  `json:"status"`
-	CurrentCount     int     `json:"current_count"`
-	DynamicTarget    int     `json:"dynamic_target,omitempty"`
-	DynamicTargetSet bool    `json:"dynamic_target_set,omitempty"`
-	RewardsClaimed   bool    `json:"rewards_claimed"`
-	ClaimedAtDay     float64 `json:"claimed_at_day,omitempty"`
+	Activity         quests.ActivityState `json:"activity,omitempty"`
+	ID               string               `json:"id"`
+	Status           string               `json:"status"`
+	CurrentCount     int                  `json:"current_count"`
+	DynamicTarget    int                  `json:"dynamic_target,omitempty"`
+	DynamicTargetSet bool                 `json:"dynamic_target_set,omitempty"`
+	RewardsClaimed   bool                 `json:"rewards_claimed"`
+	ClaimedAtDay     float64              `json:"claimed_at_day,omitempty"`
 }
 
 type PartySave struct {
@@ -126,27 +134,29 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	AutoDrinkCooldown  int    `json:"auto_drink_cooldown,omitempty"`
-	DesignatedTargetID string `json:"designated_target_id,omitempty"`
-	DesignationFrames  int    `json:"designation_frames,omitempty"`
-	Name               string `json:"name"`
-	Class              int    `json:"class"`
-	Race               string `json:"race,omitempty"`
-	Promotion          int    `json:"promotion,omitempty"`
-	Level              int    `json:"level"`
-	Experience         int    `json:"experience"`
-	HitPoints          int    `json:"hit_points"`
-	MaxHitPoints       int    `json:"max_hit_points"`
-	SpellPoints        int    `json:"spell_points"`
-	MaxSpellPoints     int    `json:"max_spell_points"`
-	Might              int    `json:"might"`
-	Intellect          int    `json:"intellect"`
-	Personality        int    `json:"personality"`
-	Endurance          int    `json:"endurance"`
-	Accuracy           int    `json:"accuracy"`
-	Speed              int    `json:"speed"`
-	Luck               int    `json:"luck"`
-	FreeStatPoints     int    `json:"free_stat_points"`
+	Inventory          []items.Item             `json:"inventory,omitempty"`
+	RareClass          character.RareClassState `json:"rare_class,omitempty"`
+	AutoDrinkCooldown  int                      `json:"auto_drink_cooldown,omitempty"`
+	DesignatedTargetID string                   `json:"designated_target_id,omitempty"`
+	DesignationFrames  int                      `json:"designation_frames,omitempty"`
+	Name               string                   `json:"name"`
+	Class              int                      `json:"class"`
+	Race               string                   `json:"race,omitempty"`
+	Promotion          int                      `json:"promotion,omitempty"`
+	Level              int                      `json:"level"`
+	Experience         int                      `json:"experience"`
+	HitPoints          int                      `json:"hit_points"`
+	MaxHitPoints       int                      `json:"max_hit_points"`
+	SpellPoints        int                      `json:"spell_points"`
+	MaxSpellPoints     int                      `json:"max_spell_points"`
+	Might              int                      `json:"might"`
+	Intellect          int                      `json:"intellect"`
+	Personality        int                      `json:"personality"`
+	Endurance          int                      `json:"endurance"`
+	Accuracy           int                      `json:"accuracy"`
+	Speed              int                      `json:"speed"`
+	Luck               int                      `json:"luck"`
+	FreeStatPoints     int                      `json:"free_stat_points"`
 	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
 	// effective-stat layer, kept apart from the base stats above.
 	PermanentBonuses      map[string]int     `json:"permanent_bonuses,omitempty"`
@@ -160,6 +170,8 @@ type CharacterSave struct {
 	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty"`
 	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
 	BurnTickTimer         int                `json:"burn_tick_timer,omitempty"`
+	SpellRegenTimer       int                `json:"spell_regen_timer,omitempty"`
+	HPRegenTimer          int                `json:"hp_regen_timer,omitempty"`
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	StunRate              int                `json:"stun_rate,omitempty"`
@@ -250,6 +262,7 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	BandInstance      string                `json:"band_instance,omitempty"`
 	AmbientThreat     monster.AmbientThreat `json:"ambient_threat,omitzero"`
 	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
 	Population        string                `json:"population,omitempty"`

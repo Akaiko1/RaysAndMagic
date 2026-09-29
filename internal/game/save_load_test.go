@@ -283,8 +283,8 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
 	}
 	loadedMember.TickStunTurn()
-	if loadedMember.StunFramesRemaining != 360 || loadedMember.StunTurnsRemaining != 3 {
-		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 360/3",
+	if loadedMember.StunFramesRemaining != 241 || loadedMember.StunTurnsRemaining != 3 {
+		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 241/3",
 			loadedMember.StunFramesRemaining, loadedMember.StunTurnsRemaining)
 	}
 
@@ -300,23 +300,23 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 			loadedMob.PounceCDRate, loadedMob.SoakRate)
 	}
 	loadedMob.TickRootTurn()
-	if loadedMob.RootFramesRemaining != 120 || loadedMob.RootTurnsRemaining != 1 {
-		t.Fatalf("root after load/tick = %d frames/%d turns, want 120/1",
+	if loadedMob.RootFramesRemaining != 61 || loadedMob.RootTurnsRemaining != 1 {
+		t.Fatalf("root after load/tick = %d frames/%d turns, want 61/1",
 			loadedMob.RootFramesRemaining, loadedMob.RootTurnsRemaining)
 	}
 	loadedMob.TickPounceCooldownTurn()
-	if loadedMob.PounceCDFrames != 240 || loadedMob.PounceCDTurns != 1 {
-		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 240/1",
+	if loadedMob.PounceCDFrames != 121 || loadedMob.PounceCDTurns != 1 {
+		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 121/1",
 			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
 	}
 	loadedMob.TickArmorShredTurn()
-	if loadedMob.ArmorShredFramesRemaining != 360 || loadedMob.ArmorShredTurnsRemaining != 3 {
-		t.Fatalf("shred after load/tick = %d frames/%d turns, want 360/3",
+	if loadedMob.ArmorShredFramesRemaining != 241 || loadedMob.ArmorShredTurnsRemaining != 3 {
+		t.Fatalf("shred after load/tick = %d frames/%d turns, want 241/3",
 			loadedMob.ArmorShredFramesRemaining, loadedMob.ArmorShredTurnsRemaining)
 	}
 	loadedMob.TickSoakTurn()
-	if loadedMob.SoakFrames != 360 || loadedMob.SoakTurns != 3 {
-		t.Fatalf("soak after load/tick = %d frames/%d turns, want 360/3",
+	if loadedMob.SoakFrames != 241 || loadedMob.SoakTurns != 3 {
+		t.Fatalf("soak after load/tick = %d frames/%d turns, want 241/3",
 			loadedMob.SoakFrames, loadedMob.SoakTurns)
 	}
 }

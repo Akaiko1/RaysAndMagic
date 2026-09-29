@@ -690,7 +690,11 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 				prefix, stableImage = "landmark", true
 			}
 			warmBounds := npc.SizeClass != "" && category != catNPC
-			for _, name := range []string{baseName, visitedName} {
+			names := []string{baseName, visitedName}
+			if _, prop := activityProp(npc); prop != nil && prop.DormantSprite != "" {
+				names = append(names, prop.DormantSprite)
+			}
+			for _, name := range names {
 				if name == "" || !inScope {
 					continue
 				}

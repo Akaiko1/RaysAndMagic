@@ -1,0 +1,33 @@
+scenarios:
+  arena:
+    clear_maps: [forest, church]
+    complete_npc_encounters: [shipwreck_bandit_camp]
+    reward_map_encounters: [church]
+    speed_target: 16
+    endurance_target: 20
+    learn_school_spells: true
+  pilgrimage:
+    level: 15
+    party:
+      - name: Sora
+        class: monk
+        skills: {iron_body: expert}
+      - name: Celestine
+        class: cleric
+        equipment: [chain_armor, chain_helmet, chain_pants]
+      - name: Silvelyn
+        class: archer
+        equipment: [leather_armor, leather_helmet, leather_pants]
+      - name: Gareth
+        class: knight
+        equipment: [iron_armor, iron_helmet, iron_pants]
+    map: highlands
+    x: 21
+    y: 42
+    angle: 2.356194490192345
+    safe_radius: 5
+    gold: 3000
+    speed_target: 20
+    endurance_target: 25
+    learn_school_spells: true
+    items: [health_potion, health_potion, health_potion, mana_potion, mana_potion]

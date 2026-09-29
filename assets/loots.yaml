@@ -22,6 +22,7 @@ loots:
       key: "fennec_pelt"
       chance: 0.70
   pixie:
+    - {type: item, key: fairy_dust, chance: 0.23}
     - type: "item"
       key: "magic_ring"
       chance: 0.05
@@ -142,6 +143,8 @@ loots:
       chance: 0.01
 
   spider:
+    - {type: table, key: spider_material}
+    - {type: harvest, key: mooncap, chance: 0.23}
     - type: "item"
       key: "spider_card"
       chance: 0.01
@@ -158,6 +161,7 @@ loots:
       chance: 0.01
 
   wolf:
+    - {type: table, key: wolf_material}
     - type: "item"
       key: "lucky_paw"
       chance: 0.01
@@ -169,12 +173,13 @@ loots:
       chance: 0.01
 
   dire_wolf:
-    - type: "item"
-      key: "lucky_paw"
-      chance: 0.01
-    - type: "item"
-      key: "dire_wolf_card"
-      chance: 0.01
+    - {type: table, key: wolf_material, rolls: 5}
+    - {type: table, key: gathered_reagents}
+    - {type: item, key: dire_wolf_card, chance: 0.01}
+
+  giant_spider:
+    - {type: table, key: spider_material, rolls: 5}
+    - {type: table, key: gathered_reagents}
 
   alien:
     - type: "weapon"
@@ -185,6 +190,8 @@ loots:
       chance: 0.01
 
   forest_spider:
+    - {type: table, key: spider_material}
+    - {type: harvest, key: mooncap, chance: 0.23}
     - type: "item"
       key: "forest_spider_card"
       chance: 0.01
@@ -1214,3 +1221,17 @@ loot_tables:
       - type: "item"
         key: "emerald"
         weight: 6
+
+# Material groups keep ordinary and five-roll elite drops on the same chance.
+loot_groups:
+  wolf_material:
+    - {type: item, key: wolf_pelt, chance: 0.17}
+  spider_material:
+    - {type: item, key: spider_silk, chance: 0.17}
+  # One independent 6% attempt for each herb or mushroom that grows in the world.
+  gathered_reagents:
+    - {type: harvest, key: dawnleaf, chance: 0.06}
+    - {type: harvest, key: mooncap, chance: 0.06}
+    - {type: harvest, key: bitterroot, chance: 0.06}
+    - {type: harvest, key: embercap, chance: 0.06}
+    - {type: harvest, key: grave_orchid, chance: 0.06}

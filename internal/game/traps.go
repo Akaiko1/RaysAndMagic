@@ -409,22 +409,12 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 // both modes, trigger sweep in real-time (TB sweeps after monster moves).
 func (gl *GameLoop) updateTraps() {
 	g := gl.game
+	g.advanceTrapLifetimes(g.combatFrameElapsed())
 	if len(g.traps) == 0 {
 		return
 	}
-	w := 0
 	for i := range g.traps {
-		t := g.traps[i]
-		// Lifetime ticks on every map (armed steel doesn't care where you are).
-		t.FramesLeft--
-		if t.FramesLeft <= 0 {
-			if mapKeyOnCurrentWorld(t.MapKey) {
-				if def, ok := config.GetTrapDefinition(t.Key); ok {
-					g.spawnTrapSwirl(t.X, t.Y, def.Element) // fizzle puff
-				}
-			}
-			continue // expired: drop
-		}
+		t := &g.traps[i]
 		if mapKeyOnCurrentWorld(t.MapKey) {
 			t.swirlTick++
 			if t.swirlTick >= trapSwirlPeriodTicks {
@@ -434,13 +424,33 @@ func (gl *GameLoop) updateTraps() {
 				}
 			}
 		}
+	}
+	if !g.turnBasedMode {
+		gl.game.combat.sweepTrapTriggers()
+	}
+}
+
+// Lifetime is gameplay time on every map; the ambient swirl stays on the
+// presentation clock so an armed trap remains visibly alive during TB thinking.
+func (g *MMGame) advanceTrapLifetimes(elapsed int) {
+	if elapsed <= 0 {
+		return
+	}
+	w := 0
+	for _, t := range g.traps {
+		t.FramesLeft = max(0, t.FramesLeft-elapsed)
+		if t.FramesLeft == 0 {
+			if mapKeyOnCurrentWorld(t.MapKey) {
+				if def, ok := config.GetTrapDefinition(t.Key); ok {
+					g.spawnTrapSwirl(t.X, t.Y, def.Element)
+				}
+			}
+			continue
+		}
 		g.traps[w] = t
 		w++
 	}
 	g.traps = g.traps[:w]
-	if !g.turnBasedMode {
-		gl.game.combat.sweepTrapTriggers()
-	}
 }
 
 // spawnTrapSwirl emits the armed-trap "vortex": particles anchored at WORLD

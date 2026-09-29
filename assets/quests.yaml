@@ -331,3 +331,122 @@ quests:
     rewards:
       gold: 0
       experience: 0
+
+
+  unbroken_mountain:
+    name: 'The Unbroken Road: Steadfast Hands'
+    description: Sister Mira waits on Brae Meadow in the southern Misty Highlands. Face the Bronze Gatekeeper and Gale Novice together on the meadow northeast of her. Break the novice first or endure his lightning while the guardian closes. Claim the headband and handwraps in the journal to open the desert chapter.
+    type: kill
+    target_monsters:
+      - bronze_gatekeeper
+      - gale_novice
+    target_count: 2
+    target_map: highlands
+    fixed_quota: true
+    min_party_level: 15
+    next_quest: unbroken_desert
+    rewards:
+      experience: 600
+      items:
+        - unbroken_headband
+        - unbroken_handwraps
+    on_accept_spawns:
+      - id: guardian
+        map: highlands
+        x: 30
+        y: 35
+        monster: bronze_gatekeeper
+      - id: novice
+        map: highlands
+        x: 30
+        y: 35
+        monster: gale_novice
+
+  unbroken_desert:
+    name: 'The Unbroken Road: An Open Hand'
+    description: 'Find three widely scattered pilgrim sluices along the desert paths, from the northern dunes to the southern reaches. Their inscription reads: First open the spring; then let the thirsty traveler drink; last fill the monastery cistern. Turn the three wheels in that order. A wrong choice drains the channels and resets the puzzle. Claim the sandals and sash in the journal to begin the jungle gathering.'
+    type: interact
+    target_monster: pilgrim_sluice
+    target_count: 1
+    progress_text: watercourses restored
+    next_quest: unbroken_jungle
+    min_prop_spacing_tiles: 18
+    active_prop_layouts:
+      - id: route_1
+        props:
+          - {npc: pilgrim_sluice_spring, map: desert, x: 15, y: 6}
+          - {npc: pilgrim_sluice_travelers, map: desert, x: 37, y: 16}
+          - {npc: pilgrim_sluice_monastery, map: desert, x: 8, y: 38}
+      - id: route_2
+        props:
+          - {npc: pilgrim_sluice_spring, map: desert, x: 5, y: 15}
+          - {npc: pilgrim_sluice_travelers, map: desert, x: 39, y: 36}
+          - {npc: pilgrim_sluice_monastery, map: desert, x: 22, y: 43}
+      - id: route_3
+        props:
+          - {npc: pilgrim_sluice_spring, map: desert, x: 30, y: 6}
+          - {npc: pilgrim_sluice_travelers, map: desert, x: 12, y: 24}
+          - {npc: pilgrim_sluice_monastery, map: desert, x: 38, y: 45}
+    activity:
+      sequence:
+        - spring
+        - travelers
+        - monastery
+      wrong_message: The channels empty with a patient gurgle. Begin again at the spring.
+    rewards:
+      experience: 600
+      items:
+        - unbroken_sandals
+        - unbroken_sash
+
+  unbroken_jungle:
+    name: 'The Unbroken Road: Patient Eyes'
+    description: Gather three Sunlotuses by day and two Moonbells by night on the west bank of the Deep Jungle. Search the clearings and paths all along the west bank, from the northern forest to the landing tavern in the south. Closed buds mark flowers waiting for dawn or dusk. Their places stay fixed until gathered. Claim the mantle and robe in the journal to finish Mira's pilgrimage.
+    type: interact
+    target_monster: pilgrim_flower
+    target_count: 5
+    progress_text: pilgrimage flowers gathered
+    min_prop_spacing_tiles: 16
+    active_prop_layouts:
+      - id: route_1
+        props:
+          - {npc: pilgrim_sun1, map: deep_jungle, x: 5, y: 5}
+          - {npc: pilgrim_sun2, map: deep_jungle, x: 21, y: 15}
+          - {npc: pilgrim_sun3, map: deep_jungle, x: 3, y: 26}
+          - {npc: pilgrim_moon1, map: deep_jungle, x: 21, y: 31}
+          - {npc: pilgrim_moon2, map: deep_jungle, x: 9, y: 44}
+      - id: route_2
+        props:
+          - {npc: pilgrim_sun1, map: deep_jungle, x: 19, y: 3}
+          - {npc: pilgrim_sun2, map: deep_jungle, x: 3, y: 9}
+          - {npc: pilgrim_sun3, map: deep_jungle, x: 18, y: 24}
+          - {npc: pilgrim_moon1, map: deep_jungle, x: 4, y: 34}
+          - {npc: pilgrim_moon2, map: deep_jungle, x: 23, y: 41}
+      - id: route_3
+        props:
+          - {npc: pilgrim_sun1, map: deep_jungle, x: 3, y: 4}
+          - {npc: pilgrim_sun2, map: deep_jungle, x: 21, y: 12}
+          - {npc: pilgrim_sun3, map: deep_jungle, x: 5, y: 23}
+          - {npc: pilgrim_moon1, map: deep_jungle, x: 22, y: 32}
+          - {npc: pilgrim_moon2, map: deep_jungle, x: 4, y: 43}
+    activity:
+      forage:
+        - phase: day
+          count: 3
+          legacy_tokens: [sun4, sun5, sun6]
+          tokens:
+            - sun1
+            - sun2
+            - sun3
+        - phase: night
+          count: 2
+          legacy_tokens: [moon3, moon4]
+          tokens:
+            - moon1
+            - moon2
+      dormant_message: The petals are tightly folded. This flower waits for the other half of the day.
+    rewards:
+      experience: 800
+      items:
+        - unbroken_mantle
+        - unbroken_robe

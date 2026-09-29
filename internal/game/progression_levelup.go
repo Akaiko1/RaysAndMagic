@@ -604,14 +604,12 @@ func magicMasteryOptionLabel(char *character.MMCharacter, school character.Magic
 	return fmt.Sprintf("%s Magic Mastery: Novice -> Expert", name), character.MasteryNovice.String(), character.MasteryExpert.String(), true
 }
 
-// skillTypeFromKey resolves a level-up choice key (weapon or armor category)
-// to its SkillType. "throwing" aliases Dagger and is not a distinct choice.
+// skillTypeFromKey resolves authored mastery choices through the character
+// skill catalog, including misc and class skills. "weapon_mastery" is the
+// historical choice tag; it must not restrict the lookup to weapon categories.
 func skillTypeFromKey(key string) (character.SkillType, bool) {
-	key = strings.ToLower(key)
-	if skill, ok := character.WeaponSkillForCategory(key); ok && key != "throwing" {
-		return skill, true
-	}
-	return character.ArmorSkillForCategory(key)
+	skill, ok := character.SkillTypeFromKey(strings.ToLower(strings.TrimSpace(key)))
+	return skill, ok && skill.UsesMastery()
 }
 
 func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {

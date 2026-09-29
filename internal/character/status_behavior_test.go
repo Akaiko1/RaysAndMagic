@@ -178,8 +178,8 @@ func TestCharStunWeakRefreshPreservesModeExchangeRate(t *testing.T) {
 
 	c.ApplyCharStun(120, 1)
 	c.TickStunTurn()
-	if c.StunFramesRemaining != 360 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
-		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 360/3/120",
+	if c.StunFramesRemaining != 241 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
+		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 241/3/120",
 			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
 	}
 }

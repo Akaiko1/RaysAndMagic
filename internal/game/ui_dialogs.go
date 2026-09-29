@@ -284,6 +284,10 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 // area. It is shared by the legacy standalone screen and the tavern Roster tab.
 func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, interactive bool) {
 	g := ui.game
+	if g.pendingRosterSwap != nil {
+		ui.drawRosterInventoryWarning(screen, area, interactive)
+		return
+	}
 	const rowH = 30
 	colW := (area.w - 16) / 2
 	leftX := area.x
@@ -365,7 +369,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 		ui.onDisplayedInput(uiCommandClick, layoutRect{rightX, y - 2, (rightX + colW) - (rightX), (y - 2 + rowH) - (y - 2)}, func() {
 			if interactive && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
 				if g.rosterSelectedActive >= 0 {
-					g.swapRosterMember(g.rosterSelectedActive, j)
+					g.requestRosterSwap(g.rosterSelectedActive, j)
 					g.rosterSelectedActive = -1
 				}
 			}
@@ -993,6 +997,13 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 				label += uitext.Text("dialog.need_gold")
 			}
 			drawDebugText(screen, label, x+6, y)
+			if hover {
+				tooltip := masteryTooltipTextForSkill(option.SkillType)
+				if option.IsMagic {
+					tooltip = magicMasteryTooltipText(option.School)
+				}
+				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+			}
 		}
 		// Pager sits between the last row slot and the instructions line and
 		// registers its navigation action for Update.
@@ -1158,7 +1169,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Only the sale half (drag sources, sell prices) needs a coin till.
 	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
 	{
-		inv := ui.game.party.Inventory
+		inv := ui.game.merchantBagItems()
 		sellPages := pageCount(len(inv), merchantPageSize)
 		clampPage(&ui.game.merchantSellPage, sellPages)
 		start := ui.game.merchantSellPage * merchantPageSize
@@ -1169,7 +1180,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			item := inv[idx]
 			x, y, w, h := merchantCellRect(rightX, gridTop, slot)
-			if merchantInteractive && buysGoods {
+			if merchantInteractive && buysGoods && idx < len(ui.game.party.Inventory) {
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			value := item.Attributes["value"]
@@ -1182,7 +1193,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				}
 			}
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
-			if buysGoods {
+			if buysGoods && idx < len(ui.game.party.Inventory) {
 				priceText := uitext.Text("dialog.no_value")
 				if value > 0 {
 					priceText = uitext.Text("dialog.gold_price_short", ui.game.merchantSellPrice(value))
@@ -1366,7 +1377,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 			break
 		}
 		x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
-		key := itemCardKey(ui.game.party.Inventory[cardIdx[i]])
+		key := itemCardKey(ui.game.party.CarriedItems()[cardIdx[i]])
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {
@@ -1654,7 +1665,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	// NPCs overlay
 	npcColor := color.RGBA{255, 220, 0, 255}
 	for _, npc := range ui.game.world.NPCs {
-		if ui.game.npcAbsent(npc) {
+		if !ui.game.npcMapMarkerVisible(npc) {
 			continue
 		}
 		nx := int(npc.X / float64(ui.game.config.GetTileSize()))
@@ -1799,7 +1810,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 	// page shows as many quests as actually fit, not a fixed count.
 	copies := make([]questCardCopy, len(allQuests))
 	for i, quest := range allQuests {
-		copies[i] = questCardCopyFor(quest.Description(), layout.cardW, layout.maxDescRows)
+		copies[i] = questCardCopyForQuest(quest, layout.cardW, layout.maxDescRows)
 	}
 	layout = computeQuestContentLayout(content, copies, ui.questPage)
 	// Clamp every frame so the page stays valid when quests are added/removed.
@@ -1866,8 +1877,23 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if g.questManager == nil {
 		return false
 	}
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
+			g.AddCombatMessage("Cannot start next chapter: " + err.Error())
+			return false
+		}
+	}
 	var poolItem *items.Item
+	var guaranteed []items.Item
 	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		for _, key := range quest.Definition.Rewards.Items {
+			item, err := items.TryCreateItemFromYAML(key)
+			if err != nil {
+				g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err))
+				return false
+			}
+			guaranteed = append(guaranteed, item)
+		}
 		item, ok, err := rollQuestPoolItem(quest.Definition.Rewards.ItemPool)
 		if err != nil {
 			g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
@@ -1882,6 +1908,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
 		return false
 	}
+	g.syncQuestProps()
 	g.recordProfileQuestResolution(g.questManager.GetQuest(questID))
 	g.unlockCaravan()
 	if rewards.Gold > 0 {
@@ -1898,6 +1925,20 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if quest := g.questManager.GetQuest(questID); quest != nil {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
 			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
+	}
+	for _, item := range guaranteed {
+		g.party.AddItem(item)
+		g.AddCombatMessage("You receive " + item.Name + ".")
+	}
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
+		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
+				g.AddCombatMessage("Next chapter: " + err.Error())
+			} else {
+				next := g.questManager.GetQuest(q.Definition.NextQuest)
+				g.AddCombatMessage("Next chapter: " + next.Definition.Name + ". Read the journal for directions.")
+			}
+		}
 	}
 	if poolItem != nil {
 		g.party.AddItem(*poolItem)

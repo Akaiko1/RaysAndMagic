@@ -7,6 +7,7 @@ import (
 )
 
 func TestAutoEnduranceTargets(t *testing.T) {
+	loadTestConfig(t)
 	tests := []struct {
 		class character.CharacterClass
 		want  int
@@ -22,6 +23,8 @@ func TestAutoEnduranceTargets(t *testing.T) {
 		{character.ClassSniper, 18},
 		{character.ClassThief, 18},
 		{character.ClassSorcerer, 16},
+		{character.ClassAlchemist, 20},
+		{character.ClassWayfarer, 22},
 	}
 	if len(tests) != len(character.PlayableClasses) {
 		t.Fatalf("endurance table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
@@ -34,6 +37,7 @@ func TestAutoEnduranceTargets(t *testing.T) {
 }
 
 func TestAutoSpeedTargets(t *testing.T) {
+	loadTestConfig(t)
 	tests := []struct {
 		class character.CharacterClass
 		want  int
@@ -49,6 +53,8 @@ func TestAutoSpeedTargets(t *testing.T) {
 		{character.ClassArmsMaster, 16},
 		{character.ClassMonk, 26},
 		{character.ClassBattleMage, 16},
+		{character.ClassAlchemist, 16},
+		{character.ClassWayfarer, 26},
 	}
 	if len(tests) != len(character.PlayableClasses) {
 		t.Fatalf("speed table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
@@ -80,6 +86,8 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 		{character.ClassArmsMaster, "might", "", 6, 0},
 		{character.ClassMonk, "might", "personality", 4, 2},
 		{character.ClassBattleMage, "intellect", "might", 4, 2},
+		{character.ClassAlchemist, "intellect", "accuracy", 4, 2},
+		{character.ClassWayfarer, "intellect", "speed", 4, 2},
 	}
 	if len(tests) != len(character.PlayableClasses) {
 		t.Fatalf("priority table has %d classes, want all %d playable classes", len(tests), len(character.PlayableClasses))
@@ -95,6 +103,8 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 			return member.Personality
 		case "accuracy":
 			return member.Accuracy
+		case "speed":
+			return member.Speed
 		default:
 			return 0
 		}
@@ -118,7 +128,7 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 			if spent != 8 || member.FreeStatPoints != 0 {
 				t.Fatalf("spent/free = %d/%d, want 8/0", spent, member.FreeStatPoints)
 			}
-			if member.Speed != autoSpeedTarget(tt.class) {
+			if member.Speed != autoSpeedTarget(tt.class) && tt.secondary != "speed" {
 				t.Errorf("speed = %d, want %d", member.Speed, autoSpeedTarget(tt.class))
 			}
 			if member.Endurance != autoEnduranceTarget(tt.class) {
@@ -128,8 +138,12 @@ func TestAutoDistributeStatPointsPrioritiesAndLeavesSkillsAlone(t *testing.T) {
 				t.Errorf("%s = %d, want %d", tt.primary, got, 10+tt.wantPrimaryGain)
 			}
 			if tt.secondary != "" {
-				if got := statValue(member, tt.secondary); got != 10+tt.wantSecondaryGain {
-					t.Errorf("%s = %d, want %d", tt.secondary, got, 10+tt.wantSecondaryGain)
+				wantSecondary := 10 + tt.wantSecondaryGain
+				if tt.secondary == "speed" {
+					wantSecondary = autoSpeedTarget(tt.class) + tt.wantSecondaryGain
+				}
+				if got := statValue(member, tt.secondary); got != wantSecondary {
+					t.Errorf("%s = %d, want %d", tt.secondary, got, wantSecondary)
 				}
 			}
 			if len(member.OwedLevelChoices) != 1 || member.OwedLevelChoices[0] != 3 {

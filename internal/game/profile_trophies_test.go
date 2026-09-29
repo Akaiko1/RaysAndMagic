@@ -233,7 +233,7 @@ func TestProfileAllTabsUseDisplayedControls(t *testing.T) {
 				presentInputScreen(h)
 				updateInputScreen(h)
 				layout := makeProfileStatsLayout(size[0], size[1], page)
-				if layout.counterRows*layout.columns < len(page.counters) || layout.rankRows*layout.columns < len(page.rankings) {
+				if layout.counterRows*layout.counterColumns < len(page.counters) || layout.rankRows*layout.columns < len(page.rankings) {
 					t.Fatalf("%s clips a metric", page.title)
 				}
 			}

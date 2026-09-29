@@ -65,6 +65,12 @@ func TestSkillTypeValuesAreStableForSaveCompatibility(t *testing.T) {
 		SkillFieldMedicine:       39,
 		SkillDesignateTarget:     40,
 		SkillOverwatch:           41,
+		SkillAlchemy:             42,
+		SkillPharmacology:        43,
+		SkillBombThrowing:        44,
+		SkillTranslocation:       45,
+		SkillFlowingStaff:        46,
+		SkillPathfinding:         47,
 	}
 	if len(want) != len(AllSkills) {
 		t.Fatalf("AllSkills has %d entries but only %d are pinned here - a skill was added without "+
@@ -91,6 +97,8 @@ func TestCharacterClassValuesAreStableForSaveCompatibility(t *testing.T) {
 		ClassMonk:       8,
 		ClassBattleMage: 9,
 		ClassSniper:     10,
+		ClassAlchemist:  11,
+		ClassWayfarer:   12,
 	}
 	if len(want) != len(PlayableClasses) {
 		t.Fatalf("PlayableClasses has %d entries but only %d are pinned here - a class was added "+

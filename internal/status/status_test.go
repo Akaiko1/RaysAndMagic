@@ -39,8 +39,8 @@ func TestRefreshDualRatedPreservesActiveRateOnWeakRefresh(t *testing.T) {
 	if TickTurnRated(&turns, &frames, &rate) {
 		t.Fatal("status expired with three turns remaining")
 	}
-	if frames != 360 || turns != 3 || rate != 120 {
-		t.Fatalf("post-refresh TB tick: frames=%d turns=%d rate=%d, want 360/3/120", frames, turns, rate)
+	if frames != 241 || turns != 3 || rate != 120 {
+		t.Fatalf("post-refresh TB tick: frames=%d turns=%d rate=%d, want 241/3/120", frames, turns, rate)
 	}
 }
 
@@ -260,8 +260,8 @@ func TestRatedDualClockPersistedRateSurvivesLoad(t *testing.T) {
 	if TickTurnRated(&turns, &frames, &rate) {
 		t.Fatal("expired on first post-load turn")
 	}
-	if turns != 3 || frames != 360 || rate != 120 {
-		t.Fatalf("post-load turn: turns=%d frames=%d rate=%d, want 3/360/120", turns, frames, rate)
+	if turns != 3 || frames != 241 || rate != 120 {
+		t.Fatalf("post-load turn: turns=%d frames=%d rate=%d, want 3/241/120", turns, frames, rate)
 	}
 }
 

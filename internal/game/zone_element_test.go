@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -150,8 +151,9 @@ func TestZone_TurnBasedTickCountAndEntryOrder(t *testing.T) {
 
 	runOneMonsterTurn(g, gl)
 
-	if got, want := before-standing.HitPoints, ticksPerTurn*perTick; got != want {
-		t.Errorf("standing mob took %d over one turn, want %d (%d ticks x %d)",
+	burnPerTick := max(3, standing.MaxHitPoints*config.BurnPercent(standing.IsBoss())/100)
+	if got, want := before-standing.HitPoints, ticksPerTurn*(perTick+burnPerTick); got != want {
+		t.Errorf("standing mob took %d over one turn, want %d (%d field ticks x %d, plus burning)",
 			got, want, ticksPerTurn, perTick)
 	}
 

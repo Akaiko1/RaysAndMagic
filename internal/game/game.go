@@ -63,6 +63,11 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	FlaskKey                           string
+	FlaskRemaining, FlaskRadius        float64
+	FlaskFlightRange                   float64
+	FlaskPoisonFrames, FlaskBurnFrames int
+
 	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
@@ -146,6 +151,7 @@ type SpellHitParticle struct {
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
 	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
 	Solid            bool    // drawn source-over, not additive: MATTER (dirt, rubble) instead of light
+	DepthTest        bool    // hide particles behind world walls at their projected position
 	Active           bool
 }
 
@@ -177,6 +183,15 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	alchemy                 AlchemyState
+	harvestRuntime          harvestRuntime
+	selectedRare            int
+	alchemyBatches          int
+	rareBookMessage         string
+	brewAnimation           *alchemyBrewAnimation
+	spatialReuseFrames      int
+	spatialStepThisTurn     bool
+	partyRoot               PartyRootState
 	terrainChanges          []TerrainChange
 	editorPreview           *editorPreviewState
 	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
@@ -267,7 +282,8 @@ type MMGame struct {
 	dragCurY     int
 	dragSrc      dragSource // kind of source captured this drag
 	dragItem     items.Item // the carried item (copy, for rendering)
-	dragInvIndex int        // source: party inventory index
+	dragInvOwner *character.MMCharacter
+	dragInvIndex int // source: party inventory index
 	// dragSplitQuantity is zero for a whole-entry move. A positive value carries
 	// only that many units from a stack; the source remains visible until a
 	// valid destination consumes the fragment. dragPickedUp is the same partial
@@ -538,18 +554,21 @@ type MMGame struct {
 	wallTopBuffer []int
 
 	// Systems
-	gameLoop        *GameLoop
-	combat          *CombatSystem
-	collisionSystem *collision.CollisionSystem
-	questManager    *quests.QuestManager
-	soundManager    *sound.Manager
+	gameLoop            *GameLoop
+	combat              *CombatSystem
+	collisionSystem     *collision.CollisionSystem
+	questManager        *quests.QuestManager
+	soundManager        *sound.Manager
+	potionSettingsDirty bool
+	settingsSaveError   string
 	// questTileOriginals: pristine tile at every quest on_complete_tiles
 	// position, captured once (maps always load pristine from disk) so
 	// syncQuestTiles can REVERT a change when its quest isn't completed.
 	questTileOriginals map[string]world.TileType3D
 	// questSpawnsDone: stable quest/spawn IDs that already fired this
 	// playthrough (persisted). Spawns are one-shot events, never re-applied.
-	questSpawnsDone map[string]bool
+	questSpawnsDone  map[string]bool
+	questPropLayouts map[string]string // per-run layout IDs, chosen before acceptance
 	// bossFireTraps: the Brood Mother's armed fire-trap field (persisted) and
 	// the collision ID of the boss that sowed it. See boss_fire_traps.go.
 	bossFireTraps      []bossFireTrap
@@ -595,8 +614,9 @@ type MMGame struct {
 	// FROM (char<0 = opened from the inventory). The slot stays filled while the
 	// picker is up; on confirm it's cleared, on cancel the temp bag copy is dropped
 	// and the slot kept - so cancelling never silently moves the potion to the bag.
-	pickerQuickChar int
-	pickerQuickSlot int
+	pickerInventoryOwner *character.MMCharacter
+	pickerQuickChar      int
+	pickerQuickSlot      int
 
 	// parkSelection is set when the player selects a member BY HAND (portrait
 	// click / number key) and cleared on any auto-advance of the selection. While
@@ -609,14 +629,16 @@ type MMGame struct {
 	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
 	// the target promotion; promotionPickerItemIdx is the phylactery slot to
 	// consume on confirm (-1 for the quest-driven Archmage path).
-	promotionPickerOpen    bool
-	promotionPickerKind    character.Promotion
-	promotionPickerItemIdx int
+	promotionPickerOpen      bool
+	promotionPickerKind      character.Promotion
+	promotionPickerItemOwner *character.MMCharacter
+	promotionPickerItemIdx   int
 
 	// Tavern roster screen: swap active party members with the reserve roster.
 	// rosterSelectedActive is the active slot the player picked first (-1 = none).
 	rosterScreenOpen     bool
 	rosterSelectedActive int
+	pendingRosterSwap    *rosterSwapRequest
 	rosterScroll         int
 
 	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
@@ -649,11 +671,12 @@ type MMGame struct {
 	turnBasedMode bool // Whether game is in turn-based mode
 	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
 	// the same party/monster turn instead of granting a fresh party round.
-	turnBasedTurnSuspended bool
-	currentTurn            int // 0 = party turn, 1 = monster turn
-	partyActionsUsed       int // Actions used this turn (0-2)
-	turnBasedMoveCooldown  int // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown   int // Rotation cooldown in frames (18 FPS = 0.3 second)
+	turnBasedTurnSuspended    bool
+	currentTurn               int // 0 = party turn, 1 = monster turn
+	partyActionsUsed          int // Actions used this turn
+	partyTechniqueActionsUsed int // Subset exempt from the movement penalty
+	turnBasedMoveCooldown     int // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown      int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
 	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every 5 turns)
 
@@ -700,10 +723,13 @@ type MMGame struct {
 	profileKilled                          map[string]bool
 	pendingAchievements                    []config.AchievementDef
 	statisticsTab                          int
-	statisticsPage                         int
+	statisticsRevision                     int
+	statisticsTabScroll                    map[int]int
+	statisticsRankingScroll                map[string]int
+	statisticsRankingLimits                map[string]int
 	statisticsScroll                       int
 
-	achievementsScroll int               // achievements list scroll offset (rows)
+	achievementsScroll int               // achievements list scroll offset (pixels)
 	partyCreate        *partyCreateState // built lazily on entering AppScreenPartyCreate
 }
 
@@ -896,6 +922,10 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		soundManager:     sound.Global(),
 	}
 
+	// Player preferences belong to the application, outside campaign saves.
+	if !preview && cfg.PlayerPotions == nil {
+		game.loadPotionPreferences()
+	}
 	// Initialize rendering helper
 	game.renderHelper = NewRenderingHelper(game)
 
@@ -922,6 +952,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	if err := game.validateQuestWorldReferences(game.questManager); err != nil {
 		panic(err)
 	}
+	game.resetQuestPropLayouts(nil)
 	// Adopt the journal as it stands (the endgame gates start active) so boot
 	// itself raises no quest banners.
 	game.resyncQuestBannerBaseline()
@@ -1123,6 +1154,12 @@ func (g *MMGame) updateFocusedNPC() {
 // invisible).
 func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc == nil {
+		return true
+	}
+	if npc.HarvestOwner != "" && (!g.hasHarvestAlchemist() || npc.Visited) {
+		return true
+	}
+	if g.activityNPCAbsent(npc) {
 		return true
 	}
 	if npc.HideWhenVisited && npc.Visited {
@@ -1874,6 +1911,7 @@ func (g *MMGame) enterPostVictoryFreeMode() {
 	g.turnBasedMode = false
 	g.currentTurn = 0
 	g.partyActionsUsed = 0
+	g.partyTechniqueActionsUsed = 0
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
@@ -2473,9 +2511,16 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 	case rtActWeapon:
 		return m.HasWeaponInEitherHand()
 	case rtActCast:
+		if key, ok := g.slottedTechnique(idx); ok {
+			d := config.Technique(key)
+			return d != nil && !d.FreeStep && g.techniqueRefusal(idx, key) == ""
+		}
 		spell, ok := m.Equipment[items.SlotSpell]
 		if !ok {
 			return false
+		}
+		if spell.Type == items.ItemThrowable {
+			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(m, string(spell.SpellEffect)) > 0
 		}
 		cost := spell.SpellCost
 		// Traps: the live traps.yaml cost is the truth (a rebalance must not
@@ -2604,11 +2649,23 @@ func (g *MMGame) sweepLethalDoTVictims() {
 
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn(initial ...bool) {
+	if w := g.GetCurrentWorld(); w != nil {
+		for _, m := range w.Monsters {
+			if m != nil {
+				m.EndTurnDebuffs()
+			}
+		}
+	}
 	g.tactics.movedTB = false
+	g.spatialStepThisTurn = false
 	if len(initial) == 0 || !initial[0] {
+		g.tickRareClassClocks(g.combatRoundFrames())
+		g.tickPartyBuffsTurn()
+		g.advanceControlledMonsters(g.combatRoundFrames())
+		g.advanceTrapLifetimes(g.combatRoundFrames())
 		for _, ch := range g.party.Members {
-			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
-			ch.DesignationFrames = max(0, ch.DesignationFrames-TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-g.combatRoundFrames())
+			ch.DesignationFrames = max(0, ch.DesignationFrames-g.combatRoundFrames())
 		}
 	}
 	g.parkSelection = false // a new round clears any manual park
@@ -2624,16 +2681,19 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	// The sweep also has to finish BEFORE the action slots below - otherwise a
 	// member ticked to 0 HP reads as unable to act this round even when the card
 	// would have saved them, and the KO message lags a frame behind its cause.
-	for range TurnBasedPeriodicEffectSeconds {
-		for _, m := range g.party.Members {
-			m.TickPoisonTurn(tps, tps)
+	if len(initial) == 0 || !initial[0] {
+		for range TurnBasedPeriodicEffectSeconds {
+			for _, m := range g.party.Members {
+				m.TickPoisonTurn(tps, tps)
+			}
+			g.sweepLethalDoTVictims()
+			for _, m := range g.party.Members {
+				m.TickBurnTurn(tps, tps)
+			}
+			g.sweepLethalDoTVictims()
 		}
-		g.sweepLethalDoTVictims()
-		for _, m := range g.party.Members {
-			m.TickBurnTurn(tps, tps)
-		}
-		g.sweepLethalDoTVictims()
 	}
+
 	for _, m := range g.party.Members {
 		m.NextTBAttackOffHand = false // fresh round: next swing starts on the main hand
 		m.TBRoundActionFloor = 0
@@ -2686,6 +2746,9 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	// Monster cards (e.g. the Puma Card) add to the party's bonus-action pool,
 	// distributed to the fastest members alongside Speed bonuses.
 	bonusActions += g.cardBonusActions()
+	if b, ok := g.combatBuffByID("quickening"); ok {
+		bonusActions += b.ExtraActions
+	}
 	for bonusActions > 0 {
 		bestIdx := -1
 		bestSpeed := -1
@@ -2725,15 +2788,21 @@ func (g *MMGame) applyEquipmentMutation(characterIndex int, mutate func() bool) 
 	return true
 }
 
-func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int) bool {
+func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int, owner ...*character.MMCharacter) bool {
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.EquipItemFromInventory(itemIndex, characterIndex)
+		return g.party.EquipItemFromInventory(itemIndex, characterIndex, owner...)
 	})
 }
 
-func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
+func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot, owner ...*character.MMCharacter) bool {
+	bag := g.party.Bag(owner...)
+	if slot == items.SlotSpell && itemIndex >= 0 && itemIndex < len(bag.Items()) {
+		if key, d := flaskDefinition(bag.Items()[itemIndex]); d != nil {
+			return g.equipFlask(characterIndex, key)
+		}
+	}
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot)
+		return g.party.EquipItemFromInventoryToSlot(itemIndex, characterIndex, slot, owner...)
 	})
 }
 
@@ -2743,9 +2812,9 @@ func (g *MMGame) movePartyEquipmentSlot(srcSlot, dstSlot items.EquipSlot, charac
 	})
 }
 
-func (g *MMGame) unequipPartyItemToInventory(slot items.EquipSlot, characterIndex int) bool {
+func (g *MMGame) unequipPartyItemToInventory(slot items.EquipSlot, characterIndex int, owner ...*character.MMCharacter) bool {
 	return g.applyEquipmentMutation(characterIndex, func() bool {
-		return g.party.UnequipItemToInventory(slot, characterIndex)
+		return g.party.UnequipItemToInventory(slot, characterIndex, owner...)
 	})
 }
 
@@ -2781,6 +2850,7 @@ func (g *MMGame) reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex 
 // RegenerateSpellPoints. Lives on MMGame so non-input callers (spellbook
 // double-click, future UI dialogs) can drive a turn end too.
 func (g *MMGame) endPartyTurn() {
+	g.tickPartyRoot(true)
 	g.turnBasedSpRegenCount++
 	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
 		g.turnBasedSpRegenCount = 0
@@ -2816,7 +2886,7 @@ func (g *MMGame) skipTurnBasedPartyTurnWithoutActor() bool {
 // turn. Moving after at least one attack/cast grants monsters an extra action
 // pass as anti-kiting pressure; opening the round with movement remains normal.
 func (g *MMGame) endPartyTurnAfterMovement() {
-	if g.partyActionsUsed > 0 {
+	if g.partyActionsUsed > g.partyTechniqueActionsUsed {
 		g.turnBasedExtraMonsterAction = true
 	}
 	g.forfeitPartyTurn()
@@ -2896,33 +2966,10 @@ func (g *MMGame) ensureSelectedCharCanAct() {
 // auto-advances to the next eligible character. If nobody is left with
 // actions, ends the party turn so monsters can move.
 func (g *MMGame) consumeSelectedCharAction() {
-	if !g.turnBasedMode || g.currentTurn != 0 {
-		return
-	}
-	selected := g.party.Members[g.selectedChar]
-	if selected.ActionsRemaining > 0 {
-		selected.ActionsRemaining--
-		g.partyActionsUsed++
-	}
-	if selected.ActionsRemaining == 0 {
-		if g.partyAllExhausted() {
-			g.endPartyTurn()
-			return
-		}
-		g.advanceToNextEligibleChar()
-	}
+	g.consumeCharacterActionWithRTCooldown(g.selectedChar, 0)
 }
-
-// consumeSelectedCharActionWithRTCooldown commits a spell/trap action in either
-// mode. It arms the RT cooldown immediately and, in TB, also spends one action
-// slot. Retain a longer cooldown carried into TB across a mode switch.
 func (g *MMGame) consumeSelectedCharActionWithRTCooldown(cooldownFrames int) {
-	if cooldownFrames > 0 && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
-		if selected := g.party.Members[g.selectedChar]; selected != nil && cooldownFrames > selected.RTCooldown {
-			selected.RTCooldown = cooldownFrames
-		}
-	}
-	g.consumeSelectedCharAction()
+	g.consumeCharacterActionWithRTCooldown(g.selectedChar, cooldownFrames)
 }
 
 // consumeSelectedCharWeaponAction is consumeSelectedCharAction specialized for
@@ -2982,6 +3029,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// deliberately does not: its slots/current turn were left intact.
 		g.currentTurn = 0
 		g.partyActionsUsed = 0
+		g.partyTechniqueActionsUsed = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.monsterTurnState.resetPasses()
@@ -3288,6 +3336,20 @@ func (mpw *MagicProjectileWrapper) GetPosition() (float64, float64) {
 }
 
 func (mpw *MagicProjectileWrapper) SetPosition(x, y float64) {
+	p := mpw.MagicProjectile
+	if p.FlaskKey != "" && p.Active {
+		distance := math.Hypot(x-p.X, y-p.Y)
+		if distance >= p.FlaskRemaining && distance > 0 {
+			ratio := p.FlaskRemaining / distance
+			x = p.X + (x-p.X)*ratio
+			y = p.Y + (y-p.Y)*ratio
+			p.Active = false
+			mpw.pendingImpact = true
+			mpw.impactX, mpw.impactY = x, y
+		}
+		p.FlaskRemaining = max(0, p.FlaskRemaining-distance)
+	}
+
 	mpw.MagicProjectile.X = x
 	mpw.MagicProjectile.Y = y
 	// Update collision system position
@@ -3333,6 +3395,10 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 	}
 	mpw.pendingImpact = false
 	if mpw.MagicProjectile == nil || mpw.game == nil {
+		return
+	}
+	if mpw.MagicProjectile.FlaskKey != "" {
+		mpw.game.combat.detonateFlask(mpw.MagicProjectile, mpw.impactX, mpw.impactY)
 		return
 	}
 	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)

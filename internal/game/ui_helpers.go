@@ -830,7 +830,7 @@ func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x,
 	if !clipped || len(fullLines) == 0 || w <= 0 || h <= 0 {
 		return
 	}
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := pointerPosition()
 	if !isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 		return
 	}
@@ -949,6 +949,12 @@ func (ui *UISystem) itemTitleColors(item items.Item) (plate, text color.Color) {
 
 func itemTooltipIconName(item items.Item) string {
 	switch item.Type {
+	case items.ItemTechnique:
+		if d := config.Technique(string(item.SpellEffect)); d != nil {
+			return d.Icon
+		}
+	case items.ItemThrowable:
+		return "icon_item_" + string(item.SpellEffect)
 	case items.ItemWeapon:
 		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
 		if !ok {
@@ -1074,35 +1080,11 @@ var textOutlineOffsets = [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, 
 // drawScaledCenteredText draws text scaled by `scale`, centered on (cx, cy), with
 // a dark outline that scales with it - for emphasis headings (e.g. GAME OVER).
 func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, col color.Color) {
-	if text == "" {
-		return
-	}
-	w := debugTextWidth(text) + 2
-	h := debugTextCharHeight
-	ensureDebugTextScratch(w, h)
-	debugTextScratch.Fill(color.RGBA{0, 0, 0, 0})
-	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
-	defer glyphs.Recycle()
-	x := float64(cx) - float64(w)*scale/2
-	y := float64(cy) - float64(h)*scale/2
-	blit := func(ox, oy float64, c color.Color) {
-		op := &ebiten.DrawImageOptions{}
-		r, g, b, a := c.RGBA()
-		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
-		graphics.DrawImageScaled(screen, glyphs, x+ox, y+oy, float64(w)*scale, float64(h)*scale, op)
-	}
-	outline := color.RGBA{0, 0, 0, 235}
-	for _, d := range textOutlineOffsets {
-		blit(float64(d[0])*scale, float64(d[1])*scale, outline)
-	}
-	blit(0, 0, col)
+	drawScaledMetalCenteredTextAlpha(screen, text, cx, cy, scale, col, 1)
 }
 
 // drawScaledMetalCenteredText scales the cached outlined-label renderer so a
-// large heading keeps the same brushed-metal body as rarity names. The Game
-// Over heading intentionally stays on drawScaledCenteredText with its flat red
-// fill; Victory uses this variant for gold.
+// large heading keeps the same metallic body and contour as ordinary text.
 func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA) {
 	drawScaledMetalCenteredTextAlpha(screen, text, cx, cy, scale, base, 1)
 }
@@ -1110,7 +1092,7 @@ func drawScaledMetalCenteredText(screen *ebiten.Image, text string, cx, cy int, 
 // drawScaledMetalCenteredTextAlpha is the same heading with a fade multiplier,
 // for headings that animate in and out (the quest banner). alpha <= 0 draws
 // nothing; the opaque path above is this one at alpha 1.
-func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.RGBA, alpha float64) {
+func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy int, scale float64, base color.Color, alpha float64) {
 	if text == "" || scale <= 0 || alpha <= 0 {
 		return
 	}
@@ -1195,12 +1177,9 @@ func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 	for _, d := range textOutlineOffsets {
 		blit(d[0], d[1], outline)
 	}
-	// Rarity metals render as a vertical gradient (shiny); everything else flat.
-	if base, ok := asMetal(col); ok {
-		drawMetalBody(img, 1, 1, w, h, base)
-	} else {
-		blit(0, 0, col)
-	}
+	// Every text tint uses the same metallic ramp. Keep the authored base and
+	// alpha; colour values never opt a label into or out of its visual style.
+	drawMetalBody(img, 1, 1, w, h, col)
 	return img
 }
 
@@ -1221,7 +1200,7 @@ func lerpByte(a, b uint8, t float64) uint8 {
 
 // metalShade is the metallic ramp at vertical fraction t (0 top ... 1 bottom): a
 // bright highlight at the top, the base tint in the middle, a dark edge at the
-// bottom - the beveled shiny-metal look for gold/silver/legendary names.
+// bottom - the same beveled finish for every text tint.
 func metalShade(base color.RGBA, t float64) color.RGBA {
 	to := color.RGBA{255, 255, 255, base.A} // highlight
 	k := (0.5 - t) / 0.5 * 0.6              // up to +60% toward white at the very top
@@ -1239,18 +1218,19 @@ func metalShade(base color.RGBA, t float64) color.RGBA {
 
 // drawMetalBody fills the already-rasterized glyph (in debugTextScratch) with the
 // metalShade gradient, blitting it in thin horizontal bands top->bottom.
-func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
+func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.Color) {
+	tint := color.NRGBAModel.Convert(base).(color.NRGBA)
+	opaque := color.RGBA{tint.R, tint.G, tint.B, 255}
 	const band = 2
 	for sy := 0; sy < h; sy += band {
 		sh := band
 		if sy+sh > h {
 			sh = h - sy
 		}
-		c := metalShade(base, (float64(sy)+float64(sh)/2)/float64(h))
+		c := metalShade(opaque, (float64(sy)+float64(sh)/2)/float64(h))
 		strip := debugTextScratch.RecyclableSubImage(image.Rect(0, sy, w, sy+sh))
 		op := &ebiten.DrawImageOptions{}
-		r, g, b, a := c.RGBA()
-		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
+		op.ColorScale.ScaleWithColor(color.NRGBA{c.R, c.G, c.B, tint.A})
 		op.GeoM.Translate(float64(x), float64(y+sy))
 		screen.DrawImage(strip, op)
 		strip.Recycle()
@@ -1258,35 +1238,16 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 }
 
 // Rarity metals - the SINGLE definition of each tier's tint. Silver is light and
-// cool (blue > red); gold and legendary are warm. Listed in metallicColors so
-// drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
-// rather than a flat fill.
+// cool (blue > red); gold and legendary are warm. The shared renderer shades
+// every base tint, including non-rarity text.
 var (
 	raritySilver   = config.RaritySilver
 	rarityGold     = config.RarityGold
 	rarityFire     = config.RarityLegendary
 	rarityEmerald  = config.RarityUnique
-	focusModeMetal = color.RGBA{70, 155, 235, 255} // focus-mode blue steel
+	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
+	itemCountMetal = color.RGBA{240, 240, 240, 255} // neutral white metal
 )
-
-// metallicColors marks which base tints get the metal-gradient text treatment.
-var metallicColors = map[color.RGBA]bool{
-	raritySilver:   true,
-	rarityGold:     true,
-	rarityFire:     true,
-	rarityEmerald:  true,
-	bannerWorkTint: true, // the quest banner's pale gold - see screenBannerTint
-	focusModeMetal: true,
-}
-
-// asMetal reports whether col is a registered rarity metal (so the text renders
-// as a gradient), returning the concrete RGBA base.
-func asMetal(col color.Color) (color.RGBA, bool) {
-	if rc, ok := col.(color.RGBA); ok && metallicColors[rc] {
-		return rc, true
-	}
-	return color.RGBA{}, false
-}
 
 func rarityColor(rarity string) color.Color {
 	return rarityRGBA(rarity)
@@ -1301,7 +1262,7 @@ func rarityRGBA(rarity string) color.RGBA {
 }
 
 var (
-	// Distinct from rarityGold so the combat log stays a flat fill (not metal).
+	// Combat messages retain their own base tints.
 	combatMessageGold   = color.RGBA{255, 205, 40, 255}
 	combatMessagePurple = color.RGBA{190, 100, 255, 255}
 	combatMessageOrange = color.RGBA{255, 140, 40, 255}
@@ -1368,6 +1329,7 @@ func referenceTooltipText(title, section, description string) string {
 		return ""
 	}
 	text := strings.ReplaceAll(description, ". ", ".\n")
+	text = strings.ReplaceAll(text, "\n\nGrand Master:\n", "\n\nGRAND MASTER\n")
 	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
 		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
 	}

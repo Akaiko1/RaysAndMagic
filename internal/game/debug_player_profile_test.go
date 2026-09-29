@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/arena"
 	"ugataima/internal/config"
 	"ugataima/internal/playerprofile"
 )
@@ -89,7 +90,8 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 	mw, mh := MinimumWindowSize()
 	sizes = append(sizes, [2]int{mw, mh})
 	t.Cleanup(func() { h.ui.profileArt.close(); h.ui.profileArt = nil })
-	for attempt := 0; attempt < 300; attempt++ {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
 		ready := false
 		runOnDrawFrame(func(_ *ebiten.Image) {
 			if h.ui.profileArt == nil {
@@ -103,18 +105,26 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 		if ready {
 			break
 		}
-		if attempt == 299 {
+		if time.Now().After(deadline) {
 			t.Fatal("region thumbnails did not finish")
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	for _, size := range sizes {
 		for page := 0; page <= len(profilePages); page++ {
-			name := fmt.Sprintf("%dx%d-%s.png", size[0], size[1], []string{"overview", "combat", "discoveries", "trophies", "collecting", "achievements"}[page])
+			name := fmt.Sprintf("%dx%d-%s.png", size[0], size[1], []string{"overview", "combat", "discoveries", "trophies", "collecting", "arena", "achievements"}[page])
 			var drawErr error
 			runOnDrawFrame(func(_ *ebiten.Image) {
 				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = size[0], size[1]
 				g.entryMenuMode = EntryMenuStatistics
 				g.statisticsTab = page
+				if page == 5 {
+					data := arenaProfileData(&arena.Board{Entries: []arena.Entry{
+						{RunID: "qa1", Members: []arena.Member{{Name: "Gareth"}, {Name: "Celestine"}}, TotalPoints: 850, Kills: map[string]map[string]int{"Warlock": {"Novice": 12, "Master": 7}, "Gladiator": {"Expert": 9}}},
+						{RunID: "qa2", Members: []arena.Member{{Name: "Pilgrim"}, {Name: "Alchemist"}}, TotalPoints: 1260, Kills: map[string]map[string]int{"Warlock": {"Grand Master": 4}, "Monk": {"Master": 11}}},
+					}})
+					h.ui.profileArena = &data
+				}
 				if page == 2 {
 					h.ui.profileExplorationReady = true
 					h.ui.profileExploration = profileExplorationSummary{visited: 2531, area: 5000, entries: []playerprofile.Entry{
@@ -140,7 +150,7 @@ func TestDebugSim_PlayerProfileGallery(t *testing.T) {
 				defer f.Close()
 				drawErr = png.Encode(f, snapshotUIImage(dst))
 			})
-			if (page == 0 || page == 2 || page == 3 || page == 4) && size[0] <= 1024 {
+			if page < len(profilePages) && size[0] <= 1024 {
 				runOnDrawFrame(func(_ *ebiten.Image) {
 					l := makeProfileStatsLayout(size[0], size[1], profilePages[g.statisticsTab])
 					g.statisticsScroll = max(0, l.contentH-l.body.h)
@@ -196,8 +206,9 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 							problems = append(problems, checkThemeCardEdges(h.ui, dst, r, l.body, kind)...)
 						}
 						for i := range profilePages[tab].counters {
-							cx := l.body.x + (i%l.columns)*(l.columnW+14)
-							check("counter", layoutRect{cx, l.body.y - g.statisticsScroll + (i/l.columns)*100, l.columnW, 86}, profileGold)
+							cx := l.body.x + (i%l.counterColumns)*(l.counterW+14)
+							check("counter", layoutRect{cx, l.body.y - g.statisticsScroll + (i/l.counterColumns)*100, l.counterW, 86}, profileGold)
+							cx = l.body.x + (i%l.columns)*(l.columnW+14)
 							check("ranking", layoutRect{cx, l.body.y - g.statisticsScroll + l.rankY + (i/l.columns)*(l.rankH+14), l.columnW, l.rankH}, color.RGBA{109, 91, 63, 255})
 						}
 					})
@@ -215,9 +226,9 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 				dst := ebiten.NewImage(size[0], size[1])
 				defer dst.Deallocate()
 				h.loop.Draw(dst)
-				panel := profilePanelRect(size[0], size[1])
+				layout := makeProfileAchievementsLayout(size[0], size[1], len(config.GetAchievements()))
 				// Check the first card's top rail, without depending on its old flat color.
-				r := layoutRect{panel.x + menuFrameInset, panel.y + menuFrameInset + 60, 200, 86}
+				r := layoutRect{layout.body.x, layout.body.y, layout.columnW, 94}
 				found := false
 				for inset := 0; inset < 8; inset++ {
 					c := color.RGBAModel.Convert(dst.At(r.x+100, r.y+inset)).(color.RGBA)
@@ -239,7 +250,7 @@ func TestDebugSim_ProfileFramesStayInsideViewport(t *testing.T) {
 func checkThemeCardEdges(ui *UISystem, dst *ebiten.Image, r, clip layoutRect, kind string) []string {
 	reference := ebiten.NewImage(r.w, r.h)
 	defer reference.Deallocate()
-	ui.drawProfileCard(reference, layoutRect{0, 0, r.w, r.h}, true)
+	ui.drawProfileCard(reference, layoutRect{0, 0, r.w, r.h}, kind != "ranking")
 	var problems []string
 	for edge := 0; edge < 4; edge++ {
 		visible, checked := false, false

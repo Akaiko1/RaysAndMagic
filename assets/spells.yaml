@@ -767,7 +767,7 @@ spells:
 
   firewall:
     name: "Firewall"
-    description: "Raises a three-tile wall of flame across the party's line of sight, two tiles ahead"
+    description: "Raises a three-tile wall of fire. Adjacent open tiles take half damage. Both bands ignite victims for 3 seconds; overlapping flames hit once per tick."
     school: "fire"
     spell_points_cost: 25
     cooldown_seconds: 3.0
@@ -777,6 +777,9 @@ spells:
     zone_radius_tiles: 0.55    # one tile per cell (slight overlap keeps the line solid)
     zone_ahead_tiles: 2.0      # laid two tiles in front of the party
     zone_width_tiles: 3        # 3x1, across the facing
+    zone_edge_tiles: 1
+    zone_edge_damage_percent: 50
+    zone_burn_seconds: 3
     zone_tick_seconds: 1.0     # 3 ticks per 3-second turn in TB, once a second in RT
     damage_by_mastery: [15, 30, 45, 60]
     status_icon: "firewall"

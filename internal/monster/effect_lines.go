@@ -41,12 +41,21 @@ func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []
 		out = append(out, EffectLine{Text: text, School: normalizeEffectSchool(school)})
 	}
 
+	if d.RootPartyChance > 0 {
+		add(fmt.Sprintf("Party root: %.0f%% per attack, %ds / %d turn(s)", d.RootPartyChance*100, d.RootPartySeconds, d.RootPartyTurns))
+	}
+	if d.RearBlinkChance > 0 {
+		add(fmt.Sprintf("Rear blink and strike: %.0f%% per attack, %.0f tiles", d.RearBlinkChance*100, d.RearBlinkRangeTiles))
+	}
 	if d.ProjectileSpell != "" {
 		if sp, ok := config.GetSpellDefinition(d.ProjectileSpell); ok && sp != nil {
 			school := normalizeEffectSchool(sp.School)
 			addSchool(school, fmt.Sprintf("Ranged spell: %s (%s)", sp.Name, school))
 			if sp.AoeRadiusTiles > 0 {
 				addSchool(school, fmt.Sprintf("Projectile AoE: whole party on hit (spell radius %.1f)", sp.AoeRadiusTiles))
+			}
+			if rider := d.ProjectileStun(d.ProjectileSpell); rider.Chance > 0 {
+				add(fmt.Sprintf("Projectile stun: %.0f%% on hit, %ds / %d turn(s)", rider.Chance*100, rider.Seconds, rider.Turns))
 			}
 			if sp.DisintegrateChance > 0 {
 				add(fmt.Sprintf("Disintegrate on hit: %.0f%%", sp.DisintegrateChance*100))

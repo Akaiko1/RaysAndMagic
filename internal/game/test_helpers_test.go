@@ -37,6 +37,12 @@ func loadTestConfig(t testing.TB) *config.Config {
 	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
 		t.Fatalf("load items: %v", err)
 	}
+	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.LoadAlchemyConfig("../../assets/alchemy_recipes.yaml"); err != nil {
+		t.Fatal(err)
+	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
 	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {

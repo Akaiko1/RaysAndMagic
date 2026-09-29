@@ -135,6 +135,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	if !ready {
 		return
 	}
+	gl.game.updateAuthoredBandAggro()
 
 	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
 
@@ -715,6 +716,7 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
+	gl.game.partyTechniqueActionsUsed = 0
 	gl.game.monsterTurnState.resetPasses()
 	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true

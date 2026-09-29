@@ -214,7 +214,8 @@ func (g *MMGame) promoteEligibleMember(kind character.Promotion, itemIdx int) bo
 
 // useLichPhylactery offers the Lich path to a compatible party member. If none
 // is eligible the phylactery is NOT consumed (so it isn't wasted).
-func (g *MMGame) useLichPhylactery(itemIdx int) {
+func (g *MMGame) useLichPhylactery(itemIdx int, owner ...*character.MMCharacter) {
+	g.promotionPickerItemOwner = g.party.Bag(owner...).Owner
 	if !g.promoteEligibleMember(character.PromotionLich, itemIdx) {
 		g.AddCombatMessage("No one in the party can bind their soul to the phylactery.")
 	}
@@ -229,9 +230,10 @@ func (g *MMGame) applyPromotionKind(kind character.Promotion, charIndex, itemIdx
 		g.applyArchmagePromotion(charIndex)
 	case character.PromotionLich:
 		g.applyLichPromotion(charIndex)
-		if itemIdx >= 0 && itemIdx < len(g.party.Inventory) &&
-			g.party.Inventory[itemIdx].Attributes["promotes_lich"] > 0 {
-			g.party.RemoveItem(itemIdx)
+		bag := g.party.Bag(g.promotionPickerItemOwner)
+		if itemIdx >= 0 && itemIdx < len(bag.Items()) &&
+			bag.Items()[itemIdx].Attributes["promotes_lich"] > 0 {
+			bag.Remove(itemIdx)
 		}
 	}
 }

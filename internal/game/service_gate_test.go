@@ -1338,6 +1338,9 @@ func TestQuestPropInteractionsAreOneShotAndGated(t *testing.T) {
 	bootQuestGiverTest(t) // loads the shipped catalog
 	for action, choice := range shippedQuestProps(t) {
 		words := choice.Prop
+		if words.Token != "" {
+			continue // Stateful activities have their own sequence/phase integration coverage.
+		}
 		t.Run(action, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			g := cs.game

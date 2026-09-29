@@ -340,6 +340,7 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 // switchDialogTab is the shared transition for mouse and keyboard tab changes.
 // It also invalidates input queued against the previous tab.
 func (g *MMGame) switchDialogTab(tab int) {
+	g.pendingRosterSwap = nil
 	g.dialogTab = tab
 	g.dialogNodePath = nil
 	g.selectedChoice = 0

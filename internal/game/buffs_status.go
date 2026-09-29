@@ -20,6 +20,9 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 		return
 	}
 	var iconToken, label string
+	if d := config.Technique(string(spellID)); d != nil {
+		iconToken, label = d.Key, d.Name
+	}
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
 		iconToken, label = def.StatusIcon, def.Name
 	} else if def, ok := config.GetItemDefinition(string(spellID)); ok && def.HasTimedBuff() {
@@ -77,6 +80,9 @@ func (g *MMGame) resolveStatusIconSprite(token string) (icon, fallback string) {
 		return icon, fallback // known legacy token, already mapped to a status_* sprite
 	}
 	if g.sprites != nil {
+		if d := config.Technique(token); d != nil && g.sprites.HasSprite(d.Icon) {
+			return g.sprites.HUDIconName(d.Icon), fallback
+		}
 		if status := "status_" + token; g.sprites.HasSprite(status) {
 			return status, fallback
 		}

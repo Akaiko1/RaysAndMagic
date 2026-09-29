@@ -98,6 +98,7 @@ characters:
   # Class base attributes
   classes:
     knight:
+      auto_stats: {speed: 16, endurance: 28, primary: might}
       might: 15
       intellect: 10
       personality: 10
@@ -109,6 +110,7 @@ characters:
       main_hand: iron_sword
 
     sorcerer:
+      auto_stats: {speed: 16, endurance: 16, primary: intellect}
       might: 8
       intellect: 15
       personality: 12
@@ -125,6 +127,7 @@ characters:
       quick_spell: firebolt
 
     cleric:
+      auto_stats: {speed: 16, endurance: 22, primary: personality}
       might: 10
       intellect: 12
       personality: 15
@@ -141,6 +144,7 @@ characters:
       quick_spell: heal_other
 
     archer:
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
       might: 12
       intellect: 10
       personality: 10
@@ -155,6 +159,7 @@ characters:
       quick_spell: wizard_eye
 
     paladin:
+      auto_stats: {speed: 16, endurance: 24, primary: might, secondary: personality}
       might: 13
       intellect: 10
       personality: 13
@@ -170,6 +175,7 @@ characters:
       quick_spell: heal
 
     druid:
+      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: personality}
       might: 10
       intellect: 13
       personality: 13
@@ -188,6 +194,7 @@ characters:
   # Race stat modifiers, ADDITIVE over class base stats. The classic roster is
   # human (baseline, no modifiers).
     thief:
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
       might: 10
       intellect: 12
       personality: 8
@@ -201,6 +208,7 @@ characters:
       quick_trap: cleave_trap
 
     arms_master:
+      auto_stats: {speed: 16, endurance: 26, primary: might}
       card_rarity: rare
       might: 15
       intellect: 8
@@ -214,6 +222,7 @@ characters:
       main_hand: iron_sword
 
     monk:
+      auto_stats: {speed: 26, endurance: 28, primary: might, secondary: personality}
       card_rarity: rare
       might: 13
       intellect: 8
@@ -235,6 +244,7 @@ characters:
     # spell hit can be eaten for HP+SP) and Strong Magic (offensive casts burn
     # extra HP for proportionally harder hits) - numbers in character/catalog.go.
     battle_mage:
+      auto_stats: {speed: 16, endurance: 36, primary: intellect, secondary: might}
       card_rarity: legendary
       might: 13
       intellect: 13
@@ -254,6 +264,7 @@ characters:
       quick_spell: rock_blast
 
     sniper:
+      auto_stats: {speed: 16, endurance: 18, primary: accuracy}
       card_rarity: legendary
       might: 9
       intellect: 12
@@ -266,6 +277,40 @@ characters:
       skill_start_mastery: { blaster: expert }
       main_hand: surveyors_rifle
       equipment: [leather_armor, leather_helmet]
+
+    alchemist:
+      auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: accuracy}
+      card_rarity: rare
+      might: 8
+      intellect: 15
+      personality: 10
+      endurance: 11
+      accuracy: 13
+      speed: 12
+      luck: 13
+      skills: [alchemy, pharmacology, bomb_throwing, dagger, leather, bodybuilding, learning]
+      skill_start_mastery: {alchemy: expert}
+      main_hand: magic_dagger
+      equipment: [leather_armor]
+      items:
+        - {key: brewed_health_potion, count: 6}
+        - {key: harm_flask, count: 4}
+        - {key: venom_flask, count: 2}
+
+    wayfarer:
+      auto_stats: {speed: 26, endurance: 22, primary: intellect, secondary: speed}
+      card_rarity: rare
+      might: 9
+      intellect: 15
+      personality: 10
+      endurance: 12
+      accuracy: 10
+      speed: 16
+      luck: 10
+      skills: [staff, translocation, flowing_staff, pathfinding, leather, bodybuilding, meditation, learning]
+      skill_start_mastery: {staff: expert}
+      main_hand: oak_staff
+      equipment: [leather_armor]
 
   races:
     human: {}
@@ -299,6 +344,8 @@ characters:
     - { name: Sora,    class: monk }
     - { name: Isolde,  class: battle_mage }
     - { name: Mara,    class: sniper, available_in_existing_saves: true }
+    - { name: Elara,   class: alchemist, available_in_existing_saves: true }
+    - { name: Kael,    class: wayfarer, available_in_existing_saves: true }
 
 
 # Monster stats and AI
@@ -452,6 +499,7 @@ graphics:
     # despill audit - extend as new purple art is added.
     edge_despill_radius: 3
     edge_only_despill:
+      - projectile_harm_flask
       # Purple/magenta creatures
       - octopus
       - medusa
@@ -516,11 +564,20 @@ day_night:
   # Counts are caps: packs use vacant authored monster spawn points only.
   packs:
     - map: forest
-      day_monster: wolf
-      count: 8
+      day_monsters:
+        - monster: wolf
+          count: 8
+          replacement: {monster: dire_wolf, min_party_level: 20, chance: 0.20}
       night_monsters:
-        - { monster: forest_spider, count: 8, quest_progress: true }
+        - monster: forest_spider
+          count: 8
+          quest_progress: true
+          replacement: {monster: giant_spider, min_party_level: 20, chance: 0.20}
       min_player_dist_tiles: 8
+    - map: highlands
+      day_monster: puma
+      night_monster: mountain_troll
+      count: 5
     - map: desert
       day_monsters:
         - { monster: desert_dervish, count: 5, min_party_level: 20, quest_progress: true }
@@ -548,3 +605,8 @@ day_night:
       night_monster: dragon
       count: 5
       require_map_clear: true
+
+# Shared by all existing and new burn sources.
+status_damage:
+  burn_percent: 3
+  boss_burn_percent: 1

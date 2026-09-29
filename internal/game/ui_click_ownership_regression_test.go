@@ -33,7 +33,7 @@ func claimButtons(h *displayedModalHarness) []layoutRect {
 	layout := computeQuestContentLayout(content, nil, 0)
 	copies := make([]questCardCopy, len(all))
 	for i, q := range all {
-		copies[i] = questCardCopyFor(q.Description(), layout.cardW, layout.maxDescRows)
+		copies[i] = questCardCopyForQuest(q, layout.cardW, layout.maxDescRows)
 	}
 	layout = computeQuestContentLayout(content, copies, h.ui.questPage)
 	for _, cmd := range h.ui.displayedInput.commands {

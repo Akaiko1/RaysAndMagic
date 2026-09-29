@@ -22,6 +22,10 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 		return castNotHandled
 	}
 	g := cs.game
+	if g.partyRooted() {
+		g.AddCombatMessage("The party is rooted in place.")
+		return castNoEffect
+	}
 	ts := float64(g.config.GetTileSize())
 	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
 	landX := g.camera.X + dx*def.JumpTiles*ts
@@ -31,7 +35,9 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 		g.AddCombatMessage("There is no room to land.")
 		return castNoEffect
 	}
+	oldX, oldY := g.camera.X, g.camera.Y
 	g.setPartyPosition(landX, landY)
+	g.notifyPilgrimDisplacement(oldX, oldY)
 	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", def.Name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {

@@ -10,6 +10,7 @@ import (
 // restParty cures afflictions, fully restores every living member's HP/SP and wakes the
 // unconscious. The dead and eradicated stay down - revival is a separate rite.
 func (g *MMGame) restParty() {
+	g.partyRoot = PartyRootState{}
 	for i, m := range g.party.Members {
 		if m == nil || m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
 			continue
@@ -18,6 +19,7 @@ func (g *MMGame) restParty() {
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
 		m.CureRestConditions()
+		m.RareClass.Anchor = character.SpatialAnchor{}
 		if healed {
 			g.TriggerPartyHeal(i) // same rising green "+" the heal spells show
 		}
@@ -30,6 +32,36 @@ func (g *MMGame) restParty() {
 func (g *MMGame) TryCamp() (string, bool) {
 	if g.party.Food < CampFoodCost {
 		return uitext.Text("ui.camp_no_food"), false
+	}
+	if reason, safe := g.safeToPrepare(); !safe {
+		return reason, false
+	}
+	g.party.Food -= CampFoodCost
+	g.restParty()
+	return uitext.Text("ui.camp_rested"), true
+}
+
+// applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto
+// every active member and re-derives MaxHP/MaxSP preserving current values.
+// MUST be called after every change to g.statBonuses - it is what makes buffs
+// behave like real stats everywhere (combat formulas AND HP/SP maxima).
+func (g *MMGame) applyPartyStatBonuses() {
+	for _, m := range g.party.Members {
+		if m == nil {
+			continue
+		}
+		m.BuffBonuses = g.statBonuses
+		m.BonusMaxHP = g.cardMaxHPBonus()  // Jungle Idol Card: flat party max HP
+		m.BonusRegenPct = g.cardRegenPct() // Troll Card(s): % max HP regen per tick
+		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
+}
+
+// safeToPrepare shares camp's threat rules without spending food or restoring
+// resources. Inventory pause never makes an unsafe field suitable for brewing.
+func (g *MMGame) safeToPrepare() (string, bool) {
+	if g.world == nil || g.camera == nil || g.config == nil {
+		return "The field is not ready.", false
 	}
 	radius := CampEnemyRadiusTiles * float64(g.config.World.TileSize)
 	for _, m := range g.world.Monsters {
@@ -54,23 +86,5 @@ func (g *MMGame) TryCamp() (string, bool) {
 			return uitext.Text("ui.camp_enemies_near"), false
 		}
 	}
-	g.party.Food -= CampFoodCost
-	g.restParty()
-	return uitext.Text("ui.camp_rested"), true
-}
-
-// applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto
-// every active member and re-derives MaxHP/MaxSP preserving current values.
-// MUST be called after every change to g.statBonuses - it is what makes buffs
-// behave like real stats everywhere (combat formulas AND HP/SP maxima).
-func (g *MMGame) applyPartyStatBonuses() {
-	for _, m := range g.party.Members {
-		if m == nil {
-			continue
-		}
-		m.BuffBonuses = g.statBonuses
-		m.BonusMaxHP = g.cardMaxHPBonus()  // Jungle Idol Card: flat party max HP
-		m.BonusRegenPct = g.cardRegenPct() // Troll Card(s): % max HP regen per tick
-		m.RecalculateMaxStatsKeepingCurrent(g.config)
-	}
+	return "", true
 }

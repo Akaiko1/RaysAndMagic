@@ -133,24 +133,28 @@ func (cs *CombatSystem) tryCardMoveBurst() {
 	if pct <= 0 || rand.Intn(100) >= pct {
 		return
 	}
-	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg()) {
+	radiusTiles := cs.game.cardMoveAoeRadiusTiles()
+	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg(), radiusTiles) {
 		cs.game.AddCombatMessage(fmt.Sprintf("The Gorilla Titan Card erupts for %d physical true damage!", cs.game.cardMoveAoeDmg()))
 	}
+	// Play the existing ground FX on every successful roll, even over empty
+	// ground. This is only presentation, not an Earthquake spell cast.
+	cs.game.spawnQuakeGroundFx(cs.game.camera.X, cs.game.camera.Y, radiusTiles)
 }
 
 // cardMoveBurstApply deals `dmg` physical true damage to every living monster
-// within 1.5 tiles of the party. Resistance applies; armor and soak do not.
-func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
-	if dmg <= 0 || cs.game.world == nil {
+// within the authored radius. Resistance applies; armor and soak do not.
+func (cs *CombatSystem) cardMoveBurstApply(dmg int, radiusTiles float64) bool {
+	if dmg <= 0 || radiusTiles <= 0 || cs.game.world == nil {
 		return false
 	}
-	radius := float64(cs.game.config.GetTileSize()) * 1.5
+	radius := float64(cs.game.config.GetTileSize()) * radiusTiles
 	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
 	for _, m := range cs.game.world.Monsters {
 		// This automatic movement proc follows the party auto-target policy.
 		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() || m.IsDamageInvulnerable() ||
-			math.Hypot(m.X-px, m.Y-py) > radius {
+			math.Hypot(m.X-px, m.Y-py) > radius || !cs.attackLineClear(px, py, m.X, m.Y) {
 			continue
 		}
 		cs.applyMonsterDamagePacket(
@@ -463,6 +467,9 @@ func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool
 	if caster.HasWeaponInEitherHand() {
 		return true
 	}
+	if action := caster.Equipment[items.SlotSpell]; action.Type == items.ItemThrowable {
+		return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(caster, string(action.SpellEffect)) > 0
+	}
 	if _, _, _, ok := cs.smartHealReady(caster); ok {
 		return true
 	}
@@ -699,6 +706,9 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) boo
 	// Card procs only fire on an attack that actually happened (gated above), so a
 	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
 	if acted {
+		if weaponDef.Category == "staff" && !summonRolled {
+			attacker.ConsumeFlowingStaffCharge()
+		}
 		cs.tryCardHealOnAttack() // Ningyo Card: chance to self-heal on attacking
 		if !summonRolled {
 			cs.tryPartyActionSummons(attacker)
@@ -1901,6 +1911,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 }
 
 type monsterCharacterHit struct {
+	SpellID            string
 	ElementalAttack    bool
 	Parts              damagecalc.Parts
 	DamageType         string
@@ -2020,7 +2031,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
 		cs.tryApplyMonsterIgnite(monster, target)
-		cs.tryApplyMonsterStun(monster, target)
+		cs.tryApplyMonsterStun(monster, target, hit.SpellID)
 		cs.tryApplyMonsterDispel(monster, target)
 		cs.reflectMonsterDamage(monster, target, finalDamage, hit.Melee)
 	}
@@ -2122,12 +2133,14 @@ func (cs *CombatSystem) tryReflectMonsterProjectile(
 	return true
 }
 
-// partyFireWhileRunning reports whether ANY living party member wields a
-// weapon with party_fire_while_running (Wyrmspine Wing): the whole party may
-// then attack, cast and shoot while sprinting.
+// One gate covers fresh commands, held repeats and aimed mouse attacks. Either
+// Grandmaster Pathfinding or an active Wyrmspine Wing permits party sprint combat.
 func (g *MMGame) partyFireWhileRunning() bool {
 	if g.party == nil {
 		return false
+	}
+	if g.party.PathfindingTier() >= int(character.MasteryGrandMaster) {
+		return true
 	}
 	for _, member := range g.party.Members {
 		if member == nil || !member.CanAct() {
@@ -2309,11 +2322,16 @@ func (cs *CombatSystem) scaledStatusFrames(target *character.MMCharacter, frames
 
 // tryApplyMonsterStun rolls the attacker's StunCharChance and stuns the struck
 // character (skips its actions: RT seconds / TB turns).
-func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
-	if monster.StunCharChance <= 0 || rand.Float64() >= monster.StunCharChance {
+func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter, spellID string) {
+	chance, seconds, turns := monster.StunCharChance, monster.StunCharSeconds, monster.StunCharTurns
+	if spellID != "" {
+		rider := monster.ProjectileStun(spellID)
+		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
+	}
+	if chance <= 0 || rand.Float64() >= chance {
 		return
 	}
-	cs.applyScaledCharStun(target, cs.game.config.GetTPS()*monster.StunCharSeconds, monster.StunCharTurns)
+	cs.applyScaledCharStun(target, cs.game.config.GetTPS()*seconds, turns)
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s is stunned!", target.Name), combatMessageYellow)
 }
 
@@ -3224,7 +3242,7 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
 	result := character.WeaponDamageBreakdown(lookupWeaponConfigByName(weapon.Name), char)
-	return result.Base + result.ArmsMaster + result.OrcishFury, result.StatBonus, result.Total
+	return result.Base + result.ArmsMaster + result.OrcishFury + result.FlowingStaff, result.StatBonus, result.Total
 }
 
 // activeAttacker returns the currently selected party member (the attacker for
@@ -3503,7 +3521,7 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
 }
 
-const darkElfBindingChancePct = 10
+const darkElfBindingChancePct = character.DarkElfBindingChancePct
 
 func darkElfBindingEligible(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
 	if attacker == nil || attacker.Race != "dark_elf" || target == nil || !target.IsAlive() ||

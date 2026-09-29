@@ -23,21 +23,22 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 
 	layout := computeInventoryContentLayout(content)
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
-	gridX, gridY, gridSize := layout.grid.x, layout.grid.y, layout.grid.w
 
-	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, content.y+10, color.RGBA{232, 222, 190, 255})
-	// Items counts UNITS (stacks summed); slots = grid entries, so the label
-	// can't read as a bug when a 5-stack fills one cell.
-	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Items: %d (%d slots, %d shown)",
-		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems(),
-		len(ui.game.party.Inventory), len(ui.game.inventoryViewIndices(ui.inventoryTab))),
-		paperX, content.y+29)
+	drawLabel := func(label string, r layoutRect, tint color.RGBA) {
+		text := clipDebugText(label, (r.w-8)/layout.textScale-4)
+		drawScaledMetalCenteredText(screen, text, r.x+r.w/2, r.y+r.h/2, float64(layout.textScale), tint)
+		ui.offerClippedTextTooltip([]string{label}, text != label, r.x, r.y, r.w, r.h)
+	}
+	for i, title := range []string{currentChar.Name, "Personal bag", "Shared bag"} {
+		drawLabel(title, layout.headings[i], rarityGold)
+	}
+	for i, label := range []string{fmt.Sprintf("Gold %d", ui.game.party.Gold), fmt.Sprintf("Food %d", ui.game.party.Food)} {
+		drawLabel(label, layout.resources[i], color.RGBA{255, 255, 255, 255})
+	}
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
-	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_grid_panel"), gridX, gridY, gridSize, gridSize)
 
 	var tooltip string
-	var compareTooltip string
 	var tooltipItem items.Item
 	var tooltipHasItem bool
 	var tooltipX, tooltipY int
@@ -83,113 +84,20 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		}
 	}
 
-	ui.drawInventoryTabs(screen, gridX, gridY-24, gridSize)
-	pageSize := len(inventoryGridSlots)
-	// The active tab decides WHICH bag entries are on show; the cells still carry
-	// their absolute bag index, which is what every handler below acts on.
-	view := ui.game.inventoryViewIndices(ui.inventoryTab)
-	totalPages := pageCount(len(view), pageSize)
-	// Clamp every frame so the page stays valid when the inventory shrinks
-	// (equip/discard) out from under the current page.
-	clampPage(&ui.inventoryPage, totalPages)
-	for slot := 0; slot < pageSize; slot++ {
-		idx := inventoryCellIndex(view, ui.inventoryPage, pageSize, slot)
-		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[slot])
-		// Empty cell (guard against the LIVE length - a double-click below can
-		// equip/use mid-loop and shrink the bag, staling the view). Dropping a
-		// dragged item on an empty cell moves it to the end (bag is a packed
-		// slice), whichever tab is showing.
-		if idx < 0 || idx >= len(ui.game.party.Inventory) {
-			if !ui.inventoryContextOpen {
-				if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
-					isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
-					drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
-				}
-				ui.inventoryEmptyDropZone(x, y, w, h)
-			}
-			continue
-		}
-		item := ui.game.party.Inventory[idx]
-		canEquip := ui.canSelectedCharacterEquipInventoryItem(item)
-		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
-		if !canEquip {
-			drawFilledRect(screen, x, y, w, h, color.RGBA{120, 28, 28, 95})
-		}
-		if isHovering {
-			border := color.RGBA{210, 170, 80, 230}
-			if !canEquip {
-				border = color.RGBA{190, 70, 60, 230}
-			}
-			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
-		}
-		// Hide the icon of the cell currently being dragged out of.
-		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
-			ui.game.dragInvIndex == idx && ui.game.dragSplitQuantity == 0
-		if !dragging {
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
-		}
-
-		if !ui.inventoryContextOpen {
-			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
-			ui.quickInvSlotDragSource(idx, x, y, w, h)
-			ui.inventoryCellDropZone(idx, x, y, w, h) // drop another bag item here to swap
-		}
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x - 3, y - 3, (x + w + 3) - (x - 3), (y + h + 3) - (y - 3)}, func() {
-			if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
-				ui.inventoryContextOpen = true
-				ui.inventoryContextX = ui.game.mouseRightClickX
-				ui.inventoryContextY = ui.game.mouseRightClickY
-				ui.inventoryContextIndex = idx
-			}
-		})
-		if isHovering {
-			tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
-			compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
-			tooltipItem = item
-			tooltipHasItem = true
-			tooltipX = mouseX + 16
-			tooltipY = mouseY + 8
-			if key := itemCardKey(item); key != "" {
-				ui.fullArtCardKey = key
-			}
-		}
-	}
-	// The pager and quick slots remain below the grid; camping lives on the HUD.
-	ui.drawInventoryPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, totalPages)
-
-	ui.quickInvDropZone(gridX, gridY, gridSize, gridSize)
-	ui.drawTabQuickSlotBar(screen, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w)
+	ui.drawInventoryTabs(screen, layout.categories.x, layout.categories.y, layout.categories.w)
+	ui.drawInventoryTabs(screen, layout.personalCategories.x, layout.personalCategories.y, layout.personalCategories.w, currentChar)
+	ui.drawInventoryBagGrid(screen, currentChar, layout.personalGrid, layout.personalPager, &ui.personalInventoryPage)
+	ui.drawInventoryBagGrid(screen, nil, layout.grid, layout.pager, &ui.inventoryPage)
+	drawCenteredDebugText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
+	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
 
 	if tooltip != "" && tooltipHasItem {
 		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
-		plate, titleText := ui.itemTitleColors(tooltipItem)
 		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
-		if compareTooltip != "" {
-			compareLines := strings.Split(compareTooltip, "\n")
-			var compareBody []color.Color
-			if tooltipItem.Type == items.ItemWeapon || tooltipItem.Type == items.ItemArmor || tooltipItem.Type == items.ItemAccessory {
-				compareBody = equipmentComparisonColors(compareLines, compareBody)
-			}
-			ui.queueTitledTooltipComparison(compareLines, compareBody, plate, titleText)
-		}
 	}
 
 	ui.drawInventoryContextMenu(screen)
 
-	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", layout.instructions[0].x, layout.instructions[0].y)
-	drawDebugText(screen, "Right-click an inventory item for actions. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
-}
-
-// drawInventoryPager draws the inventory grid's pager. It's a no-op when the
-// whole inventory fits on a single page (nothing to flip through). Flipping the
-// page breaks any in-flight double-click chain so navigating away and clicking
-// the same absolute index doesn't read as a double-click equip/use.
-func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, totalPages int) {
-	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
-	ui.drawPager(screen, gridX, y, gridW, &ui.inventoryPage, totalPages, clickable, func() {
-		ui.lastClickedItem = -1
-		ui.lastClickTime = time.Time{}
-	})
 }
 
 // drawPager renders a "< Page x/y >" strip with prev/next buttons spanning width
@@ -318,17 +226,22 @@ func (ui *UISystem) inventoryInputBlocked() bool {
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
-	switch item.Type {
-	case items.ItemWeapon:
-		return currentChar.CanEquipWeaponByName(item.Name)
-	case items.ItemArmor:
-		return currentChar.CanEquipArmor(item)
-	default:
+	if item.Type != items.ItemWeapon && item.Type != items.ItemArmor && item.Type != items.ItemAccessory {
 		return true
 	}
+	slot, ok := currentChar.EquipDestination(item)
+	return ok && currentChar.ItemFitsSlot(item, slot)
 }
 
 func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item, x, y, w, h int, pad int, enabled bool) {
+	var actor *character.MMCharacter
+	if g := ui.game; g.party != nil && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
+		actor = g.party.Members[g.selectedChar]
+	}
+	ui.drawItemIcon(screen, item, x, y, w, h, pad, enabled, false, actor)
+}
+
+func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w, h int, pad int, enabled, showSingleCount bool, actor *character.MMCharacter) {
 	iconX := x + pad
 	iconY := y + pad
 	iconW := w - pad*2
@@ -353,16 +266,19 @@ func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item,
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
 	}
-	// Stack count badge, bottom-right. Every icon surface (bag, quick slots,
+	// Stack count, bottom-right. Every icon surface (bag, quick slots,
 	// merchant grids, stash) shares this renderer, so stacks read the same
 	// everywhere.
-	if n := item.Count(); n > 1 {
-		label := fmt.Sprintf("x%d", n)
-		lw := debugTextWidth(label)
-		bx := iconX + iconSize - lw - 4
-		by := iconY + iconSize - debugTextCharHeight - 2
-		drawFilledRect(screen, bx-2, by-1, lw+4, debugTextCharHeight+2, color.RGBA{18, 14, 20, 210})
-		drawDebugTextColored(screen, label, bx, by, color.RGBA{240, 230, 200, 255})
+	n := item.Count()
+	if item.Type == items.ItemThrowable {
+		n = ui.game.flaskStock(actor, string(item.SpellEffect))
+	}
+	if n > 1 || item.Type == items.ItemThrowable || showSingleCount && item.Stackable() {
+		// Use the existing metal text at native size, independent of the icon
+		// scale. Its shadow follows the digits; there is no backing rectangle.
+		glyph := outlinedLabelImage(fmt.Sprint(n), itemCountMetal)
+		gw, gh := glyph.Bounds().Dx(), glyph.Bounds().Dy()
+		drawImageScaled(screen, glyph, iconX+iconSize-gw, iconY+iconSize-gh, gw, gh)
 	}
 }
 
@@ -377,43 +293,47 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	if !ui.inventoryContextOpen {
 		return
 	}
-	menuW := 140
-	menuH := 24
+
+	bag := ui.inventoryContextBag()
 	idx := ui.inventoryContextIndex
-	canSplit := idx >= 0 && idx < len(ui.game.party.Inventory) &&
-		ui.game.party.Inventory[idx].Stackable() && ui.game.party.Inventory[idx].Count() > 1
-	if canSplit {
-		menuH *= 2
+	if idx < 0 || idx >= len(bag.Items()) {
+		ui.inventoryContextOpen = false
+		return
 	}
-	x := ui.inventoryContextX
-	y := ui.inventoryContextY
+	item := bag.Items()[idx]
+	canSplit := item.Stackable() && item.Count() > 1
+	target, moveLabel := ui.inventoryMoveTarget(ui.inventoryContextOwner)
+	labels := []string{"Discard"}
+	if canSplit {
+		labels = append(labels, "Split...")
+	}
+	labels = append(labels, moveLabel)
+	menuW, menuH := 166, 24*len(labels)
+	x := min(ui.inventoryContextX, screen.Bounds().Dx()-menuW-4)
+	y := min(ui.inventoryContextY, screen.Bounds().Dy()-menuH-4)
 	ui.drawThemeFrame(screen, frameSilver, x, y, menuW, menuH)
-	drawCenteredDebugText(screen, "Discard", x, y, menuW, 24)
-	if canSplit {
-		drawCenteredDebugText(screen, "Split...", x, y+24, menuW, 24)
+	for i, label := range labels {
+		drawCenteredDebugText(screen, label, x, y+i*24, menuW, 24)
 	}
-	// The context menu is part of the character hub, not a layer above it. Keep
-	// it visible under a modal, but never let its discard/split mutations bypass
-	// the same inventoryInputBlocked contract used by every inventory slot.
 	if ui.inventoryInputBlocked() {
 		return
 	}
-
 	ui.onDisplayedInput(uiCommandNavigation, layoutRect{}, func() {
-		if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
-			if idx >= 0 && idx < len(ui.game.party.Inventory) {
-				item := ui.game.party.Inventory[idx]
-				if !itemDiscardable(item) {
-					ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
-				} else {
-					ui.game.party.ConsumeOneAt(idx) // stacks discard one unit per click
-					ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
-				}
+		switch {
+		case ui.game.consumeLeftClickIn(x, y, x+menuW, y+24):
+			if !itemDiscardable(item) {
+				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+			} else {
+				bag.Consume(idx, 1)
+				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
 			}
 			ui.inventoryContextOpen = false
-		} else if canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48) {
-			ui.openStackSplitPicker(stackSplitPickerInventory, idx, ui.game.party.Inventory[idx])
-		} else if ui.game.consumeLeftClick() {
+		case ui.game.consumeLeftClickIn(x, y+(len(labels)-1)*24, x+menuW, y+len(labels)*24):
+			bag.MoveTo(ui.game.party.Bag(target), idx, item.Count())
+			ui.inventoryContextOpen = false
+		case canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48):
+			ui.openStackSplitPicker(stackSplitPickerInventory, idx, item, ui.inventoryContextOwner)
+		case ui.game.consumeLeftClick():
 			ui.inventoryContextOpen = false
 		}
 	})
@@ -669,6 +589,9 @@ func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label strin
 // contains spell cards only; identity, navigation, controls and quick slots
 // live in the surrounding fullscreen hub.
 func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRect) {
+	if ui.drawRareClassBook(screen, content) {
+		return
+	}
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	// Trappers (thief) carry a trap book instead of a magic spellbook.
 	if hasTrapBook(currentChar) {
@@ -847,9 +770,9 @@ func spellInitials(name string) string {
 }
 
 // handleInventoryItemClick handles double-click to equip items from inventory
-func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) {
+func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleInventoryItemClick(itemIndex, x1, y1, x2, y2) })
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleInventoryItemClick(itemIndex, x1, y1, x2, y2, owner...) })
 		return
 	}
 
@@ -861,11 +784,11 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
 
 		// Only a fast second click acts; a pause leaves this as selection.
-		doubleClick := itemIndex == ui.lastClickedItem &&
+		doubleClick := itemIndex == ui.lastClickedItem && ui.lastClickedBagOwner == ui.game.party.Bag(owner...).Owner &&
 			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastClickTime.UnixMilli())
 		if doubleClick {
 			// Double-click detected - try to equip or use the item
-			item := ui.game.party.Inventory[itemIndex]
+			item := ui.game.party.Bag(owner...).Items()[itemIndex]
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 
 			if item.Type == items.ItemQuest {
@@ -874,38 +797,23 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 					return
 				}
 				if item.Attributes["promotes_lich"] > 0 {
-					ui.game.useLichPhylactery(itemIndex)
+					ui.game.useLichPhylactery(itemIndex, ui.game.party.Bag(owner...).Owner)
 					return
 				}
 			}
 
 			if item.Type == items.ItemConsumable {
 				// Use consumable item
-				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
-			} else if item.Type == items.ItemWeapon {
-				if currentChar.CanEquipWeaponByName(item.Name) {
-					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-							currentChar.Name, item.Name))
-					}
+				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
+			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
+				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner) {
+					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!", currentChar.Name, item.Name))
 				} else {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot use %s!",
-						currentChar.Name, item.Name))
-				}
-			} else if item.Type == items.ItemArmor {
-				if currentChar.CanEquipArmor(item) {
-					if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-							currentChar.Name, item.Name))
+					verb := "use"
+					if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
+						verb = "wear"
 					}
-				} else {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot wear %s!",
-						currentChar.Name, item.Name))
-				}
-			} else if item.Type == items.ItemAccessory {
-				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-						currentChar.Name, item.Name))
+					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot %s %s!", currentChar.Name, verb, item.Name))
 				}
 			}
 			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;
@@ -921,6 +829,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 		}
 
 		ui.lastClickedItem = itemIndex
+		ui.lastClickedBagOwner = ui.game.party.Bag(owner...).Owner
 		ui.lastClickTime = currentTime
 	}
 
@@ -949,7 +858,7 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 			if item, exists := currentChar.Equipment[slot]; exists {
 				itemName := item.Name
-				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar) {
+				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar, currentChar) {
 					ui.game.AddCombatMessage(fmt.Sprintf("%s unequipped %s!",
 						currentChar.Name, itemName))
 				} else {

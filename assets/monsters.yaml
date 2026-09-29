@@ -533,17 +533,17 @@ monsters:
       earth: 25
   dire_wolf:
     name: "Dire Wolf"
-    level: 5
-    max_hit_points: 120
-    armor_class: 18
-    experience: 125
-    damage_min: 7
-    damage_max: 17
+    level: 20
+    max_hit_points: 720
+    armor_class: 30
+    experience: 1120
+    damage_min: 34
+    damage_max: 48
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
-    gold_min: 2
-    gold_max: 10
+    gold_min: 50
+    gold_max: 500
     sprite: "dire_wolf"
     letter: "u"
     box_w: 48
@@ -575,6 +575,26 @@ monsters:
       fire: 25
       dark: 30
       physical: -50
+
+  giant_spider:
+    name: "Giant Spider"
+    level: 20
+    max_hit_points: 760
+    armor_class: 28
+    experience: 1180
+    damage_min: 32
+    damage_max: 46
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.0
+    gold_min: 50
+    gold_max: 500
+    sprite: "giant_spider"
+    box_w: 48
+    box_h: 48
+    size_class: large
+    resistances: {}
+    walkable_tile_overrides: ["thicket"]
 
   forest_spider:
     name: "Forest Spider"
@@ -2257,3 +2277,58 @@ monsters:
     box_h: 24
     size_class: small
     biomes: [highlands]
+
+
+  bronze_gatekeeper:
+    banding: true
+    band_group: unbroken_trial
+    root_party_chance: 0.07
+    root_party_seconds: 2
+    root_party_turns: 1
+    name: Bronze Gatekeeper
+    level: 16
+    max_hit_points: 950
+    armor_class: 38
+    experience: 750
+    damage_min: 32
+    damage_max: 48
+    alert_radius: 5
+    attack_radius: 1
+    speed: 0.8
+    gold_min: 0
+    gold_max: 0
+    sprite: bronze_gatekeeper
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes:
+      - highlands
+    resistances: {}
+    attack_cooldown_multiplier: 1.8
+
+  gale_novice:
+    banding: true
+    band_group: unbroken_trial
+    rear_blink_chance: 0.07
+    rear_blink_range_tiles: 4
+    name: Gale Novice
+    level: 15
+    max_hit_points: 470
+    armor_class: 20
+    experience: 750
+    damage_min: 20
+    damage_max: 30
+    alert_radius: 5
+    attack_radius: 4
+    speed: 1.6
+    gold_min: 0
+    gold_max: 0
+    sprite: gale_novice
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes:
+      - highlands
+    resistances: {}
+    projectile_spell: lightning
+    ranged_attack_range: 4

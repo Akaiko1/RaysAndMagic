@@ -974,20 +974,3 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		)
 	}
 }
-
-// stampChampionSpellRiders re-arms a champion's char-stun riders from the
-// SPELL that actually flew (lightning, psychic_shock), at impact time - the
-// spell dual of stampChampionProjectileRiders, because weapon bolts landing
-// mid-flight re-stamp the same rider fields for their hand.
-func (cs *CombatSystem) stampChampionSpellRiders(src *monster.Monster3D, spellType string) {
-	if src == nil || !src.IsChampion() || spellType == "" {
-		return
-	}
-	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType))
-	if err != nil {
-		return
-	}
-	src.StunCharChance = def.StunChance
-	src.StunCharSeconds = def.StunDurationSeconds
-	src.StunCharTurns = def.StunDurationTurns
-}

@@ -64,6 +64,29 @@ func (g *MMGame) buildingFootprintTiles(npc *character.NPC) [][2]float64 {
 	return out
 }
 
+// buildingOccupiedTiles shares authored building geometry with spatial travel
+// and gathering placement. Includes rotated spans in the stitched open world.
+func (g *MMGame) buildingOccupiedTiles() map[[2]int]bool {
+	occupied := map[[2]int]bool{}
+	if g.world == nil {
+		return occupied
+	}
+	ts := float64(g.config.GetTileSize())
+	for _, npc := range g.world.NPCs {
+		if npc == nil {
+			continue
+		}
+		if npc.GridSpanTiles >= 2 {
+			for _, xy := range g.buildingFootprintTiles(npc) {
+				occupied[[2]int{TileIndex(xy[0], ts), TileIndex(xy[1], ts)}] = true
+			}
+		} else if cat, ok := npcCatByName[npc.RenderCategory]; ok && cat == catLandmark {
+			occupied[[2]int{TileIndex(npc.X, ts), TileIndex(npc.Y, ts)}] = true
+		}
+	}
+	return occupied
+}
+
 // registerBuildingFootprints makes every grid-span building on the current map
 // solid: one static entity per footprint tile. Runs on every map arrival
 // (clearTransientCombatState drops the previous map's entities first).
@@ -176,6 +199,18 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 				if it != nil && it.Cost <= 0 {
 					return fmt.Errorf("NPC %q sells %q for cost %d - item-currency stock needs cost > 0", key, it.Name, it.Cost)
 				}
+			}
+		}
+		for _, entry := range npc.Inventory {
+			if entry == nil || entry.Type == "weapon" {
+				continue
+			}
+			_, itemKey, found := config.GetItemDefinitionByName(entry.Name)
+			if !found {
+				itemKey = entry.Name
+			}
+			if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+				return fmt.Errorf("NPC %q stock: %w", key, err)
 			}
 		}
 		// Per-entry item currency (Scalewright): the key must exist, the count

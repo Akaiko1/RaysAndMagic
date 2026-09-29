@@ -308,6 +308,7 @@ func (ih *InputHandler) executeTavernAction(choice *character.NPCDialogueChoice)
 }
 
 func (g *MMGame) closeRosterScreen() {
+	g.pendingRosterSwap = nil
 	g.rosterScreenOpen = false
 	g.rosterSelectedActive = -1
 }

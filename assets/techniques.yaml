@@ -1,0 +1,50 @@
+techniques:
+  - key: fold_step
+    name: Fold Step
+    description: "Step forward at least 3 tiles. Cannot cross terrain, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares a 3-second / once-per-turn lock with Return."
+    icon: icon_technique_fold_step
+    level: 1
+    sp_cost: [8, 7, 6, 5]
+    range_tiles: [3, 4, 6, 8]
+    min_range_tiles: 3
+    duration_seconds: [12, 15, 18, 24]
+    free_step: true
+  - key: phase_veil
+    name: Phase Veil
+    description: "Briefly increase the whole party's dodge chance. Costs one action in turn-based combat."
+    trigger: "Engaged and two enemies within 2 tiles, or a living ally below 35% HP."
+    icon: icon_technique_phase_veil
+    level: 1
+    sp_cost: [8, 8, 8, 8]
+    power: [10, 15, 20, 25]
+    duration_seconds: [3, 6, 6, 9]
+    cooldown_seconds: 0
+    automatic: true
+  - key: purify
+    name: Purify
+    description: "Remove all curable afflictions from living allies and release party root. Never wakes, heals or revives. Reuse: 6 seconds / 2 rounds."
+    trigger: "A living ally has a removable affliction, or the party is rooted."
+    icon: icon_technique_purify
+    level: 2
+    sp_cost: [12, 11, 10, 9]
+    cooldown_seconds: 2
+    automatic: true
+  - key: quickening
+    name: Quickening
+    description: "RT: reduce future recovery. TB: add shared bonus actions from next turn, at most one extra per eligible hero."
+    trigger: "Engaged, Quickening absent, and the party can benefit in the current mode."
+    icon: icon_technique_quickening
+    level: 4
+    sp_cost: [12, 12, 12, 12]
+    power: [20, 25, 30, 35]
+    tb_power: [1, 1, 2, 2]
+    duration_seconds: [12, 15, 18, 24]
+    cooldown_seconds: 0
+    automatic: true
+  - key: return_step
+    name: Return Step
+    description: "Return to the first Fold Step departure point from ANY distance on the same map, even across walls. The anchor must be active and its exact landing clear. No action cost or extra monster turn. Shares the party's spatial reuse lock."
+    icon: icon_technique_return_step
+    level: 6
+    sp_cost: [6, 5, 4, 3]
+    free_step: true

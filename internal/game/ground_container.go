@@ -287,7 +287,7 @@ func fixedWeaponRewards(keys []string) []items.Item {
 }
 
 func fixedItemRewards(keys []string) []items.Item {
-	return fixedRewards(keys, items.TryCreateItemFromYAML, "fixedItemRewards")
+	return fixedRewards(keys, func(key string) (items.Item, error) { return createLootItem("item", key) }, "fixedItemRewards")
 }
 
 // rollWeightedLootTable rolls a named weighted pool: `Rolls` weighted picks (with
@@ -300,9 +300,17 @@ func fixedItemRewards(keys []string) []items.Item {
 // crate rolls.
 func createLootItem(typ, key string) (items.Item, error) {
 	switch typ {
+	case "harvest":
+		if err := config.ValidateMonsterHarvestGrant(key); err != nil {
+			return items.Item{}, err
+		}
+		return items.TryCreateItemFromYAML(key)
 	case "weapon":
 		return items.TryCreateWeaponFromYAML(key)
 	case "item":
+		if err := config.ValidateOrdinaryItemGrant(key); err != nil {
+			return items.Item{}, err
+		}
 		return items.TryCreateItemFromYAML(key)
 	}
 	return items.Item{}, fmt.Errorf("unknown loot entry type %q for %q", typ, key)

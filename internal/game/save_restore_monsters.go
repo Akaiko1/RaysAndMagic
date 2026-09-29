@@ -209,6 +209,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				hostile := ms.WasAttacked ||
 					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
 				m.WasAttacked = hostile
+				m.BandInstance = ms.BandInstance
 				// A sighted loot guard is non-sticky by design, so WasAttacked is
 				// deliberately false. Preserve that active objective encounter across
 				// save/load without turning it into a permanent normal aggro state.

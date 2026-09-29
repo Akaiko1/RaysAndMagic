@@ -217,6 +217,31 @@ func (g *MMGame) merchantDragOpen() bool {
 	}
 }
 
+// Item-for-item traders can show active heroes' possessions as payment stock.
+// Coin-sale indices always continue to address the shared bag only.
+func merchantUsesItemCurrency(npc *character.NPC) bool {
+	if npc == nil {
+		return false
+	}
+	if _, ok := currencyItemName(npc.Currency); ok {
+		return true
+	}
+	for _, entry := range npc.MerchantStock {
+		if entry != nil {
+			if _, ok := currencyItemName(entry.EffectiveCurrency(npc.Currency)); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+func (g *MMGame) merchantBagItems() []items.Item {
+	if merchantUsesItemCurrency(g.dialogNPC) {
+		return g.party.CarriedItems()
+	}
+	return g.party.Inventory
+}
+
 // merchantBagHeaderLabel is the header over the party's bag grid. At a shop
 // that pays no coin the label carries BOTH facts - the grid is a buy target and
 // nothing is bought from the party - and it must fit merchantGridW whole: a

@@ -6,6 +6,8 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -275,7 +277,7 @@ func (cs *CombatSystem) dropStaleZoneStamps(cells []*PersistentDamageZone) {
 			covered := false
 			if p, ok := pos[id]; ok {
 				for _, z := range field {
-					if z.coversMonster(p[0], p[1], tile) {
+					if cs.zoneDamageBand(z, p[0], p[1], tile) > 0 {
 						covered = true
 						break
 					}
@@ -323,7 +325,7 @@ func (cs *CombatSystem) zoneCoveredMonsters(cells []*PersistentDamageZone) map[*
 			if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
 				continue
 			}
-			if !z.coversMonster(m.X, m.Y, tile) {
+			if cs.zoneDamageBand(z, m.X, m.Y, tile) == 0 {
 				continue
 			}
 			covered[m] = append(covered[m], z)
@@ -464,11 +466,24 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 		}
 		stampCoveredZoneFields(view, covering, m.ID)
 		z := covering[0]
+		band := cs.zoneDamageBand(z, m.X, m.Y, float64(cs.game.config.GetTileSize()))
+		for _, candidate := range covering[1:] {
+			next := cs.zoneDamageBand(candidate, m.X, m.Y, float64(cs.game.config.GetTileSize()))
+			if next > band {
+				z, band = candidate, next
+			}
+		}
 		if cs.tryDarkElfBindInstead(cs.game.persistentDamageZoneCaster(z), m) {
 			continue
 		}
+		raw := damagecalc.Parts{Normal: z.TickDamage, True: z.TrueTickDamage}
+		def, _ := config.GetSpellDefinition(spellID)
+		if band == 1 {
+			raw.Normal = raw.Normal * def.ZoneEdgeDamagePercent / 100
+			raw.True = raw.True * def.ZoneEdgeDamagePercent / 100
+		}
 		parts, _ := cs.spellPartsWithOutgoingBuff(
-			damagecalc.Parts{Normal: z.TickDamage, True: z.TrueTickDamage},
+			raw,
 			damageTypeStr,
 		)
 		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
@@ -477,6 +492,9 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
 		if damageTypeStr == damagecalc.Water.String() {
 			cs.game.spawnSteamPuff(m.X, m.Y) // scalding steam keeps its own puff
+		}
+		if def != nil && def.ZoneBurnSeconds > 0 && m.IsAlive() {
+			m.ApplyBurn(int(def.ZoneBurnSeconds * float64(cs.game.config.GetTPS())))
 		}
 		cs.finishIndirectKill(m)
 	}
@@ -695,4 +713,34 @@ func spellCastMessage(def spells.SpellDefinition) string {
 		return def.Message
 	}
 	return fmt.Sprintf("%s takes hold!", def.Name)
+}
+
+// zoneDamageBand derives adjacent heat from the parent flame. It owns no extra
+// clock or stamps: crossing bands cannot buy a second entry hit.
+func (cs *CombatSystem) zoneDamageBand(z *PersistentDamageZone, x, y, tile float64) int {
+	if z.coversMonster(x, y, tile) {
+		return 2
+	}
+	def, _ := config.GetSpellDefinition(z.SpellID)
+	if def == nil || def.ZoneEdgeTiles == 0 || !z.isWallCell() {
+		return 0
+	}
+	dx, dy := TileIndex(x, tile)-TileIndex(z.X, tile), TileIndex(y, tile)-TileIndex(z.Y, tile)
+	reach := def.ZoneEdgeTiles
+	if dx < -reach || dx > reach || dy < -reach || dy > reach {
+		return 0
+	}
+	if !cs.game.zoneEdgeReaches(z, x, y) {
+		return 0
+	}
+	return 1
+}
+func (g *MMGame) zoneEdgeReaches(z *PersistentDamageZone, x, y float64) bool {
+	if g.world == nil {
+		return false
+	}
+	if g.collisionSystem != nil && !g.collisionSystem.CheckLineOfSight(z.X, z.Y, x, y) {
+		return false
+	}
+	return collision.CheckMovementLine(rewardReachTerrain{World3D: g.world}, g.config.GetTileSize(), z.X, z.Y, x, y)
 }

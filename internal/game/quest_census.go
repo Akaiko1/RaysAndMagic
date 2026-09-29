@@ -48,6 +48,11 @@ func (g *MMGame) availableKillQuestTargets(q *quests.Quest, includePendingDeaths
 	}
 	if g.questManager != nil {
 		for id, source := range g.questManager.Definitions() {
+			for _, sp := range source.OnAcceptSpawns {
+				if (def.TargetMap == "" || def.TargetMap == sp.Map) && matches(sp.Monster, "") && !g.questSpawnFired(id+"#accept:"+sp.ID) {
+					count++
+				}
+			}
 			for _, sp := range source.OnCompleteSpawns {
 				if (def.TargetMap == "" || def.TargetMap == sp.Map) && matches(sp.Monster, "") && !g.questSpawnFired(id+"#"+sp.ID) {
 					count++

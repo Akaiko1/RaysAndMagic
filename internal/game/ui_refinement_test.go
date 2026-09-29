@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 	"ugataima/internal/config"
 )
@@ -93,12 +94,19 @@ func TestHeroRosterUsesAvailableWidth(t *testing.T) {
 	for _, physical := range [][2]int{{1280, 720}, {1920, 1080}, {2560, 1440}, {3440, 1440}, {3840, 2160}} {
 		w, h := logicalScreenSize(physical[0], physical[1])
 		l := partyCreateLayout(pc, w, h)
-		for i, r := range l.pool {
+		visible := append([]rect(nil), l.pool...)
+		sort.SliceStable(visible, func(i, j int) bool {
+			if visible[i].y != visible[j].y {
+				return visible[i].y < visible[j].y
+			}
+			return visible[i].x < visible[j].x
+		})
+		for i, r := range visible {
 			// Scrolled-out cards have no displayed rectangle.
-			if i == 0 || r.w == 0 || l.pool[i-1].w == 0 || r.y == l.pool[i-1].y {
+			if i == 0 || r.w == 0 || visible[i-1].w == 0 || r.y == visible[i-1].y {
 				continue
 			}
-			prev := l.pool[i-1]
+			prev := visible[i-1]
 			if prev.x+prev.w+12+r.w <= w-20 {
 				t.Fatalf("%v: wrapped with enough space left in row", physical)
 			}

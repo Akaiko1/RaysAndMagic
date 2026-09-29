@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -29,11 +31,19 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
+	journalRewardItems      map[string]items.Item
+	journalItemsCatalog     *config.ItemSystemConfig
+	journalWeaponsCatalog   *config.WeaponSystemConfig
 	patternPlans            patternPlanCache
 	profileViewport         *ebiten.Image
 	profileArt              *profileArt
 	profileExplorationReady bool
 	profileExploration      profileExplorationSummary
+	profileArena            *playerprofile.Data
+	profileArenaError       string
+	alchemyScroll           map[string]int
+	alchemyRevision         uint64
+	alchemyPreview          alchemyPreviewCache
 	game                    *MMGame
 	displayedInput          uiDisplayedInput
 	justOpenedStatPopup     bool
@@ -54,11 +64,15 @@ type UISystem struct {
 	statHoldFrames        int
 	lastClickTime         time.Time
 	lastClickedItem       int
+	lastClickedBagOwner   *character.MMCharacter
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
+	inventoryContextOwner *character.MMCharacter
 	stackSplitPicker      stackSplitPickerState
+	personalInventoryTab  int
+	personalInventoryPage int
 	inventoryPage         int // current inventory grid page (0-based)
 	inventoryTab          int // active inventory category filter (index into inventoryTabs)
 	questPage             int // current quest log page (0-based)
@@ -159,6 +173,8 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
+		ui.profileArena = nil
+		ui.profileArenaError = ""
 		ui.profileExplorationReady = false
 		ui.profileExploration = profileExplorationSummary{}
 	}
