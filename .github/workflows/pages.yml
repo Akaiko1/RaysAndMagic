@@ -51,19 +51,9 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      - id: artifact
-        uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
-      - name: Test the deploy script
-        run: bash .github/scripts/test-deploy-pages.sh
-
-      # Pages keeps one site per build version and actions/deploy-pages always
-      # passes the commit; the script gives every deployment its own.
       - id: deployment
-        name: Deploy to GitHub Pages
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}
-        run: bash .github/scripts/deploy-pages.sh
+        uses: actions/deploy-pages@v5
