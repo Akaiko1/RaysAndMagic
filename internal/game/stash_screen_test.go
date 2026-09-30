@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -175,32 +176,50 @@ func TestStashCardSlot_OnlyCards(t *testing.T) {
 	}
 }
 
-// TestSaveRowModel verifies the slot layout: row 0 is the load-only Autosave, the
-// rest are manual slots mapped to backward-compatible files, across 3 pages.
+// TestSaveRowModel pins the save-row table: the Autosave and Quicksave rows
+// are written by the game and load-only in the menus; manual rows keep their
+// old saveN.json files and slot numbers.
 func TestSaveRowModel(t *testing.T) {
-	if !saveRowIsAutosave(0) {
-		t.Error("row 0 must be the autosave slot")
+	for _, tc := range []struct {
+		row      int
+		label    string
+		file     string
+		loadOnly bool
+	}{
+		{0, "Autosave", "autosave.json", true},
+		{1, "Quicksave", "quicksave.json", true},
+		{2, "Slot 1", "save1.json", false},
+		{3, "Slot 2", "save2.json", false},
+		{21, "Slot 20", "save20.json", false},
+		{saveRowCount - 1, fmt.Sprintf("Slot %d", saveRowCount-2), fmt.Sprintf("save%d.json", saveRowCount-2), false},
+	} {
+		if got := saveRowLabel(tc.row); got != tc.label {
+			t.Errorf("row %d label = %q, want %q", tc.row, got, tc.label)
+		}
+		if got, want := saveRowPath(tc.row), storage.AppSavePath(tc.file); got != want {
+			t.Errorf("row %d path = %q, want %q", tc.row, got, want)
+		}
+		if got := saveRowIsLoadOnly(tc.row); got != tc.loadOnly {
+			t.Errorf("row %d load-only = %v, want %v", tc.row, got, tc.loadOnly)
+		}
+		if !saveRowIsSlot(tc.row) {
+			t.Errorf("row %d is not a menu row", tc.row)
+		}
 	}
-	if saveRowIsAutosave(1) {
-		t.Error("row 1 must be a manual slot")
+	// Every existing save1..save21 file stays reachable from a menu row.
+	for n := 1; n <= 21; n++ {
+		found := false
+		for row := 0; row < saveRowCount; row++ {
+			found = found || saveRowFileName(row) == fmt.Sprintf("save%d.json", n)
+		}
+		if !found {
+			t.Errorf("save%d.json has no menu row", n)
+		}
 	}
-	if got := saveRowLabel(0); got != "Autosave" {
-		t.Errorf("row 0 label = %q, want Autosave", got)
+	if saveRowIsSlot(saveRowCount) || saveRowIsSlot(-1) {
+		t.Error("rows outside the menus count as slots")
 	}
-	if got := saveRowLabel(3); got != "Slot 3" {
-		t.Errorf("row 3 label = %q, want Slot 3", got)
-	}
-	// Row N (N>=1) keeps the old saveN.json filename so existing saves stay reachable.
-	if got, want := saveRowPath(1), storage.AppSavePath("save1.json"); got != want {
-		t.Errorf("manual row 1 path = %q, want %q (old slot 0)", got, want)
-	}
-	// 3 pages x rows-per-page total rows; selected row offsets by page.
-	g := &MMGame{
-		menuState: menuState{
-			savePage:      2,
-			slotSelection: 1,
-		},
-	}
+	g := &MMGame{menuState: menuState{savePage: 2, slotSelection: 1}}
 	if got, want := g.selectedSaveRow(), 2*saveRowsPerPage+1; got != want {
 		t.Errorf("selectedSaveRow = %d, want %d", got, want)
 	}

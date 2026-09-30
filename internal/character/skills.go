@@ -331,6 +331,17 @@ var skillTypeByKey = map[string]SkillType{
 	"pathfinding":          SkillPathfinding,
 }
 
+// RaceOwned reports whether a race grants the skill (EnsureRacialTraits): no
+// class kit or level-up hands it out, though a trainer may raise one a hero
+// already has.
+func (s SkillType) RaceOwned() bool {
+	switch s {
+	case SkillCelestialProvidence, SkillHalflingGuile, SkillDarkElfBinding, SkillOrcishFury:
+		return true
+	}
+	return false
+}
+
 // UsesMastery reports whether the skill can be trained through the four
 // mastery tiers. Fixed racial traits are displayed as passives and must never
 // enter level-up or trainer upgrade pools.
@@ -341,6 +352,15 @@ func (s SkillType) UsesMastery() bool {
 	default:
 		return true
 	}
+}
+
+// MasteryLabel is "Name (Mastery)" for a graded skill and the bare name for
+// one without grades.
+func (s SkillType) MasteryLabel(m SkillMastery) string {
+	if !s.UsesMastery() {
+		return s.String()
+	}
+	return s.String() + " (" + m.String() + ")"
 }
 
 // SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)
@@ -392,8 +412,8 @@ func WeaponSkillForCategory(category string) (SkillType, bool) {
 // weaponCategorySkillOptional lists weapon categories anyone can fire untrained:
 // "blaster" is every FIREARM (matchlocks, the Clockwork Pistol, the Alien
 // Blaster) - you point it and pull the trigger. Their skill remains a real
-// weapon skill and still pays mastery/crit/cooldown bonuses; only the equip gate
-// is waived. Single source of that rule for equipping, tooltips, and the editor.
+// weapon skill and still pays mastery and crit bonuses; only the equip gate is
+// waived. Single source of that rule for equipping, tooltips, and the editor.
 var weaponCategorySkillOptional = map[string]bool{
 	"blaster": true,
 }

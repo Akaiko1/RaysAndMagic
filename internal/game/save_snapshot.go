@@ -243,6 +243,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
+				SummonerName:            mon.SummonerName,
 			}
 			saveEntry.SpawnPosition = &[2]float64{mon.SpawnX, mon.SpawnY}
 			if isPurePartySummon(mon) {

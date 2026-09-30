@@ -76,9 +76,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		}
 	case MenuControlTips:
 		drawScaledMetalCenteredText(screen, uitext.Text("ui.control_tips"), w/2, py+28, 2, rarityGold)
-		for i, tip := range mainMenuControlTips {
-			drawUIText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
-		}
+		ui.drawControlTips(screen, panel)
 		ui.drawBackButton(screen, px+24, py+panelH-46, func() { ui.game.mainMenuMode = MenuMain })
 
 	case MenuSaveSelect:
@@ -120,7 +118,7 @@ func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
 }
 
 // drawSaveRowList renders the saveRowsPerPage rows of the current page (row 0 of
-// page 0 is the load-only Autosave) plus a Prev/Next pager strip below the panel.
+// page 0 are the load-only Autosave and Quicksave) plus a Prev/Next pager strip below the panel.
 // highlight tints the selected row.
 func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
 	g := ui.game
@@ -129,7 +127,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
 		sum := GetSaveRowSummary(row)
 		label := saveRowLabel(row)
-		if sum.Name != "" && !saveRowIsAutosave(row) {
+		if sum.Name != "" && !saveRowIsLoadOnly(row) {
 			label = fmt.Sprintf("%s: %s", label, truncateSaveName(sum.Name, 18))
 		}
 		if sum.Exists {
@@ -142,7 +140,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 				t = t[:19]
 			}
 			label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
-		} else if saveRowIsAutosave(row) {
+		} else if saveRowIsLoadOnly(row) {
 			label = fmt.Sprintf("%s  (empty)", label)
 		}
 		if i == g.slotSelection {

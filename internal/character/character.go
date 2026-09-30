@@ -12,7 +12,7 @@ import (
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
-// Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
+// the Meditation bonus) every ManaRegenIntervalFrames ticks. Kept in this package
 // because game's balance.go can't be imported from internal/character (circular).
 const (
 	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
@@ -1224,7 +1224,7 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 	}
 	// Firearms need no training to point and shoot: anyone with real weapon
 	// training can fire a blaster untrained (the Blaster skill only makes it
-	// better - mastery true damage, crit, cooldown). See
+	// better - mastery true damage and the Grandmaster crit). See
 	// weaponCategorySkillOptional.
 	if WeaponCategorySkillOptional(weaponDef.Category) && c.HasAnyWeaponSkill() {
 		return true

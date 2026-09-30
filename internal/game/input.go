@@ -111,6 +111,11 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// F5 quicksaves and Shift+F4 quickloads wherever the ESC menu can open.
+	if ih.handleQuickSaveKeys() {
+		return
+	}
+
 	// With no modal open, ESC opens the in-game main menu.
 	if ih.keys.Consume(ebiten.KeyEscape) {
 		if ih.game.menuOpen {
@@ -580,9 +585,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := uiCursorPosition()
 	// Panel size per mode (shared with the draw code via menuPanelSize).
-	panelW, panelH := menuPanelSize(ih.game.mainMenuMode)
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
+	panelW, panelH := menuPanelSize(ih.game.mainMenuMode, w, h)
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
@@ -634,11 +639,24 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	}
 }
 
+// handleQuickSaveKeys runs F5 (quicksave) and Shift+F4 (quickload).
+func (ih *InputHandler) handleQuickSaveKeys() bool {
+	if ih.keys.Consume(ebiten.KeyF5) {
+		ih.game.quicksave()
+		return true
+	}
+	if (ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight)) && ih.keys.Consume(ebiten.KeyF4) {
+		ih.game.quickload()
+		return true
+	}
+	return false
+}
+
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
-// Autosave slot and empty slots with a message.
+// load-only slots and empty slots with a message.
 func (ih *InputHandler) openSaveRename(row int) {
-	if saveRowIsAutosave(row) {
-		ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+	if saveRowIsLoadOnly(row) {
+		ih.game.AddCombatMessage("The " + saveRowLabel(row) + " slot cannot be renamed")
 		return
 	}
 	sum := GetSaveRowSummary(row)
@@ -686,13 +704,13 @@ func (ih *InputHandler) navigateSavePage() {
 	}
 }
 
-// doSaveToSelectedRow writes the manual slot under the cursor. The Autosave slot
-// is load-only and refuses a manual write.
+// doSaveToSelectedRow writes the manual slot under the cursor. The load-only
+// slots refuse a manual write.
 func (ih *InputHandler) doSaveToSelectedRow() {
 	g := ih.game
 	row := g.selectedSaveRow()
-	if saveRowIsAutosave(row) {
-		g.AddCombatMessage("Autosave is written automatically - pick another slot")
+	if saveRowIsLoadOnly(row) {
+		g.AddCombatMessage(saveRowLabel(row) + " is written automatically - pick another slot")
 		return
 	}
 	if err := g.SaveGameToFile(saveRowPath(row)); err != nil {
@@ -703,7 +721,7 @@ func (ih *InputHandler) doSaveToSelectedRow() {
 	}
 }
 
-// doLoadFromSelectedRow loads the slot under the cursor (Autosave included).
+// doLoadFromSelectedRow loads the slot under the cursor (Autosave and Quicksave included).
 func (ih *InputHandler) doLoadFromSelectedRow() {
 	g := ih.game
 	row := g.selectedSaveRow()
@@ -1252,10 +1270,12 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 }
 
 // applyLandingTileEffects runs whatever the tile under the party does on arrival:
-// an auto-teleporter fires, deep water drops them to the underwater map. Every
-// arrival (a step, a TB move, a Jump) must go through it, or the party can stand
-// on a live teleporter doing nothing.
+// loot bags on and next to it are picked up, an auto-teleporter fires, deep
+// water drops them to the underwater map. Every arrival (a step, a TB move, a
+// Jump) must go through it, or the party can stand on a live teleporter doing
+// nothing.
 func (ih *InputHandler) applyLandingTileEffects() {
+	ih.game.autoPickupLootBags()
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }

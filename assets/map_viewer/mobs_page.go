@@ -350,12 +350,15 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 			tierName = runtime.ChampionTier
 		}
 		if champion := config.GetChampionDefinition(def.Champion); champion != nil {
-			race := champion.Race
-			if race == "" {
-				race = "human"
+			race := titleCase(strings.ReplaceAll(champion.Race, "_", " "))
+			if cfg := config.GlobalConfig; cfg != nil {
+				race = cfg.Characters.Races["human"].Name
+				if r, ok := cfg.Characters.Races[champion.Race]; ok {
+					race = r.Name
+				}
 			}
 			add("Champion: %s   Tier: %s", champion.Name, titleCase(tierName))
-			add("Class: %s   Race: %s", titleCase(strings.ReplaceAll(champion.Class, "_", " ")), titleCase(strings.ReplaceAll(race, "_", " ")))
+			add("Class: %s   Race: %s", titleCase(strings.ReplaceAll(champion.Class, "_", " ")), race)
 			if gear := champion.Equipment[tierName]; len(gear) > 0 {
 				add("Tier loadout: %s", strings.Join(gear, ", "))
 			}

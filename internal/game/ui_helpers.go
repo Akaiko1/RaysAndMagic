@@ -51,10 +51,10 @@ func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, st
 const (
 	partyCardPanelNativeWidth  = 256
 	partyCardPanelNativeHeight = 100
-	partyCardFrameReserve      = 3
-	partyCardInnerFrameGap     = 1
-	partyCardOuterFrameGap     = 2
-	partyHUDWorldClearance     = 2
+	// partyCardFrameReserve is the gutter around each panel: the state band, a
+	// 1px gap, and the selection band reaching the slot edge.
+	partyCardFrameReserve  = partySelectionBandGap + partyFrameBand - 1
+	partyHUDWorldClearance = 2
 )
 
 func partyHUDHeight() int {
@@ -1393,10 +1393,7 @@ func referenceTooltipText(title, section, description string) string {
 		return ""
 	}
 	text := strings.ReplaceAll(description, ". ", ".\n")
-	text = strings.ReplaceAll(text, "\n\nGrand Master:\n", "\n\nGRAND MASTER\n")
-	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
-		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
-	}
+	text = strings.ReplaceAll(text, "\n\nGrandmaster:\n", "\n\nGRANDMASTER\n")
 	return title + "\n\n" + section + "\n" + text
 }
 

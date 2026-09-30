@@ -60,6 +60,7 @@ func TestHalflingRandomTargetWeightIsHalf(t *testing.T) {
 	cs.game.party.Members = []*character.MMCharacter{normal, halfling}
 	normal.Race = "human"
 	halfling.Race = "halfling"
+	halfling.EnsureRacialTraits(nil)
 	normal.HitPoints, halfling.HitPoints = 100, 100
 
 	const trials = 60000
@@ -72,6 +73,34 @@ func TestHalflingRandomTargetWeightIsHalf(t *testing.T) {
 	fraction := float64(halflingHits) / trials
 	if math.Abs(fraction-1.0/3.0) > 0.02 {
 		t.Fatalf("halfling target fraction = %.4f, want about 1/3 from weights 1:2", fraction)
+	}
+}
+
+// Piercing Shot draws its targets from the party like any random attack, so
+// Halfling Guile halves the halfling's share there too.
+func TestHalflingGuileWeighsPiercingShot(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	normal := cs.game.party.Members[0]
+	halfling := cs.game.party.Members[1]
+	cs.game.party.Members = []*character.MMCharacter{normal, halfling}
+	normal.Race = "human"
+	halfling.Race = "halfling"
+	halfling.EnsureRacialTraits(nil)
+	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1, PiercingShotChance: 1, PiercingShotTargets: 1}
+	const trials = 30000
+	halflingHits := 0
+	for i := 0; i < trials; i++ {
+		normal.HitPoints, halfling.HitPoints = 1000, 1000
+		normal.MaxHitPoints, halfling.MaxHitPoints = 1000, 1000
+		if !cs.tryMonsterPiercingShot(shooter) {
+			t.Fatal("piercing shot should fire at 100% chance")
+		}
+		if halfling.HitPoints < 1000 {
+			halflingHits++
+		}
+	}
+	if fraction := float64(halflingHits) / trials; math.Abs(fraction-1.0/3.0) > 0.02 {
+		t.Fatalf("halfling piercing-shot fraction = %.4f, want about 1/3 from weights 1:2", fraction)
 	}
 }
 
@@ -99,6 +128,7 @@ func TestHalflingRangedWeightAppliesAfterTankBiasInBothClocks(t *testing.T) {
 				member.HitPoints = member.MaxHitPoints
 				if i == tt.halflingIndex {
 					member.Race = "halfling"
+					member.EnsureRacialTraits(nil)
 				}
 			}
 			const trials = 60000
@@ -166,6 +196,7 @@ func TestDarkElfBindingEligibilityThroughMeleeEntry(t *testing.T) {
 			forceRacialProc(cs, t)
 			attacker := cs.game.party.Members[0]
 			attacker.Race = "dark_elf"
+			attacker.EnsureRacialTraits(nil)
 			target := newRacialTarget(tt.name, tt.monsterType)
 			target.Boss = tt.boss
 			target.BossWarded = tt.invulnerable
@@ -252,6 +283,7 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 			forceRacialProc(cs, t)
 			caster := cs.game.party.Members[0]
 			caster.Race = "dark_elf"
+			caster.EnsureRacialTraits(nil)
 			target := newRacialTarget(tt.name, "beast")
 			before := target.HitPoints
 			tt.hit(cs, caster, target)
@@ -284,6 +316,7 @@ func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
 			g.camera.X, g.camera.Y = 5.5*tile, 5.5*tile
 			caster := g.party.Members[0]
 			caster.Race = "dark_elf"
+			caster.EnsureRacialTraits(nil)
 			forceRacialProc(cs, t)
 			def, err := spells.GetSpellDefinitionByID(tt.spellID)
 			if err != nil {
@@ -333,6 +366,7 @@ func TestWeaponDeathBurstPreservesRacialAttacker(t *testing.T) {
 			forceRacialProc(cs, t)
 			attacker := cs.game.party.Members[0]
 			attacker.Race = tt.race
+			attacker.EnsureRacialTraits(nil)
 			corpse := newRacialTarget("burst corpse", "beast")
 			corpse.ID = "burst-corpse"
 			corpse.HitPoints = 0
@@ -365,6 +399,7 @@ func TestPersistentDamageZoneCasterIdentitySaveAndLegacyFallback(t *testing.T) {
 	g := cs.game
 	caster := g.party.Members[0]
 	caster.Race = "dark_elf"
+	caster.EnsureRacialTraits(nil)
 	forceRacialProc(cs, t)
 	tile := float64(g.config.GetTileSize())
 

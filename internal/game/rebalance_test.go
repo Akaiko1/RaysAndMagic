@@ -164,6 +164,12 @@ func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	if got := cs.effectiveSpellCost(m, 100); got != 100-MeditationGMSpellCostReductionPct {
 		t.Errorf("GM Meditation -> cost %d, want %d", got, 100-MeditationGMSpellCostReductionPct)
 	}
+	// The discount rounds to the nearest SP: a cheap spell is never made free.
+	for _, tc := range [][2]int{{0, 0}, {1, 1}, {2, 2}, {3, 2}, {4, 3}, {5, 4}, {6, 5}, {8, 6}, {12, 9}} {
+		if got := cs.effectiveSpellCost(m, tc[0]); got != tc[1] {
+			t.Errorf("GM Meditation: cost %d -> %d, want %d", tc[0], got, tc[1])
+		}
+	}
 }
 
 // TestArmorGMDodge: each GM-mastered armor type worn adds ArmorGMDodgeBonus dodge.

@@ -45,8 +45,12 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							ch := g.party.Members[0]
 							ch.Equipment = map[items.EquipSlot]items.Item{}
 							ch.Skills = map[character.SkillType]*character.Skill{}
+							// Every learnable skill; racial traits come with a race
+							// (Dark Elf Binding would replace the hit).
 							for _, st := range character.AllSkills {
-								ch.Skills[st] = &character.Skill{Mastery: character.MasteryNovice}
+								if !st.RaceOwned() {
+									ch.Skills[st] = &character.Skill{Mastery: character.MasteryNovice}
+								}
 							}
 							delete(ch.Skills, character.SkillSpiritualTraining)
 							slot := items.SlotMainHand

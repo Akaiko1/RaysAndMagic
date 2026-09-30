@@ -26,7 +26,7 @@ func tooltipSectionHeading(line string) bool {
 	switch line {
 	case "DAMAGE", "DAMAGE PER TICK", "HEALING", "CRITICAL", "ATTACK", "EFFECTS",
 		"DEFENSE", "CASTING", "ZONE", "PLACEMENT", "CONTROL", "USAGE", "REQUIREMENTS",
-		"RECOVERY", "DURATION", "MASTERY", "GRANDMASTER", "GRAND MASTER", "TRIGGER", "LIMITS",
+		"RECOVERY", "DURATION", "MASTERY", "GRANDMASTER", "TRIGGER", "LIMITS",
 		"ATTRIBUTES", "RESISTANCES", "CHANGES", "REAL TIME", "TURN BASED", equipmentSetSectionTitle:
 		return true
 	}

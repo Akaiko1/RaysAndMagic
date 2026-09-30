@@ -70,7 +70,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 				core += "\n" + techniqueMagnitude(char, d, tps)
 			}
 			if d.Automatic {
-				core += "\n\nAuto: " + d.Trigger
+				core += "\n\nAutocast (switch on in the technique book): " + d.Trigger
 			}
 		}
 	case items.ItemTrap:
@@ -472,6 +472,9 @@ func formatSchoolName(school string) string {
 // Authored description and flavor have different jobs. Legacy saves may store
 // only flavor in Description, so known definitions always supply both texts.
 func itemProseLines(item items.Item) []string {
+	if item.Type == items.ItemTechnique {
+		return nil // the technique card already states its description
+	}
 	description, flavor := "", ""
 	if item.Type == items.ItemWeapon {
 		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {

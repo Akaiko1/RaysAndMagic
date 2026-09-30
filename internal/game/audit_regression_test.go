@@ -519,6 +519,7 @@ func TestAuditTrapBinding(t *testing.T) {
 				forceRacialProc(cs, t)
 				owner := cs.game.party.Members[0]
 				owner.Race = "dark_elf"
+				owner.EnsureRacialTraits(nil)
 				main := newRacialTarget("Primary", "beast")
 				if immune {
 					main.MonsterType = "undead"

@@ -219,6 +219,7 @@ spells:
     duration: 0
     is_projectile: false
     is_utility: true
+    deals_no_damage: true
     # AoE-stun effect (no damage): stuns all monsters within the radius.
     stun_radius_tiles: 5.0
     stun_duration_seconds: 5
@@ -528,6 +529,7 @@ spells:
     duration: 0
     is_projectile: false
     is_utility: true
+    deals_no_damage: true
     # AoE-stun effect (no damage): cheaper, smaller version of Darkness.
     stun_radius_tiles: 3.0
     stun_duration_seconds: 4
@@ -683,7 +685,7 @@ spells:
 
   charm:
     name: "Charm"
-    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead or formless foes."
+    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead or bosses."
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
@@ -849,7 +851,7 @@ spells:
 
   town_portal:
     name: "Town Portal"
-    description: "Opens a portal to visited taverns, towns, and major landmarks"
+    description: "A door of light back to any place the party has already reached"
     school: "earth"
     schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
     spell_points_cost: 20

@@ -527,13 +527,16 @@ type RosterEntry struct {
 
 // RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
 type RaceStats struct {
-	Might       int `yaml:"might,omitempty"`
-	Intellect   int `yaml:"intellect,omitempty"`
-	Personality int `yaml:"personality,omitempty"`
-	Endurance   int `yaml:"endurance,omitempty"`
-	Accuracy    int `yaml:"accuracy,omitempty"`
-	Speed       int `yaml:"speed,omitempty"`
-	Luck        int `yaml:"luck,omitempty"`
+	Name string `yaml:"name"`
+	// Description points follow the race's stat shifts in a hero's pitch.
+	Description []DescriptionPoint `yaml:"description,omitempty"`
+	Might       int                `yaml:"might,omitempty"`
+	Intellect   int                `yaml:"intellect,omitempty"`
+	Personality int                `yaml:"personality,omitempty"`
+	Endurance   int                `yaml:"endurance,omitempty"`
+	Accuracy    int                `yaml:"accuracy,omitempty"`
+	Speed       int                `yaml:"speed,omitempty"`
+	Luck        int                `yaml:"luck,omitempty"`
 }
 
 type HitPointsConfig struct {
@@ -552,16 +555,19 @@ type ClassMagicEntry struct {
 }
 
 type ClassStats struct {
-	AutoStats   AutoStatsConfig   `yaml:"auto_stats,omitempty"`
-	Items       []ClassItemConfig `yaml:"items,omitempty"`
-	CardRarity  string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
-	Might       int               `yaml:"might"`
-	Intellect   int               `yaml:"intellect"`
-	Personality int               `yaml:"personality"`
-	Endurance   int               `yaml:"endurance"`
-	Accuracy    int               `yaml:"accuracy"`
-	Speed       int               `yaml:"speed"`
-	Luck        int               `yaml:"luck"`
+	AutoStats  AutoStatsConfig   `yaml:"auto_stats,omitempty"`
+	Items      []ClassItemConfig `yaml:"items,omitempty"`
+	CardRarity string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
+	// Description is the party-creation pitch: what the class does and why
+	// to pick it, with {kind:text} keyword markup (keyword_markup.go).
+	Description []DescriptionPoint `yaml:"description"`
+	Might       int                `yaml:"might"`
+	Intellect   int                `yaml:"intellect"`
+	Personality int                `yaml:"personality"`
+	Endurance   int                `yaml:"endurance"`
+	Accuracy    int                `yaml:"accuracy"`
+	Speed       int                `yaml:"speed"`
+	Luck        int                `yaml:"luck"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -1628,6 +1634,14 @@ func LoadConfig(filename string) (*Config, error) {
 			}
 		}
 	}
+	for key, race := range config.Characters.Races {
+		if strings.TrimSpace(race.Name) == "" {
+			return nil, fmt.Errorf("characters.races.%s.name is required", key)
+		}
+		if err := validateDescription("characters.races."+key, race.Description, false); err != nil {
+			return nil, err
+		}
+	}
 	for key, class := range config.Characters.Classes {
 		if err := validateClassProgression(key, class); err != nil {
 			return nil, err
@@ -1636,6 +1650,9 @@ func LoadConfig(filename string) (*Config, error) {
 		case "", "common", "uncommon", "rare", "legendary":
 		default:
 			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
+		}
+		if err := validateDescription("characters.classes."+key, class.Description, true); err != nil {
+			return nil, err
 		}
 	}
 	if config.World.TileSize <= 0 {

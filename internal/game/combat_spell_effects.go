@@ -36,11 +36,12 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 	return 0
 }
 
-// effectiveSpellCost applies a Grandmaster meditator's flat percent spell-cost
-// reduction. Single source used by every SP check/deduction site.
+// effectiveSpellCost applies a Grandmaster meditator's percent spell-cost
+// reduction, rounded to the nearest SP so a cheap spell is never made free.
+// Single source used by every SP check/deduction site.
 func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCost int) int {
 	if caster != nil && caster.SkillTier(character.SkillMeditation) >= int(character.MasteryGrandMaster) {
-		baseCost = baseCost * (100 - MeditationGMSpellCostReductionPct) / 100
+		baseCost = (baseCost*(100-MeditationGMSpellCostReductionPct) + 50) / 100
 	}
 	return baseCost
 }

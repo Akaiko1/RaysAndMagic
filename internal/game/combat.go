@@ -259,6 +259,7 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 	if bear == nil {
 		return false
 	}
+	bear.SummonerName = druid.Name
 	statPct := character.AnimalBondingStatPct(tier)
 	hpPct := character.AnimalBondingHPPct(tier)
 	bear.MaxHitPoints = druid.MaxHitPoints * hpPct / 100
@@ -323,6 +324,29 @@ func markPurePartySummon(m *monsterPkg.Monster3D, owner string) {
 	m.WasAttacked = false
 	m.SummonedBy = owner
 	m.QuestProgressIgnored = true
+}
+
+// summonerOf is the party member who called an ally: the one recorded at the
+// summon, or for a bear from a save made before that, the druid its owner tag
+// names. nil for card allies (the whole party's), bound former enemies, and a
+// summoner no longer in the party.
+func (g *MMGame) summonerOf(m *monsterPkg.Monster3D) *character.MMCharacter {
+	if m == nil || !isPurePartySummon(m) || g.party == nil {
+		return nil
+	}
+	name := m.SummonerName
+	if name == "" {
+		name, _ = strings.CutPrefix(m.SummonedBy, animalBondingOwnerPrefix)
+		if name == m.SummonedBy {
+			return nil
+		}
+	}
+	for _, member := range g.party.Members {
+		if member != nil && member.Name == name {
+			return member
+		}
+	}
+	return nil
 }
 
 // isCardAlly reports whether a monster is a card-collection summon - including
@@ -2643,25 +2667,20 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 	if monster.PiercingShotChance <= 0 || rand.Float64() >= monster.PiercingShotChance {
 		return false
 	}
-	alive := alivePartyIndices(cs.game.party.Members)
-	if len(alive) == 0 {
+	if len(alivePartyIndices(cs.game.party.Members)) == 0 {
 		return false
 	}
 	targets := monster.PiercingShotTargets
 	if targets <= 0 {
 		targets = 2
 	}
-	if targets > len(alive) {
-		targets = len(alive)
-	}
-	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s fires a Piercing Shot!", monster.Name))
 	if weaponDef, exists := config.GetWeaponDefinition(monster.ProjectileWeapon); exists {
 		cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
 	}
-	for _, targetIndex := range alive[:targets] {
-		target := cs.game.party.Members[targetIndex]
+	// The shot's targets are a random party draw, so Halfling Guile weighs it.
+	for _, target := range cs.randomLivingMembers(targets) {
 		// Piercing Shot ignores armor; the shared choke point applies the poison
 		// rider (a poisonous monster now poisons via Piercing Shot, like melee).
 		cs.monsterHitCharacter(
@@ -3508,7 +3527,7 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 const darkElfBindingChancePct = character.DarkElfBindingChancePct
 
 func darkElfBindingEligible(attacker *character.MMCharacter, target *monsterPkg.Monster3D) bool {
-	if attacker == nil || attacker.Race != "dark_elf" || target == nil || !target.IsAlive() ||
+	if attacker == nil || !attacker.HasSkill(character.SkillDarkElfBinding) || target == nil || !target.IsAlive() ||
 		target.Bound || target.IsBoss() || target.IsDamageInvulnerable() || isPurePartySummon(target) {
 		return false
 	}
@@ -3934,8 +3953,9 @@ func (cs *CombatSystem) armorMitigationPct(char *character.MMCharacter, physical
 //     elemental); skipped on armor-pierce.
 //  2. Resist  - per-school gear resist + party resist buff, applied to normal
 //     and typed true damage; capped 100% (100% == immunity -> 0 damage).
-//  3. Flat    - additive reductions (DisarmTrap placeholder + Hour of Power /
-//     Stone Skin), applied together AFTER the % steps; CAN drive damage to 0.
+//  3. Flat    - additive reductions (Impenetrable Defense, Disarm Trap, Hour of
+//     Power / Stone Skin), applied together AFTER the % steps; CAN drive damage
+//     to 0.
 //
 // Armor and Resist are both multiplicative, so their order doesn't change the
 // result; the additive flat step is applied last by design.
@@ -4112,7 +4132,7 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 	if char == nil {
 		return 0
 	}
-	skillType, ok := character.ArmorSkillForCategory(strings.ToLower(armor.ArmorCategory))
+	skillType, ok := armorMasterySkill(armor)
 	if !ok {
 		return 0
 	}
@@ -4163,8 +4183,9 @@ func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []it
 	return cs.rollMonsterLoot(monster)
 }
 
-// randomLivingMember returns a uniformly-random alive+conscious party member
-// (nil if the whole party is down). Used for MELEE targeting in both modes.
+// randomLivingMember returns a random alive+conscious party member, weighted
+// by Halfling Guile (nil if the whole party is down). Used for MELEE targeting
+// in both modes.
 func (cs *CombatSystem) randomLivingMember() *character.MMCharacter {
 	alive := alivePartyIndices(cs.game.party.Members)
 	if len(alive) == 0 {
@@ -4194,16 +4215,17 @@ func (cs *CombatSystem) randomLivingMembers(n int) []*character.MMCharacter {
 	return out
 }
 
-// weightedPartyTargetIndex gives a halfling one ticket and every other race
-// two. Thus a halfling has exactly half another hero's relative probability
-// in every random party-target draw, including draws without replacement.
+// weightedPartyTargetIndex gives a hero with Halfling Guile one ticket and
+// every other hero two. Thus that hero has exactly half another hero's
+// relative probability in every random party-target draw, including draws
+// without replacement.
 func (cs *CombatSystem) weightedPartyTargetIndex(indices []int) int {
 	return cs.weightedPartyTargetIndexWithBase(indices, func(int) int { return 1 })
 }
 
 func (cs *CombatSystem) partyTargetWeight(idx, baseWeight int) int {
 	weight := baseWeight * 2
-	if member := cs.game.party.Members[idx]; member != nil && member.Race == "halfling" {
+	if member := cs.game.party.Members[idx]; member != nil && member.HasSkill(character.SkillHalflingGuile) {
 		weight /= 2
 	}
 	return weight

@@ -10,14 +10,19 @@ import (
 var ErrExit = errors.New("exit game")
 
 // Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
-// pages. Global row 0 is the shared Autosave (written automatically on map change
-// and stash use; load-only - never manually overwritten). Rows 1..N are manual
-// slots and map to save1.json.. unchanged, so existing saves stay reachable.
+// pages. Global row 0 is the shared Autosave (written on map change and stash
+// use) and row 1 the Quicksave (F5); the game writes both and the menus only
+// load them. Rows 2.. are the manual slots: row r is "Slot r-1" in
+// save{r-1}.json, so existing saves keep their slot numbers.
 const (
 	saveRowsPerPage = 7
-	savePageCount   = 3
+	savePageCount   = 4
 	saveRowCount    = saveRowsPerPage * savePageCount
+	autosaveRow     = 0
+	quicksaveRow    = 1
+	firstManualRow  = 2
 	autosaveFile    = "autosave.json"
+	quicksaveFile   = "quicksave.json"
 
 	// Shared geometry for the save/load menus, used by both the draw code and
 	// the layout-collision test so the two never drift. Panels are sized to fit
@@ -51,12 +56,12 @@ const (
 // menuPanelSize returns the panel dimensions for a main-menu mode. Shared by the
 // draw code (drawMainMenu) and the input hit-testing (handleMainMenuInput) so
 // the drawn panel and its click regions can't drift.
-func menuPanelSize(mode MainMenuMode) (w, h int) {
+func menuPanelSize(mode MainMenuMode, screenW, screenH int) (w, h int) {
 	if mode == MenuMain {
 		return mainMenuPanelW, mainMenuPanelH
 	}
 	if mode == MenuControlTips {
-		return 480, 310
+		return controlTipsPanelSize(screenW, screenH)
 	}
 	if mode == MenuSettings {
 		return settingsMenuPanelW, settingsMenuPanelH
@@ -74,8 +79,13 @@ func menuRowRect(px, py, panelW, startY, pitch, i int) (box pagerRect, textX, te
 	return pagerRect{px + 16, y - 4, px + panelW - 16, y - 4 + menuRowHeight}, px + 28, y
 }
 
-// saveRowIsAutosave reports whether a row is the load-only autosave slot.
-func saveRowIsAutosave(row int) bool { return row == 0 }
+// saveRowIsLoadOnly reports whether a row is one the game writes itself (the
+// Autosave or the Quicksave): the menus load it but never save, rename,
+// archive or restore into it.
+func saveRowIsLoadOnly(row int) bool { return row == autosaveRow || row == quicksaveRow }
+
+// saveRowIsSlot reports whether row is a row of the save menus.
+func saveRowIsSlot(row int) bool { return row >= 0 && row < saveRowCount }
 
 // selectedSaveRow is the global save-row index the save/load menu cursor points
 // at: the row-within-page (slotSelection) offset by the current page.
@@ -83,12 +93,15 @@ func (g *MMGame) selectedSaveRow() int {
 	return g.savePage*saveRowsPerPage + g.slotSelection
 }
 
-// saveRowLabel is the slot's display name ("Autosave" or "Slot N").
+// saveRowLabel is the slot's display name ("Autosave", "Quicksave" or "Slot N").
 func saveRowLabel(row int) string {
-	if row == 0 {
+	switch row {
+	case autosaveRow:
 		return "Autosave"
+	case quicksaveRow:
+		return "Quicksave"
 	}
-	return fmt.Sprintf("Slot %d", row)
+	return fmt.Sprintf("Slot %d", row-firstManualRow+1)
 }
 
 type mainMenuOption struct {
@@ -108,19 +121,9 @@ var mainMenuOptions = []mainMenuOption{
 		g.mainMenuMode = MenuSettings
 		g.beginAudioSettings()
 	}},
-	{key: "control_tips", label: uitext.Text("ui.control_tips"), action: func(g *MMGame) { g.mainMenuMode = MenuControlTips }},
+	{key: "control_tips", label: uitext.Text("ui.control_tips"), action: func(g *MMGame) {
+		g.mainMenuMode = MenuControlTips
+		g.controlTipsScroll = 0
+	}},
 	{key: "main_menu", label: "Main Menu", action: func(g *MMGame) { g.returnToMainMenu() }},
-}
-
-var mainMenuControlTips = []string{
-	"Controls:",
-	"WASD: Move  QE: Strafe",
-	"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
-	"I: Inventory  P: Characters  M: Spellbook",
-	"1-4: Select",
-	"Tab: Toggle Mode (TB/RT)",
-}
-
-func mainMenuTipsTopY() int {
-	return 60
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
@@ -59,15 +60,15 @@ func TestBattleMageClassKit(t *testing.T) {
 	if got := ch.Equipment[items.SlotRing1]; got.Name != "Magic Ring" {
 		t.Errorf("ring slot = %q, want Magic Ring", got.Name)
 	}
-	// The class is registered end to end: key round-trip, roster, blurb.
+	// The class is registered end to end: key round-trip, roster, description.
 	if key := character.ClassBattleMage.Key(); key != "battle_mage" {
 		t.Fatalf("class key = %q", key)
 	}
 	if cls, ok := character.ClassFromKey("battle_mage"); !ok || cls != character.ClassBattleMage {
 		t.Fatal("ClassFromKey does not resolve battle_mage")
 	}
-	if character.ClassBattleMage.String() != "Battle Mage" || character.ClassBattleMage.Blurb() == "" {
-		t.Fatal("battle mage String/Blurb incomplete")
+	if character.ClassBattleMage.String() != "Battle Mage" || len(cfg.Characters.Classes["battle_mage"].Description) == 0 {
+		t.Fatal("battle mage String/description incomplete")
 	}
 	found := false
 	for _, cls := range character.PlayableClasses {
@@ -276,6 +277,29 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 	if pct := strongMagicPct(caster, heal); pct != 0 {
 		t.Fatalf("a heal must not be boosted, got %d%%", pct)
 	}
+	// A spell that deals no damage gains nothing, so it pays nothing: every
+	// offensive spell without a damage path is flagged deals_no_damage, and
+	// every one that deals damage is boosted.
+	for key := range config.GlobalSpells.Spells {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil || !def.IsOffensive() {
+			continue
+		}
+		pureStun := def.StunRadiusTiles > 0 && !def.IsProjectile && def.AoeRadiusTiles == 0 && def.ZoneRadiusTiles == 0 && !def.MapWide && def.PartyAoeRadiusTiles == 0
+		if pureStun && !def.DealsNoDamage {
+			t.Errorf("%s only stuns but is not marked deals_no_damage", key)
+		}
+		if got := strongMagicPct(caster, def); (got > 0) == def.DealsNoDamage {
+			t.Errorf("%s: Strong Magic %d%% with deals_no_damage=%v", key, got, def.DealsNoDamage)
+		}
+		if def.DealsNoDamage {
+			caster.HitPoints = 100
+			cs.applyStrongMagicBurn(caster, def, 20)
+			if caster.HitPoints != 100 {
+				t.Errorf("%s deals no damage but Strong Magic burned %d HP", key, 100-caster.HitPoints)
+			}
+		}
+	}
 
 	tests := []struct {
 		name     string
@@ -288,6 +312,9 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		{name: "grandmaster burns the full cost", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 100, wantHP: 80},
 		{name: "burn never takes the last hit point", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 1, wantHP: 1},
 		{name: "burn clamps to leave one hit point", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 15, wantHP: 1},
+		{name: "novice rounds half a point up", tier: character.MasteryNovice, cost: 2, hpBefore: 100, wantHP: 99},
+		{name: "novice rounds a quarter point down", tier: character.MasteryNovice, cost: 5, hpBefore: 100, wantHP: 99},
+		{name: "master rounds to the nearest point", tier: character.MasteryMaster, cost: 5, hpBefore: 100, wantHP: 96},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

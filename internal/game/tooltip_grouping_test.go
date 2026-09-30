@@ -163,7 +163,7 @@ func TestReferenceTooltipsKeepCanonicalDescriptions(t *testing.T) {
 				}
 			}
 			// Section labels become headings; every gameplay fact remains unchanged.
-			description = strings.ReplaceAll(description, "Grand Master:\n", "")
+			description = strings.ReplaceAll(description, "Grandmaster:\n", "")
 			if strings.Join(strings.Fields(strings.Join(body, " ")), " ") != strings.Join(strings.Fields(description), " ") {
 				t.Fatal("reference formatting changed the canonical facts")
 			}

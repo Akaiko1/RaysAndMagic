@@ -545,6 +545,7 @@ type Monster3D struct {
 	SummonCount           int      // adds spawned per summon (default 1)
 	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
 	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
+	SummonerName          string   // party member who called this ally ("" = none, or the whole party)
 	PackKey               string   // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
 	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
 	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is

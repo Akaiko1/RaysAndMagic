@@ -251,7 +251,7 @@ func checkStatusReviewRendering(t *testing.T, g *MMGame, r *Renderer, dst *ebite
 		g.showPartyStats = hud
 		for _, phase := range []int{0, 1, 2} {
 			g.turnBasedMode, g.currentTurn = phase != 2, phase%2
-			for _, name := range []string{"card", "animal", "spell", "permanent_bind", "timed_bind", "root", "slow", "weaken"} {
+			for _, name := range []string{"card", "animal", "spell", "animal_of_member", "spell_of_member", "permanent_bind", "timed_bind", "root", "slow", "weaken"} {
 				m := monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 				want := true
 				switch name {
@@ -264,6 +264,12 @@ func checkStatusReviewRendering(t *testing.T, g *MMGame, r *Renderer, dst *ebite
 				case "spell":
 					markPurePartySummon(m, spellSummonOwnerPrefix+"ice_elemental")
 					want = false
+				case "animal_of_member":
+					// A summoner in the party puts a face over the ally.
+					markPurePartySummon(m, animalBondingOwner(g.party.Members[3]))
+				case "spell_of_member":
+					markPurePartySummon(m, spellSummonOwnerPrefix+"ice_elemental")
+					m.SummonerName = g.party.Members[1].Name
 				case "permanent_bind":
 					m.Bound = true
 				case "timed_bind":

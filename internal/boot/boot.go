@@ -76,6 +76,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	if err := character.ValidateAlchemyTradeMaterials(config.GlobalAlchemy, character.NPCConfigInstance); err != nil {
 		log.Fatalf("Alchemy materials: %v", err)
 	}
+	if err := character.ValidateHeroPitches(cfg); err != nil {
+		log.Fatalf("Hero pitches: %v", err)
+	}
 	config.MustLoadChampionConfig("assets/champions.yaml")
 
 	// Build every champion once so a bad class/skill/equipment key fails loud at

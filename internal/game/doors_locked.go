@@ -312,7 +312,7 @@ func (g *MMGame) openLockedDoor(npc *character.NPC, optIdx int) {
 			}
 			g.AddCombatMessage(fmt.Sprintf("%s %s the %s door open.", opt.actorName, verb, doorLabelOrDefault(npc)))
 		} else if npc.DoorLockBroken {
-			g.AddCombatMessage("The third failed attempt jams the lock. Only a key can open it now.")
+			g.AddCombatMessage(fmt.Sprintf("Failed attempt %d jams the lock. Only a key can open it now.", character.DoorMaxNonKeyAttempts))
 		} else {
 			g.AddCombatMessage(fmt.Sprintf("The attempt fails. %d non-key attempt(s) remain before the lock jams.",
 				character.DoorMaxNonKeyAttempts-npc.DoorAttempts))

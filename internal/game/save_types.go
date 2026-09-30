@@ -351,6 +351,7 @@ type MonsterSave struct {
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
 	SummonedBy          string               `json:"summoned_by,omitempty"`
+	SummonerName        string               `json:"summoner_name,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	ChampionTier        string               `json:"champion_tier,omitempty"`
 	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`

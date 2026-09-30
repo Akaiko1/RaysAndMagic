@@ -81,7 +81,7 @@ func TestAudioDragCancelsOnOwnerLoss(t *testing.T) {
 					h, r := audioGestureHarness(t, entry, row)
 					g, fp := h.g, installFakePointer(t)
 					if loss == "load" {
-						if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+						if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -128,7 +128,7 @@ func TestAudioDragCancelsOnOwnerLoss(t *testing.T) {
 						updateInputScreen(h)
 						g.mapOverlayOpen = false
 					case "load":
-						if err := g.LoadGameFromFile(saveRowPath(1)); err != nil {
+						if err := g.LoadGameFromFile(saveRowPath(firstManualRow)); err != nil {
 							t.Fatal(err)
 						}
 						presentInputScreen(h)

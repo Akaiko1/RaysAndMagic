@@ -275,7 +275,7 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 }
 
 // drawEntryLoadList shows a page of save slots; clicking a populated slot loads
-// it and enters the game. Row 0 of page 0 is the load-only Autosave. Left/Right
+// it and enters the game. Rows 0-1 of page 0 are the Autosave and Quicksave. Left/Right
 // (keys or the on-screen buttons) page through savePageCount pages.
 func entryLoadPanelRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, entryLoadPanelW, entryLoadPanelH)
@@ -306,7 +306,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		label := fmt.Sprintf("%s - (empty)", saveRowLabel(row))
 		if sum.Exists {
 			name := sum.Name
-			if name == "" || saveRowIsAutosave(row) {
+			if name == "" || saveRowIsLoadOnly(row) {
 				name = "Saved game"
 			}
 			mode := "RT"

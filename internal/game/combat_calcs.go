@@ -28,10 +28,11 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 
 // strongMagicPct is the caster's Strong Magic exchange percent for the given
 // spell: the share of the SP cost burned as HP at cast, and the share added to
-// the spell's damage. Zero when the passive does not apply (no skill, no
-// caster, or a non-offensive spell).
+// the spell's damage. Zero when the passive does not apply: no skill, no
+// caster, or a spell that deals no damage (a control spell such as a stun,
+// charm or bind gains nothing, so it pays nothing).
 func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) int {
-	if caster == nil || !def.IsOffensive() || !caster.HasSkill(character.SkillStrongMagic) {
+	if caster == nil || !def.IsOffensive() || def.DealsNoDamage || !caster.HasSkill(character.SkillStrongMagic) {
 		return 0
 	}
 	return character.StrongMagicPct(caster.SkillTier(character.SkillStrongMagic))
@@ -39,15 +40,15 @@ func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) i
 
 // applyStrongMagicBurn is Strong Magic's HP price, paid at the SAME site the
 // SP cost is paid (castResolvedSpell - the one payment point for offensive
-// casts): pct% of the paid cost, clamped so the passive never takes the last
-// hit point. The matching damage boost lives in spellDamageParts, so tooltips
+// casts): pct% of the paid cost rounded to the nearest HP, clamped so the
+// passive never takes the last hit point. The matching damage boost lives in spellDamageParts, so tooltips
 // and combat read one number.
 func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def spells.SpellDefinition, paidCost int) {
 	pct := strongMagicPct(caster, def)
 	if pct <= 0 || paidCost <= 0 {
 		return
 	}
-	burn := paidCost * pct / 100
+	burn := (paidCost*pct + 50) / 100
 	if burn >= caster.HitPoints {
 		burn = caster.HitPoints - 1
 	}

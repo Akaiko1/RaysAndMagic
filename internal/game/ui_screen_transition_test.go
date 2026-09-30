@@ -43,7 +43,7 @@ func TestMainMenuTransitionDoesNotReuseTheOpeningPress(t *testing.T) {
 				fp := installFakePointer(t)
 				g.mainMenuOpen = true
 				presentInputScreen(h)
-				w, height := menuPanelSize(MenuMain)
+				w, height := menuPanelSize(MenuMain, size[0], size[1])
 				for i, option := range mainMenuOptions {
 					if option.key == "main_menu" {
 						r, _, _ := menuRowRect((size[0]-w)/2, (size[1]-height)/2, w, mainMenuListTopY, mainMenuRowPitch, i)
@@ -282,13 +282,13 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 			want := AppScreenInGame
 			if action == "load" {
 				g.party.Gold = 321
-				if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+				if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 					t.Fatal(err)
 				}
 				g.party.Gold = 999
 				g.appScreen, g.entryMenuMode = AppScreenMainMenu, EntryMenuLoad
 				x = (1024-entryLoadPanelW)/2 + menuFrameInset + 3
-				y = (768-entryLoadPanelH)/2 + menuFrameInset + 22 + entryLoadRowH + 3
+				y = (768-entryLoadPanelH)/2 + menuFrameInset + 22 + firstManualRow*entryLoadRowH + 3
 			} else {
 				g.enterPartyCreate()
 				layout := partyCreateLayout(g.partyCreate, 1024, 768)
@@ -341,8 +341,18 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 func TestTitleLoadKeyboardPagesOnlyInUpdate(t *testing.T) {
 	h := newDisplayedModalHarness(t, 1024, 768)
 	h.g.appScreen, h.g.entryMenuMode = AppScreenMainMenu, EntryMenuLoad
+	// A held key reports its press edge once, as inpututil does.
 	keys := map[ebiten.Key]bool{ebiten.KeyRight: true}
-	h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return keys[k] })
+	reported := map[ebiten.Key]bool{}
+	h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool {
+		if !keys[k] {
+			reported[k] = false
+			return false
+		}
+		edge := !reported[k]
+		reported[k] = true
+		return edge
+	})
 	for i := 0; i < 3; i++ {
 		presentInputScreen(h)
 	}

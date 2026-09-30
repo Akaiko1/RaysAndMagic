@@ -127,11 +127,11 @@ func TestReadStashSnapshotPreservesPendingTransfer(t *testing.T) {
 				}
 			}
 			if state == "committed" {
-				if err := storage.WriteJSONAtomic(saveRowPath(1), &GameSave{StashTransferID: journal.ID}, 0600); err != nil {
+				if err := storage.WriteJSONAtomic(saveRowPath(firstManualRow), &GameSave{StashTransferID: journal.ID}, 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			paths := []string{storage.AppSavePath("stash.json"), storage.AppSavePath("stash-transfer.json"), saveRowPath(1)}
+			paths := []string{storage.AppSavePath("stash.json"), storage.AppSavePath("stash-transfer.json"), saveRowPath(firstManualRow)}
 			contents := make([][]byte, len(paths))
 			for i, path := range paths {
 				contents[i], _ = os.ReadFile(path)

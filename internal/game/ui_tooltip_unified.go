@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -259,7 +260,11 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 				parts = append(parts, fmt.Sprintf("Ballistics: +%d%%", ballistics))
 			}
 			if gmWeapon > 0 {
-				parts = append(parts, fmt.Sprintf("%s Mastery - Grandmaster: +%d%%", config.TitleWords(def.Category), gmWeapon))
+				skill := config.TitleWords(def.Category)
+				if st, ok := character.WeaponSkillForCategory(def.Category); ok {
+					skill = st.String()
+				}
+				parts = append(parts, fmt.Sprintf("%s Mastery - Grandmaster: +%d%%", skill, gmWeapon))
 			}
 			if gmArms > 0 {
 				parts = append(parts, fmt.Sprintf("Arms Master - Grandmaster: +%d%%", gmArms))
@@ -338,19 +343,10 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	return renderTooltip(item.Name, subtitle, []ttSection{defense, effects, requirements}, full)
 }
 
-// armorMasterySkill maps an armor piece to its mastery skill (leather/chain/
-// plate via category; shields via the off-hand slot).
+// armorMasterySkill maps an armor piece to its mastery skill by its category
+// (leather/chain/plate/shield). Combat and the tooltip both read it.
 func armorMasterySkill(item items.Item) (character.SkillType, bool) {
-	cat := strings.ToLower(item.ArmorCategory)
-	if cat != "" {
-		if st, ok := character.ArmorSkillForCategory(cat); ok {
-			return st, true
-		}
-	}
-	if slotCode, ok := item.Attributes["equip_slot"]; ok && items.EquipSlot(slotCode) == items.SlotOffHand {
-		return character.SkillShield, true
-	}
-	return 0, false
+	return character.ArmorSkillForCategory(strings.ToLower(item.ArmorCategory))
 }
 
 // ----------------------------------------------------------------- spells ---
@@ -607,7 +603,9 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 	addCastingCost(&placement, def.SPCost, char, cs)
 	addSpellCooldown(&placement, spells.SpellID(key), char, cs)
 	placement.Add("Range: %d tiles", TrapPlaceRangeTiles)
-	placement.AddDetail("Armed Lifetime: %ds", def.LifetimeSeconds)
+	// A trap ages one round's worth of seconds per turn-based round.
+	rounds := (def.LifetimeSeconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
+	placement.AddDetail("Armed Lifetime: %ds RT / %s TB", def.LifetimeSeconds, pluralizeCount(rounds, "round", "rounds"))
 
 	tier, tierName := masteryTier(char, character.SkillTrapper)
 
@@ -630,21 +628,23 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 	}
 
 	effect := ttSection{Title: "CONTROL"}
-	if def.StunTurns > 0 {
-		t, s := trapControlDuration(def.StunTurns, def.StunSeconds, char)
-		effect.AddDetail("Base Stun: %ds RT / %d turns TB", def.StunSeconds, def.StunTurns)
-		if tier > 0 {
-			effect.AddDetail("Trapper - %s: +%ds RT / +%d turns TB", tierName, s-def.StunSeconds, t-def.StunTurns)
+	turns := func(n int) string { return pluralizeCount(n, "turn", "turns") }
+	for _, c := range []struct {
+		name             string
+		turnsTB, seconds int
+	}{{"Stun", def.StunTurns, def.StunSeconds}, {"Root", def.RootTurns, def.RootSeconds}} {
+		if c.turnsTB <= 0 {
+			continue
 		}
-		effect.Add("Total Stun: %ds RT / %d turns TB", s, t)
+		t, sec := trapControlDuration(c.turnsTB, c.seconds, char)
+		effect.AddDetail("Base %s: %ds RT / %s TB", c.name, c.seconds, turns(c.turnsTB))
+		if tier > 0 {
+			effect.AddDetail("Trapper - %s: +%ds RT / +%s TB", tierName, sec-c.seconds, turns(t-c.turnsTB))
+		}
+		effect.Add("Total %s: %ds RT / %s TB", c.name, sec, turns(t))
 	}
-	if def.RootTurns > 0 {
-		t, s := trapControlDuration(def.RootTurns, def.RootSeconds, char)
-		effect.AddDetail("Base Root: %ds RT / %d turns TB", def.RootSeconds, def.RootTurns)
-		if tier > 0 {
-			effect.AddDetail("Trapper - %s: +%ds RT / +%d turns TB", tierName, s-def.RootSeconds, t-def.RootTurns)
-		}
-		effect.Add("Total Root: %ds RT / %d turns TB", s, t)
+	if def.StunTurns > 0 {
+		effect.AddDetail("%s", uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
 	}
 
 	requirements := ttSection{Title: "REQUIREMENTS"}

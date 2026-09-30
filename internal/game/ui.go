@@ -44,6 +44,8 @@ type UISystem struct {
 	alchemyScroll           map[string]int
 	scrollDrag              scrollbarDrag
 	scrollDragShown         bool // the held thumb's list was drawn in the frame being built
+	hoverDwell              hoverDwell
+	quickCard               quickSlotCard
 	alchemyRevision         uint64
 	alchemyPreview          alchemyPreviewCache
 	game                    *MMGame
@@ -185,16 +187,8 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	defer ui.drawScreenBanner(screen)
 	ui.beginDisplayedInput()
 	defer ui.endDisplayedInput()
-	ui.tooltipLines = nil
-	ui.tooltipColors = nil
-	ui.tooltipIcon = ""
-	ui.tooltipCompareLines = nil
-	ui.tooltipCompareColors = nil
-	ui.tooltipTitleColor = nil
-	ui.tooltipTitleText = nil
-	ui.tooltipCompareTitle = nil
-	ui.tooltipCompareText = nil
-	ui.fullArtCardKey = ""
+	defer ui.drawQuickSlotCard(screen)
+	ui.clearQueuedTooltips()
 
 	defer func() { ui.renderedModalSnapshot = ui.topModalSnapshot() }()
 	// Draw base game UI elements
@@ -289,6 +283,20 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	}
 
 	ui.drawQueuedTooltips(screen)
+}
+
+// clearQueuedTooltips starts a frame with no tooltip queued.
+func (ui *UISystem) clearQueuedTooltips() {
+	ui.tooltipLines = nil
+	ui.tooltipColors = nil
+	ui.tooltipIcon = ""
+	ui.tooltipCompareLines = nil
+	ui.tooltipCompareColors = nil
+	ui.tooltipTitleColor = nil
+	ui.tooltipTitleText = nil
+	ui.tooltipCompareTitle = nil
+	ui.tooltipCompareText = nil
+	ui.fullArtCardKey = ""
 }
 
 func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {

@@ -186,6 +186,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
+				m.SummonerName = ms.SummonerName
 				m.LootGuarding = ms.LootGuarding
 				m.LootGuardTargetKey = ms.LootGuardTargetKey
 				m.LootGuardTargetTileX, m.LootGuardTargetTileY = ms.LootGuardTargetTileX, ms.LootGuardTargetTileY

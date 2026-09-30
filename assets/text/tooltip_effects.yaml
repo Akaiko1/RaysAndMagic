@@ -82,7 +82,7 @@ spell.leaves_a_lingering_zone_that_scalds_any: "Leaves a lingering zone that sca
 spell.map_damage_fixed: "Burns EVERY monster on the map for %d damage%s"
 spell.only_under_an_open_sky_never_in: "Only under an open sky (never in dungeons)"
 spell.opens_a_portal_to_visited_taverns_towns: "Opens a portal to visited taverns, towns, and major landmarks"
-spell.pacifies_a_living_target_for_s_stops: "Pacifies a living, non-formless target for %ds (stops attacking; breaks if hit)"
+spell.pacifies_a_living_target_for_s_stops: "Pacifies a living target, not a boss, for %ds (stops attacking; breaks if hit)"
 spell.party_deal_damage: "Party %s deal +%d damage"
 spell.party_deal_to_damage_by_mastery: "Party %s deal +%d to +%d damage by mastery"
 spell.party_resists_for_the_duration: "Party resists %s +%d%% for the duration"

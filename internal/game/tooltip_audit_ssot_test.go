@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -303,7 +304,9 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 	char := cs.game.party.Members[0]
 
 	for _, class := range character.PlayableClasses {
-		assertCleanTooltipText(t, "class/"+class.Key(), class.Blurb())
+		for i, p := range cs.game.config.Characters.Classes[class.Key()].Description {
+			assertCleanTooltipText(t, fmt.Sprintf("class/%s/%d", class.Key(), i), config.PlainKeywordText(p.Text))
+		}
 	}
 	for _, stat := range []string{"might", "intellect", "personality", "endurance", "accuracy", "speed", "luck"} {
 		assertCleanTooltipText(t, "stat/"+stat, character.StatDescription(stat))

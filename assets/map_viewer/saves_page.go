@@ -510,7 +510,7 @@ func savesButtons() []saveButton {
 	if entry, ok := selectedSaveEntry(); ok {
 		switch entry.kind {
 		case saveEntrySlot:
-			if !game.IsAutosaveRow(entry.row) && entry.row < len(savesPage.rows) && savesPage.rows[entry.row].Exists {
+			if !game.IsLoadOnlyRow(entry.row) && entry.row < len(savesPage.rows) && savesPage.rows[entry.row].Exists {
 				add("archive", "Add to Archive")
 			}
 		case saveEntryArchive:
@@ -580,7 +580,7 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 			col = color.RGBA{110, 110, 125, 255}
 		}
 		// While restoring, spotlight the valid targets: free manual slots.
-		if savesPage.restoreArm && entry.kind == saveEntrySlot && entry.dim && !game.IsAutosaveRow(entry.row) {
+		if savesPage.restoreArm && entry.kind == saveEntrySlot && entry.dim && !game.IsLoadOnlyRow(entry.row) {
 			col = mobStatHP
 		}
 		game.DrawShadedText(list, clipText(entry.label, saveListW-16), 8, ry, col)

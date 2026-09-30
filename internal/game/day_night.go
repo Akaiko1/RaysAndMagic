@@ -184,7 +184,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 	hasLivingCelestial := false
 	if g.party != nil {
 		for _, member := range g.party.Members {
-			if member != nil && member.Race == "celestial" && member.HitPoints > 0 &&
+			if member != nil && member.HasSkill(character.SkillCelestialProvidence) && member.HitPoints > 0 &&
 				!member.HasCondition(character.ConditionDead) && !member.HasCondition(character.ConditionEradicated) {
 				hasLivingCelestial = true
 				break

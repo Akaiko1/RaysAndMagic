@@ -247,12 +247,12 @@ func TestDisplayedSaveEventsRespectLeftRightOrder(t *testing.T) {
 		t.Run(fmt.Sprintf("right_first=%v", rightFirst), func(t *testing.T) {
 			h := newDisplayedModalHarness(t, 1024, 768)
 			g := h.g
-			if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+			if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 				t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode)
-			box, _, _ := menuRowRect((1024-w)/2, (768-height)/2, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
+			box, _, _ := menuRowRect((1024-w)/2, (768-height)/2, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			h.ui.Draw(h.screen)
 			g.prevWorldClickAllowed = g.worldClickAllowed()
 			now := time.Now().UnixMilli()
@@ -303,7 +303,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 		}},
 		{"ESC root", func(h *displayedModalHarness) {
 			h.g.mainMenuOpen = true
-			w, height := menuPanelSize(MenuMain)
+			w, height := menuPanelSize(MenuMain, 1024, 768)
 			x, y := (h.g.config.GetScreenWidth()-w)/2, (h.g.config.GetScreenHeight()-height)/2
 			box, _, _ := menuRowRect(x, y, w, mainMenuListTopY, mainMenuRowPitch, 0)
 			h.clicks(false, box.x1+4, box.y1+4, 1)
@@ -315,11 +315,11 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			g := h.g
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
 			g.party.Gold = 321
-			w, height := menuPanelSize(g.mainMenuMode)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
 			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			h.clicks(false, box.x1+4, box.y1+4, 1)
-			if !GetSaveRowSummary(1).Exists || g.mainMenuMode != MenuMain {
+			if !GetSaveRowSummary(firstManualRow).Exists || g.mainMenuMode != MenuMain {
 				h.t.Fatal("Save row did not write the chosen slot")
 			}
 			g.party.Gold = 999
@@ -331,11 +331,11 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 		}},
 		{"save pager and rename", func(h *displayedModalHarness) {
 			g := h.g
-			if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+			if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 				h.t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
 			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
 			prev, next := savePagerButtonRects(x, y, w, height)
 			h.clicks(false, next.x1+2, next.y1+2, 1)
@@ -346,7 +346,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			if g.savePage != 0 {
 				h.t.Fatal("Prev page click was lost")
 			}
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			g.mainMenuMode = MenuLoadSelect
 			h.clicks(true, box.x1+4, box.y1+4, 1)
 			if g.saveRenameOpen {
@@ -354,7 +354,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			}
 			g.mainMenuMode = MenuSaveSelect
 			h.clicks(true, box.x1+4, box.y1+4, 1)
-			if !g.saveRenameOpen || g.saveRenameSlot != 1 {
+			if !g.saveRenameOpen || g.saveRenameSlot != firstManualRow {
 				h.t.Fatal("Save row rename click was lost")
 			}
 		}},

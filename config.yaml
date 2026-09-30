@@ -118,6 +118,11 @@ characters:
   # Class base attributes
   classes:
     knight:
+      description:
+        - {text: "Front-line {defense:tank}: the most HP, {defense:plate and shield}."}
+        - {skill: impenetrable_defense, text: "{defense:Impenetrable Defense} takes damage off every normal hit."}
+        - {text: "Ranged enemies aim at the first party slot, so put the Knight there."}
+        - {text: "Picks a {damage:Sword or Spear} mastery at level 3. No magic."}
       auto_stats: {speed: 16, endurance: 28, primary: might}
       might: 15
       intellect: 10
@@ -130,6 +135,10 @@ characters:
       main_hand: iron_sword
 
     sorcerer:
+      description:
+        - {text: "Elemental {damage:nuker}: Fire, Water and Air spells from the start, scaling with Intellect."}
+        - {skill: elemental_mastery, text: "{damage:Elemental Mastery} pierces elemental resistance."}
+        - {text: "Chooses {damage:Fireball} or {damage:Dark Bolt} at level 3; {utility:Torch Light} brightens dungeons. Fragile - keep out of the first slot."}
       auto_stats: {speed: 16, endurance: 16, primary: intellect}
       might: 8
       intellect: 15
@@ -147,6 +156,10 @@ characters:
       quick_spell: firebolt
 
     cleric:
+      description:
+        - {text: "The party {heal:healer}. {heal:Heal} mends any hero: point at a hero's card and press F (slotted) or C, and Space heals whoever is badly hurt."}
+        - {skill: natural_healer, text: "{heal:Natural Healer} strengthens every heal."}
+        - {text: "Body, Mind and Spirit magic: {buff:Bless} at level 3, {heal:Mass Heal} at level 9, and the lake priestess sells {buff:Heroism}, {heal:Raise Dead} and {control:Charm}. Fights with {damage:Harm}, {damage:Mind Blast} and {damage:Spirit Lash}."}
       auto_stats: {speed: 16, endurance: 22, primary: personality}
       might: 10
       intellect: 12
@@ -164,6 +177,10 @@ characters:
       quick_spell: heal_other
 
     archer:
+      description:
+        - {skill: bow, text: "{damage:Bow} specialist with the best Accuracy - shoots from safety while the front line holds. Trained with blasters too."}
+        - {text: "{utility:Wizard Eye} widens the view; can take {damage:Lightning} at level 3."}
+        - {skill: disarm_trap, text: "{utility:Disarm Trap} can disarm trapped chests and softens hits on the Archer."}
       auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
       might: 12
       intellect: 10
@@ -179,6 +196,10 @@ characters:
       quick_spell: wizard_eye
 
     paladin:
+      description:
+        - {text: "Holy {defense:guardian}: axe, sword or mace in chain or plate, with a shield."}
+        - {skill: sacrifice, text: "{defense:Sacrifice}: the Paladin takes part of every hit that lands on another hero."}
+        - {text: "{heal:First Aid} heals the Paladin; {heal:Heal} for others can be learned at level 3."}
       auto_stats: {speed: 16, endurance: 24, primary: might, secondary: personality}
       might: 13
       intellect: 10
@@ -195,6 +216,10 @@ characters:
       quick_spell: heal
 
     druid:
+      description:
+        - {text: "Nature hybrid with Water, Mind and Earth magic."}
+        - {skill: animal_bonding, text: "{auto:Animal Bonding}: every weapon attack and spell, heals included, may call a {auto:bear ally} (up to 2) built from the Druid's own HP and damage."}
+        - {text: "{heal:Awaken} rouses every unconscious hero; {damage:Deadly Swarm} bursts over an area and {damage:Ice Bolt} hits one foe."}
       auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: personality}
       might: 10
       intellect: 13
@@ -214,6 +239,12 @@ characters:
   # Race stat modifiers, ADDITIVE over class base stats. The classic roster is
   # human (baseline, no modifiers).
     thief:
+      description:
+        - {text: "No magic - a {control:trap book} instead: lay traps on the floor that wound and hold enemies. Daggers and blasters."}
+        - {skill: trapper, text: "{control:Trapper} adds trap damage and hold time."}
+        - {skill: sleight_of_hand, text: "{utility:Sleight of Hand} steals loot or gold on melee hits."}
+        - {skill: lockpicking, text: "{utility:Lockpicking} opens locked doors."}
+        - {skill: disarm_trap, text: "{utility:Disarm Trap} can disarm trapped chests."}
       auto_stats: {speed: 16, endurance: 18, primary: accuracy, secondary: intellect}
       might: 10
       intellect: 12
@@ -228,6 +259,10 @@ characters:
       quick_trap: cleave_trap
 
     arms_master:
+      description:
+        - {text: "Master of {damage:every weapon but the blaster}. Leather and shield, no magic."}
+        - {skill: dual_wielding, text: "{damage:Dual Wielding} adds an off-hand weapon. In real time each hand attacks on its own recovery; in turn-based the hero gets at least two actions a round and every weapon swing takes the other hand - main, off, main, off."}
+        - {skill: arms_master, text: "{damage:Arms Master} starts at Expert and adds damage to every weapon hit."}
       auto_stats: {speed: 16, endurance: 26, primary: might}
       card_rarity: rare
       might: 15
@@ -242,6 +277,11 @@ characters:
       main_hand: iron_sword
 
     monk:
+      description:
+        - {text: "Unarmed fighter - no weapons or armor."}
+        - {skill: iron_body, text: "{defense:Iron Body} gives a large Armor Class bonus instead."}
+        - {skill: spiritual_training, text: "{auto:Spiritual Training}: each melee swing, even a miss, may {auto:autocast} the slotted attack spell for free."}
+        - {text: "Knows {heal:Heal}, {damage:Harm}, {damage:Mind Blast} and {damage:Spirit Lash}."}
       auto_stats: {speed: 26, endurance: 28, primary: might, secondary: personality}
       card_rarity: rare
       might: 13
@@ -264,6 +304,10 @@ characters:
     # spell hit can be eaten for HP+SP) and Strong Magic (offensive casts burn
     # extra HP for proportionally harder hits) - numbers in character/catalog.go.
     battle_mage:
+      description:
+        - {text: "Spellblade in plate. Starts with {heal:Resurrect}, {damage:Rock Blast}, {damage:Firewall} and {damage:Sparks}."}
+        - {skill: spell_absorption, text: "{defense:Spell Absorption} can swallow a hostile spell hit and turn it into HP and SP."}
+        - {skill: strong_magic, text: "{damage:Strong Magic} makes attack spells hit up to twice as hard, paid for in HP."}
       auto_stats: {speed: 16, endurance: 36, primary: intellect, secondary: might}
       card_rarity: legendary
       might: 13
@@ -284,6 +328,12 @@ characters:
       quick_spell: rock_blast
 
     sniper:
+      description:
+        - {text: "Marksman with a rifle."}
+        - {skill: overwatch, text: "{auto:Overwatch}: while the party stands still, every enemy step toward the party in range, and every enemy attack (at half the chance), can draw a {auto:free automatic shot}."}
+        - {skill: designate_target, text: "{buff:Designate Target}: ranged hits mark a foe and raise the party's critical chance."}
+        - {skill: ballistics, text: "{damage:Ballistics} adds shot speed and crits, and range from Master."}
+        - {skill: field_medicine, text: "{heal:Field Medicine} strengthens the potions the Sniper drinks and adds to an Alchemist's Pharmacology."}
       auto_stats: {speed: 16, endurance: 18, primary: accuracy}
       card_rarity: legendary
       might: 9
@@ -299,6 +349,11 @@ characters:
       equipment: [leather_armor, leather_helmet]
 
     alchemist:
+      description:
+        - {text: "Brews potions from gathered ingredients. Starts with 6 health potions and a satchel of flasks."}
+        - {skill: alchemy, text: "{utility:Alchemy} raises the batch size."}
+        - {skill: pharmacology, text: "{heal:Pharmacology} makes every party potion restore more."}
+        - {skill: bomb_throwing, text: "{damage:Bomb Throwing}: fire, harm and venom flasks burst over 2 tiles."}
       auto_stats: {speed: 16, endurance: 20, primary: intellect, secondary: accuracy}
       card_rarity: rare
       might: 8
@@ -318,6 +373,10 @@ characters:
         - {key: venom_flask, count: 2}
 
     wayfarer:
+      description:
+        - {text: "Staff adept who {utility:folds space}: {utility:Fold Step} jumps 3 or more tiles ahead, and from level 6 {utility:Return Step} snaps back to the start. Techniques set to {auto:autocast} in the technique book guard the party: {auto:Phase Veil} raises dodge, {auto:Purify} clears afflictions, {auto:Quickening} speeds recovery."}
+        - {skill: flowing_staff, text: "{damage:Flowing Staff}: every tile walked charges a critical staff blow."}
+        - {skill: pathfinding, text: "{utility:Pathfinding} speeds the whole party."}
       auto_stats: {speed: 26, endurance: 22, primary: intellect, secondary: speed}
       card_rarity: rare
       might: 9
@@ -332,12 +391,47 @@ characters:
       main_hand: oak_staff
       equipment: [leather_armor]
 
+  # Race stat shifts are listed in the party-creation pitch from these numbers;
+  # description points follow them (same shape as a class description).
   races:
-    human: {}
-    half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
-    halfling:  { accuracy: 2, speed: 2, luck: 2, might: -3, endurance: -1 }
-    dark_elf:  { intellect: 2, speed: 2, accuracy: 1, might: -2, endurance: -2, luck: -1 }
-    celestial: { personality: 3, intellect: 1, luck: 1, might: -2, endurance: -2 }
+    human: { name: Human }
+    half_orc:
+      name: Half-Orc
+      might: 3
+      endurance: 2
+      intellect: -2
+      personality: -2
+      speed: -1
+      description:
+        - {skill: orcish_fury, text: "{damage:Orcish Fury} takes the place of Impenetrable Defense: every normal weapon hit deals extra damage."}
+    halfling:
+      name: Halfling
+      accuracy: 2
+      speed: 2
+      luck: 2
+      might: -3
+      endurance: -1
+      description:
+        - {skill: halfling_guile, text: "{defense:Halfling Guile}: enemies that pick a random hero to hit pick this one half as often."}
+    dark_elf:
+      name: Dark Elf
+      intellect: 2
+      speed: 2
+      accuracy: 1
+      might: -2
+      endurance: -2
+      luck: -1
+      description:
+        - {skill: dark_elf_binding, text: "{control:Dark Elf Binding}: a weapon, spell or trap hit may turn the foe into an ally for this map instead of hurting it (not undead or bosses)."}
+    celestial:
+      name: Celestial
+      personality: 3
+      intellect: 1
+      luck: 1
+      might: -2
+      endurance: -2
+      description:
+        - {skill: celestial_providence, text: "{auto:Celestial Providence}: while the Celestial is alive in the active party, every dawn and dusk gives the party a {auto:random Master-tier buff} until the next dawn or dusk."}
 
   # Starting roster (data-driven). class is a class key; name is the display
   # name and (lowercased) the portrait sprite key - falls back to the class

@@ -5,15 +5,15 @@ import "testing"
 // TestMenuPanelSizePerMode locks the per-mode panel dimensions to a single
 // source (menuPanelSize), used by both the draw code and the input hit-testing.
 func TestMenuPanelSizePerMode(t *testing.T) {
-	if w, h := menuPanelSize(MenuMain); w != mainMenuPanelW || h != mainMenuPanelH {
+	if w, h := menuPanelSize(MenuMain, 1280, 720); w != mainMenuPanelW || h != mainMenuPanelH {
 		t.Errorf("MenuMain panel = %dx%d, want %dx%d", w, h, mainMenuPanelW, mainMenuPanelH)
 	}
 	for _, mode := range []MainMenuMode{MenuSaveSelect, MenuLoadSelect} {
-		if w, h := menuPanelSize(mode); w != saveMenuPanelW || h != saveMenuPanelH {
+		if w, h := menuPanelSize(mode, 1280, 720); w != saveMenuPanelW || h != saveMenuPanelH {
 			t.Errorf("mode %d panel = %dx%d, want save %dx%d", mode, w, h, saveMenuPanelW, saveMenuPanelH)
 		}
 	}
-	if w, h := menuPanelSize(MenuSettings); w != settingsMenuPanelW || h != settingsMenuPanelH {
+	if w, h := menuPanelSize(MenuSettings, 1280, 720); w != settingsMenuPanelW || h != settingsMenuPanelH {
 		t.Errorf("MenuSettings panel = %dx%d, want %dx%d", w, h, settingsMenuPanelW, settingsMenuPanelH)
 	}
 }
@@ -47,18 +47,6 @@ func TestMainMenuOptionsOwnTheirActions(t *testing.T) {
 	(&InputHandler{game: g}).activateMainMenuSelection()
 	if g.mainMenuMode != MenuSettings || g.audioSliderDrag != -1 {
 		t.Fatalf("Settings action produced mode %d and drag %d", g.mainMenuMode, g.audioSliderDrag)
-	}
-}
-
-func TestMainMenuControlTipsFitPanel(t *testing.T) {
-	w, h := menuPanelSize(MenuControlTips)
-	if bottom := mainMenuTipsTopY() + len(mainMenuControlTips)*24; bottom > h-50 {
-		t.Fatal("tips overlap Back button")
-	}
-	for _, tip := range mainMenuControlTips {
-		if uiTextWidth(tip) > w-48 {
-			t.Fatalf("tip leaves its panel: %q", tip)
-		}
 	}
 }
 

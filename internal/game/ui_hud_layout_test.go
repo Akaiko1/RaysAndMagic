@@ -255,19 +255,33 @@ func TestArmsMasterCooldownProgressTracksHandsIndependently(t *testing.T) {
 	}
 }
 
-func TestPartyCardPanelAndStateFramesUseReservedSymmetricGutters(t *testing.T) {
+// The panel sits centred in its slot, and the state and selection bands each
+// get their own pixels: they never overlap, a gap separates them, and the
+// selection band stays inside the slot.
+func TestPartyCardFrameBandsNeverOverlap(t *testing.T) {
 	const slotW = 256
 	const slotH = partyCardPanelNativeHeight + partyCardFrameReserve*2
 	panelX, panelY, panelW, panelH := partyCardPanelRect(0, 0, slotW, slotH)
 	if panelX != slotW-(panelX+panelW) || panelY != slotH-(panelY+panelH) {
 		t.Fatalf("panel gutters L/R/T/B = %d/%d/%d/%d", panelX, slotW-(panelX+panelW), panelY, slotH-(panelY+panelH))
 	}
-	outerX, outerY, outerW, outerH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, partyCardOuterFrameGap)
-	if outerX < 0 || outerY < 0 || outerX+outerW > slotW || outerY+outerH > slotH {
-		t.Fatalf("outer frame (%d,%d %dx%d) leaves slot %dx%d", outerX, outerY, outerW, outerH, slotW, slotH)
+	// Distances from the panel edge each band's pixels occupy.
+	stateFrom, stateTo := partyStateBandGap, partyStateBandGap+partyFrameBand-1
+	selFrom, selTo := partySelectionBandGap, partySelectionBandGap+partyFrameBand-1
+	if stateFrom < 1 {
+		t.Fatal("the state band touches the painted panel")
 	}
-	if partyCardOuterFrameGap-partyCardInnerFrameGap != 1 {
-		t.Fatal("nested selection and cooldown frames must touch without sharing one line")
+	if selFrom <= stateTo+1 {
+		t.Fatalf("state band %d..%d and selection band %d..%d have no gap", stateFrom, stateTo, selFrom, selTo)
+	}
+	if selTo > partyCardFrameReserve {
+		t.Fatalf("selection band reaches distance %d, beyond the %dpx gutter", selTo, partyCardFrameReserve)
+	}
+	if want := 106 + 8; partyHUDHeight() != want {
+		t.Fatalf("party HUD is %dpx tall, want %d (the old 106 plus 8 for the bands)", partyHUDHeight(), want)
+	}
+	if partyFrameBand < 3 {
+		t.Fatalf("bands are %dpx; the metal ramp needs 3", partyFrameBand)
 	}
 }
 
@@ -641,4 +655,32 @@ func TestWizardEyeRadarDotCategories(t *testing.T) {
 			t.Errorf("%s: wrong radar dot", r.name)
 		}
 	}
+}
+
+// The mode panel (REAL-TIME / TURN-BASED and the turn lines) holds every line
+// inside its frame in every shipped font, in both clocks and both phases.
+func TestTurnModePanelFitsItsTextInEveryFont(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	ui := NewUISystem(g)
+	forEachUIFont(t, func(t *testing.T) {
+		for _, pose := range []struct {
+			tb   bool
+			turn int
+		}{{false, 0}, {true, 0}, {true, 1}} {
+			g.turnBasedMode, g.currentTurn = pose.tb, pose.turn
+			g.partyActionsUsed = 2
+			lines, x, _, w, h := ui.turnBasedStatusLayout()
+			for i, line := range lines {
+				if right := x + textPanelPadding + uiTextWidth(line); right > x+w-1 {
+					t.Errorf("tb=%v turn=%d: %q ends at %d, past the frame at %d", pose.tb, pose.turn, line, right, x+w-1)
+				}
+				if bottom := textPanelPadding + i*textPanelLineHeight + uiTextCharHeight; bottom > h {
+					t.Errorf("tb=%v turn=%d: line %d runs below the frame", pose.tb, pose.turn, i)
+				}
+			}
+			if x+w > g.config.GetScreenWidth() {
+				t.Errorf("tb=%v: the panel leaves the screen", pose.tb)
+			}
+		}
+	})
 }

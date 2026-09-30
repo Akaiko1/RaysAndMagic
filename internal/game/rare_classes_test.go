@@ -240,7 +240,7 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 }
 
 func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
-	for _, blocked := range []string{"none", "wall", "endpoint", "SP", "reuse", "enemyphase"} {
+	for _, blocked := range []string{"none", "wall", "endpoint", "SP", "reuse", "enemyphase", "rooted"} {
 		t.Run(blocked, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, true)
 			c.ActionsRemaining = 0
@@ -261,6 +261,8 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 				g.spatialReuseFrames = 1
 			case "enemyphase":
 				g.currentTurn = 1
+			case "rooted":
+				g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
 			}
 			sp := c.SpellPoints
 			got := g.useTechnique(0, "fold_step", false, false)
@@ -288,6 +290,27 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 				t.Fatal("return failed")
 			}
 		})
+	}
+}
+
+// A rooted party cannot Return to its anchor either; once the root ends the
+// same step works.
+func TestRareReturnStepRespectsRoot(t *testing.T) {
+	g, c := rareClassGame(t, character.ClassWayfarer, true)
+	x, y := g.camera.X, g.camera.Y
+	if !g.useTechnique(0, "fold_step", false, false) {
+		t.Fatal("setup Fold rejected")
+	}
+	g.startPartyTurn()
+	g.spatialReuseFrames = 0
+	g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
+	foldX, foldY, sp := g.camera.X, g.camera.Y, c.SpellPoints
+	if g.useTechnique(0, "return_step", false, false) || g.camera.X != foldX || g.camera.Y != foldY || c.SpellPoints != sp {
+		t.Fatal("a rooted party returned to its anchor")
+	}
+	g.partyRoot = PartyRootState{}
+	if !g.useTechnique(0, "return_step", false, false) || math.Abs(g.camera.X-x) > .01 || math.Abs(g.camera.Y-y) > .01 {
+		t.Fatal("Return Step failed once the root ended")
 	}
 }
 

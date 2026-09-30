@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"strings"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -108,9 +110,81 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		}
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, color.RGBA{210, 170, 80, 230})
+			if interactive && item != nil && !ui.game.dragActive {
+				ui.hoverQuickSlot(charIdx, i, *item, ch, layoutRect{barX, barY, barW, barH}, mouseX+16, mouseY+8)
+			}
 		}
 	}
 	return slots
+}
+
+// quickSlotCardDelay is how long the pointer rests on a filled cell before
+// its card opens: the bar is clicked far more than it is read.
+const quickSlotCardDelay = 3 * tooltipDwellDelay
+
+// quickSlotCard is the quick bar's own hover card. The bar sits in the
+// gameplay zone, where clicks belong to play, so the card stays out of the
+// shared tooltip queue: it keeps its own rest timer, draws after every other
+// tooltip, never while one is up, and never over the bar.
+type quickSlotCard struct {
+	charIdx, slot int
+	since         time.Time
+	resting       bool // a rest is running on (charIdx, slot)
+	hovered       bool // a filled cell is under the pointer this frame
+	item          items.Item
+	owner         *character.MMCharacter
+	bar           layoutRect
+	x, y          int
+	drawn         layoutRect // where the card was drawn this frame (zero = not shown)
+}
+
+// hoverQuickSlot notes the filled cell under the pointer for this frame.
+func (ui *UISystem) hoverQuickSlot(charIdx, slot int, item items.Item, owner *character.MMCharacter, bar layoutRect, x, y int) {
+	c := &ui.quickCard
+	if !c.resting || c.charIdx != charIdx || c.slot != slot {
+		c.charIdx, c.slot, c.since, c.resting = charIdx, slot, dwellNow(), true
+	}
+	c.hovered = true
+	c.item, c.owner, c.bar, c.x, c.y = item, owner, bar, x, y
+}
+
+// drawQuickSlotCard closes the frame for the quick bar's card: a frame with no
+// hovered cell ends the rest; a long enough rest draws the card.
+func (ui *UISystem) drawQuickSlotCard(screen *ebiten.Image) {
+	c := &ui.quickCard
+	c.drawn = layoutRect{}
+	hovered := c.hovered
+	c.hovered = false
+	if !hovered {
+		c.resting = false
+		return
+	}
+	if ui.tooltipLines != nil || dwellNow().Sub(c.since) < quickSlotCardDelay {
+		return
+	}
+	lines := strings.Split(GetItemTooltip(c.item, c.owner, ui.game.combat, tooltipDetailHeld()), "\n")
+	plate, title := ui.itemTitleColors(c.item)
+	colors := activeSetBonusColors(lines, nil, c.item, c.owner)
+	icon := ui.validTooltipIcon(itemTooltipIconName(c.item))
+	screenW, screenH := uiBounds(screen).Dx(), uiBounds(screen).Dy()
+	maxW := tooltipColumnWidth(screenW, 1)
+	layout := layoutTooltip(lines, icon != "", maxW, screenH)
+	r := positionTooltipBox(c.x, c.y, layout.w, layout.h, screenW, screenH)
+	r.y = cardYClearOf(r.y, layout.h, c.bar, screenH)
+	drawTooltip(screen, lines, colors, plate, title, icon, r.x, r.y, r.x+maxW, ui.game.sprites)
+	c.drawn = r
+}
+
+// cardYClearOf moves a card of height h off a strip it overlaps: above
+// the strip when it fits there, else below it.
+func cardYClearOf(y, h int, strip layoutRect, screenH int) int {
+	if strip.h <= 0 || y >= strip.bottom() || y+h <= strip.y {
+		return y
+	}
+	if above := strip.y - tooltipScreenMargin - h; above >= tooltipScreenMargin {
+		return above
+	}
+	return tooltipAxisPosition(strip.bottom()+tooltipScreenMargin, h, screenH)
 }
 
 // quickSlotCellInteract captures a drag that began on this cell and resolves a

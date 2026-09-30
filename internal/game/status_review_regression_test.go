@@ -31,6 +31,7 @@ func TestStatusReviewControlIdentity(t *testing.T) {
 					m = monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 					c := g.party.Members[0]
 					c.Race = "dark_elf"
+					c.EnsureRacialTraits(nil)
 					g.combat.racialProcRoll = func(int) bool { return true }
 					if !g.combat.tryDarkElfBindInstead(c, m) {
 						t.Fatal("racial Bind failed")

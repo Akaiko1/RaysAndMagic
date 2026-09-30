@@ -1028,11 +1028,12 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	drawUIText(screen, uitext.Text("dialog.click_to_select_double_click_train_esc"), px+12, py+ph-22)
 }
 
-// partyMerchantTier returns the best Merchant mastery tier among active members.
+// partyMerchantTier returns the best Merchant mastery tier among active members
+// who can act, like the other "best active user" skills.
 func (g *MMGame) partyMerchantTier() int {
 	best := 0
 	for _, m := range g.party.Members {
-		if m != nil {
+		if m != nil && !m.IsIncapacitated() {
 			if t := m.MerchantTier(); t > best {
 				best = t
 			}

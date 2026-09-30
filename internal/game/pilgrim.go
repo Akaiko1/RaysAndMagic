@@ -31,6 +31,10 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 		return "There is no room to use a technique here."
 	}
 	if d.FreeStep {
+		// A step moves the party, and a rooted party cannot move (as with Jump).
+		if g.partyRooted() {
+			return "The party is rooted in place."
+		}
 		if g.turnBasedMode && g.currentTurn != 0 {
 			return "Wait for the party phase."
 		}

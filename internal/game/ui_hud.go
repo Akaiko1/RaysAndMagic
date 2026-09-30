@@ -42,6 +42,7 @@ const (
 	partyAutoButtonMaxW     = 62
 	partyAutoButtonH        = 16
 	partyPanelContentLeft   = 83
+	partyEquipmentMinW      = 48 // the equipment column never shrinks below this
 	partyPanelContentRight  = 18
 	partyPanelContentTop    = 18
 	partyPanelContentBottom = 82
@@ -87,6 +88,9 @@ func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayo
 	}
 	box := available
 	statsW := max(1, (box.w-template.columnGap)*template.statsPercent/100)
+	// The HP/SP readout keeps its full labelled form up to three digits; the
+	// equipment column, whose names already clip, gives up the width first.
+	statsW = max(statsW, min(uiTextWidth("HP 100/100")+4, box.w-template.columnGap-partyEquipmentMinW))
 	stats := layoutRect{x: box.x, y: box.y, w: statsW, h: box.h}
 	equipmentX := stats.right() + template.columnGap
 	equipment := layoutRect{x: equipmentX, y: box.y, w: max(1, box.right()-equipmentX), h: box.h}
@@ -312,79 +316,107 @@ func (ui *UISystem) partyArmsMasterCooldownProgress(member *character.MMCharacte
 	return mainProgress, offProgress, true
 }
 
-type partyCooldownEdge struct{ ax, ay, bx, by float32 }
+// Party card frames sit in two separate bands around the panel: the state
+// band (RT cooldown, TB turn) just outside it and the selection band beyond
+// it, so the two never share a pixel. Each band is 3px of metal - a dark rim,
+// a bright ridge and a shaded inner line, lit from above.
+const (
+	partyFrameBand        = 3
+	partyStateBandGap     = 1 // distance of the band's inner line from the panel: touching it
+	partySelectionBandGap = partyStateBandGap + partyFrameBand + 1
+)
 
-func drawPartyCooldownProgress(screen *ebiten.Image, edges []partyCooldownEdge, progress float64, col color.RGBA) {
-	totalLength := 0.0
-	for _, edge := range edges {
-		totalLength += math.Hypot(float64(edge.bx-edge.ax), float64(edge.by-edge.ay))
+var (
+	partyFrameTrack    = color.RGBA{84, 92, 104, 255}  // an idle band
+	partyFrameMainHand = color.RGBA{66, 218, 116, 255} // RT cooldown filling (main hand)
+	partyFrameOffHand  = color.RGBA{66, 154, 235, 255} // RT cooldown filling (off hand)
+	partyFrameSpent    = color.RGBA{206, 58, 70, 255}  // TB: this hero has acted
+	partyFrameSelected = color.RGBA{232, 190, 86, 255}
+)
+
+// partyFrameLineShade is each band line's place on the metal ramp, outer to
+// inner.
+var partyFrameLineShade = [partyFrameBand]float64{0.6, 0.15, 0.45}
+
+// partyFrameEdge is one straight run of a frame path, in whole pixels.
+type partyFrameEdge struct{ ax, ay, bx, by int }
+
+// partyFramePath lists a band line's runs for its 1px rectangle r.
+type partyFramePath func(r layoutRect) []partyFrameEdge
+
+func partyFrameWhole(r layoutRect) []partyFrameEdge {
+	x2, y2 := r.right()-1, r.bottom()-1
+	return []partyFrameEdge{{r.x, r.y, x2, r.y}, {x2, r.y, x2, y2}, {x2, y2, r.x, y2}, {r.x, y2, r.x, r.y}}
+}
+
+// The two hands share the band: the main hand the upper half, the off hand
+// the lower, each travelling from the left midpoint to the right one.
+func partyFrameUpperHalf(r layoutRect) []partyFrameEdge {
+	x2, mid := r.right()-1, r.y+(r.h-1)/2
+	return []partyFrameEdge{{r.x, mid, r.x, r.y}, {r.x, r.y, x2, r.y}, {x2, r.y, x2, mid}}
+}
+
+func partyFrameLowerHalf(r layoutRect) []partyFrameEdge {
+	x2, y2, mid := r.right()-1, r.bottom()-1, r.y+(r.h-1)/2+1
+	return []partyFrameEdge{{r.x, mid, r.x, y2}, {r.x, y2, x2, y2}, {x2, y2, x2, mid}}
+}
+
+// drawPartyFrameBand draws a band whose inner edge sits gap px outside the
+// panel, following path up to progress (0..1) in the base metal.
+func drawPartyFrameBand(screen *ebiten.Image, panel layoutRect, gap int, path partyFramePath, progress float64, base color.RGBA) {
+	for line, shade := range partyFrameLineShade {
+		d := gap + partyFrameBand - 1 - line
+		r := layoutRect{panel.x - d, panel.y - d, panel.w + 2*d, panel.h + 2*d}
+		drawPartyFramePath(screen, r, path(r), progress, base, shade)
 	}
-	left := totalLength * max(0.0, min(1.0, progress))
-	for _, edge := range edges {
-		length := math.Hypot(float64(edge.bx-edge.ax), float64(edge.by-edge.ay))
+}
+
+func drawPartyFramePath(screen *ebiten.Image, r layoutRect, edges []partyFrameEdge, progress float64, base color.RGBA, shade float64) {
+	total := 0
+	for _, e := range edges {
+		total += absInt(e.bx-e.ax) + absInt(e.by-e.ay)
+	}
+	left := int(math.Round(float64(total) * max(0.0, min(1.0, progress))))
+	for _, e := range edges {
 		if left <= 0 {
-			break
+			return
 		}
-		fraction := min(1.0, left/length)
-		ex := edge.ax + (edge.bx-edge.ax)*float32(fraction)
-		ey := edge.ay + (edge.by-edge.ay)*float32(fraction)
-		uiStrokeLine(screen, edge.ax, edge.ay, ex, ey, 2, col, false)
+		length := absInt(e.bx-e.ax) + absInt(e.by-e.ay)
+		run := min(left, length)
 		left -= length
+		bx, by := e.ax+sign(e.bx-e.ax)*run, e.ay+sign(e.by-e.ay)*run
+		t := shade
+		switch {
+		case e.ay == e.by && e.ay == r.y:
+			t -= 0.1 // the lit top edge
+		case e.ay == e.by:
+			t += 0.1 // the shadowed bottom edge
+		}
+		drawFilledRect(screen, min(e.ax, bx), min(e.ay, by), absInt(bx-e.ax)+1, absInt(by-e.ay)+1, metalShade(base, max(0, min(1, t))))
 	}
 }
 
-func drawPartyCooldownFrame(screen *ebiten.Image, x, y, w, h int, progress float64) {
-	x1, y1 := float32(x), float32(y)
-	x2, y2 := float32(x+w-1), float32(y+h-1)
-	if x2 <= x1 || y2 <= y1 {
-		return
+func sign(v int) int {
+	switch {
+	case v > 0:
+		return 1
+	case v < 0:
+		return -1
 	}
-	gray := color.RGBA{104, 112, 123, 235}
-	green := color.RGBA{66, 218, 116, 250}
-	uiStrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
-	edges := [...]partyCooldownEdge{
-		{x1, y1, x2, y1},
-		{x2, y1, x2, y2},
-		{x2, y2, x1, y2},
-		{x1, y2, x1, y1},
-	}
-	drawPartyCooldownProgress(screen, edges[:], progress, green)
+	return 0
 }
 
-func drawPartyArmsMasterCooldownFrame(screen *ebiten.Image, x, y, w, h int, mainProgress, offProgress float64) {
-	x1, y1 := float32(x), float32(y)
-	x2, y2 := float32(x+w-1), float32(y+h-1)
-	if x2 <= x1 || y2 <= y1 {
-		return
-	}
-	midY := (y1 + y2) / 2
-	gray := color.RGBA{104, 112, 123, 235}
-	mainGreen := color.RGBA{66, 218, 116, 250}
-	offBlue := color.RGBA{66, 154, 235, 250}
-	uiStrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
-
-	// Both paths travel from the left midpoint to the right midpoint, keeping
-	// the main-hand readout wholly above the off-hand readout.
-	mainEdges := [...]partyCooldownEdge{
-		{x1, midY, x1, y1},
-		{x1, y1, x2, y1},
-		{x2, y1, x2, midY},
-	}
-	offEdges := [...]partyCooldownEdge{
-		{x1, midY, x1, y2},
-		{x1, y2, x2, y2},
-		{x2, y2, x2, midY},
-	}
-	drawPartyCooldownProgress(screen, mainEdges[:], mainProgress, mainGreen)
-	drawPartyCooldownProgress(screen, offEdges[:], offProgress, offBlue)
+// drawPartyCooldownFrame fills the state band as a single cooldown recovers.
+func drawPartyCooldownFrame(screen *ebiten.Image, panel layoutRect, progress float64) {
+	drawPartyFrameBand(screen, panel, partyStateBandGap, partyFrameWhole, 1, partyFrameTrack)
+	drawPartyFrameBand(screen, panel, partyStateBandGap, partyFrameWhole, progress, partyFrameMainHand)
 }
 
-func expandedPartyPanelRect(x, y, w, h, gap int) (int, int, int, int) {
-	return x - gap, y - gap, w + gap*2, h + gap*2
-}
-
-func drawPartySolidFrame(screen *ebiten.Image, x, y, w, h int, thickness float32, col color.RGBA) {
-	uiStrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), thickness, col, false)
+// drawPartyArmsMasterCooldownFrame fills each hand's half as it recovers.
+func drawPartyArmsMasterCooldownFrame(screen *ebiten.Image, panel layoutRect, mainProgress, offProgress float64) {
+	drawPartyFrameBand(screen, panel, partyStateBandGap, partyFrameWhole, 1, partyFrameTrack)
+	drawPartyFrameBand(screen, panel, partyStateBandGap, partyFrameUpperHalf, mainProgress, partyFrameMainHand)
+	drawPartyFrameBand(screen, panel, partyStateBandGap, partyFrameLowerHalf, offProgress, partyFrameOffHand)
 }
 
 func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
@@ -628,28 +660,6 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		selected := i == ui.game.selectedChar
 		panelX, panelY, panelW, panelH := partyCardPanelRect(x, startY, portraitWidth, portraitHeight)
 
-		// In turn-based mode an
-		// alive character that has already spent all their action slots gets
-		// a gray frame so the player can see at a glance who still has a
-		// move left. KO characters are skipped - they get no frame at all.
-		// Dual Wielding gets an amber state: one weapon already used
-		// this round but the other is still available - distinct from "fully
-		// spent" gray, so the player can tell "acted once" from "acted twice".
-		highlightColor := color.RGBA{0, 0, 0, 0}
-		grayBusy := color.RGBA{120, 120, 120, 220}
-		amberOneHandBusy := color.RGBA{225, 205, 40, 220}
-		switch {
-		case ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
-			switch member.ActionsRemaining {
-			case 0:
-				highlightColor = grayBusy
-			case 1:
-				highlightColor = amberOneHandBusy
-			}
-		case ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0:
-			highlightColor = grayBusy
-		}
-
 		panel := ui.game.sprites.GetSprite("party_member_panel")
 		drawPartyPanel(screen, panel, panelX, panelY, panelW)
 
@@ -801,34 +811,32 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			})
 		}
 
-		stateFrameActive := highlightColor.A > 0
-		innerX, innerY, innerW, innerH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, partyCardInnerFrameGap)
-		if ui.game.turnBasedMode && stateFrameActive {
-			drawPartySolidFrame(screen, innerX, innerY, innerW, innerH, 1.5, highlightColor)
-		} else if !ui.game.turnBasedMode {
+		// The state band: in TB whether this hero has acted (a dual wielder's
+		// first swing spends the main-hand half), in RT the recovering
+		// cooldown. The selection band sits outside it and never covers it.
+		cardRect := layoutRect{panelX, panelY, panelW, panelH}
+		switch {
+		case ui.game.turnBasedMode:
+			if member.CanAct() && member.ActionsRemaining == 0 {
+				drawPartyFrameBand(screen, cardRect, partyStateBandGap, partyFrameWhole, 1, partyFrameSpent)
+			} else if member.CanAct() && member.IsDualWielding() && member.ActionsRemaining == 1 {
+				drawPartyFrameBand(screen, cardRect, partyStateBandGap, partyFrameWhole, 1, partyFrameTrack)
+				drawPartyFrameBand(screen, cardRect, partyStateBandGap, partyFrameUpperHalf, 1, partyFrameSpent)
+			}
+		case member.MainHandArmed() && member.IsDualWielding():
 			// The split readout represents two ATTACKING hands, so both must
-			// actually hold a weapon: an empty (or shield-bearing) off-hand has no
-			// off-hand attack, and an empty main hand has no main-hand attack -
-			// either way one half would sit permanently "ready".
-			if member.MainHandArmed() && member.IsDualWielding() {
-				if mainProgress, offProgress, active := ui.partyArmsMasterCooldownProgress(member); active {
-					stateFrameActive = true
-					drawPartyArmsMasterCooldownFrame(screen, innerX, innerY, innerW, innerH, mainProgress, offProgress)
-				}
-			} else {
-				if _, progress, active := ui.partyCooldownProgress(member, partySingleHandCooldown(member)); active {
-					stateFrameActive = true
-					drawPartyCooldownFrame(screen, innerX, innerY, innerW, innerH, progress)
-				}
+			// actually hold a weapon: an empty (or shield-bearing) off-hand has
+			// no off-hand attack, and either way one half would sit "ready".
+			if mainProgress, offProgress, active := ui.partyArmsMasterCooldownProgress(member); active {
+				drawPartyArmsMasterCooldownFrame(screen, cardRect, mainProgress, offProgress)
+			}
+		default:
+			if _, progress, active := ui.partyCooldownProgress(member, partySingleHandCooldown(member)); active {
+				drawPartyCooldownFrame(screen, cardRect, progress)
 			}
 		}
 		if selected {
-			selectionGap := partyCardInnerFrameGap
-			if stateFrameActive {
-				selectionGap = partyCardOuterFrameGap
-			}
-			selectionX, selectionY, selectionW, selectionH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, selectionGap)
-			drawPartySolidFrame(screen, selectionX, selectionY, selectionW, selectionH, 1.5, color.RGBA{232, 190, 86, 245})
+			drawPartyFrameBand(screen, cardRect, partySelectionBandGap, partyFrameWhole, 1, partyFrameSelected)
 		}
 		if ui.game.overwatchReady(member) {
 			cx, cy := float32(px+pw-11), float32(py+11)
@@ -1776,14 +1784,13 @@ const (
 
 // measureTextPanel returns the panel size fitting the given lines (7px-per-char
 // width estimate).
+// measureTextPanel sizes a padded panel to its widest line in the active font.
 func measureTextPanel(lines []string) (w, h int) {
-	maxLen := 0
+	widest := 0
 	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
-		}
+		widest = max(widest, uiTextWidth(line))
 	}
-	return maxLen*7 + textPanelPadding*2, len(lines)*textPanelLineHeight + textPanelPadding*2
+	return widest + textPanelPadding*2, len(lines)*textPanelLineHeight + textPanelPadding*2
 }
 
 // drawTurnBasedStatus displays the current game mode and turn state

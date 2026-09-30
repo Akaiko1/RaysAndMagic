@@ -690,7 +690,7 @@ type MMGame struct {
 	turnBasedMoveCooldown     int // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown      int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
-	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every 5 turns)
+	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every TurnBasedSpRegenEveryNRounds rounds)
 
 	// cardSummonCooldowns independently silence each physical summon card after
 	// it fires. Keys are the stable per-card owner strings derived from the
