@@ -28,7 +28,15 @@ func main() {
 	runURL := flag.String("run-url", "", "workflow run that built the page (optional)")
 	image := flag.String("image", "", "screenshot copied into the site (optional)")
 	out := flag.String("out", "site", "output directory")
+	checkTag := flag.String("check-tag", "", "only validate this release tag and exit")
 	flag.Parse()
+	if *checkTag != "" {
+		if _, _, err := parseTag(*checkTag); err != nil {
+			fmt.Fprintln(os.Stderr, "downloadspage:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := generate(*releasesPath, *tagsPath, *repo, *runURL, *image, *out); err != nil {
 		fmt.Fprintln(os.Stderr, "downloadspage:", err)
 		os.Exit(1)

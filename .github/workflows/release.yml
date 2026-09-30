@@ -9,7 +9,23 @@ permissions:
   contents: write
 
 jobs:
+  # A mistyped tag fails here in seconds, before anything is built or
+  # published: the downloads page accepts only v<version>.<known channel>.
+  check-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check the release tag
+        run: go run ./tools/downloadspage -check-tag "${GITHUB_REF_NAME}"
+
   windows-shaders:
+    needs: check-tag
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5

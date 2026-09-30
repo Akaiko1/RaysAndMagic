@@ -219,3 +219,30 @@ func TestGenerateWritesSite(t *testing.T) {
 		t.Fatal("screenshot not copied into the site")
 	}
 }
+
+// The rule the release workflow checks a pushed tag against before building.
+func TestParseTag(t *testing.T) {
+	for _, tc := range []struct {
+		tag, version, channel, wantErr string
+	}{
+		{"v0.9.9.3.nightly", "0.9.9.3", "nightly", ""},
+		{"v1.0.stable", "1.0", "stable", ""},
+		{"v0.9.9.3.nighly", "", "", `unknown channel "nighly"`},
+		{"v1.0", "", "", "v<version>.<channel>"},
+		{"0.9.9.3.nightly", "", "", "v<version>.<channel>"},
+		{"v0.9.9.3.Nightly", "", "", "v<version>.<channel>"},
+	} {
+		t.Run(tc.tag, func(t *testing.T) {
+			version, ch, err := parseTag(tc.tag)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error %v, want it to mention %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || version != tc.version || ch.Key != tc.channel {
+				t.Fatalf("got %q %q %v, want %q %q", version, ch.Key, err, tc.version, tc.channel)
+			}
+		})
+	}
+}

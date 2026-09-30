@@ -140,21 +140,28 @@ func buildPage(releases []ghRelease, tags []ghTag, repo string) (page, error) {
 	return p, nil
 }
 
-func convertRelease(gr ghRelease, commits map[string]string) (release, error) {
-	m := tagPattern.FindStringSubmatch(gr.Tag)
+// parseTag splits a release tag into its version and channel. The release
+// workflow runs it on a pushed tag before building, so a mistyped tag fails in
+// seconds instead of publishing a release this page would refuse.
+func parseTag(tag string) (string, channel, error) {
+	m := tagPattern.FindStringSubmatch(tag)
 	if m == nil {
-		return release{}, fmt.Errorf("release %q: tag must look like v<version>.<channel>", gr.Tag)
+		return "", channel{}, fmt.Errorf("release %q: tag must look like v<version>.<channel>", tag)
 	}
-	r := release{Tag: gr.Tag, Version: m[1], URL: gr.HTMLURL, Published: gr.PublishedAt.UTC()}
-	found := false
 	for _, ch := range channels {
 		if ch.Key == m[2] {
-			r.Channel, found = ch, true
+			return m[1], ch, nil
 		}
 	}
-	if !found {
-		return release{}, fmt.Errorf("release %q: unknown channel %q (known: %s)", gr.Tag, m[2], channelKeys())
+	return "", channel{}, fmt.Errorf("release %q: unknown channel %q (known: %s)", tag, m[2], channelKeys())
+}
+
+func convertRelease(gr ghRelease, commits map[string]string) (release, error) {
+	version, ch, err := parseTag(gr.Tag)
+	if err != nil {
+		return release{}, err
 	}
+	r := release{Tag: gr.Tag, Version: version, Channel: ch, URL: gr.HTMLURL, Published: gr.PublishedAt.UTC()}
 	sha, ok := commits[gr.Tag]
 	if !ok || sha == "" {
 		return release{}, fmt.Errorf("release %q: tag missing from the tag list", gr.Tag)
