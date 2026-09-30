@@ -42,13 +42,30 @@ func computeBookLayout(content layoutRect) bookLayout {
 		topReserve    = 90
 		footerReserve = 96
 		maxBookH      = 640
+		footerGap     = 8
+		pagerW        = 180
+		quickMinW     = 240
+		quickMaxW     = 360
+		sideGap       = 3 * footerGap
 	)
-	l.bookH = min(maxBookH, min(content.h-topReserve-footerReserve, (content.w-32)/2))
-	if l.bookH < 1 {
-		l.bookH = 1
+	l.controls = layoutRect{content.x + 20, content.bottom() - uiTextCharHeight, content.w - 40, uiTextCharHeight}
+	// The quick-slot bar and the pager sit in a strip under the book, or - on
+	// a wide, short frame, when that gives the book more height - in a column
+	// beside it, leaving the book every row down to the controls line.
+	stackedH := min(maxBookH, content.h-topReserve-footerReserve, (content.w-32)/2)
+	sideH := min(maxBookH, content.bottom()-footerGap-l.controls.h-(content.y+topReserve), (content.w-32-sideGap-quickMinW)/2)
+	side := sideH > stackedH
+	l.bookH = max(1, stackedH)
+	if side {
+		l.bookH = sideH
 	}
 	l.bookW = l.bookH * 2
-	l.bookX = content.x + (content.w-l.bookW)/2
+	blockW, quickW := l.bookW, 0
+	if side {
+		quickW = min(quickMaxW, max(quickMinW, l.bookW/3), content.w-32-sideGap-l.bookW)
+		blockW += sideGap + quickW
+	}
+	l.bookX = content.x + (content.w-blockW)/2
 	l.bookY = content.y + topReserve
 	l.scaleX = float64(l.bookW) / 1024.0
 	l.scaleY = float64(l.bookH) / 512.0
@@ -61,7 +78,7 @@ func computeBookLayout(content layoutRect) bookLayout {
 	l.cardH = l.srcH(bookSpellCardH)
 	l.iconSize = l.srcW(100)
 	// Clamp icon size so name + stats rows fit below it without overlap at small scales.
-	if maxIcon := l.cardH - 2*debugTextCharHeight - 12; l.iconSize > maxIcon {
+	if maxIcon := l.cardH - 2*uiTextCharHeight - 12; l.iconSize > maxIcon {
 		l.iconSize = maxIcon
 	}
 	if l.iconSize < 16 {
@@ -76,10 +93,26 @@ func computeBookLayout(content layoutRect) bookLayout {
 	rightInner := l.pageInnerRect(1)
 	l.pageOriginX = [2]int{leftInner.x + (leftInner.w-l.gridW)/2, rightInner.x + (rightInner.w-l.gridW)/2}
 	l.gridMaxY = l.srcY(bookPageInnerBottom)
-	quickW := min(360, max(240, l.bookW/3))
-	l.quick = layoutRect{l.bookX + (l.bookW-quickW)/2, l.bookY + l.bookH + 8, quickW, int(float64(quickW) / quickSlotBarAspect)}
-	l.pager = layoutRect{l.bookX + l.bookW - 180, l.quick.y + (l.quick.h-pagerBtnH)/2, 180, pagerBtnH}
-	l.controls = layoutRect{content.x + 20, content.bottom() - debugTextCharHeight, content.w - 40, debugTextCharHeight}
+	if side {
+		// Beside the book: the bar level with the book's foot, its label and
+		// the pager stacked above it.
+		quickX := l.bookX + l.bookW + sideGap
+		quickH := int(float64(quickW) / quickSlotBarAspect)
+		l.quick = layoutRect{quickX, l.bookY + l.bookH - quickH, quickW, quickH}
+		l.pager = layoutRect{quickX + (quickW-pagerW)/2, l.quick.y - quickSlotTabLabelSpace - footerGap - pagerBtnH, pagerW, pagerBtnH}
+		return l
+	}
+	// Footer row: the quick-slot bar (centred) and the pager (right-aligned)
+	// share the strip between the book and the controls line. The bar grows
+	// with the book but never past that strip, and moves left rather than
+	// sliding under the pager on a narrow book.
+	footerY := l.bookY + l.bookH + footerGap
+	footerH := l.controls.y - footerGap/2 - footerY
+	quickW = min(quickMaxW, max(quickMinW, l.bookW/3), int(float64(footerH)*quickSlotBarAspect))
+	pagerX := l.bookX + l.bookW - pagerW
+	quickX := max(l.bookX, min(l.bookX+(l.bookW-quickW)/2, pagerX-footerGap-quickW))
+	l.quick = layoutRect{quickX, footerY, quickW, int(float64(quickW) / quickSlotBarAspect)}
+	l.pager = layoutRect{pagerX, l.quick.y + (l.quick.h-pagerBtnH)/2, pagerW, pagerBtnH}
 	return l
 }
 

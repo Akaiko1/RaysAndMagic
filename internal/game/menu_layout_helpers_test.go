@@ -29,15 +29,15 @@ func (b uiBox) contains(o uiBox) bool {
 	return o.X >= b.X && o.Y >= b.Y && o.right() <= b.right() && o.bottom() <= b.bottom()
 }
 
-// textLineBox is the bounding box of a left-aligned drawDebugText(text, x, y).
+// textLineBox is the bounding box of a left-aligned drawUIText(text, x, y).
 func textLineBox(name, text string, x, y int) uiBox {
-	return uiBox{name, x, y, debugTextWidth(text), debugTextCharHeight}
+	return uiBox{name, x, y, uiTextWidth(text), uiTextCharHeight}
 }
 
-// centeredTextBox is the bounding box of drawCenteredDebugText(text, x, y, w, h).
+// centeredTextBox is the bounding box of drawCenteredUIText(text, x, y, w, h).
 func centeredTextBox(name, text string, x, y, w, h int) uiBox {
-	tw := debugTextWidth(text)
-	return uiBox{name, x + (w-tw)/2, y + (h-debugTextCharHeight)/2, tw, debugTextCharHeight}
+	tw := uiTextWidth(text)
+	return uiBox{name, x + (w-tw)/2, y + (h-uiTextCharHeight)/2, tw, uiTextCharHeight}
 }
 
 func namedLayoutBox(name string, r layoutRect) uiBox {
@@ -62,9 +62,9 @@ func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox
 	layout := makeAudioSettingsPanelLayout(screenW, screenH, ornate)
 	px, py, panelW, panelH := layout.px, layout.py, layout.panelW, layout.panelH
 	region := uiBox{"audio-settings", px, py, panelW, panelH}
-	boxes := []uiBox{{"title", px + (panelW-debugTextWidth("Settings")*2)/2, py + 22, debugTextWidth("Settings") * 2, debugTextCharHeight * 2}}
-	for tab := 0; tab < 2; tab++ {
-		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, tab)))
+	boxes := []uiBox{{"title", px + (panelW-uiTextWidth("Settings")*2)/2, py + 22, uiTextWidth("Settings") * 2, uiTextCharHeight * 2}}
+	for tab := range settingsTabLabels {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, settingsTabKind(tab))))
 	}
 	for row, def := range audioSettingDefinitions {
 		r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
@@ -114,7 +114,7 @@ func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	l := computeCardsContentLayout(menu.content)
 	boxes := []uiBox{namedLayoutBox("title", l.title), namedLayoutBox("subtitle", l.subtitle)}
 	for i, card := range l.cards {
-		cardAndLabels := layoutRect{card.x - (l.labelW-card.w)/2, card.y, l.labelW, card.h + 2 + 2*debugTextCharHeight}
+		cardAndLabels := layoutRect{card.x - (l.labelW-card.w)/2, card.y, l.labelW, card.h + 2 + 2*uiTextCharHeight}
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("card-%d", i), cardAndLabels))
 	}
 	boxes = append(boxes, namedLayoutBox("summary", l.summary))
@@ -185,7 +185,7 @@ func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	}
 	for i := 0; i < 4; i++ {
 		x, y, w, h := spellTraderPortraitRect(dialog.x, dialog.y, i)
-		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 6 + debugTextCharHeight})
+		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 6 + uiTextCharHeight})
 	}
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
 	gridX := dialog.x + (dialog.w-gridW)/2
@@ -194,7 +194,7 @@ func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	boxes = append(boxes,
 		uiBox{"spell-grid", gridX, gridY, gridW, gridH},
 		uiBox{"pager", gridX, spellTraderPagerY(dialog.y), gridW, pagerBtnH},
-		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * debugTextCharHeight}),
+		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * uiTextCharHeight}),
 	)
 	return namedLayoutBox("spell-trader", dialog), boxes
 }
@@ -206,7 +206,7 @@ func trainerDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	}
 	for i := 0; i < 4; i++ {
 		x, y, w, h := skillTrainerPortraitRect(dialog.x, dialog.y, dialog.w, i)
-		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 24 + debugTextCharHeight})
+		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 24 + uiTextCharHeight})
 	}
 	boxes = append(boxes, namedLayoutBox("footer", l.footer[0]))
 	return namedLayoutBox("trainer-dialog", dialog), boxes
@@ -224,7 +224,7 @@ func merchantDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		{"sell-grid", rightX, gridTop, merchantGridW, gridH},
 		{"buy-pager", leftX, pagerY, merchantGridW, pagerBtnH},
 		{"sell-pager", rightX, pagerY, merchantGridW, pagerBtnH},
-		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * debugTextCharHeight}),
+		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * uiTextCharHeight}),
 	}
 	return namedLayoutBox("merchant-dialog", dialog), boxes
 }

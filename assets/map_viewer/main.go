@@ -22,7 +22,6 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -580,13 +579,13 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 		if msg == "" {
 			msg = "no maps loaded"
 		}
-		ebitenutil.DebugPrintAt(screen, msg, 16, pageBarHeight+16)
+		game.DrawPlainText(screen, msg, 16, pageBarHeight+16)
 		return
 	}
 
 	m := v.maps[v.mapIndex]
 	if m.Err != nil {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, pageBarHeight+16)
+		game.DrawPlainText(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, pageBarHeight+16)
 		return
 	}
 
@@ -858,7 +857,7 @@ func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layou
 	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 250})
 	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 170, 220, 255})
 	drawImageScaled(screen, img, boxX+8, boxY+8, drawW, drawH)
-	ebitenutil.DebugPrintAt(screen, clipText(fmt.Sprintf("%s  (%dx%d)", caption, iw, ih), boxW-16), boxX+8, boxY+8+drawH)
+	game.DrawPlainText(screen, clipText(fmt.Sprintf("%s  (%dx%d)", caption, iw, ih), boxW-16), boxX+8, boxY+8+drawH)
 }
 
 // drawTooltipBox renders tooltip lines in a bordered box near the cursor,
@@ -1154,11 +1153,11 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
 
 	if m.Data == nil || m.Config == nil {
-		ebitenutil.DebugPrintAt(screen, "map data missing", x+12, y+12)
+		game.DrawPlainText(screen, "map data missing", x+12, y+12)
 		return
 	}
 	if lay.worldW <= 0 || lay.worldH <= 0 {
-		ebitenutil.DebugPrintAt(screen, "invalid map size", x+12, y+12)
+		game.DrawPlainText(screen, "invalid map size", x+12, y+12)
 		return
 	}
 
@@ -1213,8 +1212,8 @@ func drawMapHeader(screen *ebiten.Image, m mapInfo, x, y int) {
 	if m.Config != nil {
 		title = fmt.Sprintf("%s (%s)", m.Config.Name, m.Key)
 	}
-	ebitenutil.DebugPrintAt(screen, title, x+12, y+8)
-	ebitenutil.DebugPrintAt(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
+	game.DrawPlainText(screen, title, x+12, y+8)
+	game.DrawPlainText(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
 }
 
 // firstFrame returns the left h*h square of a horizontal animation sheet
@@ -1492,7 +1491,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		}
 		// Clip text so long names don't run off the panel.
 		avail := (x + w) - textX - 8
-		ebitenutil.DebugPrintAt(screen, clipText(entry.Text, avail), textX, drawY)
+		game.DrawPlainText(screen, clipText(entry.Text, avail), textX, drawY)
 	}
 }
 
@@ -1662,12 +1661,7 @@ func (v *viewer) handleSaveDialogInput() {
 		v.savePath = trimLastRune(v.savePath)
 	}
 
-	for _, r := range ebiten.AppendInputChars(nil) {
-		if r == '\n' || r == '\r' || r == '\t' {
-			continue
-		}
-		v.savePath += string(r)
-	}
+	v.savePath += string(game.AcceptTypedRunes(ebiten.AppendInputChars(nil)))
 }
 
 func (v *viewer) saveCurrentMap() error {
@@ -1715,13 +1709,13 @@ func drawSaveDialog(screen *ebiten.Image, path, errMsg string) {
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
 	drawFilledRect(screen, x, y, w, h, color.RGBA{25, 25, 35, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{90, 90, 120, 255})
-	ebitenutil.DebugPrintAt(screen, "Save map as:", x+12, y+12)
+	game.DrawPlainText(screen, "Save map as:", x+12, y+12)
 	drawFilledRect(screen, x+12, y+34, w-24, 24, color.RGBA{15, 15, 20, 255})
 	drawRectBorder(screen, x+12, y+34, w-24, 24, 1, color.RGBA{80, 80, 100, 255})
-	ebitenutil.DebugPrintAt(screen, path, x+16, y+38)
-	ebitenutil.DebugPrintAt(screen, "Enter: save  Esc: cancel", x+12, y+70)
+	game.DrawPlainText(screen, path, x+16, y+38)
+	game.DrawPlainText(screen, "Enter: save  Esc: cancel", x+12, y+70)
 	if errMsg != "" {
-		ebitenutil.DebugPrintAt(screen, "Error: "+errMsg, x+12, y+92)
+		game.DrawPlainText(screen, "Error: "+errMsg, x+12, y+92)
 	}
 }
 
@@ -1774,7 +1768,7 @@ func drawCenteredLabel(screen *ebiten.Image, label string, r rect) {
 	if y < r.y+2 {
 		y = r.y + 2
 	}
-	ebitenutil.DebugPrintAt(screen, label, x, y)
+	game.DrawPlainText(screen, label, x, y)
 }
 
 // Shared cell primitives. Each of these used to be spelled out at several call
@@ -2116,7 +2110,7 @@ func drawTileLetter(screen *ebiten.Image, originX, originY, tileSize, tx, ty int
 	}
 	drawX := originX + tx*tileSize + 2
 	drawY := originY + ty*tileSize + 1
-	ebitenutil.DebugPrintAt(screen, letter, drawX, drawY)
+	game.DrawPlainText(screen, letter, drawX, drawY)
 }
 
 // tileSwatchColor returns the schematic map color for a tile from its key +

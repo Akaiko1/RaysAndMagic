@@ -126,6 +126,9 @@ func TestRiverNativeRoute(t *testing.T) {
 		t.Skip("native route is opt-in")
 	}
 	requireStandeeGPU(t)
+	// The native window draws at the real monitor's resolution.
+	defer func(prev func() float64) { displayDeviceScale = prev }(displayDeviceScale)
+	displayDeviceScale = monitorDeviceScale
 	root := t.TempDir()
 	storage.SetDataRootForTesting(root)
 	defer storage.SetDataRootForTesting("")

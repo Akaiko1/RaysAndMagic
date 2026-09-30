@@ -367,7 +367,7 @@ type MMGame struct {
 	// blur, the standard post-process for a yaw turn (the scene pans horizontally).
 	viewAngleRender    float64
 	viewTurnFramesLeft int
-	sceneBuf           *ebiten.Image  // offscreen 3D scene (blur shader source)
+	sceneBuf           *ebiten.Image  // offscreen 3D scene (blur source, or scaled onto the screen)
 	blurShader         *ebiten.Shader // lazily compiled horizontal motion blur
 	turnBlurWarm       bool           // first draw prewarms shader/buffer before the first real turn
 	turnBlurOpts       ebiten.DrawRectShaderOptions
@@ -526,6 +526,7 @@ type MMGame struct {
 	hudLinesCache    []combatLogEntry
 	hudLinesCacheVer int
 	hudLinesCacheOK  bool
+	hudLinesFont     int // uiFontGeneration the lines were wrapped for
 
 	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
 	// spark/heal. One table instead of four parallel arrays - see cardFx and
@@ -561,6 +562,17 @@ type MMGame struct {
 	soundManager        *sound.Manager
 	potionSettingsDirty bool
 	settingsSaveError   string
+	// interfaceFrames: every interface size preset resolved for the current
+	// window by the last Layout (Settings > Display reads their status).
+	interfaceFrames []interfaceSizeFrame
+	// uiScale is the screen's pixels per UI unit from the last Layout; zero
+	// for a game never laid out, which draws one pixel per unit.
+	uiScale float64
+	// worldFrame is the 3D view's size in pixels when it differs from the
+	// interface frame (config screen size), which a larger interface preset
+	// shrinks while the world keeps Normal's resolution. Zero while the two
+	// coincide.
+	worldFrame image.Point
 	// questTileOriginals: pristine tile at every quest on_complete_tiles
 	// position, captured once (maps always load pristine from disk) so
 	// syncQuestTiles can REVERT a change when its quest isn't completed.
@@ -926,6 +938,15 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	if !preview && cfg.PlayerPotions == nil {
 		game.loadPotionPreferences()
 	}
+	if !preview && cfg.PlayerInterfaceSize == "" {
+		game.loadDisplayPreferences()
+	}
+	if !preview {
+		if err := loadUIFonts(cfg.Display.Fonts); err != nil {
+			panic(err)
+		}
+		game.applyUIFont()
+	}
 	// Initialize rendering helper
 	game.renderHelper = NewRenderingHelper(game)
 
@@ -1114,7 +1135,7 @@ func (g *MMGame) updateFocusedNPC() {
 		return
 	}
 	maxDist := float64(g.config.GetTileSize()) * 1.6 // own + adjacent tile, diagonal-safe
-	halfW := float64(g.config.GetScreenWidth()) / 2
+	halfW := float64(g.worldWidth()) / 2
 	band := halfW * 0.4 // "roughly centred": middle 40% of the screen
 	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
@@ -1145,7 +1166,7 @@ func (g *MMGame) updateFocusedNPC() {
 }
 
 // findNPCAtScreen returns the visible NPC whose rendered sprite is under the
-// given screen point (nearest wins). inRange reports whether it is close
+// given point in UI units (nearest wins). inRange reports whether it is close
 // enough to interact (InteractionDistance) - a hit beyond that only prompts.
 // npcAbsent reports whether an NPC is not in the world right now: a spent
 // hide_when_visited prop, or a night_only NPC during the day. ONE predicate for
@@ -1173,6 +1194,7 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 	if currentWorld == nil || g.renderHelper == nil {
 		return nil, false
 	}
+	clickX, clickY = g.uiToWorldPoint(clickX, clickY)
 	bestDist := math.MaxFloat64
 	for _, n := range currentWorld.NPCs {
 		if g.npcAbsent(n) {
@@ -1230,7 +1252,7 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) 
 				dirX, dirY := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
 				halfFovTan := math.Tan(g.camera.FOV / 2)
 				planeX, planeY := -dirY*halfFovTan, dirX*halfFovTan
-				rayX, rayY := standeeRayAtScreenX(float64(screenX)+0.5, g.config.GetScreenWidth(), dirX, dirY, planeX, planeY)
+				rayX, rayY := standeeRayAtScreenX(float64(screenX)+0.5, g.worldWidth(), dirX, dirY, planeX, planeY)
 				if occlusion.matchesBackingWall(g.camera.X, g.camera.Y, rayX, rayY, g.depthBuffer[screenX]) {
 					occluded = false
 				}
@@ -1675,12 +1697,15 @@ func (g *MMGame) ensureBlurShader() (*ebiten.Shader, error) {
 	return s, nil
 }
 
-func (g *MMGame) ensureTurnSceneBuffer(bounds image.Rectangle) *ebiten.Image {
-	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+func (g *MMGame) ensureSceneBuffer(size image.Point) *ebiten.Image {
+	if size.X <= 0 || size.Y <= 0 {
 		return nil
 	}
-	if g.sceneBuf == nil || g.sceneBuf.Bounds() != bounds {
-		g.sceneBuf = ebiten.NewImage(bounds.Dx(), bounds.Dy())
+	if g.sceneBuf == nil || g.sceneBuf.Bounds().Size() != size {
+		if g.sceneBuf != nil {
+			g.sceneBuf.Deallocate()
+		}
+		g.sceneBuf = ebiten.NewImage(size.X, size.Y)
 	}
 	return g.sceneBuf
 }
@@ -1695,6 +1720,7 @@ func (g *MMGame) drawTurnBlur(screen, scene *ebiten.Image, shader *ebiten.Shader
 	}
 	g.turnBlurUniform[0] = blurPx
 	g.turnBlurOpts.Images[0] = scene
+	g.turnBlurOpts.GeoM, _ = sceneToScreen(scene.Bounds(), screen.Bounds())
 	b := scene.Bounds()
 	screen.DrawRectShader(b.Dx(), b.Dy(), shader, &g.turnBlurOpts)
 }
@@ -1796,12 +1822,6 @@ func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHei
 	return g.gameLoop.Layout(outsideWidth, outsideHeight)
 }
 
-// handleResize updates the runtime screen dimensions used by rendering and
-// UI anchoring. All 80-odd call sites read config.GetScreenWidth/Height each
-// frame, so mutating those values here propagates the new size transparently
-// without an audit. Pre-allocated screen-sized buffers (depth buffer,
-// sky/ground images, floor cache, ray caches) are reallocated to match;
-// otherwise width-indexed pixel writes in the renderer would overrun.
 // squareProjectionFOV is THE horizontal field of view for the given logical
 // resolution: 2*atan(w/(2h)) makes the horizontal focal length equal the
 // wall-height factor, so one world tile renders as a true square at any
@@ -1814,33 +1834,89 @@ func squareProjectionFOV(screenWidth, screenHeight int) float64 {
 	return 2 * math.Atan(float64(screenWidth)/(2*float64(screenHeight)))
 }
 
-func (g *MMGame) handleResize(screenWidth, screenHeight int) {
-	if screenWidth <= 0 || screenHeight <= 0 {
+// handleResize sets the interface frame (UI units, the config screen size
+// every layout reads each frame) and the 3D view's pixel size. Pre-allocated
+// world-sized buffers (depth buffer, sky/ground images, floor cache, ray
+// caches) are reallocated to match; otherwise width-indexed pixel writes in
+// the renderer would overrun.
+func (g *MMGame) handleResize(ui, world image.Point) {
+	if ui.X <= 0 || ui.Y <= 0 || world.X <= 0 || world.Y <= 0 {
 		return
 	}
-	if screenWidth == g.config.Display.ScreenWidth &&
-		screenHeight == g.config.Display.ScreenHeight &&
-		len(g.depthBuffer) == screenWidth &&
-		len(g.actorDepthBuffer) == screenWidth &&
-		len(g.wallTopBuffer) == screenWidth {
+	frame := world
+	if frame == ui {
+		frame = image.Point{}
+	}
+	if ui.X == g.config.Display.ScreenWidth &&
+		ui.Y == g.config.Display.ScreenHeight &&
+		frame == g.worldFrame &&
+		len(g.depthBuffer) == world.X &&
+		len(g.actorDepthBuffer) == world.X &&
+		len(g.wallTopBuffer) == world.X {
 		return
 	}
 	g.resetCameraPresentation()
-	g.config.Display.ScreenWidth = screenWidth
-	g.config.Display.ScreenHeight = screenHeight
+	g.config.Display.ScreenWidth = ui.X
+	g.config.Display.ScreenHeight = ui.Y
+	g.worldFrame = frame
 
-	g.camera.FOV = squareProjectionFOV(screenWidth, screenHeight)
+	g.camera.FOV = squareProjectionFOV(world.X, world.Y)
 
-	g.depthBuffer = make([]float64, screenWidth)
-	g.actorDepthBuffer = make([]float64, screenWidth)
-	g.wallTopBuffer = make([]int, screenWidth)
-	g.skyImg = ebiten.NewImage(screenWidth, screenHeight/2)
-	g.groundImg = ebiten.NewImage(screenWidth, screenHeight/2)
+	g.depthBuffer = make([]float64, world.X)
+	g.actorDepthBuffer = make([]float64, world.X)
+	g.wallTopBuffer = make([]int, world.X)
+	g.skyImg = ebiten.NewImage(world.X, world.Y/2)
+	g.groundImg = ebiten.NewImage(world.X, world.Y/2)
 	g.UpdateSkyAndGroundColors()
 
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
-		g.gameLoop.renderer.handleResize(screenWidth, screenHeight)
+		g.gameLoop.renderer.handleResize(world.X, world.Y)
 	}
+}
+
+// worldWidth and worldHeight are the 3D view's size in pixels. Everything the
+// renderer projects, and every pick against what it drew, uses these; the
+// interface uses the config screen size.
+func (g *MMGame) worldWidth() int {
+	if g.worldFrame.X > 0 {
+		return g.worldFrame.X
+	}
+	return g.config.GetScreenWidth()
+}
+
+func (g *MMGame) worldHeight() int {
+	if g.worldFrame.Y > 0 {
+		return g.worldFrame.Y
+	}
+	return g.config.GetScreenHeight()
+}
+
+// uiToWorldPoint maps a point in UI units onto the 3D view pixel under it:
+// both frames cover the same screen area.
+func (g *MMGame) uiToWorldPoint(x, y int) (int, int) {
+	if g.worldFrame == (image.Point{}) {
+		return x, y
+	}
+	return int((float64(x) + 0.5) * float64(g.worldFrame.X) / float64(g.config.GetScreenWidth())),
+		int((float64(y) + 0.5) * float64(g.worldFrame.Y) / float64(g.config.GetScreenHeight()))
+}
+
+// worldCursorPosition is the pointer in the 3D view's pixels.
+func (g *MMGame) worldCursorPosition() (int, int) {
+	return g.uiToWorldPoint(pointerPosition())
+}
+
+// worldViewportBottom is gameplayViewportBottom in the 3D view's pixels.
+func worldViewportBottom(g *MMGame) int {
+	return gameplayViewportBottom(g) * g.worldHeight() / max(1, g.config.GetScreenHeight())
+}
+
+// uiPixelScale is the screen's pixels per UI unit.
+func (g *MMGame) uiPixelScale() float64 {
+	if g.uiScale > 0 {
+		return g.uiScale
+	}
+	return 1
 }
 
 // Shutdown releases threading resources. Safe to call multiple times only via
@@ -1848,7 +1924,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 func (g *MMGame) Shutdown() {
 	g.cancelCampPresentation()
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
-		g.gameLoop.ui.profileViewport.Deallocate()
+		uiReleaseLayer(g.gameLoop.ui.profileViewport)
 		g.gameLoop.ui.profileViewport = nil
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil {
@@ -1997,13 +2073,12 @@ const (
 // most recent maxHudMessageLines lines. Shared by the HUD renderer and its click
 // hit-region so the drawn block and the clickable area stay the same height.
 func (g *MMGame) hudMessageLines() []combatLogEntry {
-	if g.hudLinesCacheOK && g.hudLinesCacheVer == g.combatLogVersion {
+	if g.hudLinesCacheOK && g.hudLinesCacheVer == g.combatLogVersion && g.hudLinesFont == uiFontGeneration {
 		return g.hudLinesCache
 	}
-	maxChars := (hudMessageWidth - 10) / debugTextCharWidth
 	var lines []combatLogEntry
 	for _, e := range g.hudLog() {
-		for _, l := range wrapText(e.Text, maxChars) {
+		for _, l := range wrapUIText(e.Text, hudMessageWidth-10) {
 			lines = append(lines, combatLogEntry{Text: l, Color: e.Color})
 		}
 	}
@@ -2012,28 +2087,48 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 	}
 	g.hudLinesCache = lines
 	g.hudLinesCacheVer = g.combatLogVersion
+	g.hudLinesFont = uiFontGeneration
 	g.hudLinesCacheOK = true
 	return lines
 }
 
-// hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
-// given wrapped-line count. It grows upward above the party UI and, when its
-// right-side span meets the action rail, clears camping and quick slots as well. Shared by
-// the renderer and the click hit-region.
-func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
+// hudLogUnit is how many UI units one unit of the HUD combat log spans. The
+// log keeps Normal's size at every interface size - a larger preset would
+// have it cover the view - so above Normal a log unit is less than a UI unit.
+func (g *MMGame) hudLogUnit() float64 {
+	if len(g.interfaceFrames) == 0 || g.uiScale <= 0 {
+		return 1
+	}
+	return g.interfaceFrames[0].pixelScale() / g.uiPixelScale()
+}
+
+// hudMessageLogRect is the HUD combat-log block for the given wrapped-line
+// count, in log units. It grows upward above the party cards and, when its
+// span meets the action rail, clears camping and quick slots as well.
+func (g *MMGame) hudMessageLogRect(lineCount int) (x, y, w, h int) {
+	unit := g.hudLogUnit()
 	h = lineCount*hudMessageSpacing + 10
 	w = hudMessageWidth
-	x = g.config.GetScreenWidth() - w - 15
+	x = int(float64(g.config.GetScreenWidth())/unit) - w - 15
 	_, _, _, partyStartY := partyPortraitLayout(g)
 	bottom := partyStartY - hudMessageBottomGap
 	if actions, visible := inGameActionBarLayout(g); visible &&
-		x < actions.bounds.right() && actions.bounds.x < x+w {
+		float64(x)*unit < float64(actions.bounds.right()) && float64(actions.bounds.x) < float64(x+w)*unit {
 		if clearBottom := actions.bounds.y - hudMessageBottomGap; clearBottom < bottom {
 			bottom = clearBottom
 		}
 	}
-	y = bottom - h
+	y = int(float64(bottom)/unit) - h
 	return
+}
+
+// hudMessageBlockRect is the same block in UI units - the click hit-region
+// and the room other HUD pieces leave it.
+func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
+	unit := g.hudLogUnit()
+	lx, ly, lw, lh := g.hudMessageLogRect(lineCount)
+	x, y = int(float64(lx)*unit), int(float64(ly)*unit)
+	return x, y, int(math.Ceil(float64(lx+lw)*unit)) - x, int(math.Ceil(float64(ly+lh)*unit)) - y
 }
 
 // GetCombatMessages returns the HUD combat-message texts (most recent last).
@@ -2700,7 +2795,11 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
 			m.ActionsRemaining = 0
-		} else if m.CanAct() {
+			continue
+		}
+		// Stun-free this turn: count toward clearing the diminishing-returns chain.
+		m.StunDR().ForgetTurn()
+		if m.CanAct() {
 			// The personal action floor combines dual wielding with any
 			// weapon-authored floor. The party-wide Speed pool below stacks on
 			// top of it.

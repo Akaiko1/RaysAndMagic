@@ -84,8 +84,8 @@ func stackSplitPickerLayout(r image.Rectangle) stackSplitPickerWidgets {
 }
 
 func stackSplitPickerRect(screenW, screenH int) image.Rectangle {
-	x := (screenW - stackSplitPickerW) / 2
-	y := (screenH - stackSplitPickerH) / 2
+	r := centeredRect(screenW, screenH, stackSplitPickerW, stackSplitPickerH)
+	x, y := r.x, r.y
 	return image.Rect(x, y, x+stackSplitPickerW, y+stackSplitPickerH)
 }
 
@@ -357,7 +357,7 @@ func (ui *UISystem) beginPickedUpStackSplit(item items.Item) {
 	item.Quantity = quantity
 	ui.closeStackSplitPicker()
 	g := ui.game
-	x, y := ebiten.CursorPosition()
+	x, y := uiCursorPosition()
 	switch s.source {
 	case stackSplitPickerInventory:
 		g.clearDrag()
@@ -391,7 +391,7 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		return
 	}
 	g := ui.game
-	screenW, screenH := screen.Bounds().Dx(), screen.Bounds().Dy()
+	screenW, screenH := uiBounds(screen).Dx(), uiBounds(screen).Dy()
 	r := stackSplitPickerRect(screenW, screenH)
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 125})
 	ui.drawThemeFrame(screen, frameSilver, r.Min.X, r.Min.Y, r.Dx(), r.Dy())
@@ -405,11 +405,11 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 			title = uitext.Text("caravan.take") + " "
 		}
 	}
-	drawCenteredDebugText(screen, title+truncateRunes(item.Name, 28, "..."), r.Min.X+12, r.Min.Y+12, r.Dx()-24, 16)
+	drawCenteredUIText(screen, title+clipUITextSuffix(item.Name, 28*uiTextCharWidth, "..."), r.Min.X+12, r.Min.Y+12, r.Dx()-24, 16)
 
 	L := stackSplitPickerLayout(r)
 	minus, plus, half, take, cancel := L.minus, L.plus, L.half, L.take, L.cancel
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	// The band between the -/+ buttons is narrow, so it carries the QUANTITY
 	// only; a price can be an item currency plus gold ("2 red dragon scale +
 	// 20000 g") and gets its own full-width line under the buttons.
@@ -434,12 +434,12 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	ui.drawStackSplitButton(screen, plus, "+", ptInRect(mouseX, mouseY, plus))
 	ui.drawStackSplitButton(screen, take, confirmLabel, ptInRect(mouseX, mouseY, take))
 	ui.drawStackSplitButton(screen, cancel, "Cancel", ptInRect(mouseX, mouseY, cancel))
-	drawCenteredDebugText(screen, quantityText, L.quantity.Min.X, L.quantity.Min.Y, L.quantity.Dx(), L.quantity.Dy())
+	drawCenteredUIText(screen, quantityText, L.quantity.Min.X, L.quantity.Min.Y, L.quantity.Dx(), L.quantity.Dy())
 	if priceLine != "" {
 		// Own line, full panel width, clipped: a long item-currency price must
 		// never crawl under the -, 1/2 and + buttons.
-		drawCenteredDebugText(screen, clipDebugText(priceLine, L.price.Dx()), L.price.Min.X, L.price.Min.Y, L.price.Dx(), L.price.Dy())
-		if debugTextWidth(priceLine) > L.price.Dx() && ptInRect(mouseX, mouseY, r) {
+		drawCenteredUIText(screen, clipUIText(priceLine, L.price.Dx()), L.price.Min.X, L.price.Min.Y, L.price.Dx(), L.price.Dy())
+		if uiTextWidth(priceLine) > L.price.Dx() && ptInRect(mouseX, mouseY, r) {
 			ui.queueTooltip([]string{priceLine}, mouseX+12, mouseY+8)
 		}
 	}

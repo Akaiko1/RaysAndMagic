@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"ugataima/internal/graphics"
 )
 
 // Interface art owns only decoration. Layout and input continue to share their
@@ -105,7 +104,7 @@ func (ui *UISystem) drawThemeFrameTint(screen *ebiten.Image, style interfaceFram
 		if part.part.Bounds() == center {
 			continue
 		}
-		graphics.DrawImageScaled(screen, part.part, float64(x+part.dx), float64(y+part.dy), float64(part.dw), float64(part.dh), op)
+		uiDrawImageScaled(screen, part.part, float64(x+part.dx), float64(y+part.dy), float64(part.dw), float64(part.dh), op)
 	}
 }
 

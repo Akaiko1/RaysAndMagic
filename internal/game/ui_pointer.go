@@ -5,6 +5,9 @@ import "time"
 // Sample pointer edges once, then let the displayed dispatcher own actions.
 func (ui *UISystem) updateMouseState() {
 	ui.syncPointerScreen()
+	if !pointerLeftPressed() {
+		ui.scrollDrag = scrollbarDrag{}
+	}
 	leftJustPressed := pointerLeftJustPressed()
 	rightJustPressed := pointerRightJustPress()
 	now := time.Now().UnixMilli()

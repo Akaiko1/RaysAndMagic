@@ -50,10 +50,9 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	// Dim background
 	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 128})
 
-	// Panel size per mode (shared with the input hit-testing via menuPanelSize).
-	panelW, panelH := menuPanelSize(ui.game.mainMenuMode)
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
+	// Panel per mode, shared with the input hit-testing via mainMenuPanelRect.
+	panel := mainMenuPanelRect(w, h, ui.game.mainMenuMode)
+	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
 	style := frameGold
 	if ui.game.mainMenuMode == MenuControlTips {
 		style = frameBronze
@@ -69,7 +68,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	switch ui.game.mainMenuMode {
 	case MenuMain:
 		// Title
-		drawCenteredDebugText(screen, "Main Menu", px+32, py+16, panelW-64, 20)
+		drawCenteredUIText(screen, "Main Menu", px+32, py+16, panelW-64, 20)
 		// Options
 		for i, option := range mainMenuOptions {
 			box, _, _ := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
@@ -78,13 +77,13 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	case MenuControlTips:
 		drawScaledMetalCenteredText(screen, uitext.Text("ui.control_tips"), w/2, py+28, 2, rarityGold)
 		for i, tip := range mainMenuControlTips {
-			drawDebugText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
+			drawUIText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
 		}
 		ui.drawBackButton(screen, px+24, py+panelH-46, func() { ui.game.mainMenuMode = MenuMain })
 
 	case MenuSaveSelect:
-		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
-		drawDebugText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
+		drawUIText(screen, "Save Game - Select Slot", px+16, py+14)
+		drawUIText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
@@ -92,8 +91,8 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 		}
 	case MenuLoadSelect:
-		drawDebugText(screen, "Load Game - Select Slot", px+16, py+14)
-		drawDebugText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
+		drawUIText(screen, "Load Game - Select Slot", px+16, py+14)
+		drawUIText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
@@ -156,7 +155,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 			drawFilledRect(screen, box.x1, box.y1, 4, box.y2-box.y1, color.RGBA{110, 200, 110, 255})
 			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, color.RGBA{110, 200, 110, 160})
 		}
-		drawDebugText(screen, label, tx, ty)
+		drawUIText(screen, label, tx, ty)
 	}
 	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
 	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
@@ -166,7 +165,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 // drawSaveRowHoverTooltip shows play time + the saved party (name, level, class)
 // for the row under the cursor, so you can tell saves apart before loading.
 func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
-	mx, my := ebiten.CursorPosition()
+	mx, my := uiCursorPosition()
 	for i := 0; i < saveRowsPerPage; i++ {
 		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
 		if mx < box.x1 || mx >= box.x2 || my < box.y1 || my >= box.y2 {
@@ -193,7 +192,7 @@ func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW
 // drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
 // the screen so it never spills off the edge.
 func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
-	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	sw, sh := uiBounds(screen).Dx(), uiBounds(screen).Dy()
 	r := singleTooltipLayout(lines, nil, false, x, y, sw, sh)
 	drawTooltip(screen, lines, nil, nil, nil, "", r.x, r.y, r.right(), ui.game.sprites)
 }
@@ -210,27 +209,30 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 
 	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
 		ui.drawButtonFrame(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, false)
-		drawCenteredDebugText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
+		drawCenteredUIText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
 	}
 	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
 	drawPagerBtn(next, "Next >", true)
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
 }
 
 func truncateSaveName(name string, max int) string {
-	return truncateRunes(name, max, "...")
+	return clipUITextSuffix(name, max*uiTextCharWidth, "...")
+}
+
+func saveRenameDialogRect(screenW, screenH int) layoutRect {
+	return centeredRect(screenW, screenH, 420, 140)
 }
 
 func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	w := ui.game.config.GetScreenWidth()
 	h := ui.game.config.GetScreenHeight()
-	dialogW, dialogH := 420, 140
-	x := (w - dialogW) / 2
-	y := (h - dialogH) / 2
+	dialog := saveRenameDialogRect(w, h)
+	x, y, dialogW, dialogH := dialog.x, dialog.y, dialog.w, dialog.h
 	ui.drawThemeFrame(screen, frameSilver, x, y, dialogW, dialogH)
 
 	title := fmt.Sprintf("Rename %s", saveRowLabel(ui.game.saveRenameSlot))
-	drawCenteredDebugText(screen, title, x, y+10, dialogW, 20)
+	drawCenteredUIText(screen, title, x, y+10, dialogW, 20)
 
 	inputBoxX := x + 24
 	inputBoxY := y + 48
@@ -242,9 +244,9 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	if input == "" {
 		input = "(empty)"
 	}
-	drawCenteredDebugText(screen, input, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
+	drawCenteredUIText(screen, input, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
 
-	drawDebugText(screen, "Enter: Confirm  Esc: Cancel", x+60, y+90)
+	drawUIText(screen, "Enter: Confirm  Esc: Cancel", x+60, y+90)
 }
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
@@ -254,7 +256,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 	// The hub owns only the gameplay viewport. The persistent party HUD below
 	// stays fully visible and remains the one mouse selector for characters.
-	drawFilledRect(screen, 0, 0, screen.Bounds().Dx(), viewportBottom, color.RGBA{5, 7, 12, 205})
+	drawFilledRect(screen, 0, 0, uiBounds(screen).Dx(), viewportBottom, color.RGBA{5, 7, 12, 205})
 	ui.drawPatternFrame(screen, "menu_panel_frame", layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
 	ui.drawCornerDecor(screen, frameGold, layout.panel.x-8, layout.panel.y-8, layout.panel.w+16, layout.panel.h+16, decorBottomCorners)
 
@@ -265,7 +267,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		ui.drawButtonFrame(screen, tabRect.x, tabRect.y, tabRect.w, tabRect.h, isActive)
 
 		// One line leaves the decorative top/bottom rails clear at every scale.
-		drawCenteredDebugText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
+		drawCenteredUIText(screen, tabInfo.label+" "+tabInfo.key, tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
 		// A modal above the hub owns the click queue; tabs must not consume one of
 		// its buttons through the overlay (topModalLayer).
@@ -303,10 +305,10 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 // View-only: cards are slotted/removed at the Card Collector NPC.
 func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeCardsContentLayout(content)
-	drawCenteredDebugText(screen, "Active Card Collection", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
-	drawCenteredDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y, layout.subtitle.w, layout.subtitle.h)
+	drawCenteredUIText(screen, "Active Card Collection", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
+	drawCenteredUIText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y, layout.subtitle.w, layout.subtitle.h)
 
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	var hover []string
 
 	for slot := 0; slot < MaxCardSlots; slot++ {
@@ -319,7 +321,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			// card, with text clipped to fit - so neighbouring labels never collide.
 			labelW := layout.labelW
 			labelX := x - (labelW-icon)/2
-			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
+			drawCenteredUIText(screen, clipUIText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
 
 			if hovered {
 				hover = ui.appendCardArtHint(cardCollectionTooltipLines(def), key)

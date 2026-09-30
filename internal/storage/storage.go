@@ -3,9 +3,9 @@
 // data lives next to the executable / working directory. For a macOS .app BUNDLE
 // it seeds a writable per-user data directory from the read-only shipped assets
 // and runs out of there - bundles can't reliably write inside themselves
-// (Gatekeeper App Translocation runs them from a read-only path), and the game
-// and map-editor bundles each carry a private assets copy, so a shared writable
-// dir is the only way edits + saves work and are seen by both.
+// (Gatekeeper App Translocation runs them from a read-only path), and only the
+// game bundle ships the content (the map-editor bundle reads the game's), so a
+// shared writable dir is the only way edits + saves work and are seen by both.
 package storage
 
 import (
@@ -168,33 +168,45 @@ func AppSavePath(filename string) string {
 }
 
 // SetupBundleRuntime handles the macOS .app case ONLY: it seeds a per-user data
-// dir from the bundle's read-only Resources and chdirs into it, so all relative
-// asset/save paths become writable and are shared between the game and editor
-// bundles. Returns true if it handled the runtime (i.e. we're in a bundle) so
-// callers skip their normal (bare-binary) working-dir setup. No-op for bare
+// dir from the shipped read-only content (bundleContentDir) and chdirs into it,
+// so all relative asset/save paths become writable and are shared between the
+// game and editor bundles. Returns true if it handled the runtime (i.e. we're
+// in a bundle) so callers skip their normal (bare-binary) working-dir setup,
+// and an error when a bundle has no content to run from. No-op for bare
 // binaries / go run / Windows exes - those work exactly as before.
-func SetupBundleRuntime() bool {
+func SetupBundleRuntime() (bool, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return false
+		return false, nil
 	}
 	return setupBundleRuntime(exe)
 }
 
-func setupBundleRuntime(exe string) bool {
+func setupBundleRuntime(exe string) (bool, error) {
 	if !insideAppBundle(exe) {
-		return false
+		return false, nil
 	}
-	resources := filepath.Clean(filepath.Join(filepath.Dir(exe), "..", "Resources"))
-	if user := UserDataDir(); user != "" && seedUserData(resources, user) == nil && os.Chdir(user) == nil {
+	user := UserDataDir()
+	content, ok := bundleContentDir(exe)
+	if !ok {
+		// Nothing shipped is reachable (the editor moved away from the game):
+		// a data dir the game already seeded still runs.
+		if user != "" && hasShippedContent(user) && os.Chdir(user) == nil {
+			dataRoot = user
+			return true, nil
+		}
+		alertFailure(errNoGameContent.Error())
+		return true, errNoGameContent
+	}
+	if user != "" && seedUserData(content, user) == nil && os.Chdir(user) == nil {
 		dataRoot = user
 		migrateLegacySaves(filepath.Join(filepath.Dir(exe), savesDirName), filepath.Join(user, savesDirName))
 	} else {
-		// Last resort: run read-only from the bundle so the app at least launches
-		// (saving/editing will fail, but that beats not starting).
-		_ = os.Chdir(resources)
+		// Last resort: run read-only from the shipped content so the app at
+		// least launches (saving/editing will fail, but that beats not starting).
+		_ = os.Chdir(content)
 	}
-	return true
+	return true, nil
 }
 
 // UserDataDir returns the per-user writable data root (.../RaysAndMagic), created

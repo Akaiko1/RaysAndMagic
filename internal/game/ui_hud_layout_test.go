@@ -513,7 +513,7 @@ func TestMeterTextFitsCompactStatsColumn(t *testing.T) {
 		{"HP", 33, 33}, {"HP", 100, 100}, {"SP", 100, 100}, {"HP", 1000, 1000},
 	} {
 		text := meterText(budget, meter.label, meter.current, meter.maximum)
-		if drawn := debugTextWidth(text); drawn > budget {
+		if drawn := uiTextWidth(text); drawn > budget {
 			t.Fatalf("%q draws %dpx into a %dpx box at native scale - it would be clipped", text, drawn, budget)
 		}
 		// The default resolution must still afford the full labelled form.
@@ -534,7 +534,7 @@ func TestMeterTextStaysLegibleAtMinimumWindow(t *testing.T) {
 	budget := makePartyCardContentLayout(0, 0, panelW).stats.w - 4
 
 	text := meterText(budget, "HP", 100, 100)
-	if drawn := debugTextWidth(text); drawn > budget {
+	if drawn := uiTextWidth(text); drawn > budget {
 		t.Fatalf("%q draws %dpx into %dpx at %dx%d", text, drawn, budget, minW, minH)
 	}
 	if text == "" {

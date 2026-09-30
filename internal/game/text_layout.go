@@ -7,64 +7,48 @@ import (
 
 // truncateRunes limits text by displayed characters without splitting UTF-8.
 // suffix is included in maxRunes and is omitted when the limit is too small.
-func truncateRunes(text string, maxRunes int, suffix string) string {
-	if maxRunes <= 0 {
-		return ""
-	}
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
-		return text
-	}
-	suffixRunes := []rune(suffix)
-	if len(suffixRunes) >= maxRunes {
-		return string(runes[:maxRunes])
-	}
-	return string(runes[:maxRunes-len(suffixRunes)]) + suffix
-}
-
-// wrapText wraps by rune count and splits oversized tokens, so every returned
-// line is guaranteed to fit maxChars even for URLs, content keys, and CJK text.
-func wrapText(text string, maxChars int) []string {
-	if maxChars <= 0 {
+// wrapUIText wraps text to lines no wider than maxWidth pixels in the active
+// UI font and splits a token wider than a line, so every returned line fits
+// even for URLs, content keys and CJK text.
+func wrapUIText(text string, maxWidth int) []string {
+	if maxWidth <= 0 {
 		return nil
 	}
-	if utf8.RuneCountInString(text) <= maxChars {
+	if uiTextWidth(text) <= maxWidth {
 		return []string{text}
 	}
-
 	words := strings.Fields(text)
 	if len(words) == 0 {
 		return []string{""}
 	}
-	lines := make([]string, 0, len(words))
-	current := make([]rune, 0, maxChars)
-	flush := func() {
-		if len(current) > 0 {
-			lines = append(lines, string(current))
-			current = current[:0]
-		}
-	}
-
+	space := uiTextWidth(" ")
+	var lines []string
+	current, currentW := "", 0
 	for _, word := range words {
-		wordRunes := []rune(word)
-		if len(current) > 0 && len(current)+1+len(wordRunes) <= maxChars {
-			current = append(current, ' ')
-			current = append(current, wordRunes...)
+		w := uiTextWidth(word)
+		if current != "" && currentW+space+w <= maxWidth {
+			current, currentW = current+" "+word, currentW+space+w
 			continue
 		}
-		flush()
-		for len(wordRunes) > maxChars {
-			lines = append(lines, string(wordRunes[:maxChars]))
-			wordRunes = wordRunes[maxChars:]
+		if current != "" {
+			lines = append(lines, current)
 		}
-		current = append(current, wordRunes...)
+		for w > maxWidth {
+			head := uiTextPrefix(word, maxWidth)
+			if head == "" { // a glyph wider than the line still gets a line
+				_, size := utf8.DecodeRuneInString(word)
+				head = word[:size]
+			}
+			lines = append(lines, head)
+			word = word[len(head):]
+			w = uiTextWidth(word)
+		}
+		current, currentW = word, w
 	}
-	flush()
+	if current != "" {
+		lines = append(lines, current)
+	}
 	return lines
-}
-
-func wrapDebugText(text string, maxWidth int) []string {
-	return wrapText(text, maxWidth/debugTextCharWidth)
 }
 
 func truncateWrappedLines(lines []string, maxLines, maxWidth int) []string {
@@ -75,8 +59,7 @@ func truncateWrappedLines(lines []string, maxLines, maxWidth int) []string {
 		return lines
 	}
 	lines = append([]string(nil), lines[:maxLines]...)
-	maxChars := maxWidth / debugTextCharWidth
-	lines[maxLines-1] = truncateRunes(lines[maxLines-1]+"...", maxChars, "...")
+	lines[maxLines-1] = clipUITextSuffix(lines[maxLines-1]+"...", maxWidth, "...")
 	return lines
 }
 

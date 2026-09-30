@@ -30,19 +30,22 @@ build_target() {
     go build -trimpath -ldflags "${ldflags}" -o "${out_dir}/${out_name}" "${package_path}"
 }
 
-# macOS (Intel + Apple Silicon) - Ebitengine 2.10 uses pure Go
-build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 0 .
-build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
-bundle_runtime_files "${OUT_DIR}/mac_amd64"
+# macOS: one universal package (Apple Silicon + Intel). Ebitengine 2.10 uses
+# pure Go. Only the game bundle carries the content; the package holds nothing
+# else, so the assets ship once.
+SLICES_DIR="${OUT_DIR}/.mac_slices"
+MAC_DIR="${OUT_DIR}/mac_universal"
+for arch in arm64 amd64; do
+  build_target darwin "${arch}" "${SLICES_DIR}/${arch}" "${APP_NAME}" "" 0 .
+  build_target darwin "${arch}" "${SLICES_DIR}/${arch}" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
+done
+for name in "${APP_NAME}" "${VIEWER_NAME}"; do
+  build_universal_binary "${SLICES_DIR}/${name}" "${SLICES_DIR}/arm64/${name}" "${SLICES_DIR}/amd64/${name}"
+done
 
-build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 0 .
-build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${VIEWER_NAME}" "" 0 ./assets/map_viewer
-bundle_runtime_files "${OUT_DIR}/mac_arm64"
-
-build_macos_app_bundle "${OUT_DIR}/mac_amd64/${APP_NAME}.app"    "${APP_NAME}"    "${OUT_DIR}/mac_amd64/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"
-build_macos_app_bundle "${OUT_DIR}/mac_amd64/${VIEWER_NAME}.app" "${VIEWER_NAME}" "${OUT_DIR}/mac_amd64/${VIEWER_NAME}" "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns"
-build_macos_app_bundle "${OUT_DIR}/mac_arm64/${APP_NAME}.app"    "${APP_NAME}"    "${OUT_DIR}/mac_arm64/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"
-build_macos_app_bundle "${OUT_DIR}/mac_arm64/${VIEWER_NAME}.app" "${VIEWER_NAME}" "${OUT_DIR}/mac_arm64/${VIEWER_NAME}" "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns"
+build_macos_app_bundle "${MAC_DIR}/${APP_NAME}.app"    "${APP_NAME}"    "${SLICES_DIR}/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"            content
+build_macos_app_bundle "${MAC_DIR}/${VIEWER_NAME}.app" "${VIEWER_NAME}" "${SLICES_DIR}/${VIEWER_NAME}" "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns" no-content
+rm -rf "${SLICES_DIR}"
 
 # Windows (no console window)
 build_target windows amd64 "${OUT_DIR}/windows_amd64" "${APP_NAME}.exe" "-H=windowsgui" 0 .

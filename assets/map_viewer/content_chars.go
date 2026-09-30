@@ -16,7 +16,6 @@ import (
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 const (
@@ -250,7 +249,7 @@ func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int)
 	} else {
 		drawFilledRect(dst, px, py, charPortraitSz, charPortraitSz, color.RGBA{50, 50, 66, 255})
 		drawRectBorder(dst, px, py, charPortraitSz, charPortraitSz, 1, color.RGBA{80, 80, 100, 255})
-		ebitenutil.DebugPrintAt(dst, "?", px+charPortraitSz/2-3, py+charPortraitSz/2-7)
+		game.DrawPlainText(dst, "?", px+charPortraitSz/2-3, py+charPortraitSz/2-7)
 	}
 
 	rx := x + charPanelPad + charPortraitSz + 16
@@ -270,13 +269,13 @@ func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int)
 				drawFilledRect(dst, rx, ry, charIconSz, charIconSz, color.RGBA{52, 52, 68, 255})
 				drawRectBorder(dst, rx, ry, charIconSz, charIconSz, 1, color.RGBA{80, 80, 100, 255})
 			}
-			ebitenutil.DebugPrintAt(dst, truncate(r.text, cols), rx+charIconSz+8, ry+charIconSz/2-7)
+			game.DrawPlainText(dst, truncate(r.text, cols), rx+charIconSz+8, ry+charIconSz/2-7)
 			ry += charIconSz + 6
 		} else {
 			if r.header {
 				drawHeaderBandForTextRow(dst, rx-4, ry, rw, charLineH)
 			}
-			ebitenutil.DebugPrintAt(dst, truncate(r.text, cols), rx, ry)
+			game.DrawPlainText(dst, truncate(r.text, cols), rx, ry)
 			ry += charLineH
 		}
 	}

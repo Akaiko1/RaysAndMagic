@@ -357,11 +357,12 @@ func (g *MMGame) tryPickupNearestGroundContainer(maxDist float64) bool {
 }
 
 // findGroundContainerIndexAtScreen finds the closest in-range container whose
-// rendered sprite is under the given screen coordinates.
+// rendered sprite is under the given point (UI units).
 func (g *MMGame) findGroundContainerIndexAtScreen(clickX, clickY int, maxDist float64) int {
 	if g.renderHelper == nil {
 		return -1
 	}
+	clickX, clickY = g.uiToWorldPoint(clickX, clickY)
 	return g.findGroundContainerIndex(maxDist, func(c *GroundContainer, distance float64) bool {
 		defer g.beginPresentedCameraSwap()()
 		info := g.groundContainerRenderInfo(c, -1)

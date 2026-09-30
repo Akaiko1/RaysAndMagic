@@ -117,8 +117,8 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	ui.drawDialogFolderTabsEnabled(screen, dialogX, dialogY, labels, tabsEnabled)
 
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	drawDebugText(screen, clipDebugText(uitext.Text("dialog.tavern")+npc.Name, layout.title.w), layout.title.x, layout.title.y)
-	drawDebugText(screen, clipDebugText(uitext.Text("dialog.party_gold", g.party.Gold), layout.balance.w),
+	drawUIText(screen, clipUIText(uitext.Text("dialog.tavern")+npc.Name, layout.title.w), layout.title.x, layout.title.y)
+	drawUIText(screen, clipUIText(uitext.Text("dialog.party_gold", g.party.Gold), layout.balance.w),
 		layout.balance.x, layout.balance.y)
 
 	greeting := ""
@@ -153,16 +153,16 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	case tavernRumorsAction:
 		footer = uitext.Text("dialog.rumors_follow_the_story_tab_or_switches")
 	}
-	drawDebugText(screen, clipDebugText(footer, layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawUIText(screen, clipUIText(footer, layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 }
 
 func (ui *UISystem) drawTavernStash(screen *ebiten.Image, area layoutRect) {
 	g := ui.game
 	if g.stash == nil {
-		drawCenteredDebugText(screen, "The shared stash could not be loaded.", area.x, area.y, area.w, area.h)
+		drawCenteredUIText(screen, "The shared stash could not be loaded.", area.x, area.y, area.w, area.h)
 		return
 	}
-	drawDebugText(screen, "Shared across all saves.", area.x+16, area.y+10)
+	drawUIText(screen, "Shared across all saves.", area.x+16, area.y+10)
 	ui.drawStashManager(screen, computeStashLayoutForArea(area, 46), ui.topModalLayer() == modalLayerDialog)
 }
 
@@ -172,8 +172,8 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 	if g.selectedChoice < 0 || g.selectedChoice >= len(choices) {
 		g.selectedChoice = 0
 	}
-	drawDebugTextColored(screen, "Services", area.x+16, area.y+16, color.RGBA{220, 180, 90, 255})
-	mouseX, mouseY := ebiten.CursorPosition()
+	drawUITextColored(screen, "Services", area.x+16, area.y+16, color.RGBA{220, 180, 90, 255})
+	mouseX, mouseY := uiCursorPosition()
 	for i, choice := range choices {
 		card := tavernServiceCardRect(area, i)
 		hovered := isMouseHoveringBox(mouseX, mouseY, card.x, card.y, card.right(), card.bottom())
@@ -191,16 +191,16 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 			detail = uitext.Text("dialog.add_food_to_the_party_supplies", choice.Amount)
 			effect = uitext.Text("dialog.current_food", g.party.Food)
 		}
-		drawDebugTextColored(screen, title, card.x+14, card.y+16, color.RGBA{230, 205, 135, 255})
+		drawUITextColored(screen, title, card.x+14, card.y+16, color.RGBA{230, 205, 135, 255})
 		ui.drawWrappedTextWithOverflow(screen, detail, layoutRect{card.x + 14, card.y + 50, card.w - 28, 40}, 2, dialogueLineHeight)
-		drawDebugText(screen, effect, card.x+14, card.y+104)
-		drawDebugText(screen, uitext.Text("dialog.cost_gold", choice.Cost), card.x+14, card.y+132)
+		drawUIText(screen, effect, card.x+14, card.y+104)
+		drawUIText(screen, uitext.Text("dialog.cost_gold", choice.Cost), card.x+14, card.y+132)
 		if !affordable {
-			drawDebugTextColored(screen, uitext.Text("dialog.not_enough_gold"), card.x+14, card.y+152, color.RGBA{225, 105, 105, 255})
+			drawUITextColored(screen, uitext.Text("dialog.not_enough_gold"), card.x+14, card.y+152, color.RGBA{225, 105, 105, 255})
 		} else if g.selectedChoice == i {
-			drawDebugTextColored(screen, "Selected", card.x+14, card.y+152, color.RGBA{235, 195, 95, 255})
+			drawUITextColored(screen, "Selected", card.x+14, card.y+152, color.RGBA{235, 195, 95, 255})
 		} else {
-			drawDebugTextColored(screen, uitext.Text("dialog.click_to_select"), card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
+			drawUITextColored(screen, uitext.Text("dialog.click_to_select"), card.x+14, card.y+152, color.RGBA{125, 205, 135, 255})
 		}
 		ui.onDisplayedInput(uiCommandClick, layoutRect{card.x, card.y, (card.right()) - (card.x), (card.bottom()) - (card.y)}, func() {
 			if g.consumeLeftClickIn(card.x, card.y, card.right(), card.bottom()) {
@@ -221,7 +221,7 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 	if selected.Action == "buy_food" {
 		label = uitext.Text("dialog.confirm_rations_gold", selected.Cost)
 	}
-	drawCenteredDebugText(screen, clipDebugText(label, confirm.w-20), confirm.x, confirm.y, confirm.w, confirm.h)
+	drawCenteredUIText(screen, clipUIText(label, confirm.w-20), confirm.x, confirm.y, confirm.w, confirm.h)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{confirm.x, confirm.y, (confirm.right()) - (confirm.x), (confirm.bottom()) - (confirm.y)}, func() {
 		if affordable && g.consumeLeftClickIn(confirm.x, confirm.y, confirm.right(), confirm.bottom()) {
 			g.pendingTavernAction = selected
@@ -230,15 +230,15 @@ func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC,
 }
 
 func (ui *UISystem) drawTavernRumor(screen *ebiten.Image, npc *character.NPC, area layoutRect) {
-	drawDebugTextColored(screen, uitext.Text("dialog.latest_rumor"), area.x+18, area.y+18, color.RGBA{220, 180, 90, 255})
+	drawUITextColored(screen, uitext.Text("dialog.latest_rumor"), area.x+18, area.y+18, color.RGBA{220, 180, 90, 255})
 	rumor := ui.game.currentRumorText(tavernRumorSeed(npc, ui.game.tavernRegionKey(npc)))
-	lines := wrapDebugText(rumor, area.w-36)
+	lines := wrapUIText(rumor, area.w-36)
 	for i, line := range lines {
 		y := area.y + 56 + i*dialogueLineHeight
 		if y >= area.bottom()-20 {
 			break
 		}
-		drawDebugText(screen, line, area.x+18, y)
+		drawUIText(screen, line, area.x+18, y)
 	}
 }
 

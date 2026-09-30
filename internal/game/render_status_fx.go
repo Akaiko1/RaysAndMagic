@@ -219,9 +219,9 @@ func (b *statusPathBatch) flush(dst *ebiten.Image) {
 		p := &b.paths[i]
 		op := &vector.DrawPathOptions{ColorScale: statusColorScale(p.col), AntiAlias: true}
 		if p.width == 0 {
-			vector.FillPath(dst, &p.path, nil, op)
+			uiFillPath(dst, &p.path, nil, op)
 		} else {
-			vector.StrokePath(dst, &p.path, &vector.StrokeOptions{Width: p.width}, op)
+			uiStrokePath(dst, &p.path, &vector.StrokeOptions{Width: p.width}, op)
 		}
 	}
 }
@@ -544,7 +544,7 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	// own stamp. Nearby walls and other actors must still hide the particles.
 	anchor := trapAnchor{depth: math.Nextafter(s.depthPerp, math.Inf(-1))}
 	size := float64(s.spriteSize)
-	viewBottom := gameplayViewportBottom(r.game)
+	viewBottom := worldViewportBottom(r.game)
 	// As with stun stars, keep a melee-range actor's status readable when its
 	// head/feet project beyond the viewport. Never put the cue under the HUD.
 	top := max(4, float64(screenY))

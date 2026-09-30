@@ -99,7 +99,7 @@ func TestDialogueLayoutKeepsLongBodyAndChoicesInsideDialog(t *testing.T) {
 		t.Fatal("dialogue body has no visible lines")
 	}
 	for _, line := range layout.bodyLines {
-		if width := debugTextWidth(line); width > dialogueWrapColumns*debugTextCharWidth {
+		if width := uiTextWidth(line); width > dialogueWrapColumns*uiTextCharWidth {
 			t.Errorf("body line width = %d: %q", width, line)
 		}
 	}

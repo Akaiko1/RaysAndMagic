@@ -166,6 +166,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunFramesRemaining = cs.StunFramesRemaining
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.StunRate = cs.StunRate
+	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
 	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
@@ -243,6 +244,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.StunFramesRemaining = m.StunFramesRemaining
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.StunRate = m.StunRate
+	cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames = m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.TBRoundActionFloor = m.TBRoundActionFloor
 	cs.RTCooldown = m.RTCooldown

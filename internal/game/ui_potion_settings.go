@@ -8,22 +8,50 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
-func settingsTabRect(px, py, panelW, index int) layoutRect {
-	w := (panelW - 64 - 8) / 2
-	return layoutRect{px + 32 + index*(w+8), py + 58, w, 30}
+// settingsTabKind names the Settings tabs; settingsTabLabels fixes their order.
+type settingsTabKind int
+
+const (
+	settingsTabSound settingsTabKind = iota
+	settingsTabPotions
+	settingsTabDisplay
+)
+
+var settingsTabLabels = [...]string{
+	settingsTabSound:   "Sound",
+	settingsTabPotions: "Auto-potions",
+	settingsTabDisplay: "Display",
 }
-func (g *MMGame) switchSettingsTab(tab int) {
-	if tab < 0 || tab > 1 || tab == g.settingsTab {
+
+// settingsTabRows is how many keyboard-selectable rows a tab has.
+func settingsTabRows(tab settingsTabKind) int {
+	switch tab {
+	case settingsTabPotions:
+		return 2 // health and mana
+	case settingsTabDisplay:
+		return displayRows
+	default:
+		return len(audioSettingDefinitions)
+	}
+}
+
+func settingsTabRect(px, py, panelW int, tab settingsTabKind) layoutRect {
+	n := len(settingsTabLabels)
+	w := (panelW - 64 - 8*(n-1)) / n
+	return layoutRect{px + 32 + int(tab)*(w+8), py + 58, w, 30}
+}
+func (g *MMGame) switchSettingsTab(tab settingsTabKind) {
+	if tab < 0 || int(tab) >= len(settingsTabLabels) || tab == g.settingsTab {
 		return
 	}
 	g.saveAudioSettings()
 	g.audioSliderDrag = -1
 	g.audioSettingsSelection = 0
+	g.fontListOpen = false
 	g.settingsTab = tab
 	g.mouseLeftClicks = nil
 }
@@ -39,13 +67,20 @@ func (ui *UISystem) settingsClick(r layoutRect, action func()) {
 }
 func (ui *UISystem) drawSettingsHeader(screen *ebiten.Image, px, py, panelW int) {
 	drawScaledMetalCenteredText(screen, "Settings", px+panelW/2, py+22, 2, rarityGold)
-	for tab, label := range []string{"Sound", "Auto-potions"} {
+	for i, label := range settingsTabLabels {
+		tab := settingsTabKind(i)
 		r := settingsTabRect(px, py, panelW, tab)
-		ui.drawMenuButton(screen, label, r.x, r.y, r.w, r.h, ui.game.settingsTab == tab)
-		if ui.game.settingsTab == tab {
-			drawFilledRect(screen, r.x+4, r.bottom()-4, r.w-8, 2, color.RGBA{202, 174, 104, 255})
-		}
+		ui.drawSettingsChoice(screen, label, r, ui.game.settingsTab == tab)
 		ui.settingsClick(r, func() { ui.game.switchSettingsTab(tab) })
+	}
+}
+
+// drawSettingsChoice draws one option of a Settings choice row (a tab, an
+// interface size); the chosen one carries the gold underline.
+func (ui *UISystem) drawSettingsChoice(screen *ebiten.Image, label string, r layoutRect, chosen bool) {
+	ui.drawMenuButton(screen, label, r.x, r.y, r.w, r.h, chosen)
+	if chosen {
+		drawFilledRect(screen, r.x+4, r.bottom()-4, r.w-8, 2, color.RGBA{202, 174, 104, 255})
 	}
 }
 
@@ -116,7 +151,7 @@ func (g *MMGame) updatePotionSettingsPointer(px, py, panelW int) {
 func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int) {
 	g := ui.game
 	prefs := g.config.EnsurePotionPreferences()
-	drawCenteredDebugText(screen, "Potion types include brewed versions. Manual use remains available.", px+28, py+96, panelW-56, 18)
+	drawCenteredUIText(screen, "Potion types include brewed versions. Manual use remains available.", px+28, py+96, panelW-56, 18)
 	for row := 0; row < 2; row++ {
 		mana := row == 1
 		p := prefs.Resource(mana)
@@ -132,15 +167,15 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 		drawFilledRect(screen, l.panel.x, l.panel.y, 3, l.panel.h, tint)
 		it, _ := items.TryCreateItemFromYAML(icon)
 		ui.drawInventoryItemIcon(screen, it, l.panel.x+14, l.panel.y+12, 36, 36, 1, true)
-		drawDebugTextColored(screen, title, l.panel.x+60, l.panel.y+12, color.RGBA{226, 214, 181, 255})
+		drawUITextColored(screen, title, l.panel.x+60, l.panel.y+12, color.RGBA{226, 214, 181, 255})
 		label := fmt.Sprintf("Below %d%% %s", p.ThresholdPct, resource)
 		if p.ThresholdPct == 0 {
 			label = "Automatic use off"
 		}
-		drawDebugTextColored(screen, label, l.panel.x+60, l.panel.y+32, color.RGBA{180, 183, 179, 255})
+		drawUITextColored(screen, label, l.panel.x+60, l.panel.y+32, color.RGBA{180, 183, 179, 255})
 		drawSettingsSlider(screen, l.slider, float64(p.ThresholdPct)/100, tint, g.audioSettingsSelection == row)
-		drawDebugTextColored(screen, "Off", l.slider.x1-6, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
-		drawDebugTextColored(screen, "100%", l.slider.x2-22, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
+		drawUITextColored(screen, "Off", l.slider.x1-6, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
+		drawUITextColored(screen, "100%", l.slider.x2-22, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
 		choices := config.AutomaticPotionChoices(mana)
 		total := max(0, ((len(choices)+1)/2)*62-6)
 		limit := max(0, total-l.types.h)
@@ -155,11 +190,11 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				}
 			})
 		}
-		clip := image.Rect(l.types.x, l.types.y, l.types.right(), l.types.bottom()).Intersect(screen.Bounds())
+		clip := image.Rect(l.types.x, l.types.y, l.types.right(), l.types.bottom()).Intersect(uiBounds(screen))
 		if clip.Empty() {
 			continue
 		}
-		dst := screen.SubImage(clip).(*ebiten.Image)
+		dst := uiClip(screen, clip)
 		for i, choice := range choices {
 			r := l.card(i, offset)
 			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(clip)
@@ -182,8 +217,8 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 			drawRectBorder(dst, mark.x, mark.y, mark.w, mark.h, 1, border)
 			if on {
 				ink := color.RGBA{233, 215, 141, 255}
-				vector.StrokeLine(dst, float32(mark.x+2), float32(mark.y+5), float32(mark.x+4), float32(mark.y+8), 1.5, ink, true)
-				vector.StrokeLine(dst, float32(mark.x+4), float32(mark.y+8), float32(mark.x+9), float32(mark.y+2), 1.5, ink, true)
+				uiStrokeLine(dst, float32(mark.x+2), float32(mark.y+5), float32(mark.x+4), float32(mark.y+8), 1.5, ink, true)
+				uiStrokeLine(dst, float32(mark.x+4), float32(mark.y+8), float32(mark.x+9), float32(mark.y+2), 1.5, ink, true)
 			}
 			caption := "Excluded"
 			ink := color.RGBA{138, 141, 140, 255}
@@ -191,7 +226,7 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				caption = "Allowed"
 				ink = color.RGBA{162, 192, 134, 255}
 			}
-			drawDebugTextColored(dst, caption, r.x+44, r.y+38, ink)
+			drawUITextColored(dst, caption, r.x+44, r.y+38, ink)
 			ui.settingsClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() { g.toggleAutomaticPotion(mana, choice.Key) })
 			mx, my := pointerPosition()
 			if image.Pt(mx, my).In(hit) {
@@ -199,6 +234,8 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				ui.queueItemTooltip(lines, item, nil, mx+16, my+8)
 			}
 		}
-		drawProfileScrollbar(screen, layoutRect{l.types.right() + 3, l.types.y, 3, l.types.h}, offset, total)
+		ui.drawScrollbar(screen, fmt.Sprintf("potion:%d", row), layoutRect{l.types.right() + 3, l.types.y, 3, l.types.h}, offset, total, ui.audioSettingsOwnsInput(), func(v int) {
+			g.potionSettingsScroll[row] = v
+		})
 	}
 }

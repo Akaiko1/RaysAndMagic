@@ -42,6 +42,8 @@ type UISystem struct {
 	profileArena            *playerprofile.Data
 	profileArenaError       string
 	alchemyScroll           map[string]int
+	scrollDrag              scrollbarDrag
+	scrollDragShown         bool // the held thumb's list was drawn in the frame being built
 	alchemyRevision         uint64
 	alchemyPreview          alchemyPreviewCache
 	game                    *MMGame
@@ -54,6 +56,7 @@ type UISystem struct {
 	// cardPortraitCache holds cover-fitted portraits, including the exact party
 	// card aperture mask where requested; keyed by name, size, and mask mode.
 	cardPortraitCache    map[string]*ebiten.Image
+	cardPortraitScale    float64 // the screen scale the cached portraits were baked at
 	partyCardEffectLayer [4]*ebiten.Image
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
@@ -172,6 +175,7 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
+	uiClippedLabels = uiClippedLabels[:0]
 	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
 		ui.profileArena = nil
 		ui.profileArenaError = ""
@@ -288,13 +292,14 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 }
 
 func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
+	ui.offerClippedLabelTooltip()
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
 	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
-		screenW := screen.Bounds().Dx()
-		screenH := screen.Bounds().Dy()
+		screenW := uiBounds(screen).Dx()
+		screenH := uiBounds(screen).Dy()
 		if ui.tooltipCompareLines == nil {
 			w, h := ui.mainTooltipSize(tooltipColumnWidth(screenW, 1), screenH)
 			r := positionTooltipBox(ui.tooltipX, ui.tooltipY, w, h, screenW, screenH)

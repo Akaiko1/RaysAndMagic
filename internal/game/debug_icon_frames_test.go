@@ -65,7 +65,7 @@ func TestDebugSim_IconFrameGallery(t *testing.T) {
 							return
 						}
 						x, y := col*320+16, row*190+34
-						drawDebugText(canvas, fmt.Sprintf("%s / %s", style, rarity), x, y-20)
+						drawUIText(canvas, fmt.Sprintf("%s / %s", style, rarity), x, y-20)
 						for i, size := range []int{128, 64, 32} {
 							drawImageScaled(canvas, gameSprite, x+i*136, y, size, size)
 							if i == 2 {
@@ -89,7 +89,7 @@ func TestDebugSim_IconFrameGallery(t *testing.T) {
 			n := "icon_item_" + key
 			x := 16 + i*190
 			drawImageScaled(canvas, sm.GetSprite(n), x, 582, 96, 96)
-			drawDebugText(canvas, key, x, 685)
+			drawUIText(canvas, key, x, 685)
 			sm.EvictResource(n, "")
 		}
 		if folder := os.Getenv("RAM_ICON_GALLERY"); folder != "" {
@@ -144,7 +144,7 @@ func TestDebugSim_MigratedIconCatalog(t *testing.T) {
 				x, y := (i%6)*160+8, (i/6)*180+4
 				drawImageScaled(canvas, sprite, x, y, 128, 128)
 				label := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name, "icon_item_"), "icon_weapon_"), "icon_spell_"), "icon_trap_")
-				drawDebugText(canvas, label, x, y+132)
+				drawUIText(canvas, label, x, y+132)
 				drawImageScaled(canvas, sprite, x, y+146, 24, 24)
 				drawImageScaled(canvas, sprite, x+34, y+146, 32, 32)
 				sm.EvictResource(name, "")
@@ -206,7 +206,7 @@ func TestDebugSim_CardArtworkGallery(t *testing.T) {
 				drawImageScaled(canvas, icon, x+4, y+32, 96, 96)
 				drawImageScaled(canvas, icon, x+32, y+144, 32, 32)
 				drawImageScaled(canvas, full, x+112, y+4, 192, 192)
-				drawDebugText(canvas, key, x+4, y+201)
+				drawUIText(canvas, key, x+4, y+201)
 				sm.EvictResource(iconName, "")
 				sm.EvictResource(fullName, "")
 			}

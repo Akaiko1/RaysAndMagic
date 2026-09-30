@@ -13,10 +13,13 @@ import (
 // calling ebiten directly: they read a position, they don't resolve a gesture.
 var (
 	pointerCancelJustPress = func() bool { return inpututil.IsKeyJustPressed(ebiten.KeyEscape) }
-	pointerPosition        = ebiten.CursorPosition
+	pointerPosition        = uiCursorPosition
 	pointerWheel           = ebiten.Wheel
 	pointerLeftPressed     = func() bool { return ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) }
 	pointerLeftJustPressed = func() bool { return inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) }
 	pointerLeftJustRelease = func() bool { return inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) }
 	pointerRightJustPress  = func() bool { return inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) }
 )
+
+// typedInputChars is the keyboard text seam for the game's text fields.
+var typedInputChars = func() []rune { return ebiten.AppendInputChars(nil) }

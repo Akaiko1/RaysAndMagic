@@ -96,7 +96,7 @@ func (g *MMGame) buffIconName(buff string) string {
 func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	npc := ui.game.dialogNPC
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
-	drawDebugText(screen, clipDebugText(npc.Name, layout.title.w), layout.title.x, layout.title.y)
+	drawUIText(screen, clipUIText(npc.Name, layout.title.w), layout.title.x, layout.title.y)
 
 	if ui.game.npcDialogHasTalkTab(npc) {
 		ui.drawDialogFolderTabs(screen, dialogX, dialogY, []string{"Service", "Talk"})
@@ -108,10 +108,10 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 
 	greeting := ui.game.npcShopHeaderLine(npc, "")
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
-	drawDebugText(screen, clipDebugText(uitext.Text("dialog.party_gold", ui.game.party.Gold), layout.balance.w),
+	drawUIText(screen, clipUIText(uitext.Text("dialog.party_gold", ui.game.party.Gold), layout.balance.w),
 		layout.balance.x, layout.balance.y)
 
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	services := buffServiceChoices(npc)
 	if maxRows := buffServiceMaxRows(dialogX, dialogY, dialogWidth, dialogHeight); len(services) > maxRows {
 		services = services[:maxRows] // never draw over the footer
@@ -134,7 +134,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 
 		textX := iconX + buffServiceIconSize + buffServiceIconGap
 		textW := x + w - textX - 12
-		drawDebugText(screen, clipDebugText(choice.Text, textW), textX, y+10)
+		drawUIText(screen, clipUIText(choice.Text, textW), textX, y+10)
 		detail := uitext.Text("dialog.for_gold",
 			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost)
 		if alreadyActive {
@@ -142,7 +142,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		} else if !affordable {
 			detail += uitext.Text("dialog.too_costly")
 		}
-		drawDebugText(screen, clipDebugText(detail, textW), textX, y+10+debugTextCharHeight+4)
+		drawUIText(screen, clipUIText(detail, textW), textX, y+10+uiTextCharHeight+4)
 
 		if hovered {
 			lines := []string{
@@ -170,7 +170,7 @@ func (ui *UISystem) drawBuffServiceDialog(screen *ebiten.Image, dialogX, dialogY
 		})
 	}
 
-	drawDebugText(screen, uitext.Text("dialog.double_click_a_charm_to_have_it"),
+	drawUIText(screen, uitext.Text("dialog.double_click_a_charm_to_have_it"),
 		layout.footer[0].x, layout.footer[0].y)
 }
 

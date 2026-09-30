@@ -127,7 +127,7 @@ const (
 	// AnimalBondingSummonMax: maximum living Animal Bonding bears per Druid.
 	AnimalBondingSummonMax = 2
 	// DarkElfBindingChancePct is shared by the racial hit gate and reference text.
-	DarkElfBindingChancePct = 10
+	DarkElfBindingChancePct = 3
 	// OverwatchReadySeconds: stationary time before RT reactions become ready.
 	OverwatchReadySeconds = 1.0
 	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect

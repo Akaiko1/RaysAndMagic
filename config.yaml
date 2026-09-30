@@ -12,6 +12,26 @@ display:
   window_title: "Rays and Magic"
   resizable: true
   fullscreen: true
+  # Settings > Display presets. The interface lays out at the window's
+  # logical size divided by scale and is drawn at the screen's native
+  # resolution, so text and panels grow together and every layout stays
+  # intact. The UI minimum size caps the effect on small windows. Keys are
+  # saved; keep them stable.
+  interface_sizes:
+    - {key: normal, label: "Normal", scale: 1.0}
+    - {key: large, label: "Large", scale: 1.25}
+    - {key: largest, label: "Largest", scale: 1.5}
+  default_interface_size: normal
+  # Settings > Display fonts. A file is a pixel font drawn at its design size
+  # (size_px, whole pixels only); no file is the built-in classic face. The
+  # credit is shown in Settings > Display. Keys are saved; keep them stable.
+  fonts:
+    - {key: classic, label: "Classic", credit: ""}
+    - {key: romulus, label: "Romulus", file: assets/fonts/romulus/Romulus.ttf, size_px: 16, credit: "Romulus by Hewett Tsoi"}
+    - {key: alagard, label: "Alagard", file: assets/fonts/alagard/Alagard.ttf, size_px: 16, credit: "Alagard by Hewett Tsoi"}
+    - {key: fine_fantasy, label: "Fine Fantasy", file: assets/fonts/tinyrpg/TinyRPG-FineFantasyStrategies.ttf, size_px: 12, credit: "Fine Fantasy Strategies by tiopalada"}
+    - {key: brilliant, label: "Brilliant Strength", file: assets/fonts/tinyrpg/TinyRPG-BrilliantStrength.ttf, size_px: 14, credit: "Brilliant Strength by tiopalada"}
+  default_font: classic
   # Keep Metal presentation paced. An unsynced loop can count Draw calls while
   # skipping displayed frames under GPU load (especially long tree corridors).
   disable_vsync_on_mac: false
@@ -610,3 +630,8 @@ day_night:
 status_damage:
   burn_percent: 3
   boss_burn_percent: 1
+
+status_effects:
+  # A slowed monster loses one turn in this many turn-based turns (RT slows
+  # movement and attack cadence by the debuff's percent instead).
+  slow_skip_every_turns: 3

@@ -29,7 +29,7 @@ func (r *Renderer) beginMonsterPickFrame() {
 	f := &r.monsterPick
 	g := r.game
 	f.world = g.world
-	f.width, f.height = g.config.GetScreenWidth(), g.config.GetScreenHeight()
+	f.width, f.height = g.worldWidth(), g.worldHeight()
 	f.camX, f.camY = g.camera.X, g.camera.Y
 	f.dirX, f.dirY = math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
 	f.planeX, f.planeY = -f.dirY*math.Tan(g.camera.FOV/2), f.dirX*math.Tan(g.camera.FOV/2)
@@ -75,6 +75,7 @@ func (g *MMGame) monsterAtScreen(x, y int) *monster.Monster3D {
 
 // monsterPointerFrameAllowed shares the displayed UI and viewport gates between
 // pixel picking and an existing hold. HUD pixels must not count as empty world.
+// x, y are UI units.
 func (g *MMGame) monsterPointerFrameAllowed(x, y int) bool {
 	if g.gameLoop == nil || g.gameLoop.renderer == nil {
 		return false
@@ -91,7 +92,8 @@ func (g *MMGame) monsterPointerFrameAllowed(x, y int) bool {
 		}
 	}
 	f := &g.gameLoop.renderer.monsterPick
-	return f.world == g.world && f.width == g.config.GetScreenWidth() && f.height == g.config.GetScreenHeight() && x >= 0 && y >= 0 && x < f.width && y < f.height
+	x, y = g.uiToWorldPoint(x, y)
+	return f.world == g.world && f.width == g.worldWidth() && f.height == g.worldHeight() && x >= 0 && y >= 0 && x < f.width && y < f.height
 }
 
 // heldMonsterVisible requires some displayed column of the target inside the
@@ -153,10 +155,12 @@ func (g *MMGame) monsterPickHitVisible(f *monsterPickFrame, h monsterPickHit) bo
 	return false
 }
 
+// pickMonsterAtScreen tests the point (UI units) against the displayed frame.
 func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
 	if !g.monsterPointerFrameAllowed(x, y) {
 		return nil, 0
 	}
+	x, y = g.uiToWorldPoint(x, y)
 	f := &g.gameLoop.renderer.monsterPick
 	var best *monster.Monster3D
 	nearest := math.Inf(1)

@@ -35,6 +35,20 @@ type tabbedMenuLayout struct {
 	tabs                  []layoutRect
 }
 
+// centeredRect is the one rule every centred window follows: a w x h box in
+// the middle of the current screenW x screenH frame. Windows recompute it each
+// frame, so an interface size change recentres them at once.
+func centeredRect(screenW, screenH, w, h int) layoutRect {
+	return layoutRect{(screenW - w) / 2, (screenH - h) / 2, w, h}
+}
+
+// mainMenuPanelRect is the ESC menu panel for a mode: one source for drawing,
+// hover and clicks.
+func mainMenuPanelRect(screenW, screenH int, mode MainMenuMode) layoutRect {
+	w, h := menuPanelSize(mode)
+	return centeredRect(screenW, screenH, w, h)
+}
+
 // computeTabbedMenuLayout fills the gameplay viewport above the party HUD.
 // viewportBottom is explicit so hiding the HUD can restore the full height
 // without duplicating the party-card height contract here.
@@ -93,36 +107,55 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 		textScale, gap = 1, 16
 		paperW, paperH = paperW*0.75, paperH*0.75
 	}
-	labelH := (debugTextCharHeight + 2) * textScale
-	scale := min(2.4, float64(content.w-32)/float64(int(paperW)+2*inventoryGridSize+2*gap))
-	topH := labelH + 18 + max(2*labelH, inventoryFilterHeight(int(inventoryGridSize*scale)))
+	labelH := (uiTextCharHeight + 2) * textScale
+	// The doll column carries its own header - the name, then Gold and Food,
+	// side by side on a compact frame where every row is dear - and the bag
+	// columns theirs (heading, filters). With 2x text the two headers are the
+	// same height, so all three columns share one top rail.
+	resourceRows := 2
+	if textScale == 1 {
+		resourceRows = 1
+	}
+	const maxArtScale = 2.4
+	widthScale := min(maxArtScale, float64(content.w-32)/float64(int(paperW)+2*inventoryGridSize+2*gap))
+	topH := labelH + 18 + max(2*labelH, inventoryFilterHeight(int(inventoryGridSize*widthScale)))
+	dollTopH := labelH + 18 + resourceRows*labelH
 	const footerH = 8 + pagerBtnH + inventoryPagerToQuickGap + quickSlotTabLabelSpace
 	const quickLogicalW = 320
-	scale = max(0.1, min(scale, min(float64(content.h-topH)/paperH, float64(content.h-topH-footerH)/(inventoryGridSize+quickLogicalW/quickSlotBarAspect))))
-	pw, ph := int(paperW*scale), int(paperH*scale)
-	gs, space := int(inventoryGridSize*scale), int(float64(gap)*scale)
+	// The paperdoll takes the whole height below its header. The bag column
+	// (grid, pager, quick slots) grows with it until the column fills the
+	// height too, and width the bags leave unused goes to the doll, so a short
+	// frame never holds the doll to the bags' size.
+	paperMax := float64(content.h-dollTopH) / paperH
+	gridScale := max(0.1, min(widthScale, paperMax, (float64(content.h-topH)-footerH)/(inventoryGridSize+quickLogicalW/quickSlotBarAspect)))
+	gs, space := int(inventoryGridSize*gridScale), int(float64(gap)*gridScale)
+	paperScale := max(0.1, min(maxArtScale, paperMax, float64(content.w-32-2*gs-2*space)/paperW))
+	pw, ph := int(paperW*paperScale), int(paperH*paperScale)
 	filterH := inventoryFilterHeight(gs)
-	quickW := int(quickLogicalW * scale)
+	quickW := int(quickLogicalW * gridScale)
 	quickH := int(float64(quickW) / quickSlotBarAspect)
-	bodyH := max(ph, gs+footerH+quickH)
-	blockW, blockH := pw+2*gs+2*space, bodyH+topH
+	blockW, blockH := pw+2*gs+2*space, max(dollTopH+ph, topH+gs+footerH+quickH)
 	x, top := content.x+(content.w-blockW)/2, content.y+(content.h-blockH)/2
 	y := top + topH
-	paper := layoutRect{x, y, pw, ph}
+	paper := layoutRect{x, top + dollTopH, pw, ph}
 	personal := layoutRect{paper.right() + space, y, gs, gs}
 	shared := layoutRect{personal.right() + space, y, gs, gs}
 	pagerW := min(220, max(120, gs*2/3))
 	pager := layoutRect{shared.x + (gs-pagerW)/2, shared.bottom() + 8, pagerW, pagerBtnH}
 	personalPager := layoutRect{personal.x + (gs-pagerW)/2, personal.bottom() + 8, pagerW, pagerBtnH}
-	quick := layoutRect{personal.x + (shared.right()-personal.x-quickW)/2, y + bodyH - quickH, quickW, quickH}
+	quick := layoutRect{personal.x + (shared.right()-personal.x-quickW)/2, top + blockH - quickH, quickW, quickH}
 	resourceY := top + labelH + 8
 	filterY := resourceY + (topH-labelH-18-filterH)/2
+	resources := [2]layoutRect{{paper.x, resourceY, pw, labelH}, {paper.x, resourceY + labelH, pw, labelH}}
+	if resourceRows == 1 {
+		resources = [2]layoutRect{{paper.x, resourceY, pw / 2, labelH}, {paper.x + pw/2, resourceY, pw - pw/2, labelH}}
+	}
 	return inventoryContentLayout{
 		textScale: textScale,
 		paper:     paper, grid: shared, personalGrid: personal, pager: pager, personalPager: personalPager,
 		categories: layoutRect{shared.x, filterY, gs, filterH}, personalCategories: layoutRect{personal.x, filterY, gs, filterH}, quickSlots: quick,
 		headings:  [3]layoutRect{{paper.x, top, pw, labelH}, {personal.x, top, gs, labelH}, {shared.x, top, gs, labelH}},
-		resources: [2]layoutRect{{paper.x, resourceY, pw, labelH}, {paper.x, resourceY + labelH, pw, labelH}},
+		resources: resources,
 	}
 }
 
@@ -147,7 +180,7 @@ func computeCharacterContentLayout(content layoutRect) characterContentLayout {
 		maxContentW  = 1180
 		maxContentH  = 610
 		titleBlockH  = 28
-		instructionH = debugTextCharHeight
+		instructionH = uiTextCharHeight
 	)
 	blockW := min(maxContentW, max(1, content.w-2*outerPad))
 	blockH := min(maxContentH, content.h)
@@ -175,7 +208,7 @@ func computeCharacterContentLayout(content layoutRect) characterContentLayout {
 	portraitSize := min(profile.w-2*framePad-16, min(210, bodyH*42/100))
 	portrait := layoutRect{profile.x + (profile.w-portraitSize)/2, profile.y + 54, portraitSize, portraitSize}
 	return characterContentLayout{
-		title:         layoutRect{blockX, blockY + 6, blockW, debugTextCharHeight},
+		title:         layoutRect{blockX, blockY + 6, blockW, uiTextCharHeight},
 		portraitFrame: layoutRect{portrait.x - framePad, portrait.y - framePad, portrait.w + 2*framePad, portrait.h + 2*framePad},
 		portrait:      portrait,
 		profile:       profile,
@@ -249,7 +282,7 @@ func (c questCardCopy) descClipped() bool { return len(c.fullLines) > len(c.desc
 // maxDescRows.
 func questCardCopyFor(description string, cardW, maxDescRows int) questCardCopy {
 	textW := cardW - 36
-	full := wrapDebugText(description, textW)
+	full := wrapUIText(description, textW)
 	if len(full) == 0 {
 		full = []string{""}
 	}
@@ -330,7 +363,7 @@ func questCardMaxDescRowsFor(avail int) int {
 func computeQuestContentLayout(content layoutRect, copies []questCardCopy, page int) questContentLayout {
 	listTop, avail, pager := questCardListAvailable(content)
 	layout := questContentLayout{
-		title:        layoutRect{content.x + 20, content.y + 10, content.w - 40, debugTextCharHeight},
+		title:        layoutRect{content.x + 20, content.y + 10, content.w - 40, uiTextCharHeight},
 		pager:        pager,
 		maxDescRows:  questCardMaxDescRowsFor(avail),
 		listAvailabl: avail,
@@ -392,18 +425,18 @@ func computeNPCDialogSectionLayout(dialog layoutRect, hasBalance bool) npcDialog
 	balance := layoutRect{}
 	if hasBalance {
 		titleW = dialog.w - 220
-		balance = layoutRect{dialog.right() - 190, dialog.y + 20, 140, debugTextCharHeight}
+		balance = layoutRect{dialog.right() - 190, dialog.y + 20, 140, uiTextCharHeight}
 	}
 	footerY := dialog.bottom() - 38
 	return npcDialogSectionLayout{
 		panel:    dialog,
-		title:    layoutRect{dialog.x + 20, dialog.y + 20, titleW, debugTextCharHeight},
+		title:    layoutRect{dialog.x + 20, dialog.y + 20, titleW, uiTextCharHeight},
 		balance:  balance,
-		greeting: layoutRect{dialog.x + 20, dialog.y + 44, min(dialog.w-40, tabGreetingWrapColumns*debugTextCharWidth), 2 * dialogueLineHeight},
+		greeting: layoutRect{dialog.x + 20, dialog.y + 44, min(dialog.w-40, uiColumnsWidth(tabGreetingWrapColumns)), 2 * dialogueLineHeight},
 		body:     layoutRect{dialog.x + 20, dialog.y + 92, dialog.w - 40, footerY - (dialog.y + 92) - 8},
 		footer: [2]layoutRect{
-			{dialog.x + 20, footerY, dialog.w - 40, debugTextCharHeight},
-			{dialog.x + 20, footerY + debugTextCharHeight, dialog.w - 40, debugTextCharHeight},
+			{dialog.x + 20, footerY, dialog.w - 40, uiTextCharHeight},
+			{dialog.x + 20, footerY + uiTextCharHeight, dialog.w - 40, uiTextCharHeight},
 		},
 	}
 }
@@ -411,10 +444,10 @@ func computeNPCDialogSectionLayout(dialog layoutRect, hasBalance bool) npcDialog
 func computeMapOverlayLayout(screenW, screenH int) mapOverlayLayout {
 	panelW := min(720, max(320, int(float64(screenW)*0.75)))
 	panelH := min(560, max(240, int(float64(screenH)*0.75)))
-	panel := layoutRect{(screenW - panelW) / 2, (screenH - panelH) / 2, panelW, panelH}
+	panel := centeredRect(screenW, screenH, panelW, panelH)
 	return mapOverlayLayout{
 		panel: panel,
-		title: layoutRect{panel.x + 16, panel.y + 12, panel.w - 58, debugTextCharHeight},
+		title: layoutRect{panel.x + 16, panel.y + 12, panel.w - 58, uiTextCharHeight},
 		close: layoutRect{panel.right() - 26, panel.y + 10, 16, 16},
 		body:  layoutRect{panel.x + 18, panel.y + 36, panel.w - 36, panel.h - 54},
 	}

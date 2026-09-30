@@ -213,7 +213,7 @@ func TestDebugSim_StatusEffects(t *testing.T) {
 				op.GeoM.Translate(64, 55)
 				tile.DrawImage(portrait, op)
 			}
-			drawDebugTextColored(tile, e.label, 12, 12, color.RGBA{230, 225, 205, 255})
+			drawUITextColored(tile, e.label, 12, 12, color.RGBA{230, 225, 205, 255})
 			// Badges ride above the head with their own renderer, as in play.
 			if paint, badge := statusBadgeRenderers[e.flag]; badge {
 				paint(tile, 120, 40, 12)

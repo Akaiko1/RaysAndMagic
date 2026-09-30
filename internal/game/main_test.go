@@ -1,8 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"os"
 	"testing"
+
+	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -34,6 +37,20 @@ func runOnDrawFrame(fn func(screen *ebiten.Image)) {
 		close(done)
 	}
 	<-done
+}
+
+// drawLaidOutFrame draws the exploration frame as Draw presents it after
+// Layout: the world at its own resolution, the interface at the screen's.
+// Like drawLaidOutUI, used by the -tags debug galleries.
+func drawLaidOutFrame(g *MMGame, screen *ebiten.Image) {
+	beginUIFrame(screen, g.uiPixelScale())
+	g.gameLoop.drawExplorationFrame(screen)
+}
+
+// drawLaidOutUI draws only the interface onto a screen Layout sized.
+func drawLaidOutUI(g *MMGame, screen *ebiten.Image) {
+	beginUIFrame(screen, g.uiPixelScale())
+	g.gameLoop.ui.Draw(screen)
 }
 
 type testMainGame struct {
@@ -82,7 +99,26 @@ func (*testMainGame) Layout(w, h int) (int, int) {
 	return 320, 240
 }
 
+// monitorDeviceScale is the real monitor query; tests run with the seam pinned
+// to one device pixel per window pixel so posed windows lay out the same on
+// every machine. Tests that pose a HiDPI display set the seam themselves; the
+// native-window debug route restores this one.
+var monitorDeviceScale = displayDeviceScale
+
 func TestMain(m *testing.M) {
+	displayDeviceScale = func() float64 { return 1 }
+	// RAM_TEST_UI_FONT=<key> runs the whole suite in one of the shipped
+	// fonts, so every text-fit check is exercised with its glyph widths.
+	if key := os.Getenv("RAM_TEST_UI_FONT"); key != "" {
+		cfg, err := config.LoadConfig("../../config.yaml")
+		if err == nil {
+			err = loadUIFonts(cfg.Display.Fonts)
+		}
+		if err != nil || uiFontAtlases[key] == nil {
+			panic(fmt.Sprintf("RAM_TEST_UI_FONT=%s: %v", key, err))
+		}
+		setActiveUIFont(uiFontAtlases[key])
+	}
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		os.Exit(m.Run())
 	}

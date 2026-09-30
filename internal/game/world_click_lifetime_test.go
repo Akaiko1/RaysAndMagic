@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"testing"
 	"time"
@@ -377,7 +378,7 @@ func TestDiscontinuousViewDiscardsPointerOwnership(t *testing.T) {
 			case "facing":
 				g.snapFacing(math.Pi)
 			case "resize":
-				g.handleResize(800, 600)
+				g.handleResize(image.Pt(800, 600), image.Pt(800, 600))
 			}
 			if ih.mouseAttackTarget != nil || len(g.mouseLeftClicks)+len(g.mouseRightClicks) > 0 {
 				t.Fatal("view replacement retained an old press or hold")

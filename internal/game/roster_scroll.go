@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // One row per wheel gesture, including fractional trackpad deltas.
@@ -43,8 +42,8 @@ func (ui *UISystem) drawScrollArrowButton(screen *ebiten.Image, x, y, w, h int, 
 		base := cy + pass.offset
 		tip := base + direction*size
 		shoulder := base - direction
-		vector.StrokeLine(screen, cx-size, shoulder, cx, tip, pass.width, pass.color, true)
-		vector.StrokeLine(screen, cx, tip, cx+size, shoulder, pass.width, pass.color, true)
-		vector.StrokeLine(screen, cx, tip-direction, cx, base-direction*size, pass.width, pass.color, true)
+		uiStrokeLine(screen, cx-size, shoulder, cx, tip, pass.width, pass.color, true)
+		uiStrokeLine(screen, cx, tip, cx+size, shoulder, pass.width, pass.color, true)
+		uiStrokeLine(screen, cx, tip-direction, cx, base-direction*size, pass.width, pass.color, true)
 	}
 }

@@ -168,7 +168,7 @@ func TestProfileSectionsStayWithinThree(t *testing.T) {
 		panel := profilePanelRect(res[0], res[1])
 		for i, page := range profilePages {
 			r := profileTabRect(panel.x+menuFrameInset, panel.y+menuFrameInset, panel.w-2*menuFrameInset, i)
-			if debugTextWidth("[ "+page.title+" ]") > r.w-8 {
+			if uiTextWidth("[ "+page.title+" ]") > r.w-8 {
 				t.Fatalf("%v clips tab %s", res, page.title)
 			}
 		}

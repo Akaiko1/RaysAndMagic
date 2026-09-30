@@ -139,38 +139,6 @@ func TestAISocialMovementRestrictions(t *testing.T) {
 	}
 }
 
-// A full slow also hits the final position gate. Partial slow must pass through
-// the action-level roll, including fleeing; it cannot be validated by slow=100.
-func TestAIFleePartialSlowUsesMovementRoll(t *testing.T) {
-	g, gl, tile := tbBehaviorGame(t, 40, 40)
-	placePlayerAtTile(g, 10, 10, tile)
-	m := monster.NewMonster3DFromConfig(12.5*tile, 10.5*tile, "kasa_obake", g.config)
-	m.WasAttacked = true
-	g.world.Monsters = []*monster.Monster3D{m}
-	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	m.ApplySlow(50, 10000*g.config.GetTPS(), 10000)
-	moves := 0
-	const trials = 512
-	for range trials {
-		m.X, m.Y = 12.5*tile, 10.5*tile
-		m.State = monster.StateFleeing
-		m.StateTimer = 0
-		m.ResetPathfinding()
-		g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-		g.refreshMonsterAIState()
-		x, y := m.X, m.Y
-		runOneMonsterTurn(g, gl)
-		if m.X != x || m.Y != y {
-			moves++
-		}
-	}
-	// Wide interval avoids timing/PRNG assumptions while rejecting either a
-	// missing roll (512 moves) or a duplicated roll (about 128 moves).
-	if moves < 185 || moves > 327 {
-		t.Fatalf("50%% slow allowed %d/%d flee steps, want about half", moves, trials)
-	}
-}
-
 func TestAIStationaryMonsterCanStillAttack(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {

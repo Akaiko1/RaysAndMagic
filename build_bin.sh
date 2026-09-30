@@ -17,11 +17,13 @@ for launcher in scripts/test_*.command; do
   install -m 755 "$launcher" "${BIN_DIR}/$(basename "$launcher")"
 done
 
-go build -o "${BIN_DIR}/raysandmagic" .
-go build -o "${BIN_DIR}/map_viewer" ./assets/map_viewer
+# Pure Go like the release: cgo would link against this Mac's SDK and require
+# its macOS version on every machine the bundle is copied to.
+CGO_ENABLED=0 go build -o "${BIN_DIR}/raysandmagic" .
+CGO_ENABLED=0 go build -o "${BIN_DIR}/map_viewer" ./assets/map_viewer
 
-build_macos_app_bundle "${BIN_DIR}/${APP_NAME}.app"        "${APP_NAME}"    "${BIN_DIR}/raysandmagic" "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"
-build_macos_app_bundle "${BIN_DIR}/${VIEWER_NAME}.app"     "${VIEWER_NAME}" "${BIN_DIR}/map_viewer"   "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns"
+build_macos_app_bundle "${BIN_DIR}/${APP_NAME}.app"        "${APP_NAME}"    "${BIN_DIR}/raysandmagic" "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"            content
+build_macos_app_bundle "${BIN_DIR}/${VIEWER_NAME}.app"     "${VIEWER_NAME}" "${BIN_DIR}/map_viewer"   "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns" no-content
 
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-H=windowsgui" -o "${BIN_DIR}/${APP_NAME}.exe" .
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-H=windowsgui" -o "${BIN_DIR}/${VIEWER_NAME}.exe" ./assets/map_viewer

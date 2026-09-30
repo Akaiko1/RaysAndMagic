@@ -11,14 +11,12 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // Source-space measurements from party_member_panel.png. Every piece is drawn
@@ -174,14 +172,14 @@ func drawPartyPanel(screen, panel *ebiten.Image, x, y, w int) {
 	if w == partyPanelSourceW {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Translate(float64(x), float64(y))
-		screen.DrawImage(panel, op)
+		uiDrawImage(screen, panel, op)
 		return
 	}
 	drawPart := func(srcX, srcW, dstX int) {
 		part := panel.SubImage(image.Rect(b.Min.X+srcX, b.Min.Y, b.Min.X+srcX+srcW, b.Min.Y+partyPanelSourceH)).(*ebiten.Image)
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Translate(float64(dstX), float64(y))
-		screen.DrawImage(part, op)
+		uiDrawImage(screen, part, op)
 	}
 
 	middleX := x + partyPanelLeftCapW
@@ -330,7 +328,7 @@ func drawPartyCooldownProgress(screen *ebiten.Image, edges []partyCooldownEdge, 
 		fraction := min(1.0, left/length)
 		ex := edge.ax + (edge.bx-edge.ax)*float32(fraction)
 		ey := edge.ay + (edge.by-edge.ay)*float32(fraction)
-		vector.StrokeLine(screen, edge.ax, edge.ay, ex, ey, 2, col, false)
+		uiStrokeLine(screen, edge.ax, edge.ay, ex, ey, 2, col, false)
 		left -= length
 	}
 }
@@ -343,7 +341,7 @@ func drawPartyCooldownFrame(screen *ebiten.Image, x, y, w, h int, progress float
 	}
 	gray := color.RGBA{104, 112, 123, 235}
 	green := color.RGBA{66, 218, 116, 250}
-	vector.StrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
+	uiStrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
 	edges := [...]partyCooldownEdge{
 		{x1, y1, x2, y1},
 		{x2, y1, x2, y2},
@@ -363,7 +361,7 @@ func drawPartyArmsMasterCooldownFrame(screen *ebiten.Image, x, y, w, h int, main
 	gray := color.RGBA{104, 112, 123, 235}
 	mainGreen := color.RGBA{66, 218, 116, 250}
 	offBlue := color.RGBA{66, 154, 235, 250}
-	vector.StrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
+	uiStrokeRect(screen, x1, y1, x2-x1, y2-y1, 1.5, gray, false)
 
 	// Both paths travel from the left midpoint to the right midpoint, keeping
 	// the main-hand readout wholly above the off-hand readout.
@@ -386,7 +384,7 @@ func expandedPartyPanelRect(x, y, w, h, gap int) (int, int, int, int) {
 }
 
 func drawPartySolidFrame(screen *ebiten.Image, x, y, w, h int, thickness float32, col color.RGBA) {
-	vector.StrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), thickness, col, false)
+	uiStrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), thickness, col, false)
 }
 
 func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
@@ -404,7 +402,7 @@ func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
 			{DstX: float32(centerX + halfWidth), DstY: float32(topY + topOffset), SrcX: 0.5, SrcY: 0.5, ColorR: tr, ColorG: tg, ColorB: tb, ColorA: ta},
 			{DstX: float32(centerX), DstY: float32(topY + tipOffset), SrcX: 0.5, SrcY: 0.5, ColorR: br, ColorG: bg, ColorB: bb, ColorA: ba},
 		}
-		screen.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
+		uiDrawTriangles(screen, verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
 	}
 
 	// Broad dark rim, then a blue-steel body using the same highlight-to-shadow
@@ -413,7 +411,7 @@ func drawPartyFocusMarker(screen *ebiten.Image, centerX, topY int) {
 	rim := color.RGBA{5, 18, 38, 245}
 	drawTriangle(9, -2, 12, rim, rim)
 	drawTriangle(7, 0, 9, metalShade(focusModeMetal, 0), metalShade(focusModeMetal, 1))
-	vector.FillRect(screen, float32(centerX-5), float32(topY+1), 10, 1,
+	uiFillRect(screen, float32(centerX-5), float32(topY+1), 10, 1,
 		color.RGBA{210, 240, 255, 230}, false)
 }
 
@@ -453,8 +451,16 @@ var partyPortraitApertureMask = ebiten.NewImageFromImage(newPartyPortraitApertur
 // exact authored aperture mask; other callers keep an ordinary rectangular
 // cover fit. Results are cached per name, size, and mask mode.
 func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *ebiten.Image {
-	if w <= 0 || h <= 0 {
+	if w <= 0 || h <= 0 || usePartyAperture && (w != panelPortraitW || h != panelPortraitH) {
 		return nil
+	}
+	if ui.cardPortraitScale != uiScreenScale {
+		// Portraits are baked at the screen's resolution.
+		for _, img := range ui.cardPortraitCache {
+			uiReleaseLayer(img)
+		}
+		ui.cardPortraitCache = nil
+		ui.cardPortraitScale = uiScreenScale
 	}
 	key := fmt.Sprintf("%s|%dx%d|party-mask=%t", name, w, h, usePartyAperture)
 	if img, ok := ui.cardPortraitCache[key]; ok {
@@ -472,17 +478,14 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 		b := src.Bounds()
 		src = src.SubImage(image.Rect(b.Min.X+1, b.Min.Y+1, b.Max.X-1, b.Max.Y-1)).(*ebiten.Image)
 	}
-	img := ebiten.NewImage(w, h)
+	img := uiLayer(nil, w, h)
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 	scale := math.Max(float64(w)/float64(sw), float64(h)/float64(sh)) // cover-fit
-	graphics.DrawImageScaled(img, src, (float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2, float64(sw)*scale, float64(sh)*scale, nil)
+	uiDrawImageScaled(img, src, (float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2, float64(sw)*scale, float64(sh)*scale, nil)
 
 	if usePartyAperture {
-		if w != panelPortraitW || h != panelPortraitH {
-			return nil
-		}
 		maskOpts := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
-		img.DrawImage(partyPortraitApertureMask, maskOpts)
+		uiDrawImage(img, partyPortraitApertureMask, maskOpts)
 	}
 
 	if ui.cardPortraitCache == nil {
@@ -525,11 +528,8 @@ func (ui *UISystem) partyCardEffects(index, w, h int, needed bool) *ebiten.Image
 	if !needed || index < 0 || index >= len(ui.partyCardEffectLayer) || w <= 0 || h <= 0 {
 		return nil
 	}
-	img := ui.partyCardEffectLayer[index]
-	if img == nil || img.Bounds().Dx() != w || img.Bounds().Dy() != h {
-		img = ebiten.NewImage(w, h)
-		ui.partyCardEffectLayer[index] = img
-	}
+	img := uiLayer(ui.partyCardEffectLayer[index], w, h)
+	ui.partyCardEffectLayer[index] = img
 	img.Clear()
 	return img
 }
@@ -538,17 +538,17 @@ func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, labe
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{3, 5, 9, 230}, false)
+	uiFillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{3, 5, 9, 230}, false)
 	innerW := max(0, w-2)
 	if maximum > 0 && current > 0 {
 		value := min(current, maximum)
 		filled := innerW * value / maximum
-		vector.FillRect(screen, float32(x+1), float32(y+1), float32(filled), float32(max(0, h-2)), fill, false)
+		uiFillRect(screen, float32(x+1), float32(y+1), float32(filled), float32(max(0, h-2)), fill, false)
 		if filled > 0 {
-			vector.FillRect(screen, float32(x+1), float32(y+1), float32(filled), 2, metalShade(fill, 0), false)
+			uiFillRect(screen, float32(x+1), float32(y+1), float32(filled), 2, metalShade(fill, 0), false)
 		}
 	}
-	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{118, 125, 145, 220}, false)
+	uiStrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, color.RGBA{118, 125, 145, 220}, false)
 	// Keep the pixel font at its native scale. Fractional text scaling becomes
 	// illegible when the logical framebuffer is enlarged to a Retina window.
 	// Drop the label or maximum before ever clipping a number.
@@ -566,11 +566,11 @@ func meterText(maxW int, label string, current, maximum int) string {
 		fmt.Sprintf("%d", current),
 	}
 	for _, form := range forms {
-		if debugTextWidth(form) <= maxW {
+		if uiTextWidth(form) <= maxW {
 			return form
 		}
 	}
-	return clipDebugText(forms[len(forms)-1], maxW)
+	return clipUIText(forms[len(forms)-1], maxW)
 }
 
 func centeredIconRowX(barX, barW, iconSize, gap, count int) int {
@@ -619,9 +619,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	}
 
 	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
-	vector.FillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), float32(portraitHeight), color.RGBA{3, 5, 10, 246}, false)
-	vector.FillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{104, 114, 128, 235}, false)
-	vector.FillRect(screen, 0, float32(startY+1), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{38, 44, 53, 245}, false)
+	uiFillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), float32(portraitHeight), color.RGBA{3, 5, 10, 246}, false)
+	uiFillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{104, 114, 128, 235}, false)
+	uiFillRect(screen, 0, float32(startY+1), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{38, 44, 53, 245}, false)
 
 	for i, member := range ui.game.party.Members {
 		x := baseLeft + i*portraitWidth
@@ -669,14 +669,14 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			portraitOpts.ColorScale.Scale(1.5, 0.5, 0.5, 1.0) // Red tint: more red, less green/blue
 		}
 		if card := ui.cardPortrait(portraitName, pw, ph, true); card != nil {
-			screen.DrawImage(card, portraitOpts)
+			uiDrawImage(screen, card, portraitOpts)
 		}
 
 		isDown := partyCardDown(member)
 		isPoisoned := member.HasCondition(character.ConditionPoisoned)
 		isBurning := member.HasCondition(character.ConditionBurning)
 		if isDown {
-			vector.FillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{0, 0, 0, 140}, false)
+			uiFillRect(screen, float32(panelX), float32(panelY), float32(panelW), float32(panelH), color.RGBA{0, 0, 0, 140}, false)
 		}
 		// Status and feedback particles keep their full-card choreography, but a
 		// reused layer clips them to the painted panel so they never cross the
@@ -705,7 +705,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			ui.drawCardHealPlus(effects, 0, 0, panelW, panelH, i)
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(panelX), float64(panelY))
-			screen.DrawImage(effects, op)
+			uiDrawImage(screen, effects, op)
 		}
 
 		ui.drawPortraitElementalAttackFX(screen, member, px, py, pw, ph)
@@ -717,16 +717,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		equipW := content.equipment.w
 		nameY := content.box.y
 		levelText := fmt.Sprintf("L%d", member.Level)
-		levelW := debugTextWidth(levelText)
-		nameText := clipDebugText(member.Name, max(0, statsW-levelW-7))
-		nameW := debugTextWidth(nameText)
+		levelW := uiTextWidth(levelText)
+		nameText := clipUIText(member.Name, max(0, statsW-levelW-7))
+		nameW := uiTextWidth(nameText)
 		nameX := contentX + max(0, (statsW-nameW-levelW-5)/2)
 		nameColor := raritySilver
 		if i == ui.game.selectedChar {
 			nameColor = rarityGold
 		}
-		drawDebugTextColored(screen, nameText, nameX, nameY, nameColor)
-		drawDebugTextColored(screen, levelText, nameX+nameW+5, nameY, color.RGBA{175, 190, 215, 255})
+		drawUITextColored(screen, nameText, nameX, nameY, nameColor)
+		drawUITextColored(screen, levelText, nameX+nameW+5, nameY, color.RGBA{175, 190, 215, 255})
 
 		meterH := 14
 		hpY := panelY + 35
@@ -743,8 +743,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
 		statusY := panelY + 67
-		statusText = clipDebugText(statusText, max(0, statsW-2))
-		drawCenteredTextWithShadow(screen, statusText, contentX, statusY, statsW, debugTextCharHeight, statusColor)
+		statusText = clipUIText(statusText, max(0, statsW-2))
+		drawCenteredTextWithShadow(screen, statusText, contentX, statusY, statsW, uiTextCharHeight, statusColor)
 
 		mainText, mainColor := "W None", color.Color(color.RGBA{135, 143, 158, 255})
 		if weapon, ok := member.Equipment[items.SlotMainHand]; ok {
@@ -758,17 +758,17 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if offItem, ok := member.Equipment[items.SlotOffHand]; ok {
 			offText, offColor = "O "+offItem.Name, ui.itemRarityColor(offItem)
 		}
-		mainText = clipDebugText(mainText, max(0, equipW-2))
-		offText = clipDebugText(offText, max(0, equipW-2))
-		spellText = clipDebugText(spellText, max(0, equipW-2))
-		drawCenteredTextWithShadow(screen, mainText, equipX, nameY, equipW, debugTextCharHeight, mainColor)
-		drawCenteredTextWithShadow(screen, offText, equipX, nameY+16, equipW, debugTextCharHeight, offColor)
-		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, debugTextCharHeight, spellColor)
+		mainText = clipUIText(mainText, max(0, equipW-2))
+		offText = clipUIText(offText, max(0, equipW-2))
+		spellText = clipUIText(spellText, max(0, equipW-2))
+		drawCenteredTextWithShadow(screen, mainText, equipX, nameY, equipW, uiTextCharHeight, mainColor)
+		drawCenteredTextWithShadow(screen, offText, equipX, nameY+16, equipW, uiTextCharHeight, offColor)
+		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, uiTextCharHeight, spellColor)
 
 		hasStatBadge := member.FreeStatPoints > 0
 		hasSkillBadge := ui.game.hasLevelUpChoiceForChar(i)
 		badges := makePartyProgressionBadgeLayout(px, py, pw, ph, hasStatBadge, hasSkillBadge)
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := uiCursorPosition()
 
 		if hasStatBadge {
 			statHover := isMouseHoveringBox(mouseX, mouseY, badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom())
@@ -856,7 +856,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	if hasFreeStats {
 		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
 		auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := uiCursorPosition()
 		autoHover := isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
 		ui.drawAutoStatButton(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
 		if autoHover {
@@ -903,7 +903,7 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
 		sz := float32(3 + 3*rise)
 		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow->orange->red
-		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
+		uiFillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
 	}
 }
 
@@ -919,7 +919,7 @@ func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx in
 	prog := 1.0 - intensity                           // 0 -> 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
-	vector.FillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
+	uiFillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
 		color.RGBA{225, 40, 40, uint8(150 * intensity)}, false)
 
 	// Big radial spark burst from the card centre.
@@ -938,7 +938,7 @@ func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx in
 		}
 		sz := float32(6*intensity + 2)
 		col := color.RGBA{255, uint8(160 + 80*intensity), uint8(150 * intensity), a} // hot white-gold, fading
-		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
+		uiFillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
 	}
 }
 
@@ -964,11 +964,11 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 			continue
 		}
 		col := color.RGBA{90, 230, 110, a}
-		arm := float32(4)                                               // half-length of the plus arms
-		th := float32(2)                                                // arm thickness
-		cx, cy := float32(px), float32(py)                              // centre
-		vector.FillRect(screen, cx-arm, cy-th/2, arm*2, th, col, false) // horizontal bar
-		vector.FillRect(screen, cx-th/2, cy-arm, th, arm*2, col, false) // vertical bar
+		arm := float32(4)                                          // half-length of the plus arms
+		th := float32(2)                                           // arm thickness
+		cx, cy := float32(px), float32(py)                         // centre
+		uiFillRect(screen, cx-arm, cy-th/2, arm*2, th, col, false) // horizontal bar
+		uiFillRect(screen, cx-th/2, cy-arm, th, arm*2, col, false) // vertical bar
 	}
 }
 
@@ -987,7 +987,7 @@ func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h 
 			continue
 		}
 		r := float32(1.5 + 2.2*phase) // swells as it rises
-		vector.FillCircle(screen, float32(bx), float32(by), r, color.RGBA{70, 210, 90, a}, true)
+		uiFillCircle(screen, float32(bx), float32(by), r, color.RGBA{70, 210, 90, a}, true)
 	}
 }
 
@@ -1011,7 +1011,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 
 	// Flickering warm glow banked along the bottom of the card.
 	glow := uint8(35 + 25*math.Sin(f*0.3+salt))
-	vector.FillRect(screen, float32(x), float32(startY)+float32(fh*0.55), float32(w-2), float32(fh*0.45),
+	uiFillRect(screen, float32(x), float32(startY)+float32(fh*0.55), float32(w-2), float32(fh*0.45),
 		color.RGBA{120, 40, 10, glow}, false)
 
 	const n = 22
@@ -1029,14 +1029,14 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 		py := fb - ph*fh*1.05 - 4
 		base := float32(4 + 5*rise)
 		if a := uint8(85 * rise); a > 8 { // outer red glow
-			vector.FillCircle(screen, float32(px), float32(py), base*1.7, color.RGBA{200, 30, 0, a}, true)
+			uiFillCircle(screen, float32(px), float32(py), base*1.7, color.RGBA{200, 30, 0, a}, true)
 		}
 		if a := uint8(170 * rise); a > 8 { // orange body
-			vector.FillCircle(screen, float32(px), float32(py), base, color.RGBA{255, uint8(40 + 120*rise), 0, a}, true)
+			uiFillCircle(screen, float32(px), float32(py), base, color.RGBA{255, uint8(40 + 120*rise), 0, a}, true)
 		}
 		if rise > 0.55 { // hot core, only near the base
 			a := uint8(230 * (rise - 0.55) / 0.45)
-			vector.FillCircle(screen, float32(px), float32(py), base*0.5, color.RGBA{255, 240, 170, a}, true)
+			uiFillCircle(screen, float32(px), float32(py), base*0.5, color.RGBA{255, 240, 170, a}, true)
 		}
 	}
 
@@ -1050,7 +1050,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 		if a < 12 {
 			continue
 		}
-		vector.FillCircle(screen, float32(px), float32(py), float32(1+1.5*(1-ph)), color.RGBA{255, 200, 90, a}, true)
+		uiFillCircle(screen, float32(px), float32(py), float32(1+1.5*(1-ph)), color.RGBA{255, 200, 90, a}, true)
 	}
 }
 
@@ -1071,13 +1071,13 @@ func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int)
 		a := uint8(120 + 135*tw)
 		arm := float32(2.5 + 3.5*tw)
 		col := color.RGBA{255, 240, 120, a}
-		vector.StrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
-		vector.StrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
+		uiStrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
+		uiStrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
 		d := arm * 0.6
 		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
-		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
-		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		vector.FillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+		uiStrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
+		uiStrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
+		uiFillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
 	}
 }
 
@@ -1089,7 +1089,7 @@ func drawPartyProgressionBadgeShadow(screen *ebiten.Image, x, y, w, h int) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.FillRect(screen, float32(x+2), float32(y+3), float32(max(0, w-3)), float32(max(0, h-3)), color.RGBA{0, 0, 0, 190}, false)
+	uiFillRect(screen, float32(x+2), float32(y+3), float32(max(0, w-3)), float32(max(0, h-3)), color.RGBA{0, 0, 0, 190}, false)
 }
 
 // drawPartyProgressionBadgeHover rings a badge OUTSIDE the authored art, after
@@ -1098,7 +1098,7 @@ func drawPartyProgressionBadgeHover(screen *ebiten.Image, x, y, w, h int, base c
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.StrokeRect(screen, float32(x)-1, float32(y)-1, float32(w+1), float32(h+1), 1, metalShade(base, 0), false)
+	uiStrokeRect(screen, float32(x)-1, float32(y)-1, float32(w+1), float32(h+1), 1, metalShade(base, 0), false)
 }
 
 // progressionBadgeStyle is the whole look of a portrait badge: the authored icon
@@ -1190,15 +1190,15 @@ func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isH
 	if isHover {
 		base = color.RGBA{30, 82, 132, 255}
 	}
-	vector.FillRect(screen, float32(x+1), float32(y+2), float32(max(0, w-1)), float32(max(0, h-2)), color.RGBA{0, 0, 0, 190}, false)
-	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{5, 10, 18, 245}, false)
+	uiFillRect(screen, float32(x+1), float32(y+2), float32(max(0, w-1)), float32(max(0, h-2)), color.RGBA{0, 0, 0, 190}, false)
+	uiFillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{5, 10, 18, 245}, false)
 	for row := 1; row < h-1; row++ {
 		shade := metalShade(base, float64(row-1)/float64(max(1, h-3)))
-		vector.FillRect(screen, float32(x+1), float32(y+row), float32(max(0, w-2)), 1, shade, false)
+		uiFillRect(screen, float32(x+1), float32(y+row), float32(max(0, w-2)), 1, shade, false)
 	}
-	vector.StrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), 1, color.RGBA{26, 35, 48, 255}, false)
-	vector.StrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
-	vector.FillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
+	uiStrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), 1, color.RGBA{26, 35, 48, 255}, false)
+	uiStrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
+	uiFillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
 	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
 }
 
@@ -1246,9 +1246,9 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	maxRowCount := min(iconsPerRow, len(statuses))
 	barW := barPadding*2 + maxRowCount*iconSize + max(0, maxRowCount-1)*iconGap
 
-	vector.FillRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), color.RGBA{5, 9, 16, 222}, false)
-	vector.FillRect(screen, float32(barX+2), float32(barY+2), float32(barW-4), 2, color.RGBA{88, 118, 158, 190}, false)
-	vector.StrokeRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), 1, color.RGBA{180, 147, 76, 235}, false)
+	uiFillRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), color.RGBA{5, 9, 16, 222}, false)
+	uiFillRect(screen, float32(barX+2), float32(barY+2), float32(barW-4), 2, color.RGBA{88, 118, 158, 190}, false)
+	uiStrokeRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), 1, color.RGBA{180, 147, 76, 235}, false)
 
 	for i, status := range statuses {
 		row := i / iconsPerRow
@@ -1259,7 +1259,7 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		iconY := barY + barPadding + row*iconPitch
 		x, y, w, h := ui.drawSpellIcon(screen, iconX, iconY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
 		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := uiCursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			ui.queueTooltipIcon(ui.game.buffStatusTooltip(status), status.Icon, mouseX+12, mouseY+8)
 		}
@@ -1268,17 +1268,17 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 
 // drawSpellIcon draws a single spell status icon with duration bar and returns clickable bounds
 func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fallback string, currentDuration, maxDuration int) (int, int, int, int) {
-	vector.FillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{4, 7, 12, 245}, false)
-	vector.FillRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), color.RGBA{22, 29, 42, 210}, false)
+	uiFillRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{4, 7, 12, 245}, false)
+	uiFillRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), color.RGBA{22, 29, 42, 210}, false)
 
 	if icon != "" {
 		sprite := ui.game.sprites.GetSprite(icon)
 		drawImageScaled(screen, sprite, x, y, size, size)
 	} else if fallback != "" {
-		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
+		drawUIText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
-	vector.StrokeRect(screen, float32(x), float32(y), float32(size), float32(size), 1, color.RGBA{195, 162, 82, 245}, false)
-	vector.StrokeRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), 1, color.RGBA{82, 119, 164, 220}, false)
+	uiStrokeRect(screen, float32(x), float32(y), float32(size), float32(size), 1, color.RGBA{195, 162, 82, 245}, false)
+	uiStrokeRect(screen, float32(x+2), float32(y+2), float32(size-4), float32(size-4), 1, color.RGBA{82, 119, 164, 220}, false)
 
 	// Draw duration bar at bottom of icon
 	if maxDuration > 0 {
@@ -1286,7 +1286,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 		barHeight := 3
 
 		// Background bar (gray)
-		vector.FillRect(screen, float32(x), float32(y+size-barHeight), float32(barWidth), float32(barHeight), color.RGBA{60, 60, 60, 200}, false)
+		uiFillRect(screen, float32(x), float32(y+size-barHeight), float32(barWidth), float32(barHeight), color.RGBA{60, 60, 60, 200}, false)
 
 		// Duration bar (colored based on remaining time)
 		if currentDuration > 0 {
@@ -1303,7 +1303,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 					barColor = color.RGBA{200, 100, 0, 255} // Orange-red
 				}
 
-				vector.FillRect(screen, float32(x), float32(y+size-barHeight), float32(fillWidth), float32(barHeight), barColor, false)
+				uiFillRect(screen, float32(x), float32(y+size-barHeight), float32(fillWidth), float32(barHeight), barColor, false)
 			}
 		}
 	}
@@ -1403,17 +1403,17 @@ func (ui *UISystem) drawCompassAt(screen *ebiten.Image, compassX, compassY int) 
 		{DstX: float32(rearX + perpX), DstY: float32(rearY + perpY), SrcX: 0.5, SrcY: 0.5, ColorR: 0.08, ColorG: 0.35, ColorB: 0.8, ColorA: 1},
 		{DstX: float32(rearX - perpX), DstY: float32(rearY - perpY), SrcX: 0.5, SrcY: 0.5, ColorR: 0.08, ColorG: 0.35, ColorB: 0.8, ColorA: 1},
 	}
-	screen.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
-	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(rearX+perpX), float32(rearY+perpY), 1, color.RGBA{215, 244, 255, 245}, true)
-	vector.StrokeLine(screen, float32(tipX), float32(tipY), float32(rearX-perpX), float32(rearY-perpY), 1, color.RGBA{215, 244, 255, 245}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), 4, color.RGBA{220, 245, 255, 255}, true)
-	vector.FillCircle(screen, float32(compassX), float32(compassY), 2, color.RGBA{32, 124, 220, 255}, true)
+	uiDrawTriangles(screen, verts, []uint16{0, 1, 2}, hudWhiteImg, nil)
+	uiStrokeLine(screen, float32(tipX), float32(tipY), float32(rearX+perpX), float32(rearY+perpY), 1, color.RGBA{215, 244, 255, 245}, true)
+	uiStrokeLine(screen, float32(tipX), float32(tipY), float32(rearX-perpX), float32(rearY-perpY), 1, color.RGBA{215, 244, 255, 245}, true)
+	uiFillCircle(screen, float32(compassX), float32(compassY), 4, color.RGBA{220, 245, 255, 255}, true)
+	uiFillCircle(screen, float32(compassX), float32(compassY), 2, color.RGBA{32, 124, 220, 255}, true)
 
 	cardinalColor := color.RGBA{236, 214, 156, 255}
-	drawDebugTextColored(screen, "N", compassX-3, compassY-compassRadius-17, rarityGold)
-	drawDebugTextColored(screen, "E", compassX+compassRadius+8, compassY-8, cardinalColor)
-	drawDebugTextColored(screen, "S", compassX-3, compassY+compassRadius+3, cardinalColor)
-	drawDebugTextColored(screen, "W", compassX-compassRadius-14, compassY-8, cardinalColor)
+	drawUITextColored(screen, "N", compassX-3, compassY-compassRadius-17, rarityGold)
+	drawUITextColored(screen, "E", compassX+compassRadius+8, compassY-8, cardinalColor)
+	drawUITextColored(screen, "S", compassX-3, compassY+compassRadius+3, cardinalColor)
+	drawUITextColored(screen, "W", compassX-compassRadius-14, compassY-8, cardinalColor)
 }
 
 // invalidateCompassTileLayer forces the next drawCompassMinimap call to
@@ -1438,7 +1438,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 
 	const miniTileSize = float32(compassMapTilePixels)
 
-	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != radius*2 ||
+	if !uiLayerFits(ui.compassTileLayer, radius*2, radius*2) ||
 		ui.compassCacheWorld != ui.game.world ||
 		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
 		ui.rebuildCompassTileLayer(playerTileX, playerTileY, radius)
@@ -1446,7 +1446,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Translate(float64(centerX-radius), float64(centerY-radius))
-	screen.DrawImage(ui.compassTileLayer, opts)
+	uiDrawImage(screen, ui.compassTileLayer, opts)
 
 	// Draw NPCs on minimap
 	for _, npc := range ui.game.world.NPCs {
@@ -1464,8 +1464,8 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
 			screenX := float32(centerX) + float32(dx)*miniTileSize
 			screenY := float32(centerY) + float32(dy)*miniTileSize
-			vector.FillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
-			vector.FillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
+			uiFillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
+			uiFillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
 		}
 	}
 }
@@ -1485,13 +1485,10 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, radius int
 	// after the whole layer is complete, including on a same-position resize.
 	ui.compassCacheWorld = nil
 	side := 2 * radius
-	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
-		if ui.compassTileLayer != nil {
-			ui.compassTileLayer.Deallocate()
-		}
-		ui.compassTileLayer = ebiten.NewImage(side, side)
+	if layer := uiLayer(ui.compassTileLayer, side, side); layer != ui.compassTileLayer {
+		ui.compassTileLayer = layer
 	} else {
-		ui.compassTileLayer.Clear()
+		layer.Clear()
 	}
 
 	center := float32(radius)
@@ -1517,11 +1514,11 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, radius int
 			screenY := center + float32(dy)*miniTileSize
 			halfSize := miniTileSize / 2
 			drawX, drawY := screenX-halfSize, screenY-halfSize
-			vector.FillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.floor, false)
+			uiFillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.floor, false)
 
 			if appearance.sprite == "" || ui.game.sprites == nil || !ui.game.sprites.HasSprite(appearance.sprite) {
 				if appearance.fallback != appearance.floor {
-					vector.FillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.fallback, false)
+					uiFillRect(ui.compassTileLayer, drawX, drawY, miniTileSize, miniTileSize, appearance.fallback, false)
 				}
 				continue
 			}
@@ -1531,7 +1528,7 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, radius int
 	// Clip tile pixels, not tile centers: partial edge cells fill the disk
 	// without the stair-step gaps left by a circular tile-center cutoff.
 	opts := &ebiten.DrawImageOptions{Blend: ebiten.BlendDestinationIn}
-	ui.compassTileLayer.DrawImage(ui.compassMapMask, opts)
+	uiDrawImage(ui.compassTileLayer, ui.compassMapMask, opts)
 	ui.compassCacheWorld = ui.game.world
 	ui.compassCacheTileX = playerTileX
 	ui.compassCacheTileY = playerTileY
@@ -1619,7 +1616,7 @@ func drawCompassTileSprite(dst, sprite *ebiten.Image, x, y, size float32) {
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		return
 	}
-	graphics.DrawImageScaled(dst, sprite, float64(x), float64(y), float64(size), float64(size), nil)
+	uiDrawImageScaled(dst, sprite, float64(x), float64(y), float64(size), float64(size), nil)
 }
 
 // drawWizardEyeRadar draws enemy dots on the compass when wizard eye is active
@@ -1662,7 +1659,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 			// Draw cached dot image (much faster than vector.FillCircle)
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM.Translate(float64(dotX-3), float64(dotY-3))
-			screen.DrawImage(ui.radarDot(monster, dist, tileSize), opts)
+			uiDrawImage(screen, ui.radarDot(monster, dist, tileSize), opts)
 		}
 	}
 }
@@ -1704,12 +1701,15 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 			ui.displayedInput.capturedGameplay = true
 		}
 	})
-	vector.FillRect(screen, float32(bx), float32(by), float32(bw), float32(bh), color.RGBA{0, 0, 0, 150}, false)
+	// Drawn in log units at Normal's scale, whatever the interface size.
+	log := uiSurfaceAt(screen, uiScaleOf(screen)*ui.game.hudLogUnit())
+	lx, ly, lw, lh := ui.game.hudMessageLogRect(len(lines))
+	uiFillRect(log, float32(lx), float32(ly), float32(lw), float32(lh), color.RGBA{0, 0, 0, 150}, false)
 
 	// Draw lines from top to bottom (most recent at bottom)
 	for i, line := range lines {
-		textY := by + 5 + (i * hudMessageSpacing)
-		drawDebugTextColored(screen, line.Text, bx+5, textY, line.Color)
+		textY := ly + 5 + (i * hudMessageSpacing)
+		drawUITextColored(log, line.Text, lx+5, textY, line.Color)
 	}
 }
 
@@ -1722,10 +1722,8 @@ func combatMessageArea(g *MMGame) (x, y, w, h int) {
 }
 
 func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {
-	w, h = 700, 640
-	x = (g.config.GetScreenWidth() - w) / 2
-	y = (g.config.GetScreenHeight() - h) / 2
-	return
+	r := centeredRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), 700, 640)
+	return r.x, r.y, r.w, r.h
 }
 
 func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
@@ -1733,7 +1731,7 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	x, y, w, h := combatLogPanelLayout(ui.game)
 	drawFilledRect(screen, 0, 0, ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight(), color.RGBA{0, 0, 0, 150})
 	ui.drawPatternFrame(screen, "menu_panel_frame", x, y, w, h, menuPanelFrameSlice)
-	drawCenteredDebugText(screen, "GAME LOG", x, y+18, w, 20)
+	drawCenteredUIText(screen, "GAME LOG", x, y+18, w, 20)
 
 	closeX, closeY := x+w-30, y+8
 	ui.drawCloseButtonVisual(screen, closeX, closeY, 20, 20)
@@ -1742,14 +1740,13 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	contentW, contentH := w-72, h-88
 	ui.drawThemeFrame(screen, frameGold, contentX, contentY, contentW, contentH)
 
-	maxChars := (contentW - 24) / debugTextCharWidth
 	rowY := contentY + contentH - 22
 	entryIndex := len(ui.game.combatLogHistory) - 1 - ui.game.combatLogScroll
 	for entryIndex >= 0 && rowY >= contentY+8 {
 		entry := ui.game.combatLogHistory[entryIndex]
-		lines := wrapText(entry.Text, maxChars)
+		lines := wrapUIText(entry.Text, contentW-24)
 		for i := len(lines) - 1; i >= 0 && rowY >= contentY+8; i-- {
-			drawDebugTextColored(screen, lines[i], contentX+10, rowY, entry.Color)
+			drawUITextColored(screen, lines[i], contentX+10, rowY, entry.Color)
 			rowY -= 16
 		}
 		rowY -= 4
@@ -1765,9 +1762,9 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 		{contentY + contentH - 30, "v"},
 	} {
 		ui.drawButtonFrame(screen, buttonX, btn.y, 22, 22, false)
-		drawCenteredDebugText(screen, btn.label, buttonX, btn.y+2, 22, 18)
+		drawCenteredUIText(screen, btn.label, buttonX, btn.y+2, 22, 18)
 	}
-	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
+	drawUITextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }
 
 // Translucent text-panel geometry shared by the turn-based status bar and the
@@ -1793,16 +1790,16 @@ func measureTextPanel(lines []string) (w, h int) {
 func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
 
-	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{5, 9, 16, 220}, false)
-	vector.FillRect(screen, float32(barX+2), float32(barY+2), float32(barWidth-4), 2, color.RGBA{88, 125, 169, 210}, false)
-	vector.StrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{188, 154, 78, 235}, false)
+	uiFillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{5, 9, 16, 220}, false)
+	uiFillRect(screen, float32(barX+2), float32(barY+2), float32(barWidth-4), 2, color.RGBA{88, 125, 169, 210}, false)
+	uiStrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{188, 154, 78, 235}, false)
 
 	for i, line := range lines {
 		textColor := color.Color(color.White)
 		if i == 0 {
 			textColor = rarityGold
 		}
-		drawDebugTextColored(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight, textColor)
+		drawUITextColored(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight, textColor)
 	}
 }
 
@@ -1896,10 +1893,10 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	barX := screenWidth - barWidth - 10
 	barY := compassY + compassRadius + 10
 
-	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
+	uiFillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
+		drawUIText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
 	}
 }
 
@@ -1943,8 +1940,8 @@ func (g *MMGame) interactionPromptText(npc *character.NPC) string {
 
 // drawInstructions draws the control instructions
 func (ui *UISystem) drawInstructions(screen *ebiten.Image) {
-	drawDebugText(screen, "ESC: Main menu", 10, 10)
+	drawUIText(screen, "ESC: Main menu", 10, 10)
 	if ui.game.focusModeActive() {
-		drawDebugTextColored(screen, "Focus mode", 10, 10+textPanelLineHeight, focusModeMetal)
+		drawUITextColored(screen, "Focus mode", 10, 10+textPanelLineHeight, focusModeMetal)
 	}
 }

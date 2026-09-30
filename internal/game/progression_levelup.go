@@ -675,8 +675,8 @@ func levelUpChoiceLayout(req *levelUpChoiceRequest, screenW, screenH int) (popup
 	if popupH < 180 {
 		popupH = 180
 	}
-	popupX = (screenW - popupW) / 2
-	popupY = (screenH - popupH) / 2
+	popup := centeredRect(screenW, screenH, popupW, popupH)
+	popupX, popupY = popup.x, popup.y
 	startY = popupY + 70
 	return
 }

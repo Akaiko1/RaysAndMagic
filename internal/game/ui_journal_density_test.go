@@ -9,10 +9,15 @@ import (
 // Four readable entries fit each supported viewport, even with long copy.
 // Both short and clipped descriptions retain their full text. Persistence N/A.
 func TestQuestJournalFourEntriesPerPage(t *testing.T) {
+	var logical [][2]int
 	for _, physical := range [][2]int{{800, 680}, {1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}, {3840, 2160}} {
+		w, h := logicalScreenSize(physical[0], physical[1], 1)
+		logical = append(logical, [2]int{w, h})
+	}
+	for _, size := range withInterfaceFrames(t, logical) {
 		for _, description := range []string{"A short objective.", strings.Repeat("A long objective with directions and a named enemy. ", 40)} {
-			t.Run(fmt.Sprintf("%v/%d", physical, len(description)), func(t *testing.T) {
-				w, h := logicalScreenSize(physical[0], physical[1])
+			t.Run(fmt.Sprintf("%v/%d", size, len(description)), func(t *testing.T) {
+				w, h := size[0], size[1]
 				content := computeTabbedMenuLayout(w, gameplayViewportBottomWithPartyHUD(h)).content
 				layout := computeQuestContentLayout(content, nil, 0)
 				copies := make([]questCardCopy, 12)

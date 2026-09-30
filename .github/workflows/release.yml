@@ -9,7 +9,23 @@ permissions:
   contents: write
 
 jobs:
+  # A mistyped tag fails here in seconds, before anything is built or
+  # published: the downloads page accepts only v<version>.<known channel>.
+  check-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check the release tag
+        run: go run ./tools/downloadspage -check-tag "${GITHUB_REF_NAME}"
+
   windows-shaders:
+    needs: check-tag
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -30,7 +46,7 @@ jobs:
           go run ./tools/shadergen
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-shaders
           path: internal/shadercache/data/shaders.json.gz
@@ -47,7 +63,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: windows-shaders
           path: internal/shadercache/data
@@ -67,17 +83,24 @@ jobs:
       - name: Package release archives
         run: |
           cd dist
-          zip -r RaysAndMagic-mac-amd64.zip mac_amd64
-          zip -r RaysAndMagic-mac-arm64.zip mac_arm64
+          zip -r RaysAndMagic-mac-universal.zip mac_universal
           zip -r RaysAndMagic-windows-amd64.zip windows_amd64
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: RaysAndMagic-release
           path: dist/*.zip
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.zip
+
+  downloads-page:
+    needs: build-release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

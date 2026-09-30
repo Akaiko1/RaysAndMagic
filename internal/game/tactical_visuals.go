@@ -5,29 +5,28 @@ import (
 	"math/bits"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 var tacticalBadgeBackground = color.RGBA{12, 18, 22, 230}
 
 // One reticle links the ready hero badge to the designated enemy.
 func drawTacticalReticle(screen *ebiten.Image, cx, cy, radius float32) {
-	vector.FillCircle(screen, cx, cy, radius, tacticalBadgeBackground, true)
+	uiFillCircle(screen, cx, cy, radius, tacticalBadgeBackground, true)
 	tint := color.RGBA{235, 193, 92, 255}
-	vector.StrokeCircle(screen, cx, cy, radius*0.56, 1.2, tint, true)
+	uiStrokeCircle(screen, cx, cy, radius*0.56, 1.2, tint, true)
 	arm := radius * 0.78
-	vector.StrokeLine(screen, cx-arm, cy, cx+arm, cy, 1, tint, true)
-	vector.StrokeLine(screen, cx, cy-arm, cx, cy+arm, 1, tint, true)
+	uiStrokeLine(screen, cx-arm, cy, cx+arm, cy, 1, tint, true)
+	uiStrokeLine(screen, cx, cy-arm, cx, cy+arm, 1, tint, true)
 }
 
 // A bound former enemy wears two linked rings: allegiance at a glance, without
 // covering the actor the way a full-body overlay would.
 func drawBindBadge(screen *ebiten.Image, cx, cy, radius float32) {
-	vector.FillCircle(screen, cx, cy, radius, tacticalBadgeBackground, true)
+	uiFillCircle(screen, cx, cy, radius, tacticalBadgeBackground, true)
 	tint := color.RGBA{116, 224, 208, 255}
 	link := radius * 0.32
-	vector.StrokeCircle(screen, cx-link*0.7, cy, link, 1.4, tint, true)
-	vector.StrokeCircle(screen, cx+link*0.7, cy, link, 1.4, tint, true)
+	uiStrokeCircle(screen, cx-link*0.7, cy, link, 1.4, tint, true)
+	uiStrokeCircle(screen, cx+link*0.7, cy, link, 1.4, tint, true)
 }
 
 // statusBadgeRenderers draw the head-badge motifs, keyed by statusBadgeVisuals.

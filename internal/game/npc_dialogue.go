@@ -268,7 +268,7 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 	leaveButton := layoutRect{dialogWidth - 104, dialogHeight - 36, 84, 24}
 	dialogHeight -= navigationHeight
 	innerWidth := dialogWidth - 40
-	textWidth := min(innerWidth, dialogueWrapColumns*debugTextCharWidth)
+	textWidth := min(innerWidth, uiColumnsWidth(dialogueWrapColumns))
 	choices := g.visibleNPCChoices(npc)
 	promptHeight := 0
 	if npc.DialogueData != nil && npc.DialogueData.ChoicePrompt != "" {
@@ -289,7 +289,7 @@ func (g *MMGame) dialogueLayout(npc *character.NPC, dialogWidth, dialogHeight in
 	if maxBodyLines < 1 {
 		maxBodyLines = 1
 	}
-	fullLines := wrapDebugText(g.npcDialogueText(npc), textWidth)
+	fullLines := wrapUIText(g.npcDialogueText(npc), textWidth)
 	bodyLines := truncateWrappedLines(fullLines, maxBodyLines, textWidth)
 
 	cursorY := dialogueBodyTextY + len(bodyLines)*dialogueLineHeight + 20
@@ -329,12 +329,8 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
 		width, height = tavernDialogWidth, tavernDialogHeight
 	}
-	return npcDialogRect{
-		x: (g.config.GetScreenWidth() - width) / 2,
-		y: (g.config.GetScreenHeight() - height) / 2,
-		w: width,
-		h: height,
-	}
+	r := centeredRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), width, height)
+	return npcDialogRect{x: r.x, y: r.y, w: r.w, h: r.h}
 }
 
 // switchDialogTab is the shared transition for mouse and keyboard tab changes.

@@ -21,16 +21,16 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 
 	bl := computeBookLayout(content)
 
-	drawCenteredDebugText(screen, fmt.Sprintf("%s - Trap Book", currentChar.Name), bl.header.x, bl.header.y, bl.header.w, bl.header.h)
+	drawCenteredUIText(screen, fmt.Sprintf("%s - Trap Book", currentChar.Name), bl.header.x, bl.header.y, bl.header.w, bl.header.h)
 	drawImageScaled(screen, ui.game.sprites.GetSprite("trap_recipe_book_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
 
 	keys := availableTraps(currentChar)
 	if len(keys) == 0 {
-		drawCenteredDebugText(screen, "No traps known", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
+		drawCenteredUIText(screen, "No traps known", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 		return
 	}
 
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 
 	var tooltip string
 	var tooltipIcon string
@@ -77,7 +77,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 		ui.game.selectedTrap = ui.spellPage * perSpread
 	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
-	drawCenteredDebugText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
+	drawCenteredUIText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 // drawTrapCard renders one trap entry: icon, name, SP/level row. The browse
@@ -89,7 +89,7 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 		drawImageScaled(screen, ui.game.sprites.GetSprite(def.Icon), iconX, iconY, iconSize, iconSize)
 	} else {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{42, 32, 45, 255})
-		drawCenteredDebugText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
+		drawCenteredUIText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
 
 	cost := def.SPCost
@@ -97,8 +97,8 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 		cost = ui.game.combat.effectiveSpellCost(char, def.SPCost)
 	}
 	nameY := y + iconSize + 8
-	drawCenteredDebugText(screen, truncateName(def.Name, 12), x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+debugTextCharHeight+2, w-8, debugTextCharHeight)
+	drawCenteredUIText(screen, def.Name, x+4, nameY, w-8, uiTextCharHeight)
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+uiTextCharHeight+2, w-8, uiTextCharHeight)
 
 	armed, equipped := equippedTrapKey(char)
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},

@@ -175,6 +175,9 @@ type CharacterSave struct {
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	StunRate              int                `json:"stun_rate,omitempty"`
+	StunDRStacks          int                `json:"stun_dr_stacks,omitempty"`
+	StunDRMemoryTurns     int                `json:"stun_dr_memory_turns,omitempty"`
+	StunDRMemoryFrames    int                `json:"stun_dr_memory_frames,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. It also survives an RT save made
 	// while a Tab-suspended TB turn is waiting to resume.
@@ -330,6 +333,8 @@ type MonsterSave struct {
 	SlowFrames          int                  `json:"slow_frames,omitempty"`
 	SlowTurns           int                  `json:"slow_turns,omitempty"`
 	SlowRate            int                  `json:"slow_rate,omitempty"`
+	SlowTurnCount       int                  `json:"slow_turn_count,omitempty"`
+	RootHeldThisTurn    bool                 `json:"root_held_this_turn,omitempty"`
 	SlowPctThisTurn     int                  `json:"slow_pct_this_turn,omitempty"`
 	WeakenPct           int                  `json:"weaken_pct,omitempty"`
 	WeakenFrames        int                  `json:"weaken_frames,omitempty"`
@@ -349,6 +354,7 @@ type MonsterSave struct {
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	ChampionTier        string               `json:"champion_tier,omitempty"`
 	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`
+	EnrageAnnounced     bool                 `json:"enrage_announced,omitempty"`
 	SoakDamage          int                  `json:"soak_damage,omitempty"`
 	SoakFrames          int                  `json:"soak_frames,omitempty"`
 	SoakTurns           int                  `json:"soak_turns,omitempty"`

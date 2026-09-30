@@ -141,7 +141,7 @@ func (r *Renderer) drawElementalAttackFX(screen *ebiten.Image) {
 			continue
 		}
 		radius := r.elementalAttackScreenRadius(fx, depth, screen.Bounds().Dy())
-		drawElementalAttackGlyph(screen, fx, float64(x), float64(gameplayViewportBottom(r.game))*.5, radius)
+		drawElementalAttackGlyph(screen, fx, float64(x), float64(worldViewportBottom(r.game))*.5, radius)
 	}
 }
 

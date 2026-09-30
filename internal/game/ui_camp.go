@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	uitext "ugataima/assets/text"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 
@@ -69,17 +68,17 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 		op.ColorM.Scale(0, 0, 0, 1)
 		op.ColorM.Translate(1, 1, 1, 0)
 		op.ColorScale.ScaleAlpha(0.16)
-		graphics.DrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+		uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
 	}
 	drawImageScaled(screen, sprite, r.x, r.y, r.w, r.h)
 	// A native-size number on an opaque inset badge stays readable over the
 	// transparent artwork and the world behind it.
 	text := strconv.Itoa(max(0, g.party.Food))
-	if debugTextWidth(text) > r.w-8 {
+	if uiTextWidth(text) > r.w-8 {
 		text = "9999+"
 	}
-	w := debugTextWidth(text) + 6
-	badge := layoutRect{r.right() - w - 3, r.bottom() - debugTextCharHeight - 4, w, debugTextCharHeight + 1}
+	w := uiTextWidth(text) + 6
+	badge := layoutRect{r.right() - w - 3, r.bottom() - uiTextCharHeight - 4, w, uiTextCharHeight + 1}
 	drawFilledRect(screen, badge.x, badge.y, badge.w, badge.h, color.RGBA{5, 6, 8, 245})
 	ink := color.RGBA{245, 220, 157, 255}
 	if g.party.Food < CampFoodCost {
@@ -103,7 +102,8 @@ type campConfirmationLayout struct {
 
 func layoutCampConfirmation(screenW, screenH int) campConfirmationLayout {
 	const w, h = 420, 260
-	x, y := (screenW-w)/2, (screenH-h)/2
+	panel := centeredRect(screenW, screenH, w, h)
+	x, y := panel.x, panel.y
 	return campConfirmationLayout{
 		panel:  layoutRect{x, y, w, h},
 		title:  layoutRect{x + 40, y + 14, w - 80, 22},
@@ -118,14 +118,14 @@ func layoutCampConfirmation(screenW, screenH int) campConfirmationLayout {
 
 func (ui *UISystem) drawCampConfirmation(screen *ebiten.Image) {
 	g := ui.game
-	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
+	w, h := uiBounds(screen).Dx(), uiBounds(screen).Dy()
 	l := layoutCampConfirmation(w, h)
 	interactive := ui.topModalLayer() == modalLayerCamp
 	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 140})
 	ui.drawThemeFrame(screen, frameGold, l.panel.x, l.panel.y, l.panel.w, l.panel.h)
 	drawCenteredTextWithShadow(screen, uitext.Text("ui.camp"), l.title.x, l.title.y, l.title.w, l.title.h, rarityGold)
 	drawImageScaled(screen, g.sprites.GetSprite(campHUDSprite), l.icon.x, l.icon.y, l.icon.w, l.icon.h)
-	drawCenteredDebugText(screen, uitext.Text("ui.camp_confirm", CampFoodCost), l.prompt.x, l.prompt.y, l.prompt.w, l.prompt.h)
+	drawCenteredUIText(screen, uitext.Text("ui.camp_confirm", CampFoodCost), l.prompt.x, l.prompt.y, l.prompt.w, l.prompt.h)
 	drawCenteredTextWithShadow(screen, uitext.Text("ui.camp_food", g.party.Food), l.food.x, l.food.y, l.food.w, l.food.h, color.RGBA{193, 178, 148, 255})
 	mouseX, mouseY := pointerPosition()
 	for _, button := range []struct {

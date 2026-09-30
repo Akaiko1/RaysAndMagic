@@ -291,7 +291,7 @@ var signatures = map[string]string{
 	"weapon.ricochet_the_bolt_leaps_to_further_within":       "dsf",
 	"weapon.riposte_attackers_take_of_the_melee_damage":      "d",
 	"weapon.root_chance_pins_in_place_not_a":                 "fs",
-	"weapon.silt_hits_slow_the_target_for":                   "ds",
+	"weapon.silt_hits_slow_the_target_for":                   "dsd",
 	"weapon.spell_cooldown":                                  "",
 	"weapon.status_duration":                                 "dd",
 	"weapon.stun_chance_s_rt_turns_tb":                       "fdd",

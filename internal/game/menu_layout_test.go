@@ -133,12 +133,16 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 		},
 	}
 
+	var logical [][2]int
 	for _, res := range resolutions {
-		logicalW, logicalH := logicalScreenSize(res.w, res.h)
+		w, h := logicalScreenSize(res.w, res.h, 1)
+		logical = append(logical, [2]int{w, h})
+	}
+	for _, size := range withInterfaceFrames(t, logical) {
 		for _, m := range menus {
-			for _, build := range m.build(logicalW, logicalH) {
+			for _, build := range m.build(size[0], size[1]) {
 				name, region, boxes := build()
-				t.Run(fmt.Sprintf("%dx%d/%s", res.w, res.h, name), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], name), func(t *testing.T) {
 					assertNoCollisions(t, name, region, boxes)
 				})
 			}
@@ -172,7 +176,7 @@ func TestSpellTraderPriceLineStaysInItsCell(t *testing.T) {
 	const dialogX, dialogY = 100, 50
 	const frameMargin = 3 // widest selection frame drawn around an icon
 
-	if w := debugTextWidth("22000 g"); w > spellTraderPriceBoxW {
+	if w := uiTextWidth("22000 g"); w > spellTraderPriceBoxW {
 		t.Errorf("widest price is %dpx, box is %dpx", w, spellTraderPriceBoxW)
 	}
 	for slot := 0; slot < spellTraderPerPage; slot++ {

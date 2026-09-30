@@ -683,7 +683,7 @@ spells:
 
   charm:
     name: "Charm"
-    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead."
+    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead or formless foes."
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
@@ -692,7 +692,7 @@ spells:
     is_projectile: true
     is_utility: false
     deals_no_damage: true        # the pacify, not damage, is the effect
-    pacify: true                 # living-only: target stops attacking; breaks on any hit
+    pacify: true                 # living, not formless: target stops attacking; breaks on any hit
     pacify_duration_seconds: 120 # 2 minutes
     physics:
       speed_tiles: 16.0

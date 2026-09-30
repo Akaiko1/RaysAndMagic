@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -19,8 +18,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type coloredTextSegment struct {
@@ -33,8 +30,8 @@ var missingTooltipIcons = make(map[string]bool)
 func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredTextSegment) {
 	curX := x
 	for _, seg := range segments {
-		drawDebugTextColored(screen, seg.text, curX, y, seg.color)
-		curX += debugTextWidth(seg.text)
+		drawUITextColored(screen, seg.text, curX, y, seg.color)
+		curX += uiTextWidth(seg.text)
 	}
 }
 
@@ -101,7 +98,7 @@ const (
 	merchantGridRows = 3
 	merchantPageSize = merchantGridCols * merchantGridRows
 	merchantIconSize = 46
-	merchantIconGapX = 10
+	merchantIconGapX = 14 // room for a price in the widest fonts
 	merchantRowGap   = 10
 	merchantPriceH   = 14 // price line drawn under each icon
 	merchantGridW    = merchantGridCols*merchantIconSize + (merchantGridCols-1)*merchantIconGapX
@@ -117,7 +114,7 @@ const (
 // box. Both grids (buy and sell) pass their composed label through it, so no
 // currency form can overrun the cell no matter how it is worded.
 func merchantPriceLabel(text string) string {
-	return clipDebugText(text, merchantPriceBoxW)
+	return clipUIText(text, merchantPriceBoxW)
 }
 
 // merchantPriceRect is the drawn box for a cell's price line: centred on the
@@ -459,11 +456,11 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.FillRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+	uiFillRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
 }
 
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
-	graphics.DrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
+	uiDrawImageScaled(dst, src, float64(x), float64(y), float64(w), float64(h), nil)
 }
 
 func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w, h int) {
@@ -486,7 +483,7 @@ func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, c
 // reads as "already pressed" (the map overlay used to paint the hover colour
 // permanently), and three hand-rolled variants had drifted apart.
 func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) {
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 	col := color.RGBA{193, 161, 99, 255}
 	if hover {
@@ -494,8 +491,8 @@ func (ui *UISystem) drawCloseButtonVisual(screen *ebiten.Image, x, y, w, h int) 
 		drawFilledRect(screen, x+2, y+2, w-4, h-4, color.RGBA{80, 49, 26, 170})
 	}
 	inset := max(5, min(w, h)/4)
-	vector.StrokeLine(screen, float32(x+inset), float32(y+inset), float32(x+w-inset), float32(y+h-inset), 2, col, true)
-	vector.StrokeLine(screen, float32(x+w-inset), float32(y+inset), float32(x+inset), float32(y+h-inset), 2, col, true)
+	uiStrokeLine(screen, float32(x+inset), float32(y+inset), float32(x+w-inset), float32(y+h-inset), 2, col, true)
+	uiStrokeLine(screen, float32(x+w-inset), float32(y+inset), float32(x+inset), float32(y+h-inset), 2, col, true)
 }
 
 // Nine-slice preserves square corners even when a destination is smaller than
@@ -638,19 +635,19 @@ func drawSoftGlowAround(screen *ebiten.Image, x, y, w, h, spread int, tint color
 	if alpha < 1 {
 		op.ColorScale.ScaleAlpha(float32(alpha))
 	}
-	screen.DrawImage(glow, op)
+	uiDrawImage(screen, glow, op)
 }
 
 // drawRectBorder draws a rectangle border of given thickness and color.
 func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Color) {
 	// Top border
-	vector.FillRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
+	uiFillRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
 	// Bottom border
-	vector.FillRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
+	uiFillRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
 	// Left border
-	vector.FillRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
+	uiFillRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
 	// Right border
-	vector.FillRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
+	uiFillRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
 }
 
 const tooltipCompareGap = 8
@@ -679,7 +676,7 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 // side-by-side cards (item + its comparison) each wrap within their own column.
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	layout := layoutTooltip(lines, hasIcon, maxRight-x, screen.Bounds().Dy())
+	layout := layoutTooltip(lines, hasIcon, maxRight-x, uiBounds(screen).Dy())
 	drawTooltipLayout(screen, lines, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 
@@ -710,18 +707,14 @@ func drawMetalPlate(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 // wrapTooltipLines wraps lines that overflow the right screen edge given the
 // tooltip's x position. Returns the wrapped lines plus a parallel colors slice
 // (each wrapped fragment inherits the original line's color, or nil if no
-// colors were provided). Minimum wrap width is 16 chars so we don't produce
+// colors were provided). Minimum wrap width is 16 columns so we don't produce
 // pathological single-char columns when x is very close to the right edge.
 func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffsetPx int) ([]string, []color.Color) {
-	availablePx := screenW - x - 12 - textOffsetPx // 6px padding each side
-	maxChars := availablePx / debugTextCharWidth
-	if maxChars < 16 {
-		maxChars = 16
-	}
+	availablePx := max(screenW-x-12-textOffsetPx, 16*uiTextCharWidth) // 6px padding each side
 
 	needsWrap := false
 	for _, line := range lines {
-		if utf8.RuneCountInString(line) > maxChars {
+		if uiTextWidth(line) > availablePx {
 			needsWrap = true
 			break
 		}
@@ -737,7 +730,7 @@ func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffs
 		wrappedColors = make([]color.Color, 0, len(lines))
 	}
 	for i, line := range lines {
-		fragments := wrapText(line, maxChars)
+		fragments := wrapUIText(line, availablePx)
 		wrapped = append(wrapped, fragments...)
 		if hasColors {
 			for range fragments {
@@ -807,13 +800,13 @@ func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 // drawWrappedTextWithOverflow draws wrapped copy into area (clipped to
 // maxLines) and, when anything had to be cut, offers the WHOLE text on hover.
 // Every panel showing authored NPC copy should use this instead of the bare
-// drawWrappedDebugText, so a long greeting is never silently swallowed by a
+// drawWrappedUIText, so a long greeting is never silently swallowed by a
 // fixed-height box.
 func (ui *UISystem) drawWrappedTextWithOverflow(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
-	full := wrapDebugText(text, area.w)
+	full := wrapUIText(text, area.w)
 	shown := truncateWrappedLines(full, maxLines, area.w)
 	for i, line := range shown {
-		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
+		drawUIText(screen, line, area.x, area.y+i*lineHeight)
 	}
 	rows := len(shown)
 	if rows < 1 {
@@ -986,32 +979,52 @@ func spellTooltipIconName(spellID spells.SpellID) string {
 	return "icon_spell_" + string(spellID)
 }
 
-const (
-	debugTextCharWidth  = 6
-	debugTextCharHeight = 16
-)
-
 var (
-	debugTextScratch  *ebiten.Image
-	debugTextScratchW int
-	debugTextScratchH int
+	uiTextScratch  *ebiten.Image
+	uiTextScratchW int
+	uiTextScratchH int
 )
 
-func debugTextWidth(text string) int {
-	return utf8.RuneCountInString(text) * debugTextCharWidth
+// uiTextWidth is the width of one line of text in the active UI font.
+func uiTextWidth(text string) int {
+	return activeUIFont().width(text)
 }
 
-// clipDebugText shortens text with a trailing ".." so it fits maxW pixels in the
-// fixed-width debug font - for grid labels that must not overrun their cell.
-func clipDebugText(text string, maxW int) string {
+// clipUIText shortens text with a trailing ".." so it fits maxW pixels in the
+// active UI font - for labels that must not overrun their box.
+func clipUIText(text string, maxW int) string {
+	return clipUITextSuffix(text, maxW, "..")
+}
+
+// clipUITextSuffix is clipUIText with its own suffix. When not even the
+// suffix fits, the text is cut bare.
+func clipUITextSuffix(text string, maxW int, suffix string) string {
 	if maxW <= 0 {
 		return ""
 	}
-	if debugTextWidth(text) <= maxW {
+	if uiTextWidth(text) <= maxW {
 		return text
 	}
-	maxRunes := maxW / debugTextCharWidth
-	return truncateRunes(text, maxRunes, "..")
+	if uiLabelClipHook != nil {
+		uiLabelClipHook(text, maxW)
+	}
+	budget := maxW - uiTextWidth(suffix)
+	if budget <= 0 {
+		budget, suffix = maxW, ""
+	}
+	return uiTextPrefix(text, budget) + suffix
+}
+
+// uiTextPrefix is the longest start of text no wider than maxW.
+func uiTextPrefix(text string, maxW int) string {
+	font := activeUIFont()
+	w := 0
+	for i, r := range text {
+		if w += font.advanceOf(r); w > maxW {
+			return text[:i]
+		}
+	}
+	return text
 }
 
 // humanizeKey turns a snake/kebab content key into a display label:
@@ -1027,50 +1040,82 @@ func humanizeKey(s string) string {
 }
 
 // centeredTextPos is the top-left pixel at which `text` renders centered in the
-// box (x,y,w,h) for the debug font - shared by every centered-text drawer.
+// box (x,y,w,h) for the UI font - shared by every centered-text drawer.
 func centeredTextPos(text string, x, y, w, h int) (int, int) {
-	return x + (w-debugTextWidth(text))/2, y + (h-debugTextCharHeight)/2
+	return x + (w-uiTextWidth(text))/2, y + (h-uiTextCharHeight)/2
 }
 
-func drawCenteredDebugText(screen *ebiten.Image, text string, x, y, w, h int) {
-	if text == "" {
-		return
-	}
-	drawX, drawY := centeredTextPos(text, x, y, w, h)
-	drawDebugText(screen, text, drawX, drawY)
+func drawCenteredUIText(screen *ebiten.Image, text string, x, y, w, h int) {
+	drawCenteredTextWithShadow(screen, text, x, y, w, h, color.White)
 }
 
 // drawCenteredTextWithShadow centers text in the box. The dark outline is built
-// into drawDebugTextColored game-wide, so this just centers.
+// into drawUITextColored game-wide, so this just centers. A label wider than
+// its box is cut with ".." and its full text offered on hover.
 func drawCenteredTextWithShadow(screen *ebiten.Image, text string, x, y, w, h int, fg color.Color) {
 	if text == "" {
 		return
 	}
+	text = fitCenteredLabel(text, x, y, w, h)
 	drawX, drawY := centeredTextPos(text, x, y, w, h)
-	drawDebugTextColored(screen, text, drawX, drawY, fg)
+	drawUITextColored(screen, text, drawX, drawY, fg)
 }
 
-// drawDebugTextShadowed is kept as a name for existing callers; the outline now
-// lives in drawDebugTextColored, so it is a thin alias.
-func drawDebugTextShadowed(screen *ebiten.Image, text string, x, y int, fg color.Color) {
-	drawDebugTextColored(screen, text, x, y, fg)
+// A centred label cut to its box, kept for the frame so hovering it shows the
+// whole text.
+type uiClippedLabel struct {
+	box  layoutRect
+	full string
 }
 
-func ensureDebugTextScratch(width, height int) {
+var (
+	uiClippedLabels []uiClippedLabel
+	// uiLabelClipHook, when set, hears every label cut to fit (the label fit
+	// survey); nil in the game.
+	uiLabelClipHook func(text string, boxW int)
+)
+
+// fitCenteredLabel returns text, or text cut with ".." to the box's width.
+func fitCenteredLabel(text string, x, y, w, h int) string {
+	room := w
+	if uiTextWidth(text) <= room {
+		return text
+	}
+	uiClippedLabels = append(uiClippedLabels, uiClippedLabel{layoutRect{x, y, w, h}, text})
+	return clipUIText(text, room)
+}
+
+// offerClippedLabelTooltip shows the whole text of a cut label under the
+// pointer when nothing else has a tooltip up.
+func (ui *UISystem) offerClippedLabelTooltip() {
+	if ui.tooltipLines != nil {
+		return
+	}
+	mx, my := pointerPosition()
+	for i := len(uiClippedLabels) - 1; i >= 0; i-- {
+		b := uiClippedLabels[i].box
+		if isMouseHoveringBox(mx, my, b.x, b.y, b.right(), b.bottom()) {
+			ui.queueTooltip([]string{uiClippedLabels[i].full}, mx+12, my+8)
+			return
+		}
+	}
+}
+
+func ensureUITextScratch(width, height int) {
 	if width < 1 {
 		width = 1
 	}
 	if height < 1 {
 		height = 1
 	}
-	if debugTextScratch == nil || debugTextScratchW < width || debugTextScratchH < height {
-		if debugTextScratchW < width {
-			debugTextScratchW = width
+	if uiTextScratch == nil || uiTextScratchW < width || uiTextScratchH < height {
+		if uiTextScratchW < width {
+			uiTextScratchW = width
 		}
-		if debugTextScratchH < height {
-			debugTextScratchH = height
+		if uiTextScratchH < height {
+			uiTextScratchH = height
 		}
-		debugTextScratch = ebiten.NewImage(debugTextScratchW, debugTextScratchH)
+		uiTextScratch = ebiten.NewImage(uiTextScratchW, uiTextScratchH)
 	}
 }
 
@@ -1103,14 +1148,13 @@ func drawScaledMetalCenteredTextAlpha(screen *ebiten.Image, text string, cx, cy 
 	if alpha < 1 {
 		op.ColorScale.ScaleAlpha(float32(alpha))
 	}
-	graphics.DrawImageScaled(screen, img, float64(cx)-float64(w)*scale/2, float64(cy)-float64(h)*scale/2, float64(w)*scale, float64(h)*scale, op)
+	uiDrawImageScaled(screen, img, float64(cx)-float64(w)*scale/2, float64(cy)-float64(h)*scale/2, float64(w)*scale, float64(h)*scale, op)
 }
 
-// drawDebugText draws left-aligned OUTLINED white text - the game-wide default,
-// replacing raw ebitenutil.DebugPrintAt(screen, ...) so every label stays legible
-// over any background.
-func drawDebugText(screen *ebiten.Image, text string, x, y int) {
-	drawDebugTextColored(screen, text, x, y, color.White)
+// drawUIText draws left-aligned OUTLINED white text - the game-wide default,
+// so every label stays legible over any background.
+func drawUIText(screen *ebiten.Image, text string, x, y int) {
+	drawUITextColored(screen, text, x, y, color.White)
 }
 
 // Outlined labels are composed once per (text, color) into small cached images
@@ -1122,6 +1166,7 @@ func drawDebugText(screen *ebiten.Image, text string, x, y int) {
 const outlinedLabelCacheMax = 256
 
 type outlinedLabelKey struct {
+	font       *uiGlyphAtlas
 	text       string
 	r, g, b, a uint32
 }
@@ -1131,15 +1176,27 @@ var (
 	outlinedLabelCachePrev = map[outlinedLabelKey]*ebiten.Image{}
 )
 
+// outlinedLabelImage is text in the active font; its pen starts at
+// uiLabelOrigin.
 func outlinedLabelImage(text string, col color.Color) *ebiten.Image {
+	return outlinedLabelImageIn(activeUIFont(), text, col)
+}
+
+// uiLabelOrigin is where a label image's pen starts: past the outline and
+// the room glyphs may take left of their pen.
+func uiLabelOrigin(font *uiGlyphAtlas) (int, int) {
+	return 1 + font.pad, 1
+}
+
+func outlinedLabelImageIn(font *uiGlyphAtlas, text string, col color.Color) *ebiten.Image {
 	r, g, b, a := col.RGBA()
-	key := outlinedLabelKey{text, r, g, b, a}
+	key := outlinedLabelKey{font, text, r, g, b, a}
 	if img, ok := outlinedLabelCache[key]; ok {
 		return img
 	}
 	img, ok := outlinedLabelCachePrev[key]
 	if !ok {
-		img = renderOutlinedLabel(text, col)
+		img = renderOutlinedLabel(font, text, col)
 	}
 	// Dropped images are reclaimed by GC (ebiten deallocates on collect); no
 	// explicit Deallocate - an evicted image may already be enqueued this frame.
@@ -1153,16 +1210,16 @@ func outlinedLabelImage(text string, col color.Color) *ebiten.Image {
 
 // renderOutlinedLabel rasterizes text once into the scratch and composes the
 // 8-direction dark outline + colored body into a (w+2)x(h+2) image; the body
-// sits at (1,1) so the outline fits inside the bounds.
-func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
-	w := debugTextWidth(text) + 2
-	h := debugTextCharHeight
-	ensureDebugTextScratch(w, h)
-	debugTextScratch.Fill(color.RGBA{0, 0, 0, 0})
+// sits at (1,1) so the outline fits inside the bounds, and the pen starts
+// font.pad further right.
+func renderOutlinedLabel(font *uiGlyphAtlas, text string, col color.Color) *ebiten.Image {
+	w := font.width(text) + 2 + font.pad
+	h := uiTextCharHeight
+	ensureUITextScratch(w, h)
+	uiTextScratch.Fill(color.RGBA{0, 0, 0, 0})
 
-	// Offset by -1 so the rendered text aligns with DebugPrintAt's left edge.
-	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
-	glyphs := debugTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
+	font.raster(uiTextScratch, text, font.pad, 0, ebiten.ColorScale{})
+	glyphs := uiTextScratch.RecyclableSubImage(image.Rect(0, 0, w, h))
 	defer glyphs.Recycle()
 
 	img := ebiten.NewImage(w+2, h+2)
@@ -1171,7 +1228,7 @@ func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 		r, g, b, a := c.RGBA()
 		opts.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
 		opts.GeoM.Translate(float64(1+dx), float64(1+dy))
-		img.DrawImage(glyphs, opts)
+		uiDrawImage(img, glyphs, opts)
 	}
 	outline := color.RGBA{0, 0, 0, 235}
 	for _, d := range textOutlineOffsets {
@@ -1183,15 +1240,22 @@ func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 	return img
 }
 
-// drawDebugTextColored draws left-aligned text wrapped in a dark 8-direction
+// drawUITextColored draws left-aligned text wrapped in a dark 8-direction
 // outline (the character-sheet look, now game-wide) via the label cache.
-func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color.Color) {
+func drawUITextColored(screen *ebiten.Image, text string, x, y int, col color.Color) {
+	drawUITextColoredIn(screen, activeUIFont(), text, x, y, col)
+}
+
+// drawUITextColoredIn is drawUITextColored in a given font (the font list
+// shows each name in its own).
+func drawUITextColoredIn(screen *ebiten.Image, font *uiGlyphAtlas, text string, x, y int, col color.Color) {
 	if text == "" {
 		return
 	}
+	ox, oy := uiLabelOrigin(font)
 	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(x-1), float64(y-1))
-	screen.DrawImage(outlinedLabelImage(text, col), opts)
+	opts.GeoM.Translate(float64(x-ox), float64(y-oy))
+	uiDrawImage(screen, outlinedLabelImageIn(font, text, col), opts)
 }
 
 func lerpByte(a, b uint8, t float64) uint8 {
@@ -1216,7 +1280,7 @@ func metalShade(base color.RGBA, t float64) color.RGBA {
 	}
 }
 
-// drawMetalBody fills the already-rasterized glyph (in debugTextScratch) with the
+// drawMetalBody fills the already-rasterized glyph (in uiTextScratch) with the
 // metalShade gradient, blitting it in thin horizontal bands top->bottom.
 func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.Color) {
 	tint := color.NRGBAModel.Convert(base).(color.NRGBA)
@@ -1228,11 +1292,11 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.Color) {
 			sh = h - sy
 		}
 		c := metalShade(opaque, (float64(sy)+float64(sh)/2)/float64(h))
-		strip := debugTextScratch.RecyclableSubImage(image.Rect(0, sy, w, sy+sh))
+		strip := uiTextScratch.RecyclableSubImage(image.Rect(0, sy, w, sy+sh))
 		op := &ebiten.DrawImageOptions{}
 		op.ColorScale.ScaleWithColor(color.NRGBA{c.R, c.G, c.B, tint.A})
 		op.GeoM.Translate(float64(x), float64(y+sy))
-		screen.DrawImage(strip, op)
+		uiDrawImage(screen, strip, op)
 		strip.Recycle()
 	}
 }

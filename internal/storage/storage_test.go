@@ -59,8 +59,8 @@ func TestSetupBundleRuntime_SeedsAndChdirs(t *testing.T) {
 	origCwd, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origCwd); dataRoot = "" })
 
-	if !setupBundleRuntime(exe) {
-		t.Fatal("setupBundleRuntime returned false for a bundle path")
+	if handled, err := setupBundleRuntime(exe); !handled || err != nil {
+		t.Fatalf("setupBundleRuntime = %v, %v for a bundle path", handled, err)
 	}
 	if dataRoot == "" || !strings.HasPrefix(dataRoot, home) {
 		t.Fatalf("dataRoot = %q, want an isolated dir under %q", dataRoot, home)

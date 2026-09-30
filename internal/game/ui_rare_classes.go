@@ -60,10 +60,10 @@ func (l rareBookLayout) auto(i int) layoutRect {
 }
 
 func (ui *UISystem) rareBookButton(screen *ebiten.Image, r layoutRect, label string, enabled bool, action func()) {
-	mx, my := ebiten.CursorPosition()
+	mx, my := uiCursorPosition()
 	hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 	ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && hover)
-	drawCenteredDebugText(screen, truncateName(label, max(1, (r.w-12)/6)), r.x+3, r.y, r.w-6, r.h)
+	drawCenteredUIText(screen, truncateName(label, max(1, (r.w-12)/6)), r.x+3, r.y, r.w-6, r.h)
 	if !enabled {
 		drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 105})
 	}
@@ -87,7 +87,7 @@ func (ui *UISystem) rareBookText(screen *ebiten.Image, text string, r layoutRect
 }
 func (ui *UISystem) rareBookItem(screen *ebiten.Image, it items.Item, r layoutRect, c *character.MMCharacter) {
 	ui.drawInventoryItemIcon(screen, it, r.x, r.y, r.w, r.h, 2, true)
-	mx, my := ebiten.CursorPosition()
+	mx, my := uiCursorPosition()
 	if isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()) {
 		ui.queueItemTooltip(strings.Split(GetItemTooltip(it, c, ui.game.combat, tooltipDetailHeld()), "\n"), it, c, mx+16, my+8)
 	}
@@ -127,7 +127,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	if g.sprites.HasSprite(art) {
 		drawImageScaled(screen, g.sprites.GetSprite(art), l.frame.x, l.frame.y, l.frame.w, l.frame.h)
 	}
-	drawCenteredDebugText(screen, c.Name+" - "+title, l.header.x, l.header.y, l.header.w, l.header.h)
+	drawCenteredUIText(screen, c.Name+" - "+title, l.header.x, l.header.y, l.header.w, l.header.h)
 	rareBookPanel(screen, l.list)
 	rareBookPanel(screen, l.detail)
 	if alchemist {
@@ -140,7 +140,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	if !alchemist {
 		hint = "Drag icons to quick slots | Enter: use | V: Fold | Shift+V: Return"
 	}
-	drawCenteredDebugText(screen, hint, l.hint.x, l.hint.y, l.hint.w, l.hint.h)
+	drawCenteredUIText(screen, hint, l.hint.x, l.hint.y, l.hint.w, l.hint.h)
 	return true
 }
 func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCharacter, l rareBookLayout) {
@@ -152,14 +152,14 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 	g.selectedRare = max(0, min(len(rs)-1, g.selectedRare))
 	page := g.selectedRare / l.rows
 	pages := pageCount(len(rs), l.rows)
-	drawDebugText(screen, "RECIPES", l.list.x+12, l.list.y+6)
+	drawUIText(screen, "RECIPES", l.list.x+12, l.list.y+6)
 	for i := page * l.rows; i < min(len(rs), (page+1)*l.rows); i++ {
 		it, _ := items.TryCreateItemFromYAML(rs[i].Output)
 		idx := i
 		ui.rareBookRow(screen, l.row(i-page*l.rows), it, fmt.Sprintf("%d per batch", character.AlchemyYield(c.SkillTier(character.SkillAlchemy), rs[i].Family)), i == g.selectedRare, func() { g.selectedRare = idx; g.rareBookMessage = "" })
 	}
 	ui.rareBookButton(screen, layoutRect{l.pager.x, l.pager.y, 32, l.pager.h}, "<", page > 0, func() { g.selectedRare = (page - 1) * l.rows; g.rareBookMessage = "" })
-	drawCenteredDebugText(screen, fmt.Sprintf("%d / %d", page+1, pages), l.pager.x+36, l.pager.y, l.pager.w-72, l.pager.h)
+	drawCenteredUIText(screen, fmt.Sprintf("%d / %d", page+1, pages), l.pager.x+36, l.pager.y, l.pager.w-72, l.pager.h)
 	ui.rareBookButton(screen, layoutRect{l.pager.right() - 32, l.pager.y, 32, l.pager.h}, ">", page+1 < pages, func() { g.selectedRare = (page + 1) * l.rows; g.rareBookMessage = "" })
 	if g.brewAnimation != nil {
 		ui.drawAlchemyBrewAnimation(screen, l.detail)
@@ -174,7 +174,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	}
 	ds := config.GlobalTechniques.Techniques
 	g.selectedRare = max(0, min(len(ds)-1, g.selectedRare))
-	drawDebugText(screen, "TECHNIQUES", l.list.x+12, l.list.y+6)
+	drawUIText(screen, "TECHNIQUES", l.list.x+12, l.list.y+6)
 	for i := range ds {
 		d := &ds[i]
 		idx := i
@@ -226,8 +226,8 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	if d.FreeStep {
 		action = "No action cost"
 	}
-	drawDebugText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), x+76, y+32)
-	drawDebugText(screen, fmt.Sprintf("Unlock: level %d", d.Level), x+76, y+50)
+	drawUIText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), x+76, y+32)
+	drawUIText(screen, fmt.Sprintf("Unlock: level %d", d.Level), x+76, y+50)
 	ui.rareBookText(screen, techniqueMagnitude(c, d, g.config.GetTPS()), layoutRect{x, y + 76, w, 32})
 	descBottom := l.actions.y - 12
 	if d.Automatic {
@@ -237,7 +237,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	if d.Automatic {
 		r := layoutRect{x, l.actions.y - 84, w, 70}
 		drawFilledRect(screen, r.x, r.y, r.w, r.h, color.RGBA{30, 45, 45, 255})
-		drawDebugText(screen, "AUTOCAST CONDITION", r.x+8, r.y+6)
+		drawUIText(screen, "AUTOCAST CONDITION", r.x+8, r.y+6)
 		ui.rareBookText(screen, d.Trigger, layoutRect{r.x + 8, r.y + 26, r.w - 16, 40})
 	}
 	half := (l.actions.w - 8) / 2

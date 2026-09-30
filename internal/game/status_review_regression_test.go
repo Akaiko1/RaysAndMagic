@@ -109,8 +109,8 @@ func TestStatusReviewTurnVisualLifetime(t *testing.T) {
 				if m.RootHeld() {
 					t.Fatal("completed root hold survived turn boundary")
 				}
-				slow, weak := m.TurnDebuffLatches()
-				if slow != 0 || weak != 0 {
+				root, slow, weak := m.TurnDebuffLatches()
+				if root || slow != 0 || weak != 0 {
 					t.Fatal("completed percentage latch survived turn boundary")
 				}
 			})

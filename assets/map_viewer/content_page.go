@@ -12,7 +12,6 @@ import (
 	"ugataima/internal/game"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 // Layout constants for the content grid.
@@ -90,7 +89,7 @@ func (v *viewer) drawContentPage(screen *ebiten.Image) {
 	cards := v.pageCards[v.page]
 	contentScroll := v.pageScroll[v.page]
 	if len(cards) == 0 {
-		ebitenutil.DebugPrintAt(screen, "no content loaded", contentPad, pageBarHeight+contentPad)
+		game.DrawPlainText(screen, "no content loaded", contentPad, pageBarHeight+contentPad)
 		return
 	}
 
@@ -200,7 +199,7 @@ func (v *viewer) maxContentScroll() int {
 
 func drawSectionHeader(dst *ebiten.Image, label string, x, y, w int) {
 	drawHeaderBandRect(dst, x, y, w, contentSectionH)
-	ebitenutil.DebugPrintAt(dst, label, x+10, y+7)
+	game.DrawPlainText(dst, label, x+10, y+7)
 }
 
 // drawCard renders a single card: icon on the left, name + subtitle stacked
@@ -225,7 +224,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int, hovered b
 		// Placeholder so the layout doesn't collapse when art is missing.
 		drawFilledRect(dst, iconX, iconY, contentIconSize, contentIconSize, color.RGBA{52, 52, 68, 255})
 		drawRectBorder(dst, iconX, iconY, contentIconSize, contentIconSize, 1, color.RGBA{80, 80, 100, 255})
-		ebitenutil.DebugPrintAt(dst, "?", iconX+contentIconSize/2-3, iconY+contentIconSize/2-7)
+		game.DrawPlainText(dst, "?", iconX+contentIconSize/2-3, iconY+contentIconSize/2-7)
 	}
 
 	textX := x + 8 + contentIconSize + 10
@@ -244,7 +243,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int, hovered b
 		if i >= maxSubtitleLines {
 			break
 		}
-		ebitenutil.DebugPrintAt(dst, ln, textX, textY+18+i*14)
+		game.DrawPlainText(dst, ln, textX, textY+18+i*14)
 	}
 }
 

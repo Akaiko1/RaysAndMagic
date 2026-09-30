@@ -11,8 +11,10 @@ type menuState struct {
 	mainMenuMode           MainMenuMode
 	audioSettingsSelection int
 	audioSliderDrag        int
+	fontListOpen           bool // Settings > Display font list shown open
 	audioSettingsDirty     bool
-	settingsTab            int
+	displaySettingsDirty   bool
+	settingsTab            settingsTabKind
 	potionSettingsScroll   [2]int
 	slotSelection          int
 	savePage               int

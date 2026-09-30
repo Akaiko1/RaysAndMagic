@@ -188,12 +188,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 		return
 	}
 	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
-	if m.StunDRMemoryFrames > 0 {
-		m.StunDRMemoryFrames--
-		if m.StunDRMemoryFrames == 0 {
-			m.StunDRStacks, m.StunDRMemoryTurns = 0, 0
-		}
-	}
+	m.StunDR().ForgetFrame()
 	// Rooted (bear trap): the FULL update runs - detection, state machine,
 	// attack cadence - but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
@@ -1621,9 +1616,17 @@ func (m *Monster3D) AttackCooldownFrames() int {
 	if m.AttackCooldownMultiplier > 0 {
 		cd = int(math.Round(float64(cd) * m.AttackCooldownMultiplier))
 	}
+	return m.ScaleAttackCooldown(cd)
+}
+
+// ScaleAttackCooldown applies this monster's live cadence modifiers (enrage,
+// slow) to one real-time hand stream, so a champion's off hand obeys the same
+// rule as its main hand.
+func (m *Monster3D) ScaleAttackCooldown(cd int) int {
 	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
 		cd = int(math.Round(float64(cd) * m.EnrageCooldownMult))
 	}
+	cd = int(math.Round(float64(cd) * m.SlowCadenceFactor()))
 	if cd < 1 {
 		cd = 1
 	}

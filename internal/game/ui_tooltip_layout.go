@@ -65,7 +65,7 @@ func layoutTooltip(lines []string, hasIcon bool, maxWidth, screenH int) tooltipG
 	}
 	naturalWidth, structured := 0, false
 	for _, line := range lines {
-		naturalWidth = max(naturalWidth, debugTextWidth(line)+12+tooltipTextOffset(hasIcon))
+		naturalWidth = max(naturalWidth, uiTextWidth(line)+12+tooltipTextOffset(hasIcon))
 		structured = structured || tooltipSectionHeading(line)
 	}
 	width := min(560, naturalWidth, maxWidth)
@@ -100,8 +100,7 @@ func tooltipLayoutRows(lines []string, hasIcon bool, width, spacing int) tooltip
 			if hasIcon && y < 6+tooltipIconSize+tooltipIconGap {
 				available -= tooltipIconSize + tooltipIconGap
 			}
-			chars := max(1, available/debugTextCharWidth)
-			fragment := wrapText(remaining, chars)[0]
+			fragment := wrapUIText(remaining, max(uiTextCharWidth, available))[0]
 			layout.rows = append(layout.rows, tooltipLayoutRow{fragment, x, y, available, i})
 			remaining = strings.TrimSpace(remaining[len(fragment):])
 			y += spacing
@@ -136,7 +135,7 @@ func drawTooltipLayout(screen *ebiten.Image, lines []string, colors []color.Colo
 			textColor = styles[row.source]
 			drawFilledRect(screen, x+row.x-2, y+row.y-1, row.w+2, layout.lineHeight, color.RGBA{48, 49, 76, 255})
 		}
-		drawDebugTextColored(screen, row.text, x+row.x, y+row.y, textColor)
+		drawUITextColored(screen, row.text, x+row.x, y+row.y, textColor)
 	}
 }
 

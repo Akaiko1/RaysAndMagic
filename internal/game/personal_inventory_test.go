@@ -416,6 +416,36 @@ func TestPersonalInventoryGeometryAllResolutions(t *testing.T) {
 	}
 }
 
+// On every frame an interface size can produce, the paperdoll uses the room
+// the frame leaves it: it reaches the bottom of the panel, or the three
+// columns already span the width. The bag column stays inside the panel and
+// never outgrows the doll. A 1080-unit frame keeps its known layout.
+func TestInventoryArtUsesTheFrame(t *testing.T) {
+	var logical [][2]int
+	for _, size := range [][2]int{{1024, 768}, {1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3440, 1440}} {
+		w, h := logicalScreenSize(size[0], size[1], 1)
+		logical = append(logical, [2]int{w, h})
+	}
+	for _, size := range withInterfaceFrames(t, logical) {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
+			l := computeInventoryContentLayout(content)
+			fillsHeight := l.paper.bottom() >= content.bottom()-1
+			spansWidth := l.grid.right()-l.paper.x >= content.w-32-3
+			if !fillsHeight && !spansWidth {
+				t.Fatalf("paperdoll %v stops %d short of the panel bottom with %d units of width unused",
+					l.paper, content.bottom()-l.paper.bottom(), content.w-32-(l.grid.right()-l.paper.x))
+			}
+			if l.quickSlots.bottom() > content.bottom() || l.grid.h > l.paper.h {
+				t.Fatalf("bag column %v / quick slots %v against doll %v in %v", l.grid, l.quickSlots, l.paper, content)
+			}
+			if size == [2]int{1920, 1080} && (l.paper.w != 496 || l.paper.h != 745 || l.grid.w != 496 || l.textScale != readingTextScale) {
+				t.Fatalf("Normal at 1080 units changed: doll %v grid %v text x%d", l.paper, l.grid, l.textScale)
+			}
+		})
+	}
+}
+
 func TestPersonalInventoryQuickSlotRoundTrip(t *testing.T) {
 	for _, personal := range []bool{false, true} {
 		t.Run(fmt.Sprint(personal), func(t *testing.T) {
@@ -803,7 +833,7 @@ func TestPersonalInventoryLongLabelsKeepFullHoverText(t *testing.T) {
 			fp.moveTo(r.x+r.w/2, r.y+r.h/2)
 			h.ui.Draw(h.screen)
 			var want []string
-			if (debugTextWidth(full)+4)*l.textScale > r.w-8 {
+			if (uiTextWidth(full)+4)*l.textScale > r.w-8 {
 				want = []string{full}
 			}
 			if !reflect.DeepEqual(h.ui.tooltipLines, want) {

@@ -10,7 +10,6 @@ import (
 	"ugataima/internal/game"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -158,11 +157,11 @@ func fxKindTag(k game.FxKind) string {
 
 func (v *viewer) drawFXPage(screen *ebiten.Image) {
 	if fxPage.initErr != "" {
-		ebitenutil.DebugPrintAt(screen, fxPage.initErr, contentPad, pageBarHeight+contentPad)
+		game.DrawPlainText(screen, fxPage.initErr, contentPad, pageBarHeight+contentPad)
 		return
 	}
 	if fxPage.preview == nil {
-		ebitenutil.DebugPrintAt(screen, "starting FX sandbox...", contentPad, pageBarHeight+contentPad)
+		game.DrawPlainText(screen, "starting FX sandbox...", contentPad, pageBarHeight+contentPad)
 		return
 	}
 
@@ -179,7 +178,7 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 		if i == fxPage.selIdx {
 			vector.FillRect(list, 0, float32(ry-3), float32(fxListW), float32(fxRowH), color.RGBA{60, 90, 140, 200}, false)
 		}
-		ebitenutil.DebugPrintAt(list, clipText(fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), fxListW-16), 8, ry)
+		game.DrawPlainText(list, clipText(fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), fxListW-16), 8, ry)
 	}
 
 	// Right: the sandbox scene, aspect-fit into the remaining panel.
@@ -201,7 +200,7 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 
 	sel := fxPage.items[fxPage.selIdx]
 	for i, line := range wrapTooltipLines(fmt.Sprintf("%s %s (key: %s)", fxKindTag(sel.Kind), sel.Label, sel.Key), game.ShadedTextColumns(panelW)) {
-		ebitenutil.DebugPrintAt(screen, line, panelX, windowHeight-48+i*14)
+		game.DrawPlainText(screen, line, panelX, windowHeight-48+i*14)
 	}
-	ebitenutil.DebugPrintAt(screen, "Up/Down: select effect   Wheel: scroll list", panelX, windowHeight-18)
+	game.DrawPlainText(screen, "Up/Down: select effect   Wheel: scroll list", panelX, windowHeight-18)
 }

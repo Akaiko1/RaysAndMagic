@@ -38,7 +38,7 @@ func TestMerchantPriceLabelsFitTheirBox(t *testing.T) {
 		"no value",
 	} {
 		fitted := merchantPriceLabel(label)
-		if got := debugTextWidth(fitted); got > merchantPriceBoxW {
+		if got := uiTextWidth(fitted); got > merchantPriceBoxW {
 			t.Errorf("price %q renders %dpx wide, box is %dpx", fitted, got, merchantPriceBoxW)
 		}
 	}
@@ -82,7 +82,7 @@ func TestShippedMerchantStockPricesFit(t *testing.T) {
 				label = fmt.Sprintf("%d g", entry.Cost)
 			}
 			checked++
-			if w := debugTextWidth(label); w > merchantPriceBoxW {
+			if w := uiTextWidth(label); w > merchantPriceBoxW {
 				t.Errorf("NPC %q sells %q at %q: %dpx wide, box is %dpx",
 					key, entry.Name, label, w, merchantPriceBoxW)
 			}
@@ -162,17 +162,17 @@ func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
 	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}
-	greetingW := min(npcDialogWidth-40, tabGreetingWrapColumns*debugTextCharWidth)
+	greetingW := min(npcDialogWidth-40, tabGreetingWrapColumns*uiTextCharWidth)
 
 	overflowing := 0
 	for key, npc := range character.NPCConfigInstance.NPCs {
 		if npc.Dialogue == nil || npc.Dialogue.Greeting == "" {
 			continue
 		}
-		full := wrapDebugText(npc.Dialogue.Greeting, greetingW)
+		full := wrapUIText(npc.Dialogue.Greeting, greetingW)
 		shown := truncateWrappedLines(full, 2, greetingW)
 		for _, line := range shown {
-			if w := debugTextWidth(line); w > greetingW {
+			if w := uiTextWidth(line); w > greetingW {
 				t.Errorf("NPC %q greeting line %q is %dpx wide, box is %dpx", key, line, w, greetingW)
 			}
 		}

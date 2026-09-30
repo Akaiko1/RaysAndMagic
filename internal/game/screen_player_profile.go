@@ -21,7 +21,7 @@ var profileGreen = color.RGBA{131, 194, 137, 255}
 // children share this rectangle; responsive layouts do not stretch frame art.
 func profilePanelRect(w, h int) layoutRect {
 	pw, ph := min(w-32, 1320), min(h-32, 840)
-	return layoutRect{(w - pw) / 2, (h - ph) / 2, pw, ph}
+	return centeredRect(w, h, pw, ph)
 }
 
 // Profile card rectangles include their frame, unlike drawRectBorder's
@@ -50,7 +50,7 @@ func (ui *UISystem) profileButton(screen *ebiten.Image, label string, r layoutRe
 }
 
 func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, size int) {
-	if y+size <= screen.Bounds().Min.Y || y >= screen.Bounds().Max.Y {
+	if y+size <= uiBounds(screen).Min.Y || y >= uiBounds(screen).Max.Y {
 		return
 	}
 	var img *ebiten.Image
@@ -84,7 +84,7 @@ func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, s
 		}
 		drawImageScaled(screen, img, x+(size-dw)/2, y+(size-dh)/2, dw, dh)
 	} else {
-		drawCenteredDebugText(screen, spellInitials(label), x, y, size, size)
+		drawCenteredUIText(screen, spellInitials(label), x, y, size, size)
 	}
 	if !strings.HasPrefix(key, "icon_") {
 		drawRectBorder(screen, x, y, size, size, 1, profileGold)
@@ -92,7 +92,7 @@ func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, s
 }
 
 func profileText(s string, width int) string {
-	return truncateName(s, max(1, width/debugTextCharWidth))
+	return clipUIText(s, max(uiTextCharWidth, width))
 }
 
 type profileAchievementsLayout struct {
@@ -140,12 +140,12 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 		}
 	}
 	drawScaledMetalCenteredTextAlpha(screen, "ACHIEVEMENTS", r.x+r.w/2, y+10, 2, profileGold, 1)
-	drawDebugTextColored(screen, fmt.Sprintf("%d / %d earned across all adventures", unlockedCount, len(defs)), x, y+36, profileMuted)
+	drawUITextColored(screen, fmt.Sprintf("%d / %d earned across all adventures", unlockedCount, len(defs)), x, y+36, profileMuted)
 	drawFilledRect(screen, x, y+53, l.body.w, 3, color.RGBA{50, 41, 43, 255})
 	drawFilledRect(screen, x, y+53, l.body.w*unlockedCount/max(1, len(defs)), 3, profileGold)
 	g.achievementsScroll = max(0, min(g.achievementsScroll, max(0, l.contentH-l.body.h)))
-	clip := image.Rect(l.body.x, l.body.y, l.body.right(), l.body.bottom()).Intersect(screen.Bounds())
-	dst := screen.SubImage(clip).(*ebiten.Image)
+	clip := image.Rect(l.body.x, l.body.y, l.body.right(), l.body.bottom()).Intersect(uiBounds(screen))
+	dst := uiClip(screen, clip)
 	for idx, def := range defs {
 		cx, cy := x+(idx%l.columns)*(l.columnW+16), l.body.y+(idx/l.columns)*104-g.achievementsScroll
 		if cy+96 <= clip.Min.Y || cy >= clip.Max.Y {
@@ -164,12 +164,12 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 			drawFilledRect(dst, cx+10, cy+14, 64, 64, color.RGBA{0, 0, 0, 115})
 		}
 		tx, tw := cx+86, l.columnW-100
-		drawDebugTextColored(dst, profileText(def.Name, tw), tx, cy+11, profileGold)
+		drawUITextColored(dst, profileText(def.Name, tw), tx, cy+11, profileGold)
 		for i, line := range wrapArenaBoardLine(def.Description, tw) {
 			if i >= 2 {
 				break
 			}
-			drawDebugTextColored(dst, line, tx, cy+31+i*14, profileMuted)
+			drawUITextColored(dst, line, tx, cy+31+i*14, profileMuted)
 		}
 		status := fmt.Sprintf("%d / %d", min(progress, def.Target), def.Target)
 		clr := profileMuted
@@ -178,13 +178,15 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 			clr = profileGreen
 			progress = def.Target
 		}
-		drawDebugTextColored(dst, status, tx, cy+64, clr)
+		drawUITextColored(dst, status, tx, cy+64, clr)
 		drawFilledRect(dst, tx, cy+81, tw, 3, color.RGBA{47, 39, 45, 255})
 		drawFilledRect(dst, tx, cy+81, int(int64(tw)*min(progress, def.Target)/max(int64(1), def.Target)), 3, clr)
 	}
-	drawProfileScrollbar(screen, layoutRect{l.body.right() - 5, l.body.y, 3, l.body.h}, g.achievementsScroll, l.contentH)
+	ui.drawScrollbar(screen, "profile:achievements", layoutRect{l.body.right() - 5, l.body.y, 3, l.body.h}, g.achievementsScroll, l.contentH, true, func(v int) {
+		g.achievementsScroll = v
+	})
 	ui.drawBackButton(screen, x, l.footerY, func() { g.entryMenuMode = EntryMenuRoot })
-	drawDebugTextColored(screen, "Scroll / PgUp / PgDn", x+126, l.footerY+9, profileMuted)
+	drawUITextColored(screen, "Scroll / PgUp / PgDn", x+126, l.footerY+9, profileMuted)
 	ui.drawProfileError(screen, x, l.footerY-16, l.body.w)
 }
 
@@ -380,12 +382,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	}
 	maxScroll := max(0, l.contentH-l.body.h)
 	g.statisticsScroll = max(0, min(g.statisticsScroll, maxScroll))
-	if ui.profileViewport == nil || ui.profileViewport.Bounds().Dx() != l.body.w || ui.profileViewport.Bounds().Dy() != l.body.h {
-		if ui.profileViewport != nil {
-			ui.profileViewport.Deallocate()
-		}
-		ui.profileViewport = ebiten.NewImage(l.body.w, l.body.h)
-	}
+	ui.profileViewport = uiLayer(ui.profileViewport, l.body.w, l.body.h)
 	dst := ui.profileViewport
 	dst.Clear()
 	offset := -g.statisticsScroll
@@ -396,7 +393,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		tx := cx + iconSize + 24
 		tw := l.counterW - iconSize - 36
 		ui.profileIcon(dst, c.icon, c.title, cx+12, cy+(86-iconSize)/2, iconSize)
-		drawDebugTextColored(dst, profileText(c.title, tw), tx, cy+14, profileMuted)
+		drawUITextColored(dst, profileText(c.title, tw), tx, cy+14, profileMuted)
 		val := ui.profileCounterValue(c, &d)
 		drawScaledMetalCenteredTextAlpha(dst, val, tx+tw/2, cy+52, 2, profileGold, 1)
 	}
@@ -406,7 +403,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		limit := max(0, len(entries)*profileRankingRowH-profileRankingBody(rr).h)
 		g.statisticsRankingLimits[rs.group] = limit
 		g.statisticsRankingScroll[rs.group] = max(0, min(g.statisticsRankingScroll[rs.group], limit))
-		ui.drawProfileRanking(dst, rs, entries, rr, g.statisticsRankingScroll[rs.group])
+		ui.drawProfileRanking(dst, l.body, rs, entries, rr, g.statisticsRankingScroll[rs.group])
 	}
 	sy := offset + l.rankY + l.rankRows*(l.rankH+14) + 4
 	summary := fmt.Sprintf("Bosses %s   Steps %s   Highest level %s   Party wipes %s", profileValue(d.Counters["bosses"], false), profileValue(d.Counters["steps"], false), profileValue(d.Counters["highest_level"], false), profileValue(d.Counters["defeats"], false))
@@ -414,7 +411,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		summary = "THE ARENA  /  Recorded victories across all adventures"
 	}
 	for _, line := range wrapArenaBoardLine(summary, iw-18) {
-		drawDebugTextColored(dst, line, 0, sy, profileGold)
+		drawUITextColored(dst, line, 0, sy, profileGold)
 		sy += 15
 	}
 	note := "Lifetime activity since " + d.Since.Local().Format("02 Jan 2006") + ". Reloading does not erase records."
@@ -445,39 +442,32 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	for _, text := range []string{note, detail} {
 		sy += 5
 		for _, line := range wrapArenaBoardLine(text, iw-18) {
-			drawDebugTextColored(dst, line, 0, sy, profileMuted)
+			drawUITextColored(dst, line, 0, sy, profileMuted)
 			sy += 15
 		}
 	}
 	drawImageScaled(screen, dst, l.body.x, l.body.y, l.body.w, l.body.h)
-	drawProfileScrollbar(screen, layoutRect{l.body.right() - 6, l.body.y, 4, l.body.h}, g.statisticsScroll, l.contentH)
+	ui.drawScrollbar(screen, "profile:statistics", layoutRect{l.body.right() - 6, l.body.y, 4, l.body.h}, g.statisticsScroll, l.contentH, true, func(v int) {
+		g.statisticsScroll = v
+	})
 	bottom := l.footerY
 	ui.drawBackButton(screen, x, bottom, func() { g.entryMenuMode = EntryMenuRoot })
-	drawDebugTextColored(screen, profileText("Scroll over a list to browse it", iw-138), x+126, bottom+9, profileMuted)
+	drawUITextColored(screen, profileText("Scroll over a list to browse it", iw-138), x+126, bottom+9, profileMuted)
 	ui.drawProfileError(screen, x, y-16, iw)
 }
 
-func drawProfileScrollbar(dst *ebiten.Image, track layoutRect, offset, contentH int) {
-	limit := max(0, contentH-track.h)
-	if limit == 0 {
-		return
-	}
-	drawFilledRect(dst, track.x, track.y, track.w, track.h, color.RGBA{43, 37, 43, 255})
-	h := max(16, track.h*track.h/contentH)
-	y := track.y + (track.h-h)*min(offset, limit)/limit
-	drawFilledRect(dst, track.x, y, track.w, h, profileGold)
-}
-
-func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, scroll int) {
+// drawProfileRanking draws one ranking card into the statistics viewport,
+// whose screen rect is view.
+func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, view layoutRect, spec profileRankingSpec, entries []playerprofile.Entry, r layoutRect, scroll int) {
 	ui.drawProfileCard(screen, r, false)
-	drawDebugTextColored(screen, profileText(strings.ToUpper(spec.title), r.w-28), r.x+14, r.y+12, profileGold)
-	drawDebugTextColored(screen, profileText(spec.unit, r.w-28), r.x+14, r.y+29, profileMuted)
+	drawUITextColored(screen, profileText(strings.ToUpper(spec.title), r.w-28), r.x+14, r.y+12, profileGold)
+	drawUITextColored(screen, profileText(spec.unit, r.w-28), r.x+14, r.y+29, profileMuted)
 	body := profileRankingBody(r)
-	clip := image.Rect(body.x, body.y, body.right(), body.bottom()).Intersect(screen.Bounds())
+	clip := image.Rect(body.x, body.y, body.right(), body.bottom()).Intersect(uiBounds(screen))
 	if !clip.Empty() {
-		dst := screen.SubImage(clip).(*ebiten.Image)
+		dst := uiClip(screen, clip)
 		if len(entries) == 0 {
-			drawDebugTextColored(dst, "No records yet", body.x+10, body.y+20, profileMuted)
+			drawUITextColored(dst, "No records yet", body.x+10, body.y+20, profileMuted)
 		}
 		var maximum int64 = 1
 		if len(entries) > 0 {
@@ -500,18 +490,30 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, spec profileRanking
 			ui.profileIcon(dst, e.Icon, e.Name, body.x+5, cy+7, 44)
 			tx, tw := body.x+58, body.w-76
 			name := fmt.Sprintf("%d. %s", i+1, e.Name)
-			drawDebugTextColored(dst, profileText(name, tw), tx, cy+8, profileGold)
+			drawUITextColored(dst, profileText(name, tw), tx, cy+8, profileGold)
 			value := spec.entryValue(e)
 			if spec.group == "valuable_loot" {
 				value += "  /  Found " + profileValue(e.Count, false)
 			}
-			drawDebugTextColored(dst, profileText(value, tw), tx, cy+27, profileGreen)
+			drawUITextColored(dst, profileText(value, tw), tx, cy+27, profileGreen)
 			drawFilledRect(dst, tx, cy+47, tw, 3, color.RGBA{53, 44, 52, 255})
 			drawFilledRect(dst, tx, cy+47, max(1, int(float64(spec.score(e))/float64(maximum)*float64(tw))), 3, color.RGBA{151, 120, 66, 255})
 		}
-		drawProfileScrollbar(dst, layoutRect{body.right() - 4, body.y, 3, body.h}, scroll, len(entries)*profileRankingRowH)
+		track := layoutRect{body.right() - 4, body.y, 3, body.h}
+		drawScrollbarThumb(dst, track, scroll, len(entries)*profileRankingRowH)
+		// The card lives in the viewport layer; its thumb is grabbed on screen,
+		// only where the viewport shows it.
+		onScreen := layoutRect{view.x + track.x, view.y + track.y, track.w, track.h}
+		strip := scrollbarGrabStrip(onScreen)
+		seen := image.Rect(strip.x, strip.y, strip.right(), strip.bottom()).Intersect(image.Rect(view.x, view.y, view.right(), view.bottom()))
+		hit := layoutRect{seen.Min.X, seen.Min.Y, seen.Dx(), seen.Dy()}
+		g := ui.game
+		ui.scrollbarGesture("profile:ranking:"+spec.group, onScreen, hit, scroll, len(entries)*profileRankingRowH, func(v int) {
+			g.statisticsRankingScroll[spec.group] = v
+			g.statisticsRevision++
+		})
 	}
-	drawDebugTextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+14, r.bottom()-21, profileMuted)
+	drawUITextColored(screen, fmt.Sprintf("%d recorded", len(entries)), r.x+14, r.bottom()-21, profileMuted)
 }
 
 func (ui *UISystem) drawProfileError(screen *ebiten.Image, x, y, w int) {
@@ -521,7 +523,7 @@ func (ui *UISystem) drawProfileError(screen *ebiten.Image, x, y, w int) {
 		message = "Profile save failed; will retry."
 	}
 	if message != "" {
-		drawDebugTextColored(screen, profileText(message, w), x, y, color.RGBA{233, 128, 113, 255})
+		drawUITextColored(screen, profileText(message, w), x, y, color.RGBA{233, 128, 113, 255})
 	}
 }
 

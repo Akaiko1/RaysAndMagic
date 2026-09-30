@@ -135,7 +135,7 @@ func TestDebugSim_CompassAllMapsGallery(t *testing.T) {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(col*cellW+6), float64(row*cellH))
 			contact.DrawImage(crop, op)
-			drawCenteredDebugText(contact, key, col*cellW, row*cellH+compassSide+2, cellW, 18)
+			drawCenteredUIText(contact, key, col*cellW, row*cellH+compassSide+2, cellW, 18)
 		})
 		writePNG(filepath.Join(out, key+".png"), crop)
 	}

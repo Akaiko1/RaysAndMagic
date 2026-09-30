@@ -245,10 +245,9 @@ func (p *MobPreview) Monsters() []*monster.Monster3D {
 }
 
 // Scene renders the sandbox through the real renderer into an offscreen image
-// sized to the game's configured resolution; the editor scales it into its
-// panel.
+// sized to the game's world resolution; the editor scales it into its panel.
 func (p *MobPreview) Scene() *ebiten.Image {
-	cw, ch := p.g.config.GetScreenWidth(), p.g.config.GetScreenHeight()
+	cw, ch := p.g.worldWidth(), p.g.worldHeight()
 	if p.scene == nil || p.scene.Bounds().Dx() != cw || p.scene.Bounds().Dy() != ch {
 		p.scene = ebiten.NewImage(cw, ch)
 	}

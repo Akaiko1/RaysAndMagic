@@ -387,6 +387,12 @@ func (cs *CombatSystem) championAlternatingCrossfireStrike(m, foe *monster.Monst
 	cs.championCrossfireStrike(m, foe, offHand)
 }
 
+// championOffHandCooldownFrames is the champion's off-hand weapon cadence under
+// the mob's own modifiers (slow, enrage), matching AttackCooldownFrames.
+func (cs *CombatSystem) championOffHandCooldownFrames(m *monster.Monster3D, ch *character.MMCharacter) int {
+	return m.ScaleAttackCooldown(cs.OffHandWeaponCooldownFrames(ch))
+}
+
 // championRTCrossfireStrike gives a champion fighting a bound ally the same
 // independent hand cooldowns it has against the party. A fixed crossfire
 // cadence would throttle Weapon Master to one main-hand swing per second and
@@ -414,7 +420,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		struck = true
 	}
 	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{foe: foe}, monsterAttackRealtime) {
-		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
+		m.OffHandCDFrames = cs.championOffHandCooldownFrames(m, ch)
 		cs.championCrossfireStrike(m, foe, true)
 		struck = true
 	}
@@ -464,7 +470,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 		struck = true
 	}
 	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && cs.monsterAttackStillValid(m, monsterAttackDestination{}, monsterAttackRealtime) {
-		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
+		m.OffHandCDFrames = cs.championOffHandCooldownFrames(m, ch)
 		cs.championMeleeStrike(m, true)
 		struck = true
 	}
@@ -915,8 +921,8 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	case def.IncomingDamageReduction > 0:
 		frames := cs.CalculateSpellDurationFrames(spellID, ch)
 		// Stun convention: 1s per TB turn, floored at 1 whenever the soak is
-		// active (a sub-1s duration would truncate to 0 turns and, since TB never
-		// ticks SoakFrames, never expire in turn-based play).
+		// active (a sub-1s duration would truncate to 0 turns and leave the
+		// turn clock nothing to expire in turn-based play).
 		turns := frames / cs.game.config.GetTPS()
 		if turns < 1 && frames > 0 {
 			turns = 1
@@ -951,9 +957,14 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		}
 		stunned := 0
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-			cs.applyScaledCharStun(member, frames, def.StunDurationTurns)
-			stunned++
+			if cs.applyScaledCharStun(member, frames, def.StunDurationTurns) {
+				stunned++
+			}
 		})
+		if stunned == 0 {
+			cs.game.AddCombatMessage("The party resists the shockwave's stun!")
+			return
+		}
 		cs.game.AddColoredCombatMessage(fmt.Sprintf("The shockwave stuns %d hero(es)!", stunned), combatMessageYellow)
 
 	default:

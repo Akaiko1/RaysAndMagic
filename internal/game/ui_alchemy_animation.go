@@ -51,10 +51,10 @@ func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRe
 	x := func(v float64) float32 { return float32(ox + v*scale) }
 	y := func(v float64) float32 { return float32(oy + v*scale) }
 	circle := func(cx, cy, r float64, col color.Color) {
-		vector.FillCircle(screen, x(cx), y(cy), float32(r*scale), col, true)
+		uiFillCircle(screen, x(cx), y(cy), float32(r*scale), col, true)
 	}
 	line := func(ax, ay, bx, by, w float64, col color.Color) {
-		vector.StrokeLine(screen, x(ax), y(ay), x(bx), y(by), float32(w*scale), col, true)
+		uiStrokeLine(screen, x(ax), y(ay), x(bx), y(by), float32(w*scale), col, true)
 	}
 	// Copper burner and a low, colored pool of light under the vessel.
 	for i := 5; i >= 1; i-- {
@@ -114,7 +114,7 @@ func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRe
 			phase := math.Mod(seconds*(.65+float64(i%3)*.1)+float64(i)*.173, 1)
 			yy := 161 - phase*(161-top-4)
 			xx := 160 + math.Sin(float64(i)*2.4)*min(halfWidth(yy)-8, 34) + math.Sin(seconds*3+float64(i))*2
-			vector.StrokeCircle(screen, x(xx), y(yy), float32((1.5+float64(i%3))*scale), float32(scale), brewTint(rgb, 1.65, .65*(1-phase)), true)
+			uiStrokeCircle(screen, x(xx), y(yy), float32((1.5+float64(i%3))*scale), float32(scale), brewTint(rgb, 1.65, .65*(1-phase)), true)
 		}
 		// Glass silhouette and two narrow specular edges.
 		var glass vector.Path
@@ -128,10 +128,10 @@ func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRe
 		glass.LineTo(x(175), y(43))
 		op := &vector.DrawPathOptions{AntiAlias: true}
 		op.ColorScale.ScaleWithColor(color.NRGBA{7, 18, 22, 255})
-		vector.StrokePath(screen, &glass, &vector.StrokeOptions{Width: float32(6 * scale)}, op)
+		uiStrokePath(screen, &glass, &vector.StrokeOptions{Width: float32(6 * scale)}, op)
 		op.ColorScale.Reset()
 		op.ColorScale.ScaleWithColor(color.NRGBA{108, 175, 184, 235})
-		vector.StrokePath(screen, &glass, &vector.StrokeOptions{Width: float32(2 * scale)}, op)
+		uiStrokePath(screen, &glass, &vector.StrokeOptions{Width: float32(2 * scale)}, op)
 		line(150, 50, 150, 76, 2, color.NRGBA{215, 243, 236, 220})
 		line(144, 90, 119, 133, 3, color.NRGBA{209, 240, 231, 130})
 		line(209, 147, 214, 155, 2, color.NRGBA{199, 235, 233, 195})
@@ -170,8 +170,8 @@ func (ui *UISystem) drawAlchemyBrewAnimation(screen *ebiten.Image, area layoutRe
 		size := int((72 + 12*reveal) * scale)
 		ui.drawInventoryItemIcon(screen, fx.Output, int(x(160))-size/2, int(y(106))-size/2, size, size, 2, true)
 	}
-	drawCenteredDebugText(screen, stage, area.x+12, area.bottom()-60, area.w-24, 18)
-	drawCenteredDebugText(screen, fmt.Sprintf("%d items prepared", fx.Count), area.x+12, area.bottom()-38, area.w-24, 16)
+	drawCenteredUIText(screen, stage, area.x+12, area.bottom()-60, area.w-24, 18)
+	drawCenteredUIText(screen, fmt.Sprintf("%d items prepared", fx.Count), area.x+12, area.bottom()-38, area.w-24, 16)
 	bar := layoutRect{area.x + 20, area.bottom() - 14, area.w - 40, 4}
 	drawFilledRect(screen, bar.x, bar.y, bar.w, bar.h, color.NRGBA{40, 45, 37, 255})
 	drawFilledRect(screen, bar.x, bar.y, int(float64(bar.w)*p), bar.h, brewTint(rgb, 1, 1))

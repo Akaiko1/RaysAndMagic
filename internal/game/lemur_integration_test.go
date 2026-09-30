@@ -231,6 +231,8 @@ func TestLemurInterruptedJumpFindsReachableLanding(t *testing.T) {
 	}
 }
 
+// RT Slow stretches canopy motion; TB Slow skips whole turns instead, so a
+// slowed TB update covers the same ground as an unslowed one.
 func TestLemurPartialSlowProgression(t *testing.T) {
 	for _, tps := range []int{60, 120, 240} {
 		for _, turn := range []bool{false, true} {
@@ -245,10 +247,15 @@ func TestLemurPartialSlowProgression(t *testing.T) {
 				normal := m.Arbor.Progress - before.Progress
 				m.Arbor, m.X, m.Y, m.AmbientMoveCredit = before, x, y, 0
 				m.ApplySlow(50, 100, 100)
-				stepLemur(g, m, turn)
-				stepLemur(g, m, turn)
+				updates := 2
+				if turn {
+					updates = 1
+				}
+				for range updates {
+					stepLemur(g, m, turn)
+				}
 				if got := m.Arbor.Progress - before.Progress; math.Abs(got-normal) > 1e-9 {
-					t.Fatalf("50 percent Slow should take two updates: normal=%f slow=%f", normal, got)
+					t.Fatalf("50 percent Slow should take %d update(s): normal=%f slow=%f", updates, normal, got)
 				}
 			})
 		}

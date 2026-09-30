@@ -820,7 +820,7 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 		return arms, false
 	}
 
-	screenW := r.game.config.GetScreenWidth()
+	screenW := r.game.worldWidth()
 	clampCol := func(x int) int {
 		if x < 0 {
 			return 0
@@ -928,7 +928,7 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	if sprite == nil {
 		return standeeSlab{}, false
 	}
-	screenW := r.game.config.GetScreenWidth()
+	screenW := r.game.worldWidth()
 	cam := r.game.camera
 	halfFovTan := r.cameraBasis().halfFovTan
 
@@ -1104,8 +1104,8 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		return false
 	}
 
-	screenW := r.game.config.GetScreenWidth()
-	screenH := r.game.config.GetScreenHeight()
+	screenW := r.game.worldWidth()
+	screenH := r.game.worldHeight()
 	cam := r.game.camera
 	viewDistance := cam.ViewDist
 	if viewDistance <= standeeMinDepth {
@@ -1277,8 +1277,8 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		return
 	}
 
-	screenW := r.game.config.GetScreenWidth()
-	horizon := float64(r.game.config.GetScreenHeight()) / 2
+	screenW := r.game.worldWidth()
+	horizon := float64(r.game.worldHeight()) / 2
 	cam := r.game.camera
 	basis := r.cameraBasis()
 	camDirX, camDirY := basis.dirX, basis.dirY
@@ -1559,7 +1559,7 @@ func spriteWidthForHeight(height float64, textureWidth, textureHeight int) float
 // reserveStandeeBuffers allocates the worst normal fallback geometry once at
 // map load instead of repeatedly growing it as the party approaches a token.
 func (r *Renderer) reserveStandeeBuffers() {
-	screenW := r.game.config.GetScreenWidth()
+	screenW := r.game.worldWidth()
 	// Fading and grazing slabs retain the material path regardless of shell
 	// count. Keep its existing warm capacity independent of volume eligibility.
 	const maxFallbackSurfaces = 7
@@ -1818,7 +1818,7 @@ func (g *MMGame) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) 
 // the tile diagonal when the projection degenerates.
 func (r *Renderer) spriteFootprintWorld(spriteSizePx, depthPerp float64) float64 {
 	halfFovTan := math.Tan(r.game.camera.FOV / 2)
-	footprint := spriteSizePx * 2 * halfFovTan * depthPerp / float64(r.game.config.GetScreenWidth())
+	footprint := spriteSizePx * 2 * halfFovTan * depthPerp / float64(r.game.worldWidth())
 	if footprint <= 0 {
 		footprint = float64(r.game.config.GetTileSize()) * math.Sqrt2
 	}
