@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -237,6 +238,11 @@ type Config struct {
 	Tiles         TileConfig          `yaml:"tiles"`
 	DayNight      DayNightConfig      `yaml:"day_night"`
 	Camping       CampingConfig       `yaml:"camping"`
+
+	// PlayerInterfaceSize is the saved interface preset key ("" until loaded).
+	PlayerInterfaceSize string `yaml:"-" json:"-"`
+	// PlayerFont is the saved interface font key ("" until loaded).
+	PlayerFont string `yaml:"-" json:"-"`
 }
 
 type CampingConfig struct {
@@ -382,6 +388,14 @@ type DisplayConfig struct {
 	Resizable         bool   `yaml:"resizable"`
 	Fullscreen        bool   `yaml:"fullscreen"`
 	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
+
+	// InterfaceSizes are the Settings > Display presets, smallest first.
+	InterfaceSizes       []InterfaceSize `yaml:"interface_sizes"`
+	DefaultInterfaceSize string          `yaml:"default_interface_size"`
+
+	// Fonts are the Settings > Display font choices.
+	Fonts       []UIFont `yaml:"fonts"`
+	DefaultFont string   `yaml:"default_font"`
 }
 
 type EngineConfig struct {
@@ -1588,6 +1602,12 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if err := config.Display.validateInterfaceSizes(); err != nil {
+		return nil, err
+	}
+	if err := config.Display.resolveFonts(filepath.Dir(filename)); err != nil {
 		return nil, err
 	}
 	if err := config.StatusEffects.validate(); err != nil {

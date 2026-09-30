@@ -86,13 +86,16 @@ func TestControlTipsDisplayedNavigation(t *testing.T) {
 
 // Prefer filling the available row before wrapping at the same card size.
 func TestHeroRosterUsesAvailableWidth(t *testing.T) {
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The roster builds real heroes, whose class kits need the catalogs.
+	cfg := newTestCombatSystemWithConfig(t).game.config
 	pc := newPartyCreateState(cfg)
+	var logical [][2]int
 	for _, physical := range [][2]int{{1280, 720}, {1920, 1080}, {2560, 1440}, {3440, 1440}, {3840, 2160}} {
-		w, h := logicalScreenSize(physical[0], physical[1])
+		w, h := logicalScreenSize(physical[0], physical[1], 1)
+		logical = append(logical, [2]int{w, h})
+	}
+	for _, size := range withInterfaceFrames(t, logical) {
+		physical, w, h := size, size[0], size[1]
 		l := partyCreateLayout(pc, w, h)
 		visible := append([]rect(nil), l.pool...)
 		sort.SliceStable(visible, func(i, j int) bool {

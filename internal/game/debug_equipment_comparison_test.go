@@ -33,18 +33,23 @@ func TestDebugSim_EquipmentComparisonGallery(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, old string
 		slot           items.EquipSlot
-		weapon         bool
+		weapon, full   bool
 	}{
-		{"armor-scaling", "onryo_lamellar", "leather_armor", items.SlotArmor, false},
-		{"accessory", "belt_of_strength", "belt_of_speed", items.SlotBelt, false},
-		{"shield-effects", "broodscale_aegis", "parma_shield", items.SlotOffHand, false},
-		{"weapon-set", "gold_sword", "iron_sword", items.SlotMainHand, true},
-		{"weapon-effects", "kage_kunai", "hunting_bow", items.SlotMainHand, true},
+		{"armor-scaling", "onryo_lamellar", "leather_armor", items.SlotArmor, false, false},
+		{"accessory", "belt_of_strength", "belt_of_speed", items.SlotBelt, false, false},
+		{"shield-effects", "broodscale_aegis", "parma_shield", items.SlotOffHand, false, false},
+		{"weapon-set", "gold_sword", "iron_sword", items.SlotMainHand, true, false},
+		{"weapon-effects", "kage_kunai", "hunting_bow", items.SlotMainHand, true, false},
+		// The tallest card in the game (see TestEveryTooltipFitsEveryInterfaceFrame).
+		{"longest-full", "verdant_eye_scepter", "iron_sword", items.SlotMainHand, true, true},
 	} {
-		for _, size := range [][2]int{{minW, minH}, {1280, 720}, {1920, 1080}} {
+		for _, size := range withInterfaceFrames(t, [][2]int{{minW, minH}, {1280, 720}, {1920, 1080}}) {
 			t.Run(fmt.Sprintf("%s/%dx%d", tc.name, size[0], size[1]), func(t *testing.T) {
 				g := h.g
 				g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = size[0], size[1]
+				prevDetail := tooltipDetailHeld
+				t.Cleanup(func() { tooltipDetailHeld = prevDetail })
+				tooltipDetailHeld = func() bool { return tc.full }
 				ch := g.party.Members[0]
 				comparisonTestHero(ch)
 				delete(ch.Skills, character.SkillDualWielding)

@@ -14,7 +14,7 @@ import (
 var campHUDResolutions = [][2]int{{800, 600}, {1024, 768}, {1280, 720}, {1280, 800}, {1366, 768}, {1440, 900}, {1600, 900}, {1680, 1050}, {1920, 1080}, {1920, 1200}, {2560, 1440}, {3440, 1440}, {3840, 2160}}
 
 func TestCampHUDLayout(t *testing.T) {
-	for _, res := range campHUDResolutions {
+	for _, res := range withInterfaceFrames(t, campHUDResolutions) {
 		for _, quick := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%dx%d/quick=%v", res[0], res[1], quick), func(t *testing.T) {
 				g, ch := newThiefTestGame(t)

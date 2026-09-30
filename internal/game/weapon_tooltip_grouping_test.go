@@ -102,7 +102,7 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 								}
 								reconstructed := make([]string, len(lines))
 								for _, row := range layout.rows {
-									if debugTextWidth(row.text) > row.w || row.x+row.w > w-6 || row.y+layout.lineHeight > h-6 {
+									if uiTextWidth(row.text) > row.w || row.x+row.w > w-6 || row.y+layout.lineHeight > h-6 {
 										t.Fatalf("painted row leaves its measured bounds: %+v", row)
 									}
 									if icon && row.y < 6+tooltipIconSize+tooltipIconGap && row.x+row.w > w-tooltipIconSize-tooltipIconGap-6 {

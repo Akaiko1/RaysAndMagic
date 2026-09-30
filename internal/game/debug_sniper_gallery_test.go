@@ -23,7 +23,7 @@ func TestDebugSim_SniperGallery(t *testing.T) {
 	}
 	storage.SetDataRootForTesting(t.TempDir())
 	defer storage.SetDataRootForTesting("")
-	g, r := bootFxGalleryGame(t)
+	g, _ := bootFxGalleryGame(t)
 	defer g.Shutdown()
 	ch := character.CreateCharacter("Mara", character.ClassSniper, g.config)
 	originalHero := g.party.Members[0]
@@ -68,13 +68,13 @@ func TestDebugSim_SniperGallery(t *testing.T) {
 			runOnDrawFrame(func(_ *ebiten.Image) {
 				screen := ebiten.NewImage(lw, lh)
 				defer screen.Deallocate()
-				if view == "hud" {
-					r.RenderFirstPersonView(screen)
-				}
-				if view == "party-create" {
+				switch view {
+				case "hud":
+					drawLaidOutFrame(g, screen)
+				case "party-create":
 					g.gameLoop.Draw(screen)
-				} else {
-					g.gameLoop.ui.Draw(screen)
+				default:
+					drawLaidOutUI(g, screen)
 				}
 				f, err := os.Create(filepath.Join(out, fmt.Sprintf("%s-%dx%d.png", view, size[0], size[1])))
 				if err != nil {

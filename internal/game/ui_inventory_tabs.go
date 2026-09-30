@@ -122,7 +122,7 @@ func (ui *UISystem) drawInventoryTabs(screen *ebiten.Image, x, y, w int, owner .
 		hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 		ui.drawDialogTab(screen, r, active)
 		if i == inventoryTabAll {
-			drawCenteredDebugText(screen, "All", r.x, r.y, r.w, r.h)
+			drawCenteredUIText(screen, "All", r.x, r.y, r.w, r.h)
 		} else {
 			icon := inventoryFilterIcons[i]
 			pad := max(4, r.w/8)

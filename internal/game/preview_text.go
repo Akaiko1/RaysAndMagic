@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -17,15 +18,23 @@ import (
 // DrawShadedText preserves the base tint and applies the game's metallic
 // gradient and dark 8-direction outline.
 func DrawShadedText(dst *ebiten.Image, text string, x, y int, col color.Color) {
-	drawDebugTextColored(dst, text, x, y, col)
+	drawUITextColored(dst, text, x, y, col)
 }
 
-// ShadedTextWidth is the advance of the same font used by DrawShadedText and
-// ebitenutil.DebugPrintAt. Editor labels must not estimate a different glyph width.
-func ShadedTextWidth(text string) int { return debugTextWidth(text) }
+// DrawPlainText draws unoutlined white text in the UI font, one 16px line per
+// "\n" - the editor's plain labels, measured with ShadedTextWidth.
+func DrawPlainText(dst *ebiten.Image, text string, x, y int) {
+	for i, line := range strings.Split(text, "\n") {
+		rasterUIText(dst, line, x, y+i*uiTextCharHeight, ebiten.ColorScale{})
+	}
+}
+
+// ShadedTextWidth is the advance of the font used by DrawShadedText and
+// DrawPlainText. Editor labels must not estimate a different glyph width.
+func ShadedTextWidth(text string) int { return uiTextWidth(text) }
 
 // ShadedTextColumns converts available pixels to complete fixed-width glyphs.
-func ShadedTextColumns(width int) int { return max(0, width/debugTextCharWidth) }
+func ShadedTextColumns(width int) int { return max(0, width/uiTextCharWidth) }
 
 // RarityColor is the game's single rarity->tint mapping (metal tiers render as
 // gradients through DrawShadedText).

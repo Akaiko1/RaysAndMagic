@@ -64,6 +64,8 @@ func bootRenderPreviewGame(t *testing.T, gameplay bool) (*MMGame, *Renderer) {
 		{"assets/items.yaml", func(p string) error { _, e := config.LoadItemConfig(p); return e }},
 		{"assets/loots.yaml", func(p string) error { _, e := config.LoadLootTables(p); return e }},
 		{"assets/traps.yaml", func(p string) error { _, e := config.LoadTrapConfig(p); return e }},
+		// Same order as boot.LoadGameData: icon frames validate technique icons.
+		{"assets/techniques.yaml", config.LoadTechniques},
 		{"assets/icon_frames.yaml", config.LoadIconFrames},
 		{"assets/npcs.yaml", character.LoadNPCConfig},
 	} {

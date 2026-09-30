@@ -5,6 +5,7 @@ package game
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
+	"image"
 	"image/png"
 	"math"
 	"os"
@@ -324,7 +325,7 @@ func TestDebugSim_FlaskFlightFrames(t *testing.T) {
 	// Keep the generated view and camera fixed. Advance the real projectile wrapper
 	// in fractions of its authored flight for a readable, reproducible visual reel.
 	for _, size := range [][2]int{{1024, 768}, {1920, 1080}} {
-		g.handleResize(size[0], size[1])
+		g.handleResize(image.Pt(size[0], size[1]), image.Pt(size[0], size[1]))
 		screen := ebiten.NewImage(size[0], size[1])
 		defer screen.Deallocate()
 		for _, key := range []string{"harm_flask", "venom_flask", "fire_flask"} {
@@ -541,7 +542,7 @@ func TestDebugSim_RareFirewallExterior(t *testing.T) {
 		t.Fatal("wall cast failed")
 	}
 	for _, size := range [][2]int{{1024, 768}, {1920, 1080}} {
-		g.handleResize(size[0], size[1])
+		g.handleResize(image.Pt(size[0], size[1]), image.Pt(size[0], size[1]))
 		screen := ebiten.NewImage(size[0], size[1])
 		defer screen.Deallocate()
 		runOnDrawFrame(func(_ *ebiten.Image) {

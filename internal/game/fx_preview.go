@@ -514,11 +514,10 @@ func (p *FxPreview) Step() {
 }
 
 // Scene renders the sandbox through the real renderer into an offscreen image
-// sized to the game's configured resolution (the renderer's projection math
-// reads config dimensions, not the target's bounds). The editor scales it into
-// its panel.
+// sized to the game's world resolution (the renderer's projection math reads
+// that size, not the target's bounds). The editor scales it into its panel.
 func (p *FxPreview) Scene() *ebiten.Image {
-	cw, ch := p.g.config.GetScreenWidth(), p.g.config.GetScreenHeight()
+	cw, ch := p.g.worldWidth(), p.g.worldHeight()
 	if p.scene == nil || p.scene.Bounds().Dx() != cw || p.scene.Bounds().Dy() != ch {
 		p.scene = ebiten.NewImage(cw, ch)
 	}
@@ -533,7 +532,7 @@ func (p *FxPreview) Scene() *ebiten.Image {
 // drawCardStage draws one oversized party-card box centre-screen and plays the
 // selected card FX over it - the same UISystem draw calls the HUD uses.
 func (p *FxPreview) drawCardStage(screen *ebiten.Image) {
-	cw, ch := p.g.config.GetScreenWidth(), p.g.config.GetScreenHeight()
+	cw, ch := p.g.worldWidth(), p.g.worldHeight()
 	w, h := 220, 300
 	x, y := (cw-w)/2, (ch-h)/2
 	drawFilledRect(screen, x, y, w, h, color.RGBA{30, 30, 50, 235})

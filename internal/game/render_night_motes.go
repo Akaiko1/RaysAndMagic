@@ -185,7 +185,7 @@ func (r *Renderer) updateNightMoteTrees(tick int64) {
 			continue
 		}
 		screenX, _, projected := r.game.renderHelper.projectToScreenX(tree.worldX, tree.worldY)
-		if !projected || screenX < 0 || screenX >= r.game.config.GetScreenWidth() {
+		if !projected || screenX < 0 || screenX >= r.game.worldWidth() {
 			continue
 		}
 		candidates = append(candidates, nightMoteCandidate{treeIndex: treeIndex, distanceSq: distanceSq})
@@ -300,7 +300,7 @@ func (r *Renderer) drawNightMotes(screen *ebiten.Image) {
 		return
 	}
 	tileSize := float64(r.game.config.GetTileSize())
-	screenH := float64(r.game.config.GetScreenHeight())
+	screenH := float64(r.game.worldHeight())
 	maxDepth := r.nightMoteMaxDepth()
 	draws := r.nightMoteDraws[:0]
 	for _, mote := range r.nightMotes {

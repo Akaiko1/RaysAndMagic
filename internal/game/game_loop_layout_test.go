@@ -22,7 +22,7 @@ func TestLogicalScreenSize(t *testing.T) {
 	minW, minH := MinimumWindowSize()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			gotW, gotH := logicalScreenSize(test.outW, test.outH)
+			gotW, gotH := logicalScreenSize(test.outW, test.outH, 1)
 			if gotW != test.logicalW || gotH != test.logicalH {
 				t.Fatalf("logicalScreenSize(%d, %d) = %dx%d, want %dx%d",
 					test.outW, test.outH, gotW, gotH, test.logicalW, test.logicalH)

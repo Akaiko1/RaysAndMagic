@@ -8,7 +8,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/character"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 )
 
@@ -431,7 +430,7 @@ func screenBannerLayout(screenW int, text string, offset float64) screenBannerGe
 }
 
 func screenBannerLayoutWithIcon(screenW int, text string, offset float64, withIcon bool) screenBannerGeometry {
-	plateH := int(float64(debugTextCharHeight)*bannerScale) + 2*bannerPlatePadY
+	plateH := int(float64(uiTextCharHeight)*bannerScale) + 2*bannerPlatePadY
 	iconBand := 0
 	if withIcon {
 		iconBand = plateH + 4
@@ -441,10 +440,10 @@ func screenBannerLayoutWithIcon(screenW int, text string, offset float64, withIc
 		maxTextPx = 120
 	}
 	scale := float64(bannerScale)
-	clipped := clipDebugText(text, int(float64(maxTextPx)/scale))
+	clipped := clipUIText(text, int(float64(maxTextPx)/scale))
 	g := screenBannerGeometry{
 		text:  clipped,
-		textW: int(float64(debugTextWidth(clipped)) * scale),
+		textW: int(float64(uiTextWidth(clipped)) * scale),
 		cx:    (screenW + iconBand) / 2,
 		cy:    bannerRestY - int(offset),
 	}
@@ -484,7 +483,7 @@ func (ui *UISystem) drawScreenBanner(screen *ebiten.Image) {
 		op := &ebiten.DrawImageOptions{}
 
 		op.ColorScale.ScaleAlpha(float32(alpha))
-		graphics.DrawImageScaled(screen, icon, float64(geo.icon.x), float64(geo.icon.y), float64(geo.icon.w), float64(geo.icon.h), op)
+		uiDrawImageScaled(screen, icon, float64(geo.icon.x), float64(geo.icon.y), float64(geo.icon.w), float64(geo.icon.h), op)
 	}
 }
 

@@ -74,12 +74,8 @@ func (gl *GameLoop) closeResourceLoading() {
 		gl.renderer.cancelFloorPreparation()
 		gl.renderer.cancelMapRenderPrewarmOutside(nil)
 	}
-	if l.front != nil {
-		l.front.Deallocate()
-	}
-	if l.back != nil {
-		l.back.Deallocate()
-	}
+	uiReleaseLayer(l.front)
+	uiReleaseLayer(l.back)
 	gl.loading = nil
 }
 
@@ -294,12 +290,8 @@ func (gl *GameLoop) tryLoadingFrame(dst *ebiten.Image) (complete bool) {
 
 func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 	l := gl.loading
-	if l.back == nil || l.back.Bounds().Size() != screen.Bounds().Size() {
-		if l.back != nil {
-			l.back.Deallocate()
-		}
-		l.back = ebiten.NewImage(screen.Bounds().Dx(), screen.Bounds().Dy())
-	}
+	frame := uiBounds(screen)
+	l.back = uiLayer(l.back, frame.Dx(), frame.Dy())
 	if gl.loadingWorkReady() {
 		if gl.tryLoadingFrame(l.back) {
 			l.front, l.back = l.back, l.front
@@ -313,7 +305,7 @@ func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 	}
 	screen.Fill(color.RGBA{12, 15, 18, 255})
 	if l.front != nil {
-		drawImageScaled(screen, l.front, 0, 0, screen.Bounds().Dx(), screen.Bounds().Dy())
+		drawImageScaled(screen, l.front, 0, 0, frame.Dx(), frame.Dy())
 	}
 	// Small demand images share the prewarmer's byte/count policy instead
 	// of making every icon wait for its own presentation frame.

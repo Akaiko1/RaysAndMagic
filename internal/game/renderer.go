@@ -283,7 +283,7 @@ func NewRenderer(game *MMGame) *Renderer {
 	r.whiteImg = ebiten.NewImage(1, 1)
 	r.whiteImg.Fill(color.White)
 
-	screenWidth := game.config.GetScreenWidth()
+	screenWidth := game.worldWidth()
 
 	// Initialize transparent sprite cache
 	r.buildTransparentSpriteCache()
@@ -533,7 +533,7 @@ func (r *Renderer) computeNumRays() int {
 	if rayWidth <= 0 {
 		rayWidth = 1
 	}
-	screenWidth := r.game.config.GetScreenWidth()
+	screenWidth := r.game.worldWidth()
 	if screenWidth <= 0 {
 		screenWidth = 800
 	}
@@ -770,7 +770,7 @@ func (r *Renderer) wallPointBrightness(screenX int, distance float64) float64 {
 	if n == 0 {
 		return r.calculateBrightnessWithTorchLight(r.game.camera.X, r.game.camera.Y, distance)
 	}
-	idx := screenX * n / r.game.config.GetScreenWidth()
+	idx := screenX * n / r.game.worldWidth()
 	if idx < 0 {
 		idx = 0
 	} else if idx >= n {
@@ -1786,7 +1786,7 @@ func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileTy
 
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
-	screenWidth := r.game.config.GetScreenWidth()
+	screenWidth := r.game.worldWidth()
 	for slot := range r.wallMipBatches {
 		b := &r.wallMipBatches[slot]
 		*b = wallMipBatch{verts: b.verts[:0], indices: b.indices[:0]}
@@ -1923,8 +1923,8 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		return
 	}
 
-	screenWidth := r.game.config.GetScreenWidth()
-	screenHeight := r.game.config.GetScreenHeight()
+	screenWidth := r.game.worldWidth()
+	screenHeight := r.game.worldHeight()
 	tileSize := r.game.config.GetTileSize()
 	camX := r.game.camera.X
 	camY := r.game.camera.Y
@@ -2113,7 +2113,7 @@ func (r *Renderer) flatTreeFallbackSize(distance, widthTiles float64, sprite *eb
 		width = max(1, int(math.Round(float64(width)*8/float64(height))))
 		height = 8
 	}
-	maxHeight := r.game.config.GetScreenHeight() * 64
+	maxHeight := r.game.worldHeight() * 64
 	if height > maxHeight {
 		width = max(1, int(math.Round(float64(width)*float64(maxHeight)/float64(height))))
 		height = maxHeight
@@ -2233,8 +2233,8 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 
 	sizeTiles := r.game.renderHelper.flatEnvHeightMultiplier(tileType, 1)
 	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeTiles)
-	if spriteHeight > r.game.config.GetScreenHeight() {
-		spriteHeight = r.game.config.GetScreenHeight()
+	if spriteHeight > r.game.worldHeight() {
+		spriteHeight = r.game.worldHeight()
 	}
 	if spriteHeight < 8 {
 		spriteHeight = 8
@@ -2242,7 +2242,7 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 
 	spriteWidth := max(1, int(math.Round(spriteWidthForHeight(
 		float64(spriteHeight), sprite.Bounds().Dx(), sprite.Bounds().Dy()))))
-	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
+	spriteTop := (r.game.worldHeight() - spriteHeight) / 2
 
 	// Update depth buffer for central 85% of sprite width only if this tile is opaque
 	// This prevents transparent edges from occluding objects behind them
@@ -2298,7 +2298,7 @@ func (r *Renderer) drawEnvironmentSpriteOnce(screen *ebiten.Image, x int, distan
 	if rayWidth <= 0 {
 		rayWidth = 1
 	}
-	screenWidth := r.game.config.GetScreenWidth()
+	screenWidth := r.game.worldWidth()
 	rayIndex := x / rayWidth
 	numRays := (screenWidth + rayWidth - 1) / rayWidth // Use ceil-division consistently
 	angle := r.game.camera.Angle - r.game.camera.FOV/2 + (float64(rayIndex)/float64(numRays))*r.game.camera.FOV
@@ -3544,9 +3544,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 		if mon.Flying {
-			bottomF = monsterFlyingBottom(r.game.config.GetScreenHeight(), bottomF, sizeF)
+			bottomF = monsterFlyingBottom(r.game.worldHeight(), bottomF, sizeF)
 		}
-		bottomF = arborealBottom(bottomF, float64(r.game.config.GetScreenHeight())*tileSize/depthPerp, mon.VisualHeightTiles())
+		bottomF = arborealBottom(bottomF, float64(r.game.worldHeight())*tileSize/depthPerp, mon.VisualHeightTiles())
 
 		var sprite *ebiten.Image
 		var flip, artFacesLeft bool
@@ -3909,7 +3909,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
 	if r.game.worldClickAllowed() && s.distance <= pickupRange && !c.hop.active(r.game.frameCount) {
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := r.game.worldCursorPosition()
 		info := GroundContainerRenderInfo{
 			ScreenX:    s.screenX,
 			ScreenY:    s.screenY,
@@ -4005,7 +4005,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				wkey := makeStandeeCoreKey(r.prefixedStandeeKeyName("wallprop", name), frame, false)
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
-				centeredBottom := float64(r.game.config.GetScreenHeight())/2 + s.sizeF/2
+				centeredBottom := float64(r.game.worldHeight())/2 + s.sizeF/2
 				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.sizeF, centeredBottom, b, 0, wallMountedDepthAllowanceWorld(r.game.config.GetTileSize(), r.game.config.Graphics.Standee.ThicknessTiles), true) {
 					return
 				}
@@ -4373,7 +4373,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	if r.game.worldClickAllowed() {
 		ex, ey := r.game.npcEffectivePos(s.npc)
 		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance {
-			mouseX, mouseY := ebiten.CursorPosition()
+			mouseX, mouseY := r.game.worldCursorPosition()
 			hovered = r.game.npcScreenHitTest(s.npc, ex, ey, mouseX, mouseY)
 		}
 	}
@@ -4684,7 +4684,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 		return projectileProjection{}, false
 	}
 
-	halfW := float64(r.game.config.GetScreenWidth()) / 2
+	halfW := float64(r.game.worldWidth()) / 2
 	screenX := int(halfW + (angleDiff/halfFOV)*halfW)
 
 	depthPerp := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
@@ -4705,7 +4705,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 
 	return projectileProjection{
 		screenX: screenX,
-		screenY: r.game.config.GetScreenHeight()/2 - size/2,
+		screenY: r.game.worldHeight()/2 - size/2,
 		size:    size,
 	}, true
 }
@@ -5302,8 +5302,8 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 	if len(r.game.slashEffects) == 0 {
 		return
 	}
-	cx := float64(r.game.config.GetScreenWidth()) / 2
-	screenH := float64(r.game.config.GetScreenHeight())
+	cx := float64(r.game.worldWidth()) / 2
+	screenH := float64(r.game.worldHeight())
 	cy := screenH * meleeAnchorYFrac // lower on screen - it's the party's own weapon
 	// Melee swings are now pure pixel-particle FX (see drawMeleeParticles):
 	// a sweeping crescent for slashes, a stab streak for thrusts. The old flat
@@ -5318,8 +5318,8 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 
 // drawHitEffects draws spell impact particles.
 func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
-	screenWidth := r.game.config.GetScreenWidth()
-	screenHeight := r.game.config.GetScreenHeight()
+	screenWidth := r.game.worldWidth()
+	screenHeight := r.game.worldHeight()
 	centerY := float64(screenHeight) / 2
 
 	// Draw spell hit particles

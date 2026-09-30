@@ -7,10 +7,8 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
-	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 )
@@ -22,7 +20,7 @@ func drawReadingText(dst *ebiten.Image, text string, x, y int, col color.Color) 
 	label := outlinedLabelImage(text, col)
 	b := label.Bounds()
 	// Integer enlargement of the same cached labels used by the top banners.
-	graphics.DrawImageScaled(dst, label, float64(x), float64(y), float64(b.Dx())*readingTextScale, float64(b.Dy())*readingTextScale, nil)
+	uiDrawImageScaled(dst, label, float64(x), float64(y), float64(b.Dx())*readingTextScale, float64(b.Dy())*readingTextScale, nil)
 }
 
 func (ui *UISystem) drawDialogTab(dst *ebiten.Image, r layoutRect, active bool) {
@@ -40,8 +38,8 @@ func (ui *UISystem) drawDialogTab(dst *ebiten.Image, r layoutRect, active bool) 
 	drawFilledRect(dst, r.x, r.y+4, 1, r.h-4, rim)
 	drawFilledRect(dst, r.x+r.w-1, r.y+4, 1, r.h-4, rim)
 	drawFilledRect(dst, r.x+4, r.y, r.w-8, 1, rim)
-	vector.StrokeLine(dst, float32(r.x), float32(r.y+4), float32(r.x+4), float32(r.y), 1, rim, false)
-	vector.StrokeLine(dst, float32(r.right()-4), float32(r.y), float32(r.right()-1), float32(r.y+4), 1, rim, false)
+	uiStrokeLine(dst, float32(r.x), float32(r.y+4), float32(r.x+4), float32(r.y), 1, rim, false)
+	uiStrokeLine(dst, float32(r.right()-4), float32(r.y), float32(r.right()-1), float32(r.y+4), 1, rim, false)
 	if active {
 		drawFilledRect(dst, r.x+1, r.bottom()-2, r.w-2, 4, fill)
 	} else {
@@ -54,7 +52,7 @@ func (ui *UISystem) drawCardEffectsList(dst *ebiten.Image, r layoutRect) {
 	drawReadingText(dst, uitext.Text("ui.party_effects"), r.x+12, r.y+10, rarityGold)
 	var lines []string
 	for _, effect := range ui.game.cardCollectionEffectLines() {
-		wrapped := wrapDebugText(effect, int(float64(r.w-56)/readingTextScale))
+		wrapped := wrapUIText(effect, int(float64(r.w-56)/readingTextScale))
 		for i, line := range wrapped {
 			prefix := "  "
 			if i == 0 {
@@ -108,10 +106,10 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 	drawFilledRect(dst, r.right()-1, r.y+1, 1, r.h-2, style.rim)
 	status := style.status
 	titleW := r.w - 200
-	drawDebugTextColored(dst, clipDebugText(quest.Definition.Name, titleW), r.x+16, r.y+8, style.title)
-	drawDebugTextColored(dst, status, r.right()-debugTextWidth(status)-16, r.y+8, style.rim)
+	drawUITextColored(dst, clipUIText(quest.Definition.Name, titleW), r.x+16, r.y+8, style.title)
+	drawUITextColored(dst, status, r.right()-uiTextWidth(status)-16, r.y+8, style.rim)
 	for i, line := range copy.descLines {
-		drawDebugTextColored(dst, line, r.x+16, r.y+questCardDescTop+i*questCardLineHeight, style.body)
+		drawUITextColored(dst, line, r.x+16, r.y+questCardDescTop+i*questCardLineHeight, style.body)
 	}
 	ui.offerClippedTextTooltip(copy.fullLines, copy.descClipped(), r.x+16, r.y+questCardDescTop, r.w-32, len(copy.descLines)*questCardLineHeight)
 	bottom := r.y + questCardDescTop + len(copy.descLines)*questCardLineHeight
@@ -123,11 +121,11 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 		}
 	}
 	half := r.w/2 - 28
-	drawDebugTextColored(dst, clipDebugText(progressText, half), r.x+16, bottom, style.body)
+	drawUITextColored(dst, clipUIText(progressText, half), r.x+16, bottom, style.body)
 	rewardsX := r.x + r.w/2 + 10
 	reward := journalRewardText(quest.Definition.Rewards)
-	ui.offerClippedTextTooltip([]string{reward}, debugTextWidth(reward) > half, rewardsX, bottom, half, questCardLineHeight)
-	drawDebugTextColored(dst, clipDebugText(reward, half), rewardsX, bottom, style.body)
+	ui.offerClippedTextTooltip([]string{reward}, uiTextWidth(reward) > half, rewardsX, bottom, half, questCardLineHeight)
+	drawUITextColored(dst, clipUIText(reward, half), rewardsX, bottom, style.body)
 	y := bottom + questCardProgressGap
 	if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 		width := min(260, half)
@@ -148,7 +146,7 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 		}
 		drawFilledRect(dst, button.x, button.y, button.w, button.h, color.RGBA{54, 41, 21, 255})
 		drawMetalPlate(dst, button.x, button.bottom()-1, button.w, 1, tint)
-		drawDebugTextColored(dst, uitext.Text("ui.claim_reward"), button.x+10, button.y+4, tint)
+		drawUITextColored(dst, uitext.Text("ui.claim_reward"), button.x+10, button.y+4, tint)
 		ui.onDisplayedInput(uiCommandClick, button, func() {
 			if !ui.modalLayerOwnsInput() && ui.game.consumeLeftClickIn(button.x, button.y, button.right(), button.bottom()) {
 				ui.claimQuestReward(quest.ID)

@@ -21,7 +21,7 @@ func TestDebugSim_GameplayHUDGallery(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("debug module; run with RAM_DEBUG_SIM=1")
 	}
-	g, renderer := bootFxGalleryGame(t)
+	g, _ := bootFxGalleryGame(t)
 	defer g.Shutdown()
 
 	g.switchToMap("forest")
@@ -101,17 +101,11 @@ func TestDebugSim_GameplayHUDGallery(t *testing.T) {
 	}
 
 	for _, physical := range resolutions {
-		logicalW, logicalH := g.gameLoop.Layout(physical.w, physical.h)
-		logical := ebiten.NewImage(logicalW, logicalH)
-		output := ebiten.NewImage(physical.w, physical.h)
+		screenW, screenH := g.gameLoop.Layout(physical.w, physical.h)
+		output := ebiten.NewImage(screenW, screenH)
 		runOnDrawFrame(func(_ *ebiten.Image) {
-			logical.Clear()
-			renderer.RenderFirstPersonView(logical)
-			g.gameLoop.ui.Draw(logical)
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Scale(float64(physical.w)/float64(logicalW), float64(physical.h)/float64(logicalH))
-			op.Filter = ebiten.FilterNearest
-			output.DrawImage(logical, op)
+			output.Clear()
+			drawLaidOutFrame(g, output)
 		})
 
 		name := fmt.Sprintf("gameplay_hud_%dx%d.png", physical.w, physical.h)

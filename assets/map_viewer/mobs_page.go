@@ -14,7 +14,6 @@ import (
 	"ugataima/internal/monster"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -219,11 +218,11 @@ func (v *viewer) scrollMobSelectionIntoView() {
 
 func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 	if mobsPage.initErr != "" {
-		ebitenutil.DebugPrintAt(screen, mobsPage.initErr, contentPad, pageBarHeight+contentPad)
+		game.DrawPlainText(screen, mobsPage.initErr, contentPad, pageBarHeight+contentPad)
 		return
 	}
 	if mobsPage.preview == nil {
-		ebitenutil.DebugPrintAt(screen, "starting mob sandbox...", contentPad, pageBarHeight+contentPad)
+		game.DrawPlainText(screen, "starting mob sandbox...", contentPad, pageBarHeight+contentPad)
 		return
 	}
 

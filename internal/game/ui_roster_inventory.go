@@ -15,15 +15,15 @@ func rosterWarningButtons(area layoutRect) [2]layoutRect {
 func (ui *UISystem) drawRosterInventoryWarning(screen *ebiten.Image, area layoutRect, interactive bool) {
 	g := ui.game
 	r := g.pendingRosterSwap
-	drawDebugTextColored(screen, clipDebugText("Send "+r.outgoing.Name+" to reserve?", area.w), area.x, area.y, rarityGold)
+	drawUITextColored(screen, clipUIText("Send "+r.outgoing.Name+" to reserve?", area.w), area.x, area.y, rarityGold)
 	y := area.y + 30
-	for _, line := range wrapDebugText("This hero carries important items. These stay with the hero and will be unavailable until they return to the party.", area.w) {
-		drawDebugText(screen, line, area.x, y)
-		y += debugTextCharHeight
+	for _, line := range wrapUIText("This hero carries important items. These stay with the hero and will be unavailable until they return to the party.", area.w) {
+		drawUIText(screen, line, area.x, y)
+		y += uiTextCharHeight
 	}
 	y += 12
 	buttons := rosterWarningButtons(area)
-	visible := max(0, (buttons[0].y-12-y)/debugTextCharHeight)
+	visible := max(0, (buttons[0].y-12-y)/uiTextCharHeight)
 	for i, name := range r.items {
 		if i >= visible {
 			break
@@ -32,7 +32,7 @@ func (ui *UISystem) drawRosterInventoryWarning(screen *ebiten.Image, area layout
 		if i == visible-1 && len(r.items) > visible {
 			line = fmt.Sprintf("... and %d more", len(r.items)-i)
 		}
-		drawDebugText(screen, clipDebugText(line, area.w), area.x, y+i*debugTextCharHeight)
+		drawUIText(screen, clipUIText(line, area.w), area.x, y+i*uiTextCharHeight)
 	}
 	mx, my := pointerPosition()
 	for i, b := range buttons {

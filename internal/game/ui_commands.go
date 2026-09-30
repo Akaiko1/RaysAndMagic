@@ -76,6 +76,11 @@ func (ui *UISystem) syncPointerScreen() {
 		ui.game.audioSliderDrag >= 0 && !ui.audioSettingsOwnsInput() {
 		ui.cancelScreenPointerGestures()
 	}
+	if d.pointerScreenSet && d.pointerScreen != screen {
+		// A held thumb belongs to its screen. A stale display after the
+		// drag's own scroll must not drop it, so only a screen change does.
+		ui.scrollDrag = scrollbarDrag{}
+	}
 	d.pointerScreen, d.pointerScreenSet = screen, true
 }
 
@@ -107,6 +112,8 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	mix(uint64(g.selectedRare))
 	mix(uint64(g.alchemyBatches))
 	mix(ui.alchemyRevision)
+	mix(uint64(uiFontGeneration)) // a new font moves every measured label
+	mix(uint64(boolInt(g.fontListOpen)))
 	mix(uint64(boolInt(g.brewAnimation != nil)))
 	mix(uint64(g.settingsTab))
 	mix(uint64(ui.personalInventoryPage))
@@ -221,6 +228,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 func (ui *UISystem) beginDisplayedInput() {
 	d := &ui.displayedInput
 	d.building = true
+	ui.scrollDragShown = false
 	d.suspended = false
 	d.audioSelection = -1
 	// Release captured references from the previous layout before reuse.
@@ -237,6 +245,11 @@ func (ui *UISystem) endDisplayedInput() {
 	d := &ui.displayedInput
 	d.building = false
 	d.ready = true
+	if !ui.scrollDragShown {
+		// The held thumb's list is gone from the frame - its menu closed,
+		// another tab or a modal took over - so the grab ends with it.
+		ui.scrollDrag = scrollbarDrag{}
+	}
 	// Presentation may clamp a page; identity describes the layout just drawn.
 	d.identity = ui.displayIdentity()
 }

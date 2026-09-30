@@ -15,7 +15,7 @@ func TestWrapArenaBoardLinePreservesDetailIndentAndWidth(t *testing.T) {
 		t.Fatalf("long detail line = %v, want wrapping", lines)
 	}
 	for _, line := range lines {
-		if got := debugTextWidth(line); got > maxWidth {
+		if got := uiTextWidth(line); got > maxWidth {
 			t.Errorf("line width = %d, want <= %d: %q", got, maxWidth, line)
 		}
 		if !strings.HasPrefix(line, "   ") {

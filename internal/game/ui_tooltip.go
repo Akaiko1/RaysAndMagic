@@ -12,8 +12,9 @@ import (
 )
 
 // tooltipDetailHeld reports whether the player is holding Shift to expand a
-// tooltip to include calculations and mechanic-specific exceptions.
-func tooltipDetailHeld() bool {
+// tooltip to include calculations and mechanic-specific exceptions. A seam so
+// galleries can show the expanded card.
+var tooltipDetailHeld = func() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
 

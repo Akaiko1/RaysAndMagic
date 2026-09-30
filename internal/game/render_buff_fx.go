@@ -56,8 +56,8 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 	if len(r.game.buffFxAnims) == 0 {
 		return
 	}
-	sw := float64(r.game.config.GetScreenWidth())
-	sh := float64(r.game.config.GetScreenHeight())
+	sw := float64(r.game.worldWidth())
+	sh := float64(r.game.worldHeight())
 	for _, a := range r.game.buffFxAnims {
 		sheet := r.game.sprites.GetSprite(a.sprite)
 		if sheet == nil {

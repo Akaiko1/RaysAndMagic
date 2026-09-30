@@ -49,7 +49,7 @@ type bubbleColumnFx struct {
 // the tile's own billboard and the wall depth buffer, then draws perColumn rising
 // glows that fade in at the floor and out at the top.
 func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
-	horizon := float64(r.game.config.GetScreenHeight()) / 2
+	horizon := float64(r.game.worldHeight()) / 2
 
 	screenX, depth, ok := r.game.renderHelper.projectToScreenX(c.wx, c.wy)
 	if !ok || depth < auraMinDepth || depth > c.maxDepth {

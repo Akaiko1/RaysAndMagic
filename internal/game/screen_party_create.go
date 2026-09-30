@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"sort"
 	uitext "ugataima/assets/text"
-	"ugataima/internal/graphics"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -13,7 +12,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // ---------------------------------------------------------------------------
@@ -410,10 +408,10 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	w := g.config.GetScreenWidth()
 	h := g.config.GetScreenHeight()
 	lay := partyCreateLayout(pc, w, h)
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 
 	ui.drawScreenBackdrop(screen, w, h, "screen_party_create_bg")
-	drawDebugText(screen, "To pick a hero, drag it into a party slot below", 24, 8)
+	drawUIText(screen, "To pick a hero, drag it into a party slot below", 24, 8)
 
 	ui.drawHeroDetailPanel(screen, pc.detail, lay.detail)
 
@@ -425,7 +423,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 			ui.drawHeroCard(screen, hero, r, hero == pc.detail) // card draws its own frame
 		} else {
 			drawPortraitFrame(screen, r.x, r.y, r.w, r.h)
-			drawCenteredDebugText(screen, fmt.Sprintf("Slot %d", i+1), r.x, r.y+r.h/2-8, r.w, 16)
+			drawCenteredUIText(screen, fmt.Sprintf("Slot %d", i+1), r.x, r.y+r.h/2-8, r.w, 16)
 		}
 		if pc.drag != nil && r.contains(mouseX, mouseY) {
 			drawRectBorder(screen, r.x, r.y, r.w, r.h, 3, color.RGBA{180, 210, 250, 220}) // valid drop target
@@ -439,7 +437,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 		}
 		ui.drawHeroCard(screen, hero, lay.pool[i], hero == pc.detail)
 	}
-	drawDebugText(screen, "Available heroes", lay.detail.x+lay.detail.w+20, lay.detail.y-18)
+	drawUIText(screen, "Available heroes", lay.detail.x+lay.detail.w+20, lay.detail.y-18)
 
 	if lay.poolMaxScroll > 0 {
 		ui.drawScrollArrowButton(screen, lay.poolUp.x, lay.poolUp.y, lay.poolUp.w, lay.poolUp.h, true, lay.poolUp.contains(mouseX, mouseY), pc.poolScroll > 0)
@@ -453,7 +451,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	} else {
 		ui.drawButtonFrame(screen, lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h, false)
 		drawFilledRect(screen, lay.begin.x+3, lay.begin.y+3, lay.begin.w-6, lay.begin.h-6, color.RGBA{0, 0, 0, 100})
-		drawCenteredDebugText(screen, "Pick 4 heroes", lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h)
+		drawCenteredUIText(screen, "Pick 4 heroes", lay.begin.x, lay.begin.y, lay.begin.w, lay.begin.h)
 	}
 	ui.drawMenuButton(screen, "Back (Esc)", lay.back.x, lay.back.y, lay.back.w, lay.back.h, lay.back.contains(mouseX, mouseY))
 
@@ -482,7 +480,7 @@ func (ui *UISystem) drawPortraitCover(screen *ebiten.Image, name string, x, y, w
 	}
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(img, op)
+	uiDrawImage(screen, img, op)
 }
 
 const (
@@ -508,7 +506,7 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 	if ui.game.sprites.HasSprite("theme_hero_card") {
 		op := &ebiten.DrawImageOptions{}
 		op.ColorScale.Scale(float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255, 1)
-		graphics.DrawImageScaled(screen, ui.game.sprites.GetSprite("theme_hero_card"), float64(r.x), float64(r.y), float64(r.w), float64(r.h), op)
+		uiDrawImageScaled(screen, ui.game.sprites.GetSprite("theme_hero_card"), float64(r.x), float64(r.y), float64(r.w), float64(r.h), op)
 	} else {
 		drawPortraitFrame(screen, r.x, r.y, r.w, r.h)
 	}
@@ -521,13 +519,13 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 		{r.x + 1, r.y + r.h - cut}, {r.x + 1, r.y + cut}}
 	for i, p := range points {
 		next := points[(i+1)%len(points)]
-		vector.StrokeLine(screen, float32(p[0]), float32(p[1]), float32(next[0]), float32(next[1]), 2, tint, false)
+		uiStrokeLine(screen, float32(p[0]), float32(p[1]), float32(next[0]), float32(next[1]), 2, tint, false)
 	}
 	picture := heroCardPortraitRect(r)
 	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char), picture.x, picture.y, picture.w, picture.h)
 	textY := r.y + r.h*75/100 + 1
-	drawCenteredTextWithShadow(screen, clipDebugText(hero.char.Name, r.w-8), r.x+4, textY, r.w-8, 12, color.RGBA{242, 232, 210, 255})
-	drawCenteredTextWithShadow(screen, clipDebugText(hero.char.Class.String(), r.w-8), r.x+4, textY+12, r.w-8, 12, color.RGBA{201, 199, 194, 255})
+	drawCenteredTextWithShadow(screen, clipUIText(hero.char.Name, r.w-8), r.x+4, textY, r.w-8, 12, color.RGBA{242, 232, 210, 255})
+	drawCenteredTextWithShadow(screen, clipUIText(hero.char.Class.String(), r.w-8), r.x+4, textY+12, r.w-8, 12, color.RGBA{201, 199, 194, 255})
 	symbol := "theme_rarity_" + rarity
 	if rarity == "legendary" {
 		symbol = "theme_rarity_gem"
@@ -559,7 +557,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	ui.drawCornerDecor(screen, frameSilver, panel.x-8, panel.y-8, panel.w+16, panel.h+16, decorAllCorners)
 	ui.drawPanelInlay(screen, frameSilver, panel.x+panel.w/2, panel.y)
 	if hero == nil {
-		drawCenteredDebugText(screen, "Select a hero", panel.x, panel.y+panel.h/2-8, panel.w, 16)
+		drawCenteredUIText(screen, "Select a hero", panel.x, panel.y+panel.h/2-8, panel.w, 16)
 		return
 	}
 	c := hero.char
@@ -581,9 +579,9 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	contentBottom := panel.y + panel.h - 24
 	ty := textTop - pc.detailScroll
 	line := func(s string, col color.Color) {
-		for _, text := range wrapDebugText(s, panel.w-32) {
-			if ty >= textTop && ty+debugTextCharHeight <= contentBottom {
-				drawDebugTextColored(screen, text, tx, ty, col)
+		for _, text := range wrapUIText(s, panel.w-32) {
+			if ty >= textTop && ty+uiTextCharHeight <= contentBottom {
+				drawUITextColored(screen, text, tx, ty, col)
 			}
 			ty += 16
 		}
@@ -593,8 +591,8 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	// caller adds - otherwise lists run past the frame's right border.
 	maxLineW := panel.w - 32
 	wrapTokens := func(prefix, cont string, tokens []string, col color.Color) {
-		budget := maxLineW - debugTextWidth(cont)
-		if pb := maxLineW - debugTextWidth(prefix); pb < budget {
+		budget := maxLineW - uiTextWidth(cont)
+		if pb := maxLineW - uiTextWidth(prefix); pb < budget {
 			budget = pb
 		}
 		for i, ln := range wrapToWidth(tokens, budget) {
@@ -674,7 +672,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	pc.detailMaxScroll = max(0, ty+pc.detailScroll-contentBottom)
 	pc.detailScroll = min(pc.detailScroll, pc.detailMaxScroll)
 	if pc.detailMaxScroll > 0 {
-		drawCenteredDebugText(screen, uitext.Text("ui.scroll_details"), panel.x+8, panel.y+panel.h-20, panel.w-16, 14)
+		drawCenteredUIText(screen, uitext.Text("ui.scroll_details"), panel.x+8, panel.y+panel.h-20, panel.w-16, 14)
 	}
 
 }
@@ -689,7 +687,7 @@ func wrapToWidth(tokens []string, maxPx int) []string {
 		if cur != "" {
 			cand = cur + ", " + t
 		}
-		if debugTextWidth(cand) > maxPx && cur != "" {
+		if uiTextWidth(cand) > maxPx && cur != "" {
 			lines = append(lines, cur)
 			cur = t
 		} else {

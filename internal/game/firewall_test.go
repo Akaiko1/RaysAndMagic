@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strings"
 	"testing"
@@ -418,7 +419,7 @@ func TestStampActorDepth_MarksTheCentralBandWithTheNearest(t *testing.T) {
 	g.depthBuffer = make([]float64, wantWidth)
 	g.wallTopBuffer = make([]int, wantWidth)
 	g.actorDepthBuffer = nil
-	g.handleResize(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	g.handleResize(image.Pt(g.config.GetScreenWidth(), g.config.GetScreenHeight()), image.Pt(g.config.GetScreenWidth(), g.config.GetScreenHeight()))
 	if got := len(g.actorDepthBuffer); got != wantWidth {
 		t.Fatalf("same-size resize left actor depth buffer at %d columns, want %d", got, wantWidth)
 	}

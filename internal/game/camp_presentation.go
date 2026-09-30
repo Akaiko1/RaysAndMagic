@@ -105,7 +105,9 @@ func (ui *UISystem) drawCampRest(screen *ebiten.Image) {
 		return
 	}
 	s.presented = true // Display acknowledgement, not simulation progress.
-	viewport := screen.Bounds().Intersect(image.Rect(0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g)))
+	// The dissolve shader works in the screen's own pixels, so the scene art
+	// is cover-fitted at native resolution.
+	viewport := uiPixelRect(screen, uiBounds(screen).Intersect(image.Rect(0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g))))
 	w, h := viewport.Dx(), viewport.Dy()
 	if w <= 0 || h <= 0 {
 		return
@@ -139,7 +141,7 @@ func (ui *UISystem) drawCampRest(screen *ebiten.Image) {
 		pattern, radius = &s.hidePattern, s.hideRadius
 	}
 	op := &ebiten.DrawRectShaderOptions{Uniforms: map[string]any{
-		"Progress": s.alpha(), "PixelSize": float32(pixels),
+		"Progress": s.alpha(), "PixelSize": float32(float64(pixels) * uiScaleOf(screen)),
 		"Centers": pattern.centers[:], "NoiseSeed": pattern.noiseSeed, "Radius": radius,
 	}}
 	op.Images[0] = s.surface

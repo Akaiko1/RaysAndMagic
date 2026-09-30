@@ -20,7 +20,6 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"gopkg.in/yaml.v3"
@@ -322,7 +321,7 @@ func (v *viewer) drawOpenWorldPage(screen *ebiten.Image) {
 	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{70, 70, 90, 255})
 
 	if v.owc == nil {
-		ebitenutil.DebugPrintAt(screen, "no open_world.yaml: "+owPage.err, panelX+12, panelY+12)
+		game.DrawPlainText(screen, "no open_world.yaml: "+owPage.err, panelX+12, panelY+12)
 		return
 	}
 
@@ -358,7 +357,7 @@ func (v *viewer) drawOpenWorldPage(screen *ebiten.Image) {
 		if p := v.owc.Placements[key]; p.Orient != "" && p.Orient != "none" {
 			label += " [" + p.Orient + "]"
 		}
-		ebitenutil.DebugPrintAt(screen, label, int(px)+4, int(py)+4)
+		game.DrawPlainText(screen, label, int(px)+4, int(py)+4)
 	}
 
 	// Connection openings from the last good stitch (placed via the real
@@ -395,7 +394,7 @@ func (v *viewer) drawOpenWorldSidebar(screen *ebiten.Image, x int) {
 	drawRectBorder(screen, x, y, sidebarWidth-16, windowHeight-y-8, 2, color.RGBA{70, 70, 90, 255})
 	line := func(s string) {
 		for _, row := range wrapTooltipLines(s, game.ShadedTextColumns(sidebarWidth-36)) {
-			ebitenutil.DebugPrintAt(screen, row, x+10, y+8)
+			game.DrawPlainText(screen, row, x+10, y+8)
 			y += 16
 		}
 	}
@@ -478,7 +477,7 @@ func (v *viewer) drawOpenWorldHighlights(screen *ebiten.Image, m mapInfo, lay la
 					}
 				}
 			}
-			ebitenutil.DebugPrintAt(clip, "OW> "+partner, labelX+2, labelY-14)
+			game.DrawPlainText(clip, "OW> "+partner, labelX+2, labelY-14)
 		}
 	}
 }

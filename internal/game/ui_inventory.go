@@ -25,7 +25,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
 
 	drawLabel := func(label string, r layoutRect, tint color.RGBA) {
-		text := clipDebugText(label, (r.w-8)/layout.textScale-4)
+		text := clipUIText(label, (r.w-8)/layout.textScale-4)
 		drawScaledMetalCenteredText(screen, text, r.x+r.w/2, r.y+r.h/2, float64(layout.textScale), tint)
 		ui.offerClippedTextTooltip([]string{label}, text != label, r.x, r.y, r.w, r.h)
 	}
@@ -88,7 +88,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	ui.drawInventoryTabs(screen, layout.personalCategories.x, layout.personalCategories.y, layout.personalCategories.w, currentChar)
 	ui.drawInventoryBagGrid(screen, currentChar, layout.personalGrid, layout.personalPager, &ui.personalInventoryPage)
 	ui.drawInventoryBagGrid(screen, nil, layout.grid, layout.pager, &ui.inventoryPage)
-	drawCenteredDebugText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
+	drawCenteredUIText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
 
 	if tooltip != "" && tooltipHasItem {
@@ -109,14 +109,14 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 		return
 	}
 	const btnW, btnH = 30, 18
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 
 	drawBtn := func(bx int, label string, enabled bool, step int) {
 		ui.drawButtonFrame(screen, bx, y, btnW, btnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH))
 		if !enabled {
 			drawFilledRect(screen, bx+2, y+2, btnW-4, btnH-4, color.RGBA{0, 0, 0, 100})
 		}
-		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
+		drawCenteredUIText(screen, label, bx, y+2, btnW, btnH-2)
 		ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, btnW, btnH}, func() {
 			if enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH) {
 				*page = max(0, min(totalPages-1, *page+step))
@@ -130,7 +130,7 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	drawBtn(x, "<", *page > 0, -1)
 	drawBtn(x+w-btnW, ">", *page < totalPages-1, 1)
 
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
 }
 
 const (
@@ -261,7 +261,7 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 	} else {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{22, 18, 24, 210})
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
-		drawCenteredDebugText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
+		drawCenteredUIText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
 	}
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
@@ -309,11 +309,11 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	}
 	labels = append(labels, moveLabel)
 	menuW, menuH := 166, 24*len(labels)
-	x := min(ui.inventoryContextX, screen.Bounds().Dx()-menuW-4)
-	y := min(ui.inventoryContextY, screen.Bounds().Dy()-menuH-4)
+	x := min(ui.inventoryContextX, uiBounds(screen).Dx()-menuW-4)
+	y := min(ui.inventoryContextY, uiBounds(screen).Dy()-menuH-4)
 	ui.drawThemeFrame(screen, frameSilver, x, y, menuW, menuH)
 	for i, label := range labels {
-		drawCenteredDebugText(screen, label, x, y+i*24, menuW, 24)
+		drawCenteredUIText(screen, label, x, y+i*24, menuW, 24)
 	}
 	if ui.inventoryInputBlocked() {
 		return
@@ -343,9 +343,9 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 // fullscreen dashboard. No fixed row budget is allowed to hide authored skills.
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeCharacterContentLayout(content)
-	drawCenteredDebugText(screen, "CHARACTER OVERVIEW", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
+	drawCenteredUIText(screen, "CHARACTER OVERVIEW", layout.title.x, layout.title.y, layout.title.w, layout.title.h)
 	if len(ui.game.party.Members) == 0 {
-		drawDebugText(screen, "No party members.", layout.title.x, layout.title.y+24)
+		drawUIText(screen, "No party members.", layout.title.x, layout.title.y+24)
 		return
 	}
 
@@ -357,7 +357,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	if member == nil {
 		return
 	}
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	var tooltip string
 	var tooltipX, tooltipY int
 	textColor := color.RGBA{240, 240, 240, 255}
@@ -371,7 +371,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 	drawSection := func(r layoutRect, title string) {
 		ui.drawPatternFrame(screen, "menu_panel_slot", r.x, r.y, r.w, r.h, menuPanelFrameSlice)
-		drawDebugTextShadowed(screen, title, r.x+sectionTextInset, r.y+sectionTitleY, headingColor)
+		drawUITextColored(screen, title, r.x+sectionTextInset, r.y+sectionTitleY, headingColor)
 	}
 	drawSection(layout.profile, "PROFILE")
 	drawSection(layout.attributes, "ATTRIBUTES")
@@ -398,7 +398,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		if i < 2 {
 			lineColor = headingColor
 		}
-		drawDebugTextShadowed(screen, clipDebugText(line, profileW), profileX, profileY+i*16, lineColor)
+		drawUITextColored(screen, clipUIText(line, profileW), profileX, profileY+i*16, lineColor)
 	}
 	statusText := "Status: Normal"
 	if len(member.Conditions) > 0 {
@@ -408,8 +408,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		}
 		statusText = "Status: " + strings.Join(names, ", ")
 	}
-	for i, line := range wrapDebugText(statusText, profileW) {
-		drawDebugTextShadowed(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
+	for i, line := range wrapUIText(statusText, profileW) {
+		drawUITextColored(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
 	}
 
 	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
@@ -430,13 +430,13 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		x := layout.attributes.x + sectionTextInset
 		y := layout.attributes.y + sectionBodyY + i*attributeRowH
 		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
-		drawDebugTextShadowed(screen, clipDebugText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
+		drawUITextColored(screen, clipUIText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
 		if delta := stat.eff - stat.base; delta != 0 {
 			clr := color.RGBA{130, 210, 130, 255}
 			if delta < 0 {
 				clr = color.RGBA{215, 120, 110, 255}
 			}
-			drawDebugTextShadowed(screen, fmt.Sprintf(" (%+d)", delta), x+debugTextWidth(line), y, clr)
+			drawUITextColored(screen, fmt.Sprintf(" (%+d)", delta), x+uiTextWidth(line), y, clr)
 		}
 		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
 			tooltip = statTooltipText(stat.name)
@@ -455,7 +455,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		}
 	}
 	if len(schools) == 0 {
-		drawDebugTextShadowed(screen, "None", layout.magic.x+sectionTextInset, layout.magic.y+sectionBodyY, textColor)
+		drawUITextColored(screen, "None", layout.magic.x+sectionTextInset, layout.magic.y+sectionBodyY, textColor)
 	} else {
 		rows := max(1, (layout.magic.h-sectionBodyY-12)/sectionRowH)
 		cols := max(1, (len(schools)+rows-1)/rows)
@@ -463,7 +463,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		for i, school := range schools {
 			x := layout.magic.x + sectionTextInset + (i/rows)*colW
 			y := layout.magic.y + sectionBodyY + (i%rows)*sectionRowH
-			drawDebugTextShadowed(screen, clipDebugText(school.text, colW-8), x, y, textColor)
+			drawUITextColored(screen, clipUIText(school.text, colW-8), x, y, textColor)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
 				tooltip = magicMasteryTooltipText(school.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
@@ -486,7 +486,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		}
 	}
 	if len(skillsList) == 0 {
-		drawDebugTextShadowed(screen, "None", layout.skills.x+sectionTextInset, layout.skills.y+sectionBodyY, textColor)
+		drawUITextColored(screen, "None", layout.skills.x+sectionTextInset, layout.skills.y+sectionBodyY, textColor)
 	} else {
 		rows := max(1, (layout.skills.h-sectionBodyY-12)/sectionRowH)
 		cols := max(1, (len(skillsList)+rows-1)/rows)
@@ -494,7 +494,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		for i, skill := range skillsList {
 			x := layout.skills.x + sectionTextInset + (i/rows)*colW
 			y := layout.skills.y + sectionBodyY + (i%rows)*sectionRowH
-			drawDebugTextShadowed(screen, clipDebugText(skill.text, colW-8), x, y, textColor)
+			drawUITextColored(screen, clipUIText(skill.text, colW-8), x, y, textColor)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
 				tooltip = masteryTooltipTextForSkill(skill.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
@@ -546,22 +546,22 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			lineColor = headingColor
 		}
 		y := layout.combat.y + sectionBodyY + i*sectionRowH
-		drawDebugTextShadowed(screen, clipDebugText(line.text, leftW), combatX, y, lineColor)
+		drawUITextColored(screen, clipUIText(line.text, leftW), combatX, y, lineColor)
 	}
 
 	resistY := layout.combat.y + sectionBodyY
-	drawDebugTextShadowed(screen, "RESISTANCES", rightX, resistY, headingColor)
+	drawUITextColored(screen, "RESISTANCES", rightX, resistY, headingColor)
 	resistY += sectionRowH
 	resistTypes := damagecalc.Types()
 	for i, school := range resistTypes {
 		y := resistY + i*sectionRowH
 		line := fmt.Sprintf("%s: %d%%", config.TitleWords(school.String()), ui.game.schoolResistPct(member, school.String()))
-		drawDebugTextShadowed(screen, clipDebugText(line, rightW), rightX, y, textColor)
+		drawUITextColored(screen, clipUIText(line, rightW), rightX, y, textColor)
 	}
 	partyBuffY := resistY + len(resistTypes)*sectionRowH + 5
-	drawDebugTextShadowed(screen, clipDebugText(fmt.Sprintf("Party resist buff: +%d%%", ui.game.combatBuffResistPct()), rightW), rightX, partyBuffY, headingColor)
+	drawUITextColored(screen, clipUIText(fmt.Sprintf("Party resist buff: +%d%%", ui.game.combatBuffResistPct()), rightW), rightX, partyBuffY, headingColor)
 
-	drawCenteredDebugText(screen, "Use the party strip or keys 1-4 to switch character", layout.instructions.x, layout.instructions.y, layout.instructions.w, layout.instructions.h)
+	drawCenteredUIText(screen, "Use the party strip or keys 1-4 to switch character", layout.instructions.x, layout.instructions.y, layout.instructions.w, layout.instructions.h)
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
 	}
@@ -572,12 +572,12 @@ const pagerBtnW, pagerBtnH = 30, 18
 // drawPagerButton renders one prev/next button and registers its Update action.
 // Shared by the quest and character list pagers.
 func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool, onClick func()) {
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	ui.drawButtonFrame(screen, bx, y, pagerBtnW, pagerBtnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH))
 	if !enabled {
 		drawFilledRect(screen, bx+2, y+2, pagerBtnW-4, pagerBtnH-4, color.RGBA{0, 0, 0, 100})
 	}
-	drawCenteredDebugText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
+	drawCenteredUIText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
 	ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, pagerBtnW, pagerBtnH}, func() {
 		if enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH) {
 			onClick()
@@ -611,7 +611,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	if ui.game.selectedSchool >= 0 && ui.game.selectedSchool < len(schools) {
 		header += " - " + schools[ui.game.selectedSchool].DisplayName() + " Magic"
 	}
-	drawCenteredDebugText(screen, header, bl.header.x, bl.header.y, bl.header.w, bl.header.h)
+	drawCenteredUIText(screen, header, bl.header.x, bl.header.y, bl.header.w, bl.header.h)
 
 	// Draw bookmarks first so the book sprite hides the inserted portion.
 	if len(schools) > 0 {
@@ -621,7 +621,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
 
 	if len(schools) == 0 {
-		drawCenteredDebugText(screen, "No magic schools available", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
+		drawCenteredUIText(screen, "No magic schools available", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 		return
 	}
 
@@ -647,9 +647,9 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	clampPage(&ui.spellPage, totalPages)
 
 	if len(schoolSpells) == 0 {
-		drawCenteredDebugText(screen, "No learned spells", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
+		drawCenteredUIText(screen, "No learned spells", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 	} else {
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := uiCursorPosition()
 		pageStart := ui.spellPage * perSpread
 		pageEnd := min(len(schoolSpells), pageStart+perSpread)
 		for spellIndex := pageStart; spellIndex < pageEnd; spellIndex++ {
@@ -698,7 +698,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		ui.game.selectedSpell = -1
 	})
 	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
-	drawCenteredDebugText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
+	drawCenteredUIText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {
@@ -732,20 +732,20 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	} else {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{42, 32, 45, 255})
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{218, 170, 72, 255})
-		drawCenteredDebugText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
+		drawCenteredUIText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
 
-	name := truncateName(def.Name, 12)
+	name := def.Name
 	nameY := y + iconSize + 8
-	statsY := nameY + debugTextCharHeight + 2
+	statsY := nameY + uiTextCharHeight + 2
 	// Show the cost actually paid (Meditation GM discount applied) so the card
 	// and its red "can't afford" outline match what casting will charge.
 	cost := def.SpellPointsCost
 	if ui.game.combat != nil {
 		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
 	}
-	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, debugTextCharHeight)
+	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, uiTextCharHeight)
 	quick, equipped := currentChar.Equipment[items.SlotSpell]
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))

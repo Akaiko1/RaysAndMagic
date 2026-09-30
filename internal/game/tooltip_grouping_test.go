@@ -87,7 +87,7 @@ func assertSharedTooltipLayout(t *testing.T, ui *UISystem) {
 			}
 			reconstructed := make([]string, len(ui.tooltipLines))
 			for _, row := range layout.rows {
-				if debugTextWidth(row.text) > row.w || row.x+row.w > w-6 || row.y+layout.lineHeight > h-6 {
+				if uiTextWidth(row.text) > row.w || row.x+row.w > w-6 || row.y+layout.lineHeight > h-6 {
 					t.Fatalf("row outside measured bounds: %+v", row)
 				}
 				if hasIcon && row.y < 6+tooltipIconSize+tooltipIconGap && row.x+row.w > w-tooltipIconSize-tooltipIconGap-6 {

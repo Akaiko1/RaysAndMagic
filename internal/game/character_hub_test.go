@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image/png"
 	"math"
 	"os"
@@ -114,6 +115,54 @@ func TestSpellbookCardsStayInsideInnerPageFrames(t *testing.T) {
 	}
 }
 
+// The spell and trap book takes whichever footer placement leaves it taller:
+// the strip under the book, or a column beside it on a wide, short frame.
+// Either way the quick-slot label clears the pager, and the book stops above
+// the controls line.
+func TestBookFooterPlacementKeepsTheBookTallest(t *testing.T) {
+	var logical [][2]int
+	for _, size := range [][2]int{{1024, 768}, {1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3440, 1440}} {
+		w, h := logicalScreenSize(size[0], size[1], 1)
+		logical = append(logical, [2]int{w, h})
+	}
+	for _, size := range withInterfaceFrames(t, logical) {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
+			l := computeBookLayout(content)
+			book := layoutRect{l.bookX, l.bookY, l.bookW, l.bookH}
+			label := layoutRect{l.quick.x, l.quick.y - quickSlotTabLabelSpace, l.quick.w, quickSlotTabLabelH}
+			if namedLayoutBox("label", label).overlaps(namedLayoutBox("pager", l.pager)) || book.bottom() > l.controls.y {
+				t.Fatalf("book %v, quick label %v, pager %v, controls %v", book, label, l.pager, l.controls)
+			}
+			beside := l.quick.x >= book.right()
+			if beside && (l.pager.x < book.right() || l.quick.right() > content.right()) {
+				t.Fatalf("side column quick %v pager %v leaves its column beside book %v", l.quick, l.pager, book)
+			}
+			// Under the book the strip costs 96 rows; beside it only the
+			// controls line does. The side column is taken exactly when the
+			// book could not reach that height stacked.
+			stackedH := min(640, content.h-90-96, (content.w-32)/2)
+			if beside != (l.bookH > stackedH) || l.bookH < stackedH {
+				t.Fatalf("book %d rows beside=%v, stacked would give %d", l.bookH, beside, stackedH)
+			}
+		})
+	}
+}
+
+// On a 4K display at 1920x1080 points, a larger interface costs the book and
+// the paperdoll only the rows the bigger party panel and tab bar take.
+func TestLargerInterfaceKeepsTheArtNearNormal(t *testing.T) {
+	type art struct{ book, doll float64 }
+	measure := func(w, h int, scale float64) art {
+		content := computeTabbedMenuLayout(w, gameplayViewportBottomWithPartyHUD(h)).content
+		return art{float64(computeBookLayout(content).bookH) * scale, float64(computeInventoryContentLayout(content).paper.h) * scale}
+	}
+	normal, large := measure(1920, 1080, 2), measure(1280, 720, 3)
+	if large.book < 0.9*normal.book || large.doll < 0.85*normal.doll {
+		t.Fatalf("Large book %.0fpx doll %.0fpx, Normal book %.0fpx doll %.0fpx", large.book, large.doll, normal.book, normal.doll)
+	}
+}
+
 func TestSpellbookSchoolBookmarksUseWholeSafeDrawRect(t *testing.T) {
 	for _, res := range [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}} {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
@@ -174,12 +223,23 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 	}
 }
 
+// The bags share a top rail under their headings and filters; the paperdoll
+// starts right under its own header (name, then Gold and Food), which with 2x
+// text is the same height, so there all three share the rail.
 func TestInventoryPanelsShareTopRailAtStandardResolutions(t *testing.T) {
 	for _, res := range [][2]int{{800, 680}, {1024, 768}, {1280, 720}, {1280, 800}, {1920, 1080}, {3440, 1440}} {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
 		inventory := computeInventoryContentLayout(menu.content)
-		if inventory.paper.y != inventory.grid.y || inventory.personalGrid.y != inventory.grid.y {
-			t.Fatalf("%dx%d paperdoll top=%d, inventory top=%d", res[0], res[1], inventory.paper.y, inventory.grid.y)
+		lastResource := inventory.resources[0].bottom()
+		if r := inventory.resources[1]; r.bottom() > lastResource {
+			lastResource = r.bottom()
+		}
+		if inventory.personalGrid.y != inventory.grid.y || inventory.paper.y != lastResource+10 ||
+			inventory.textScale == readingTextScale && inventory.paper.y != inventory.grid.y {
+			t.Fatalf("%dx%d paperdoll top=%d under resources ending %d, bags top=%d", res[0], res[1], inventory.paper.y, lastResource, inventory.grid.y)
+		}
+		if inventory.textScale == 1 && (inventory.resources[0].y != inventory.resources[1].y || inventory.resources[0].right() > inventory.resources[1].x) {
+			t.Fatalf("%dx%d compact Gold %v and Food %v are not one line", res[0], res[1], inventory.resources[0], inventory.resources[1])
 		}
 		// Compact layouts reserve their bottom row for the bar even when the
 		// narrower paperdoll ends earlier. The complete group stays on screen.
@@ -341,11 +401,11 @@ func TestTabbedMenuLabelsFitOneLineInsideTabs(t *testing.T) {
 		menu := computeTabbedMenuLayout(width, gameplayViewportBottomWithPartyHUD(768))
 		for i, tab := range menu.tabs {
 			label := tabbedMenuTabs[i].label + " " + tabbedMenuTabs[i].key
-			if debugTextWidth(label) > tab.w-16 {
-				t.Fatalf("width %d tab %q is %dpx inside %dpx", width, label, debugTextWidth(label), tab.w)
+			if uiTextWidth(label) > tab.w-16 {
+				t.Fatalf("width %d tab %q is %dpx inside %dpx", width, label, uiTextWidth(label), tab.w)
 			}
-			if debugTextCharHeight > tab.h-12 {
-				t.Fatalf("tab label height %d leaves decorative rails in %dpx tab", debugTextCharHeight, tab.h)
+			if uiTextCharHeight > tab.h-12 {
+				t.Fatalf("tab label height %d leaves decorative rails in %dpx tab", uiTextCharHeight, tab.h)
 			}
 		}
 	}

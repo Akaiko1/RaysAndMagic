@@ -187,8 +187,8 @@ func (ui *UISystem) drawCompassUncachedReference(screen *ebiten.Image, compassX,
 	vector.FillCircle(screen, float32(compassX), float32(compassY), 2, color.RGBA{32, 124, 220, 255}, true)
 
 	cardinalColor := color.RGBA{236, 214, 156, 255}
-	drawDebugTextColored(screen, "N", compassX-3, compassY-compassRadius-17, rarityGold)
-	drawDebugTextColored(screen, "E", compassX+compassRadius+8, compassY-8, cardinalColor)
-	drawDebugTextColored(screen, "S", compassX-3, compassY+compassRadius+3, cardinalColor)
-	drawDebugTextColored(screen, "W", compassX-compassRadius-14, compassY-8, cardinalColor)
+	drawUITextColored(screen, "N", compassX-3, compassY-compassRadius-17, rarityGold)
+	drawUITextColored(screen, "E", compassX+compassRadius+8, compassY-8, cardinalColor)
+	drawUITextColored(screen, "S", compassX-3, compassY+compassRadius+3, cardinalColor)
+	drawUITextColored(screen, "W", compassX-compassRadius-14, compassY-8, cardinalColor)
 }

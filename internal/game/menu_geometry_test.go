@@ -56,7 +56,7 @@ func TestMainMenuControlTipsFitPanel(t *testing.T) {
 		t.Fatal("tips overlap Back button")
 	}
 	for _, tip := range mainMenuControlTips {
-		if debugTextWidth(tip) > w-48 {
+		if uiTextWidth(tip) > w-48 {
 			t.Fatalf("tip leaves its panel: %q", tip)
 		}
 	}
@@ -76,7 +76,7 @@ func TestAudioSettingsGeometryFollowsPanelWidth(t *testing.T) {
 				if percentX < r.x2+audioPercentGap {
 					t.Errorf("panel width %d inset %d: %q starts at %d before percentage column %d", panelW, contentInset, label, percentX, r.x2+audioPercentGap)
 				}
-				right := percentX + debugTextWidth(label)
+				right := percentX + uiTextWidth(label)
 				if right > px+panelW-contentInset {
 					t.Errorf("panel width %d inset %d: %q ends at %d past content edge %d", panelW, contentInset, label, right, px+panelW-contentInset)
 				}
@@ -101,8 +101,8 @@ func TestAudioSettingsOrnateContentClearsFrame(t *testing.T) {
 	}
 	_, _, hintY := audioHintPosition(px, py, settingsMenuPanelW, settingsMenuPanelH, audioSettingsInset)
 	contentBottom := py + settingsMenuPanelH - audioSettingsInset
-	if hintY < py+audioSettingsInset || hintY+debugTextCharHeight > contentBottom {
-		t.Fatalf("hint y-range [%d,%d] leaves ornate content range [%d,%d]", hintY, hintY+debugTextCharHeight, py+audioSettingsInset, contentBottom)
+	if hintY < py+audioSettingsInset || hintY+uiTextCharHeight > contentBottom {
+		t.Fatalf("hint y-range [%d,%d] leaves ornate content range [%d,%d]", hintY, hintY+uiTextCharHeight, py+audioSettingsInset, contentBottom)
 	}
 }
 

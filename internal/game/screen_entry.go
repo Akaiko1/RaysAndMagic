@@ -52,6 +52,9 @@ const (
 	entryButtonGap    = 16
 	entryButtonTopGap = 40
 	entryButtonMinH   = 32
+	// The gold frame and its corner decor reach this far past the button stack.
+	entryButtonFramePad = 20
+	entryButtonDecorPad = 28
 )
 
 // MinimumWindowSize keeps the full root menu usable and grows automatically
@@ -86,10 +89,10 @@ func makeEntryMenuRootLayout(w, h int) entryMenuRootLayout {
 		logoW = maxLogoW
 		logoH = entryLogoH * logoW / entryLogoW
 	}
-	logoY := max(entryWindowSideGap, h/6-entryLogoH/2)
+	logoY := entryWindowSideGap
 	buttonTopGap := entryButtonTopGap
-	buttonStartY := logoY + logoH + buttonTopGap
 	totalButtonsH := len(buttons)*buttonH + (len(buttons)-1)*buttonGap
+	buttonStartY := logoY + logoH + buttonTopGap
 
 	// Compact both the logo and controls on short resizable windows instead of
 	// clamping the full-height button stack upward over the logo.
@@ -107,7 +110,14 @@ func makeEntryMenuRootLayout(w, h int) entryMenuRootLayout {
 	}
 	buttonW = min(buttonW, max(1, w-2*entryWindowSideGap))
 	stackH := len(buttons)*buttonH + (len(buttons)-1)*buttonGap
-	buttonStartY = min(buttonStartY, h-entryBottomGap-stackH)
+	// The logo and the framed button stack are one block, centred vertically
+	// by what is actually drawn: from the logo's top (or the frame decor's, if
+	// a compact gap lets it reach higher) to the bottom of the frame decor.
+	stackTop := logoH + buttonTopGap // relative to the logo's top
+	blockTop := min(0, stackTop-entryButtonDecorPad)
+	blockH := stackTop + stackH + entryButtonDecorPad - blockTop
+	logoY = max(0, (h-blockH)/2) - blockTop
+	buttonStartY = logoY + stackTop
 	return entryMenuRootLayout{
 		logoX:        (w - logoW) / 2,
 		logoY:        logoY,
@@ -251,11 +261,12 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 	}
 
 	stackH := len(entryButtons())*layout.buttonH + (len(entryButtons())-1)*layout.buttonGap
-	ui.drawThemeFrame(screen, frameGold, layout.buttonX-20, layout.buttonStartY-20, layout.buttonW+40, stackH+40)
-	ui.drawCornerDecor(screen, frameGold, layout.buttonX-28, layout.buttonStartY-28, layout.buttonW+56, stackH+56, decorAllCorners)
+	fp, dp := entryButtonFramePad, entryButtonDecorPad
+	ui.drawThemeFrame(screen, frameGold, layout.buttonX-fp, layout.buttonStartY-fp, layout.buttonW+2*fp, stackH+2*fp)
+	ui.drawCornerDecor(screen, frameGold, layout.buttonX-dp, layout.buttonStartY-dp, layout.buttonW+2*dp, stackH+2*dp, decorAllCorners)
 
 	// Vertical stack of buttons, centered.
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	for i, b := range entryButtons() {
 		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
 		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH)
@@ -266,15 +277,18 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 // drawEntryLoadList shows a page of save slots; clicking a populated slot loads
 // it and enters the game. Row 0 of page 0 is the load-only Autosave. Left/Right
 // (keys or the on-screen buttons) page through savePageCount pages.
+func entryLoadPanelRect(screenW, screenH int) layoutRect {
+	return centeredRect(screenW, screenH, entryLoadPanelW, entryLoadPanelH)
+}
+
 func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	g := ui.game
-	panelW, panelH := entryLoadPanelW, entryLoadPanelH
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
+	panel := entryLoadPanelRect(w, h)
+	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
-	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
+	drawUIText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	rowX := px + menuFrameInset
 	rowW := panelW - 2*menuFrameInset
 	startY := py + menuFrameInset + 22
@@ -305,7 +319,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			}
 			label = fmt.Sprintf("%s - %s  [%s %s]", saveRowLabel(row), truncateSaveName(name, 18), mode, t)
 		}
-		drawDebugText(screen, label, rowX+12, y+rowH/2-12)
+		drawUIText(screen, label, rowX+12, y+rowH/2-12)
 
 		ui.onDisplayedInput(uiCommandClick, layoutRect{rowX, y, (rowX + rowW) - (rowX), (y + rowH - 8) - (y)}, func() {
 			if sum.Exists && g.consumeLeftClickIn(rowX, y, rowX+rowW, y+rowH-8) {
@@ -326,7 +340,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	const pbW, pbH = 96, 26
 	drawEntryPagerBtn := func(bx int, label string, enabled bool, onClick func()) {
 		ui.drawButtonFrame(screen, bx, pagerY, pbW, pbH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, pagerY, bx+pbW, pagerY+pbH))
-		drawCenteredDebugText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
+		drawCenteredUIText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, pagerY, (bx + pbW) - (bx), (pagerY + pbH) - (pagerY)}, func() {
 			if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
 				onClick()
@@ -335,7 +349,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	}
 	drawEntryPagerBtn(rowX, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
 	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
 
 	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })
 }
@@ -405,20 +419,20 @@ const (
 // drawMenuButton uses one resizable face; labels and hitboxes stay in code.
 func (ui *UISystem) drawMenuButton(screen *ebiten.Image, label string, x, y, w, h int, hover bool) {
 	ui.drawButtonFrame(screen, x, y, w, h, hover)
-	drawCenteredDebugText(screen, label, x, y, w, h)
+	drawCenteredUIText(screen, label, x, y, w, h)
 }
 
-// drawBigCenteredText draws text scaled up ~2x, horizontally centered at cx.
+// drawBigCenteredText draws a label horizontally centered at cx.
 func (ui *UISystem) drawBigCenteredText(screen *ebiten.Image, text string, cx, y int, col color.Color) {
-	// The debug font has no scaling; emulate emphasis by drawing the string and
-	// centering it on cx. (Art replaces this via title_logo.)
-	x := cx - debugTextWidth(text)/2
-	drawDebugTextColored(screen, text, x, y, col)
+	// Emphasis comes from centering at the UI font's one size. (Art replaces
+	// this via title_logo.)
+	x := cx - uiTextWidth(text)/2
+	drawUITextColored(screen, text, x, y, col)
 }
 
 // drawBackButton draws a small "Back" button at (x,y) and runs onClick when hit.
 func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func()) {
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuBackButtonW, y+menuBackButtonH)
 	ui.drawMenuButton(screen, "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + menuBackButtonW) - (x), (y + menuBackButtonH) - (y)}, func() {

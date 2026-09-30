@@ -49,7 +49,8 @@ func TestDebugSim_PlayerSettings(t *testing.T) {
 				prefs.Health.Allowed["sake_flask"] = false
 				fp := installFakePointer(t)
 				fp.moveTo(0, 0)
-				for _, tab := range []int{0, 1} {
+				for i := range settingsTabLabels {
+					tab := settingsTabKind(i)
 					g.settingsTab = tab
 					runOnDrawFrame(func(_ *ebiten.Image) {
 						presentInputScreen(h)

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +28,9 @@ func loadTestConfig(t testing.TB) *config.Config {
 	cfg, err := config.LoadConfig("../../config.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
+	}
+	if key := os.Getenv("RAM_TEST_UI_FONT"); key != "" {
+		cfg.Display.DefaultFont = key // games built from this config keep the suite's font
 	}
 	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
 		t.Fatalf("load spells: %v", err)

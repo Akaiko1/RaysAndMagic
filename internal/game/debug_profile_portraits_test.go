@@ -68,7 +68,7 @@ func TestDebugSim_ProfilePortraitSources(t *testing.T) {
 						want := ebiten.NewImageWithOptions(image.Rect(0, 0, 340, 400), &ebiten.NewImageOptions{Unmanaged: true})
 						defer got.Deallocate()
 						defer want.Deallocate()
-						h.ui.drawProfileRanking(got, spec, []playerprofile.Entry{entry, entry, entry}, layoutRect{0, 0, 340, 400}, pos.start)
+						h.ui.drawProfileRanking(got, layoutRect{0, 0, 340, 400}, spec, []playerprofile.Entry{entry, entry, entry}, layoutRect{0, 0, 340, 400}, pos.start)
 						h.ui.drawProfileCard(want, layoutRect{0, 0, 340, 400}, true)
 						h.ui.profileIcon(want, expectedKey, entry.Name, pos.x, pos.y, pos.size)
 						a, b := make([]byte, 340*400*4), make([]byte, 340*400*4)

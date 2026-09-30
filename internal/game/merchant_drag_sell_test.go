@@ -719,11 +719,11 @@ func TestBuyPickerPriceLineNeverOverlapsButtons(t *testing.T) {
 	}
 	// The band must be wide enough for the shipped worst case to be READ, not
 	// merely clipped: this is what the narrow inter-button band failed at.
-	if got := debugTextWidth(label); got > L.price.Dx() {
+	if got := uiTextWidth(label); got > L.price.Dx() {
 		t.Errorf("shipped price %q needs %d px but the band is %d - it would be truncated", label, got, L.price.Dx())
 	}
 	// And whatever an author invents later, the drawn text is clipped to fit.
-	if got := debugTextWidth(clipDebugText(label, L.price.Dx())); got > L.price.Dx() {
+	if got := uiTextWidth(clipUIText(label, L.price.Dx())); got > L.price.Dx() {
 		t.Errorf("clipped price width %d exceeds the band %d", got, L.price.Dx())
 	}
 	// And the quantity band keeps clear of the buttons it sits between.
@@ -790,15 +790,15 @@ func TestBagHeaderCarriesTheBuyHintWithoutOverlappingIcons(t *testing.T) {
 
 	// The header sits a full line clear of the first icon row.
 	headerY := gridTop - 24
-	if headerY+debugTextCharHeight > gridTop {
-		t.Fatalf("the header line (y=%d..%d) reaches the icons at y=%d", headerY, headerY+debugTextCharHeight, gridTop)
+	if headerY+uiTextCharHeight > gridTop {
+		t.Fatalf("the header line (y=%d..%d) reaches the icons at y=%d", headerY, headerY+uiTextCharHeight, gridTop)
 	}
-	// Assert the DRAWN text, not the source: clipDebugText always "fits", so a
+	// Assert the DRAWN text, not the source: clipUIText always "fits", so a
 	// too-long label passes a width check while losing the words that matter.
-	drawn := clipDebugText(hint, merchantGridW)
+	drawn := clipUIText(hint, merchantGridW)
 	if drawn != hint {
 		t.Fatalf("the header is truncated on screen: %q -> %q (grid %d px, needs %d)",
-			hint, drawn, merchantGridW, debugTextWidth(hint))
+			hint, drawn, merchantGridW, uiTextWidth(hint))
 	}
 	_ = g
 }

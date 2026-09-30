@@ -19,7 +19,6 @@ import (
 	"ugataima/internal/stash"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -619,7 +618,7 @@ func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []infoLine, scr
 	drawFilledRect(screen, panel.x, panel.y, panel.w, panel.h, color.RGBA{20, 20, 30, 255})
 	drawRectBorder(screen, panel.x, panel.y, panel.w, panel.h, 1, color.RGBA{70, 70, 90, 255})
 	if len(lines) == 0 {
-		ebitenutil.DebugPrintAt(screen, "(nothing selected)", panel.x+10, panel.y+8)
+		game.DrawPlainText(screen, "(nothing selected)", panel.x+10, panel.y+8)
 		return nil
 	}
 	clip := screen.SubImage(image.Rect(panel.x, panel.y, panel.x+panel.w, panel.y+panel.h)).(*ebiten.Image)

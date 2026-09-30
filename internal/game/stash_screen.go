@@ -452,8 +452,8 @@ type stashLayout struct {
 }
 
 func computeStashLayout(screenW, screenH int) stashLayout {
-	popupX := (screenW - stashPopupW) / 2
-	popupY := (screenH - stashPopupH) / 2
+	popup := centeredRect(screenW, screenH, stashPopupW, stashPopupH)
+	popupX, popupY := popup.x, popup.y
 	return computeStashLayoutForArea(layoutRect{popupX, popupY, stashPopupW, stashPopupH}, 76)
 }
 
@@ -504,8 +504,8 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	ui.drawThemeFrame(screen, frameGold, popupX, popupY, popupW, popupH)
-	drawDebugText(screen, "Tavern Stash", popupX+16, popupY+14)
-	drawDebugText(screen, stashSubtitle, popupX+16, popupY+34)
+	drawUIText(screen, "Tavern Stash", popupX+16, popupY+14)
+	drawUIText(screen, stashSubtitle, popupX+16, popupY+34)
 
 	interactive := ui.topModalLayer() == modalLayerStash
 	ui.drawStashManager(screen, L, interactive)
@@ -526,7 +526,7 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 	if g.stash == nil {
 		return
 	}
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 
 	// Top storage: a tabbed grid. The Items tab shows the general chest; the Cards
 	// tab shows the card-only vault (violet-tinted). A toggle where a pager would
@@ -543,7 +543,7 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 		count = stash.CardSlotCount
 		hoverBorder = color.RGBA{190, 120, 220, 235}
 	}
-	drawCenteredDebugText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
+	drawCenteredUIText(screen, heading, L.popupX, chestTop-16, L.popupW, 14)
 	ui.drawStashTabToggle(screen, L, mouseX, mouseY, interactive)
 	for i := 0; i < count; i++ {
 		r := stashCellRect(L.centerX, chestTop, i)
@@ -578,7 +578,7 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 
 	// Party bag grid (bottom), paginated.
 	invTop := L.invTop
-	drawCenteredDebugText(screen, "Your Bag", L.popupX, invTop-16, L.popupW, 14)
+	drawCenteredUIText(screen, "Your Bag", L.popupX, invTop-16, L.popupW, 14)
 	invPages := pageCount(len(g.party.Inventory), stashInvMaxShown)
 	if g.stashInvPage >= invPages {
 		g.stashInvPage = invPages - 1
@@ -722,7 +722,7 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 		label = "< Items"
 	}
 	ui.drawButtonFrame(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), ptInRect(mouseX, mouseY, rt))
-	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
+	drawCenteredUIText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
 	ui.onDisplayedInput(uiCommandClick, layoutRect{rt.Min.X, rt.Min.Y, (rt.Max.X) - (rt.Min.X), (rt.Max.Y) - (rt.Min.Y)}, func() {
 		if interactive && !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
 			g.stashShowCards = !g.stashShowCards

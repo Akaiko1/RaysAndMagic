@@ -443,7 +443,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		g.camera.X = startX
 		g.camera.Y = startY
 		g.snapFacing(0)
-		g.camera.FOV = squareProjectionFOV(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+		g.camera.FOV = squareProjectionFOV(g.worldWidth(), g.worldHeight())
 		g.camera.ViewDist = g.config.GetViewDistance()
 
 		// Rebuild collision system and register entities
@@ -507,15 +507,7 @@ func (ih *InputHandler) closeVictoryOverlay() {
 
 // handleVictoryNameInput handles text input for the player name
 func (ih *InputHandler) handleVictoryNameInput() {
-	inputChars := ebiten.AppendInputChars(nil)
-	filtered := make([]rune, 0, len(inputChars))
-	for _, char := range inputChars {
-		if char == '\n' || char == '\r' || char == '\t' {
-			continue
-		}
-		filtered = append(filtered, char)
-	}
-	ih.game.victoryNameInput = appendRunesLimited(ih.game.victoryNameInput, filtered, 20)
+	ih.game.victoryNameInput = appendRunesLimited(ih.game.victoryNameInput, AcceptTypedRunes(typedInputChars()), 20)
 
 	if repeatingKeyPressed(ebiten.KeyBackspace) {
 		ih.game.victoryNameInput = removeLastRune(ih.game.victoryNameInput)
@@ -586,7 +578,7 @@ func (ih *InputHandler) activateMainMenuSelection() {
 // handleMainMenuInput processes input for the main menu (opened with ESC)
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	// Panel size per mode (shared with the draw code via menuPanelSize).
 	panelW, panelH := menuPanelSize(ih.game.mainMenuMode)
 	w := ih.game.config.GetScreenWidth()
@@ -729,15 +721,7 @@ func (ih *InputHandler) doLoadFromSelectedRow() {
 }
 
 func (ih *InputHandler) handleSaveRenameInput() {
-	inputChars := ebiten.AppendInputChars(nil)
-	filtered := make([]rune, 0, len(inputChars))
-	for _, char := range inputChars {
-		if char == '\n' || char == '\r' || char == '\t' {
-			continue
-		}
-		filtered = append(filtered, char)
-	}
-	ih.game.saveRenameInput = appendRunesLimited(ih.game.saveRenameInput, filtered, 24)
+	ih.game.saveRenameInput = appendRunesLimited(ih.game.saveRenameInput, AcceptTypedRunes(typedInputChars()), 24)
 	if repeatingKeyPressed(ebiten.KeyBackspace) {
 		ih.game.saveRenameInput = removeLastRune(ih.game.saveRenameInput)
 	}
@@ -759,10 +743,8 @@ func (ih *InputHandler) handleSaveRenameInput() {
 // come from menuRowRect, the same geometry the draw code uses, so hover and
 // render can't drift.
 func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY, pitch int) {
-	w := ih.game.config.GetScreenWidth()
-	h := ih.game.config.GetScreenHeight()
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
+	panel := centeredRect(ih.game.config.GetScreenWidth(), ih.game.config.GetScreenHeight(), panelW, panelH)
+	px, py := panel.x, panel.y
 	for i := 0; i < count; i++ {
 		box, _, _ := menuRowRect(px, py, panelW, startY, pitch, i)
 		if mouseX >= box.x1 && mouseX < box.x2 && mouseY >= box.y1 && mouseY < box.y2 {
@@ -806,7 +788,7 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	}
 
 	// Mouse hover selection (rows + confirm row for multi-select)
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	screenW := ih.game.config.GetScreenWidth()
 	screenH := ih.game.config.GetScreenHeight()
 	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
@@ -1135,7 +1117,7 @@ func (ih *InputHandler) castSlottedSpellResolved(sel *character.MMCharacter) (bo
 	}
 	spellID := spells.SpellID(spell.SpellEffect)
 	if spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther {
-		mouseX, mouseY := ebiten.CursorPosition()
+		mouseX, mouseY := uiCursorPosition()
 		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 		return ih.game.combat.CastEquippedHealOnTarget(targetCharIndex), spellID
 	}
@@ -1159,7 +1141,7 @@ func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 // healRecipient is the party member under the mouse, else the selected one.
 // Resolve it before an action chain hands the cast to another healer.
 func (ih *InputHandler) healRecipient() int {
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	if idx := ih.getPartyMemberUnderMouse(mouseX, mouseY); idx >= 0 {
 		return idx
 	}

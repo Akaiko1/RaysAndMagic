@@ -82,7 +82,7 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 	drawImageScaled(screen, ui.game.sprites.GetSprite(quickSlotBarSprite), barX, barY, barW, barH)
 
 	ch := ui.game.party.Members[charIdx]
-	mouseX, mouseY := ebiten.CursorPosition()
+	mouseX, mouseY := uiCursorPosition()
 	for i := 0; i < character.QuickSlotCount; i++ {
 		r := slots[i]
 		if interactive {
@@ -618,10 +618,10 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 // clears the panel art.
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
 	label := "Quick Slots - drag items / spells here"
-	if debugTextWidth(label) > barW {
+	if uiTextWidth(label) > barW {
 		label = "Quick Slots"
 	}
-	drawCenteredDebugText(screen, label,
+	drawCenteredUIText(screen, label,
 		barX, barY-quickSlotTabLabelSpace, barW, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
 }

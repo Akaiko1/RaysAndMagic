@@ -5,8 +5,8 @@ import (
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
+	"ugataima/internal/game"
 	"ugataima/internal/world"
 )
 
@@ -163,7 +163,7 @@ func (v *viewer) drawDragGhost(screen *ebiten.Image, lay layout) {
 	fx := lay.originX + v.grab.fromX*lay.tileSize
 	fy := lay.originY + v.grab.fromY*lay.tileSize
 	drawRectBorder(screen, fx, fy, lay.tileSize, lay.tileSize, 1, color.RGBA{255, 200, 90, 255})
-	ebitenutil.DebugPrintAt(screen, dragStatus(v.grab, tx, ty, over, copying), lay.mapAreaX+8, lay.mapAreaY+8)
+	game.DrawPlainText(screen, dragStatus(v.grab, tx, ty, over, copying), lay.mapAreaX+8, lay.mapAreaY+8)
 }
 
 // dragShouldPromote decides the gesture: an armed press becomes a real DRAG

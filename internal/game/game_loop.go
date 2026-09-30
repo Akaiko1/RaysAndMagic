@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"time"
 	"ugataima/internal/monster"
@@ -347,6 +348,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 		}
 	}()
 	gl.game.threading.PerformanceMonitor.RecordPresentedFrame()
+	beginUIFrame(screen, gl.game.uiPixelScale())
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
@@ -385,11 +387,12 @@ func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 }
 
 func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
-	// Render the 3D scene, then composite to the screen. During a turn-based turn
-	// the scene goes through a horizontal motion-blur shader (camera blur - the
-	// view pans sideways) whose length tracks the turn speed; otherwise it's a
-	// straight blit. Either way the UI is drawn last, directly to the screen, so it
-	// never blurs.
+	// Render the 3D scene at the world's resolution, then composite it to the
+	// screen. During a turn-based turn the scene goes through a horizontal
+	// motion-blur shader (camera blur - the view pans sideways) whose length
+	// tracks the turn speed; otherwise it's a straight blit, or no copy at all
+	// when the screen is exactly the world's size. Either way the UI is drawn
+	// last, directly to the screen, so it never blurs.
 	g := gl.game
 	// Interpolate only the world pass. The loading preflight and UI retain
 	// logical coordinates; TB uses the existing eased angle.
@@ -398,46 +401,65 @@ func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	}
 
 	defer g.beginScreenShakeSwap()()
-	screenBounds := screen.Bounds()
-	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
-	if blurPx >= 0.75 {
-		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
-			if shader, err := g.ensureBlurShader(); err == nil {
-				scene.Clear()
-				gl.renderer.RenderFirstPersonView(scene)
-				g.drawTurnBlur(screen, scene, shader, float32(blurPx))
-			} else {
-				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile - no blur
-			}
-		} else {
-			gl.renderer.RenderFirstPersonView(screen)
-		}
-	} else if turnBlurStrength > 0 && !g.turnBlurWarm {
-		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
-			if shader, err := g.ensureBlurShader(); err == nil {
-				// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
-				// visually identical blit, but it creates the scene buffer and lets
-				// Ebiten/Metal compile the shader pipeline before the first TB turn.
-				scene.Clear()
-				gl.renderer.RenderFirstPersonView(scene)
-				g.drawTurnBlur(screen, scene, shader, 0)
-				g.turnBlurWarm = true
-			} else {
-				g.turnBlurWarm = true
-				gl.renderer.RenderFirstPersonView(screen)
-			}
-		} else {
-			g.turnBlurWarm = true
-			gl.renderer.RenderFirstPersonView(screen)
-		}
-	} else {
-		gl.renderer.RenderFirstPersonView(screen)
+	world := image.Pt(g.worldWidth(), g.worldHeight())
+	blurPx := g.turnBlurPixels(world.X) // blur length in the scene's own pixels
+	blur := blurPx >= 0.75
+	if !blur && turnBlurStrength > 0 && !g.turnBlurWarm {
+		// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
+		// visually identical blit, but it creates the scene buffer and lets
+		// Ebiten/Metal compile the shader pipeline before the first TB turn.
+		g.turnBlurWarm = true
+		blur, blurPx = true, 0
 	}
+	var shader *ebiten.Shader
+	if blur {
+		shader, _ = g.ensureBlurShader() // shader failed to compile - no blur
+	}
+	if shader == nil && screen.Bounds().Size() == world {
+		gl.renderer.RenderFirstPersonView(screen)
+		return
+	}
+	scene := g.ensureSceneBuffer(world)
+	if scene == nil {
+		gl.renderer.RenderFirstPersonView(screen)
+		return
+	}
+	scene.Clear()
+	gl.renderer.RenderFirstPersonView(scene)
+	if shader != nil {
+		g.drawTurnBlur(screen, scene, shader, float32(blurPx))
+		return
+	}
+	var op ebiten.DrawImageOptions
+	op.GeoM, op.Filter = sceneToScreen(scene.Bounds(), screen.Bounds())
+	screen.DrawImage(scene, &op)
+}
+
+// sceneToScreen stretches the 3D scene over the whole screen with the filter
+// Ebitengine's own screen scaling picks: whole steps stay exact
+// (nearest-neighbour), anything else is pixelated up or linear down.
+func sceneToScreen(scene, screen image.Rectangle) (ebiten.GeoM, ebiten.Filter) {
+	sx := float64(screen.Dx()) / float64(scene.Dx())
+	sy := float64(screen.Dy()) / float64(scene.Dy())
+	filter := ebiten.FilterNearest
+	if isWholeScale(sx) && isWholeScale(sy) {
+		sx, sy = math.Round(sx), math.Round(sy)
+	} else {
+		filter = uiResampleFilter(filter, min(sx, sy))
+	}
+	var m ebiten.GeoM
+	m.Scale(sx, sy)
+	m.Translate(float64(screen.Min.X), float64(screen.Min.Y))
+	return m, filter
 }
 
 const maxLogicalScreenHeight = 1080
 
-func logicalScreenSize(outsideWidth, outsideHeight int) (int, int) {
+// logicalScreenSize maps a window to the frame the game lays out in.
+// interfaceScale (>= 1) shrinks that frame so the interface draws larger; the
+// UI minimum still wins, so a large preset on a small window never cuts a
+// panel.
+func logicalScreenSize(outsideWidth, outsideHeight int, interfaceScale float64) (int, int) {
 	if outsideWidth <= 0 || outsideHeight <= 0 {
 		return outsideWidth, outsideHeight
 	}
@@ -445,21 +467,38 @@ func logicalScreenSize(outsideWidth, outsideHeight int) (int, int) {
 	// One uniform scale preserves the physical aspect ratio. The UI minimum can
 	// exceed the 1080 logical-height cap on a narrow portrait display; keeping
 	// the full panel visible takes priority over that performance cap.
-	scale := min(1.0, float64(maxLogicalScreenHeight)/float64(outsideHeight))
+	scale := min(1.0, float64(maxLogicalScreenHeight)/float64(outsideHeight)) / max(1, interfaceScale)
 	scale = max(scale, float64(minW)/float64(outsideWidth), float64(minH)/float64(outsideHeight))
 	return max(minW, int(math.Round(float64(outsideWidth)*scale))),
 		max(minH, int(math.Round(float64(outsideHeight)*scale)))
 }
 
-// Layout keeps common resolutions native and caps larger windows at a 1080px
-// logical height. Ebiten scales that complete frame to the physical display,
-// including mouse coordinates, so UI proportions stay usable on 1440p and 4K.
+// Layout draws at the screen's native resolution. The interface lays out in
+// UI units - the selected preset's frame: common resolutions keep one unit
+// per window pixel, larger windows cap at a 1080-unit height, and larger
+// presets take fewer, bigger units - and its primitives scale every draw to
+// the screen's pixels, so art is resampled once, from its source. The 3D view
+// renders at Normal's frame whatever the preset and is scaled onto the screen
+// as a whole.
 func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	screenWidth, screenHeight = logicalScreenSize(outsideWidth, outsideHeight)
-	if screenWidth > 0 && screenHeight > 0 {
-		gl.game.handleResize(screenWidth, screenHeight)
+	g := gl.game
+	g.interfaceFrames = resolveInterfaceFrames(g.config.Display.InterfaceSizes, outsideWidth, outsideHeight, displayDeviceScale())
+	i := g.interfaceSizeIndex()
+	if i >= len(g.interfaceFrames) || g.interfaceFrames[i].w <= 0 {
+		// No resolved preset: one unit per pixel of the logical frame, which
+		// Ebitengine scales to the window.
+		w, h := logicalScreenSize(outsideWidth, outsideHeight, 1)
+		if w > 0 && h > 0 {
+			g.uiScale = 1
+			g.handleResize(image.Pt(w, h), image.Pt(w, h))
+		}
+		return w, h
 	}
-	return screenWidth, screenHeight
+	ui, world := g.interfaceFrames[i], g.interfaceFrames[0]
+	scale := ui.pixelScale()
+	g.uiScale = scale
+	g.handleResize(image.Pt(ui.w, ui.h), image.Pt(world.w, world.h))
+	return uiPixels(ui.w, scale), uiPixels(ui.h, scale)
 }
 
 // updateMonstersParallel updates all monsters using parallel processing

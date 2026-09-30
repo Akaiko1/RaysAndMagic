@@ -73,7 +73,7 @@ func (r *Renderer) trapFloorAnchor(tileX, tileY int, ts, maxDepth float64) (trap
 	if fade <= 0 {
 		return trapAnchor{}, false
 	}
-	horizon := float64(r.game.config.GetScreenHeight()) / 2
+	horizon := float64(r.game.worldHeight()) / 2
 	fy := float64(r.game.renderHelper.calculateFloorScreenY(depth))
 	unit := fy - horizon
 	if unit <= 0 {

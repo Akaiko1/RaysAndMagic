@@ -68,14 +68,14 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMu
 	}
 
 	// Calculate base wall height on screen
-	baseHeight := float64(rh.game.config.GetScreenHeight()) / distance * rh.game.config.GetTileSize()
+	baseHeight := float64(rh.game.worldHeight()) / distance * rh.game.config.GetTileSize()
 
 	// Apply height multiplier
 	wallHeight = baseHeight * heightMultiplier
 
 	// Sanity bound, reachable only inside the 1-unit epsilon above: GPU clips
 	// off-screen geometry, so huge-but-finite heights cost nothing.
-	if maxH := float64(rh.game.config.GetScreenHeight() * 64); wallHeight > maxH {
+	if maxH := float64(rh.game.worldHeight() * 64); wallHeight > maxH {
 		wallHeight = maxH
 	}
 	if wallHeight < 1 {
@@ -112,7 +112,7 @@ func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
 }
 
 func (rh *RenderingHelper) calculateFloorScreenYF(perpDist float64) float64 {
-	screenHeight := float64(rh.game.config.GetScreenHeight())
+	screenHeight := float64(rh.game.worldHeight())
 	tileSize := rh.game.config.GetTileSize()
 	horizon := screenHeight / 2
 
@@ -194,7 +194,7 @@ func (rh *RenderingHelper) projectSegmentSpanX(x0, y0, x1, y1 float64) (lo, hi i
 	}
 	tx0, ty0 = clamp(tx0, ty0, tx1, ty1)
 	tx1, ty1 = clamp(tx1, ty1, tx0, ty0)
-	halfW := float64(rh.game.config.GetScreenWidth()) / 2
+	halfW := float64(rh.game.worldWidth()) / 2
 	xa := halfW * (1 + tx0/ty0)
 	xb := halfW * (1 + tx1/ty1)
 	if xa > xb {
@@ -209,7 +209,7 @@ func (rh *RenderingHelper) projectToScreenXF(entityX, entityY float64) (screenXf
 	if !okDet || transformY <= 0 {
 		return 0, 0, false // degenerate matrix, or behind the camera
 	}
-	screenW := rh.game.config.GetScreenWidth()
+	screenW := rh.game.worldWidth()
 	return float64(screenW) / 2 * (1 + transformX/transformY), transformY, true
 }
 
@@ -601,15 +601,15 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 		return 0, 0, 0, false
 	}
 
-	sizeF = float64(rh.game.config.GetScreenHeight()) / perpDist * rh.game.config.GetTileSize() * heightMultiplier
-	if maxS := float64(rh.game.config.GetScreenHeight() * 64); sizeF > maxS {
+	sizeF = float64(rh.game.worldHeight()) / perpDist * rh.game.config.GetTileSize() * heightMultiplier
+	if maxS := float64(rh.game.worldHeight() * 64); sizeF > maxS {
 		sizeF = maxS
 	}
 	if minF := float64(minSize); sizeF < minF {
 		sizeF = minF
 	}
 
-	screenW := float64(rh.game.config.GetScreenWidth())
+	screenW := float64(rh.game.worldWidth())
 	if screenXf < -sizeF || screenXf > screenW+sizeF {
 		return 0, 0, 0, false
 	}
@@ -620,7 +620,7 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
 // same scaling model as environment sprites (e.g., moss rocks).
 func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
-	return int(float64(rh.game.config.GetScreenHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
+	return int(float64(rh.game.worldHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
 // RenderSkyBackground draws the panorama or its solid-color fallback. The
@@ -638,7 +638,7 @@ func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 // a redundant half-screen source draw and fill cost.
 func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
-	groundOpts.GeoM.Translate(0, float64(rh.game.config.GetScreenHeight()/2))
+	groundOpts.GeoM.Translate(0, float64(rh.game.worldHeight()/2))
 	screen.DrawImage(rh.game.groundImg, groundOpts)
 }
 
@@ -1048,8 +1048,8 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 		return false
 	}
 
-	screenWidth := rh.game.config.GetScreenWidth()
-	skyHeight := rh.game.config.GetScreenHeight() / 2
+	screenWidth := rh.game.worldWidth()
+	skyHeight := rh.game.worldHeight() / 2
 	if screenWidth <= 0 || skyHeight <= 0 {
 		return false
 	}

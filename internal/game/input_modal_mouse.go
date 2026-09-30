@@ -7,8 +7,8 @@ import "ugataima/internal/character"
 // and wheel handlers never invoke these adapters.
 func (ih *InputHandler) handleMainMenuMouseInput() {
 	g := ih.game
-	panelW, panelH := menuPanelSize(g.mainMenuMode)
-	px, py := (g.config.GetScreenWidth()-panelW)/2, (g.config.GetScreenHeight()-panelH)/2
+	panel := mainMenuPanelRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), g.mainMenuMode)
+	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
 	switch g.mainMenuMode {
 	case MenuMain:
 		x, y, ok := g.leftClickPosition()

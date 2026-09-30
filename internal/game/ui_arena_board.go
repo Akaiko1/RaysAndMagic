@@ -107,19 +107,17 @@ func buildArenaBoardLinesFrom(board *arena.Board, detail bool, maxWidth int) []a
 // names and champion keys, so their length cannot be bounded by authored UI
 // copy.
 func wrapArenaBoardLine(line string, maxWidth int) []string {
-	if line == "" || debugTextWidth(line) <= maxWidth {
+	if line == "" || uiTextWidth(line) <= maxWidth {
 		return []string{line}
 	}
-	maxChars := maxWidth / debugTextCharWidth
-	if maxChars < 1 {
+	if maxWidth < uiTextWidth("W") {
 		return nil
 	}
-	indentLen := len(line) - len(strings.TrimLeft(line, " "))
-	if indentLen >= maxChars {
-		indentLen = maxChars - 1
+	indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+	for indent != "" && uiTextWidth(indent) > maxWidth-uiTextWidth("W") {
+		indent = indent[1:]
 	}
-	indent := strings.Repeat(" ", indentLen)
-	fragments := wrapText(strings.TrimLeft(line, " "), maxChars-indentLen)
+	fragments := wrapUIText(strings.TrimLeft(line, " "), maxWidth-uiTextWidth(indent))
 	for i := range fragments {
 		fragments[i] = indent + fragments[i]
 	}
@@ -196,12 +194,12 @@ func arenaBoardScrollAfterWheel(scroll int, wheelY float64) int {
 // scroll offset is clamped here against the current line count, so releasing
 // Shift or a shrinking board self-heals the view).
 func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY int) {
-	drawDebugText(screen, "ARENA CHAMPIONS' BOARD (hold SHIFT for details, wheel to scroll)", x, y)
+	drawUIText(screen, "ARENA CHAMPIONS' BOARD (hold SHIFT for details, wheel to scroll)", x, y)
 	y += 22
 
 	detail := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 	width := maxX - x
-	const lineH = debugTextCharHeight
+	const lineH = uiTextCharHeight
 	contentMaxY := maxY - lineH // reserve the final row for the scroll indicator
 	visible := (contentMaxY - y) / lineH
 	if visible < 1 {
@@ -233,11 +231,11 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY
 	}
 	start := ui.game.arenaBoardScroll
 	for i := start; i < len(lines) && i < start+visible; i++ {
-		drawDebugText(screen, lines[i].text, x, y)
+		drawUIText(screen, lines[i].text, x, y)
 		y += lineH
 	}
 	if maxScroll > 0 {
-		drawDebugText(screen, fmt.Sprintf("(%d-%d of %d)", start+1, min(start+visible, len(lines)), len(lines)), x, contentMaxY)
+		drawUIText(screen, fmt.Sprintf("(%d-%d of %d)", start+1, min(start+visible, len(lines)), len(lines)), x, contentMaxY)
 	}
 }
 

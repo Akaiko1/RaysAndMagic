@@ -29,7 +29,7 @@ func TestDebugSim_AllTextMetallic(t *testing.T) {
 			t.Run(fmt.Sprintf("%v/%s", tint, entry), func(t *testing.T) {
 				runOnDrawFrame(func(_ *ebiten.Image) {
 					const text = "HMWX"
-					w, h := debugTextWidth(text)+2, debugTextCharHeight
+					w, h := uiTextWidth(text)+2, uiTextCharHeight
 					mask := ebiten.NewImage(w, h)
 					defer mask.Deallocate()
 					ebitenutil.DebugPrintAt(mask, text, -1, 0)
@@ -40,9 +40,9 @@ func TestDebugSim_AllTextMetallic(t *testing.T) {
 					switch entry {
 					case "native":
 						if tint == color.White {
-							drawDebugText(dst, text, x, y)
+							drawUIText(dst, text, x, y)
 						} else {
-							drawDebugTextColored(dst, text, x, y, tint)
+							drawUITextColored(dst, text, x, y, tint)
 						}
 					case "reading":
 						scale = readingTextScale
