@@ -86,8 +86,9 @@ func TestRareRulesRequiredBalanceConfig(t *testing.T) {
 }
 
 func TestRareRulesCrateValidationMatchesRuntime(t *testing.T) {
-	previousItems, previousLoot := GlobalItems, GlobalLoots
-	t.Cleanup(func() { GlobalItems = previousItems; GlobalLoots = previousLoot })
+	previousItems, previousLoot, previousWeapons := GlobalItems, GlobalLoots, GlobalWeapons
+	t.Cleanup(func() { GlobalItems, GlobalLoots, GlobalWeapons = previousItems, previousLoot, previousWeapons })
+	GlobalWeapons = nil // the one item under test is the whole catalog
 	for _, kind := range []string{"crafted", "harvest", "quest", "ordinary"} {
 		for _, filter := range []string{"rarity", "range"} {
 			t.Run(kind+"/"+filter, func(t *testing.T) {
@@ -104,9 +105,13 @@ func TestRareRulesCrateValidationMatchesRuntime(t *testing.T) {
 				GlobalItems = &ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{"only": d}}
 				rarity := "rarity: rare"
 				if filter == "range" {
-					rarity = "min_rarity: rare\n        max_rarity: rare"
+					rarity = "rarity: uncommon-rare"
 				}
-				data := fmt.Sprintf("crates:\n  test:\n    rolls: 1\n    roll_sources:\n      - pool: catalog\n        item_type: %s\n        weight: 100\n        %s\n", d.Type, rarity)
+				itemType := d.Type
+				if kind == "quest" {
+					itemType = "any" // quest items stay out of even the widest catalog
+				}
+				data := fmt.Sprintf("crates:\n  test:\n    rolls: 1\n    roll_sources:\n      - pool: catalog\n        item_type: %s\n        weight: 100\n        %s\n", itemType, rarity)
 				path := filepath.Join(t.TempDir(), "loot.yaml")
 				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 					t.Fatal(err)

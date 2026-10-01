@@ -1244,7 +1244,7 @@ weapons:
     crit_chance: 18
     armor_pierce_pct: 20
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Every parry loses the other blade a tooth."
     melee:
@@ -1268,7 +1268,7 @@ weapons:
     stun_turns: 3
     cooldown_multiplier: 1.40
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1600
     flavor: "For whom does it toll? Whoever stands closest."
     melee:
@@ -1291,7 +1291,7 @@ weapons:
     crit_chance: 28
     cooldown_multiplier: 0.65
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Sixty stabs an hour, on the hour, every hour."
     melee:
@@ -1313,7 +1313,7 @@ weapons:
     crit_chance: 16
     bonus_vs_stunned: 1.5
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Wound in 1602. Still furious."
     melee:
@@ -1336,7 +1336,7 @@ weapons:
     armor_shred_pct: 20
     armor_shred_seconds: 10
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
     flavor: "Tick: your pauldron. Tock: your greave."
     melee:
@@ -1358,7 +1358,7 @@ weapons:
     crit_chance: 20
     cooldown_multiplier: 1.30
     rarity: "unique"
-    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1600
     flavor: "Wind, aim, and the mechanism does the rest."
     physics:

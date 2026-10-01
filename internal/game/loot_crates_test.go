@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	"ugataima/internal/character"
@@ -128,6 +129,50 @@ func inventoryUnitsByName(p *character.Party) map[string]int {
 	return m
 }
 
+// crateRewards is the party's reward state before an opening.
+type crateRewards struct {
+	units        map[string]int
+	gold, points int
+}
+
+func snapshotCrateRewards(g *MMGame) crateRewards {
+	return crateRewards{units: inventoryUnitsByName(g.party), gold: g.party.Gold, points: g.party.ArenaPoints}
+}
+
+// crateRewardSlots counts what one opening of crate key paid since before:
+// every item unit, plus one slot per currency payout. A currency source pays
+// its amount in each slot it wins, so 2000 gold from a 1000-gold source is
+// two slots. currency is the currency share of the total.
+func crateRewardSlots(t *testing.T, g *MMGame, key string, before crateRewards) (total, currency int) {
+	t.Helper()
+	for name, n := range inventoryUnitsByName(g.party) {
+		if d := n - before.units[name]; d > 0 {
+			total += d
+		}
+	}
+	crate := config.GetCrateConfig(key)
+	paid := func(pool string, gained int) int {
+		if gained == 0 {
+			return 0
+		}
+		amount := 0
+		for _, s := range crate.RollSources {
+			if s.Pool == pool {
+				if amount != 0 && amount != s.Amount {
+					t.Fatalf("%s has several %s amounts; slots are ambiguous", key, pool)
+				}
+				amount = s.Amount
+			}
+		}
+		if amount <= 0 || gained%amount != 0 {
+			t.Fatalf("%s paid %d %s, not a whole number of %d-slots", key, gained, pool, amount)
+		}
+		return gained / amount
+	}
+	currency = paid("gold", g.party.Gold-before.gold) + paid("arena_points", g.party.ArenaPoints-before.points)
+	return total + currency, currency
+}
+
 func spawnCrate(t *testing.T, g *MMGame, key string, x, y float64) *character.NPC {
 	t.Helper()
 	npc, err := character.CreateNPCFromConfig(key, x, y)
@@ -146,17 +191,12 @@ func TestWoodenChest(t *testing.T) {
 	g.world.Monsters = []*monster.Monster3D{m}
 
 	chest := spawnCrate(t, g, "chest_wooden", g.camera.X+64, g.camera.Y)
-	invBefore := g.party.GetTotalItems()
-	goldBefore := g.party.Gold
+	before := snapshotCrateRewards(g)
 	g.useLootCrate(chest)
 	if !chest.Visited {
 		t.Fatal("chest not consumed")
 	}
-	rewardSlots := g.party.GetTotalItems() - invBefore
-	if g.party.Gold > goldBefore {
-		rewardSlots++ // A special gold cache replaces one item slot.
-	}
-	if rewardSlots != 3 {
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != 3 {
 		t.Fatalf("wooden chest produced %d reward slots, want 3", rewardSlots)
 	}
 	// Re-opening yields nothing.
@@ -175,19 +215,14 @@ func TestWoodenChestRetainsInitialMapPoolAfterClear(t *testing.T) {
 	g.world.Monsters = nil // The map has been completely cleared.
 
 	chest := spawnCrate(t, g, "chest_wooden", g.camera.X+64, g.camera.Y)
-	invBefore := g.party.GetTotalItems()
-	goldBefore := g.party.Gold
+	before := snapshotCrateRewards(g)
 	g.useLootCrate(chest)
-	rewardSlots := g.party.GetTotalItems() - invBefore
-	if g.party.Gold > goldBefore {
-		rewardSlots++
-	}
-	if rewardSlots != 3 {
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != 3 {
 		t.Fatalf("cleared-map wooden chest produced %d reward slots, want 3", rewardSlots)
 	}
 }
 
-// TestIronChestFiltersCommons: min_rarity uncommon drops every common entry
+// TestIronChestFiltersCommons: the uncommon map gate drops every common entry
 // from the map pool; the trap ignites the party unless disarmed.
 func TestIronChestFiltersCommons(t *testing.T) {
 	g := crateTestGame(t)
@@ -252,99 +287,206 @@ func TestCrateIgniteUsesWearerStatusDuration(t *testing.T) {
 	}
 }
 
+func exactRarity(r string) config.RarityRange {
+	t := config.RarityTier(r)
+	return config.RarityRange{Min: t, Max: t}
+}
+
 func TestCrateCatalogRollFilters(t *testing.T) {
 	crateTestGame(t)
-
-	for i := 0; i < 50; i++ {
-		it, ok := rollCatalogItem("consumable", "", "", "")
-		if !ok {
-			t.Fatal("consumable catalog roll failed")
-		}
-		if it.Type != items.ItemConsumable {
-			t.Fatalf("consumable catalog roll returned %s (%s)", it.Name, it.Type)
-		}
-	}
-
-	for i := 0; i < 50; i++ {
-		it, ok := rollCatalogItem("armor", "common", "", "")
-		if !ok {
-			t.Fatal("common armor catalog roll failed")
-		}
-		if it.Type != items.ItemArmor || it.Rarity != "common" {
-			t.Fatalf("common armor roll returned %s (%s/%s)", it.Name, it.Type, it.Rarity)
-		}
-	}
-
-	for i := 0; i < 50; i++ {
-		it, ok := rollCatalogItem("accessory", "uncommon", "", "")
-		if !ok {
-			t.Fatal("uncommon accessory catalog roll failed")
-		}
-		if it.Type != items.ItemAccessory || it.Rarity != "uncommon" {
-			t.Fatalf("uncommon accessory roll returned %s (%s/%s)", it.Name, it.Type, it.Rarity)
-		}
-	}
-}
-
-func TestCrateSpecialRollReplacesOneBaseSlot(t *testing.T) {
-	g := crateTestGame(t)
-	crate := &config.CrateConfig{
-		Rolls: 3,
-		RollSources: []config.CrateRollSource{
-			{Pool: "catalog", ItemType: "consumable", Weight: 1},
-		},
-		SpecialRolls: []config.CrateRollSource{
-			{Pool: "gold", Amount: 1000, ChancePct: 100},
-			{Pool: "arena_points", Amount: 5000, ChancePct: 100},
-		},
-	}
-
-	loot, gold, arenaPoints := g.rollCratePool(crate)
-	if gold != 1000 || arenaPoints != 5000 {
-		t.Fatalf("special rewards = %d gold, %d arena points; want 1000, 5000", gold, arenaPoints)
-	}
-	if len(loot) != 1 {
-		t.Fatalf("special rolls must replace two of three base slots; got %d item slots", len(loot))
-	}
-}
-
-func TestCrateRarityAndCurrencyRulesComeFromYAML(t *testing.T) {
-	crateTestGame(t)
+	anyRarity, _ := config.ParseRarityRange("")
 	for _, tc := range []struct {
-		key                   string
-		rarePct, legendaryPct int
-		currencyPool          string
-		currencyAmount        int
+		itemType string
+		tiers    config.RarityRange
+		ok       func(it items.Item) bool
 	}{
-		{"chest_wooden", 7, 3, "gold", 1000},
-		{"chest_iron", 25, 5, "gold", 1500},
-		{"chest_golden", 0, 0, "arena_points", 5000},
+		{"consumable", anyRarity, func(it items.Item) bool { return it.Type == items.ItemConsumable }},
+		{"armor", exactRarity("common"), func(it items.Item) bool { return it.Type == items.ItemArmor && it.Rarity == "common" }},
+		{"accessory", exactRarity("uncommon"), func(it items.Item) bool { return it.Type == items.ItemAccessory && it.Rarity == "uncommon" }},
+		{"weapon", exactRarity("rare"), func(it items.Item) bool { return it.Type == items.ItemWeapon && it.Rarity == "rare" }},
+		{"any", exactRarity("legendary"), func(it items.Item) bool { return it.Rarity == "legendary" && it.Type != items.ItemQuest }},
 	} {
-		crate := config.GetCrateConfig(tc.key)
-		if crate == nil {
-			t.Fatalf("%s config missing", tc.key)
-		}
-		var rare, legendary, currency *config.CrateRollSource
-		for i := range crate.SpecialRolls {
-			src := &crate.SpecialRolls[i]
-			switch {
-			case src.Pool == "map" && src.Rarity == "rare":
-				rare = src
-			case src.Pool == "map" && src.Rarity == "legendary":
-				legendary = src
-			case src.Pool == tc.currencyPool:
-				currency = src
+		for i := 0; i < 50; i++ {
+			it, ok := rollCatalogItem(tc.itemType, tc.tiers)
+			if !ok || !tc.ok(it) {
+				t.Fatalf("%s %+v catalog roll returned %s (%s/%s) ok=%v", tc.itemType, tc.tiers, it.Name, it.Type, it.Rarity, ok)
 			}
 		}
-		if tc.rarePct > 0 && (rare == nil || rare.ChancePct != tc.rarePct) {
-			t.Fatalf("%s rare map roll = %+v, want %d%%", tc.key, rare, tc.rarePct)
+	}
+}
+
+// Every slot draws from exactly one source, and a map source with nothing in
+// its rarity span on this map sits the chest out instead of emptying slots.
+func TestCrateSlotsRollOneSourceEach(t *testing.T) {
+	g := crateTestGame(t)
+	g.world.Monsters = []*monster.Monster3D{monster.NewMonster3DFromConfig(g.camera.X+300, g.camera.Y, "treant", g.config)}
+	for _, tc := range []struct {
+		name      string
+		sources   []config.CrateRollSource
+		gold, pts int
+	}{
+		{"one source fills every slot", []config.CrateRollSource{{Pool: "gold", Amount: 10, Weight: 100}}, 30, 0},
+		{"each slot one currency", []config.CrateRollSource{{Pool: "gold", Amount: 10, Weight: 50}, {Pool: "arena_points", Amount: 1, Weight: 50}}, -1, -1},
+		{"empty map span sits out", []config.CrateRollSource{{Pool: "map", Rarity: "unique", Weight: 90}, {Pool: "gold", Amount: 10, Weight: 10}}, 30, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loot, gold, pts := g.rollCratePool(&config.CrateConfig{Rolls: 3, RollSources: tc.sources})
+			if len(loot) != 0 {
+				t.Fatalf("currency-only crate granted items %v", loot)
+			}
+			if tc.gold >= 0 && (gold != tc.gold || pts != tc.pts) {
+				t.Fatalf("crate paid %d gold and %d points, want %d and %d", gold, pts, tc.gold, tc.pts)
+			}
+			if tc.gold < 0 && gold/10+pts != 3 {
+				t.Fatalf("three slots paid %d gold and %d points; each slot must pay one source", gold, pts)
+			}
+		})
+	}
+}
+
+// The one-table crates keep the odds the old per-chest jackpot rolls gave: a
+// w%-a-slot source over n slots shows up in 1-(1-w)^n of the chests, and the
+// ordinary sources keep their old shares of the rest. The regal chest's
+// Clockmaker gear is a later 10%-a-chest jackpot.
+func TestCrateOddsMatchTheirFormerPerChestRolls(t *testing.T) {
+	crateTestGame(t)
+	is := func(pool, itemType, rarity string, amount int) func(config.CrateRollSource) bool {
+		return func(s config.CrateRollSource) bool {
+			return s.Pool == pool && s.ItemType == itemType && s.Rarity == rarity && s.Amount == amount
 		}
-		if tc.legendaryPct > 0 && (legendary == nil || legendary.ChancePct != tc.legendaryPct) {
-			t.Fatalf("%s legendary map roll = %+v, want %d%%", tc.key, legendary, tc.legendaryPct)
+	}
+	type share struct {
+		match func(config.CrateRollSource) bool
+		old   float64 // former weight among the ordinary sources
+	}
+	for _, tc := range []struct {
+		key      string
+		jackpots map[string]float64 // per-chest chance by label
+		matchers map[string]func(config.CrateRollSource) bool
+		ordinary []share
+	}{
+		{"chest_wooden", map[string]float64{"rare": .07, "legendary": .03, "gold": .05},
+			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "legendary": is("map", "", "legendary", 0), "gold": is("gold", "", "", 1000)},
+			[]share{{is("map", "", "common-uncommon", 0), .70}, {is("catalog", "consumable", "", 0), .20}, {is("catalog", "armor", "common", 0), .10}}},
+		{"chest_iron", map[string]float64{"rare": .25, "legendary": .05, "gold": .05},
+			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "legendary": is("map", "", "legendary", 0), "gold": is("gold", "", "", 1500)},
+			[]share{{is("map", "", "uncommon", 0), .60}, {is("catalog", "accessory", "uncommon", 0), .20}, {is("catalog", "armor", "uncommon", 0), .20}}},
+		{"chest_golden", map[string]float64{"arena": .05},
+			map[string]func(config.CrateRollSource) bool{"arena": is("arena_points", "", "", 5000)},
+			[]share{{is("catalog", "any", "rare", 0), .85}, {is("catalog", "any", "legendary", 0), .15}}},
+		{"chest_gearwood", nil, nil,
+			[]share{{is("map", "", "common-uncommon", 0), .60}, {is("gold", "", "", 120), .25}, {is("catalog", "consumable", "", 0), .15}}},
+		{"chest_chrono", map[string]float64{"rare": .20},
+			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0)},
+			[]share{{is("map", "", "uncommon+", 0), .60}, {is("gold", "", "", 250), .25}, {is("catalog", "trinket", "common-rare", 0), .15}}},
+		{"chest_regal", map[string]float64{"rare": .30, "gold": .10, "gear": .10},
+			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "gold": is("gold", "", "", 800), "gear": isClockGear},
+			[]share{{is("map", "", "uncommon+", 0), .55}, {is("catalog", "trinket", "common-rare", 0), .25}, {is("gold", "", "", 400), .20}}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			crate := config.GetCrateConfig(tc.key)
+			if crate == nil {
+				t.Fatal("crate missing")
+			}
+			weight := func(match func(config.CrateRollSource) bool) float64 {
+				w := 0.0
+				for _, s := range crate.RollSources {
+					if match(s) {
+						w += s.Weight / 100
+					}
+				}
+				return w
+			}
+			for label, want := range tc.jackpots {
+				if got := 1 - math.Pow(1-weight(tc.matchers[label]), float64(crate.Rolls)); math.Abs(got-want) > 0.01 {
+					t.Fatalf("%s comes up in %.1f%% of chests, was %.0f%%", label, got*100, want*100)
+				}
+			}
+			total := 0.0
+			for _, o := range tc.ordinary {
+				total += weight(o.match)
+			}
+			for i, o := range tc.ordinary {
+				if got := weight(o.match) / total; math.Abs(got-o.old) > 0.005 {
+					t.Fatalf("ordinary source %d holds %.1f%% of the ordinary slots, was %.0f%%", i, got*100, o.old*100)
+				}
+			}
+		})
+	}
+}
+
+func isClockGear(s config.CrateRollSource) bool {
+	return s.Pool == "loot_table" && s.LootTable == "clock_tower_gear"
+}
+
+// The regal chest's gear slot opens the Clockmaker's arsenal: the table names
+// every weapon and wearable Odile sells and nothing else, and a chest whose
+// slots all land on it grants exactly one such piece per slot, no coin.
+func TestRegalChestRollsClockmakerGear(t *testing.T) {
+	g := crateTestGame(t)
+	odile, err := character.CreateNPCFromConfig("clockmaker", 0, 0)
+	if err != nil {
+		t.Fatalf("clockmaker: %v", err)
+	}
+	sold := map[string]bool{}
+	for _, m := range odile.MerchantStock {
+		switch m.Item.Type {
+		case items.ItemWeapon, items.ItemArmor, items.ItemAccessory:
+			sold[m.Item.Name] = true
 		}
-		if currency == nil || currency.Amount != tc.currencyAmount || currency.ChancePct != 5 {
-			t.Fatalf("%s currency roll = %+v, want 5%% for %d %s", tc.key, currency, tc.currencyAmount, tc.currencyPool)
+	}
+	table, ok := config.GetWeightedLootTable("clock_tower_gear")
+	if !ok {
+		t.Fatal("clock_tower_gear table missing")
+	}
+	listed := map[string]bool{}
+	for _, e := range table.Entries {
+		it, err := createLootItem(e.Type, e.Key)
+		if err != nil {
+			t.Fatalf("%s: %v", e.Key, err)
 		}
+		if !sold[it.Name] {
+			t.Errorf("table lists %s, which the Clockmaker does not sell", it.Name)
+		}
+		listed[it.Name] = true
+	}
+	for name := range sold {
+		if !listed[name] {
+			t.Errorf("Clockmaker sells %s, but the table never rolls it", name)
+		}
+	}
+
+	crate := config.GetCrateConfig("chest_regal")
+	var gear *config.CrateRollSource
+	for i := range crate.RollSources {
+		if isClockGear(crate.RollSources[i]) {
+			gear = &crate.RollSources[i]
+		}
+	}
+	if gear == nil {
+		t.Fatal("regal chest has no clock_tower_gear source")
+	}
+	forced := *crate
+	forced.TrapDamage = 0
+	only := *gear
+	only.Weight = 100
+	forced.RollSources = []config.CrateRollSource{only}
+	config.GlobalLoots.Crates["chest_regal"] = &forced
+	t.Cleanup(func() { config.GlobalLoots.Crates["chest_regal"] = crate })
+	chest := spawnCrate(t, g, "chest_regal", g.camera.X+64, g.camera.Y)
+	before, goldBefore := inventoryUnitsByName(g.party), g.party.Gold
+	g.useLootCrate(chest)
+	gained := 0
+	for name, n := range inventoryUnitsByName(g.party) {
+		if d := n - before[name]; d > 0 {
+			if !sold[name] {
+				t.Fatalf("gear slot granted %s", name)
+			}
+			gained += d
+		}
+	}
+	if gained != crate.Rolls || g.party.Gold != goldBefore {
+		t.Fatalf("regal chest granted %d pieces and %d gold, want %d pieces and no gold", gained, g.party.Gold-goldBefore, crate.Rolls)
 	}
 }
 
@@ -370,28 +512,57 @@ func TestGoldenChestPool(t *testing.T) {
 	// Diff unit counts by NAME: AddItem merges stackable rewards (possibly into
 	// a pre-held stack), so slicing appended entries under-counts and can skip
 	// a merged drop's rarity check.
-	before := inventoryUnitsByName(g.party)
-	arenaBefore := g.party.ArenaPoints
+	before := snapshotCrateRewards(g)
 	g.useLootCrate(chest)
-	after := inventoryUnitsByName(g.party)
-	rewardSlots := 0
-	for name, n := range after {
-		gained := n - before[name]
-		if gained <= 0 {
+	for name, n := range inventoryUnitsByName(g.party) {
+		if n <= before.units[name] {
 			continue
 		}
-		rewardSlots += gained
 		for _, it := range g.party.Inventory {
 			if it.Name == name && it.Rarity != "rare" && it.Rarity != "legendary" {
 				t.Fatalf("golden chest dropped %s (%s), want rare/legendary", it.Name, it.Rarity)
 			}
 		}
 	}
-	if g.party.ArenaPoints > arenaBefore {
-		rewardSlots++ // The arena jackpot replaces a rare/legendary item.
-	}
-	if rewardSlots != 3 {
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_golden", before); rewardSlots != 3 {
 		t.Fatalf("golden chest produced %d reward slots, want 3", rewardSlots)
+	}
+}
+
+// A currency source pays once per slot it wins, so one opening can pay the
+// same coin twice or three times. Half of each forced crate's slots pay
+// currency: every opening still counts exactly its rolls, and some openings
+// pay the currency repeatedly (each of 64 misses that with p = 1/2).
+func TestCrateCurrencyPaysPerSlot(t *testing.T) {
+	g := crateTestGame(t)
+	for _, tc := range []struct {
+		key     string
+		sources []config.CrateRollSource
+	}{
+		{"chest_wooden", []config.CrateRollSource{{Pool: "gold", Amount: 1000, Weight: 50}, {Pool: "catalog", ItemType: "consumable", Weight: 50}}},
+		{"chest_golden", []config.CrateRollSource{{Pool: "arena_points", Amount: 5000, Weight: 50}, {Pool: "catalog", ItemType: "any", Rarity: "rare", Weight: 50}}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			crate := config.GetCrateConfig(tc.key)
+			forced := *crate
+			forced.TrapDamage, forced.TrapIgnite = 0, false
+			forced.RollSources = tc.sources
+			config.GlobalLoots.Crates[tc.key] = &forced
+			t.Cleanup(func() { config.GlobalLoots.Crates[tc.key] = crate })
+			repeated := false
+			for i := 0; i < 64; i++ {
+				before := snapshotCrateRewards(g)
+				g.useLootCrate(spawnCrate(t, g, tc.key, g.camera.X+64, g.camera.Y))
+				total, currency := crateRewardSlots(t, g, tc.key, before)
+				if total != forced.Rolls {
+					t.Fatalf("opening %d counted %d rewards (%d of them currency), want %d", i, total, currency, forced.Rolls)
+				}
+				repeated = repeated || currency >= 2
+			}
+			if !repeated {
+				t.Fatal("no opening paid its currency in two slots")
+			}
+		})
 	}
 }
 

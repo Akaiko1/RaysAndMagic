@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -126,32 +128,78 @@ func TestValidateItemConfigCanonicalizesTimedWard(t *testing.T) {
 }
 
 func TestValidateCrateRollSourceRejectsAmbiguousFields(t *testing.T) {
-	tests := []struct {
-		name          string
-		source        CrateRollSource
-		requireWeight bool
+	tables := map[string]*WeightedLootTable{"gear": {Rolls: 1}}
+	for _, tt := range []struct {
+		name   string
+		source CrateRollSource
 	}{
-		{"weight above readable range", CrateRollSource{Pool: "nothing", Weight: 101}, true},
-		{"chance on weighted source", CrateRollSource{Pool: "nothing", Weight: 50, ChancePct: 5}, true},
-		{"weight on special source", CrateRollSource{Pool: "gold", Weight: 5, Amount: 10}, false},
-		{"legendary chance on map pool", CrateRollSource{Pool: "map", LegendaryPct: 5}, false},
-		{"legendary chance above one hundred", CrateRollSource{Pool: "rare", LegendaryPct: 101}, false},
-	}
-	for _, tt := range tests {
+		{"weight above one hundred", CrateRollSource{Pool: "nothing", Weight: 101}},
+		{"weight below a tenth", CrateRollSource{Pool: "nothing", Weight: 0.05}},
+		{"weight finer than a tenth", CrateRollSource{Pool: "nothing", Weight: 2.45}},
+		{"removed rare pool", CrateRollSource{Pool: "rare", Weight: 50}},
+		{"item type on a map pool", CrateRollSource{Pool: "map", ItemType: "armor", Weight: 50}},
+		{"rarity on an empty slot", CrateRollSource{Pool: "nothing", Rarity: "rare", Weight: 50}},
+		{"rarity on gold", CrateRollSource{Pool: "gold", Amount: 10, Rarity: "rare", Weight: 50}},
+		{"gold without an amount", CrateRollSource{Pool: "gold", Weight: 50}},
+		{"amount on a catalog pool", CrateRollSource{Pool: "catalog", ItemType: "armor", Amount: 5, Weight: 50}},
+		{"unknown catalog type", CrateRollSource{Pool: "catalog", ItemType: "potion", Weight: 50}},
+		{"unknown rarity", CrateRollSource{Pool: "map", Rarity: "ultra", Weight: 50}},
+		{"backwards rarity span", CrateRollSource{Pool: "map", Rarity: "rare-common", Weight: 50}},
+		{"unknown loot table", CrateRollSource{Pool: "loot_table", LootTable: "missing", Weight: 50}},
+		{"loot table pool without a table", CrateRollSource{Pool: "loot_table", Weight: 50}},
+		{"rarity on a loot table", CrateRollSource{Pool: "loot_table", LootTable: "gear", Rarity: "rare", Weight: 50}},
+		{"amount on a loot table", CrateRollSource{Pool: "loot_table", LootTable: "gear", Amount: 5, Weight: 50}},
+		{"loot table on a map pool", CrateRollSource{Pool: "map", LootTable: "gear", Weight: 50}},
+		{"loot table on gold", CrateRollSource{Pool: "gold", Amount: 10, LootTable: "gear", Weight: 50}},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateCrateRollSource("test", "sources", 0, tt.source, tt.requireWeight); err == nil {
+			if err := validateCrateRollSource(tables, "test", 0, tt.source); err == nil {
 				t.Fatal("ambiguous crate source passed validation")
 			}
 		})
 	}
-	if err := validateCrateRollSource(
-		"test",
-		"roll_sources",
-		0,
-		CrateRollSource{Pool: "nothing", Weight: 50},
-		true,
-	); err != nil {
-		t.Fatalf("valid weighted empty source rejected: %v", err)
+	for _, ok := range []CrateRollSource{
+		{Pool: "nothing", Weight: 50},
+		{Pool: "map", Rarity: "uncommon+", Weight: 2.4},
+		{Pool: "map", Rarity: "common-uncommon", Weight: 66.4},
+		{Pool: "arena_points", Amount: 5000, Weight: 1.7},
+		{Pool: "loot_table", LootTable: "gear", Weight: 3.5},
+	} {
+		if err := validateCrateRollSource(tables, "test", 0, ok); err != nil {
+			t.Fatalf("valid source %+v rejected: %v", ok, err)
+		}
+	}
+}
+
+// One rarity field reads every gate the crates need.
+func TestParseRarityRange(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		min, max int
+	}{
+		{"", 0, 4}, {"rare", 2, 2}, {"common-uncommon", 0, 1}, {"uncommon+", 1, 4}, {"common-rare", 0, 2}, {" Legendary ", 3, 3},
+	} {
+		got, err := ParseRarityRange(tc.in)
+		if err != nil || got.Min != tc.min || got.Max != tc.max {
+			t.Fatalf("ParseRarityRange(%q) = %+v, %v; want %d..%d", tc.in, got, err, tc.min, tc.max)
+		}
+	}
+}
+
+// Loot data decodes strictly: a field the crates no longer read fails the load.
+func TestLootTablesRejectRemovedCrateFields(t *testing.T) {
+	for _, field := range []string{"special_rolls: []", "min_rarity: rare", "legendary_pct: 5"} {
+		data := "crates:\n  test:\n    rolls: 1\n    roll_sources:\n      - pool: nothing\n        weight: 100\n    " + field + "\n"
+		if field != "special_rolls: []" {
+			data = "crates:\n  test:\n    rolls: 1\n    roll_sources:\n      - pool: nothing\n        weight: 100\n        " + field + "\n"
+		}
+		path := filepath.Join(t.TempDir(), "loot.yaml")
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadLootTables(path); err == nil {
+			t.Fatalf("removed field %q loaded silently", field)
+		}
 	}
 }
 

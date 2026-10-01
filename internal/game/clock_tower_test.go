@@ -271,7 +271,7 @@ func TestClockTowerContentIntegrity(t *testing.T) {
 			continue
 		}
 		if !def.NoLoot {
-			t.Errorf("weapon %s must be no_loot (Clockmaker-only stock)", k)
+			t.Errorf("weapon %s must be no_loot (Clockmaker stock and the regal chest only)", k)
 		}
 	}
 }

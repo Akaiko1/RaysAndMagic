@@ -443,14 +443,14 @@ func TestRareRulesCatalogEligibility(t *testing.T) {
 		def := original.Items[key]
 		t.Run(key, func(t *testing.T) {
 			config.GlobalItems = &config.ItemSystemConfig{Items: map[string]*config.ItemDefinitionConfig{key: def}}
-			_, ok := rollCatalogItem(def.Type, def.Rarity, "", "")
+			_, ok := rollCatalogItem(def.Type, exactRarity(def.Rarity))
 			want := key == "carp_scale"
-			if ok != want || config.CatalogItemMatchesFilter(key, def.Type, def.Rarity, "", "") != want {
+			if ok != want || config.CatalogItemMatchesFilter(key, def.Type, exactRarity(def.Rarity)) != want {
 				t.Fatal("runtime and validation eligibility disagree")
 			}
 			if !want {
 				for i := 0; i < 100; i++ {
-					it, ok := rollCatalogItemByRarity(def.Rarity)
+					it, ok := rollCatalogItem("any", exactRarity(def.Rarity))
 					if ok && it.Name == def.Name {
 						t.Fatal("forbidden material escaped rarity pool")
 					}

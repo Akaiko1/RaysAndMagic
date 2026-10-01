@@ -202,9 +202,9 @@ func TestRareChestCatalogAndEncounterGuards(t *testing.T) {
 					config.GlobalWeapons = nil
 					var ok bool
 					if source == "rarity" {
-						_, ok = rollCatalogItemByRarity(d.Rarity)
+						_, ok = rollCatalogItem("any", exactRarity(d.Rarity))
 					} else {
-						_, ok = rollCatalogItem("consumable", "", "", "")
+						_, ok = rollCatalogItem("consumable", config.RarityRange{Min: 0, Max: config.RarityTier("unique")})
 					}
 					if ok == d.CraftedOnly {
 						t.Fatalf("catalog eligibility=%v crafted=%v", ok, d.CraftedOnly)

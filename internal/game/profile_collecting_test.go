@@ -53,8 +53,7 @@ func TestProfileCollectingChestSources(t *testing.T) {
 					// and driving the real one-shot interaction guard.
 					copy := *crate
 					copy.Rolls, copy.LootTable, copy.TrapDamage, copy.TrapIgnite, copy.FreeRest = 2, "", 0, false, false
-					copy.RollSources = []config.CrateRollSource{{Pool: "catalog", ItemType: "consumable", Weight: 1}}
-					copy.SpecialRolls = nil
+					copy.RollSources = []config.CrateRollSource{{Pool: "catalog", ItemType: "consumable", Weight: 100}}
 					config.GlobalLoots.Crates[source] = &copy
 					t.Cleanup(func() { config.GlobalLoots.Crates[source] = crate })
 					npc := spawnCrate(t, g, source, g.camera.X+64, g.camera.Y)

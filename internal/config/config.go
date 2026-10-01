@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"os"
@@ -2625,11 +2626,9 @@ type LootTablesConfig struct {
 // CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
 //   - loot_table: roll that weighted pool (authored treasure) - overrides
 //     roll_sources.
-//   - roll_sources: the SINGLE per-roll source model. Each of `rolls` rolls
-//     picks one weighted CrateRollSource, then draws from it. A no-mix crate is
+//   - roll_sources: the one roll model. Each of `rolls` slots picks one source
+//     by weight (percent, total 100), then draws from it. A no-mix crate is
 //     just a one-element list. See CrateRollSource for the pool kinds.
-//   - special_rolls: per-CHEST chance sources that REPLACE one normal roll (a
-//     rare/legendary/gold/arena-points jackpot), never add a fourth item.
 //
 // trap_damage blasts the party flat on opening. trap_damage_types chooses one
 // of its listed damage types at random (empty means physical). trap_ignite
@@ -2640,7 +2639,6 @@ type CrateConfig struct {
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
 	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`
-	SpecialRolls     []CrateRollSource `yaml:"special_rolls,omitempty"`
 	InteractionSound string            `yaml:"interaction_sound,omitempty"`
 	// FreeRest: opening the crate also rests the party for free (a campfire) -
 	// full HP/SP, no food cost. One-time like any crate.
@@ -2664,16 +2662,72 @@ type CrateConfig struct {
 // field, not as a literal in the trap code.
 const DefaultTrapIgniteSeconds = 10
 
+// CrateRollSource is one entry of a crate's roll table:
+//   - map: one entry from the drop tables of the monster kinds the current map
+//     (or open-world region) was created with, weighted by drop chance;
+//   - catalog: a uniform pick from the whole catalog of item_type;
+//   - loot_table: one roll of that named weighted pool, as authored;
+//   - gold / arena_points: a fixed amount; nothing: an empty slot.
+//
+// Rarity gates map and catalog in one field: "" any, "rare" exactly,
+// "common-uncommon" a span, "uncommon+" that tier and up.
 type CrateRollSource struct {
-	Pool         string `yaml:"pool"` // "map" | "rare" | "catalog" | "gold" | "arena_points"
-	Weight       int    `yaml:"weight"`
-	ItemType     string `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket
-	Rarity       string `yaml:"rarity,omitempty"`     // map/catalog: exact rarity
-	MinRarity    string `yaml:"min_rarity,omitempty"` // map/catalog: drop entries below this rarity
-	MaxRarity    string `yaml:"max_rarity,omitempty"` // map/catalog: drop entries above this rarity
-	LegendaryPct int    `yaml:"legendary_pct,omitempty"`
-	Amount       int    `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
-	ChancePct    int    `yaml:"chance_pct,omitempty"` // special_rolls: per-chest replacement chance
+	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "loot_table" | "gold" | "arena_points" | "nothing"
+	Weight    float64 `yaml:"weight"`               // percent of every slot, in 0.1 steps; a crate's weights total 100
+	ItemType  string  `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket|weapon|any
+	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog rarity gate (see above)
+	Amount    int     `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
+	LootTable string  `yaml:"loot_table,omitempty"` // loot_table: key in loot_tables
+}
+
+// PerMille is the source's weight on the integer scale slots roll on.
+func (s CrateRollSource) PerMille() int { return int(math.Round(s.Weight * 10)) }
+
+// RarityTiers is the source's rarity gate (validated at load).
+func (s CrateRollSource) RarityTiers() RarityRange {
+	r, _ := ParseRarityRange(s.Rarity)
+	return r
+}
+
+// RarityRange is a rarity gate as inclusive RarityTier bounds.
+type RarityRange struct{ Min, Max int }
+
+// Contains reports whether a tier passes the gate.
+func (r RarityRange) Contains(tier int) bool { return tier >= r.Min && tier <= r.Max }
+
+// ParseRarityRange reads a rarity gate: "" any, "rare" exactly,
+// "common-uncommon" a span, "uncommon+" that tier and up.
+func ParseRarityRange(s string) (RarityRange, error) {
+	all := RarityRange{0, RarityTier("unique")}
+	s = strings.ToLower(strings.TrimSpace(s))
+	tier := func(name string) (int, error) {
+		switch name {
+		case "common", "uncommon", "rare", "legendary", "unique":
+			return RarityTier(name), nil
+		}
+		return 0, fmt.Errorf("unknown rarity %q", name)
+	}
+	switch {
+	case s == "":
+		return all, nil
+	case strings.HasSuffix(s, "+"):
+		lo, err := tier(strings.TrimSuffix(s, "+"))
+		return RarityRange{lo, all.Max}, err
+	case strings.Contains(s, "-"):
+		a, b, _ := strings.Cut(s, "-")
+		lo, err := tier(a)
+		if err != nil {
+			return all, err
+		}
+		hi, err := tier(b)
+		if err == nil && lo > hi {
+			err = fmt.Errorf("rarity span %q runs backwards", s)
+		}
+		return RarityRange{lo, hi}, err
+	default:
+		t, err := tier(s)
+		return RarityRange{t, t}, err
+	}
 }
 
 // GetCrateConfig returns the crate behavior for a loot_crate NPC key.
@@ -2736,8 +2790,11 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Strict: a field this file no longer reads fails the load, never drops silently.
 	var loots LootTablesConfig
-	if err := yaml.Unmarshal(data, &loots); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&loots); err != nil {
 		return nil, err
 	}
 	if err := expandMonsterLootGroups(&loots); err != nil {
@@ -2892,101 +2949,117 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
 		}
-		totalWeight := 0
+		total := 0
 		for i, src := range c.RollSources {
-			if err := validateCrateRollSource(key, "roll_sources", i, src, true); err != nil {
+			if err := validateCrateRollSource(lt.WeightedLootTables, key, i, src); err != nil {
 				return err
 			}
-			totalWeight += src.Weight
+			total += src.PerMille()
 		}
-		if len(c.RollSources) > 0 && totalWeight != 100 {
-			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %d", key, totalWeight)
-		}
-		for i, src := range c.SpecialRolls {
-			if err := validateCrateRollSource(key, "special_rolls", i, src, false); err != nil {
-				return err
-			}
-			if src.ChancePct < 1 || src.ChancePct > 100 {
-				return fmt.Errorf("crate %q special_rolls[%d]: chance_pct must be 1..100", key, i)
-			}
+		if len(c.RollSources) > 0 && total != 1000 {
+			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %.1f", key, float64(total)/10)
 		}
 	}
 	return nil
 }
 
-func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {
-	if requireWeight {
-		if src.Weight < 1 || src.Weight > 100 {
-			return fmt.Errorf("crate %q %s[%d]: weight must be 1..100", crate, sourceName, idx)
-		}
-		if src.ChancePct != 0 {
-			return fmt.Errorf("crate %q %s[%d]: chance_pct is only valid in special_rolls", crate, sourceName, idx)
-		}
-	} else if src.Weight != 0 {
-		return fmt.Errorf("crate %q %s[%d]: weight is only valid in roll_sources", crate, sourceName, idx)
+// catalogItemTypes is the closed set a catalog source draws from: an item
+// type, "weapon" for weapons only, or "any" for every item type and weapons.
+var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consumable": true, "trinket": true, "weapon": true, "any": true}
+
+func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string, idx int, src CrateRollSource) error {
+	where := fmt.Sprintf("crate %q roll_sources[%d]", crate, idx)
+	if (src.LootTable != "") != (src.Pool == "loot_table") {
+		return fmt.Errorf("%s: loot_table names the pool of a loot_table source, and only of one", where)
 	}
-	if src.LegendaryPct < 0 || src.LegendaryPct > 100 {
-		return fmt.Errorf("crate %q %s[%d]: legendary_pct must be 0..100", crate, sourceName, idx)
+	if tenths := src.Weight * 10; src.Weight < 0.1 || src.Weight > 100 || math.Abs(tenths-math.Round(tenths)) > 1e-6 {
+		return fmt.Errorf("%s: weight must be a percent from 0.1 to 100 in 0.1 steps", where)
 	}
-	if src.Pool != "rare" && src.LegendaryPct != 0 {
-		return fmt.Errorf("crate %q %s[%d]: legendary_pct is only valid for pool rare", crate, sourceName, idx)
+	tiers, err := ParseRarityRange(src.Rarity)
+	if err != nil {
+		return fmt.Errorf("%s: %v", where, err)
 	}
 	switch src.Pool {
-	case "nothing":
-		return nil // a weighted empty slot ("50% the crate holds nothing")
-	case "map", "rare":
-		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+	case "nothing", "map":
+		if src.ItemType != "" || src.Amount != 0 || src.Pool == "nothing" && src.Rarity != "" {
+			return fmt.Errorf("%s: pool %s takes no item_type or amount", where, src.Pool)
 		}
 		return nil
 	case "catalog":
-		if src.ItemType == "" {
-			return fmt.Errorf("crate %q %s[%d]: catalog source needs item_type", crate, sourceName, idx)
+		if !catalogItemTypes[src.ItemType] {
+			return fmt.Errorf("%s: catalog item_type must be armor, accessory, consumable, trinket, weapon or any, got %q", where, src.ItemType)
 		}
-		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+		if src.Amount != 0 {
+			return fmt.Errorf("%s: catalog takes no amount", where)
 		}
-		if !catalogItemFilterHasCandidates(src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: no catalog items match item_type=%q rarity=%q min_rarity=%q max_rarity=%q", crate, sourceName, idx, src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity)
+		if !catalogFilterHasCandidates(src.ItemType, tiers) {
+			return fmt.Errorf("%s: no catalog items match item_type=%q rarity=%q", where, src.ItemType, src.Rarity)
+		}
+		return nil
+	case "loot_table":
+		if _, ok := tables[src.LootTable]; !ok {
+			return fmt.Errorf("%s: unknown loot_table %q", where, src.LootTable)
+		}
+		if src.ItemType != "" || src.Rarity != "" || src.Amount != 0 {
+			return fmt.Errorf("%s: loot_table takes no item_type, rarity or amount", where)
 		}
 		return nil
 	case "gold", "arena_points":
-		if src.Amount <= 0 {
-			return fmt.Errorf("crate %q %s[%d]: %s source needs a positive amount", crate, sourceName, idx, src.Pool)
+		if src.Amount <= 0 || src.ItemType != "" || src.Rarity != "" {
+			return fmt.Errorf("%s: %s needs a positive amount and no item_type or rarity", where, src.Pool)
 		}
 		return nil
 	default:
-		return fmt.Errorf("crate %q %s[%d]: pool must be \"nothing\", \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
+		return fmt.Errorf("%s: pool must be \"nothing\", \"map\", \"catalog\", \"loot_table\", \"gold\", or \"arena_points\"", where)
 	}
 }
 
-func validRarityFilter(rarity string) bool {
-	switch rarity {
-	case "", "common", "uncommon", "rare", "legendary", "unique":
-		return true
-	default:
+// CatalogItemMatchesFilter is shared by crate validation and runtime rolls:
+// one non-weapon item key against a catalog source's item_type and gate.
+// Quest, crafted-only and harvest items never roll; arena uniques neither.
+func CatalogItemMatchesFilter(key, itemType string, tiers RarityRange) bool {
+	if itemType == "weapon" {
 		return false
 	}
-}
-
-// CatalogItemMatchesFilter is shared by crate validation and runtime rolls.
-// A non-empty catalog must mean at least one item the chest can actually grant.
-func CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity string) bool {
 	def, ok := GetItemDefinition(key)
 	if !ok || def == nil || def.Type == "quest" || ValidateOrdinaryItemGrant(key) != nil {
 		return false
 	}
-	if itemType != "" && def.Type != itemType || rarity != "" && def.Rarity != rarity {
+	if itemType != "any" && def.Type != itemType {
 		return false
 	}
-	tier := RarityTier(def.Rarity)
-	return tier >= RarityTier(minRarity) && (maxRarity == "" || tier <= RarityTier(maxRarity))
+	return catalogRarityAllowed(def.Rarity, tiers)
 }
 
-func catalogItemFilterHasCandidates(itemType, rarity, minRarity, maxRarity string) bool {
+// CatalogWeaponMatchesFilter is the weapon half of a "weapon" or "any"
+// catalog source; no_loot kit weapons and arena uniques never roll.
+func CatalogWeaponMatchesFilter(key, itemType string, tiers RarityRange) bool {
+	if itemType != "weapon" && itemType != "any" {
+		return false
+	}
+	def, ok := GetWeaponDefinition(key)
+	if !ok || def == nil || def.NoLoot {
+		return false
+	}
+	return catalogRarityAllowed(def.Rarity, tiers)
+}
+
+func catalogRarityAllowed(rarity string, tiers RarityRange) bool {
+	tier := RarityTier(rarity)
+	return tier != RarityTier("unique") && tiers.Contains(tier)
+}
+
+func catalogFilterHasCandidates(itemType string, tiers RarityRange) bool {
 	if GlobalItems != nil {
 		for key := range GlobalItems.Items {
-			if CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity) {
+			if CatalogItemMatchesFilter(key, itemType, tiers) {
+				return true
+			}
+		}
+	}
+	if GlobalWeapons != nil {
+		for key := range GlobalWeapons.Weapons {
+			if CatalogWeaponMatchesFilter(key, itemType, tiers) {
 				return true
 			}
 		}
