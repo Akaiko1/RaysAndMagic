@@ -180,6 +180,7 @@ type Renderer struct {
 	mapRenderResourcePrewarmMapKeys []string
 	mapRenderResourcePrewarmActive  *mapRenderPrewarmTask
 	mapRenderResidentMapKeys        []string
+	residencyWorld                  *world.World3D // world the residency was inventoried for
 	mapRenderResourcesByMap         map[string]*mapRenderRegionResources
 	mapRenderUploadQueue            []mapRenderUpload
 	mapRenderUploadQueued           map[*ebiten.Image]struct{}
@@ -191,6 +192,8 @@ type Renderer struct {
 	// during the current world pass, keyed by their root images (plus bounded
 	// standee copies), so same-frame derived builders skip ReadPixels. Cleared
 	// when the pass ends - lifetime is one Draw, RAM cost one cold viewport.
+	// Streamed loads land here from Update and wait for the next pass; a
+	// residency reset drops them with the images they belong to.
 	lazySpriteCPUPixels map[*ebiten.Image]*image.RGBA
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
@@ -342,8 +345,13 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	// A physical world switch is a real render-resource boundary. Generated
 	// standee cores/mips from the old world cannot become visible again until a
 	// later map load, so release that residency before inventorying the new map.
-	r.resetMapRenderResourceResidency()
-	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+	// A rebuild on the same world (a save load, changed tiles) keeps it: the
+	// party will see those resources again.
+	if current := r.game.GetCurrentWorld(); current != r.residencyWorld {
+		r.resetMapRenderResourceResidency()
+		r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+		r.residencyWorld = current
+	}
 
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil

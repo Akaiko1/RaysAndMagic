@@ -73,6 +73,7 @@ func (gl *GameLoop) closeResourceLoading() {
 	if gl.renderer != nil {
 		gl.renderer.cancelFloorPreparation()
 		gl.renderer.cancelMapRenderPrewarmOutside(nil)
+		clear(gl.renderer.lazySpriteCPUPixels)
 	}
 	uiReleaseLayer(l.front)
 	uiReleaseLayer(l.back)

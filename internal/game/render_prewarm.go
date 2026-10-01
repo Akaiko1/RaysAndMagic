@@ -1160,6 +1160,7 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 	r.processedSpriteCache = nil
 	r.processedSpriteOrigins = nil
 	r.animFrameOrigins = nil
+	clear(r.lazySpriteCPUPixels)
 	r.wallRipmaps = nil
 	r.wallRipmapBytes = 0
 	r.mapRenderResourcePrewarmPending = false

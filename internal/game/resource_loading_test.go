@@ -140,12 +140,22 @@ func TestLoadingBannerLifetime(t *testing.T) {
 	}
 }
 
+// Streamed pixels wait in the world-pass stash; a reload that resets residency
+// before the next pass (save-scumming during the loading banner) must drop
+// them, or every reload leaks one batch of decoded sprites.
 func TestLoadingGenerationAndExitCancelOwnedWork(t *testing.T) {
 	for _, entry := range []string{"generation", "title", "shutdown"} {
 		t.Run(entry, func(t *testing.T) {
 			gl := loadingFixture(t)
 			old := gl.loading.stream
 			old.Request(graphics.SpriteResourceRequest{Name: "obsolete"})
+			streamed := ebiten.NewImage(1, 1)
+			defer streamed.Deallocate()
+			gl.renderer.observeLazySpriteLoad(graphics.SpriteResourceRequest{Name: "streamed"},
+				map[*ebiten.Image]*image.RGBA{streamed: image.NewRGBA(image.Rect(0, 0, 1, 1))})
+			if len(gl.renderer.lazySpriteCPUPixels) != 1 {
+				t.Fatal("streamed pixels never reached the stash (positive control)")
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			gl.renderer.mapRenderResourcePrewarmActive = &mapRenderPrewarmTask{ctx: ctx, cancel: cancel}
 			gl.loading.begin(time.Now())
@@ -166,6 +176,9 @@ func TestLoadingGenerationAndExitCancelOwnedWork(t *testing.T) {
 			}
 			if old.Pending() || ctx.Err() == nil {
 				t.Fatal("obsolete resource work survived its owner")
+			}
+			if n := len(gl.renderer.lazySpriteCPUPixels); n != 0 {
+				t.Fatalf("%d streamed pixel buffers survived their owner", n)
 			}
 		})
 	}

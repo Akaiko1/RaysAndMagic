@@ -684,3 +684,30 @@ func TestTurnModePanelFitsItsTextInEveryFont(t *testing.T) {
 		}
 	})
 }
+
+// A cooldown running when the party is replaced (a load, a new game) must not
+// pin the old hero: the cache keeps exactly the heroes that still have a card,
+// and a current hero keeps the peak its fill is measured against.
+func TestPartyCooldownCacheForgetsReplacedHeroes(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+	if len(g.party.Members) < 2 {
+		t.Fatal("fixture party needs two heroes")
+	}
+	kept, gone := g.party.Members[0], g.party.Members[1]
+	for _, m := range []*character.MMCharacter{kept, gone} {
+		m.RTCooldown = 30
+		if _, _, active := ui.partyCooldownProgress(m, partySingleHandCooldown(m)); !active {
+			t.Fatal("cooldown readout inactive (positive control)")
+		}
+	}
+	g.party.Members = []*character.MMCharacter{kept}
+	ui.prunePartyCooldownState()
+	if _, pinned := ui.partyCooldownState[gone]; pinned {
+		t.Fatal("a replaced hero is still pinned by the cooldown cache")
+	}
+	if st, ok := ui.partyCooldownState[kept]; !ok || st.peakRemaining != 30 {
+		t.Fatalf("current hero cooldown state = %+v, %v; want its peak of 30", st, ok)
+	}
+}

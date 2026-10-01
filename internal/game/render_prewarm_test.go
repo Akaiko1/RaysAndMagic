@@ -2253,3 +2253,90 @@ func testMapRenderTaskState(cancelled bool) mapRenderTaskState {
 	}
 	return mapRenderTaskSources
 }
+
+// Render residency is released exactly on a physical world switch. A save
+// loaded onto the world the party already stands in (save-scumming a chest)
+// keeps every resident resource and needs no loading pause; travel, a save on
+// another world and a new game (fresh worlds) still release it.
+func TestRenderResidencyResetsOnlyOnWorldSwitch(t *testing.T) {
+	t.Chdir("../..")
+	must := func(t *testing.T, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		prep  func(t *testing.T, g *MMGame, wm *world.WorldManager) func()
+		reset bool
+	}{
+		{"load on the same world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			save := g.buildSave(wm)
+			return func() { must(t, g.applySave(wm, &save)) }
+		}, false},
+		{"runtime tile change", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return g.refreshWorldTileRenderCaches
+		}, false},
+		{"terrain restore", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { g.restoreTerrainChanges(nil) }
+		}, false},
+		{"load a save made in another open-world region", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			ts := float64(g.config.GetTileSize())
+			for _, m := range wm.OpenWorld.Monsters {
+				if r := wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)); r != nil && r.MapKey == "desert" {
+					g.setPartyPosition(m.X, m.Y)
+					break
+				}
+			}
+			g.syncOpenWorldRegion()
+			if wm.CurrentMapKey != "desert" {
+				t.Fatalf("party region = %q, want desert", wm.CurrentMapKey)
+			}
+			save := g.buildSave(wm)
+			x, y, _ := wm.OpenWorldRegionStart("forest")
+			g.setPartyPosition(x, y)
+			g.syncOpenWorldRegion()
+			return func() {
+				must(t, g.applySave(wm, &save))
+				if wm.CurrentMapKey != "desert" {
+					t.Fatalf("loaded region = %q, want desert", wm.CurrentMapKey)
+				}
+			}
+		}, false},
+		{"travel between open-world regions", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() {
+				must(t, g.switchToMap("deep_jungle"))
+				if wm.CurrentMapKey != "deep_jungle" {
+					t.Fatalf("region after travel = %q, want deep_jungle", wm.CurrentMapKey)
+				}
+			}
+		}, false},
+		{"travel to another world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { must(t, g.switchToMap("church")) }
+		}, true},
+		{"load a save made on another world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			must(t, g.switchToMap("church"))
+			save := g.buildSave(wm)
+			must(t, g.switchToMap("forest"))
+			return func() { must(t, g.applySave(wm, &save)) }
+		}, true},
+		{"new game", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { g.startNewGameWithParty(character.NewParty(g.config)) }
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, wm, _ := bootOpenWorldGame(t, true)
+			r := g.gameLoop.renderer
+			step := tc.prep(t, g, wm)
+			before := r.mapRenderGeneration
+			step()
+			if reset := r.mapRenderGeneration != before; reset != tc.reset {
+				t.Fatalf("residency reset = %v, want %v", reset, tc.reset)
+			}
+			if r.residencyWorld != g.GetCurrentWorld() {
+				t.Fatal("residency is not inventoried for the current world")
+			}
+		})
+	}
+}

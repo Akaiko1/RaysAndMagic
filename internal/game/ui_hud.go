@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"ugataima/internal/character"
@@ -227,6 +228,17 @@ type partyCooldownVisualState struct {
 	lastRemaining    int
 	offPeakRemaining int
 	offLastRemaining int
+}
+
+// prunePartyCooldownState forgets heroes who no longer have a card. A load or
+// a new game replaces every hero, so a cooldown running at that moment would
+// otherwise pin the old character for good.
+func (ui *UISystem) prunePartyCooldownState() {
+	for member := range ui.partyCooldownState {
+		if !slices.Contains(ui.game.party.Members, member) {
+			delete(ui.partyCooldownState, member)
+		}
+	}
 }
 
 func (ui *UISystem) partyCooldownStateFor(member *character.MMCharacter) partyCooldownVisualState {
@@ -639,6 +651,7 @@ func (ui *UISystem) drawDebugInfo(screen *ebiten.Image) {
 
 // drawPartyUI draws the party member portraits and stats at the bottom of the screen
 func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
+	ui.prunePartyCooldownState()
 	if !ui.game.showPartyStats {
 		return
 	}
