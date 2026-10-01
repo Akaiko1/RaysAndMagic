@@ -127,8 +127,8 @@ func questMonsterTag(m *monster.Monster3D) string {
 
 // countLivingQuestTargets returns living, quest-eligible monsters whose name
 // maps to the same normalized target key used by kill progress. TargetMap
-// scopes the census to one map or merged-world region; an empty target scans
-// every loaded world.
+// scopes the census to the monsters whose home is that map or region, wherever
+// they stand; an empty target counts every loaded world.
 func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 	return g.countQuestTargetsFromSource(def, "", false)
 }
@@ -151,46 +151,26 @@ func (g *MMGame) countQuestTargetsFromSource(def *quests.QuestDefinition, questI
 		}
 		return def.MatchesTarget(questMonsterTag(m)) && (!def.EncounterOnly || (m.IsEncounterMonster && m.EncounterRewards != nil && m.EncounterRewards.QuestID == questID))
 	}
-	scan := func(w *world.World3D) int {
-		if w == nil {
-			return 0
-		}
-		count := 0
-		for _, m := range w.Monsters {
-			if matches(w, m) {
-				count++
-			}
-		}
-		return count
-	}
-
 	wm := world.GlobalWorldManager
 	if wm == nil {
-		return scan(g.world)
+		targetMap = "" // no world registry: nothing to scope by
 	}
-	if targetMap != "" {
-		// A merged region scopes the census to its rect of the unified world.
-		if r := wm.OpenWorldRegionByKey(targetMap); r != nil {
-			ts := g.config.GetTileSize()
-			count := 0
-			for _, m := range wm.OpenWorld.Monsters {
-				if !matches(wm.OpenWorld, m) {
-					continue
-				}
-				if wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) != r {
-					continue
-				}
-				count++
-			}
-			return count
-		}
-		return scan(wm.LoadedMaps[targetMap])
-	}
-
 	total := 0
-	wm.EachWorld(func(_ string, w *world.World3D) {
-		total += scan(w)
-	})
+	scan := func(w *world.World3D) {
+		if w == nil {
+			return
+		}
+		for _, m := range w.Monsters {
+			if matches(w, m) && (targetMap == "" || g.monsterIsFrom(w, m, targetMap)) {
+				total++
+			}
+		}
+	}
+	if wm == nil {
+		scan(g.world)
+	} else {
+		wm.EachWorld(func(_ string, w *world.World3D) { scan(w) })
+	}
 	return total
 }
 
@@ -496,6 +476,7 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 			tx, ty := projectTileToCurrentWorld(sp.Map, sp.X, sp.Y)
 			x, y := TileCenterFromTile(tx, ty, ts)
 			m := monster.NewMonster3DFromConfig(x, y, sp.Monster, g.config)
+			m.HomeMap = sp.Map
 			if m.BandGroup != "" {
 				m.BandInstance = fmt.Sprintf("quest:%s:%s:%t:%s", sp.Map, id, i < len(def.OnAcceptSpawns), m.BandGroup)
 			}

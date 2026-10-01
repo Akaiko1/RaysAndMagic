@@ -17,7 +17,7 @@ func TestInitialMonsterKeysPersistAfterMapMonstersAreRemoved(t *testing.T) {
 		{X: 1, Y: 1, MonsterKey: "mummy"},
 		{X: 2, Y: 1, MonsterKey: "mummy"},
 		{X: 3, Y: 1, MonsterKey: "minotaur"},
-	})
+	}, "test_map")
 	w.Monsters = nil // Simulate the party clearing the map.
 
 	if len(w.InitialMonsterKeys) != 2 {

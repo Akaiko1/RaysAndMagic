@@ -111,10 +111,11 @@ type QuestDefinition struct {
 	EncounterOnly bool `yaml:"encounter_only,omitempty"`
 	// Victory marks the single quest whose completion wins the game.
 	Victory bool `yaml:"victory,omitempty"`
-	// TargetMap scopes the "no living targets left -> complete" check to one map,
-	// for region quests whose monster type also lives elsewhere (e.g. the cliff
-	// troll cull - trolls also roam the highlands). Empty = search every map,
-	// which suits unique bosses (the lone Lich King).
+	// TargetMap scopes kills and the "no living targets left -> complete" check
+	// to the monsters created on one map, wherever they wander, for region
+	// quests whose monster type also lives elsewhere (e.g. the cliff troll cull -
+	// trolls also roam the highlands). Empty = search every map, which suits
+	// unique bosses (the lone Lich King).
 	TargetMap string       `yaml:"target_map,omitempty"`
 	Rewards   QuestRewards `yaml:"rewards"`
 	// OnCompleteTiles are applied to the world the moment the quest completes
@@ -461,7 +462,7 @@ func (qm *QuestManager) SetCurrentCount(questID string, count int) {
 }
 
 // OnMonsterKilled updates quest progress when a monster is killed. mapKey is
-// the map the kill happened on: a quest with TargetMap set only counts kills
+// the victim's home map: a quest with TargetMap set only counts monsters from
 // there (forest wolves don't advance on a city wolf). Empty mapKey counts
 // everywhere (callers without map context).
 // Returns a list of quests that were completed by this kill.

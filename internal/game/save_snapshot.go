@@ -201,6 +201,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SoakRate:                mon.SoakRate,
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
+				HomeMap:                 mon.HomeMap,
 				StunFramesRemaining:     mon.StunFramesRemaining,
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
 				StunRate:                mon.StunRate,

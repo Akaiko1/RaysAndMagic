@@ -245,6 +245,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		add.WasAttacked = true
 		add.BeginPlayerEngagement() // summons wake hostile
 		add.SummonedBy = m.ID
+		add.HomeMap = m.HomeMap
 		add.QuestProgressIgnored = true // runtime summons never count toward map-clear quests
 		cs.game.registerSpawnedMonster(add)
 		cs.game.refreshMonsterCollisionState(add)

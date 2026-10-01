@@ -52,7 +52,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 			takenMonsterIDs[m.ID] = struct{}{}
 		}
-		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
+		// homeFallback is the home of a legacy record with none: the map it was
+		// saved on, which is where the old rule placed it.
+		restoreMonsters := func(w *world.World3D, monsters []MonsterSave, homeFallback string) {
 			sealedSpawn := make(map[string][2]float64)
 			for _, fresh := range w.Monsters {
 				if fresh != nil && fresh.IsBoss() && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
@@ -205,6 +207,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.Arbor = ms.Arbor
 				}
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
+				m.HomeMap = ms.HomeMap
+				if m.HomeMap == "" {
+					m.HomeMap = homeFallback
+				}
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -291,7 +297,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					g.loadNeedsResave = true
 					continue
 				}
-				restoreMonsters(w, monsters)
+				restoreMonsters(w, monsters, mapKey)
 				if mapKey == "pyramid_3" {
 					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
 				}
@@ -312,6 +318,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					restoredRegions[region.MapKey] = true
 					for _, msave := range monsters {
 						msave = projectMonsterSave(wm, region.MapKey, msave)
+						if msave.HomeMap == "" {
+							msave.HomeMap = region.MapKey
+						}
 						if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 							msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 								wm.ProjectTile(region.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -331,7 +340,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 							keepFresh = append(keepFresh, mon)
 						}
 					}
-					restoreMonsters(wm.OpenWorld, combined)
+					restoreMonsters(wm.OpenWorld, combined, "")
 					wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
 				}
 			}
@@ -344,6 +353,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				projected := make([]MonsterSave, 0, len(save.Monsters))
 				for _, msave := range save.Monsters {
 					msave = projectMonsterSave(wm, save.MapKey, msave)
+					if msave.HomeMap == "" {
+						msave.HomeMap = save.MapKey
+					}
 					if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 						msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 							wm.ProjectTile(save.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -361,10 +373,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 						keepFresh = append(keepFresh, mon)
 					}
 				}
-				restoreMonsters(wm.OpenWorld, projected)
+				restoreMonsters(wm.OpenWorld, projected, "")
 				wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
 			} else {
-				restoreMonsters(g.world, save.Monsters)
+				restoreMonsters(g.world, save.Monsters, save.MapKey)
 			}
 		}
 		for mapKey, day := range save.MapRespawnDay {

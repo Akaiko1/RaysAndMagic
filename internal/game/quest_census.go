@@ -62,7 +62,8 @@ func (g *MMGame) availableKillQuestTargets(q *quests.Quest, includePendingDeaths
 	}
 	for _, pending := range g.pendingQuestSpawns {
 		m := pending.monster
-		if m != nil && m.IsAlive() && !m.QuestProgressIgnored && !def.EncounterOnly && def.MatchesTarget(questMonsterTag(m)) && onMap(pending.world, m.X, m.Y) {
+		if m != nil && m.IsAlive() && !m.QuestProgressIgnored && !def.EncounterOnly && def.MatchesTarget(questMonsterTag(m)) &&
+			(def.TargetMap == "" || g.monsterIsFrom(pending.world, m, def.TargetMap)) {
 			count++
 		}
 	}

@@ -7,7 +7,9 @@ Read [shared authoring rules](content-authoring.md) and
 ## Define the objective
 
 This example uses the existing forest goblins. Keep `target_map` as the source
-map key, including when that map is part of the stitched world.
+map key, including when that map is part of the stitched world. A monster counts
+for the map it was created on, even after it chases the party into another
+region.
 
 ```yaml
 quests:

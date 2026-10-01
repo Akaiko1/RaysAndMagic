@@ -637,6 +637,7 @@ func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.Pac
 		}
 		m.PackKey = tag
 		m.QuestProgressIgnored = !member.QuestProgress
+		g.stampMonsterHome(w, m)
 		if w == g.world {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)

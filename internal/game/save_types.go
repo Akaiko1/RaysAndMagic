@@ -305,6 +305,7 @@ type MonsterSave struct {
 	Relentless           bool   `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag
 	QuestProgressIgnored bool   `json:"quest_progress_ignored,omitempty"`
+	HomeMap              string `json:"home_map,omitempty"` // map key the monster was created in (target_map quests)
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cooldowns.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`

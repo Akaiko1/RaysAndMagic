@@ -276,7 +276,7 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	RegisterTeleportersFromMapData(mapData.SpecialTileSpawns, mapKey, wm.GlobalTeleporterRegistry, mapData.Tiles)
 
 	// Load fixed monsters from map data (converts MonsterSpawn entries to Monster3D objects)
-	world.loadMonstersFromMapData(mapData.MonsterSpawns)
+	world.loadMonstersFromMapData(mapData.MonsterSpawns, mapKey)
 	wm.attachMapClearEncounter(world, mapKey, mapConfig)
 
 	// Do NOT add random/procedural monsters on premade (.map) worlds.

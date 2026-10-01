@@ -129,13 +129,15 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	// Monsters in range. A sealed (dormant) boss is invulnerable and inert -
 	// skip it so the nova neither damages nor wakes it. On the unified world
 	// "the map" is the party's REGION - MapWide must not burn the other four.
+	// It burns what stands there now, wherever the monster was born.
 	regionScoped := def.MapWide && cs.game.openWorldActive()
+	ts := float64(cs.game.config.GetTileSize())
 	for _, m := range cs.game.world.Monsters {
 		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
 			Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
-		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
+		if regionScoped && cs.game.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) != currentMapKey() {
 			continue
 		}
 		if cs.tryDarkElfBindInstead(caster, m) {

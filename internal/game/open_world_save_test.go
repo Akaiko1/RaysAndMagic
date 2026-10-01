@@ -390,11 +390,16 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	}
 	near := monster.NewMonster3DFromConfig(fx+128, fy, "goblin", cfg)
 	far := monster.NewMonster3DFromConfig(hx, hy, "goblin", cfg)
-	if near == nil || far == nil {
+	// The nova scopes by where a monster stands, not where it was born.
+	strayIn := monster.NewMonster3DFromConfig(fx-128, fy, "goblin", cfg)
+	strayOut := monster.NewMonster3DFromConfig(hx+128, hy, "goblin", cfg)
+	if near == nil || far == nil || strayIn == nil || strayOut == nil {
 		t.Fatal("failed to spawn test monsters")
 	}
-	wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, near, far)
+	strayIn.HomeMap, strayOut.HomeMap = "highlands", "forest"
+	wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, near, far, strayIn, strayOut)
 	nearBefore, farBefore := near.HitPoints, far.HitPoints
+	strayInBefore, strayOutBefore := strayIn.HitPoints, strayOut.HitPoints
 
 	def := spells.SpellDefinition{Name: "Test Nova", School: "fire", SpellPointsCost: 20, MapWide: true}
 	if !g.combat.tryCastInferno(def, g.party.Members[g.selectedChar]) {
@@ -405,6 +410,12 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	}
 	if far.HitPoints != farBefore {
 		t.Errorf("cross-region monster burned by MapWide nova (HP %d -> %d)", farBefore, far.HitPoints)
+	}
+	if strayIn.HitPoints >= strayInBefore {
+		t.Errorf("highlands-born monster in the forest untouched (HP %d -> %d)", strayInBefore, strayIn.HitPoints)
+	}
+	if strayOut.HitPoints != strayOutBefore {
+		t.Errorf("forest-born monster in the highlands burned (HP %d -> %d)", strayOutBefore, strayOut.HitPoints)
 	}
 }
 

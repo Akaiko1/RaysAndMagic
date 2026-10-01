@@ -50,6 +50,7 @@ type World3D struct {
 	entityFloors       map[[2]int]entityFloor
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
+	spawnHomeMap       string              // HomeMap of the authored spawns (respawns reuse it)
 	// MonsterSpawns is the authored roster (retained verbatim) and
 	// LastRespawnDay is the one-based calendar day when it was last spawned -
 	// respawn_days maps (the clock tower) rebuild the roster from it.
@@ -117,7 +118,7 @@ func (w *World3D) loadFromMapFile() {
 	w.loadNPCsFromMapData(mapData.NPCSpawns)
 
 	// Load monsters from map data (fixed placements only)
-	w.loadMonstersFromMapData(mapData.MonsterSpawns)
+	w.loadMonstersFromMapData(mapData.MonsterSpawns, "")
 }
 
 // CanProjectileMoveTo reports clearance at projectile/attack height at (x,y).
@@ -537,9 +538,11 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }
 
-// loadMonstersFromMapData loads monsters from map spawn data
-func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
+// loadMonstersFromMapData loads monsters from map spawn data. homeMap is the
+// map key the spawns belong to; respawns reuse it.
+func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn, homeMap string) {
 	w.MonsterSpawns = monsterSpawns
+	w.spawnHomeMap = homeMap
 	for _, spawn := range monsterSpawns {
 		if w.InitialMonsterKeys == nil {
 			w.InitialMonsterKeys = make(map[string]struct{})
@@ -550,6 +553,7 @@ func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
+		newMonster.HomeMap = homeMap
 		w.Monsters = append(w.Monsters, newMonster)
 	}
 }
@@ -569,7 +573,9 @@ func (w *World3D) RespawnAuthoredMonsters() {
 	w.Monsters = preserved
 	for _, spawn := range w.MonsterSpawns {
 		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
-		w.Monsters = append(w.Monsters, monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config))
+		m := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
+		m.HomeMap = w.spawnHomeMap
+		w.Monsters = append(w.Monsters, m)
 	}
 }
 

@@ -440,6 +440,9 @@ type Monster3D struct {
 	// QuestProgressIgnored marks ad-hoc/runtime summons that should not advance or
 	// block map-clear kill quests. Fixed map spawns leave this false.
 	QuestProgressIgnored bool
+	// HomeMap is the map or open-world region the monster was created in. A
+	// target_map kill quest counts it there wherever it wanders or dies.
+	HomeMap string
 
 	// Resistances and immunities
 	Resistances map[DamageType]int

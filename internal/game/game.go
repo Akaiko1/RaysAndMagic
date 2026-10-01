@@ -1052,6 +1052,7 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	if m == nil {
 		return
 	}
+	g.stampMonsterHome(g.world, m)
 	if err := m.ValidateFishLeap(); err != nil {
 		panic(err)
 	}
