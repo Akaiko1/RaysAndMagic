@@ -150,7 +150,7 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 		"heroism":       "Base physical damage bonus: +3",
 		"charm":         "Pacifies",
 		"stun":          "Stuns every monster within 3.0 tiles",
-		"raise_dead":    "Revives a fallen ally to 25% HP",
+		"raise_dead":    "Revives the first fallen ally in party order to 25% HP",
 	}
 	for key, sub := range want {
 		if got := rowsFor(key); !strings.Contains(got, sub) {

@@ -996,6 +996,17 @@ func clipUIText(text string, maxW int) string {
 	return clipUITextSuffix(text, maxW, "..")
 }
 
+// fittingUIForm picks the first of forms, most to least informative, that
+// fits maxW in the active font; when none does, the last one cut to fit.
+func fittingUIForm(maxW int, forms ...string) string {
+	for _, form := range forms {
+		if uiTextWidth(form) <= maxW {
+			return form
+		}
+	}
+	return clipUIText(forms[len(forms)-1], maxW)
+}
+
 // clipUITextSuffix is clipUIText with its own suffix. When not even the
 // suffix fits, the text is cut bare.
 func clipUITextSuffix(text string, maxW int, suffix string) string {

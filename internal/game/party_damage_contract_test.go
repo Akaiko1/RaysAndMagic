@@ -198,7 +198,6 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 						Damage: normal, TrueDamage: trueDamage, School: def.School, Caster: ch})
 				case def.ZoneRadiusTiles > 0:
 					z := &PersistentDamageZone{SpellID: key, FieldID: 1, X: primary.X, Y: primary.Y, Radius: 2 * tile, FramesLeft: 60, TickDamage: normal, TrueTickDamage: trueDamage}
-					primary.ArmorClass, secondary.ArmorClass = 100, 100 // zone armor bypass must survive unification
 					g.combat.damageZoneMonsters(key, []*PersistentDamageZone{z}, []*PersistentDamageZone{z})
 				case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 					parts := g.combat.spellDamageParts(def.ID, ch, g.combat.CalculateInfernoDamage(def, ch))

@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"math/rand"
 
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
@@ -22,6 +23,7 @@ type pendingMortar struct {
 	Crit        bool
 	Caster      *character.MMCharacter
 	RadiusTiles float64
+	StunChance  float64
 	StunSeconds int
 	StunTurns   int
 	School      string
@@ -63,6 +65,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		Crit:        isCrit,
 		Caster:      caster,
 		RadiusTiles: spellDef.AoeRadiusTiles,
+		StunChance:  spellDef.StunChance,
 		StunSeconds: spellDef.StunDurationSeconds,
 		StunTurns:   spellDef.StunDurationTurns,
 		School:      spellDef.School,
@@ -155,6 +158,8 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 			continue
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s crushes %s for %d damage.", name, target.Name, actual))
-		cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
+		if m.StunChance >= 1 || rand.Float64() < m.StunChance {
+			cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
+		}
 	}
 }

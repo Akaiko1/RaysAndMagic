@@ -327,8 +327,9 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		if def.AoeRadiusTiles > 0 {
 			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
 			for _, m := range cs.game.world.Monsters {
+				// Like every point blast, the burst stops at walls.
 				if m == nil || !m.IsAlive() || isPurePartySummon(m) ||
-					Distance(t.X, t.Y, m.X, m.Y) > radius {
+					Distance(t.X, t.Y, m.X, m.Y) > radius || !cs.attackLineClear(t.X, t.Y, m.X, m.Y) {
 					continue
 				}
 				if cs.tryDarkElfBindInstead(t.Owner, m) {

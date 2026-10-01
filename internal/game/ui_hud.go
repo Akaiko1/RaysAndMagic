@@ -592,17 +592,10 @@ func drawPartyMeter(screen *ebiten.Image, x, y, w, h, current, maximum int, labe
 // meterText picks the most informative native-size readout that fits its box:
 // the full "HP 33/33", else "33/33", else the current value alone.
 func meterText(maxW int, label string, current, maximum int) string {
-	forms := [...]string{
+	return fittingUIForm(maxW,
 		fmt.Sprintf("%s %d/%d", label, current, maximum),
 		fmt.Sprintf("%d/%d", current, maximum),
-		fmt.Sprintf("%d", current),
-	}
-	for _, form := range forms {
-		if uiTextWidth(form) <= maxW {
-			return form
-		}
-	}
-	return clipUIText(forms[len(forms)-1], maxW)
+		fmt.Sprintf("%d", current))
 }
 
 func centeredIconRowX(barX, barW, iconSize, gap, count int) int {

@@ -87,6 +87,7 @@ type MagicProjectile struct {
 	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	AoE                bool               // monster projectile: on hit, splash damage to the whole party
 	NoCollide          bool               // mortar visual (Stone Blossom): the display bolt never collides
+	AoeTiles           float64            // party spell blast radius, snapshotted at launch: the shot bursts wherever it ends
 }
 
 // SlashEffect represents a visual melee swing (a per-weapon pixel-particle
@@ -383,7 +384,7 @@ type MMGame struct {
 
 	// Wizard Eye effect
 	wizardEyeActive      bool    // Whether wizard eye is currently active
-	wizardEyeRadiusTiles float64 // radar reach from spells.yaml (vision_radius_tiles)
+	wizardEyeRadiusTiles float64 // radar reach from spells.yaml (radar_radius_tiles)
 	wizardEyeDuration    int     // Remaining duration in frames
 
 	// Walk on Water effect
@@ -400,6 +401,9 @@ type MMGame struct {
 
 	// Town Portal picker (visited destinations). Transient UI state.
 	townPortalPickerOpen bool
+	townPortalCaster     *character.MMCharacter // who opened the picker; pays on confirm
+	townPortalSpell      spells.SpellID
+	townPortalConfirming *character.MMCharacter // set while the confirmed cast runs
 	// visitedTavernMaps retains its legacy save-field name. It contains map keys
 	// of all Town Portal destinations the party has visited: tavern maps plus
 	// maps explicitly marked town_portal_destination in map_configs.yaml.
@@ -3501,6 +3505,9 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 		return
 	}
 	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)
+	if mpw.game.combat != nil {
+		mpw.game.combat.burstSpellShot(mpw.MagicProjectile, mpw.impactX, mpw.impactY, nil)
+	}
 }
 
 // ArrowWrapper implements entities.ProjectileUpdateInterface
@@ -3595,5 +3602,12 @@ func (mpw *MagicProjectileWrapper) GetLifetime() int {
 }
 
 func (mpw *MagicProjectileWrapper) SetLifetime(lifetime int) {
-	mpw.MagicProjectile.LifeTime = lifetime
+	p := mpw.MagicProjectile
+	// A blast spell spent at the end of its range still goes off there.
+	if lifetime <= 0 && p.Active && p.AoeTiles > 0 {
+		p.Active = false
+		mpw.pendingImpact = true
+		mpw.impactX, mpw.impactY = p.X, p.Y
+	}
+	p.LifeTime = lifetime
 }

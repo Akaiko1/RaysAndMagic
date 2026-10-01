@@ -763,8 +763,11 @@ type SpellDefinitionConfig struct {
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
 	// luck). Authored absolute - mastery does not scale it. Mutually exclusive
 	// with stat_bonus; validated at load.
-	StatBonuses       map[string]int `yaml:"stat_bonuses,omitempty"`
-	VisionRadiusTiles float64        `yaml:"vision_radius_tiles,omitempty"`
+	StatBonuses map[string]int `yaml:"stat_bonuses,omitempty"`
+	// Vision spells: a light around the party (lights dark places only) or a
+	// compass radar of monsters through walls.
+	LightRadiusTiles float64 `yaml:"light_radius_tiles,omitempty"`
+	RadarRadiusTiles float64 `yaml:"radar_radius_tiles,omitempty"`
 
 	// Effect configuration
 	TargetSelf     bool   `yaml:"target_self,omitempty"`
@@ -1831,6 +1834,9 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		}
 		if (def.SummonMax > 0 || len(def.SummonHPByMastery) > 0 || len(def.SummonDamageByMastery) > 0) && def.SummonMonster == "" {
 			return fmt.Errorf("spell '%s': summon_max/summon ladders require summon_monster", id)
+		}
+		if def.ZoneRadiusTiles > 0 && def.ZoneTickSeconds <= 0 {
+			return fmt.Errorf("spell '%s': zone_radius_tiles requires a positive zone_tick_seconds", id)
 		}
 		if (def.ZoneAheadTiles > 0 || def.ZoneWidthTiles > 0) && def.ZoneRadiusTiles <= 0 {
 			return fmt.Errorf("spell '%s': zone_ahead_tiles/zone_width_tiles require zone_radius_tiles", id)

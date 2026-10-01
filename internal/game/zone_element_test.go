@@ -10,7 +10,8 @@ import (
 	"ugataima/internal/spells"
 )
 
-// zoneVictim spawns a plain, tough monster with no resistances. Callers move it
+// zoneVictim spawns a plain, tough monster with no armor or resistances, so a
+// tick bills its authored damage (armor has its own zone test). Callers move it
 // into the zone AFTER the cast: a wall spell lays its cells two tiles ahead of
 // the party, not on it.
 func zoneVictim(t *testing.T, g *MMGame) *monsterPkg.Monster3D {
@@ -20,6 +21,7 @@ func zoneVictim(t *testing.T, g *MMGame) *monsterPkg.Monster3D {
 		t.Fatal("goblin config missing")
 	}
 	m.MaxHitPoints, m.HitPoints = 5000, 5000
+	m.ArmorClass = 0
 	m.Resistances = map[monsterPkg.DamageType]int{}
 	g.registerSpawnedMonster(m)
 	g.refreshMonsterCollisionState(m)

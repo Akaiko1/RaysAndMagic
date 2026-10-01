@@ -125,7 +125,7 @@ spells:
   ice_bolt:
     # Basic spell properties
     name: "Ice Bolt"
-    description: "Launches a chilling bolt of ice"
+    description: "Launches a fast bolt of ice"
     school: "water"
     spell_points_cost: 2
     cooldown_seconds: 0.8
@@ -229,7 +229,7 @@ spells:
   disintegrate:
     # Basic spell properties
     name: "Disintegrate"
-    description: "Unmakes a foe - 15% chance to instantly slay it. No effect on undead or dragons."
+    description: "Unmakes a foe outright, or does nothing at all. No effect on undead or dragons."
     school: "dark"
     spell_points_cost: 10
     cooldown_seconds: 2.5
@@ -366,7 +366,7 @@ spells:
     is_projectile: false
     is_utility: true
     status_icon: "torch"
-    vision_radius_tiles: 7   # torch glow radius
+    light_radius_tiles: 7
     message: "A magical light illuminates the area!"
 
     # No physics or graphics needed - utility spell
@@ -392,12 +392,12 @@ spells:
   wizard_eye:
     # Basic spell properties
     name: "Wizard Eye"
-    description: "Extends your vision beyond normal limits"
+    description: "Shows nearby monsters on the compass, even through walls"
     school: "air"
     spell_points_cost: 8
     category: buff
     duration: 300              # 5 minutes
-    vision_radius_tiles: 10  # wizard-eye radar radius
+    radar_radius_tiles: 10
     is_projectile: false
     is_utility: true
     status_icon: "eye"

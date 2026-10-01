@@ -41,6 +41,7 @@ var controlTipGroups = []controlTipGroup{
 		{"Point at card + F", "The slotted Heal lands on that hero (First Aid always heals the caster)"},
 		{"Point at card + C", "The hero's best heal lands on that hero"},
 		{"No card pointed at", "F and C heal the selected hero"},
+		{"From the spellbook", "Heal Other lands on the most hurt ally"},
 		{"Space", "Heals the most hurt ally by itself"},
 	}},
 	{"Turn-based", []controlTip{

@@ -60,6 +60,11 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a tavern, town, or major landmark first.")
 		return castRejected
 	}
+	// The destination is chosen first; nothing is paid until one is confirmed.
+	if def.TownPortal && req.PlayerInitiated && cs.game.townPortalConfirming == nil {
+		cs.game.townPortalPickerOpen, cs.game.townPortalCaster, cs.game.townPortalSpell = true, caster, req.ID
+		return castRejected
+	}
 	caster.SpellPoints -= req.Cost
 	outcome := effect()
 	if outcome != castCommitted {

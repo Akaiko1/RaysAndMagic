@@ -758,7 +758,7 @@ func TestRareCraftedSourceProductionGuards(t *testing.T) {
 }
 
 func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
-	for _, size := range [][2]int{{1024, 768}, {1920, 1080}} {
+	for _, size := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1920, 1080}}) {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			h := newDisplayedModalHarness(t, size[0], size[1])
 			g := h.g
@@ -768,6 +768,7 @@ func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
 			g.selectedChar = 0
 			g.menuOpen = true
 			g.currentTab = TabSpellbook
+			g.showPartyStats = true
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content
 			l := computeRareBookLayout(content, false)
 			for i, d := range config.GlobalTechniques.Techniques {

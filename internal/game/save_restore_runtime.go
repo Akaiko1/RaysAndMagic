@@ -54,12 +54,12 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	g.restoreCardSummonState(save.CardSummonCooldowns, save.CardSummonCDFrames)
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
-	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) -
+	// Radius always follows the CURRENT spells.yaml (light_radius_tiles) -
 	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive {
-		if def, err := spells.GetSpellDefinitionByID("torch_light"); err == nil && def.VisionRadiusTiles > 0 {
-			g.torchLightRadius = def.VisionRadiusTiles
+		if def, err := spells.GetSpellDefinitionByID("torch_light"); err == nil && def.LightRadiusTiles > 0 {
+			g.torchLightRadius = def.LightRadiusTiles
 		}
 	}
 	g.wizardEyeActive = save.WizardEyeActive
@@ -67,8 +67,8 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	// Same anti-freeze rule as the torch: an active eye adopts the CURRENT
 	// spells.yaml radius instead of a stale or missing saved value.
 	if g.wizardEyeActive {
-		if def, err := spells.GetSpellDefinitionByID("wizard_eye"); err == nil && def.VisionRadiusTiles > 0 {
-			g.wizardEyeRadiusTiles = def.VisionRadiusTiles
+		if def, err := spells.GetSpellDefinitionByID("wizard_eye"); err == nil && def.RadarRadiusTiles > 0 {
+			g.wizardEyeRadiusTiles = def.RadarRadiusTiles
 		}
 	}
 	g.walkOnWaterActive = save.WalkOnWaterActive

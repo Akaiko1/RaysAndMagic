@@ -487,7 +487,6 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 			damageTypeStr,
 		)
 		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
-		attack.IgnoreArmor = true
 		actual := cs.applyPartyMonsterAttack(m, attack).Total()
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
 		if damageTypeStr == damagecalc.Water.String() {

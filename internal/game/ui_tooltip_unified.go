@@ -53,7 +53,7 @@ func cooldownSeconds(cs *CombatSystem, frames int) string {
 	if tps <= 0 {
 		tps = config.DefaultTPS
 	}
-	return fmt.Sprintf("%.2fs", float64(frames)/float64(tps))
+	return fmt.Sprintf("%.2fs", character.CardSeconds(float64(frames)/float64(tps)))
 }
 
 // cooldownLine renders the labeled RT/TB cooldown line for a frame count, or ""
@@ -446,7 +446,11 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		// routes it through spellDamageParts too).
 		novaParts := cs.spellDamageParts(def.ID, char, breakdown.Total)
 		novaParts, outBonus := cs.spellPartsWithOutgoingBuff(novaParts, def.School)
-		dmg.AddDetail("Base: %d", breakdown.Base)
+		if len(def.DamageByMastery) == 4 && char != nil {
+			dmg.AddDetail("Base (%s): %d", tierName, breakdown.Base)
+		} else {
+			dmg.AddDetail("Base: %d", breakdown.Base)
+		}
 		if breakdown.Mastery > 0 {
 			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, breakdown.Mastery)
 		}
@@ -544,7 +548,16 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	if def.IsProjectile && !def.DealsNoDamage {
 		dmg.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
 	}
-	effects := spellCurrentEffects(def, char, false)
+	// Party projectiles add the card collection's disintegrate bonus at launch.
+	shown, cardDisintegrate := def, 0
+	if cs != nil && cs.game != nil && def.DisintegrateChance > 0 && def.IsProjectile {
+		cardDisintegrate = cs.game.cardDisintegratePct()
+		shown.DisintegrateChance = cs.game.partyDisintegrateChance(def.DisintegrateChance)
+	}
+	effects := spellCurrentEffects(shown, char, false)
+	if cardDisintegrate > 0 {
+		effects.AddDetail("Cards: +%d%% disintegrate chance", cardDisintegrate)
+	}
 	durationSection := ttSection{Title: "DURATION"}
 	if def.Duration > 0 {
 		duration := character.SpellDurationBreakdown(def, char)
@@ -554,7 +567,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if tier > 0 {
 			durationSection.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, duration.MasteryPct)
 		}
-		durationSection.Add("%s Duration: %ds", tooltipValuePrefix(char), duration.Seconds)
+		// A resolved TB round spends TurnBasedTurnSeconds of every timer.
+		rounds := (duration.Seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
+		durationSection.Add("%s Duration: %ds (TB: %s)", tooltipValuePrefix(char), duration.Seconds, pluralizeCount(rounds, "round", "rounds"))
 	}
 
 	for _, rule := range character.SpellRules(def) {

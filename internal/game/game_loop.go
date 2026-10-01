@@ -797,10 +797,10 @@ func (g *MMGame) timedBuffs() []timedBuff {
 // entry here - it then ticks, shows its HUD icon, and is restored on load
 // automatically, with no other code changes.
 func (g *MMGame) buildTimedBuffs() []timedBuff {
-	activateVisionRadius := func(id spells.SpellID, radius *float64) func() {
+	activateVisionRadius := func(id spells.SpellID, radius *float64, field func(spells.SpellDefinition) float64) func() {
 		return func() {
 			if def, err := spells.GetSpellDefinitionByID(id); err == nil {
-				*radius = def.VisionRadiusTiles
+				*radius = field(def)
 			}
 		}
 	}
@@ -809,13 +809,13 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			id:         "torch_light",
 			active:     &g.torchLightActive,
 			duration:   &g.torchLightDuration,
-			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius),
+			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius, func(d spells.SpellDefinition) float64 { return d.LightRadiusTiles }),
 		},
 		{
 			id:         "wizard_eye",
 			active:     &g.wizardEyeActive,
 			duration:   &g.wizardEyeDuration,
-			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles),
+			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles, func(d spells.SpellDefinition) float64 { return d.RadarRadiusTiles }),
 		},
 		{
 			id:       "walk_on_water",
@@ -833,16 +833,11 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			duration: &g.flyDuration,
 		},
 		{
+			// The dive itself records where to surface (mapArrivalUnderwater), so a
+			// recast in the depths keeps that point.
 			id:       "water_breathing",
 			active:   &g.waterBreathingActive,
 			duration: &g.waterBreathingDuration,
-			onActivate: func() {
-				g.underwaterReturnX = g.camera.X
-				g.underwaterReturnY = g.camera.Y
-				if world.GlobalWorldManager != nil {
-					g.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-				}
-			},
 			onExpire: func() {
 				// If still underwater when it lapses, surface the party.
 				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {

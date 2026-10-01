@@ -155,7 +155,7 @@ func TestTooltipSpellTargetsAndNonAttacks(t *testing.T) {
 	for _, tc := range []struct{ key, want, absent string }{
 		{"heal", "Target: Self", "Self-target only"},
 		{"mass_heal", "Target: Entire Party", "Heals the entire party"},
-		{"heal_other", "Can target any party member", "Target: Self"},
+		{"heal_other", "Heals the ally you point at, else the selected hero", "Target: Self"},
 		{"jump", "Teleports the party", "Cannot critically hit"},
 		{"summon_ice_elemental", "Summons an ally", "Deals no damage"},
 		{"charm", "Pacifies", "Total Damage:"},

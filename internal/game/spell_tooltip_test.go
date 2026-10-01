@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -100,7 +101,7 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"stone_skin", "Current reduction: -4 per hit"},
 		{"stone_skin", "Current reduction: -4 per hit"},
 		{"heroism", "Current physical damage bonus: +3"},
-		{"day_of_the_gods", "Current resistance: -10% incoming"},
+		{"day_of_the_gods", "Current incoming damage: -10%"},
 		{"hour_of_power", "Current damage bonus: +5"},
 		{"hour_of_power", "Current reduction: -1 per hit"},
 		{"stun", "Stuns every monster within 3.0 tiles for 4s"},
@@ -113,7 +114,9 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		// Cadence lives in the structured ZONE section; the prose line states only
 		// who it hits (monsters, not the party).
 		{"hot_steam", "RT: one tick every 3s"},
-		{"hot_steam", "scalds any monster inside (your party is unharmed)"},
+		{"hot_steam", "harms any monster inside (your party is unharmed)"},
+		{"firewall", "Around the wall (1 tile): 50% damage"},
+		{"firewall", "Sets monsters it touches burning for 3s"},
 		// Scaling is now a structured decomposition line ("Stat (value /
 		// divisor): +N") instead of a prose "scales with" sentence.
 		{"firebolt", "Intellect ("},
@@ -122,10 +125,10 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"heal", "Personality ("},
 		{"inferno", "Radius: Current map"},
 		{"fly", "Only under an open sky"},
-		{"town_portal", "visited taverns, towns, and major landmarks"},
+		{"town_portal", "nothing is spent until you choose one"},
 		{"fire_shield", "Party resists Fire +50%"},
 		{"stone_blossom", "blooms exactly 7 tiles out"},
-		{"raise_dead", "Revives a fallen ally to 25% HP"},
+		{"raise_dead", "Revives the first fallen ally in party order to 25% HP"},
 		{"resurrect", "full HP"},
 		{"mass_heal", "Target: Entire Party"},
 		{"awaken", "Wakes all unconscious allies"},
@@ -186,5 +189,84 @@ func TestCompactSpellTooltipShowsResultsWithoutFormulaDetails(t *testing.T) {
 			t.Errorf("%s compact tooltip must show %q without reference range %q:\n%s",
 				tc.id, tc.want, tc.hideRange, got)
 		}
+	}
+}
+
+// Every spell card states the mechanics the 2026-09-30 audit checked against
+// the code, through the live entry point (GetSpellTooltip adds the authored
+// description and routes monster-only spells to their own card).
+func TestSpellCardsStateAuditedMechanics(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+	if prev := monster.MonsterConfig; prev == nil {
+		t.Cleanup(func() { monster.MonsterConfig = prev })
+		monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	}
+	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
+	cs.game.cardSlots[0].key = "alien_card"
+	for _, tc := range []struct {
+		id       string
+		want     []string
+		mustNot  []string
+		mastered bool // Grandmaster in the spell's school
+	}{
+		{id: "fireball", want: []string{"splash radius 2 tiles", "Reduced by target Armor (up to 33%) and Fire Resistance",
+			"Bursts where it stops: on a target, a wall or at the end of its range", "a target that dodges escapes only its own hit"}, mustNot: []string{"tile AoE"}},
+		{id: "deadly_swarm", want: []string{"Bursts where it stops"}},
+		{id: "starburst", want: []string{"Bursts where it stops", "splash radius 5 tiles"}},
+		{id: "firebolt", want: []string{"Reduced by target Armor"}, mustNot: []string{"Bursts where it stops"}},
+		{id: "lightning", want: []string{"(2s / 1 TB turn)", "A dodged hit never stuns"}, mustNot: []string{"1 TB turns"}},
+		{id: "psychic_shock", want: []string{"A dodged hit never stuns"}},
+		{id: "disintegrate", want: []string{"Disintegrate: 17% chance", "Cards: +2% disintegrate chance"}, mustNot: []string{"15% chance to instantly slay"}},
+		{id: "alien_dark_bolt", want: []string{"chance to eradicate the hero it hits", "Strikes your party and the undead your party has bound"}, mustNot: []string{"undead and dragons immune", "not other monsters"}},
+		{id: "ice_bolt", mustNot: []string{"chilling"}},
+		{id: "inferno", want: []string{"Reduced by enemy Armor (up to 33%)", "Self-damage is reduced by party Armor"}},
+		{id: "earthquake", want: []string{"Base (Grandmaster): 400"}, mastered: true},
+		{id: "firewall", want: []string{"Reduced by target Armor (up to 33%) and Fire Resistance", "Around the wall (1 tile): 50% damage", "% of max HP per second", "ignoring fire resistance",
+			"A monster that walks in is hit at once", "RT Cooldown: 3.28s", "Speed (10): +0.28s"}, mustNot: []string{"Beside the wall", "scalds", "3.27s", "Ignores armor"}},
+		{id: "hot_steam", want: []string{"Reduced by target Armor (up to 33%) and Water Resistance", "A monster that walks in is hit at once"}, mustNot: []string{"Ignores armor"}},
+		{id: "stone_blossom", want: []string{"Reduced by target Armor", "(5s / 3 TB turns)"}},
+		{id: "stun", want: []string{"for 4s / 2 TB turns"}},
+		{id: "bind_undead", want: []string{"Your attacks and area spells still hit it", "crumbles if you leave the map"}},
+		{id: "summon_ice_elemental", want: []string{"up to 1 for the whole party", "It stays until killed and vanishes when you leave the map", "Attacks with Ice Bolt (Water, range 11 tiles)"}},
+		{id: "jump", want: []string{"TB: ends the party's turn", "If the landing is blocked or the party is rooted, the SP is kept"}},
+		{id: "resurrect", want: []string{"the eradicated first, then the others in party order", "With no one fallen, the SP is kept"}},
+		{id: "raise_dead", want: []string{"Revives the first fallen ally in party order to 25% HP (not the eradicated)"}},
+		{id: "awaken", want: []string{"With no one unconscious, the SP is kept"}},
+		{id: "heal_other", want: []string{"Heals the ally you point at, else the selected hero; from the spellbook, the most wounded ally"}, mustNot: []string{"Can target any party member"}},
+		{id: "mass_heal", want: []string{"Skips allies at 0 HP"}},
+		{id: "town_portal", want: []string{"nothing is spent until you choose one"}},
+		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", "(TB: "}},
+		{id: "water_breathing", want: []string{"Deep water takes the party down to the Ocean Depths", "surfaces where it dove in"}, mustNot: []string{"Allows underwater travel"}},
+		{id: "torch_light", want: []string{"Lights the dark within 7 tiles", "no effect in daylight"}, mustNot: []string{"Sight/radar", "radar"}},
+		{id: "wizard_eye", want: []string{"Compass radar: monsters within 10 tiles, even through walls", "Shows nearby monsters on the compass"}, mustNot: []string{"Sight/radar", "Extends your vision"}},
+		{id: "bless", want: []string{"Current bonus to all stats: +5", "(TB: 100 rounds)"}, mustNot: []string{"Recasting"}},
+		{id: "fire_shield", mustNot: []string{"Recasting"}},
+		{id: "day_of_the_gods", want: []string{"Current incoming damage: -10%"}, mustNot: []string{"resistance: -"}},
+		{id: "stone_skin", want: []string{"Current reduction: -4 per hit", "true damage and damage over time pass"}},
+		{id: "hour_of_power", want: []string{"true damage and damage over time pass", "No RT cooldown - TB: 1 action"}},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			def, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			mastery := character.MasteryNovice
+			if tc.mastered {
+				mastery = character.MasteryGrandMaster
+			}
+			char.MagicSchools[character.MagicSchoolID(def.School)] = &character.MagicSkill{Mastery: mastery}
+			card := GetSpellTooltip(def.ID, char, cs, true)
+			for _, want := range tc.want {
+				if !strings.Contains(card, want) {
+					t.Errorf("missing %q:\n%s", want, card)
+				}
+			}
+			for _, bad := range tc.mustNot {
+				if strings.Contains(card, bad) {
+					t.Errorf("still says %q:\n%s", bad, card)
+				}
+			}
+		})
 	}
 }

@@ -358,8 +358,8 @@ func isCardAlly(m *monsterPkg.Monster3D) bool {
 
 // isPurePartySummon is the shared distinction between creatures created for
 // the party and former enemies controlled by Bind Undead. Pure summons yield no
-// rewards, crumble on map exit, and are transparent to party attacks. Bound
-// undead deliberately satisfy none of those exclusions.
+// rewards and are transparent to party attacks; bound undead deliberately get
+// neither exclusion. Both crumble on map exit.
 //
 // A new ally source MUST register its owner namespace here. Missing from this
 // list it silently gets the former-enemy treatment: the party's own spells,
@@ -546,7 +546,7 @@ func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.Spe
 		if err != nil || !def.IsHeal() {
 			continue
 		}
-		if target := cs.mostWoundedHealTarget(def); target >= 0 {
+		if target := cs.mostWoundedHealTarget(def, SmartHealWoundedPct); target >= 0 {
 			return id, def, target, true
 		}
 	}
@@ -554,12 +554,12 @@ func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.Spe
 }
 
 // mostWoundedHealTarget returns the party index of the most-wounded ally a
-// heal should target (lowest HP fraction, below SmartHealWoundedPct), or -1
+// heal should target (lowest HP fraction, below the `below` fraction), or -1
 // if no one is hurt enough. A self-only heal (First Aid) only ever considers
 // the caster; an other-target heal considers the whole party. Dead/KO members
 // are skipped (heals don't revive).
-func (cs *CombatSystem) mostWoundedHealTarget(def spells.SpellDefinition) int {
-	best, bestFrac := -1, SmartHealWoundedPct
+func (cs *CombatSystem) mostWoundedHealTarget(def spells.SpellDefinition, below float64) int {
+	best, bestFrac := -1, below
 	for i, m := range cs.game.party.Members {
 		if m == nil || !m.CanAct() || m.MaxHitPoints <= 0 {
 			continue

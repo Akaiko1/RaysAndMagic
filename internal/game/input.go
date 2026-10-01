@@ -338,7 +338,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.profileKilled = nil
 	// Town Portal knows only THIS run's taverns.
 	g.visitedTavernMaps = nil
-	g.townPortalPickerOpen = false
+	g.cancelTownPortalPicker()
 	g.cancelSkyFade()
 
 	// Clear combat/projectile state (shared cleaner: also unregisters

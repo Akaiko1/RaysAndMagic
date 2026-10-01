@@ -246,8 +246,9 @@ func (cs *CombatSystem) tryCastAwaken(def spells.SpellDefinition, caster *charac
 	return castCommitted
 }
 
-// tryCastResurrect handles the Resurrect spell: restores the first fallen party
-// member (unconscious, dead, or even eradicated) - to full HP if FullHeal.
+// tryCastResurrect handles the Resurrect spell: restores a fallen party member
+// (unconscious, dead, or even eradicated) - to full HP if FullHeal. The
+// eradicated go first in slot order, since nothing else can bring them back.
 // Shared by both cast paths; returns castNoEffect when nobody needs revival.
 func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
 	if !def.Revive {
@@ -258,12 +259,12 @@ func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *cha
 		if m == nil {
 			continue
 		}
-		if m.HasCondition(character.ConditionUnconscious) ||
-			m.HasCondition(character.ConditionDead) ||
-			m.HasCondition(character.ConditionEradicated) ||
-			m.HitPoints <= 0 {
+		if m.HasCondition(character.ConditionEradicated) {
 			target = m
 			break
+		}
+		if target == nil && (m.HasCondition(character.ConditionUnconscious) || m.HasCondition(character.ConditionDead) || m.HitPoints <= 0) {
+			target = m
 		}
 	}
 	if target == nil {

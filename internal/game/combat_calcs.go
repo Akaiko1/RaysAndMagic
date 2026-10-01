@@ -430,6 +430,8 @@ type weaponCooldownBreakdown struct {
 	WeaponMultiplier         float64
 	DualWieldingReductionPct int
 	RawFrames                int
+	ClampedFrames            int // RawFrames inside the RT cooldown limits
+	QuickenPct               int
 	TotalFrames              int
 }
 
@@ -452,7 +454,9 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, wea
 	}
 	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
 	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
-	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
+	result.ClampedFrames = clampRTCooldown(result.RawFrames)
+	result.QuickenPct = cs.game.quickenRecoveryPct(char)
+	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
 	return result
 }
 
@@ -479,6 +483,8 @@ type spellCooldownBreakdown struct {
 	WeaponName             string
 	WeaponMultiplier       float64
 	RawFrames, TotalFrames int
+	ClampedFrames          int // RawFrames inside the RT cooldown limits
+	QuickenPct             int
 }
 
 // SpellCooldownFrames scales the authored cooldown by caster Speed and the
@@ -513,7 +519,9 @@ func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spel
 		}
 	}
 	result.RawFrames = int(math.Round(frames))
-	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
+	result.ClampedFrames = clampRTCooldown(result.RawFrames)
+	result.QuickenPct = cs.game.quickenRecoveryPct(char)
+	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
 	return result
 }
 

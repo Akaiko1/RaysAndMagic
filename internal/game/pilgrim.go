@@ -194,18 +194,24 @@ func (g *MMGame) useTechniqueFromBook(key string) bool {
 	return g.dispatchCharacterHubWorldAction(func() bool { return g.useTechnique(g.selectedChar, key, false, true) })
 }
 func (g *MMGame) quickenRecovery(c *character.MMCharacter, frames int) int {
-	if frames <= 0 {
+	pct := g.quickenRecoveryPct(c)
+	if frames <= 0 || pct == 0 {
 		return frames
 	}
-	// Champion templates reuse these formulas but do not own party buffs.
+	return clampRTCooldown(frames * (100 - pct) / 100)
+}
+
+// quickenRecoveryPct is the recovery cut Quickening gives c right now (0 when
+// absent). Champion templates reuse these formulas but do not own party buffs.
+func (g *MMGame) quickenRecoveryPct(c *character.MMCharacter) int {
 	if !g.isPartyMember(c) {
-		return frames
+		return 0
 	}
 	b, ok := g.combatBuffByID("quickening")
 	if !ok {
-		return frames
+		return 0
 	}
-	return clampRTCooldown(frames * (100 - b.RecoveryPct) / 100)
+	return b.RecoveryPct
 }
 func (g *MMGame) tickRareClassClocks(frames int) {
 	g.spatialReuseFrames = max(0, g.spatialReuseFrames-frames)

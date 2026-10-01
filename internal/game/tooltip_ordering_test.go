@@ -125,7 +125,8 @@ func TestTooltipOrderedSpellResults(t *testing.T) {
 						}
 					}
 					if !def.IsBuff() {
-						if !strings.Contains(card, cooldownLine(cs, cs.SpellCooldownFrames(ch, id))) {
+						seconds := float64(cs.SpellCooldownFrames(ch, id)) / float64(cs.game.config.GetTPS())
+						if !strings.Contains(card, character.CooldownLineTB(seconds, character.SpellTBCost(def))) {
 							t.Fatal(card)
 						}
 						if full {

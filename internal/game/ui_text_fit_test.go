@@ -381,16 +381,19 @@ func TestCastBuffServiceRunsTimedBuffActivationHooks(t *testing.T) {
 		id        string
 		isActive  func(*MMGame) bool
 		getRadius func(*MMGame) float64
+		authored  func(*config.SpellDefinitionConfig) float64
 	}{
 		{
 			id:        "torch_light",
 			isActive:  func(g *MMGame) bool { return g.torchLightActive },
 			getRadius: func(g *MMGame) float64 { return g.torchLightRadius },
+			authored:  func(d *config.SpellDefinitionConfig) float64 { return d.LightRadiusTiles },
 		},
 		{
 			id:        "wizard_eye",
 			isActive:  func(g *MMGame) bool { return g.wizardEyeActive },
 			getRadius: func(g *MMGame) float64 { return g.wizardEyeRadiusTiles },
+			authored:  func(d *config.SpellDefinitionConfig) float64 { return d.RadarRadiusTiles },
 		},
 	}
 
@@ -414,8 +417,8 @@ func TestCastBuffServiceRunsTimedBuffActivationHooks(t *testing.T) {
 			if !tc.isActive(g) {
 				t.Fatalf("%s service did not activate its timed buff", tc.id)
 			}
-			if got := tc.getRadius(g); got != def.VisionRadiusTiles {
-				t.Fatalf("%s radius = %v, want authored %v", tc.id, got, def.VisionRadiusTiles)
+			if got := tc.getRadius(g); got != tc.authored(def) {
+				t.Fatalf("%s radius = %v, want authored %v", tc.id, got, tc.authored(def))
 			}
 			if g.party.Gold != 90 {
 				t.Fatalf("%s service left %d gold, want 90", tc.id, g.party.Gold)

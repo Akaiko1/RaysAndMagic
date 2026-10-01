@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/character"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -92,6 +93,30 @@ func (g *MMGame) townPortalArrivalPoint(mapKey string) (float64, float64, bool) 
 	return 0, 0, false
 }
 
+// confirmTownPortal casts the portal the picker was opened for: the caster
+// pays its SP, action and cooldown as for any cast, then the party goes.
+func (g *MMGame) confirmTownPortal(mapKey string) {
+	caster, id := g.townPortalCaster, g.townPortalSpell
+	g.cancelTownPortalPicker()
+	idx := g.combat.findCharacterIndex(caster)
+	if caster == nil || !g.canSpendCombatAction(idx) {
+		return
+	}
+	def, err := spells.GetSpellDefinitionByID(id)
+	if err != nil {
+		return
+	}
+	g.townPortalConfirming = caster
+	cast := g.combat.castPlayerSpell(id, def, caster, true)
+	g.townPortalConfirming = nil
+	if !cast {
+		return
+	}
+	g.menuOpen = false
+	g.consumeCharacterActionWithRTCooldown(idx, g.combat.SpellCooldownFrames(caster, id))
+	g.townPortalTeleport(mapKey)
+}
+
 // townPortalTeleport moves the party to the chosen map and lands them at its
 // arrival point.
 func (g *MMGame) townPortalTeleport(mapKey string) {
@@ -133,7 +158,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
 	dests := g.sortedTownPortalDestinations()
 	if len(dests) == 0 {
-		g.townPortalPickerOpen = false
+		g.cancelTownPortalPicker()
 		return
 	}
 	rows := make([]int, len(dests))
@@ -145,7 +170,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 			return fmt.Sprintf("%d) %s", idx+1, g.townPortalDestinationLabel(dests[idx]))
 		},
 		func(idx int) {
-			g.townPortalTeleport(dests[idx])
+			g.confirmTownPortal(dests[idx])
 		},
 		g.cancelTownPortalPicker, ui.topModalLayer() == modalLayerTownPortal)
 }

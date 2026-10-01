@@ -184,7 +184,7 @@ func (g *MMGame) cancelHealPicker() {
 }
 
 func (g *MMGame) cancelTownPortalPicker() {
-	g.townPortalPickerOpen = false
+	g.townPortalPickerOpen, g.townPortalCaster, g.townPortalSpell = false, nil, ""
 }
 
 // UseConsumableFromInventory consumes a consumable item at inventory index for the selected character.

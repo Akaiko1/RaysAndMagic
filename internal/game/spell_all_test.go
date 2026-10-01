@@ -92,7 +92,14 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 				caster.MaxHitPoints, caster.HitPoints = 100, 40
 			}
 
-			if !game.combat.CastEquippedSpell() {
+			if def.TownPortal {
+				// The cast only opens the destination picker; the confirm pays.
+				if game.combat.CastEquippedSpell() || caster.SpellPoints != spBefore || !game.townPortalPickerOpen {
+					t.Fatalf("portal cast must open the picker unpaid (sp %d -> %d, open %v)", spBefore, caster.SpellPoints, game.townPortalPickerOpen)
+				}
+				caster.ActionsRemaining = 1 // the confirm spends the caster's TB action
+				game.confirmTownPortal("forest")
+			} else if !game.combat.CastEquippedSpell() {
 				t.Fatalf("CastEquippedSpell returned false")
 			}
 			if caster.SpellPoints >= spBefore {

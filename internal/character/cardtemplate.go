@@ -2,6 +2,7 @@ package character
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"ugataima/internal/config"
@@ -85,7 +86,7 @@ func RenderCardLines(sections []CardSection, full bool) []string {
 	return out
 }
 
-// DamageTypeAoELine composes "Fire Damage - 2-tile AoE" (any element).
+// DamageTypeAoELine composes "Fire Damage - splash radius 2 tiles" (any element).
 func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	dt := damageType
 	if dt == "" {
@@ -93,7 +94,7 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	}
 	line := config.TitleWords(dt) + " Damage"
 	if aoeTiles > 0 {
-		line += fmt.Sprintf(" - %.0f-tile AoE", aoeTiles)
+		line += fmt.Sprintf(" - splash radius %.0f tiles", aoeTiles)
 	}
 	return line
 }
@@ -157,7 +158,27 @@ const WeaponSplashCritRule = SplashCritRule + "; Designate Target's critical bon
 // CooldownLine formats a real-time cooldown, noting that turn-based combat
 // ignores the seconds and spends the actor's single action for the turn instead.
 func CooldownLine(seconds float64) string {
-	return fmt.Sprintf("RT Cooldown: %.2fs - TB: 1 action", seconds)
+	return CooldownLineTB(seconds, "1 action")
+}
+
+// CooldownLineTB is CooldownLine with its own turn-based cost.
+func CooldownLineTB(seconds float64, tb string) string {
+	return fmt.Sprintf("RT Cooldown: %.2fs - TB: %s", CardSeconds(seconds), tb)
+}
+
+// SpellTBCost is what one cast costs in turn-based combat: a jump is party
+// movement, so it ends the turn like a step.
+func SpellTBCost(def spells.SpellDefinition) string {
+	if def.JumpTiles > 0 {
+		return "ends the party's turn"
+	}
+	return "1 action"
+}
+
+// CardSeconds rounds a duration to the hundredths every card line shows, half
+// up, so a breakdown's stages add up to its total.
+func CardSeconds(seconds float64) float64 {
+	return math.Round(seconds*100) / 100
 }
 
 // ArmorInteractionLines spells out how a normal hit meets the target's defenses
@@ -245,9 +266,9 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 		add(SpellRuleDamage, "All damage remains normal %s damage", strings.ToLower(school))
-		add(SpellRuleDamage, "Enemy %s Resistance reduces damage", school)
+		add(SpellRuleDamage, "Reduced by enemy Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, school)
 		if !def.SparesParty {
-			add(SpellRuleDamage, "Party %s Resistance reduces self-damage", school)
+			add(SpellRuleDamage, "Self-damage is reduced by party Armor, %s Resistance and per-hit reductions", school)
 		}
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
@@ -262,7 +283,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 			add(SpellRuleCritical, "Cannot critically hit")
 		}
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
-		add(SpellRuleDamage, "%s Resistance reduces damage", school)
+		add(SpellRuleDamage, "Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, school)
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
 				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
@@ -283,6 +304,8 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 			add(SpellRuleCritical, "One critical roll boosts the entire bloom")
 		} else {
 			add(SpellRuleCritical, "%s", SplashCritRule)
+			add(SpellRuleDamage, "Bursts where it stops: on a target, a wall or at the end of its range; walls shield what is behind them")
+			add(SpellRuleDamage, "The splash cannot be dodged; a target that dodges escapes only its own hit")
 		}
 	}
 	if def.IsProjectile && def.MortarRangeTiles <= 0 {
@@ -290,6 +313,9 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 			add(SpellRuleDodge, "At Grandmaster, Perfect Dodge avoids normal damage; typed true damage still lands")
 		} else {
 			add(SpellRuleDodge, "Can be evaded by Perfect Dodge")
+		}
+		if def.StunChance > 0 {
+			add(SpellRuleGeneral, "A dodged hit never stuns")
 		}
 	}
 	if def.MortarRangeTiles > 0 {
@@ -305,7 +331,16 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		} else {
 			add(SpellRuleDuration, "Mastery increases duration, not the bonus")
 		}
-		add(SpellRuleDuration, "Recasting refreshes the effect")
+	}
+	// A handled no-op keeps the SP but spends the turn and cooldown.
+	const kept = "the SP is kept but the action and cooldown are spent"
+	switch {
+	case def.Awaken:
+		add(SpellRuleGeneral, "With no one unconscious, %s", kept)
+	case def.Revive || def.ReviveHpPct > 0:
+		add(SpellRuleGeneral, "With no one fallen, %s", kept)
+	case def.JumpTiles > 0:
+		add(SpellRuleGeneral, "If the landing is blocked or the party is rooted, %s", kept)
 	}
 	if def.ZoneRadiusTiles > 0 {
 		add(SpellRuleZone, "Overlapping zones of the same spell do not stack")
@@ -338,11 +373,17 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 
 	effects := CardSection{Title: "EFFECTS"}
 	dmg.Add("%s", DamageTypeAoELine(def.School, sd.AoeRadiusTiles))
+	// Against the party a disintegrate roll eradicates the hero it hits; the
+	// monster-target immunities do not apply.
+	if sd.DisintegrateChance > 0 {
+		effects.Add("Disintegrate: %.0f%% chance to eradicate the hero it hits", sd.DisintegrateChance*100)
+		sd.DisintegrateChance = 0
+	}
 	for _, ln := range FilteredSpellEffectLines(sd) {
 		effects.Add("%s", ln)
 	}
 
-	casting.Add("Strikes your party, not other monsters")
+	casting.Add("Strikes your party and the undead your party has bound")
 
 	return []CardSection{dmg, effects, casting}
 }

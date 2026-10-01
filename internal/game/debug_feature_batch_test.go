@@ -390,6 +390,14 @@ func TestDebugSim_AuditTooltips(t *testing.T) {
 			it, _ := config.TechniqueItem("quickening")
 			return it
 		}, false),
+		item("spell_firewall", character.ClassSorcerer, func(*character.MMCharacter) items.Item {
+			it, _ := spells.CreateSpellItem("firewall")
+			return it
+		}, false),
+		item("spell_firewall_detail", character.ClassSorcerer, func(*character.MMCharacter) items.Item {
+			it, _ := spells.CreateSpellItem("firewall")
+			return it
+		}, true),
 		item("spell_charm", character.ClassCleric, func(*character.MMCharacter) items.Item {
 			it, _ := spells.CreateSpellItem("charm")
 			return it
@@ -508,4 +516,50 @@ func TestDebugSim_TurnModePanelFonts(t *testing.T) {
 		}
 	}
 	saveStatusEffectImage(t, filepath.Join(out, "turn_mode_panel_fonts.png"), sheet)
+}
+
+// Both rare books on every test display at every interface preset it can
+// offer, in the player's font: the Pilgrim on a manual and an autocast
+// technique, the Alchemist on a recipe. Names carry the frame, the pixel
+// scale and whether text is sharp (whole scale) or soft (fractional).
+func TestDebugSim_RareBookFrames(t *testing.T) {
+	out := featureShotDir(t)
+	shippedUIFonts(t)
+	g, _ := bootFxGalleryGame(t)
+	defer g.Shutdown()
+	withUIFont(t, "alagard")
+	defer func(prev func() float64) { displayDeviceScale = prev }(displayDeviceScale)
+	prevSize := g.config.PlayerInterfaceSize
+	defer func() { g.config.PlayerInterfaceSize = prevSize }()
+	g.selectedChar = 0
+	g.menuOpen, g.currentTab = true, TabSpellbook
+	for _, d := range interfaceTestDisplays {
+		displayDeviceScale = func() float64 { return d.scale }
+		frames := resolveInterfaceFrames(g.config.Display.InterfaceSizes, d.outW, d.outH, d.scale)
+		for i, size := range g.config.Display.InterfaceSizes {
+			f := frames[i]
+			if f.same {
+				continue
+			}
+			g.config.PlayerInterfaceSize = size.Key
+			sharp := "soft"
+			if f.sharp {
+				sharp = "sharp"
+			}
+			for _, shot := range []struct {
+				class character.CharacterClass
+				name  string
+				pick  int
+			}{{character.ClassWayfarer, "pilgrim_manual", 0}, {character.ClassWayfarer, "pilgrim_autocast", 3}, {character.ClassAlchemist, "alchemist", 1}} {
+				hero := character.CreateCharacter("Kael", shot.class, g.config)
+				hero.Level = 8
+				hero.RareClass.Automatic = map[string]bool{"quickening": true}
+				g.party.Members[0] = hero
+				g.selectedRare = shot.pick
+				img := captureLaidOutFrame(g, d.outW, d.outH)
+				name := fmt.Sprintf("rare_book_%s_%s_%dx%d_x%.2f_%s_%s.png", strings.ReplaceAll(d.name, " ", "_"), size.Key, f.w, f.h, f.pixelScale(), sharp, shot.name)
+				saveStatusEffectImage(t, filepath.Join(out, name), img)
+			}
+		}
+	}
 }

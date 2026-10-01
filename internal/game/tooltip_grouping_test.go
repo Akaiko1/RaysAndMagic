@@ -112,9 +112,9 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 	}{
 		{"item", "golden_armor", "DEFENSE", "Item Armor Class:", "Base Armor Class:", "Typed true damage"},
 		{"item", "health_potion", "RECOVERY", "Current recovery:", "Base recovery:", "Field Medicine:"},
-		{"spell", "fireball", "DAMAGE", "Total Damage:", "Base (", "Resistance reduces damage"},
+		{"spell", "fireball", "DAMAGE", "Total Damage:", "Base (", "Reduced by target Armor"},
 		{"spell", "fireball", "CRITICAL", "Chance:", "Luck:", "Critical Damage:"},
-		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Resistance reduces damage"},
+		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Reduced by target Armor"},
 		{"spell", "heal_other", "HEALING", "Total Healing:", "Base:", "Natural Healer:"},
 		{"spell", "hour_of_power", "DURATION", "Current Duration:", "Base Duration:", "Light Mastery -"},
 		{"trap", "cleave_trap", "DAMAGE", "Total Damage:", "Base:", "Reduced by target Armor"},
