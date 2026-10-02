@@ -40,6 +40,10 @@ scenarios:
   bench_classic_20: {bench_party: classic, level: 20}
   bench_classic_25: {bench_party: classic, level: 25}
   bench_classic_30: {bench_party: classic, level: 30}
+  bench_classic_no_quake_15: {bench_party: classic_no_quake, level: 15}
+  bench_classic_no_quake_20: {bench_party: classic_no_quake, level: 20}
+  bench_classic_no_quake_25: {bench_party: classic_no_quake, level: 25}
+  bench_classic_no_quake_30: {bench_party: classic_no_quake, level: 30}
   bench_rogues_15: {bench_party: rogues, level: 15}
   bench_rogues_20: {bench_party: rogues, level: 20}
   bench_rogues_25: {bench_party: rogues, level: 25}
@@ -48,3 +52,11 @@ scenarios:
   bench_rares_20: {bench_party: rares, level: 20}
   bench_rares_25: {bench_party: rares, level: 25}
   bench_rares_30: {bench_party: rares, level: 30}
+  bench_rares_no_quake_15: {bench_party: rares_no_quake, level: 15}
+  bench_rares_no_quake_20: {bench_party: rares_no_quake, level: 20}
+  bench_rares_no_quake_25: {bench_party: rares_no_quake, level: 25}
+  bench_rares_no_quake_30: {bench_party: rares_no_quake, level: 30}
+  bench_starting_15: {bench_party: starting, level: 15}
+  bench_starting_20: {bench_party: starting, level: 20}
+  bench_starting_25: {bench_party: starting, level: 25}
+  bench_starting_30: {bench_party: starting, level: 30}

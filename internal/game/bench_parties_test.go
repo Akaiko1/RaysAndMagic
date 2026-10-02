@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -28,9 +30,10 @@ func benchTierBudget(level int) int { return level/3 + max(0, level-10)/5 }
 //   - gold shops: level 1, or the merchant's min_party_level;
 //   - arena points (tiers open at L20): <=750 -> 21, <=2500 -> 23, else 25;
 //   - clock hands (tower mobs L22-30): <=10 -> 23, <=13 -> 25, else 27;
-//   - dragon scales: the scale's own gate + 11 for <=2 scales, + 13 above;
+//   - dragon scales: the scale's own gate + 3 for <=2 scales, + 5 above;
 //   - drops: the dropper's level; boss_loot: the lowest boss level;
-//   - loot tables: the lowest monster level on a map whose crate rolls them;
+//   - loot tables: a crate's map (its lowest monster level), a prop's map
+//     and quest (sword racks), an encounter chest's strongest monster;
 //   - quest rewards: the highest min_party_level along the quest chain and
 //     its giver.
 //
@@ -85,17 +88,25 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 	for _, e := range config.GlobalLoots.BossLoot {
 		offer(e.Key, bossLevel)
 	}
-	mapLevel := map[string]int{}
-	cratesOn := map[string][]string{}
+	mapLevel, mapTop := map[string]int{}, map[string]int{}
+	placedOn := map[string][]string{}
 	for mk, w := range wm.LoadedMaps {
 		lvl := never
 		for _, m := range w.Monsters {
 			lvl = min(lvl, m.Level)
+			mapTop[mk] = max(mapTop[mk], m.Level)
 		}
 		mapLevel[mk] = lvl
 		for _, n := range w.NPCs {
-			if n != nil && config.GlobalLoots.Crates[n.Key] != nil {
-				cratesOn[n.Key] = append(cratesOn[n.Key], mk)
+			if n != nil {
+				placedOn[n.Key] = append(placedOn[n.Key], mk)
+			}
+		}
+	}
+	offerTable := func(table string, level int) {
+		if tbl := config.GlobalLoots.WeightedLootTables[table]; tbl != nil {
+			for _, e := range tbl.Entries {
+				offer(e.Key, level)
 			}
 		}
 	}
@@ -106,14 +117,29 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 				tables = append(tables, src.LootTable)
 			}
 		}
-		for _, mk := range cratesOn[crateKey] {
+		for _, mk := range placedOn[crateKey] {
 			for _, tk := range tables {
-				if tbl := config.GlobalLoots.WeightedLootTables[tk]; tbl != nil {
-					for _, e := range tbl.Entries {
-						offer(e.Key, mapLevel[mk])
-					}
-				}
+				offerTable(tk, mapLevel[mk])
 			}
+		}
+	}
+	for mk, mc := range wm.MapConfigs {
+		encounters := mc.ClearEncounters
+		if mc.ClearEncounter != nil {
+			encounters = append(encounters, *mc.ClearEncounter)
+		}
+		for _, e := range encounters {
+			if e.Rewards == nil || e.Rewards.TreasureChest == nil || e.Rewards.TreasureChest.LootTable == "" {
+				continue
+			}
+			level := 0
+			for _, req := range e.Monsters {
+				level = max(level, levelOf[req.Type])
+			}
+			if len(e.Monsters) == 0 {
+				level = mapTop[mk]
+			}
+			offerTable(e.Rewards.TreasureChest.LootTable, level)
 		}
 	}
 	defs := g.questManager.Definitions()
@@ -159,6 +185,30 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 			offer(k, gateOf(id, map[string]bool{}))
 		}
 	}
+	// Props that roll a table (the castle sword racks): their map and quest.
+	var walkProps func(npcKey string, choices []*character.NPCDialogueChoice)
+	walkProps = func(npcKey string, choices []*character.NPCDialogueChoice) {
+		for _, c := range choices {
+			if c == nil {
+				continue
+			}
+			if c.Prop != nil && c.Prop.LootTable != "" {
+				quest := 0
+				if c.QuestID != "" && defs[c.QuestID] != nil {
+					quest = gateOf(c.QuestID, map[string]bool{})
+				}
+				for _, mk := range placedOn[npcKey] {
+					offerTable(c.Prop.LootTable, max(mapLevel[mk], quest))
+				}
+			}
+			walkProps(npcKey, c.Choices)
+		}
+	}
+	for key, d := range character.NPCConfigInstance.NPCs {
+		if d != nil && d.Dialogue != nil {
+			walkProps(key, d.Dialogue.Choices)
+		}
+	}
 	// Currency shops last: scale prices read the scales' own drop gates.
 	for key := range character.NPCConfigInstance.NPCs {
 		n, err := character.CreateNPCFromConfig(key, 0, 0)
@@ -176,7 +226,7 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 				offer(itemKey, priceGate(s.Cost, [][2]int{{10, 23}, {13, 25}}, 27))
 			case strings.HasSuffix(currency, "_dragon_scale"):
 				if scale, ok := gates[strings.TrimPrefix(currency, "item:")]; ok {
-					offer(itemKey, scale+priceGate(s.Cost, [][2]int{{2, 11}}, 13))
+					offer(itemKey, scale+priceGate(s.Cost, [][2]int{{2, 3}}, 5))
 				}
 			}
 		}
@@ -388,6 +438,17 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 		if build.Spell != "" && string(m.Equipment[items.SlotSpell].SpellEffect) != build.Spell {
 			t.Errorf("%s readies %q, authored %s", m.Name, m.Equipment[items.SlotSpell].SpellEffect, build.Spell)
 		}
+		// Every open school knows all of its spells but the party's withheld ones.
+		for school, s := range m.MagicSchools {
+			want, _ := school.AvailableSpellIDs()
+			want = slices.DeleteFunc(want, func(id spells.SpellID) bool { return slices.Contains(p.WithoutSpells, string(id)) })
+			got := slices.Clone(s.KnownSpells)
+			slices.Sort(got)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("%s knows %s %v, want %v", m.Name, school, got, want)
+			}
+		}
 	}
 	var cards []string
 	for i := range g.cardSlots {
@@ -401,8 +462,36 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 	for _, key := range p.Cards[level] {
 		available("card", key)
 	}
-	for _, key := range p.Items[level] {
+	// The authored items are everything carried, quick slots included; only
+	// key items join them.
+	authored := map[string]int{}
+	for key, n := range p.Items[level] {
 		available("item", key)
+		it, _ := items.TryCreateItemFromYAML(key)
+		authored[it.Name] = n
+	}
+	held := map[string]int{}
+	bags := [][]items.Item{g.party.Inventory}
+	for _, m := range g.party.Members {
+		bags = append(bags, m.Inventory)
+		for _, q := range m.QuickSlots {
+			if q != nil && !benchShortcut(*q) {
+				bags = append(bags, []items.Item{*q})
+				if q.Count() != 1 {
+					t.Errorf("%s quick-slots %d %s; the stock stays in the shared bag", m.Name, q.Count(), q.Name)
+				}
+			}
+		}
+	}
+	for _, bag := range bags {
+		for _, it := range bag {
+			if it.Type != items.ItemQuest {
+				held[it.Name] += it.Count()
+			}
+		}
+	}
+	if !maps.Equal(held, authored) {
+		t.Errorf("party carries %v, authored %v", held, authored)
 	}
 }
 
@@ -415,12 +504,68 @@ func TestBenchCatalogFailsOnTypos(t *testing.T) {
 		"levels: [20]\nparties: {p: {members: [{name: Sora, class: monk, levels: {15: {}, 20: {}}}]}}",
 		"levels: [15]\nparties: {p: {members: []}}",
 		"levels: [15]\nparties: {}",
+		"levels: [15]\nparties: {p: {members: [" + member + "], without_spells: [fireball]}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "], items: {15: {health_potion: 0}}}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, v: {base: q}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, v: {base: p}, w: {base: v}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, v: {base: p, members: [" + member + "]}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, v: {base: p, spell: {Kai: sparks}}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, s: {members: [{name: Sora, from: q}]}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, s: {members: [{name: Kai, from: p}]}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, s: {members: [{name: Sora, class: monk, from: p}]}}",
+		"levels: [15]\nparties: {p: {members: [" + member + "]}, s: {members: [{name: Sora, from: p}]}, t: {members: [{name: Sora, from: s}]}}",
 	} {
 		path := filepath.Join(t.TempDir(), "bench.yaml")
 		os.WriteFile(path, []byte(body), 0600)
 		if _, err := LoadBenchCatalog(path); err == nil {
 			t.Fatalf("accepted %s", body)
 		}
+	}
+}
+
+func TestBenchVariantCopiesBase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bench.yaml")
+	os.WriteFile(path, []byte(`levels: [15, 20]
+parties:
+  p: {members: [{name: Sora, class: monk, levels: {15: {spell: sparks, quick: [bless]}, 20: {}}}], gold: {15: 5}}
+  v: {note: variant, base: p, without_spells: [bless], spell: {Sora: firebolt}}
+`), 0600)
+	cat, err := LoadBenchCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, v := cat.Parties["p"], cat.Parties["v"]
+	for level, want := range map[int]string{15: "firebolt", 20: "firebolt"} {
+		if got := v.Members[0].Builds[level].Spell; got != want {
+			t.Errorf("variant L%d readies %q, want %q", level, got, want)
+		}
+	}
+	if b := v.Members[0].Builds[15]; !slices.Equal(b.Quick, []string{"bless"}) || v.Gold[15] != 5 || v.Note != "variant" {
+		t.Errorf("variant lost the base build: %+v gold %v note %q", b, v.Gold, v.Note)
+	}
+	if got := p.Members[0].Builds[15].Spell; got != "sparks" || p.WithoutSpells != nil {
+		t.Errorf("base changed: readies %q, withholds %v", got, p.WithoutSpells)
+	}
+}
+
+func TestBenchMemberFromCopiesBuild(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bench.yaml")
+	os.WriteFile(path, []byte(`levels: [15]
+parties:
+  p: {members: [{name: Sora, class: monk, race: halfling, levels: {15: {spell: sparks}}}, {name: Kai, class: knight, levels: {15: {}}}]}
+  s: {members: [{name: Sora, from: p}], gold: {15: 7}}
+`), 0600)
+	cat, err := LoadBenchCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, src := cat.Parties["s"], cat.Parties["p"]
+	if len(got.Members) != 1 || got.Members[0].Class != "monk" || got.Members[0].Race != "halfling" ||
+		got.Members[0].Builds[15].Spell != "sparks" || got.Gold[15] != 7 {
+		t.Fatalf("copied member %+v, gold %v", got.Members, got.Gold)
+	}
+	if len(src.Members) != 2 || src.Members[0].From != "" {
+		t.Errorf("source party changed: %+v", src.Members)
 	}
 }
 
@@ -433,27 +578,39 @@ func TestBenchBuildFailsLoudly(t *testing.T) {
 		class, race string
 		build       BenchBuild
 		cards       []string
+		carried     map[string]int
+		without     []string
 		valid       bool
 	}{
-		"positive control": {class: "monk", race: "halfling", valid: true, cards: []string{"wolf_card"},
+		"positive control": {class: "monk", race: "halfling", valid: true, cards: []string{"wolf_card"}, carried: map[string]int{"health_potion": 2},
 			build: BenchBuild{Skills: map[string]string{"iron_body": "master"}, Equipment: []string{"monk_fists"}, Quick: []string{"health_potion"}}},
-		"skill outside the kit":      {class: "cleric", build: BenchBuild{Skills: map[string]string{"sword": "expert"}}},
-		"unknown mastery":            {class: "monk", build: BenchBuild{Skills: map[string]string{"iron_body": "legend"}}},
-		"unknown school":             {class: "monk", build: BenchBuild{Schools: map[string]string{"chaos": "expert"}}},
-		"unknown race":               {class: "monk", race: "elf"},
-		"armor without the skill":    {class: "sorcerer", build: BenchBuild{Equipment: []string{"iron_armor"}}},
-		"unknown gear":               {class: "monk", build: BenchBuild{Equipment: []string{"no_such_item"}}},
-		"readied spell unknown":      {class: "knight", build: BenchBuild{Spell: "fireball"}},
-		"quick spell unknown":        {class: "knight", build: BenchBuild{Quick: []string{"fireball"}}},
-		"technique off its class":    {class: "knight", build: BenchBuild{Quick: []string{"fold_step"}}},
-		"flask without the skill":    {class: "knight", build: BenchBuild{Quick: []string{"fire_flask"}}},
-		"more quick keys than slots": {class: "monk", build: BenchBuild{Quick: []string{"health_potion", "health_potion", "health_potion", "health_potion", "health_potion", "health_potion"}}},
-		"not a card":                 {class: "monk", cards: []string{"health_potion"}},
+		"quick-slots an item not carried": {class: "monk", build: BenchBuild{Quick: []string{"health_potion"}}},
+		"skill outside the kit":           {class: "cleric", build: BenchBuild{Skills: map[string]string{"sword": "expert"}}},
+		"unknown mastery":                 {class: "monk", build: BenchBuild{Skills: map[string]string{"iron_body": "legend"}}},
+		"unknown school":                  {class: "monk", build: BenchBuild{Schools: map[string]string{"chaos": "expert"}}},
+		"unknown race":                    {class: "monk", race: "elf"},
+		"armor without the skill":         {class: "sorcerer", build: BenchBuild{Equipment: []string{"iron_armor"}}},
+		"unknown gear":                    {class: "monk", build: BenchBuild{Equipment: []string{"no_such_item"}}},
+		"readied spell unknown":           {class: "knight", build: BenchBuild{Spell: "fireball"}},
+		"quick spell unknown":             {class: "knight", build: BenchBuild{Quick: []string{"fireball"}}},
+		"technique off its class":         {class: "knight", build: BenchBuild{Quick: []string{"fold_step"}}},
+		"flask without the skill":         {class: "knight", build: BenchBuild{Quick: []string{"fire_flask"}}},
+		"more quick keys than slots":      {class: "monk", build: BenchBuild{Quick: []string{"health_potion", "health_potion", "health_potion", "health_potion", "health_potion", "health_potion"}}},
+		"not a card":                      {class: "monk", cards: []string{"health_potion"}},
+		"withheld spell":                  {class: "battle_mage", without: []string{"earthquake"}, valid: true},
+		"withholds an unlearned one":      {class: "knight", without: []string{"earthquake"}},
+		"readies a withheld spell":        {class: "battle_mage", without: []string{"earthquake"}, build: BenchBuild{Spell: "earthquake"}},
+		"quick-slots a withheld one":      {class: "battle_mage", without: []string{"firewall"}, build: BenchBuild{Quick: []string{"firewall"}}},
+		"kit readies a withheld one":      {class: "battle_mage", without: []string{"rock_blast"}},
+		"kit spell replaced":              {class: "battle_mage", without: []string{"rock_blast"}, build: BenchBuild{Spell: "sparks"}, valid: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := BenchParty{
 				Members: []BenchMember{{Name: "Probe", Class: tc.class, Race: tc.race, Builds: map[int]BenchBuild{15: tc.build}}},
 				Cards:   map[int][]string{15: tc.cards},
+				Items:   map[int]map[string]int{15: tc.carried},
+
+				WithoutSpells: tc.without,
 			}
 			members, err := g.buildBenchMembers(p, 15)
 			if err == nil {

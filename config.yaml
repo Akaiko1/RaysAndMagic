@@ -92,11 +92,10 @@ characters:
   # internal/game/balance.go: XPRequiredPerLevel=100, XPQuadPerLevel=8) ---
   # XP to advance FROM level L = max(100*L, 8*L*L): linear through L12
   # (classic curve, untouched), quadratic from L13 up.
-  # Why: monster XP grows ~2.2*L^2 with zone level (bandit L5=55, dust slime
-  # L22=1000, grandfather clock L30=2400), so a purely linear cost made
-  # farming ACCELERATE with level (~29 zone-level kills per level at L5 ->
-  # ~5 at L30). The quadratic branch holds the pace FLAT: ~15 zone-level
-  # kills per level in a 4-hero party, L13 through L50.
+  # Why: monster XP grows with L^2 (targets in docs/monster-design.md), so a
+  # purely linear cost made farming ACCELERATE with level (~29 zone-level
+  # kills per level at L5 -> ~5 at L30). The quadratic branch holds the pace
+  # FLAT: ~15 zone-level kills per level in a 4-hero party, L13 through L50.
   # (Kill XP is split by active party size, then every living hero - bench
   # included - receives that share; quest XP is granted in full.)
   # Tuning: XPQuadPerLevel 6 -> ~11 kills/level, 10 -> ~18.

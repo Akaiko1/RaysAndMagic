@@ -425,6 +425,10 @@ type MMGame struct {
 	traps                           []PlacedTrap // armed thief traps (map-scoped, persisted)
 	selectedTrap                    int          // trap-book browse index (selection != equipped quick trap)
 
+	// heroHitObserver, when set, sees every hostile hit on a hero just before
+	// it lands (balance tooling reads pre-hit HP here).
+	heroHitObserver func(hero *character.MMCharacter, source string, damage int)
+
 	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
 	// O(n^2) scan in the common (no-bind) case. Rebuilt each frame before the

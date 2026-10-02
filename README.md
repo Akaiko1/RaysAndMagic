@@ -110,7 +110,7 @@ YAML behaviors; a new behavior still needs runtime support.
 | --- | --- | --- |
 | Weapons | `assets/weapons.yaml` | [Weapons](how_to_add_a_new_weapon.md) |
 | Spells | `assets/spells.yaml` | [Spells](how_to_add_a_new_spell.md) |
-| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md) |
+| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md) |
 | Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
 | NPCs and services | `assets/npcs.yaml` | [NPCs](how_to_add_a_new_npc.md) |
 | Quests | `assets/quests.yaml` | [Quests](docs/adding-quests.md) |

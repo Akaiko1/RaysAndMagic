@@ -2023,10 +2023,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			return
 		}
 		trueDealt = cs.redirectDamageThroughSacrifice(target, trueDealt)
-		target.HitPoints -= trueDealt
-		if target.HitPoints < 0 {
-			target.HitPoints = 0
-		}
+		cs.takeHeroHP(target, trueDealt, sourceName)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s but still takes %d! (HP: %d/%d)",
 			target.Name, sourceName, trueDealt, target.HitPoints, target.MaxHitPoints))
 		if target.HitPoints == 0 {
@@ -2055,10 +2052,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	)
 	finalDamage := dealt.Total()
 	finalDamage = cs.redirectDamageThroughSacrifice(target, finalDamage)
-	target.HitPoints -= finalDamage
-	if target.HitPoints < 0 {
-		target.HitPoints = 0
-	}
+	cs.takeHeroHP(target, finalDamage, sourceName)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
 		sourceName, target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
 	if target.HitPoints == 0 {
@@ -2482,10 +2476,11 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 	}
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
 	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
-	member.HitPoints -= dealt
-	if member.HitPoints < 0 {
-		member.HitPoints = 0
+	hostile := ""
+	if source != nil {
+		hostile = source.Name
 	}
+	cs.takeHeroHP(member, dealt, hostile)
 	if member.HitPoints == 0 {
 		cs.knockOut(member)
 	}
@@ -2532,6 +2527,15 @@ func growScaleStacks(target *character.MMCharacter, dealt int) {
 	}
 }
 
+// takeHeroHP takes damage off a hero, clamped at zero. A hostile hit (named
+// source) is shown to the hero-hit observer first.
+func (cs *CombatSystem) takeHeroHP(hero *character.MMCharacter, damage int, source string) {
+	if obs := cs.game.heroHitObserver; obs != nil && source != "" {
+		obs(hero, source, damage)
+	}
+	hero.HitPoints = max(0, hero.HitPoints-damage)
+}
+
 // redirectDamageThroughSacrifice moves a share of an already-mitigated hit
 // from the victim to the strongest living Sacrifice user. The transfer is not
 // mitigated a second time and never recurses; DoTs bypass this combat-hit sink.
@@ -2554,10 +2558,7 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 	if protector == nil || redirected <= 0 {
 		return damage
 	}
-	protector.HitPoints -= redirected
-	if protector.HitPoints < 0 {
-		protector.HitPoints = 0
-	}
+	cs.takeHeroHP(protector, redirected, "")
 	growScaleStacks(protector, redirected)
 	if idx := cs.findCharacterIndex(protector); idx >= 0 {
 		// One incoming hit produces one impact sound. The primary target's
