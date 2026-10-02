@@ -3,135 +3,86 @@ package game
 import (
 	"testing"
 	"time"
-
-	"ugataima/internal/config"
 )
 
-func entryMenuTestConfig() *config.Config {
-	return &config.Config{
-		Display: config.DisplayConfig{
-			ScreenWidth:  1280,
-			ScreenHeight: 720,
-		},
-	}
-}
-
-func TestConsumeEntryMenuRootReleaseHandlesStart(t *testing.T) {
+// Root buttons act on the RELEASE position, only after a press this app saw,
+// and only on the root screen. A stale press coordinate (macOS focus settling)
+// is dropped with the activation so it cannot leak into the new screen.
+func TestConsumeEntryMenuRootRelease(t *testing.T) {
 	cfg := loadTestConfig(t)
 	layout := makeEntryMenuRootLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-	g := &MMGame{
-		config:                  cfg,
-		appScreen:               AppScreenMainMenu,
-		entryMenuMode:           EntryMenuRoot,
-		entryMenuRootPressArmed: true,
-		mouseLeftClicks: []queuedClick{{
-			x:  layout.buttonX + layout.buttonW/2,
-			y:  layout.buttonStartY + layout.buttonH/2,
-			at: time.Now().UnixMilli(),
-		}},
-	}
-
-	if !g.consumeEntryMenuRootReleaseAt(layout.buttonX+layout.buttonW/2, layout.buttonStartY+layout.buttonH/2) {
-		t.Fatal("release on Start was not handled")
-	}
-	if g.appScreen != AppScreenPartyCreate {
-		t.Fatalf("app screen = %v, want party creation", g.appScreen)
-	}
-	if g.partyCreate == nil {
-		t.Fatal("Start did not initialize party creation")
-	}
-	if len(g.mouseLeftClicks) != 0 {
-		t.Fatalf("click queue length = %d, want 0 after handling", len(g.mouseLeftClicks))
-	}
-}
-
-func TestConsumeEntryMenuRootReleaseUsesCurrentCursorPosition(t *testing.T) {
-	cfg := entryMenuTestConfig()
-	g := &MMGame{
-		menuState: menuState{
-			slotSelection: 4,
-			savePage:      3,
-		},
-
-		config:        cfg,
-		entryMenuMode: EntryMenuRoot,
-
-		entryMenuRootPressArmed: true,
-		mouseLeftClicks: []queuedClick{{
-			x:  0,
-			y:  0,
-			at: time.Now().UnixMilli(),
-		}},
-	}
-	layout := makeEntryMenuRootLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-	const loadButtonIndex = 1
-	loadY := layout.buttonStartY + loadButtonIndex*(layout.buttonH+layout.buttonGap)
-
-	if !g.consumeEntryMenuRootReleaseAt(layout.buttonX+layout.buttonW/2, loadY+layout.buttonH/2) {
-		t.Fatal("release at the current Load position was not handled")
-	}
-	if g.entryMenuMode != EntryMenuLoad {
-		t.Fatalf("entry menu mode = %v, want Load", g.entryMenuMode)
-	}
-	if g.slotSelection != 0 || g.savePage != 0 {
-		t.Fatalf("load selection = slot %d page %d, want slot 0 page 0", g.slotSelection, g.savePage)
-	}
-	if len(g.mouseLeftClicks) != 0 {
-		t.Fatalf("stale press remained in click queue: %d", len(g.mouseLeftClicks))
-	}
-}
-
-func TestConsumeEntryMenuRootReleaseLeavesSubscreenClicksAlone(t *testing.T) {
-	cfg := entryMenuTestConfig()
-	layout := makeEntryMenuRootLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-	g := &MMGame{
-		config:        cfg,
-		entryMenuMode: EntryMenuLoad,
-		mouseLeftClicks: []queuedClick{{
-			x:  layout.buttonX + layout.buttonW/2,
-			y:  layout.buttonStartY + layout.buttonH/2,
-			at: time.Now().UnixMilli(),
-		}},
-	}
-
-	if g.consumeEntryMenuRootReleaseAt(layout.buttonX+layout.buttonW/2, layout.buttonStartY+layout.buttonH/2) {
-		t.Fatal("root handler consumed a Load subscreen click")
-	}
-	if len(g.mouseLeftClicks) != 1 {
-		t.Fatalf("click queue length = %d, want untouched click", len(g.mouseLeftClicks))
-	}
-}
-
-func TestConsumeEntryMenuRootReleaseRequiresObservedPress(t *testing.T) {
-	cfg := entryMenuTestConfig()
-	layout := makeEntryMenuRootLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-	g := &MMGame{
-		config:        cfg,
-		entryMenuMode: EntryMenuRoot,
-	}
-
-	quitButtonIndex := -1
-	for i, button := range entryButtons() {
-		if button.key == "quit" {
-			quitButtonIndex = i
-			break
+	center := func(t *testing.T, key string) (int, int) {
+		t.Helper()
+		for i, button := range entryButtons() {
+			if button.key == key {
+				r := layout.button(i)
+				return r.x + r.w/2, r.y + r.h/2
+			}
 		}
+		t.Fatalf("root button %q is missing", key)
+		return 0, 0
 	}
-	if quitButtonIndex < 0 {
-		t.Fatal("Quit entry button is missing")
-	}
-	quitY := layout.buttonStartY + quitButtonIndex*(layout.buttonH+layout.buttonGap)
-	if g.consumeEntryMenuRootReleaseAt(layout.buttonX+layout.buttonW/2, quitY+layout.buttonH/2) {
-		t.Fatal("unarmed release activated Quit")
-	}
-	if g.exitRequested {
-		t.Fatal("release without an observed press requested exit")
+	for _, tc := range []struct {
+		name        string
+		mode        EntryMenuMode
+		armed       bool
+		queued      string // button the queued press points at; "" = a stale (0,0)
+		release     string
+		wantHandled bool
+		check       func(t *testing.T, g *MMGame)
+	}{
+		{"start", EntryMenuRoot, true, "start", "start", true, func(t *testing.T, g *MMGame) {
+			if g.appScreen != AppScreenPartyCreate || g.partyCreate == nil {
+				t.Fatalf("app screen = %v, party creation set up = %v", g.appScreen, g.partyCreate != nil)
+			}
+			if len(g.mouseLeftClicks) != 0 {
+				t.Fatalf("click queue length = %d, want 0 after handling", len(g.mouseLeftClicks))
+			}
+		}},
+		{"load at the release point", EntryMenuRoot, true, "", "load", true, func(t *testing.T, g *MMGame) {
+			if g.entryMenuMode != EntryMenuLoad || g.slotSelection != 0 || g.savePage != 0 {
+				t.Fatalf("mode %v slot %d page %d, want Load at slot 0 page 0", g.entryMenuMode, g.slotSelection, g.savePage)
+			}
+			if len(g.mouseLeftClicks) != 0 {
+				t.Fatalf("stale press remained in click queue: %d", len(g.mouseLeftClicks))
+			}
+		}},
+		{"subscreen click left alone", EntryMenuLoad, false, "start", "start", false, func(t *testing.T, g *MMGame) {
+			if len(g.mouseLeftClicks) != 1 || g.appScreen != AppScreenMainMenu {
+				t.Fatalf("click queue length = %d, app screen %v; want the click untouched", len(g.mouseLeftClicks), g.appScreen)
+			}
+		}},
+		{"unarmed release", EntryMenuRoot, false, "", "quit", false, func(t *testing.T, g *MMGame) {
+			if g.exitRequested {
+				t.Fatal("release without an observed press requested exit")
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := &MMGame{
+				menuState:               menuState{slotSelection: 4, savePage: 3},
+				config:                  cfg,
+				appScreen:               AppScreenMainMenu,
+				entryMenuMode:           tc.mode,
+				entryMenuRootPressArmed: tc.armed,
+			}
+			qx, qy := 0, 0
+			if tc.queued != "" {
+				qx, qy = center(t, tc.queued)
+			}
+			g.mouseLeftClicks = []queuedClick{{x: qx, y: qy, at: time.Now().UnixMilli()}}
+			if got := g.consumeEntryMenuRootReleaseAt(center(t, tc.release)); got != tc.wantHandled {
+				t.Fatalf("handled = %v, want %v", got, tc.wantHandled)
+			}
+			tc.check(t, g)
+		})
 	}
 }
 
 func TestEntryMenuRootLayoutFitsShortWindows(t *testing.T) {
 	minW, minH := MinimumWindowSize()
-	for _, size := range []struct{ w, h int }{{minW, minH}, {640, 480}, {800, 600}, {1280, 720}} {
+	for _, frame := range withInterfaceFrames(t, [][2]int{{minW, minH}, {640, 480}, {800, 600}, {1280, 720}}) {
+		size := struct{ w, h int }{frame[0], frame[1]}
 		layout := makeEntryMenuRootLayout(size.w, size.h)
 		aspectError := layout.logoW*entryLogoH - layout.logoH*entryLogoW
 		if aspectError < 0 {
@@ -146,7 +97,7 @@ func TestEntryMenuRootLayoutFitsShortWindows(t *testing.T) {
 		if layout.buttonStartY < layout.logoY+layout.logoH {
 			t.Errorf("%dx%d: buttons start at %d over logo ending at %d", size.w, size.h, layout.buttonStartY, layout.logoY+layout.logoH)
 		}
-		bottom := layout.buttonStartY + len(entryButtons())*layout.buttonH + (len(entryButtons())-1)*layout.buttonGap
+		bottom := layout.button(len(entryButtons()) - 1).bottom()
 		if bottom > size.h-entryBottomGap {
 			t.Errorf("%dx%d: buttons end at %d, content limit is %d", size.w, size.h, bottom, size.h-entryBottomGap)
 		}
@@ -175,7 +126,7 @@ func TestMinimumWindowSizeGrowsWithRootButtons(t *testing.T) {
 		t.Fatalf("expanded minimum height = %d, want greater than original %d", h, originalH)
 	}
 	layout := makeEntryMenuRootLayout(w, h)
-	bottom := layout.buttonStartY + len(entryButtons())*layout.buttonH + (len(entryButtons())-1)*layout.buttonGap
+	bottom := layout.button(len(entryButtons()) - 1).bottom()
 	if bottom > h-entryBottomGap {
 		t.Fatalf("expanded root menu ends at %d, content limit is %d", bottom, h-entryBottomGap)
 	}

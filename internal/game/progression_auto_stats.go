@@ -6,14 +6,10 @@ import (
 	"ugataima/internal/config"
 )
 
-const (
-	autoStatSpeedTarget = 16
-	autoMonkSpeedTarget = 26
-	// autoSecondarySoftCap: AUTO lifts a class's secondary stat only this far while
-	// the primary is still climbing; the secondary is taken the rest of the way to
-	// 99 only AFTER the primary is maxed.
-	autoSecondarySoftCap = 50
-)
+// autoSecondarySoftCap: AUTO lifts a class's secondary stat only this far while
+// the primary is still climbing; the secondary is taken the rest of the way to
+// 99 only AFTER the primary is maxed.
+const autoSecondarySoftCap = 50
 
 // autoClassStats reads the same authored priorities for the game and champion builds.
 // Missing authoring is an error at load; never invent a balance fallback here.

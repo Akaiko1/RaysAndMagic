@@ -136,7 +136,7 @@ func TestAlchemyReceiptOverlappingGroupsAndFailures(t *testing.T) {
 				r.Output = "health_potion"
 			}
 			before := append([]items.Item(nil), g.party.Inventory...)
-			n, receipt, err := g.party.Brew(c, &r, nil, 1)
+			n, receipt, err := g.party.BrewSelected(c, &r, character.AlchemySourceSelection(&r, nil), 1)
 			if state != "overlap" {
 				if err == nil || n != 0 || receipt != nil || !reflect.DeepEqual(before, g.party.Inventory) {
 					t.Fatal("failed brew emitted a receipt or changed inventory")

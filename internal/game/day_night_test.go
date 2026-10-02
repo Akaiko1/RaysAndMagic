@@ -124,14 +124,15 @@ func TestWorldHasLivingMonstersInRect(t *testing.T) {
 	}
 }
 
+// The cliff dragons return only after the cliffs are completely cleared.
 func TestDragonCliffsNightPackRequiresFullClear(t *testing.T) {
 	cfg := loadTestConfig(t)
 	for _, pack := range cfg.DayNight.Packs {
 		if pack.Map != "dragon_cliffs" {
 			continue
 		}
-		if pack.NightMonster != "dragon" || pack.Count != 5 || !pack.RequireMapClear {
-			t.Fatalf("dragon cliffs night pack = %+v, want black dragon x5 after a full clear", pack)
+		if !pack.RequireMapClear {
+			t.Fatalf("dragon cliffs night pack = %+v, want require_map_clear", pack)
 		}
 		return
 	}

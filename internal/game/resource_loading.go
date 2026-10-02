@@ -213,7 +213,6 @@ func (gl *GameLoop) discardLoadingInput() {
 	}
 	// Retire ordinary drag gestures so their release cannot act on the first
 	// complete frame. Picked-up split fragments retain their inventory owner.
-	gl.game.prevWorldClickAllowed = false
 	gl.game.dragDropAt = 0
 	gl.game.stashDragDrop = false
 	if !gl.game.dragPickedUp {

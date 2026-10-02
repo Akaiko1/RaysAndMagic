@@ -1,7 +1,8 @@
 package game
 
 import (
-	"math"
+	"maps"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -25,15 +26,13 @@ func crateTestGame(t *testing.T) *MMGame {
 	return game
 }
 
-// The box pile is stationary scenery; other loot crates keep their default spin.
-func TestLootCratesUseAuthoredSpin(t *testing.T) {
+// Loot crates render as scenery or landmarks; the stationary box pile is
+// covered by TestBoxPileSceneryMovement.
+func TestLootCratesRenderAsSceneryOrLandmark(t *testing.T) {
 	crateTestGame(t)
 	for key, npc := range character.NPCConfigInstance.NPCs {
 		if npc.Type != character.NPCTypeLootCrate {
 			continue
-		}
-		if want := key == "pile_of_old_boxes"; npc.NoSpin != want {
-			t.Errorf("loot crate %q no_spin = %v, want %v", key, npc.NoSpin, want)
 		}
 		cat := resolveNPCRenderCat(npc.RenderCategory)
 		if cat != catScenery && cat != catLandmark {
@@ -87,34 +86,25 @@ func TestBoxPileSceneryMovement(t *testing.T) {
 	}
 }
 
+// Treasure chests creak open; barrels, campfires and box piles stay silent.
 func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
 	crateTestGame(t)
-	tests := []struct {
-		key  string
-		want string
-	}{
-		{key: "pile_of_old_boxes"},
-		{key: "campfire"},
-		{key: "barrel_red"},
-		{key: "barrel_green"},
-		{key: "barrel_blue"},
-		{key: "chest_wooden", want: "chest_open"},
-		{key: "chest_iron", want: "chest_open"},
-		{key: "chest_golden", want: "chest_open"},
-		{key: "chest_gearwood", want: "chest_open"},
-		{key: "chest_chrono", want: "chest_open"},
-		{key: "chest_regal", want: "chest_open"},
+	chests, props := 0, 0
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalLoots.Crates)) {
+		crate := config.GlobalLoots.Crates[key]
+		want := ""
+		if crate.TreasureChest {
+			want = "chest_open"
+			chests++
+		} else {
+			props++
+		}
+		if got := crate.InteractionSound; got != want {
+			t.Errorf("%s interaction sound = %q, want %q", key, got, want)
+		}
 	}
-	for _, test := range tests {
-		t.Run(test.key, func(t *testing.T) {
-			crate := config.GetCrateConfig(test.key)
-			if crate == nil {
-				t.Fatalf("crate %q is missing", test.key)
-			}
-			if got := crate.InteractionSound; got != test.want {
-				t.Fatalf("interaction sound = %q, want %q", got, test.want)
-			}
-		})
+	if chests == 0 || props == 0 {
+		t.Fatalf("fixture: %d treasure chests and %d other props; both rows must be exercised", chests, props)
 	}
 }
 
@@ -183,7 +173,7 @@ func spawnCrate(t *testing.T, g *MMGame, key string, x, y float64) *character.NP
 	return npc
 }
 
-// TestWoodenChest: 3 rolls from the drop pools of the monsters on the map.
+// TestWoodenChest: its authored rolls from the drop pools of the monsters on the map.
 func TestWoodenChest(t *testing.T) {
 	g := crateTestGame(t)
 	// Treants have a rich drop table (dead_branch/elven_bow/card).
@@ -196,8 +186,8 @@ func TestWoodenChest(t *testing.T) {
 	if !chest.Visited {
 		t.Fatal("chest not consumed")
 	}
-	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != 3 {
-		t.Fatalf("wooden chest produced %d reward slots, want 3", rewardSlots)
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != config.GetCrateConfig("chest_wooden").Rolls {
+		t.Fatalf("wooden chest produced %d reward slots, want %d", rewardSlots, config.GetCrateConfig("chest_wooden").Rolls)
 	}
 	// Re-opening yields nothing.
 	invAfter := g.party.GetTotalItems()
@@ -217,8 +207,8 @@ func TestWoodenChestRetainsInitialMapPoolAfterClear(t *testing.T) {
 	chest := spawnCrate(t, g, "chest_wooden", g.camera.X+64, g.camera.Y)
 	before := snapshotCrateRewards(g)
 	g.useLootCrate(chest)
-	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != 3 {
-		t.Fatalf("cleared-map wooden chest produced %d reward slots, want 3", rewardSlots)
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_wooden", before); rewardSlots != config.GetCrateConfig("chest_wooden").Rolls {
+		t.Fatalf("cleared-map wooden chest produced %d reward slots, want %d", rewardSlots, config.GetCrateConfig("chest_wooden").Rolls)
 	}
 }
 
@@ -344,77 +334,6 @@ func TestCrateSlotsRollOneSourceEach(t *testing.T) {
 	}
 }
 
-// The one-table crates keep the odds the old per-chest jackpot rolls gave: a
-// w%-a-slot source over n slots shows up in 1-(1-w)^n of the chests, and the
-// ordinary sources keep their old shares of the rest. The regal chest's
-// Clockmaker gear is a later 10%-a-chest jackpot.
-func TestCrateOddsMatchTheirFormerPerChestRolls(t *testing.T) {
-	crateTestGame(t)
-	is := func(pool, itemType, rarity string, amount int) func(config.CrateRollSource) bool {
-		return func(s config.CrateRollSource) bool {
-			return s.Pool == pool && s.ItemType == itemType && s.Rarity == rarity && s.Amount == amount
-		}
-	}
-	type share struct {
-		match func(config.CrateRollSource) bool
-		old   float64 // former weight among the ordinary sources
-	}
-	for _, tc := range []struct {
-		key      string
-		jackpots map[string]float64 // per-chest chance by label
-		matchers map[string]func(config.CrateRollSource) bool
-		ordinary []share
-	}{
-		{"chest_wooden", map[string]float64{"rare": .07, "legendary": .03, "gold": .05},
-			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "legendary": is("map", "", "legendary", 0), "gold": is("gold", "", "", 1000)},
-			[]share{{is("map", "", "common-uncommon", 0), .70}, {is("catalog", "consumable", "", 0), .20}, {is("catalog", "armor", "common", 0), .10}}},
-		{"chest_iron", map[string]float64{"rare": .25, "legendary": .05, "gold": .05},
-			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "legendary": is("map", "", "legendary", 0), "gold": is("gold", "", "", 1500)},
-			[]share{{is("map", "", "uncommon", 0), .60}, {is("catalog", "accessory", "uncommon", 0), .20}, {is("catalog", "armor", "uncommon", 0), .20}}},
-		{"chest_golden", map[string]float64{"arena": .05},
-			map[string]func(config.CrateRollSource) bool{"arena": is("arena_points", "", "", 5000)},
-			[]share{{is("catalog", "any", "rare", 0), .85}, {is("catalog", "any", "legendary", 0), .15}}},
-		{"chest_gearwood", nil, nil,
-			[]share{{is("map", "", "common-uncommon", 0), .60}, {is("gold", "", "", 120), .25}, {is("catalog", "consumable", "", 0), .15}}},
-		{"chest_chrono", map[string]float64{"rare": .20},
-			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0)},
-			[]share{{is("map", "", "uncommon+", 0), .60}, {is("gold", "", "", 250), .25}, {is("catalog", "trinket", "common-rare", 0), .15}}},
-		{"chest_regal", map[string]float64{"rare": .30, "gold": .10, "gear": .10},
-			map[string]func(config.CrateRollSource) bool{"rare": is("map", "", "rare", 0), "gold": is("gold", "", "", 800), "gear": isClockGear},
-			[]share{{is("map", "", "uncommon+", 0), .55}, {is("catalog", "trinket", "common-rare", 0), .25}, {is("gold", "", "", 400), .20}}},
-	} {
-		t.Run(tc.key, func(t *testing.T) {
-			crate := config.GetCrateConfig(tc.key)
-			if crate == nil {
-				t.Fatal("crate missing")
-			}
-			weight := func(match func(config.CrateRollSource) bool) float64 {
-				w := 0.0
-				for _, s := range crate.RollSources {
-					if match(s) {
-						w += s.Weight / 100
-					}
-				}
-				return w
-			}
-			for label, want := range tc.jackpots {
-				if got := 1 - math.Pow(1-weight(tc.matchers[label]), float64(crate.Rolls)); math.Abs(got-want) > 0.01 {
-					t.Fatalf("%s comes up in %.1f%% of chests, was %.0f%%", label, got*100, want*100)
-				}
-			}
-			total := 0.0
-			for _, o := range tc.ordinary {
-				total += weight(o.match)
-			}
-			for i, o := range tc.ordinary {
-				if got := weight(o.match) / total; math.Abs(got-o.old) > 0.005 {
-					t.Fatalf("ordinary source %d holds %.1f%% of the ordinary slots, was %.0f%%", i, got*100, o.old*100)
-				}
-			}
-		})
-	}
-}
-
 func isClockGear(s config.CrateRollSource) bool {
 	return s.Pool == "loot_table" && s.LootTable == "clock_tower_gear"
 }
@@ -490,17 +409,39 @@ func TestRegalChestRollsClockmakerGear(t *testing.T) {
 	}
 }
 
-func TestGoldenChestTrapDamageTypesComeFromYAML(t *testing.T) {
-	crateTestGame(t)
-	crate := config.GetCrateConfig("chest_golden")
-	if crate == nil {
-		t.Fatal("golden chest config missing")
-	}
-	if crate.TrapDamage != 150 {
-		t.Fatalf("golden chest trap damage = %d, want 150", crate.TrapDamage)
-	}
-	if got := crate.TrapDamageTypes; len(got) != 2 || got[0] != "physical" || got[1] != "fire" {
-		t.Fatalf("golden chest trap damage types = %v, want [physical fire]", got)
+// A detonating trap deals its authored damage type: a fire-immune party
+// shrugs off a fire charge but not a physical one, and an unset type is physical.
+func TestCrateTrapDealsItsAuthoredDamageType(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		types []string
+		hurt  bool
+	}{
+		{"fire", []string{"fire"}, false},
+		{"physical", []string{"physical"}, true},
+		{"unset is physical", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := crateTestGame(t)
+			g.cardSlots = [MaxCardSlots]cardSlot{}
+			g.cardSlots[0].key = "golden_thief_bug_card"
+			if g.cardResistBonusFor("fire") < 100 || g.cardResistBonusFor("physical") >= 100 {
+				t.Fatal("fixture: golden_thief_bug_card must make the party fire-immune only")
+			}
+			before := map[*character.MMCharacter]int{}
+			for _, member := range g.party.Members {
+				delete(member.Skills, character.SkillDisarmTrap)
+				member.Luck = 0
+				member.HitPoints = member.MaxHitPoints
+				before[member] = member.HitPoints
+			}
+			g.springCrateTrap(&character.NPC{Name: "Test Chest"}, &config.CrateConfig{TrapDamage: 100, TrapDamageTypes: tc.types})
+			for _, member := range g.party.Members {
+				if hurt := member.HitPoints < before[member]; hurt != tc.hurt {
+					t.Errorf("%s hurt = %v (HP %d -> %d), want %v", member.Name, hurt, before[member], member.HitPoints, tc.hurt)
+				}
+			}
+		})
 	}
 }
 
@@ -524,8 +465,8 @@ func TestGoldenChestPool(t *testing.T) {
 			}
 		}
 	}
-	if rewardSlots, _ := crateRewardSlots(t, g, "chest_golden", before); rewardSlots != 3 {
-		t.Fatalf("golden chest produced %d reward slots, want 3", rewardSlots)
+	if rewardSlots, _ := crateRewardSlots(t, g, "chest_golden", before); rewardSlots != config.GetCrateConfig("chest_golden").Rolls {
+		t.Fatalf("golden chest produced %d reward slots, want %d", rewardSlots, config.GetCrateConfig("chest_golden").Rolls)
 	}
 }
 

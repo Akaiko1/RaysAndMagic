@@ -135,6 +135,17 @@ func TestLevelUpSystem(t *testing.T) {
 		if testChar.SpellPoints != initialSP {
 			t.Errorf("Current SP changed: got %d, want %d", testChar.SpellPoints, initialSP)
 		}
+
+		// An announced level-up names the level and the granted stat points.
+		found := false
+		for _, e := range game.combatLogHistory {
+			if strings.Contains(e.Text, "TestHero reached level 2") && strings.Contains(e.Text, "stat points") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("level-up message missing from the combat log: %+v", game.combatLogHistory)
+		}
 	})
 
 	t.Run("Multiple Level Ups", func(t *testing.T) {
@@ -199,62 +210,5 @@ func TestLevelUpSystem(t *testing.T) {
 				t.Errorf("Character should level up from %d to %d with %d experience", tc.level, tc.level+1, tc.expectedExp)
 			}
 		}
-	})
-
-	t.Run("Turn-Based Mode Level Up", func(t *testing.T) {
-		// Reset character for this test
-		testChar.Level = 1
-		testChar.Experience = 0
-		testChar.FreeStatPoints = 0
-		testChar.CalculateDerivedStats(cfg)
-
-		// Create a minimal game instance to test turn-based mode
-		fullGame := &MMGame{
-			config:        cfg,
-			maxMessages:   3,
-			turnBasedMode: true, // Set turn-based mode
-		}
-
-		// Create combat system for the full game
-		fullCombatSystem := NewCombatSystem(fullGame)
-
-		// Give enough experience for level up
-		testChar.Experience = 100
-
-		// Capture initial combat messages count
-		initialMessageCount := len(fullGame.GetCombatMessages())
-
-		// Call checkLevelUp
-		fullCombatSystem.checkLevelUp(testChar, true)
-
-		// Verify level up occurred
-		if testChar.Level != 2 {
-			t.Errorf("Expected level 2 in turn-based mode, got %d", testChar.Level)
-		}
-
-		// Verify stat points were granted
-		if testChar.FreeStatPoints != 5 {
-			t.Errorf("Expected 5 stat points in turn-based mode, got %d", testChar.FreeStatPoints)
-		}
-
-		// Verify combat message was added
-		msgs := fullGame.GetCombatMessages()
-		if len(msgs) <= initialMessageCount {
-			t.Error("Expected level up combat message to be added in turn-based mode")
-		}
-
-		// Check if the message contains level up information
-		found := false
-		for _, msg := range msgs {
-			if strings.Contains(msg, "reached level") && strings.Contains(msg, "stat points") {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Level up message not found in combat messages: %v", msgs)
-		}
-
-		t.Logf("Turn-based level up successful. Messages: %v", msgs)
 	})
 }

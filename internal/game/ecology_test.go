@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
@@ -46,6 +47,18 @@ func TestWildlifePopulationLifecycle(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(map[bool]string{false: "active", true: "remote"}[remote], func(t *testing.T) {
 			g, wm, _ := ecologyTestGame(t)
+			var day, night config.WildlifePopulation
+			for _, p := range config.GlobalEcology.Populations {
+				if p.Map == wm.CurrentMapKey && p.Phase == "day" && day.Monster == "" {
+					day = p
+				}
+				if p.Map == wm.CurrentMapKey && p.Phase == "night" && night.Monster == "" {
+					night = p
+				}
+			}
+			if day.Monster == "" || night.Monster == "" {
+				t.Fatalf("fixture needs a day and a night population on %q", wm.CurrentMapKey)
+			}
 			w := g.world
 			if remote {
 				g.world = newTestWorld(g.config)
@@ -62,17 +75,17 @@ func TestWildlifePopulationLifecycle(t *testing.T) {
 				return n
 			}
 			g.replenishWildlife()
-			if count("desert_rabbit") != 7 {
+			if count(day.Monster) != day.Count {
 				t.Fatal("day cap")
 			}
 			for _, m := range w.Monsters {
-				if m.Key == "desert_rabbit" {
+				if m.Key == day.Monster {
 					m.HitPoints = 0
 					break
 				}
 			}
 			g.replenishWildlife()
-			if count("desert_rabbit") != 6 {
+			if count(day.Monster) != day.Count-1 {
 				t.Fatal("same-phase replacement")
 			}
 			data, _ := json.Marshal(g.ecology)
@@ -81,19 +94,19 @@ func TestWildlifePopulationLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			g.replenishWildlife()
-			if count("desert_rabbit") != 6 {
+			if count(day.Monster) != day.Count-1 {
 				t.Fatal("load replaced wildlife")
 			}
 			g.dayNightDay++
 			g.dayNightIsNight = true
 			g.replenishWildlife()
-			if count("desert_rabbit") != 6 || count("fennec") != 2 {
+			if count(day.Monster) != day.Count-1 || count(night.Monster) != night.Count {
 				t.Fatal("night removed survivors or wrong cap")
 			}
 			g.dayNightDay++
 			g.dayNightIsNight = false
 			g.replenishWildlife()
-			if count("desert_rabbit") != 7 || count("fennec") != 2 {
+			if count(day.Monster) != day.Count || count(night.Monster) != night.Count {
 				t.Fatal("dawn did not retain/refill")
 			}
 			if worldHasLivingMonstersInRect(w, 0, 0, w.Width, w.Height, g.config.GetTileSize()) {
@@ -161,19 +174,23 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	for _, n := range g.ecology.Stock {
 		total += n
 	}
-	if total != 3 || g.ecology.Deliveries != 1 {
-		t.Fatalf("delivery total=%d trips=%d", total, g.ecology.Deliveries)
+	caravan := config.GlobalEcology.Caravan
+	if total != caravan.RewardUnits || g.ecology.Deliveries != 1 {
+		t.Fatalf("delivery total=%d trips=%d, want %d units in 1 trip", total, g.ecology.Deliveries, caravan.RewardUnits)
 	}
 	pool := config.CaravanTradePool()
+	if len(pool) <= caravan.StockSlots {
+		t.Fatalf("trade pool has %d goods, need more than %d shelf slots to test overflow", len(pool), caravan.StockSlots)
+	}
 	g.ecology.Stock = map[string]int{}
-	for _, k := range pool[:12] {
+	for _, k := range pool[:caravan.StockSlots] {
 		g.ecology.Stock[k] = 1
 	}
 	before := cloneEcologyState(g.ecology)
 	for i := 0; i < 100; i++ {
 		g.depositCaravanGoods()
 	}
-	if len(g.ecology.Stock) != 12 {
+	if len(g.ecology.Stock) != caravan.StockSlots {
 		t.Fatal("slot overflow")
 	}
 	for k := range g.ecology.Stock {
@@ -192,7 +209,7 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	if !g.buyMerchantUnits(entry, n) || g.ecology.Stock[entry.RewardKey] != 0 || g.party.Gold != gold {
 		t.Fatal("free collection failed")
 	}
-	if len(g.ecology.Stock) != 11 {
+	if len(g.ecology.Stock) != caravan.StockSlots-1 {
 		t.Fatal("empty stack must release slot")
 	}
 }
@@ -274,21 +291,42 @@ func TestEcologyRemoteMovementAndCombat(t *testing.T) {
 		})
 	}
 }
+
+// Trade goods are priced, non-legendary trinkets that are not door keys and
+// that some monster table or the boss loot drops (chance > 0); each listed once.
 func TestCaravanEligibleGoods(t *testing.T) {
 	ecologyTestGame(t)
-	found := map[string]bool{}
-	for _, k := range config.CaravanTradePool() {
-		found[k] = true
+	shipped := config.CaravanTradePool()
+	if len(shipped) == 0 {
+		t.Fatal("shipped loot tables yield no caravan trade goods")
 	}
-	for _, key := range []string{"clock_hand", "brass_gear", "pocket_watch", "red_dragon_scale", "green_dragon_scale", "gold_dragon_scale"} {
-		if !found[key] {
-			t.Errorf("missing trade good %s", key)
-		}
+
+	oldItems, oldLoots := config.GlobalItems, config.GlobalLoots
+	t.Cleanup(func() { config.GlobalItems, config.GlobalLoots = oldItems, oldLoots })
+	trinket := func(rarity string, value, doorKey int) *config.ItemDefinitionConfig {
+		return &config.ItemDefinitionConfig{Type: "trinket", Rarity: rarity, Value: value, DoorKey: doorKey}
 	}
-	for _, key := range []string{"black_dragon_scale", "ordinary_key", "inlaid_key", "health_potion", "bandit_card"} {
-		if found[key] {
-			t.Errorf("invalid trade good %s", key)
-		}
+	config.GlobalItems = &config.ItemSystemConfig{Items: map[string]*config.ItemDefinitionConfig{
+		"gear":       trinket("common", 5, 0),
+		"boss_scale": trinket("rare", 9, 0),
+		"relic":      trinket("legendary", 50, 0),
+		"door_key":   trinket("common", 5, 1),
+		"pebble":     trinket("common", 0, 0),
+		"never":      trinket("common", 5, 0),
+		"potion":     {Type: "consumable", Rarity: "common", Value: 5},
+	}}
+	item := func(key string, chance float64) config.LootEntry {
+		return config.LootEntry{Type: "item", Key: key, Chance: chance}
+	}
+	config.GlobalLoots = &config.LootTablesConfig{
+		Loots: map[string][]config.LootEntry{
+			"mob_a": {item("gear", .5), item("relic", .1), item("door_key", .2), item("pebble", .3), item("potion", .4), item("never", 0)},
+			"mob_b": {item("gear", .2), {Type: "weapon", Key: "gear", Chance: .3}, item("undefined", .5)},
+		},
+		BossLoot: []config.LootEntry{item("boss_scale", .1)},
+	}
+	if got, want := config.CaravanTradePool(), []string{"boss_scale", "gear"}; !slices.Equal(got, want) {
+		t.Fatalf("trade pool = %v, want %v", got, want)
 	}
 }
 

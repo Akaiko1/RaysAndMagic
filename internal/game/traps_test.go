@@ -337,22 +337,13 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	}
 }
 
-// All four mastery tiers map to the designed 10/20/30/40% chance; no skill = 0.
+// Each mastery tier adds SleightChancePctPerTier, Novice included; no skill = 0.
 func TestSleightChance_AllMasteries(t *testing.T) {
 	_, thief := newThiefTestGame(t)
-	cases := []struct {
-		mastery character.SkillMastery
-		want    int
-	}{
-		{character.MasteryNovice, 10},
-		{character.MasteryExpert, 20},
-		{character.MasteryMaster, 30},
-		{character.MasteryGrandMaster, 40},
-	}
-	for _, tc := range cases {
-		thief.Skills[character.SkillSleightOfHand].Mastery = tc.mastery
-		if got := sleightChancePct(thief); got != tc.want {
-			t.Errorf("%v: want %d%%, got %d%%", tc.mastery, tc.want, got)
+	for tier := character.MasteryNovice; tier <= character.MasteryGrandMaster; tier++ {
+		thief.Skills[character.SkillSleightOfHand].Mastery = tier
+		if got, want := sleightChancePct(thief), (int(tier)+1)*character.SleightChancePctPerTier; got != want {
+			t.Errorf("%v: want %d%%, got %d%%", tier, want, got)
 		}
 	}
 	delete(thief.Skills, character.SkillSleightOfHand)

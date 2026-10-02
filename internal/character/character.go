@@ -661,10 +661,6 @@ func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	}
 }
 
-func (c *MMCharacter) Update() {
-	c.updateRegenAndPoison()
-}
-
 // UpdateWithMode updates the character with knowledge of the current game mode
 // and reports whether an RT regeneration cadence completed this frame.
 func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {

@@ -10,8 +10,8 @@ import (
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
-// tooltip and the map-editor card (same contract as the weapon/spell/trap
-// EffectLines). New YAML fields get a line HERE, and every consumer shows it.
+// tooltip and the map-editor card (same contract as the weapon and spell effect
+// lines). New YAML fields get a line HERE, and every consumer shows it.
 
 func nonPhysicalDamageSchools() []damagecalc.Type {
 	all := damagecalc.Types()
@@ -67,8 +67,8 @@ func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
 
 // ItemMechanicLines lists the per-item special-mechanic rows - projectile
 // reflection, hostile-status duration, growing scales, draught wards. ONE
-// formatter shared by EffectLines (editor) and the unified in-game tooltip,
-// so the two can never drift (tooltip parity contract).
+// formatter shared by the editor card and the unified in-game tooltip, so the
+// two can never drift (tooltip parity contract).
 func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	var lines []string
 	if len(d.AllowedClasses) > 0 {
@@ -101,8 +101,8 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 }
 
 // PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
-// the item grants none. One formatter for the wording, shared by EffectLines
-// and the unified armor tooltip (which builds its own EFFECTS section).
+// the item grants none. One formatter for the wording, shared by the effect
+// lines and the unified armor tooltip (which builds its own EFFECTS section).
 func (d *ItemDefinitionConfig) PartyArmorLine() string {
 	if d.PartyArmorBonus <= 0 {
 		return ""
@@ -146,19 +146,6 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 		}
 	}
 	return parts
-}
-
-// EffectLines is the complete character-independent mechanics list.
-func (d *ItemDefinitionConfig) EffectLines() []string {
-	var lines []string
-	if d.ArmorClassBase > 0 {
-		lines = append(lines, uitext.Text("item.armor_class", d.ArmorClassBase))
-	}
-	if d.EnduranceScalingDivisor > 0 {
-		lines = append(lines, uitext.Text("item.ac_endurance", d.EnduranceScalingDivisor))
-	}
-	lines = append(lines, d.CoreEffectLines()...)
-	return append(lines, d.SetLines()...)
 }
 
 // CoreEffectLines leaves armor and set membership to their own card sections.
@@ -338,7 +325,7 @@ func EquipmentSetLines(setKey string) []string {
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
 // text, derived from its Card* fields. Shared by the item tooltip (via
-// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
+// SpecialEffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string

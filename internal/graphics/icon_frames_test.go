@@ -3,7 +3,6 @@ package graphics
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -196,9 +195,20 @@ func TestAuthoredIconsFitAssignedFrames(t *testing.T) {
 // must retain a 3..6 pixel metal band on every side and leave the art center clear.
 func TestAuthoredIconFrameMasks(t *testing.T) {
 	t.Chdir("../..")
-	for _, style := range []string{"basic", "asian", "boss"} {
+	data, err := os.ReadFile("assets/icon_frames.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg config.IconFramesConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Frames) == 0 {
+		t.Fatal("icon_frames.yaml authors no frames")
+	}
+	for style, path := range cfg.Frames {
 		t.Run(style, func(t *testing.T) {
-			f, err := os.Open(fmt.Sprintf("assets/sprites/interface/icon_frames/icon_frame_%s.png", style))
+			f, err := os.Open(path)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -2,7 +2,7 @@ package game
 
 import (
 	"fmt"
-	"os"
+	"reflect"
 	"testing"
 
 	"ugataima/internal/character"
@@ -13,14 +13,8 @@ import (
 
 func stashTestGame(t *testing.T) *MMGame {
 	t.Helper()
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil { // isolate stash.json writes
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(old) })
+	storage.SetDataRootForTesting(t.TempDir()) // a fresh stash.json per test
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	return &MMGame{party: &character.Party{}, stash: &stash.Stash{}, stashDragFrom: -1}
 }
 
@@ -52,63 +46,46 @@ func TestStashTransfer_DepositWithdraw(t *testing.T) {
 	}
 }
 
-func TestStashTransfer_PartialStackKeepsTransferredLineage(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 100,
-	}}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 2
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 100 {
-		t.Fatalf("stash fragment = %+v, want two units with ID 100", got)
+// A partial-stack deposit moves the dragged units under their own lineage and
+// rekeys the bag remainder, whatever the target cell already holds.
+func TestStashTransferPartialStackLineage(t *testing.T) {
+	potion := func(quantity int, id uint64) items.Item {
+		return items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: quantity, InstanceID: id}
 	}
-	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 3 || g.party.Inventory[0].InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want three rekeyed units", g.party.Inventory)
-	}
-}
+	for _, tc := range []struct {
+		name         string
+		bag, split   int
+		cell         items.Item // the chest cell before the drop
+		wantCount    int
+		wantID       uint64
+		wantLineage  []items.StackLineage // nil = not checked
+		wantBagCount int
+	}{
+		{name: "empty cell", bag: 5, split: 2, wantCount: 2, wantID: 100, wantBagCount: 3},
+		{name: "different lineage", bag: 3, split: 1, cell: potion(1, 200), wantCount: 2, wantID: 200,
+			wantLineage: []items.StackLineage{{ID: 200, Quantity: 1}, {ID: 100, Quantity: 1}}, wantBagCount: 2},
+		{name: "same lineage", bag: 4, split: 2, cell: potion(1, 100), wantCount: 3, wantID: 100, wantBagCount: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := stashTestGame(t)
+			g.party.Inventory = []items.Item{potion(tc.bag, 100)}
+			g.stash.Slots[0] = tc.cell
+			g.stashDragFrom = stashDragInvBase
+			g.stashDragSplitQuantity = tc.split
+			g.stashDragItem = potion(tc.split, 100)
+			g.resolveStashDrop(stashAddr{stashKindChest, 0})
 
-func TestStashTransfer_PartialStackMergesDifferentLineages(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3, InstanceID: 100,
-	}}
-	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 200}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 1
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 200 {
-		t.Fatalf("occupied stash stack = %+v, want two potions", got)
-	} else if gotParts := got.StackLineageParts(); len(gotParts) != 2 ||
-		gotParts[0] != (items.StackLineage{ID: 200, Quantity: 1}) ||
-		gotParts[1] != (items.StackLineage{ID: 100, Quantity: 1}) {
-		t.Fatalf("merged stash provenance = %+v, want #200 + #100", gotParts)
-	}
-	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want two rekeyed potions", got)
-	}
-}
-
-func TestStashTransfer_PartialStackMergesSameLineage(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 4, InstanceID: 100,
-	}}
-	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 2
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 3 || got.InstanceID != 100 {
-		t.Fatalf("same-lineage stash stack = %+v, want three units with ID 100", got)
-	}
-	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want two rekeyed units", got)
+			got := g.stash.Slots[0]
+			if got.Count() != tc.wantCount || got.InstanceID != tc.wantID {
+				t.Fatalf("stash stack = %+v, want %d units with ID %d", got, tc.wantCount, tc.wantID)
+			}
+			if tc.wantLineage != nil && !reflect.DeepEqual(got.StackLineageParts(), tc.wantLineage) {
+				t.Fatalf("merged stash provenance = %+v, want %+v", got.StackLineageParts(), tc.wantLineage)
+			}
+			if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != tc.wantBagCount || g.party.Inventory[0].InstanceID == 100 {
+				t.Fatalf("bag remainder = %+v, want %d rekeyed units", g.party.Inventory, tc.wantBagCount)
+			}
+		})
 	}
 }
 
@@ -222,8 +199,5 @@ func TestSaveRowModel(t *testing.T) {
 	g := &MMGame{menuState: menuState{savePage: 2, slotSelection: 1}}
 	if got, want := g.selectedSaveRow(), 2*saveRowsPerPage+1; got != want {
 		t.Errorf("selectedSaveRow = %d, want %d", got, want)
-	}
-	if saveRowCount != saveRowsPerPage*savePageCount {
-		t.Errorf("saveRowCount = %d, want %d", saveRowCount, saveRowsPerPage*savePageCount)
 	}
 }

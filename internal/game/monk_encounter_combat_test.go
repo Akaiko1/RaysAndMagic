@@ -56,7 +56,9 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						m.RootFramesRemaining, m.RootTurnsRemaining = 240, 1
 					}
 					if gate == "occupied" {
-						for x := 2; x <= 4; x++ {
+						// Fill every rear landing tile the blink may try.
+						for n := 2; n <= int(m.RearBlinkRangeTiles); n++ {
+							x := 6 - n
 							e := collision.NewEntity(fmt.Sprint("block", x), (float64(x)+0.5)*64, 6.5*64, 48, 48, collision.CollisionTypeNPC, true)
 							g.collisionSystem.RegisterEntity(e)
 						}
@@ -86,8 +88,8 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						if len(g.magicProjectiles) != shots {
 							t.Fatalf("shots=%d want %d", len(g.magicProjectiles), shots)
 						}
-						if want && m.X != 2.5*64 {
-							t.Fatalf("blink range: x=%v", m.X)
+						if wantX := g.camera.X - m.RearBlinkRangeTiles*64; want && m.X != wantX {
+							t.Fatalf("blink range: x=%v, want %v", m.X, wantX)
 						}
 					}
 					if gate != "stun" && m.AttackCDFrames <= 0 {
@@ -177,7 +179,10 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 					forced.StunChance = 1
 					config.GlobalSpells.Spells["lightning"] = &forced
 					t.Cleanup(func() { config.GlobalSpells.Spells["lightning"] = original })
-					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, StunCharChance: 1, StunCharSeconds: 9, StunCharTurns: 9}
+					// The melee rider differs from the spell's own stun so the
+					// two durations cannot be confused.
+					meleeSeconds := forced.StunDurationSeconds + 7
+					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, StunCharChance: 1, StunCharSeconds: meleeSeconds, StunCharTurns: 9}
 					if champion {
 						m.ChampionKey = "test"
 					}
@@ -195,9 +200,9 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 						if (c.StunFramesRemaining > 0) != want {
 							t.Fatalf("stun frames=%d want active %v", c.StunFramesRemaining, want)
 						}
-						seconds := 2
+						seconds := forced.StunDurationSeconds
 						if !champion {
-							seconds = 9
+							seconds = meleeSeconds
 						}
 						if want && c.StunFramesRemaining != seconds*g.config.GetTPS() {
 							t.Fatal("stun inherited melee duration")
@@ -210,7 +215,7 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 							t.Fatalf("crossfire stun frames=%d", target.StunFramesRemaining)
 						}
 					}
-					if m.StunCharSeconds != 9 {
+					if m.StunCharSeconds != meleeSeconds {
 						t.Fatal("spell mutated source melee rider")
 					}
 				})
@@ -309,17 +314,25 @@ func TestMonkEncounterSaveRestoreAndReset(t *testing.T) {
 	if loaded.partyRoot != g.partyRoot {
 		t.Fatal("full restore lost root")
 	}
+	if len(loadedWorld.Monsters) != 2 {
+		t.Fatalf("restored %d monsters, want 2", len(loadedWorld.Monsters))
+	}
 	for _, m := range loadedWorld.Monsters {
-		if !m.Banding || m.BandGroup != "unbroken_trial" {
-			t.Fatal("restore lost encounter group")
+		def, err := monster.MonsterConfig.GetMonsterByKey(m.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if def.BandGroup == "" || !m.Banding || m.BandGroup != def.BandGroup || m.BandGroup != loadedWorld.Monsters[0].BandGroup {
+			t.Fatalf("%s restored group %q (banding %v), want the shared authored group %q", m.Key, m.BandGroup, m.Banding, def.BandGroup)
 		}
 		switch m.Key {
 		case "bronze_gatekeeper":
-			if m.RootPartyChance != 0.07 || m.RootPartySeconds != 2 || m.RootPartyTurns != 1 {
+			if def.RootPartyChance <= 0 || m.RootPartyChance != def.RootPartyChance ||
+				m.RootPartySeconds != def.RootPartySeconds || m.RootPartyTurns != def.RootPartyTurns {
 				t.Fatal("root content/restoration mismatch")
 			}
 		case "gale_novice":
-			if m.RearBlinkChance != 0.07 || m.RearBlinkRangeTiles != 4 {
+			if def.RearBlinkChance <= 0 || m.RearBlinkChance != def.RearBlinkChance || m.RearBlinkRangeTiles != def.RearBlinkRangeTiles {
 				t.Fatal("blink content/restoration mismatch")
 			}
 		}

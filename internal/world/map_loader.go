@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"ugataima/internal/monster"
 )
@@ -305,27 +304,6 @@ func (ml *MapLoader) parseMapCharacter(char rune) (TileType3D, string, bool) {
 	tileType = TileEmpty
 
 	return tileType, monsterLetter, isStartPosition
-}
-
-// LoadForestMap loads the default forest map
-func (ml *MapLoader) LoadForestMap() (*MapData, error) {
-	// Try multiple possible paths for the assets directory
-	possiblePaths := []string{
-		filepath.Join("assets", "forest.map"),        // From project root
-		filepath.Join(".", "assets", "forest.map"),   // Current directory
-		filepath.Join("..", "assets", "forest.map"),  // One directory up
-		filepath.Join("...", "assets", "forest.map"), // Two directories up (for tests)
-		filepath.Join("../../assets", "forest.map"),  // Two directories up (explicit)
-	}
-
-	for _, mapPath := range possiblePaths {
-		if _, err := os.Stat(mapPath); err == nil {
-			return ml.LoadMap(mapPath)
-		}
-	}
-
-	// If no path worked, return an error
-	return nil, fmt.Errorf("forest.map not found in any of the expected locations")
 }
 
 // parseTileTokens parses a line into tiles, handling both NPCs and special tiles:

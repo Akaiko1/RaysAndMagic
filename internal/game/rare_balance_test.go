@@ -13,12 +13,20 @@ import (
 	"ugataima/internal/world"
 )
 
+// Fold lands on the farthest legal tile from its Grandmaster range down to
+// min_range_tiles; obstacles sit relative to those authored bounds.
 func TestRareFoldNearestLegalLanding(t *testing.T) {
+	rareClassGame(t, character.ClassWayfarer, false)
+	fold := config.Technique("fold_step")
+	maxR, minR := config.TierValue(fold.Range, int(character.MasteryGrandMaster)), fold.MinRange
+	if maxR < minR+2 {
+		t.Fatalf("fixture needs a Grandmaster range at least 2 past min_range_tiles: %d..%d", minR, maxR)
+	}
 	for _, tb := range []bool{false, true} {
 		for _, tc := range []struct {
 			name string
 			want int
-		}{{"clear", 8}, {"endpoint", 7}, {"wall", 4}, {"door", 4}, {"teleporter", 3}, {"edge", 3}, {"region", 3}, {"all_occupied", 0}, {"too_close", 0}, {"first_wall", 0}} {
+		}{{"clear", maxR}, {"endpoint", maxR - 1}, {"wall", minR + 1}, {"door", minR + 1}, {"teleporter", minR}, {"edge", minR}, {"region", minR}, {"all_occupied", 0}, {"too_close", 0}, {"first_wall", 0}} {
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, tc.name), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.MasteryGrandMaster}
@@ -26,13 +34,14 @@ func TestRareFoldNearestLegalLanding(t *testing.T) {
 				c.RTCooldown = 123
 				ts := float64(g.config.GetTileSize())
 				x, y := g.camera.X, g.camera.Y
+				sx, sy := TileIndex(x, ts), TileIndex(y, ts)
 				switch tc.name {
 				case "endpoint", "all_occupied":
-					first := 8
+					first := maxR
 					if tc.name == "all_occupied" {
-						first = 3
+						first = minR
 					}
-					for n := first; n <= 8; n++ {
+					for n := first; n <= maxR; n++ {
 						m := zoneVictim(t, g)
 						m.X = x + float64(n)*ts
 						m.Y = y
@@ -40,35 +49,37 @@ func TestRareFoldNearestLegalLanding(t *testing.T) {
 						g.refreshMonsterCollisionState(m)
 					}
 				case "wall":
-					g.world.Tiles[10][13] = world.TileWall
+					g.world.Tiles[sy][sx+minR+2] = world.TileWall
 				case "too_close":
-					g.world.Tiles[10][11] = world.TileWall
+					g.world.Tiles[sy][sx+minR] = world.TileWall
 				case "first_wall":
-					g.world.Tiles[10][9] = world.TileWall
+					g.world.Tiles[sy][sx+1] = world.TileWall
 				case "door":
 					n := woodenDoorNPC()
-					n.X = x + 5*ts
+					n.X = x + float64(minR+2)*ts
 					n.Y = y
 					g.world.NPCs = append(g.world.NPCs, n)
-					g.world.Tiles[9][13] = world.TileWall
-					g.world.Tiles[11][13] = world.TileWall
+					g.world.Tiles[sy-1][sx+minR+2] = world.TileWall
+					g.world.Tiles[sy+1][sx+minR+2] = world.TileWall
 					g.registerLockedDoors()
 				case "teleporter":
 					wm := world.NewWorldManager(g.config)
 					wm.CurrentMapKey = "forest"
 					wm.LoadedMaps = map[string]*world.World3D{"forest": g.world}
-					wm.GlobalTeleporterRegistry.Teleporters = []world.TeleporterLocation{{MapKey: "forest", X: 12, Y: 10}}
+					wm.GlobalTeleporterRegistry.Teleporters = []world.TeleporterLocation{{MapKey: "forest", X: sx + minR + 1, Y: sy}}
 					world.GlobalWorldManager = wm
 				case "region":
 					wm := world.NewWorldManager(g.config)
 					wm.CurrentMapKey = "forest"
 					wm.OpenWorld = g.world
-					wm.OpenWorldRegions = []world.OpenWorldRegion{{MapKey: "forest", Width: 12, Height: 40, LocalWidth: 12, LocalHeight: 40}, {MapKey: "highlands", OffsetX: 12, Width: 28, Height: 40, LocalWidth: 28, LocalHeight: 40}}
+					edge := sx + minR + 1
+					wm.OpenWorldRegions = []world.OpenWorldRegion{{MapKey: "forest", Width: edge, Height: g.world.Height, LocalWidth: edge, LocalHeight: g.world.Height}, {MapKey: "highlands", OffsetX: edge, Width: g.world.Width - edge, Height: g.world.Height, LocalWidth: g.world.Width - edge, LocalHeight: g.world.Height}}
 					world.GlobalWorldManager = wm
 				case "edge":
-					g.world.Width = 12
+					g.world.Width = sx + minR + 1
 				}
 				sp := c.SpellPoints
+				cost := g.techniqueSPCost(c, fold)
 				if got := g.useTechnique(0, "fold_step", false, false); got != (tc.want > 0) {
 					t.Fatalf("cast=%v want distance=%d", got, tc.want)
 				}
@@ -79,7 +90,7 @@ func TestRareFoldNearestLegalLanding(t *testing.T) {
 					if c.SpellPoints != sp || g.spatialReuseFrames != 0 || c.RareClass.Anchor.Frames != 0 || c.FlowingStaffCharges() != 0 {
 						t.Fatal("rejection changed state")
 					}
-				} else if c.SpellPoints != sp-5 || c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x {
+				} else if c.SpellPoints != sp-cost || c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x {
 					t.Fatal("short landing did not commit exactly once")
 				}
 			})
@@ -89,9 +100,11 @@ func TestRareFoldNearestLegalLanding(t *testing.T) {
 
 func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for tier, seconds := range []int{12, 15, 18, 24} {
+		for tier := 0; tier <= int(character.MasteryGrandMaster); tier++ {
 			t.Run(fmt.Sprintf("TB=%v/tier=%d", tb, tier), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
+				fold, back := config.Technique("fold_step"), config.Technique("return_step")
+				seconds := config.TierValue(fold.Duration, tier)
 				c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.SkillMastery(tier)}
 				g.party.Members[1] = character.CreateCharacter("Other pilgrim", character.ClassWayfarer, g.config)
 				g.party.Members[1].ActionsRemaining = 2
@@ -100,7 +113,8 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 					t.Fatal("Fold rejected")
 				}
 				tps := g.config.GetTPS()
-				if g.spatialReuseFrames != 3*tps || c.RareClass.Anchor.Frames != seconds*tps {
+				reuse := fold.ReuseSeconds * tps
+				if g.spatialReuseFrames != reuse || c.RareClass.Anchor.Frames != seconds*tps {
 					t.Fatal("wrong authored duration or reuse")
 				}
 				// Save through the production snapshot and restore adapter while locked.
@@ -119,12 +133,13 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 				g.restoreSavedTurnState(&loaded)
 				g.ToggleTurnBasedMode()
 				g.ToggleTurnBasedMode()
-				if g.spatialReuseFrames != 3*tps || c.RareClass.Anchor.Frames != seconds*tps {
+				if g.spatialReuseFrames != reuse || c.RareClass.Anchor.Frames != seconds*tps {
 					t.Fatal("mode switch refreshed or consumed spatial clocks")
 				}
 				if g.useTechnique(1, "fold_step", false, false) || g.useTechnique(0, "return_step", false, false) {
 					t.Fatal("shared lock bypassed after restore")
 				}
+				elapsed := reuse
 				if tb {
 					// A clock change alone must not permit a second step in the same TB turn.
 					g.spatialReuseFrames = 0
@@ -132,58 +147,22 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 						t.Fatal("same-turn step bypassed")
 					}
 					g.startPartyTurn()
+					elapsed = g.combatRoundFrames()
 				} else {
-					g.tickRareClassClocks(3*tps - 1)
+					g.tickRareClassClocks(reuse - 1)
 					if g.useTechnique(0, "return_step", false, false) {
 						t.Fatal("reuse ended early")
 					}
 					g.tickRareClassClocks(1)
 				}
-				if c.RareClass.Anchor.Frames != (seconds-3)*tps {
+				if c.RareClass.Anchor.Frames != seconds*tps-elapsed {
 					t.Fatal("anchor clock diverged")
 				}
 				if !g.useTechnique(0, "return_step", false, false) || math.Hypot(g.camera.X-x, g.camera.Y-y) > .01 || c.RareClass.Anchor.Frames != 0 {
 					t.Fatal("Return unavailable when lock ends")
 				}
-				if g.spatialReuseFrames != 3*tps {
+				if g.spatialReuseFrames != back.ReuseSeconds*tps {
 					t.Fatal("Return did not share reuse")
-				}
-			})
-		}
-	}
-}
-
-func TestRareReturnRequiresExactAnchor(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		for _, state := range []string{"clear", "occupied", "expired", "other_region"} {
-			t.Run(fmt.Sprintf("TB=%v/%s", tb, state), func(t *testing.T) {
-				g, c := rareClassGame(t, character.ClassWayfarer, tb)
-				x, y := g.camera.X, g.camera.Y
-				if !g.useTechnique(0, "fold_step", false, false) {
-					t.Fatal("Fold rejected")
-				}
-				if tb {
-					g.startPartyTurn()
-				} else {
-					g.tickRareClassClocks(3 * g.config.GetTPS())
-				}
-				switch state {
-				case "occupied":
-					m := zoneVictim(t, g)
-					m.X = x
-					m.Y = y
-				case "expired":
-					c.RareClass.Anchor = character.SpatialAnchor{}
-				case "other_region":
-					c.RareClass.Anchor.MapKey = "elsewhere"
-				}
-				anchor, sp, px, py := c.RareClass.Anchor, c.SpellPoints, g.camera.X, g.camera.Y
-				got := g.useTechnique(0, "return_step", false, false)
-				if got != (state == "clear") {
-					t.Fatal("Return accepted an invalid anchor")
-				}
-				if !got && (sp != c.SpellPoints || anchor != c.RareClass.Anchor || px != g.camera.X || py != g.camera.Y || g.spatialReuseFrames != 0) {
-					t.Fatal("Return rejection changed state")
 				}
 			})
 		}

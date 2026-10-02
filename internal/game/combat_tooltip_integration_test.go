@@ -13,6 +13,20 @@ import (
 	"ugataima/internal/world"
 )
 
+// mustEquipSpellID teaches the spell when needed and slots it as the
+// character's equipped spell.
+func mustEquipSpellID(t *testing.T, c *character.MMCharacter, spellID spells.SpellID) {
+	t.Helper()
+	if !characterKnowsSpellByID(c, spellID) && !addSpellByID(c, spellID) {
+		t.Fatalf("%s: failed to add spell %s", c.Name, spellID)
+	}
+	sp, err := spells.CreateSpellItem(spellID)
+	if err != nil {
+		t.Fatalf("%s: create spell %s: %v", c.Name, spellID, err)
+	}
+	c.Equipment[items.SlotSpell] = sp
+}
+
 func tooltipNumber(t *testing.T, tooltip, label string) int {
 	t.Helper()
 	for _, line := range strings.Split(tooltip, "\n") {
@@ -304,17 +318,23 @@ func TestAuthoredSpellOverridesReachGameAndEditor(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		edit   func(*config.SpellDefinitionConfig)
-		want   int
+		want   func(*config.SpellDefinitionConfig, *character.MMCharacter) int
 		absent string
 	}{
 		{"ladder-overrides-cost-and-stats", func(d *config.SpellDefinitionConfig) {
 			d.DamageByMastery = []int{11, 23, 47, 95}
 			d.DamageCostMultiplier = 2
-		}, 11, "Base ("},
+		}, func(d *config.SpellDefinitionConfig, _ *character.MMCharacter) int {
+			return d.DamageByMastery[character.MasteryNovice]
+		}, "Base ("},
 		{"self-magic-counts-personality-once", func(d *config.SpellDefinitionConfig) {
 			d.School = "body"
 			d.ScalesWithPersonality = true
-		}, 19, "Intellect /"}, // Fireball's 12 base + 23 Personality / 3.
+		}, func(d *config.SpellDefinitionConfig, c *character.MMCharacter) int {
+			// Cost base plus ONE Personality term.
+			base := d.SpellPointsCost * spells.SpellDamagePerSP * max(1, d.DamageCostMultiplier)
+			return base + character.EffectiveCombatStats(c).Personality/spells.SpellIntellectDivisor
+		}, "Intellect /"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
@@ -347,11 +367,12 @@ func TestAuthoredSpellOverridesReachGameAndEditor(t *testing.T) {
 				t.Fatal("projectile not created")
 			}
 			shot := cs.game.magicProjectiles[0]
-			if actual := shot.Damage + shot.TrueDamage; actual != tc.want {
-				t.Fatalf("cast = %d, want %d", actual, tc.want)
+			want := tc.want(&def, caster)
+			if actual := shot.Damage + shot.TrueDamage; actual != want {
+				t.Fatalf("cast = %d, want %d", actual, want)
 			}
-			if shown := tooltipNumber(t, gameTip, "Total Damage: "); shown != tc.want {
-				t.Fatalf("tooltip = %d, want %d", shown, tc.want)
+			if shown := tooltipNumber(t, gameTip, "Total Damage: "); shown != want {
+				t.Fatalf("tooltip = %d, want %d", shown, want)
 			}
 		})
 	}

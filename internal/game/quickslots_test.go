@@ -14,7 +14,8 @@ import (
 func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 20, 20)
 	ch := game.party.Members[0]
-	ch.ActionsRemaining = 9 // turn-based: quick slots require an available action
+	// Drinking and equipping never spend an action, so an empty turn budget must not block them.
+	ch.ActionsRemaining = 0
 
 	// Consumable: double-click drinks one and empties the slot.
 	pot := items.CreateItemFromYAML("health_potion")
@@ -32,7 +33,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	// then re-equip it via the quick slot.
 	cur, had := ch.Equipment[items.SlotMainHand]
 	if !had {
-		t.Skip("class has no starting main-hand weapon")
+		t.Fatal("fixture: the first hero has no starting main-hand weapon")
 	}
 	w := cur
 	ch.QuickSlots[1] = &w
@@ -43,6 +44,9 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	}
 	if ch.QuickSlots[1] != nil {
 		t.Fatalf("equipping into an empty hand should empty the slot")
+	}
+	if ch.ActionsRemaining != 0 {
+		t.Fatalf("drinking or equipping spent the turn budget: %d", ch.ActionsRemaining)
 	}
 
 	// Drag an inventory item into a slot: it leaves the shared bag.
@@ -203,7 +207,7 @@ func TestQuickSlot_EquipIsFree(t *testing.T) {
 	ch := game.party.Members[0]
 	cur, had := ch.Equipment[items.SlotMainHand]
 	if !had {
-		t.Skip("class has no starting main-hand weapon")
+		t.Fatal("fixture: the first hero has no starting main-hand weapon")
 	}
 
 	// Turn-based: equipping from a slot must NOT consume an action.

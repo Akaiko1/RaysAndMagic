@@ -258,10 +258,6 @@ type MMGame struct {
 	// with a press observed by this app, without trusting its potentially stale
 	// cursor coordinates during a macOS focus transition.
 	entryMenuRootPressArmed bool
-	// prevWorldClickAllowed tracks worldClickAllowed() across frames: the click
-	// queues flush on every modal<->world flip so a buffered click never
-	// outlives the UI layer it was aimed at.
-	prevWorldClickAllowed bool
 
 	// Double-click support for spellbook
 	lastBookClickTime    int64 // Time of last book entry click in milliseconds

@@ -21,13 +21,14 @@ func TestBoxHalve(t *testing.T) {
 		t.Errorf("checker block averaged to %v, want all 50", out[4:8])
 	}
 
-	// Rounding: (100+100+100+0+2)/4 = 75 (round-to-nearest, not truncation).
+	// Rounding to nearest: 302/4 = 75.5 rounds up (truncation gives 75),
+	// 301/4 = 75.25 rounds down (ceiling gives 76).
 	px2 := []byte{
-		100, 0, 0, 0, 100, 0, 0, 0,
-		100, 0, 0, 0, 0, 0, 0, 0,
+		100, 100, 0, 0, 100, 100, 0, 0,
+		100, 100, 0, 0, 2, 1, 0, 0,
 	}
 	out2, _, _ := boxHalve(px2, 2, 2)
-	if out2[0] != 75 {
-		t.Errorf("rounded average = %d, want 75", out2[0])
+	if out2[0] != 76 || out2[1] != 75 {
+		t.Errorf("rounded averages = %d/%d, want 76/75", out2[0], out2[1])
 	}
 }

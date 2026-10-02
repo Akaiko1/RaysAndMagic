@@ -1,6 +1,7 @@
 package game
 
 import (
+	"sort"
 	"testing"
 
 	"ugataima/internal/character"
@@ -45,8 +46,8 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 			t.Errorf("%s lost its signature rider", c.key)
 		}
 		// The shortbow's whole identity is its cadence, which renders via
-		// the structured attack cooldown rather than EffectLines.
-		if c.key != "arena_shortbow" && len(def.EffectLines()) == 0 {
+		// the structured attack cooldown rather than the EFFECTS rows.
+		if c.key != "arena_shortbow" && len(def.CoreEffectLines()) == 0 {
 			t.Errorf("%s has no tooltip effect lines", c.key)
 		}
 	}
@@ -133,8 +134,9 @@ func TestScepterPersonalityGate(t *testing.T) {
 	}
 }
 
-// TestArmorSetBonuses: 4 equipped pieces complete a set - padded halves stun
-// durations on the wearer, ringmail feeds +10 Endurance into effective stats.
+// TestArmorSetBonuses: pieces_required equipped pieces complete a set, one
+// fewer grants nothing - padded's stun_duration_pct reaches the wearer, and
+// ringmail's bonus_endurance feeds effective stats.
 func TestArmorSetBonuses(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	fillTestParty(t, cs.game)
@@ -142,7 +144,7 @@ func TestArmorSetBonuses(t *testing.T) {
 	ch.Skills[character.SkillLeather] = &character.Skill{}
 	ch.Skills[character.SkillChain] = &character.Skill{}
 
-	equip := func(keys ...string) {
+	equip := func(keys []string) {
 		ch.Equipment = map[items.EquipSlot]items.Item{}
 		for _, k := range keys {
 			it, err := items.TryCreateItemFromYAML(k)
@@ -152,20 +154,52 @@ func TestArmorSetBonuses(t *testing.T) {
 			ch.Equipment[it.PreferredSlot(items.SlotArmor)] = it
 		}
 	}
+	// One piece per slot, so a full kit occupies pieces_required slots.
+	kit := func(setKey string) (*config.ItemSetConfig, []string) {
+		set := config.GetItemSet(setKey)
+		if set == nil {
+			t.Fatalf("set %q missing", setKey)
+		}
+		bySlot := map[string]string{}
+		for key, def := range config.GlobalItems.Items {
+			if def.Set == setKey && (bySlot[def.EquipSlot] == "" || key < bySlot[def.EquipSlot]) {
+				bySlot[def.EquipSlot] = key
+			}
+		}
+		pieces := make([]string, 0, len(bySlot))
+		for _, key := range bySlot {
+			pieces = append(pieces, key)
+		}
+		sort.Strings(pieces)
+		if len(pieces) < set.RequiredPieceCount() {
+			t.Fatalf("set %q has %d slotted pieces, needs %d", setKey, len(pieces), set.RequiredPieceCount())
+		}
+		return set, pieces[:set.RequiredPieceCount()]
+	}
 
-	equip("padded_cap", "padded_vest", "padded_gloves")
+	padded, pieces := kit("padded")
+	if padded.StunDurationPct == 0 {
+		t.Fatal("padded set no longer authors stun_duration_pct")
+	}
+	equip(pieces[:len(pieces)-1])
 	if got := ch.SetStunDurationPct(); got != 0 {
-		t.Fatalf("3 pieces should grant no set bonus, got %d", got)
+		t.Fatalf("%d of %d pieces should grant no set bonus, got %d", len(pieces)-1, len(pieces), got)
 	}
-	equip("padded_cap", "padded_vest", "padded_gloves", "padded_boots")
-	if got := ch.SetStunDurationPct(); got != -50 {
-		t.Fatalf("padded set bonus = %d, want -50", got)
+	equip(pieces)
+	if got := ch.SetStunDurationPct(); got != padded.StunDurationPct {
+		t.Fatalf("padded set bonus = %d, want %d", got, padded.StunDurationPct)
 	}
 
+	ringmail, pieces := kit("ringmail")
+	if ringmail.BonusEndurance == 0 {
+		t.Fatal("ringmail set no longer authors bonus_endurance")
+	}
+	equip(pieces[:len(pieces)-1])
 	base := ch.GetEffectiveEndurance()
-	equip("ringmail_coif", "ringmail_hauberk", "ringmail_gloves", "ringmail_boots")
-	if got := ch.GetEffectiveEndurance(); got != base+10 {
-		t.Fatalf("ringmail set endurance = %d, want %d", got, base+10)
+	completing, _ := config.GetItemDefinition(pieces[len(pieces)-1])
+	equip(pieces)
+	if got, want := ch.GetEffectiveEndurance(), base+completing.BonusEndurance+ringmail.BonusEndurance; got != want {
+		t.Fatalf("ringmail set endurance = %d, want %d", got, want)
 	}
 }
 
@@ -237,10 +271,11 @@ func TestManaPotion(t *testing.T) {
 	if !g.UseConsumableFromInventory(0, 0) {
 		t.Fatal("mana potion not consumed")
 	}
-	want := 10 + 25 + ch.GetEffectivePersonality()/4
-	if want > 100 {
-		want = 100
+	def, _ := config.GetItemDefinition("mana_potion")
+	if def == nil || def.ManaBase <= 0 || def.ManaPersonalityDivisor <= 0 {
+		t.Fatalf("mana_potion lost its mana_base/mana_personality_divisor pair: %+v", def)
 	}
+	want := min(ch.MaxSpellPoints, 10+def.ManaBase+ch.GetEffectivePersonality()/def.ManaPersonalityDivisor)
 	if ch.SpellPoints != want {
 		t.Fatalf("SP after potion = %d, want %d", ch.SpellPoints, want)
 	}
@@ -368,15 +403,19 @@ func TestStoneBlossomMortar(t *testing.T) {
 	}
 }
 
-// TestFireShieldBuff: +50 fire resist for the party, fire only.
+// TestFireShieldBuff: the authored school resist for the party, that school only.
 func TestFireShieldBuff(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
+	def, ok := config.GetSpellDefinition("fire_shield")
+	if !ok || def.ResistBuffSchoolPct <= 0 || def.ResistBuffSchool != "fire" {
+		t.Fatalf("fire_shield lost its fire resist_buff_school_pct: %+v", def)
+	}
 	equipSpellAndPrepareCaster(t, game.combat, "fire_shield", 200, 30)
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("fire shield cast failed")
 	}
-	if got := game.combatBuffSchoolResistPct("fire"); got != 50 {
-		t.Fatalf("fire resist buff = %d, want 50", got)
+	if got := game.combatBuffSchoolResistPct("fire"); got != def.ResistBuffSchoolPct {
+		t.Fatalf("fire resist buff = %d, want %d", got, def.ResistBuffSchoolPct)
 	}
 	if got := game.combatBuffSchoolResistPct("water"); got != 0 {
 		t.Fatalf("water resist buff = %d, want 0 (fire only)", got)

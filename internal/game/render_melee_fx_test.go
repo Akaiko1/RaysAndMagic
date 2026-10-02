@@ -7,32 +7,70 @@ import (
 	"ugataima/internal/config"
 )
 
-// Bespoke weapon effects are wired YAML->renderer by name; these tests pin the
-// contract so a typo cannot silently fall back to a stock effect.
-func TestSlashFxStylesResolve(t *testing.T) {
+// Bespoke FX are wired YAML->renderer by name. Shipped content must pass the
+// boot validators (a typo panics there), and only an entry that can show the
+// effect may author it.
+func TestShippedFxStylesResolve(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
-
-	validateWeaponFxStyles() // must not panic on shipped content
-
-	styled := map[string]string{}
-	for key, def := range config.GlobalWeapons.Weapons {
-		if def.Graphics != nil && def.Graphics.SlashFx != "" {
-			styled[key] = def.Graphics.SlashFx
-			if def.Melee == nil {
-				t.Errorf("weapon %q has slash_fx but no melee config", key)
-			}
-		}
+	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
+		t.Fatalf("load spells: %v", err)
 	}
-	for _, key := range []string{
-		"muramasa", "tonbogiri", "kage_kunai", "idol_breakers_maul",
-		"silver_sword", "gold_sword", "agility_katar", "gorehorn_greataxe", "serpent_fang", "naginata",
-		"gladius", "arena_labrys", "morningstar", "hasta", "trident", "parry_dagger", "lion_warhammer", "bronze_cesti",
-	} {
-		if styled[key] == "" {
-			t.Errorf("weapon %q lost its slash_fx style", key)
-		}
+	validateWeaponFxStyles()     // must not panic on shipped content
+	validateProjectileFxStyles() // must not panic on shipped content
+
+	// misfit names why the entry cannot show its style; empty = fine.
+	type styled struct{ key, style, misfit string }
+	cases := []struct {
+		name    string
+		entries func() []styled
+	}{
+		{name: "weapon slash_fx", entries: func() (out []styled) {
+			for key, def := range config.GlobalWeapons.Weapons {
+				if def.Graphics != nil && def.Graphics.SlashFx != "" {
+					misfit := ""
+					if def.Melee == nil {
+						misfit = "no melee config"
+					}
+					out = append(out, styled{key, def.Graphics.SlashFx, misfit})
+				}
+			}
+			return out
+		}},
+		{name: "weapon projectile_fx", entries: func() (out []styled) {
+			for key, def := range config.GlobalWeapons.Weapons {
+				if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+					out = append(out, styled{key, def.Graphics.ProjectileFx, ""})
+				}
+			}
+			return out
+		}},
+		{name: "spell projectile_fx", entries: func() (out []styled) {
+			for key, def := range config.GlobalSpells.Spells {
+				if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+					misfit := ""
+					if !def.IsProjectile {
+						misfit = "no projectile"
+					}
+					out = append(out, styled{key, def.Graphics.ProjectileFx, misfit})
+				}
+			}
+			return out
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := tc.entries()
+			if len(entries) == 0 {
+				t.Fatal("no shipped entry authors this field: the validator ran on nothing")
+			}
+			for _, e := range entries {
+				if e.misfit != "" {
+					t.Errorf("%q authors style %q but has %s", e.key, e.style, e.misfit)
+				}
+			}
+		})
 	}
 }
 
@@ -226,44 +264,6 @@ func TestArrowFallbackAngleMirrorsLateralDirection(t *testing.T) {
 	}
 	if math.Abs(math.Sin(right)-math.Sin(left)) > 0.0001 {
 		t.Fatalf("fallback pitches differ: right=%v left=%v", right, left)
-	}
-}
-
-func TestArenaWeaponProjectileFxStylesResolve(t *testing.T) {
-	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
-		t.Fatalf("load weapons: %v", err)
-	}
-
-	validateWeaponFxStyles() // validates both weapon FX fields
-
-	for _, key := range []string{"arena_shortbow", "arbalest", "lanista_scepter"} {
-		def := config.GlobalWeapons.Weapons[key]
-		if def.Graphics == nil || def.Graphics.ProjectileFx == "" {
-			t.Errorf("weapon %q lost its projectile_fx style", key)
-		}
-	}
-}
-
-func TestProjectileFxStylesResolve(t *testing.T) {
-	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-
-	validateProjectileFxStyles() // must not panic on shipped content
-
-	styled := map[string]string{}
-	for key, def := range config.GlobalSpells.Spells {
-		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
-			styled[key] = def.Graphics.ProjectileFx
-			if !def.IsProjectile {
-				t.Errorf("spell %q has projectile_fx but is not a projectile", key)
-			}
-		}
-	}
-	for _, key := range []string{"fireball", "lightning", "harm", "psychic_shock", "starburst", "disintegrate"} {
-		if styled[key] == "" {
-			t.Errorf("spell %q lost its projectile_fx style", key)
-		}
 	}
 }
 

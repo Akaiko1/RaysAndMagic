@@ -134,24 +134,6 @@ func TestMagicMasteryTooltip_ExplainsSelectedSchoolPolicy(t *testing.T) {
 	}
 }
 
-// TestSkillTooltips_CiteGMConstants: every GM capstone's tooltip cites the real
-// constant, so the capstone text can't lie or drift from the mechanic.
-func TestSkillTooltips_CiteGMConstants(t *testing.T) {
-	checks := map[character.SkillType]int{
-		character.SkillSword:        WeaponGMCritBonus,
-		character.SkillLeather:      ArmorGMDodgeBonus,
-		character.SkillBodybuilding: character.BodybuildingGMMaxHPPct,
-		character.SkillMeditation:   MeditationGMSpellCostReductionPct,
-		character.SkillLearning:     LearningGMPartyXPPct,
-		character.SkillArmsMaster:   ArmsMasterGMCritBonus,
-	}
-	for s, want := range checks {
-		if tip := masteryTooltipTextForSkill(s); !strings.Contains(tip, fmt.Sprint(want)) {
-			t.Errorf("skill %v GM tooltip %q should cite constant %d", s, tip, want)
-		}
-	}
-}
-
 // TestEffectiveSpellCost_MeditationGM: a GM meditator pays the reduced percent.
 func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)

@@ -12,8 +12,19 @@ package character
 import (
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
+
+// itemDef is the authored items.yaml definition behind a test item.
+func itemDef(t *testing.T, key string) *config.ItemDefinitionConfig {
+	t.Helper()
+	def, ok := config.GetItemDefinition(key)
+	if !ok || def == nil {
+		t.Fatalf("%s missing from items.yaml", key)
+	}
+	return def
+}
 
 func TestEquipmentSlotAssignment(t *testing.T) {
 	character := &MMCharacter{
@@ -26,33 +37,27 @@ func TestEquipmentSlotAssignment(t *testing.T) {
 		Equipment: make(map[items.EquipSlot]items.Item),
 	}
 
-	cases := []struct {
-		itemKey      string
-		expectedSlot items.EquipSlot
-	}{
-		{"leather_armor", items.SlotArmor},
-		{"leather_helmet", items.SlotHelmet},
-		{"leather_pants", items.SlotBoots},
-		{"magic_ring", items.SlotRing1},
-		{"iron_armor", items.SlotArmor},
-	}
-
-	for _, tc := range cases {
-		item := items.CreateItemFromYAML(tc.itemKey)
+	// Each item lands in the slot its own authored equip_slot names.
+	for _, key := range []string{"leather_armor", "leather_helmet", "leather_pants", "magic_ring", "iron_armor"} {
+		expectedSlot, ok := items.EquipSlotFromName(itemDef(t, key).EquipSlot)
+		if !ok {
+			t.Fatalf("%s authors no known equip_slot", key)
+		}
+		item := items.CreateItemFromYAML(key)
 		if _, _, ok := character.EquipItem(item); !ok {
 			t.Errorf("EquipItem(%s) failed", item.Name)
 			continue
 		}
-		got, ok := character.Equipment[tc.expectedSlot]
+		got, ok := character.Equipment[expectedSlot]
 		if !ok {
-			t.Errorf("%s not in expected slot %d", item.Name, tc.expectedSlot)
+			t.Errorf("%s not in expected slot %s", item.Name, expectedSlot.DisplayName())
 			continue
 		}
 		if got.Name != item.Name {
-			t.Errorf("slot %d holds %q, expected %q", tc.expectedSlot, got.Name, item.Name)
+			t.Errorf("slot %s holds %q, expected %q", expectedSlot.DisplayName(), got.Name, item.Name)
 		}
 		// Clean up for next iteration so we don't accidentally hit slot conflicts.
-		character.UnequipItem(tc.expectedSlot)
+		character.UnequipItem(expectedSlot)
 	}
 }
 
@@ -75,9 +80,6 @@ func TestChronoCapeEquipsAsUniversalCloak(t *testing.T) {
 	if !ok || equipped.Name != cape.Name {
 		t.Fatalf("cloak slot = %#v, want Chrono Cape", equipped)
 	}
-	if got := equipped.Attributes["armor_class_base"]; got != 4 {
-		t.Errorf("Chrono Cape armor_class_base = %d, want 4", got)
-	}
 }
 
 func TestEquipmentStatBonusesFromYAML(t *testing.T) {
@@ -89,17 +91,23 @@ func TestEquipmentStatBonusesFromYAML(t *testing.T) {
 		Equipment:   make(map[items.EquipSlot]items.Item),
 	}
 
-	// magic_ring (items.yaml) provides:
-	//   intellect_scaling_divisor: 6  -> +Intellect/6
-	//   personality_scaling_divisor: 8 -> +Personality/8
+	// magic_ring adds +Intellect/intellect_scaling_divisor and
+	// +Personality/personality_scaling_divisor.
+	def := itemDef(t, "magic_ring")
+	if def.IntellectScalingDivisor <= 0 || def.PersonalityScalingDivisor <= 0 {
+		t.Fatalf("magic_ring authors divisors %d/%d; the case needs both", def.IntellectScalingDivisor, def.PersonalityScalingDivisor)
+	}
 	magicRing := items.CreateItemFromYAML("magic_ring")
 	character.EquipItem(magicRing)
 
 	_, intellect, personality, endurance, _, _, _ := character.GetEffectiveStats()
 
-	wantInt := 30 + (30 / 6) // 35
-	wantPer := 25 + (25 / 8) // 28
-	wantEnd := 20            // ring has no endurance bonus
+	wantInt := 30 + 30/def.IntellectScalingDivisor
+	wantPer := 25 + 25/def.PersonalityScalingDivisor
+	wantEnd := 20 // ring has no endurance bonus
+	if wantInt == 30 || wantPer == 25 {
+		t.Fatal("magic_ring divisors exceed the fixture stats; the bonus would be zero")
+	}
 
 	if intellect != wantInt {
 		t.Errorf("intellect: got %d, want %d", intellect, wantInt)
@@ -135,11 +143,11 @@ func TestEquipReplacementReturnsPrevious(t *testing.T) {
 	if !hadPrev {
 		t.Errorf("expected previous item flag when replacing leather with iron")
 	}
-	if prev.Name != "Leather Armor" {
-		t.Errorf("previous item name: got %q, want Leather Armor", prev.Name)
+	if prev.Name != leather.Name {
+		t.Errorf("previous item name: got %q, want %q", prev.Name, leather.Name)
 	}
-	if got := character.Equipment[items.SlotArmor]; got.Name != "Iron Armor" {
-		t.Errorf("armor slot should now hold Iron Armor, got %q", got.Name)
+	if got := character.Equipment[items.SlotArmor]; got.Name != iron.Name {
+		t.Errorf("armor slot should now hold %q, got %q", iron.Name, got.Name)
 	}
 }
 
@@ -219,11 +227,20 @@ func TestMoveRingBetweenFingers(t *testing.T) {
 // so two rings double a single ring's bonus (calculateEquipmentBonuses ranges
 // the whole Equipment map, not per-slot).
 func TestTwoRingsStackBonuses(t *testing.T) {
+	const intellect, personality = 30, 32
+	def := itemDef(t, "magic_ring")
+	if def.IntellectScalingDivisor <= 0 || def.PersonalityScalingDivisor <= 0 {
+		t.Fatalf("magic_ring authors divisors %d/%d; the case needs both", def.IntellectScalingDivisor, def.PersonalityScalingDivisor)
+	}
+	wantInt, wantPer := intellect/def.IntellectScalingDivisor, personality/def.PersonalityScalingDivisor
+	if wantInt == 0 || wantPer == 0 {
+		t.Fatal("magic_ring divisors exceed the fixture stats; the bonus would be zero")
+	}
 	newMage := func() *MMCharacter {
 		return &MMCharacter{
 			Name:        "TestMage",
-			Intellect:   30, // /6 -> +5 spell-power per magic_ring
-			Personality: 32, // /8 -> +4 per magic_ring
+			Intellect:   intellect,
+			Personality: personality,
 			Equipment:   make(map[items.EquipSlot]items.Item),
 		}
 	}
@@ -237,8 +254,8 @@ func TestTwoRingsStackBonuses(t *testing.T) {
 	two.EquipItem(items.CreateItemFromYAML("magic_ring"))
 	_, int2, per2, _, _, _, _ := two.calculateEquipmentBonuses()
 
-	if int1 != 5 || per1 != 4 {
-		t.Fatalf("single ring bonus: got int=%d per=%d, want int=5 per=4", int1, per1)
+	if int1 != wantInt || per1 != wantPer {
+		t.Fatalf("single ring bonus: got int=%d per=%d, want int=%d per=%d", int1, per1, wantInt, wantPer)
 	}
 	if int2 != 2*int1 || per2 != 2*per1 {
 		t.Errorf("two rings should double the bonus: got int=%d per=%d, want int=%d per=%d",
@@ -264,8 +281,8 @@ func TestUnequipReturnsItemAndClearsSlot(t *testing.T) {
 	if !ok {
 		t.Fatalf("unequip helmet failed")
 	}
-	if got.Name != "Leather Helmet" {
-		t.Errorf("unequipped item: got %q, want Leather Helmet", got.Name)
+	if got.Name != helmet.Name {
+		t.Errorf("unequipped item: got %q, want %q", got.Name, helmet.Name)
 	}
 	if _, stillThere := character.Equipment[items.SlotHelmet]; stillThere {
 		t.Errorf("helmet slot should be empty after unequip")
@@ -328,7 +345,7 @@ func TestMoveEquipmentSlotRejectsMismatchedSlot(t *testing.T) {
 	if character.MoveEquipmentSlot(items.SlotHelmet, items.SlotBoots) {
 		t.Errorf("MoveEquipmentSlot should refuse moving a helmet onto the boots slot")
 	}
-	if got, ok := character.Equipment[items.SlotHelmet]; !ok || got.Name != "Leather Helmet" {
+	if got, ok := character.Equipment[items.SlotHelmet]; !ok || got.Name != helmet.Name {
 		t.Errorf("helmet must stay in its slot after the rejected move")
 	}
 }

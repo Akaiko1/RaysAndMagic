@@ -87,46 +87,87 @@ func TestHeroPitchMatchesTheKit(t *testing.T) {
 	}
 }
 
+// raceStatShifts lists gains before losses, each group in sheet order.
+func TestRaceStatShiftsOrder(t *testing.T) {
+	got := raceStatShifts(config.RaceStats{Might: 3, Intellect: -2, Personality: -2, Endurance: 2, Speed: -1, Luck: 1})
+	if want := "+3 Might, +2 Endurance, +1 Luck, -2 Intellect, -2 Personality, -1 Speed"; got != want {
+		t.Errorf("raceStatShifts = %q, want %q", got, want)
+	}
+	if got := raceStatShifts(config.RaceStats{Name: "Human"}); got != "" {
+		t.Errorf("a race without modifiers lists %q, want nothing", got)
+	}
+}
+
 // The reported heroes: the half-orc knight gets Orcish Fury instead of the
-// Impenetrable Defense sentence, the celestial cleric her dawn/dusk buff, and
-// a human knight keeps Impenetrable Defense.
+// Impenetrable Defense point, the celestial cleric her dawn/dusk buff, and a
+// human knight keeps Impenetrable Defense. Every authored point tied to a
+// skill the hero has is in the pitch, every point tied to a skill it lacks is
+// not, and a race with stat shifts opens its paragraph with them.
 func TestHeroPitchRacialCases(t *testing.T) {
 	cfg := pitchTestConfig(t)
-	find := func(name string) *MMCharacter {
-		for _, e := range cfg.Characters.TavernRecruits {
-			if e.Name == name {
-				return CreateRosterCharacter(e, cfg)
-			}
-		}
-		for _, e := range cfg.Characters.StartingParty {
-			if e.Name == name {
-				return CreateRosterCharacter(e, cfg)
-			}
-		}
-		t.Fatalf("no roster hero %s", name)
-		return nil
-	}
 	for _, tc := range []struct {
-		hero      string
-		want, not []string
+		race, class string
+		has, lacks  []SkillType
 	}{
-		{"Grikka", []string{"Orcish Fury", "Half-Orc: +3 Might, +2 Endurance, -2 Intellect"}, []string{"{defense:Impenetrable Defense}"}},
-		{"Gareth", []string{"{defense:Impenetrable Defense}"}, []string{"Orcish Fury", "Human:"}},
-		{"Auralis", []string{"Celestial Providence", "random Master-tier buff", "Celestial: +1 Intellect, +3 Personality, +1 Luck, -2 Might"}, nil},
-		{"Nyra", []string{"Dark Elf Binding", "{control:Trapper}"}, nil},
-		{"Brinna", []string{"Halfling Guile", "Halfling: "}, nil},
+		{"half_orc", "knight", []SkillType{SkillOrcishFury}, []SkillType{SkillImpenetrableDefense}},
+		{"human", "knight", []SkillType{SkillImpenetrableDefense}, []SkillType{SkillOrcishFury}},
+		{"celestial", "cleric", []SkillType{SkillCelestialProvidence}, nil},
+		{"dark_elf", "thief", []SkillType{SkillDarkElfBinding, SkillTrapper}, nil},
+		{"halfling", "archer", []SkillType{SkillHalflingGuile}, nil},
 	} {
-		text := strings.Join(HeroPitch(find(tc.hero), cfg), "\n")
-		for _, w := range tc.want {
-			if !strings.Contains(text, w) {
-				t.Errorf("%s: pitch lacks %q:\n%s", tc.hero, w, text)
+		t.Run(tc.race+"/"+tc.class, func(t *testing.T) {
+			hero := CreateRosterCharacter(config.RosterEntry{Name: "Pitch", Class: tc.class, Race: tc.race}, cfg)
+			if hero == nil {
+				t.Fatalf("no hero for class %q", tc.class)
 			}
-		}
-		for _, w := range tc.not {
-			if strings.Contains(text, w) {
-				t.Errorf("%s: pitch still has %q:\n%s", tc.hero, w, text)
+			race, ok := cfg.Characters.Races[tc.race]
+			if !ok {
+				t.Fatalf("race %q is not authored", tc.race)
 			}
-		}
+			text := strings.Join(HeroPitch(hero, cfg), "\n")
+			points := append(append([]config.DescriptionPoint{}, cfg.Characters.Classes[tc.class].Description...), race.Description...)
+			pointsFor := func(st SkillType) []string {
+				var out []string
+				for _, p := range points {
+					if p.Skill == skillKey(st) {
+						out = append(out, p.Text)
+					}
+				}
+				return out
+			}
+			for _, st := range tc.has {
+				if !hero.HasSkill(st) {
+					t.Fatalf("hero lacks %s", st)
+				}
+				texts := pointsFor(st)
+				if len(texts) == 0 {
+					t.Fatalf("no pitch point is tied to %s", st)
+				}
+				for _, w := range texts {
+					if !strings.Contains(text, w) {
+						t.Errorf("pitch lacks %q:\n%s", w, text)
+					}
+				}
+			}
+			for _, st := range tc.lacks {
+				if hero.HasSkill(st) {
+					t.Fatalf("hero has %s", st)
+				}
+				for _, w := range pointsFor(st) {
+					if strings.Contains(text, w) {
+						t.Errorf("pitch still has %q:\n%s", w, text)
+					}
+				}
+			}
+			header := race.Name + ": "
+			if shifts := raceStatShifts(race); shifts != "" {
+				if !strings.Contains(text, header+shifts+".") {
+					t.Errorf("pitch lacks %q:\n%s", header+shifts+".", text)
+				}
+			} else if strings.Contains(text, header) {
+				t.Errorf("race without shifts still opens a %q paragraph:\n%s", header, text)
+			}
+		})
 	}
 }
 

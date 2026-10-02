@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -279,15 +280,22 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 	}
 }
 
+// The bow's AUTHORED bonus_vs reaches every authored dragon-family monster
+// through the real projectile path (the contract test above uses a synthetic
+// bonus map).
 func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	for _, key := range []string{"dragon", "dragon_red", "dragon_green", "dragon_gold", "elder_dragon", "elder_dragon_red", "elder_dragon_green", "elder_dragon_gold"} {
+	keys := monsterPkg.MonsterConfig.GetAllMonsterKeys()
+	sort.Strings(keys)
+	dragons := 0
+	for _, key := range keys {
+		if monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config).MonsterType != monsterPkg.TypeDragon {
+			continue
+		}
+		dragons++
 		t.Run(key, func(t *testing.T) {
 			m := monsterPkg.NewMonster3DFromConfig(128, 0, key, cs.game.config)
-			if m.MonsterType != "dragon" {
-				t.Fatalf("authored type=%q, want dragon", m.MonsterType)
-			}
 			m.MaxHitPoints, m.HitPoints = 100000, 100000
 			m.PerfectDodge = 0
 			m.ArmorClass = 0 // Isolate family matching from randomized ranged armor bypass.
@@ -308,6 +316,9 @@ func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 				t.Fatalf("bonus damage=%d baseline=%d", withBonus, withoutBonus)
 			}
 		})
+	}
+	if dragons == 0 {
+		t.Fatal("no dragon-family monsters authored")
 	}
 }
 

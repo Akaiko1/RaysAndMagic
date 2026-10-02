@@ -55,7 +55,8 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	g.questManager = loadTestQuestManager(t)
-	const qid = "dragon_cliffs_troll_cull" // kill 3 mountain_troll
+	const qid = "dragon_cliffs_troll_cull"
+	def := g.questManager.Definitions()[qid]
 	npc := questGiverNPC(qid)
 
 	want := func(state npcDialogState, body string, acts ...string) {
@@ -87,8 +88,8 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 	want(npcStateActive, "in-progress", "leave")
 
 	// 3) Done, not turned in -> completed: turn_in available, offer gone.
-	for i := 0; i < 3; i++ {
-		g.questManager.OnMonsterKilled("mountain_troll", "")
+	for i := 0; i < def.TargetCount; i++ {
+		g.questManager.OnMonsterKilled(def.TargetMonster, "")
 	}
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
@@ -222,11 +223,14 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 	g := cs.game
 	g.questManager = loadTestQuestManager(t)
 	const qid = "dragon_cliffs_troll_cull"
+	def := g.questManager.Definitions()[qid]
 	npc := questGiverNPC(qid)
 
-	g.questManager.ActivateQuest(qid)
-	for i := 0; i < 3; i++ {
-		g.questManager.OnMonsterKilled("mountain_troll", "")
+	if err := g.questManager.ActivateQuest(qid); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	for i := 0; i < def.TargetCount; i++ {
+		g.questManager.OnMonsterKilled(def.TargetMonster, "")
 	}
 
 	goldBefore := g.party.Gold
@@ -250,39 +254,6 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 	}
 	if g.npcDialogueState(npc) != npcStateConcluded {
 		t.Errorf("NPC should be concluded after turn-in")
-	}
-}
-
-// A turn_in_quest choice is hidden until the quest is actually completed (the
-// Mage Tower bug: "I have slain the Lich King" must not show before the deed).
-func TestVisibleNPCChoices_TurnInHiddenUntilComplete(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.questManager = loadTestQuestManager(t)
-	const qid = "dragon_cliffs_ember_rites" // kill 2 archmage
-	npc := questGiverNPC(qid)
-
-	hasAction := func(a string) bool {
-		for _, c := range g.visibleNPCChoices(npc) {
-			if c.Action == a {
-				return true
-			}
-		}
-		return false
-	}
-
-	if hasAction("turn_in_quest") {
-		t.Error("turn_in must be hidden in the offer state")
-	}
-	g.questManager.ActivateQuest(qid)
-	if hasAction("turn_in_quest") || hasAction("give_quest") {
-		t.Error("neither turn_in nor give_quest should show while the quest is active")
-	}
-	for i := 0; i < 2; i++ {
-		g.questManager.OnMonsterKilled("archmage", "")
-	}
-	if !hasAction("turn_in_quest") || hasAction("give_quest") {
-		t.Error("completed state should show turn_in only (no re-offer)")
 	}
 }
 

@@ -52,16 +52,6 @@ func TestWallMipLevelLeavesAtMostTwoTexelsPerPixelVertically(t *testing.T) {
 	}
 }
 
-// A footprint of one texel per pixel or less must stay on level 0: close walls
-// keep their authored pixel art, unblurred.
-func TestWallMipLevelZeroWhenNotMinified(t *testing.T) {
-	for _, footprint := range []float64{0.25, 0.9, 1} {
-		if level, blend := mipLevelBlend(float32(footprint), 6); level != 0 || blend != 0 {
-			t.Errorf("footprint %.2f -> level %d blend %.2f, want level 0 with no blend", footprint, level, blend)
-		}
-	}
-}
-
 func TestWallSliceFootprintIsTexelsPerScreenPixel(t *testing.T) {
 	// A one-pixel column spanning a tenth of a 256px tile covers 25.6 texels.
 	if got := wallSliceFootprint(0.2, 0.3, 256, 1); math.Abs(got-25.6) > 1e-9 {

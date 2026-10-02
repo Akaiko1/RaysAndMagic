@@ -227,8 +227,16 @@ func TestMonsterRangedAttack_PointBlankUsesMeleeAndKeepsSeparateSchools(t *testi
 	if len(game.arrows) != 1 {
 		t.Fatalf("ranged boss outside melee spawned %d projectiles, want 1", len(game.arrows))
 	}
-	if got := game.arrows[0].DamageType; got != monsterPkg.DamageSpirit.String() {
-		t.Fatalf("alien blaster projectile school = %q, want spirit; melee school must not leak into ranged delivery", got)
+	weapon, ok := config.GetWeaponDefinition(attacker.ProjectileWeapon)
+	if !ok {
+		t.Fatalf("weapon %s missing", attacker.ProjectileWeapon)
+	}
+	school, err := monsterPkg.ParseDamageType(weapon.DamageType)
+	if err != nil || school == monsterPkg.DamagePhysical {
+		t.Fatalf("fixture needs a non-physical ranged weapon, got %q (%v)", weapon.DamageType, err)
+	}
+	if got := game.arrows[0].DamageType; got != school.String() {
+		t.Fatalf("%s projectile school = %q, want %s; melee school must not leak into ranged delivery", attacker.ProjectileWeapon, got, school)
 	}
 }
 

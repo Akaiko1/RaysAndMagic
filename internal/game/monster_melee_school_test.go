@@ -124,30 +124,35 @@ func TestElementalMeleeResistanceAndRangedExclusion(t *testing.T) {
 	}
 }
 
+// Every authored monster gets the shared melee profile except champions and
+// warlord idols, which get none.
 func TestMonstersYAML_MeleeProfilesLoad(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	excluded := map[string]bool{"jungle_idol": true, "hobbit_archer": true, "weapon_master": true, "dark_elf_sorceress": true, "wild_druid": true}
-	seen := map[string]bool{}
+	rules := cs.game.config.MonsterCombat.ElementalAttack
+	if rules.Chance <= 0 {
+		t.Fatal("fixture needs a configured elemental attack chance")
+	}
+	excludedSeen, ordinarySeen := 0, 0
 	for key, def := range monsterPkg.MonsterConfig.Monsters {
-		profile := def.MeleeProfile(cs.game.config.MonsterCombat.ElementalAttack, "earth")
-		seen[key] = true
-		if excluded[key] {
-			if profile.School != "" || profile.ElementalAttack.Chance != 0 {
-				t.Fatalf("%s must be excluded", key)
+		profile := def.MeleeProfile(rules, "earth")
+		if def.Champion != "" || def.WarlordIdol {
+			excludedSeen++
+			if profile != (monsterPkg.MeleeProfile{}) {
+				t.Fatalf("%s must be excluded, got %+v", key, profile)
 			}
-		} else {
-			if profile.School != "physical" || profile.ElementalAttack.Chance != .2 {
-				t.Fatalf("%s profile=%+v", key, profile)
-			}
+			continue
+		}
+		ordinarySeen++
+		wantSchool := "earth"
+		if def.Disposition != "" {
+			wantSchool = ""
+		}
+		if profile.School != "physical" || profile.ElementalAttack != rules || profile.ElementalSchool != wantSchool {
+			t.Fatalf("%s profile=%+v", key, profile)
 		}
 	}
-	for key := range excluded {
-		if !seen[key] {
-			t.Errorf("missing excluded profile %s", key)
-		}
-	}
-	if !seen["goblin"] {
-		t.Fatal("missing ordinary melee positive control")
+	if excludedSeen == 0 || ordinarySeen == 0 {
+		t.Fatalf("catalog must exercise both branches: excluded=%d ordinary=%d", excludedSeen, ordinarySeen)
 	}
 }

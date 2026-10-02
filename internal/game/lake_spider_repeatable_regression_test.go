@@ -16,7 +16,7 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	quests.GlobalQuestManager = questManager
 
 	// Night packs now reuse vacancies in the authored roster. Clear the base
-	// monsters so this quest test has enough slots for its five spider kills.
+	// monsters so this quest test has enough slots for its spider kills.
 	for _, m := range game.world.Monsters {
 		m.HitPoints = 0
 	}
@@ -28,9 +28,6 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 			spiders = append(spiders, m)
 		}
 	}
-	if len(spiders) < 5 {
-		t.Fatalf("forest night pack spawned %d spiders, want at least 5", len(spiders))
-	}
 	for _, spider := range spiders {
 		if spider.QuestProgressIgnored {
 			t.Fatal("forest night-pack spider is excluded from quest progress")
@@ -41,15 +38,19 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	input.handleGiveQuest("lake_spiders")
 	quest := questManager.GetQuest("lake_spiders")
 	if quest == nil || quest.Completed || quest.CurrentCount != 0 {
-		t.Fatalf("new lake_spiders quest = %+v, want active at 0/5", quest)
+		t.Fatalf("new lake_spiders quest = %+v, want active at 0", quest)
+	}
+	need := quest.Target()
+	if need <= 0 || len(spiders) < need {
+		t.Fatalf("forest night pack spawned %d spiders, want at least the quest's %d", len(spiders), need)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < need; i++ {
 		spiders[i].HitPoints = 0
 		game.combat.updateQuestProgress(spiders[i])
 	}
-	if !quest.Completed || quest.CurrentCount != 5 {
-		t.Fatalf("lake_spiders after five night-pack kills = completed %v, progress %d", quest.Completed, quest.CurrentCount)
+	if !quest.Completed || quest.CurrentCount != need {
+		t.Fatalf("lake_spiders after %d night-pack kills = completed %v, progress %d", need, quest.Completed, quest.CurrentCount)
 	}
 	if !game.claimQuestReward("lake_spiders") {
 		t.Fatal("claim first nightly lake_spiders reward")
@@ -68,6 +69,6 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	input.handleGiveQuest("lake_spiders")
 	next := questManager.GetQuest("lake_spiders")
 	if next == nil || next.Completed || next.CurrentCount != 0 {
-		t.Fatalf("next-night lake_spiders quest = %+v, want active at 0/5", next)
+		t.Fatalf("next-night lake_spiders quest = %+v, want active at 0", next)
 	}
 }

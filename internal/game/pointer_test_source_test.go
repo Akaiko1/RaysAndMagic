@@ -1,10 +1,6 @@
 package game
 
-import (
-	"testing"
-
-	"github.com/hajimehoshi/ebiten/v2"
-)
+import "testing"
 
 // fakePointer drives the gesture seam with a scripted press/move/release
 // sequence, so click-vs-drag arbitration can be tested as the player performs
@@ -20,16 +16,17 @@ func installFakePointer(t *testing.T) *fakePointer {
 	fp := &fakePointer{}
 	prevPos, prevPressed := pointerPosition, pointerLeftPressed
 	prevJustPress, prevJustRel := pointerLeftJustPressed, pointerLeftJustRelease
-	prevRight := pointerRightJustPress
+	prevRight, prevCancel := pointerRightJustPress, pointerCancelJustPress
 	pointerPosition = func() (int, int) { return fp.x, fp.y }
 	pointerLeftPressed = func() bool { return fp.pressed }
 	pointerLeftJustPressed = func() bool { return fp.justPress }
 	pointerLeftJustRelease = func() bool { return fp.justRel }
 	pointerRightJustPress = func() bool { return false }
+	pointerCancelJustPress = func() bool { return false }
 	t.Cleanup(func() {
 		pointerPosition, pointerLeftPressed = prevPos, prevPressed
 		pointerLeftJustPressed, pointerLeftJustRelease = prevJustPress, prevJustRel
-		pointerRightJustPress = prevRight
+		pointerRightJustPress, pointerCancelJustPress = prevRight, prevCancel
 	})
 	return fp
 }
@@ -41,14 +38,25 @@ func (fp *fakePointer) hold()    { fp.pressed, fp.justPress, fp.justRel = true, 
 func (fp *fakePointer) release() { fp.pressed, fp.justPress, fp.justRel = false, false, true }
 func (fp *fakePointer) idle()    { fp.pressed, fp.justPress, fp.justRel = false, false, false }
 
-// The seam must default to the real device, or production input silently dies.
+// Every seam hook must default to a device read, or production input silently
+// dies; reading each one in a headless test must not panic.
 func TestPointerSeamDefaultsToTheDevice(t *testing.T) {
-	if pointerPosition == nil || pointerLeftPressed == nil ||
-		pointerLeftJustPressed == nil || pointerLeftJustRelease == nil || pointerRightJustPress == nil {
-		t.Fatal("a pointer seam hook is nil")
+	for name, read := range map[string]func(){
+		"cancel":       func() { pointerCancelJustPress() },
+		"position":     func() { pointerPosition() },
+		"wheel":        func() { pointerWheel() },
+		"left pressed": func() { pointerLeftPressed() },
+		"left press":   func() { pointerLeftJustPressed() },
+		"left release": func() { pointerLeftJustRelease() },
+		"right press":  func() { pointerRightJustPress() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("the %s hook is unset or panics headless: %v", name, r)
+				}
+			}()
+			read()
+		})
 	}
-	// Reading through the seam in a headless test must not panic.
-	_, _ = pointerPosition()
-	_ = pointerLeftPressed()
-	_ = ebiten.MouseButtonLeft
 }

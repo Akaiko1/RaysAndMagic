@@ -43,6 +43,9 @@ func TestKeywordColorsStandApart(t *testing.T) {
 // the party-creation detail column in every font.
 func TestClassDescriptionsWrapInEveryFont(t *testing.T) {
 	cfg := loadTestConfig(t)
+	// The narrowest detail column: the one the smallest window lays out.
+	minW, minH := MinimumWindowSize()
+	width := heroDetailTextWidth(partyCreateLayout(&partyCreateState{}, minW, minH).detail)
 	forEachUIFont(t, func(t *testing.T) {
 		var pitches []struct{ key, text string }
 		for key, class := range cfg.Characters.Classes {
@@ -61,8 +64,6 @@ func TestClassDescriptionsWrapInEveryFont(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// The narrowest detail column (panel 180 px minus insets).
-			const width = 180 - 32
 			var joined []string
 			for _, line := range wrapKeywordText(spans, width) {
 				text := ""

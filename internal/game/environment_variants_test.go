@@ -20,6 +20,13 @@ func TestEnvironmentVariantsSurviveRenderCacheRebuilds(t *testing.T) {
 	}
 	world.GlobalTileManager = tm
 	tree, _ := tm.GetTileTypeFromKey("tree")
+	wantVariants := make(map[string]bool)
+	for _, name := range tm.GetTileData(tree).SpriteVariants {
+		wantVariants[name] = true
+	}
+	if len(wantVariants) < 2 {
+		t.Fatalf("fixture tile %q authors %d sprite variants, need at least 2", "tree", len(wantVariants))
+	}
 	w := newTestWorldSized(cfg, 12, 12)
 	for y := range w.Tiles {
 		for x := range w.Tiles[y] {
@@ -50,8 +57,8 @@ func TestEnvironmentVariantsSurviveRenderCacheRebuilds(t *testing.T) {
 			}
 			seen[entry.spriteName] = true
 		}
-		if len(seen) != 3 {
-			t.Fatalf("expected original and both authored variants: %v", seen)
+		if !reflect.DeepEqual(seen, wantVariants) {
+			t.Fatalf("selected sprites %v, want every authored variant %v", seen, wantVariants)
 		}
 		if allocs := testing.AllocsPerRun(100, func() {
 			for _, entry := range r.treeTilesCache {

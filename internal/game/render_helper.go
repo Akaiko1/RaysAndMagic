@@ -412,15 +412,9 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
-// CalculateGroundContainerSpriteMetrics sizes an interactable loot container.
-func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
-}
-
-// CalculateGroundContainerSpriteMetricsF is the float twin of
-// CalculateGroundContainerSpriteMetrics. Loot bags and chests use the same
-// float projection as every other standee so they do not reintroduce distant
-// whole-pixel jitter.
+// CalculateGroundContainerSpriteMetricsF sizes an interactable loot container.
+// Loot bags and chests use the same float projection as every other standee so
+// they do not reintroduce distant whole-pixel jitter.
 func (rh *RenderingHelper) CalculateGroundContainerSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }

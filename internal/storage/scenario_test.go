@@ -28,3 +28,22 @@ func TestScenarioDirectoryNeverFallsBackToNormalSaves(t *testing.T) {
 		}
 	}
 }
+
+func TestTestProcessSavesNeverLandInTheWorkingDirectory(t *testing.T) {
+	oldData, oldScenario := dataRoot, scenarioRoot
+	t.Cleanup(func() { dataRoot, scenarioRoot = oldData, oldScenario })
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	dataRoot, scenarioRoot = "", ""
+	if got := AppSaveDir(); filepath.Dir(got) != testSaveRoot() {
+		t.Fatalf("default test save dir = %q, want under %q", got, testSaveRoot())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, savesDirName)); !os.IsNotExist(err) {
+		t.Fatalf("test process created saves in its working directory: %v", err)
+	}
+	explicit := t.TempDir()
+	dataRoot = explicit
+	if got := AppSaveDir(); filepath.Dir(got) != explicit {
+		t.Fatalf("explicit root ignored: %q", got)
+	}
+}

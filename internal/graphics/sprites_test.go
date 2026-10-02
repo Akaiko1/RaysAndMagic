@@ -10,6 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -546,92 +550,96 @@ func TestApplyColorKey(t *testing.T) {
 	}
 }
 
+// Every indexed game sprite keeps its non-magenta art bit-exact under the
+// load-time key, and no visible magenta hue survives. Full illustrations are
+// not keyed at load, so they are out of scope.
 func TestApplyColorKey_GameSpriteColorSafety(t *testing.T) {
-	spritePaths := []string{
-		"../../assets/sprites/environment/nature/deep_jungle_fern.png",
-		"../../assets/sprites/environment/nature/deep_jungle_log.png",
-		"../../assets/sprites/environment/nature/forest_oak.png",
-		"../../assets/sprites/environment/nature/old_platan.png",
-		"../../assets/sprites/environment/nature/palm.png",
-		"../../assets/sprites/environment/nature/firefly_swarm.png",
-		"../../assets/sprites/environment/props/stone_lantern.png",
-		"../../assets/sprites/environment/walls/deep_jungle_wall_0.png",
-		"../../assets/sprites/interface/spells/icon_spell_firebolt.png",
-		"../../assets/sprites/interface/spells/icon_spell_fireball.png",
-		"../../assets/sprites/interface/spells/icon_spell_inferno.png",
-		"../../assets/sprites/interface/spells/icon_spell_ice_bolt.png",
-		"../../assets/sprites/interface/spells/icon_spell_ray_of_light.png",
-		"../../assets/sprites/interface/spells/icon_spell_bless.png",
-		"../../assets/sprites/interface/weapons/icon_weapon_gold_sword.png",
-		"../../assets/sprites/interface/weapons/icon_weapon_bow_of_hellfire.png",
-		"../../assets/sprites/interface/items/icon_item_golden_idol.png",
-		"../../assets/sprites/interface/items/icon_item_red_dragon_statuette.png",
-		"../../assets/sprites/interface/items/icon_item_gold_dragon_statuette.png",
-		"../../assets/sprites/interface/ui/spellbook_tab_fire.png",
-		"../../assets/sprites/interface/ui/spellbook_tab_water.png",
-		"../../assets/sprites/mobs/ashigaru_firelock.png",
-		"../../assets/sprites/mobs/dragon_red.png",
-		"../../assets/sprites/mobs/dragon_gold.png",
-		"../../assets/sprites/mobs/dragon_green.png",
-		"../../assets/sprites/mobs/goblin.png",
-		"../../assets/sprites/mobs/jungle_goblin.png",
-		"../../assets/sprites/mobs/old_samurai.png",
-		"../../assets/sprites/mobs/puma.png",
-	}
-
+	t.Chdir("../..")
 	sm := NewSpriteManager()
 	sm.SetColorKey(true, 255, 0, 255, 60, true)
+	sm.ensureIndex()
+	names := make([]string, 0, len(sm.spritePaths))
+	for name := range sm.spritePaths {
+		if !strings.HasPrefix(name, "full_art_") {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("sprite index is empty")
+	}
+	sort.Strings(names)
 
-	for _, path := range spritePaths {
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			src := loadPNGForColorKeyTest(t, path)
-			filtered := sm.applyColorKey("", src).(*image.NRGBA)
-			b := src.Bounds()
-			changedNonMagenta := 0
-			magentaAfter := 0
-			for y := b.Min.Y; y < b.Max.Y; y++ {
-				for x := b.Min.X; x < b.Max.X; x++ {
-					before := src.NRGBAAt(x, y)
-					after := filtered.NRGBAAt(x, y)
-					if isColorKeyCandidate(before) {
-						if isVisibleMagentaHue(after) {
-							magentaAfter++
-						}
-						continue
+	check := func(name string) {
+		src, err := decodePNGForColorKeyTest(sm.spritePaths[name])
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		filtered := sm.applyColorKey(name, src).(*image.NRGBA)
+		b := src.Bounds()
+		changedNonMagenta, magentaAfter := 0, 0
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				before := src.NRGBAAt(x, y)
+				after := filtered.NRGBAAt(x, y)
+				if isColorKeyCandidate(before) {
+					if isVisibleMagentaHue(after) {
+						magentaAfter++
 					}
-					if before != after {
-						changedNonMagenta++
-						if changedNonMagenta <= 5 {
-							t.Logf("non-magenta pixel changed at (%d,%d): %v -> %v", x, y, before, after)
-						}
-					}
+					continue
+				}
+				if before != after {
+					changedNonMagenta++
 				}
 			}
-			if changedNonMagenta != 0 {
-				t.Fatalf("changed %d non-magenta pixels", changedNonMagenta)
-			}
-			if magentaAfter != 0 {
-				t.Fatalf("left %d visible magenta-hue pixels after filtering", magentaAfter)
-			}
-		})
+		}
+		if changedNonMagenta != 0 || magentaAfter != 0 {
+			t.Errorf("%s: changed %d non-magenta pixels, left %d visible magenta-hue pixels", name, changedNonMagenta, magentaAfter)
+		}
 	}
+	// Decoding the whole catalog is CPU-bound: spread it over every core.
+	jobs := make(chan string)
+	var wg sync.WaitGroup
+	for range runtime.NumCPU() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for name := range jobs {
+				check(name)
+			}
+		}()
+	}
+	for _, name := range names {
+		jobs <- name
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 func loadPNGForColorKeyTest(t *testing.T, path string) *image.NRGBA {
 	t.Helper()
+	img, err := decodePNGForColorKeyTest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
+}
+
+// decodePNGForColorKeyTest is the goroutine-safe core (no t.Fatal).
+func decodePNGForColorKeyTest(path string) (*image.NRGBA, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		t.Fatalf("open %s: %v", path, err)
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
 	img, err := png.Decode(f)
 	if err != nil {
-		t.Fatalf("decode %s: %v", path, err)
+		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	b := img.Bounds()
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, img, b.Min, draw.Src)
-	return dst
+	return dst, nil
 }
 
 func isColorKeyCandidate(p color.NRGBA) bool {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	uitext "ugataima/assets/text"
 
 	"ugataima/internal/items"
 
@@ -169,26 +168,4 @@ func TrapKeysOrdered() []string {
 		return keys[i] < keys[j]
 	})
 	return keys
-}
-
-// EffectLines returns the character-INDEPENDENT mechanic lines of a trap -
-// the shared SSoT for the in-game trap book tooltip and the map-editor card
-// (same contract as spells.SpellDefinition.EffectLines). Caster-scaled
-// numbers (actual damage/duration) are added by each consumer.
-func (t *TrapDefinitionConfig) EffectLines() []string {
-	var out []string
-	if t.DamageBase > 0 {
-		out = append(out, uitext.Text("trap.base_damage_scales_with_intellect_accuracy", t.DamageBase, t.Element))
-	}
-	if t.AoeRadiusTiles > 0 {
-		out = append(out, uitext.Text("trap.hits_everything_within_tiles", t.AoeRadiusTiles))
-	}
-	if t.StunTurns > 0 {
-		out = append(out, uitext.Text("trap.stuns_turns_sec_trapper_mastery", t.StunTurns, t.StunSeconds))
-	}
-	if t.RootTurns > 0 {
-		out = append(out, uitext.Text("trap.pins_in_place_no_stun_turns_sec", t.RootTurns, t.RootSeconds))
-	}
-	out = append(out, uitext.Text("trap.triggers_when_a_monster_steps_on_it"))
-	return out
 }

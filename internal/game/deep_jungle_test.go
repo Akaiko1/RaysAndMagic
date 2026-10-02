@@ -1,6 +1,7 @@
 package game
 
 import (
+	"slices"
 	"testing"
 
 	"ugataima/internal/collision"
@@ -8,10 +9,11 @@ import (
 	"ugataima/internal/world"
 )
 
-// Gorilla Titan rallies a pair of Masked Huntress escorts via the shared boss
-// summon kit (data-driven summon_* fields in monsters.yaml). Verifies the wiring
-// end-to-end: config -> exactly 2 masked_huntress spawn, tagged SummonedBy, capped.
-func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
+// Gorilla Titan rallies its escort via the shared boss summon kit (data-driven
+// summon_* fields in monsters.yaml). Verifies the wiring end-to-end: each rally
+// adds summon_count of its own summon_monsters, tagged SummonedBy, up to
+// summon_max and never past it.
+func TestGorillaTitan_SummonsEscortUpToCap(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
@@ -45,33 +47,38 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	cs.game.registerSpawnedMonster(gorilla)
 
 	// The data wiring landed, and summon_chance>0 routes it through the boss kit.
-	if len(gorilla.SummonMonsters) != 1 || gorilla.SummonMonsters[0] != "masked_huntress" {
-		t.Fatalf("gorilla_titan summon_monsters = %v, want [masked_huntress]", gorilla.SummonMonsters)
+	def := monsterPkg.MonsterConfig.Monsters["gorilla_titan"]
+	if len(def.SummonMonsters) == 0 || def.SummonCount <= 0 || def.SummonMax <= 0 {
+		t.Fatalf("gorilla_titan must author a capped escort: monsters=%v count=%d max=%d", def.SummonMonsters, def.SummonCount, def.SummonMax)
 	}
-	if gorilla.SummonCount != 2 || gorilla.SummonMax != 2 {
-		t.Fatalf("summon count/max = %d/%d, want 2/2", gorilla.SummonCount, gorilla.SummonMax)
+	if !slices.Equal(gorilla.SummonMonsters, def.SummonMonsters) || gorilla.SummonCount != def.SummonCount || gorilla.SummonMax != def.SummonMax {
+		t.Fatalf("summon wiring = %v %d/%d, want %v %d/%d", gorilla.SummonMonsters, gorilla.SummonCount, gorilla.SummonMax,
+			def.SummonMonsters, def.SummonCount, def.SummonMax)
 	}
 	if !gorilla.IsBoss() {
 		t.Fatal("a monster with summon_chance>0 should use the boss kit")
 	}
 
-	// Rally the escort: exactly two Masked Huntresses, tagged to this gorilla.
-	if !cs.summonBossAdds(gorilla) {
-		t.Fatal("gorilla should summon its escort")
-	}
-	if got := cs.countLiveSummons(gorilla); got != 2 {
-		t.Fatalf("live summons = %d, want 2 (a pair of huntresses)", got)
+	// Rally until the cap: each rally adds summon_count, tagged to this gorilla.
+	for live := 0; live < def.SummonMax; {
+		if !cs.summonBossAdds(gorilla) {
+			t.Fatalf("gorilla should summon its escort at %d live", live)
+		}
+		live = min(def.SummonMax, live+def.SummonCount)
+		if got := cs.countLiveSummons(gorilla); got != live {
+			t.Fatalf("live summons = %d, want %d", got, live)
+		}
 	}
 	for _, m := range cs.game.world.Monsters {
-		if m.SummonedBy == gorilla.ID && m.Key != "masked_huntress" {
-			t.Errorf("summon should be masked_huntress, got %q", m.Key)
+		if m.SummonedBy == gorilla.ID && !slices.Contains(def.SummonMonsters, m.Key) {
+			t.Errorf("summon %q is not in summon_monsters %v", m.Key, def.SummonMonsters)
 		}
 	}
 
-	// Cap holds: with the pair already live, a second rally adds nothing.
+	// Cap holds: with the escort full, another rally adds nothing.
 	cs.summonBossAdds(gorilla)
-	if got := cs.countLiveSummons(gorilla); got != 2 {
-		t.Fatalf("summon cap breached: %d live, want 2", got)
+	if got := cs.countLiveSummons(gorilla); got != def.SummonMax {
+		t.Fatalf("summon cap breached: %d live, want %d", got, def.SummonMax)
 	}
 }
 
@@ -126,9 +133,8 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 	}
 }
 
-// Killing the Orc Warlord sends every HUMAN on the map (the masked Amazons) into
-// a relentless hunt - goblins and beasts are untouched. Also checks the Warlord's
-// summon roster (Huntress + Hexer) is wired.
+// Killing the Orc Warlord sends every HUMAN on the map (the masked Amazons, his
+// own summon roster) into a relentless hunt - goblins and beasts are untouched.
 func TestOrcWarlord_DeathRalliesHumansOnly(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	cs := game.combat
@@ -137,28 +143,38 @@ func TestOrcWarlord_DeathRalliesHumansOnly(t *testing.T) {
 	if orc.DeathRalliesType != "human" {
 		t.Fatalf("orc death_rallies_type = %q, want \"human\"", orc.DeathRalliesType)
 	}
-	if len(orc.SummonMonsters) != 2 || orc.SummonCount != 2 || orc.SummonMax != 4 {
-		t.Fatalf("orc summon wiring off: monsters=%v count=%d max=%d", orc.SummonMonsters, orc.SummonCount, orc.SummonMax)
+	if len(orc.SummonMonsters) == 0 {
+		t.Fatal("orc_hero_boss lost its summon roster")
 	}
 
-	huntress := monsterPkg.NewMonster3DFromConfig(12*ts, 12*ts, "masked_huntress", game.config)
-	hexer := monsterPkg.NewMonster3DFromConfig(13*ts, 13*ts, "masked_hexer_girl", game.config)
+	// The Warlord's own retainers are the humans he rallies.
+	game.world.Monsters = []*monsterPkg.Monster3D{orc}
+	var humans []*monsterPkg.Monster3D
+	for i, key := range orc.SummonMonsters {
+		m := monsterPkg.NewMonster3DFromConfig(float64(12+i)*ts, 12*ts, key, game.config)
+		if m.MonsterType != orc.DeathRalliesType {
+			t.Fatalf("summon %s is type %q, want the rallied %q", key, m.MonsterType, orc.DeathRalliesType)
+		}
+		humans = append(humans, m)
+		game.world.Monsters = append(game.world.Monsters, m)
+	}
 	goblin := monsterPkg.NewMonster3DFromConfig(14*ts, 14*ts, "jungle_goblin", game.config)
 	cat := monsterPkg.NewMonster3DFromConfig(15*ts, 15*ts, "ocelot", game.config)
-	game.world.Monsters = []*monsterPkg.Monster3D{orc, huntress, hexer, goblin, cat}
-
-	if huntress.MonsterType != "human" || hexer.MonsterType != "human" {
-		t.Fatalf("masked mobs should be type \"human\", got %q/%q", huntress.MonsterType, hexer.MonsterType)
+	if goblin.MonsterType == orc.DeathRalliesType || cat.MonsterType == orc.DeathRalliesType {
+		t.Fatalf("negative controls must not be %q", orc.DeathRalliesType)
 	}
+	game.world.Monsters = append(game.world.Monsters, goblin, cat)
 
 	orc.HitPoints = 0 // slain
 	cs.rallyOnPatronDeath(orc)
 
-	if !huntress.Relentless || !hexer.Relentless {
-		t.Error("Amazons (type human) must go relentless when the Warlord dies")
-	}
-	if !huntress.IsEngagingPlayer || !huntress.WasAttacked {
-		t.Error("a rallied human should be engaged + flagged hostile (sticky/persisted)")
+	for _, m := range humans {
+		if !m.Relentless {
+			t.Errorf("%s (type human) must go relentless when the Warlord dies", m.Key)
+		}
+		if !m.IsEngagingPlayer || !m.WasAttacked {
+			t.Errorf("rallied %s should be engaged + flagged hostile (sticky/persisted)", m.Key)
+		}
 	}
 	if goblin.Relentless || cat.Relentless {
 		t.Error("goblins and beasts must NOT be swept up by the human revenge")

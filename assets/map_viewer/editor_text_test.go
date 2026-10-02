@@ -208,18 +208,13 @@ func TestEditorBossTextMatchesRules(t *testing.T) {
 	}
 }
 
+// Overflow rows scroll (TestMobInfoScrollRetainsFractionalWheelInput); the
+// layout itself must keep every column clear of its neighbour.
 func TestEditorMobSheetLayoutKeepsAllRowsReachable(t *testing.T) {
 	for _, width := range []int{600, 868} {
-		cols, rows, colWidth := mobInfoLayout(width, 250)
+		cols, _, colWidth := mobInfoLayout(width, 250)
 		if cols*colWidth > width || game.ShadedTextWidth(strings.Repeat("M", mobInfoCols))+16 > colWidth {
 			t.Fatal("stat columns overlap")
-		}
-		for _, count := range []int{0, 1, rows * cols, rows*cols + 1, 150} {
-			capacity := cols * rows
-			end := min(count, max(0, count-capacity)+capacity)
-			if end != count {
-				t.Fatalf("last stat row unreachable: %d/%d", end, count)
-			}
 		}
 	}
 }

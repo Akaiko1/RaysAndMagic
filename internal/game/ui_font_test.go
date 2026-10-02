@@ -59,28 +59,6 @@ func TestUIGlyphAtlasMatchesEbitengineSheet(t *testing.T) {
 	}
 }
 
-// Every accepted rune owns one 6x16 cell and every visible one draws white
-// ink there; space draws none.
-func TestUIGlyphAtlasIsComplete(t *testing.T) {
-	atlas, err := buildUIGlyphAtlas(uiScripts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted := uiAcceptedRunes()
-	if len(accepted) == 0 {
-		t.Fatal("no script accepts any rune")
-	}
-	for _, r := range accepted {
-		cell, ok := atlas.cells[r]
-		if !ok || cell.Dx() != uiTextCharWidth || cell.Dy() != uiTextCharHeight {
-			t.Fatalf("%q cell %v, want %dx%d", r, cell, uiTextCharWidth, uiTextCharHeight)
-		}
-		if ink := hasWhiteInk(atlas.sheet, cell); ink != (r != ' ') {
-			t.Errorf("%q white ink = %v", r, ink)
-		}
-	}
-}
-
 // offCellFace breaks one property of the real face for the rejection rows.
 type offCellFace struct {
 	font.Face
@@ -177,16 +155,25 @@ func forEachUIFont(t *testing.T, fn func(t *testing.T)) {
 
 // Every shipped font draws every accepted rune in a cell of its own: whole
 // pixels only, visible ink for every visible rune, and nothing drawn outside
-// the cells, so no glyph or shadow bleeds into a neighbour.
+// the cells, so no glyph or shadow bleeds into a neighbour. The classic font
+// keeps the debug sheet's fixed uiTextCharWidth x uiTextCharHeight cells.
 func TestShippedUIFontsDrawCleanCells(t *testing.T) {
+	accepted := uiAcceptedRunes()
+	if len(accepted) == 0 {
+		t.Fatal("no script accepts any rune")
+	}
 	for _, f := range shippedUIFonts(t) {
 		t.Run(f.Key, func(t *testing.T) {
 			atlas := uiFontAtlases[f.Key]
+			classic := f.Path == ""
 			inCell := image.NewAlpha(atlas.sheet.Bounds())
-			for _, r := range uiAcceptedRunes() {
+			for _, r := range accepted {
 				cell, ok := atlas.cells[r]
 				if !ok || atlas.advanceOf(r) <= 0 {
 					t.Fatalf("%q: cell %v ok=%v advance %d", r, cell, ok, atlas.advanceOf(r))
+				}
+				if classic && (cell.Dx() != uiTextCharWidth || cell.Dy() != uiTextCharHeight) {
+					t.Fatalf("classic %q cell %v, want %dx%d", r, cell, uiTextCharWidth, uiTextCharHeight)
 				}
 				if ink := hasWhiteInk(atlas.sheet, cell); ink != (r != ' ') {
 					t.Errorf("%q white ink = %v", r, ink)

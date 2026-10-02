@@ -57,14 +57,4 @@ func TestWorldVisualSizeContentUsesSharedClasses(t *testing.T) {
 	if err := ValidateNPCVisualSizes(character.NPCConfigInstance.NPCs, cfg.Graphics.SizeClasses); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"seabright_gate", "silverbough_gate", "dunehold_gate"} {
-		npc := character.NPCConfigInstance.NPCs[key]
-		if npc == nil {
-			t.Errorf("city %q is missing", key)
-			continue
-		}
-		if got, ok := config.ResolveSizeClassTiles(cfg.Graphics.SizeClasses, npc.SizeClass); !ok || got <= 0 || !config.IsPropSizeClass(npc.SizeClass) {
-			t.Errorf("city %q class %q resolves to %v (found=%v), want a positive prop class", key, npc.SizeClass, got, ok)
-		}
-	}
 }

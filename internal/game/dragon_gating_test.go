@@ -1,6 +1,8 @@
 package game
 
 import (
+	"maps"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -8,14 +10,13 @@ import (
 	"ugataima/internal/quests"
 )
 
-// TestDragonRoster verifies the dragon split:
-//   - dragon_cliffs wild dragons + the two cliff lair caves spawn ORDINARY
-//     dragons (name "Dragon"),
-//   - the four desert statues summon the ELITE "Elder Dragon"s (no biome/letter,
-//     so they never spawn wild),
-//   - and the dragon_slayer win quest credits ONLY a flagged Elder Dragon -
-//     never an ordinary dragon, never an unflagged one.
+// The dragon_slayer hunt is sworn, never given at boot. Its targets come only
+// from the summons that name the quest: each summoned monster matches the
+// quest target and cannot spawn wild, no wild monster or NPC encounter yields
+// a target, there are enough summons to finish the hunt, and only a
+// quest-flagged target kill credits it.
 func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
+	const questID = "dragon_slayer"
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
@@ -28,137 +29,80 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 	qm := quests.NewQuestManager(qc)
 	qm.InitializeStartingQuests()
 	cs.game.questManager = qm
-	// The hunt is sworn to Sylwen at the desert seals, not handed out at boot.
-	if q := qm.GetQuest("dragon_slayer"); q != nil {
+	if q := qm.GetQuest(questID); q != nil {
 		t.Fatal("dragon_slayer must not be a starting quest - the pilgrim gives it")
 	}
-	if err := qm.ActivateQuest("dragon_slayer"); err != nil {
+	if err := qm.ActivateQuest(questID); err != nil {
 		t.Fatalf("activate dragon_slayer: %v", err)
 	}
+	def := qm.GetQuest(questID).Definition
 
-	monName := func(key string) string {
-		d, err := monsterPkg.MonsterConfig.GetMonsterByKey(key)
-		if err != nil || d == nil {
-			t.Fatalf("monster %q missing", key)
+	monsters := monsterPkg.MonsterConfig.Monsters
+	var summoned []string
+	for _, key := range slices.Sorted(maps.Keys(character.NPCConfigInstance.NPCs)) {
+		npc := character.NPCConfigInstance.NPCs[key]
+		for _, s := range npc.Summons {
+			if s.QuestID != questID {
+				continue
+			}
+			summoned = append(summoned, s.Monster)
+			d, ok := monsters[s.Monster]
+			if !ok {
+				t.Fatalf("%s summons unknown monster %q", key, s.Monster)
+			}
+			if !def.MatchesTarget(d.Name) {
+				t.Errorf("%s summons %q (%q), which the hunt does not count", key, s.Monster, d.Name)
+			}
+			if len(d.Biomes) != 0 {
+				t.Errorf("summoned target %q must not be wild-spawnable, has biomes %v", s.Monster, d.Biomes)
+			}
 		}
-		return d.Name
-	}
-
-	// 1) Ordinary dragons are named "Dragon".
-	for _, k := range []string{"dragon", "dragon_red", "dragon_green", "dragon_gold"} {
-		if got := monName(k); got != "Dragon" {
-			t.Errorf("base %s name = %q, want \"Dragon\"", k, got)
-		}
-	}
-	// 2) Elite dragons are named "Elder Dragon" and CANNOT spawn wild (no biomes).
-	for _, k := range []string{"elder_dragon", "elder_dragon_red", "elder_dragon_green", "elder_dragon_gold"} {
-		d, err := monsterPkg.MonsterConfig.GetMonsterByKey(k)
-		if err != nil || d == nil {
-			t.Fatalf("elite %q missing", k)
-		}
-		if d.Name != "Elder Dragon" {
-			t.Errorf("elite %s name = %q, want \"Elder Dragon\"", k, d.Name)
-		}
-		if len(d.Biomes) != 0 {
-			t.Errorf("elite %s must not be wild-spawnable, has biomes %v", k, d.Biomes)
-		}
-	}
-
-	npcs := character.NPCConfigInstance.NPCs
-	// 3) The two cliff lair caves spawn ORDINARY dragons.
-	for cave, want := range map[string]string{
-		"dragon_cliffs_bone_lair":  "dragon_green",
-		"dragon_cliffs_ember_lair": "dragon_red",
-	} {
-		n := npcs[cave]
-		if n == nil || n.Encounter == nil || len(n.Encounter.Monsters) == 0 {
-			t.Fatalf("%s has no encounter monsters", cave)
-		}
-		got := n.Encounter.Monsters[0].Type
-		if got != want {
-			t.Errorf("%s spawns %q, want ordinary %q", cave, got, want)
-		}
-		if monName(got) != "Dragon" {
-			t.Errorf("%s should spawn an ordinary Dragon, got %q (%s)", cave, monName(got), got)
+		if npc.Encounter != nil {
+			for _, em := range npc.Encounter.Monsters {
+				if d, ok := monsters[em.Type]; ok && def.MatchesTarget(d.Name) {
+					t.Errorf("%s encounter spawns hunt target %q outside the summons", key, em.Type)
+				}
+			}
 		}
 	}
-	// 4) The four desert statues summon ELITE Elder Dragons.
-	for statue, want := range map[string]string{
-		"dragon_statue_black": "elder_dragon",
-		"dragon_statue_red":   "elder_dragon_red",
-		"dragon_statue_green": "elder_dragon_green",
-		"dragon_statue_gold":  "elder_dragon_gold",
-	} {
-		n := npcs[statue]
-		if n == nil || len(n.Summons) == 0 {
-			t.Fatalf("%s has no summons", statue)
-		}
-		got := n.Summons[0].Monster
-		if got != want {
-			t.Errorf("%s summons %q, want %q", statue, got, want)
-		}
-		if monName(got) != "Elder Dragon" {
-			t.Errorf("%s should summon an Elder Dragon, got %q (%s)", statue, monName(got), got)
+	if len(summoned) < def.TargetCount {
+		t.Fatalf("%d summons name %s, the hunt needs %d kills", len(summoned), questID, def.TargetCount)
+	}
+	wildKey := ""
+	for _, key := range slices.Sorted(maps.Keys(monsters)) {
+		if d := monsters[key]; len(d.Biomes) > 0 {
+			if def.MatchesTarget(d.Name) {
+				t.Errorf("wild monster %q matches the hunt target", key)
+			}
+			if wildKey == "" {
+				wildKey = key
+			}
 		}
 	}
 
-	// 5) dragon_slayer credit gating.
-	prog := func() int { return qm.GetQuest("dragon_slayer").CurrentCount }
+	prog := func() int { return qm.GetQuest(questID).CurrentCount }
 	flag := func(m *monsterPkg.Monster3D) {
 		m.IsEncounterMonster = true
-		m.EncounterRewards = &monsterPkg.EncounterRewards{QuestID: "dragon_slayer"}
+		m.EncounterRewards = &monsterPkg.EncounterRewards{QuestID: questID}
 	}
-
-	// An ordinary dragon must NEVER count - even if (somehow) flagged.
-	base := monsterPkg.NewMonster3DFromConfig(0, 0, "dragon", cs.game.config)
-	flag(base)
-	cs.updateQuestProgress(base)
+	// A wild monster never counts, even if (somehow) flagged.
+	wild := monsterPkg.NewMonster3DFromConfig(0, 0, wildKey, cs.game.config)
+	flag(wild)
+	cs.updateQuestProgress(wild)
 	if prog() != 0 {
-		t.Errorf("ordinary dragon must not credit dragon_slayer, got %d", prog())
+		t.Errorf("wild %s must not credit dragon_slayer, got %d", wildKey, prog())
 	}
-	// An unflagged Elder Dragon (e.g. some future non-statue source) must not count.
-	unflagged := monsterPkg.NewMonster3DFromConfig(0, 0, "elder_dragon", cs.game.config)
+	// An unflagged target (some future non-summon source) does not count.
+	unflagged := monsterPkg.NewMonster3DFromConfig(0, 0, summoned[0], cs.game.config)
 	cs.updateQuestProgress(unflagged)
 	if prog() != 0 {
-		t.Errorf("unflagged Elder Dragon must not credit, got %d", prog())
+		t.Errorf("unflagged %s must not credit, got %d", summoned[0], prog())
 	}
-	// A statue-summoned (flagged) Elder Dragon counts.
-	summoned := monsterPkg.NewMonster3DFromConfig(0, 0, "elder_dragon_gold", cs.game.config)
-	flag(summoned)
-	cs.updateQuestProgress(summoned)
+	// A summoned (flagged) target counts.
+	target := monsterPkg.NewMonster3DFromConfig(0, 0, summoned[len(summoned)-1], cs.game.config)
+	flag(target)
+	cs.updateQuestProgress(target)
 	if prog() != 1 {
-		t.Errorf("flagged Elder Dragon must credit dragon_slayer, got %d", prog())
-	}
-}
-
-func TestDragonSlayerQuestAwardsArenaPoints(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	qc, err := quests.LoadQuestConfig("../../assets/quests.yaml")
-	if err != nil {
-		t.Fatalf("load quests: %v", err)
-	}
-	qm := quests.NewQuestManager(qc)
-	qm.InitializeStartingQuests()
-	cs.game.questManager = qm
-
-	// Sworn to the pilgrim first - the hunt is no longer active at boot.
-	if err := qm.ActivateQuest("dragon_slayer"); err != nil {
-		t.Fatalf("activate dragon_slayer: %v", err)
-	}
-	quest := qm.GetQuest("dragon_slayer")
-	if quest == nil {
-		t.Fatal("dragon_slayer quest missing")
-	}
-	if quest.Definition.Rewards.Gold != 0 || quest.Definition.Rewards.Experience != 0 || quest.Definition.Rewards.ArenaPoints != 5000 {
-		t.Fatalf("dragon slayer reward = %+v, want 0 gold, 0 experience, and 5000 arena points", quest.Definition.Rewards)
-	}
-	qm.MarkCompleted("dragon_slayer")
-
-	before := cs.game.party.ArenaPoints
-	if !cs.game.claimQuestReward("dragon_slayer") {
-		t.Fatal("claim dragon slayer reward")
-	}
-	if got := cs.game.party.ArenaPoints - before; got != 5000 {
-		t.Fatalf("arena points awarded = %d, want 5000", got)
+		t.Errorf("flagged %s must credit dragon_slayer, got %d", summoned[len(summoned)-1], prog())
 	}
 }

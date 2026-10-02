@@ -188,8 +188,24 @@ func TestCloseAudioSettingsRestoresOwningMenu(t *testing.T) {
 	}
 }
 
+// Every non-magic ranged category needs a sound route: categories are
+// normalized and deduplicated, melee, staff/book and uncategorized weapons
+// are left out.
 func TestRequiredWeaponSoundCategoriesFollowWeaponCatalog(t *testing.T) {
-	loadTestConfig(t)
+	previous := config.GlobalWeapons
+	t.Cleanup(func() { config.GlobalWeapons = previous })
+	ranged := config.RangedWeaponMinRangeTiles
+	config.GlobalWeapons = &config.WeaponSystemConfig{Weapons: map[string]*config.WeaponDefinitionConfig{
+		"bow":           {Category: "bow", Range: ranged},
+		"second_bow":    {Category: "bow", Range: ranged + 2},
+		"blaster":       {Category: " Blaster ", Range: ranged},
+		"thrown_dagger": {Category: "dagger", Range: ranged},
+		"melee_dagger":  {Category: "knife", Range: ranged - 1},
+		"staff":         {Category: "staff", Range: ranged},
+		"book":          {Category: "book", Range: ranged},
+		"uncategorized": {Range: ranged},
+		"missing":       nil,
+	}}
 	want := []string{"blaster", "bow", "dagger"}
 	if got := RequiredWeaponSoundCategories(); !slices.Equal(got, want) {
 		t.Fatalf("RequiredWeaponSoundCategories() = %v, want %v", got, want)

@@ -1,14 +1,16 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	monsterPkg "ugataima/internal/monster"
 )
 
-// The sanctum reliquaries belong to the four Isis at the upper dais, not to
-// the lower Isis, Minotaurs, or hidden Dragon on the same map. This guards both
-// the plural encounter binding and its multi-chest spatial anchor.
+// The sanctum reliquaries belong to the encounter's authored roster - the
+// requested count of each type NEAREST its first chest (the multi-chest
+// anchor) - not to the lower Isis, Minotaurs, or hidden Dragon on the same
+// map. Guards both the plural encounter binding and its spatial anchor.
 func TestPyramidSanctumIsisBindReliquaries(t *testing.T) {
 	cfg := loadTestConfig(t)
 	wm, _ := loadRealWorldForTest(t, cfg, "pyramid_3")
@@ -16,38 +18,52 @@ func TestPyramidSanctumIsisBindReliquaries(t *testing.T) {
 	if w == nil {
 		t.Fatal("pyramid_3 world did not load")
 	}
+	encounters := wm.MapConfigs["pyramid_3"].ClearEncounters
+	if len(encounters) != 1 || encounters[0].Rewards == nil || len(encounters[0].Rewards.TreasureChests) == 0 {
+		t.Fatalf("pyramid_3 must author one multi-chest clear encounter, got %+v", encounters)
+	}
+	enc := encounters[0]
+	want := map[string]int{}
+	for _, req := range enc.Monsters {
+		want[req.Type] += req.Count
+	}
+	ts := cfg.GetTileSize()
+	anchor := enc.Rewards.TreasureChests[0]
+	ax, ay := TileCenterFromTile(anchor.TileX, anchor.TileY, ts)
+	dist := func(m *monsterPkg.Monster3D) float64 { return math.Hypot(m.X-ax, m.Y-ay) }
 
-	bound := 0
+	bound := map[string]int{}
+	farthestBound := map[string]float64{}
 	for _, m := range w.Monsters {
 		if m == nil || !m.IsEncounterMonster {
 			continue
 		}
-		bound++
-		if m.Key != "isis" {
-			t.Fatalf("only sanctum Isis may bind reliquaries, got %q", m.Key)
+		bound[m.Key]++
+		farthestBound[m.Key] = max(farthestBound[m.Key], dist(m))
+		if want[m.Key] == 0 {
+			t.Fatalf("only the authored roster may bind reliquaries, got %q", m.Key)
 		}
-		if ty := int(m.Y / cfg.GetTileSize()); ty != 5 {
-			t.Fatalf("bound Isis must be at upper dais row 5, got tile (%d,%d)", int(m.X/cfg.GetTileSize()), ty)
-		}
-		if m.EncounterRewards == nil || len(m.EncounterRewards.TreasureChests) != 4 {
-			t.Fatalf("bound Isis must carry all four reliquaries, got %+v", m.EncounterRewards)
+		if m.EncounterRewards == nil || len(m.EncounterRewards.TreasureChests) != len(enc.Rewards.TreasureChests) {
+			t.Fatalf("bound %s must carry all %d reliquaries, got %+v", m.Key, len(enc.Rewards.TreasureChests), m.EncounterRewards)
 		}
 	}
-	if bound != 4 {
-		t.Fatalf("bound sanctum Isis = %d, want 4", bound)
+	for key, n := range want {
+		if bound[key] != n {
+			t.Fatalf("bound %s = %d, want the authored %d", key, bound[key], n)
+		}
 	}
 
 	for _, m := range w.Monsters {
 		if m == nil || m.IsEncounterMonster {
 			continue
 		}
-		if m.Key == "dragon" || m.Key == "minotaur" || m.Key == "isis" {
-			if m.EncounterRewards != nil {
-				t.Fatalf("ordinary pyramid mob %q unexpectedly binds the reliquaries", m.Key)
-			}
+		if m.EncounterRewards != nil {
+			t.Fatalf("ordinary pyramid mob %q unexpectedly binds the reliquaries", m.Key)
+		}
+		if want[m.Key] > 0 && dist(m) < farthestBound[m.Key] {
+			t.Fatalf("unbound %s stands nearer the anchor chest than a bound one", m.Key)
 		}
 	}
-
 }
 
 func legacyPyramidReliquaryRewards() *monsterPkg.EncounterRewards {

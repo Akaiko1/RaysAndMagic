@@ -43,28 +43,38 @@ func TestTownPortalRegistersConfiguredDestination(t *testing.T) {
 	}
 }
 
-func TestTownPortalConfiguredMaps(t *testing.T) {
+// A map is a Town Portal destination by exactly one source: its own
+// town_portal_destination flag (a town without an inn) or an authored anchor
+// NPC standing on it. An anchored map that also carries the flag has two
+// sources of truth for one contract; registration happens on map switch
+// (registerVisitedTownPortalDestination), so flag or anchor is the whole of it.
+func TestTownPortalMapFlagOnlyWhereNoAnchor(t *testing.T) {
 	cfg := loadTestConfig(t)
-	t.Chdir("../..")
-	wm := world.NewWorldManager(cfg)
-	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
-		t.Fatalf("load map configs: %v", err)
+	restoreNPCCatalog(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatalf("load npcs: %v", err)
 	}
-	// Every town the party can walk into must be recallable - a service town you
-	// can only reach on foot each time is a chore, and registration happens on
-	// map switch (registerVisitedTownPortalDestination), so the flag is the
-	// whole contract.
-	for _, mapKey := range []string{"city", "japanese_castle", "elf_city", "nomad_city"} {
-		if mc := wm.MapConfigs[mapKey]; mc == nil || !mc.TownPortalDestination {
-			t.Errorf("%s must be a Town Portal destination", mapKey)
+	wm, _ := loadRealWorldForTest(t, cfg, "")
+	if len(wm.FailedMaps) > 0 {
+		t.Fatalf("maps failed to load: %v", wm.FailedMaps)
+	}
+	g := newTestGame(cfg, wm.GetCurrentWorld())
+	anchored, flagged := 0, 0
+	for key, mc := range wm.MapConfigs {
+		anchor := g.townPortalAnchor(key)
+		if anchor != nil {
+			anchored++
+		}
+		if mc.TownPortalDestination {
+			flagged++
+		}
+		if anchor != nil && mc.TownPortalDestination {
+			t.Errorf("%s carries the map flag although its %s is a town_portal anchor", key, anchor.Name)
 		}
 	}
-	// The inn maps carry no map flag: their tavern is authored town_portal and
-	// speaks for them (TestTownPortalAnchorNPCMakesItsMapADestination).
-	for _, mapKey := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
-		if mc := wm.MapConfigs[mapKey]; mc != nil && mc.TownPortalDestination {
-			t.Errorf("%s should rely on its tavern's town_portal flag, not a map flag", mapKey)
-		}
+	// Positive controls: both kinds of destination ship.
+	if anchored == 0 || flagged == 0 {
+		t.Fatalf("destinations: %d anchored, %d flagged; want both kinds", anchored, flagged)
 	}
 }
 

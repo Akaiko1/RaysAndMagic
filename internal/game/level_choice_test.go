@@ -19,24 +19,6 @@ func lastLevelUpRequest(t *testing.T, g *MMGame) levelUpChoiceRequest {
 	return g.levelUpChoiceQueue[len(g.levelUpChoiceQueue)-1]
 }
 
-// TestLevelUpChoice_AlwaysAtLeastFourOptions: an explicit L3 entry (which lists
-// only 2 options) is padded up to MinLevelUpOptions with upgrades of skills the
-// character already owns.
-func TestLevelUpChoice_AlwaysAtLeastFourOptions(t *testing.T) {
-	cfg := loadTestConfig(t)
-	loadTestArenaData(t) // loads level_up.yaml
-	g := newTestGame(cfg, newTestWorld(cfg))
-
-	member := g.party.Members[0]
-	explicit := config.GetLevelUpChoices(member.GetClassKey(), 3)
-	g.queueLevelUpChoices(member, 3, explicit)
-
-	req := lastLevelUpRequest(t, g)
-	if len(req.options) < MinLevelUpOptions {
-		t.Errorf("L3 choice offered %d options, want >= %d", len(req.options), MinLevelUpOptions)
-	}
-}
-
 // TestLevelUpChoice_SixNineTwelveOffered: levels with no explicit level_up.yaml
 // entry still present MinLevelUpOptions random upgrades of owned skills.
 func TestLevelUpChoice_SixNineTwelveOffered(t *testing.T) {

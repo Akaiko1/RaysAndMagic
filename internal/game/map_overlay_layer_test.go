@@ -19,15 +19,13 @@ func firstPartyStatBadgeClick(g *MMGame, at int64) queuedClick {
 	return queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: at}
 }
 
-// The map item opens its overlay from INSIDE the character hub, so the overlay
-// floats above a hub that stays open and its close button lands on top of the
-// hub's inventory grid. Clicks must resolve top-down: the overlay claims the
-// click before any hub handler can eat it.
-func TestMapOverlayCloseButtonClaimsItsClickAboveTheHub(t *testing.T) {
+// The map overlay's own handler claims a press on its close button and leaves
+// every other press queued; the hub ordering is covered through the real frame
+// by TestMapOpenedFromInventoryCountsAsRenderedSameFrame.
+func TestMapOverlayCloseButtonClaimsOnlyItsOwnClick(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
 	ui := NewUISystem(g)
-	g.menuOpen = true // the hub stays open behind the map
 	g.mapOverlayOpen = true
 
 	layout := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
@@ -43,8 +41,8 @@ func TestMapOverlayCloseButtonClaimsItsClickAboveTheHub(t *testing.T) {
 	}
 
 	// A click elsewhere must not CLOSE the map. It stays queued here on purpose:
-	// dropping what a modal did not use is the frame-end rule in UISystem.Draw
-	// (covered by TestMapOverlayCloseDrainsBufferedClicks), not this handler's job.
+	// dropping what a modal did not use is the Update dispatcher's job (covered
+	// by TestMapOverlayCloseDrainsBufferedClicks), not this handler's.
 	g.mapOverlayOpen = true
 	g.mouseLeftClicks = []queuedClick{{x: layout.body.x + 4, y: layout.body.bottom() - 4, at: 1001}}
 	ui.handleMapOverlayInput()
@@ -56,25 +54,9 @@ func TestMapOverlayCloseButtonClaimsItsClickAboveTheHub(t *testing.T) {
 	}
 }
 
-// Proof the ordering matters: the overlay's close button really does overlap the
-// hub's inventory grid at the shipped default resolution.
-func TestMapOverlayCloseOverlapsHubInventoryGrid(t *testing.T) {
-	cfg := loadTestConfig(t)
-	screenW, screenH := cfg.GetScreenWidth(), cfg.GetScreenHeight()
-	closeRect := computeMapOverlayLayout(screenW, screenH).close
-	hub := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
-	grid := computeInventoryContentLayout(hub.content).grid
-	overlaps := closeRect.x < grid.right() && grid.x < closeRect.right() &&
-		closeRect.y < grid.bottom() && grid.y < closeRect.bottom()
-	if !overlaps {
-		t.Skipf("close button (%+v) no longer overlaps the inventory grid (%+v) - ordering guard is now belt-and-braces", closeRect, grid)
-	}
-}
-
 // The ordering must hold through the REAL Draw sequence, not just a direct call
 // to the handler: the HUD pass draws (and handles clicks) before any overlay, so
-// a click under an open map must not reach a party-card badge, the auto-assign
-// button or a quick slot.
+// a click under an open map must not reach a party-card badge.
 func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
@@ -90,11 +72,7 @@ func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 	before := member.FreeStatPoints
 
 	// Aim at the first card's stat badge - a HUD target that sits under the map.
-	pw, ph, left, top := partyPortraitLayout(g)
-	panelX, panelY, _, _ := partyCardPanelRect(left, top, pw, ph)
-	badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY,
-		panelPortraitW, panelPortraitH, true, false)
-	badgeClick := queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: 1000}
+	badgeClick := firstPartyStatBadgeClick(g, 1000)
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 
@@ -132,8 +110,8 @@ func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 }
 
 // Two presses can buffer behind a dropped frame. The one that closes the map
-// must not leave a sibling queued: the interface it unblocks sits directly under
-// the close button, so that leftover would fire on the hub in the same frame.
+// must not leave a sibling queued: the leftover press on the HUD badge the map
+// covered would otherwise fire in the same frame.
 func TestMapOverlayCloseDrainsBufferedClicks(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
@@ -151,11 +129,7 @@ func TestMapOverlayCloseDrainsBufferedClicks(t *testing.T) {
 	// The second press landed on a real HUD target under the overlay. If cleanup
 	// waits until the end of Draw, the freshly uncovered HUD opens this popup
 	// before the deferred queue drain runs.
-	pw, ph, left, top := partyPortraitLayout(g)
-	panelX, panelY, _, _ := partyCardPanelRect(left, top, pw, ph)
-	badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY,
-		panelPortraitW, panelPortraitH, true, false)
-	strayClick := queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: 1001}
+	strayClick := firstPartyStatBadgeClick(g, 1001)
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{closeClick, strayClick}
@@ -237,12 +211,7 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 	member := g.party.Members[0]
 	member.FreeStatPoints = 5
 	before := member.FreeStatPoints
-
-	pw, ph, left, top := partyPortraitLayout(g)
-	panelX, panelY, _, _ := partyCardPanelRect(left, top, pw, ph)
-	badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY,
-		panelPortraitW, panelPortraitH, true, false)
-	badgeClick := queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: 1000}
+	badgeClick := firstPartyStatBadgeClick(g, 1000)
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.Draw(screen) // publish the initial layout before input
@@ -258,10 +227,8 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 
 	// The stat popup is now the modal layer. Queue the badge press (which the
 	// gated HUD refuses) plus a press on the popup's own Close button.
-	popupW, popupH := 340, 320 // drawStatDistributionPopup's own size
-	popupX := (cfg.GetScreenWidth() - popupW) / 2
-	popupY := (cfg.GetScreenHeight() - popupH) / 2
-	closeClick := queuedClick{x: popupX + popupW - 40 + 14, y: popupY + 12 + 14, at: 1001}
+	closeRect := statPopupCloseRect(statPopupRect(cfg.GetScreenWidth(), cfg.GetScreenHeight()))
+	closeClick := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1001}
 	g.mouseLeftClicks = []queuedClick{badgeClick, closeClick}
 
 	ui.dispatchDisplayedInput()
@@ -269,15 +236,17 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 	if len(g.mouseLeftClicks) != 0 {
 		t.Fatalf("%d click(s) survived a modal frame - they will fire on the HUD next frame", len(g.mouseLeftClicks))
 	}
+	if g.statPopupOpen {
+		t.Fatal("the Close press did not close the stat popup")
+	}
 
 	// Next frame with no modal: the stale press must not act.
-	statPopupWasOpen := g.statPopupOpen
 	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if member.FreeStatPoints != before {
 		t.Fatalf("a buffered click spent stat points after the modal closed: %d -> %d", before, member.FreeStatPoints)
 	}
-	if !statPopupWasOpen && g.statPopupOpen {
+	if g.statPopupOpen {
 		t.Fatal("a buffered click reopened the stat popup after it closed")
 	}
 }
@@ -407,6 +376,7 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 	ui := NewUISystem(g)
 	g.menuOpen = true
 	g.currentTab = TabInventory
+	g.showPartyStats = true // the shipped HUD; the hub sits above the party cards
 	g.party.Inventory = []items.Item{
 		{Name: "World Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}},
 	}
@@ -433,13 +403,28 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 		t.Fatal("the freshly painted map counts as stale - the next Update will eat the player's first click")
 	}
 
-	// End-to-end: the very next click on the close button must work.
+	// End-to-end: the very next click on the close button must work. The button
+	// sits over a live bag filter tab of the hub under the map, and that tab
+	// must not take the press.
 	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight()).close
+	overTab := false
+	for _, bar := range []layoutRect{inv.categories, inv.personalCategories} {
+		for _, tab := range inventoryTabRects(bar.x, bar.y, bar.w) {
+			overTab = overTab || closeRect.x < tab.right() && tab.x < closeRect.right() && closeRect.y < tab.bottom() && tab.y < closeRect.bottom()
+		}
+	}
+	if !overTab {
+		t.Fatalf("fixture: the map close button %+v covers no bag filter tab, so the ordering is unproven", closeRect)
+	}
+	sharedTab, personalTab := ui.inventoryTab, ui.personalInventoryTab
 	g.mouseLeftClicks = []queuedClick{{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1100}}
 	ui.dispatchDisplayedInput()
 	ui.Draw(screen)
 	if g.mapOverlayOpen {
 		t.Fatal("the first quick click on the just-opened map did not close it")
+	}
+	if ui.inventoryTab != sharedTab || ui.personalInventoryTab != personalTab {
+		t.Fatal("the close press also switched a bag filter of the hub under the map")
 	}
 }
 

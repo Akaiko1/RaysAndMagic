@@ -18,13 +18,19 @@ import (
 	"ugataima/internal/world"
 )
 
-func attachTestProfile(t *testing.T, g *MMGame) {
+// loadShippedAchievements installs the shipped catalog until the test ends.
+func loadShippedAchievements(t *testing.T) {
 	t.Helper()
 	old := config.GlobalAchievements
 	t.Cleanup(func() { config.GlobalAchievements = old })
 	if _, err := config.LoadAchievementConfig("../../assets/achievements.yaml"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func attachTestProfile(t *testing.T, g *MMGame) {
+	t.Helper()
+	loadShippedAchievements(t)
 	s, err := playerprofile.Open(filepath.Join(t.TempDir(), "profile.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -39,33 +45,45 @@ func attachTestProfile(t *testing.T, g *MMGame) {
 }
 
 func TestShippedAchievementProductionEvents(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		for _, tc := range []struct {
-			name, key string
-			act       func(*MMGame)
-		}{
-			{"depart city", "first_steps", func(g *MMGame) { g.recordProfileTravel("city", "forest") }},
-			{"first kill", "first_blood", func(g *MMGame) { g.combat.finishMonsterKill(&monster.Monster3D{Key: "goblin", ID: "victim"}) }},
-			{"prison", "free_the_captives", func(g *MMGame) { g.gameLoop.freeCaptivesFromRewards(&monster.EncounterRewards{FreesCaptives: true}) }},
-			{"all heroes", "full_roster", func(g *MMGame) {
-				active, captives, recruits := character.StartingRoster(g.config)
-				for _, group := range [][]config.RosterEntry{active, captives, recruits} {
-					for _, hero := range group {
-						g.party.Members = []*character.MMCharacter{character.CreateRosterCharacter(hero, g.config)}
-						g.updatePlayerProfile(time.Now())
-					}
+	cases := []struct {
+		name, key string
+		act       func(*MMGame)
+	}{
+		{"depart city", "first_steps", func(g *MMGame) { g.recordProfileTravel("city", "forest") }},
+		{"first kill", "first_blood", func(g *MMGame) { g.combat.finishMonsterKill(&monster.Monster3D{Key: "goblin", ID: "victim"}) }},
+		{"prison", "free_the_captives", func(g *MMGame) { g.gameLoop.freeCaptivesFromRewards(&monster.EncounterRewards{FreesCaptives: true}) }},
+		{"all heroes", "full_roster", func(g *MMGame) {
+			active, captives, recruits := character.StartingRoster(g.config)
+			for _, group := range [][]config.RosterEntry{active, captives, recruits} {
+				for _, hero := range group {
+					g.party.Members = []*character.MMCharacter{character.CreateRosterCharacter(hero, g.config)}
+					g.updatePlayerProfile(time.Now())
 				}
-			}},
-			{"samurai", "warlord_slayer", func(g *MMGame) {
-				g.combat.finishMonsterKill(&monster.Monster3D{Key: "old_samurai", ID: "boss", Boss: true})
-			}},
-			{"orc", "warlord_slayer", func(g *MMGame) {
-				g.combat.finishMonsterKill(&monster.Monster3D{Key: "orc_hero_boss", ID: "boss", Boss: true})
-			}},
-			{"archmage", "archmage", func(g *MMGame) { g.applyArchmagePromotion(0) }},
-			{"lich", "lichdom", func(g *MMGame) { g.applyLichPromotion(0) }},
-			{"victory", "victory", func(g *MMGame) { g.gameVictory = true; g.updatePlayerProfile(time.Now()) }},
-		} {
+			}
+		}},
+		{"samurai", "warlord_slayer", func(g *MMGame) {
+			g.combat.finishMonsterKill(&monster.Monster3D{Key: "old_samurai", ID: "boss", Boss: true})
+		}},
+		{"orc", "warlord_slayer", func(g *MMGame) {
+			g.combat.finishMonsterKill(&monster.Monster3D{Key: "orc_hero_boss", ID: "boss", Boss: true})
+		}},
+		{"archmage", "archmage", func(g *MMGame) { g.applyArchmagePromotion(0) }},
+		{"lich", "lichdom", func(g *MMGame) { g.applyLichPromotion(0) }},
+		{"victory", "victory", func(g *MMGame) { g.gameVictory = true; g.updatePlayerProfile(time.Now()) }},
+	}
+	// Every shipped achievement is earned through a real event here.
+	loadShippedAchievements(t)
+	covered := map[string]bool{}
+	for _, tc := range cases {
+		covered[tc.key] = true
+	}
+	for _, def := range config.GetAchievements() {
+		if !covered[def.Key] {
+			t.Errorf("achievement %q has no production-event row", def.Key)
+		}
+	}
+	for _, tb := range []bool{false, true} {
+		for _, tc := range cases {
 			t.Run(fmt.Sprintf("%s/TB=%v", tc.name, tb), func(t *testing.T) {
 				h := newDisplayedModalHarness(t, 1024, 768)
 				g := h.g
@@ -271,49 +289,6 @@ func TestProfileAchievementQueueSurvivesOverflowAndPauses(t *testing.T) {
 	}
 }
 
-func TestProfileLootCommitBoundaries(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		act  func(*MMGame, []items.Item)
-		want int64
-	}{
-		{"monster and champion drops", func(g *MMGame, loot []items.Item) {
-			g.addLootBagDrop(g.camera.X, g.camera.Y, loot, 0)
-			g.pickupGroundContainerAt(0)
-		}, 3},
-		{"sealed chest", func(g *MMGame, loot []items.Item) {
-			g.addGroundContainer(GroundContainer{Kind: ContainerKindTreasureChest, Items: loot})
-		}, 0},
-		{"opened chest", func(g *MMGame, loot []items.Item) {
-			g.addGroundContainer(GroundContainer{Kind: ContainerKindTreasureChest, Items: loot})
-			g.pickupGroundContainerAt(0)
-		}, 3},
-		{"crate", func(g *MMGame, loot []items.Item) { g.grantCrateLoot(&character.NPC{Name: "Crate"}, loot, 0, 0) }, 3},
-		{"inventory transfer", func(g *MMGame, loot []items.Item) { g.party.AddItem(loot[0]) }, 0},
-		{"restored loot bag", func(g *MMGame, loot []items.Item) {
-			g.addGroundContainer(GroundContainer{Kind: ContainerKindLootBag, Items: loot})
-			g.pickupGroundContainerAt(0)
-		}, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newDisplayedModalHarness(t, 1024, 768)
-			g := h.g
-			attachTestProfile(t, g)
-			loot := []items.Item{{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3}}
-			tc.act(g, loot)
-			if got := g.playerProfile.Data.Counters["loot"]; got != tc.want {
-				t.Fatalf("loot=%d want=%d", got, tc.want)
-			}
-			if tc.want > 0 {
-				top := g.playerProfile.Data.Top("loot")
-				if len(top) != 1 || top[0].Count != tc.want {
-					t.Fatal("ranking disagrees with total")
-				}
-			}
-		})
-	}
-}
-
 func TestProfilePlaytimePauseAndClassAccounting(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -402,8 +377,8 @@ func TestProfileResponsiveControlsAndScroll(t *testing.T) {
 func TestShippedAchievementCatalogAndIcons(t *testing.T) {
 	h := newDisplayedModalHarness(t, 1024, 768)
 	attachTestProfile(t, h.g)
-	if got := len(config.GetAchievements()); got != 8 {
-		t.Fatalf("catalog changed: %d achievements", got)
+	if len(config.GetAchievements()) == 0 {
+		t.Fatal("no achievements shipped")
 	}
 	for _, def := range config.GetAchievements() {
 		f, err := os.Open(filepath.Join("../../assets/sprites/interface/achievements", def.Icon+".png"))

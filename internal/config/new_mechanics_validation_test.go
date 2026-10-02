@@ -76,7 +76,7 @@ func TestWeaponStatusTurnsMatchesSharedTooltipFormula(t *testing.T) {
 		t.Fatalf("WeaponStatusTurns(5) = %d, want 3", got)
 	}
 	weapon := &WeaponDefinitionConfig{SlowPct: 30, SlowSeconds: 5}
-	lines := strings.Join(weapon.EffectLines(), "\n")
+	lines := strings.Join(weapon.CoreEffectLines(), "\n")
 	if !strings.Contains(lines, "5s RT / 3 turns TB") {
 		t.Fatalf("weapon status tooltip does not use shared duration formula:\n%s", lines)
 	}

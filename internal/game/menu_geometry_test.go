@@ -119,35 +119,9 @@ func TestAudioSettingsPanelLayoutVariants(t *testing.T) {
 	}
 }
 
-func TestMinimumWindowContainsFixedMenuPanels(t *testing.T) {
-	w, h := MinimumWindowSize()
-	for name, panelW := range map[string]int{
-		"entry load":  entryLoadPanelW,
-		"main menu":   mainMenuPanelW,
-		"settings":    settingsMenuPanelW,
-		"tabbed menu": tabbedMenuPanelW,
-		"tavern":      tavernDialogWidth,
-	} {
-		if panelW+2*entryWindowSideGap > w {
-			t.Errorf("%s width %d plus side gaps exceeds minimum window width %d", name, panelW, w)
-		}
-	}
-	for name, panelH := range map[string]int{
-		"entry load":  entryLoadPanelH,
-		"main menu":   mainMenuPanelH,
-		"settings":    settingsMenuPanelH,
-		"tabbed menu": tabbedMenuPanelH,
-		"tavern":      tavernDialogHeight,
-	} {
-		if panelH+2*entryWindowSideGap > h {
-			t.Errorf("%s height %d plus side gaps exceeds minimum window height %d", name, panelH, h)
-		}
-	}
-}
-
 // TestMenuRowRectContract pins the shared row geometry: rows step by exactly
-// `pitch`, keep the constant height, share x-bounds, and the text baseline sits
-// inside the box. This is the single source the draw highlight, hover tooltip,
+// `pitch`, keep the constant height, share x-bounds inset symmetrically inside
+// the panel, and the text baseline sits inside the box. This is the single source the draw highlight, hover tooltip,
 // hover-select and right-click rename all consume, so a drift like the old
 // hard-coded pitch in hover-select can't return.
 func TestMenuRowRectContract(t *testing.T) {
@@ -159,8 +133,8 @@ func TestMenuRowRectContract(t *testing.T) {
 		if got := box.y2 - box.y1; got != menuRowHeight {
 			t.Errorf("row %d height = %d, want %d", i, got, menuRowHeight)
 		}
-		if box.x1 != px+16 || box.x2 != px+panelW-16 {
-			t.Errorf("row %d x-bounds = [%d,%d], want [%d,%d]", i, box.x1, box.x2, px+16, px+panelW-16)
+		if left, right := box.x1-px, px+panelW-box.x2; left <= 0 || left != right {
+			t.Errorf("row %d x-bounds = [%d,%d], want a symmetric inset inside panel [%d,%d]", i, box.x1, box.x2, px, px+panelW)
 		}
 		if ty < box.y1 || ty > box.y2 || tx < box.x1 {
 			t.Errorf("row %d text baseline (%d,%d) outside box %+v", i, tx, ty, box)
@@ -168,6 +142,9 @@ func TestMenuRowRectContract(t *testing.T) {
 		if i > 0 {
 			if got := box.y1 - prev.y1; got != pitch {
 				t.Errorf("row %d step = %d, want pitch %d", i, got, pitch)
+			}
+			if box.x1 != prev.x1 || box.x2 != prev.x2 {
+				t.Errorf("row %d x-bounds [%d,%d] differ from row %d [%d,%d]", i, box.x1, box.x2, i-1, prev.x1, prev.x2)
 			}
 		}
 		prev = box

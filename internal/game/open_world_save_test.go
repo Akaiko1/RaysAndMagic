@@ -140,17 +140,21 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 	if _, ok := save.MapMonsters[world.OpenWorldKey]; ok {
 		t.Fatal("save must never contain the merged-world key")
 	}
-	for _, regionKey := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
-		bucket, ok := save.MapMonsters[regionKey]
-		if !ok || len(bucket) == 0 {
-			t.Fatalf("region %q missing from MapMonsters", regionKey)
+	bucketed := 0
+	for _, r := range wm.OpenWorldRegions {
+		bucket, ok := save.MapMonsters[r.MapKey]
+		if !ok {
+			t.Fatalf("region %q missing from MapMonsters", r.MapKey)
 		}
-		r := wm.OpenWorldRegionByKey(regionKey)
 		for _, ms := range bucket {
 			if ms.X < 0 || ms.Y < 0 || ms.X > float64(r.LocalWidth)*ts || ms.Y > float64(r.LocalHeight)*ts {
-				t.Fatalf("region %q monster %q at (%.0f,%.0f) is outside local bounds", regionKey, ms.Key, ms.X, ms.Y)
+				t.Fatalf("region %q monster %q at (%.0f,%.0f) is outside local bounds", r.MapKey, ms.Key, ms.X, ms.Y)
 			}
 		}
+		bucketed += len(bucket)
+	}
+	if bucketed == 0 {
+		t.Fatal("no region bucket holds a monster to check")
 	}
 	unifiedTotal := len(wm.OpenWorld.Monsters)
 
@@ -212,17 +216,35 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 func TestOpenWorldTavernRegionScoping(t *testing.T) {
 	t.Chdir("../..")
 
-	g, wm, _ := bootOpenWorldGame(t, true)
-	for _, key := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	// Expected: the taverns each source map authors.
+	authored := 0
+	for _, r := range wm.OpenWorldRegions {
+		mc := wm.MapConfigs[r.MapKey]
+		md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+		if err != nil {
+			t.Fatalf("load %s: %v", r.MapKey, err)
+		}
+		want := 0
+		for _, spawn := range md.NPCSpawns {
+			npc, err := character.CreateNPCFromConfig(spawn.NPCKey, 0, 0)
+			if err == nil && tavernChoice(npc, "tavern_rest") != nil {
+				want++
+			}
+		}
+		authored += want
 		count := 0
 		for _, npc := range wm.OpenWorld.NPCs {
-			if tavernChoice(npc, "tavern_rest") != nil && g.npcOnMapRegion(npc, key) {
+			if tavernChoice(npc, "tavern_rest") != nil && g.npcOnMapRegion(npc, r.MapKey) {
 				count++
 			}
 		}
-		if count != 1 {
-			t.Errorf("region %q resolves %d taverns, want exactly its own 1", key, count)
+		if count != want {
+			t.Errorf("region %q resolves %d taverns, want exactly its own %d", r.MapKey, count, want)
 		}
+	}
+	if authored == 0 {
+		t.Fatal("no merged map authors a tavern")
 	}
 
 	// A rotated region's multi-tile facade must rotate its span direction too

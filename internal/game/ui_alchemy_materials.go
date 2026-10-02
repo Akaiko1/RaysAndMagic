@@ -62,6 +62,7 @@ type alchemyMaterialHeading struct {
 }
 type alchemyMaterialLayout struct {
 	title, base, toolbar, viewport, controls, maximum, brew, message layoutRect
+	track                                                            layoutRect // the viewport's scrollbar
 	cells                                                            []alchemyMaterialCell
 	headings                                                         []alchemyMaterialHeading
 	height                                                           int
@@ -104,6 +105,7 @@ func makeAlchemyMaterialLayout(l rareBookLayout, r *config.AlchemyRecipe) alchem
 	if a.viewport.h < alchemyHeadingPitch+alchemyCellH {
 		a = alchemyMaterialFrame(l, alchemyCompactSpacing)
 	}
+	a.track = layoutRect{a.viewport.right() - 4, a.viewport.y, 3, a.viewport.h}
 	x, w := a.title.x, a.title.w
 	cols := max(1, (w-2)/166)
 	cellW := (w - 8 - (cols-1)*6) / cols
@@ -280,7 +282,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			ui.rareBookClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, true, func() { selected[gi][key] = !selected[gi][key]; ui.alchemyRevision++; g.rareBookMessage = "" })
 		}
 	}
-	ui.drawScrollbar(screen, "alchemy:"+r.Key, layoutRect{a.viewport.right() - 4, a.viewport.y, 3, a.viewport.h}, offset, a.height, !ui.modalLayerOwnsInput(), func(v int) {
+	ui.drawScrollbar(screen, "alchemy:"+r.Key, a.track, offset, a.height, !ui.modalLayerOwnsInput(), func(v int) {
 		ui.alchemyScroll[r.Key] = v
 		ui.alchemyRevision++
 	})

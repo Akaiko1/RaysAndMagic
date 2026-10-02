@@ -6,8 +6,8 @@ import (
 )
 
 // On every interface frame and in every font the tips stay inside their
-// columns, never overlap, clear the Back button, and scroll just far enough
-// to show the last row.
+// columns, never overlap, clear the Back button, and lie inside the scroll
+// range.
 func TestControlTipsLayoutFitsEveryFrame(t *testing.T) {
 	forEachUIFont(t, func(t *testing.T) {
 		for _, size := range withInterfaceFrames(t, [][2]int{{800, 600}, {1280, 720}, {1920, 1080}}) {
@@ -17,8 +17,8 @@ func TestControlTipsLayoutFitsEveryFrame(t *testing.T) {
 				continue
 			}
 			l := computeControlTipsLayout(panel)
-			if backY := panel.bottom() - 46; l.body.bottom() > backY {
-				t.Errorf("%v: tips run under the Back button", size)
+			if back := controlTipsBackRect(panel); l.body.bottom() > back.y || back.bottom() > panel.bottom() {
+				t.Errorf("%v: tips run under the Back button, or it leaves the panel", size)
 			}
 			if l.track.right()+scrollbarGrabRight > panel.right() {
 				t.Errorf("%v: scrollbar leaves the panel", size)
@@ -37,9 +37,6 @@ func TestControlTipsLayoutFitsEveryFrame(t *testing.T) {
 				if r.y+r.h > l.contentH {
 					t.Errorf("%v: %q lies below the scroll range", size, r.keys)
 				}
-			}
-			if got := l.maxScroll(); got != max(0, l.contentH-l.body.h) {
-				t.Errorf("%v: max scroll %d", size, got)
 			}
 		}
 	})

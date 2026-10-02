@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -46,8 +47,12 @@ func TestQuestBannerBaselineIsSilent(t *testing.T) {
 // what turns state changes into banners, so nothing calls a notifier by hand.
 func TestQuestBannerFollowsTheQuestLifecycle(t *testing.T) {
 	g := bannerGame(t)
-	const qid = "dragon_cliffs_troll_cull" // kill 3 mountain_troll
-	name := g.questManager.Definitions()[qid].Name
+	const qid = "dragon_cliffs_troll_cull"
+	def := g.questManager.Definitions()[qid]
+	name := def.Name
+	if def.TargetCount < 2 {
+		t.Fatalf("%s counts to %d; the lifecycle needs a progress banner before completion", qid, def.TargetCount)
+	}
 
 	if err := g.questManager.ActivateQuest(qid); err != nil {
 		t.Fatalf("activate: %v", err)
@@ -56,17 +61,16 @@ func TestQuestBannerFollowsTheQuestLifecycle(t *testing.T) {
 		t.Fatalf("taking the quest = %v, want one \"New quest\" banner", got)
 	}
 
-	g.questManager.OnMonsterKilled("mountain_troll", "")
-	if got := bannerTexts(g); len(got) != 1 || got[0] != name+"  1/3" {
-		t.Fatalf("first kill = %v, want the counter banner %q", got, name+"  1/3")
-	}
-	g.questManager.OnMonsterKilled("mountain_troll", "")
-	if got := bannerTexts(g); len(got) != 1 || got[0] != name+"  2/3" {
-		t.Fatalf("second kill = %v, want 2/3", got)
+	for kill := 1; kill < def.TargetCount; kill++ {
+		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		want := fmt.Sprintf("%s  %d/%d", name, kill, def.TargetCount)
+		if got := bannerTexts(g); len(got) != 1 || got[0] != want {
+			t.Fatalf("kill %d = %v, want the counter banner %q", kill, got, want)
+		}
 	}
 
-	// The third kill completes it: the finish is the news, not the counter.
-	g.questManager.OnMonsterKilled("mountain_troll", "")
+	// The last kill completes it: the finish is the news, not the counter.
+	g.questManager.OnMonsterKilled(def.TargetMonster, "")
 	got := bannerTexts(g)
 	if len(got) != 1 || got[0] != "Quest complete - "+name {
 		t.Fatalf("completing kill = %v, want one \"Quest complete\" banner", got)
@@ -85,15 +89,19 @@ func TestQuestBannerFollowsTheQuestLifecycle(t *testing.T) {
 func TestQuestBannerCountsInteractProgress(t *testing.T) {
 	g := bannerGame(t)
 	const qid = "shrine_lamps"
-	name := g.questManager.Definitions()[qid].Name
+	def := g.questManager.Definitions()[qid]
+	if def.TargetCount < 2 {
+		t.Fatalf("%s counts to %d; the first interact must show progress", qid, def.TargetCount)
+	}
 	if err := g.questManager.ActivateQuest(qid); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
 	bannerTexts(g) // the "New quest" banner
 
-	g.questManager.OnInteract("shrine_lamp")
-	if got := bannerTexts(g); len(got) != 1 || got[0] != name+"  1/3" {
-		t.Fatalf("first lamp = %v, want %q", got, name+"  1/3")
+	g.questManager.OnInteract(def.TargetMonster)
+	want := fmt.Sprintf("%s  1/%d", def.Name, def.TargetCount)
+	if got := bannerTexts(g); len(got) != 1 || got[0] != want {
+		t.Fatalf("first lamp = %v, want %q", got, want)
 	}
 }
 
@@ -258,8 +266,11 @@ func TestQuestBannerTextIsAsciiForEveryShippedQuest(t *testing.T) {
 	g := bannerGame(t)
 	kinds := []screenBannerKind{bannerQuestTaken, bannerQuestProgress, bannerQuestDone, bannerQuestPaid}
 	for id := range g.questManager.Definitions() {
-		if err := g.questManager.ActivateQuest(id); err != nil {
-			continue // already active (the endgame gates)
+		// The endgame gates are active from boot; the rest are taken here.
+		if g.questManager.GetQuest(id) == nil {
+			if err := g.questManager.ActivateQuest(id); err != nil {
+				t.Fatalf("activate %s: %v", id, err)
+			}
 		}
 		q := g.questManager.GetQuest(id)
 		for _, kind := range kinds {

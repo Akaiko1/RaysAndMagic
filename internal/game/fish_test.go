@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"testing"
 
 	"ugataima/internal/collision"
@@ -34,8 +36,30 @@ func fishTestGame(t *testing.T, region string) (*MMGame, *world.WorldManager, fl
 	return g, wm, tile
 }
 
+// fishSpeciesCase is one authored ecology.yaml fish region and its species.
+type fishSpeciesCase struct{ region, key string }
+
+// authoredFishSpecies lists every authored fish region in stable order.
+func authoredFishSpecies(t *testing.T) []fishSpeciesCase {
+	t.Helper()
+	old := config.GlobalEcology
+	t.Cleanup(func() { config.GlobalEcology = old })
+	if err := config.LoadEcology("../../assets/ecology.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	fish := config.GlobalEcology.Fish
+	if fish == nil || len(fish.Species) == 0 {
+		t.Fatal("ecology.yaml authors no fish species")
+	}
+	var out []fishSpeciesCase
+	for _, region := range slices.Sorted(maps.Keys(fish.Species)) {
+		out = append(out, fishSpeciesCase{region: region, key: fish.Species[region]})
+	}
+	return out
+}
+
 func TestFishLifecycle(t *testing.T) {
-	for _, species := range []struct{ region, key, scale string }{{"forest", "common_carp", "Carp Scale"}, {"sakura_garden", "koi", "Koi Scale"}, {"highlands", "rainbow_salmon", "Rainbow Salmon Scale"}} {
+	for _, species := range authoredFishSpecies(t) {
 		for _, tb := range []bool{false, true} {
 			for _, outcome := range []string{"water", "beach", "arrow", "melee"} {
 				t.Run(fmt.Sprintf("%s/TB=%v/%s", species.key, tb, outcome), func(t *testing.T) {
@@ -91,9 +115,15 @@ func TestFishLifecycle(t *testing.T) {
 						t.Fatalf("drops=%d want %d", len(g.groundContainers), want)
 					}
 					if want == 1 {
+						scales := map[string]bool{}
+						for _, e := range config.GlobalLoots.Loots[species.key] {
+							if d, ok := config.GetItemDefinition(e.Key); ok && e.Type == "item" {
+								scales[d.Name] = true
+							}
+						}
 						bag := g.groundContainers[0]
-						if len(bag.Items) != 1 || bag.Items[0].Name != species.scale || bag.Gold != 0 || !g.world.CanMoveTo(bag.X, bag.Y) {
-							t.Fatalf("wrong/unreachable scale: %+v", bag)
+						if len(bag.Items) != 1 || !scales[bag.Items[0].Name] || bag.Gold != 0 || !g.world.CanMoveTo(bag.X, bag.Y) {
+							t.Fatalf("wrong/unreachable scale (want one of %v): %+v", scales, bag)
 						}
 					}
 				})
@@ -205,7 +235,8 @@ func TestFishScheduleAndSave(t *testing.T) {
 
 func TestFishSpecialMotionPrewarm(t *testing.T) {
 	loadTestConfig(t)
-	for _, key := range []string{"common_carp", "koi", "rainbow_salmon"} {
+	for _, species := range authoredFishSpecies(t) {
+		key := species.key
 		requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterDecode: []mapMonsterPrewarmResource{{key: key, spriteName: key}}})
 		found := false
 		for _, r := range requests {
@@ -255,6 +286,7 @@ func TestFishTravelAndReachableLoot(t *testing.T) {
 
 func TestFishAuthoredWater(t *testing.T) {
 	cfg := loadTestConfig(t)
+	fishRegions := authoredFishSpecies(t)
 	t.Chdir("../..")
 	oldTM, oldWM := world.GlobalTileManager, world.GlobalWorldManager
 	t.Cleanup(func() { world.GlobalTileManager, world.GlobalWorldManager = oldTM, oldWM })
@@ -277,7 +309,8 @@ func TestFishAuthoredWater(t *testing.T) {
 			t.Fatal(err)
 		}
 		world.GlobalWorldManager = wm
-		for _, key := range []string{"forest", "sakura_garden", "highlands"} {
+		for _, species := range fishRegions {
+			key := species.region
 			if err := wm.SwitchToMap(key); err != nil {
 				t.Fatal(err)
 			}

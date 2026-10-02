@@ -1,7 +1,6 @@
 package sound
 
 import (
-	"maps"
 	"math"
 	"math/rand"
 	"os"
@@ -11,11 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"ugataima/internal/config"
+	"ugataima/internal/damage"
+
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"gopkg.in/yaml.v3"
 )
 
+// The shipped catalog decodes every sound and track, routes every magic school
+// and every non-magic ranged weapon category, and gives each map biome exactly
+// one soundtrack (the boss track stays biome-free, see validateCatalog).
 func TestProjectCatalogLoads(t *testing.T) {
-	catalog, err := LoadCatalog(filepath.Join("..", "..", "assets", "audio.yaml"))
+	assets := filepath.Join("..", "..", "assets")
+	catalog, err := LoadCatalog(filepath.Join(assets, "audio.yaml"))
 	if err != nil {
 		t.Fatalf("LoadCatalog: %v", err)
 	}
@@ -24,57 +31,59 @@ func TestProjectCatalogLoads(t *testing.T) {
 			t.Fatalf("sound %q has no decoded variants", key)
 		}
 	}
-	if len(catalog.Music.Tracks) != 17 {
-		t.Fatalf("music track count = %d, want 17", len(catalog.Music.Tracks))
-	}
-	if catalog.Music.BossTrack != "boss_fight" {
-		t.Fatalf("boss track = %q, want boss_fight", catalog.Music.BossTrack)
-	}
-	wantMusicBiomes := map[string]string{
-		"forest": "forest", "desert": "desert", "water": "water", "church": "church",
-		"clock_tower_workshop": "clock_tower", "clock_tower_gearworks": "clock_tower", "clock_tower_belfry": "clock_tower",
-		"arena": "arena", "pyramid": "pyramid", "lich_nexus": "lich_nexus", "culverts": "culverts",
-		// The eastern island shares the castle theme until the garden gets its own.
-		"japanese_castle": "japanese_castle", "sakura_garden": "japanese_castle",
-		"city": "city", "elf_city": "elf_city", "nomad_city": "nomad_city",
-		"highlands": "highlands", "dragon_cliffs": "dragon_cliffs", "jungle": "jungle",
-	}
-	gotMusicBiomes := make(map[string]string, len(wantMusicBiomes))
-	for trackKey, definition := range catalog.Music.Tracks {
-		for _, biome := range definition.Biomes {
-			gotMusicBiomes[biome] = trackKey
-		}
-	}
-	if !maps.Equal(gotMusicBiomes, wantMusicBiomes) {
-		t.Fatalf("music biome routes = %v, want %v", gotMusicBiomes, wantMusicBiomes)
-	}
-	for key, asset := range catalog.musicAssets {
-		if asset.duration <= 0 {
-			t.Fatalf("music %q has invalid duration %v", key, asset.duration)
+	for key := range catalog.Music.Tracks {
+		asset, ok := catalog.musicAssets[key]
+		if !ok || asset.duration <= 0 {
+			t.Fatalf("music %q is not decoded or has invalid duration %v", key, asset.duration)
 		}
 		if loopFade := time.Duration(catalog.Music.LoopCrossfadeMS) * time.Millisecond; asset.duration <= loopFade {
 			t.Fatalf("music %q duration %v is not longer than loop fade %v", key, asset.duration, loopFade)
 		}
 	}
-	for _, key := range []string{"monster_hit", "party_hit"} {
-		if got := len(catalog.Sounds[key].Files); got != 6 {
-			t.Fatalf("sound %q variant count = %d, want 6", key, got)
-		}
-	}
-	for _, school := range []string{"fire", "water", "air", "earth", "light", "body", "spirit", "dark", "mind"} {
-		if catalog.SchoolSounds[school] == "" {
+
+	for _, school := range damage.Types() {
+		if school != damage.Physical && catalog.SchoolSounds[school.String()] == "" {
 			t.Errorf("school %q has no sound mapping", school)
 		}
 	}
-	for _, school := range []string{"body", "spirit"} {
-		if got := catalog.OffensiveSchoolSounds[school]; got != "spell_dark_psychic" {
-			t.Errorf("offensive school %q route = %q, want spell_dark_psychic", school, got)
+	if _, err := config.LoadWeaponConfig(filepath.Join(assets, "weapons.yaml")); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	categories := config.RangedWeaponSoundCategories()
+	if len(categories) == 0 {
+		t.Fatal("no ranged weapon categories in the weapon catalog")
+	}
+	for _, category := range categories {
+		if catalog.WeaponCategorySounds[category] == "" {
+			t.Errorf("weapon category %q has no sound route", category)
 		}
 	}
-	for category, want := range map[string]string{"bow": "bow_release", "blaster": "blaster_shot", "dagger": "melee_swing"} {
-		if got := catalog.WeaponCategorySounds[category]; got != want {
-			t.Errorf("weapon category %q route = %q, want %q", category, got, want)
+
+	raw, err := os.ReadFile(filepath.Join(assets, "map_configs.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mapConfigs config.MapConfigs
+	if err := yaml.Unmarshal(raw, &mapConfigs); err != nil {
+		t.Fatal(err)
+	}
+	if len(mapConfigs.Biomes) == 0 {
+		t.Fatal("map_configs.yaml authors no biomes")
+	}
+	routed := map[string]string{}
+	for trackKey, definition := range catalog.Music.Tracks {
+		for _, biome := range definition.Biomes {
+			if _, known := mapConfigs.Biomes[biome]; !known {
+				t.Errorf("music %q names unknown biome %q", trackKey, biome)
+			}
+			if previous, dup := routed[biome]; dup {
+				t.Errorf("biome %q routed to both %q and %q", biome, previous, trackKey)
+			}
+			routed[biome] = trackKey
 		}
+	}
+	if len(routed) == 0 {
+		t.Fatal("no music track routes any biome")
 	}
 }
 

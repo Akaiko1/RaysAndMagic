@@ -3061,13 +3061,8 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 		g.AddCombatMessage(uitext.Text("dialog.that_casting_costs_gold_your_purse_is", choice.Cost))
 		return
 	}
-	switch g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) {
-	case timedBuffNotHandled:
+	if g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) == timedBuffNotHandled {
 		g.AddCombatMessage(uitext.Text("dialog.nothing_happens")) // unknown buff: validated at load
-		return
-	case timedBuffUnchanged:
-		g.AddCombatMessage(uitext.Text("dialog.already_lasts_at_least_no_gold_was",
-			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds)))
 		return
 	}
 	casterName := uitext.Text("dialog.the_caster")

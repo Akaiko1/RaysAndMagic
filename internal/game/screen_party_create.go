@@ -159,6 +159,15 @@ func (pc *partyCreateState) filledSlots() int {
 	return n
 }
 
+// partyPoolCardGap separates the recruit cards in the pool, in both axes.
+const partyPoolCardGap = 12
+
+// heroDetailTextInset is the detail panel's text margin on each side.
+const heroDetailTextInset = 16
+
+// heroDetailTextWidth is the width the detail panel wraps its text to.
+func heroDetailTextWidth(panel rect) int { return panel.w - 2*heroDetailTextInset }
+
 // partyCreateLayout computes all hit/draw rectangles for the given screen size.
 func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	const margin = 20
@@ -181,7 +190,7 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	poolX := detailX + detailW + 20
 	poolY := detailY
 	poolW := w - margin - poolX
-	const cardGap = 12
+	const cardGap = partyPoolCardGap
 	poolH := slotsY - poolY - 16
 	// Keep cards readable; overflow uses complete rows instead of shrinking art.
 	cols := max(1, (poolW+cardGap)/(144+cardGap))
@@ -577,12 +586,12 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 		pc.detailScrollHero = hero
 		pc.detailScroll = 0
 	}
-	tx := panel.x + 16
+	tx := panel.x + heroDetailTextInset
 	textTop := panel.y + portH + 30
 	contentBottom := panel.y + panel.h - 24
 	ty := textTop - pc.detailScroll
 	line := func(s string, col color.Color) {
-		for _, text := range wrapUIText(s, panel.w-32) {
+		for _, text := range wrapUIText(s, heroDetailTextWidth(panel)) {
 			if ty >= textTop && ty+uiTextCharHeight <= contentBottom {
 				drawUITextColored(screen, text, tx, ty, col)
 			}
@@ -593,7 +602,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	// tokens so the DRAWN string (prefix + content) fits, measuring the prefix the
 	// caller adds - otherwise lists run past the frame's right border. A token
 	// with a tooltip opens it once the pointer rests on it.
-	maxLineW := panel.w - 32
+	maxLineW := heroDetailTextWidth(panel)
 	mouseX, mouseY := uiCursorPosition()
 	hoverable := pc.drag == nil && pc.pending == nil
 	wrapTokens := func(prefix, cont string, tokens []heroDetailToken, col color.Color) {

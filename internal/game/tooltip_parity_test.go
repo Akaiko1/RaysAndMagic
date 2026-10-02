@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"ugataima/internal/character"
@@ -80,10 +81,15 @@ func TestSpellItemBaseUsesCurrentDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	it.Description = "Obsolete saved spell damage"
+	def, err := spells.GetSpellDefinitionByID("fireball")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("Total Damage: %d", character.SpellDamageBreakdown(def, nil).Total)
 	for _, full := range []bool{false, true} {
 		tip := GetItemTooltip(it, nil, cs, full)
-		if strings.Contains(tip, it.Description) || !strings.Contains(tip, "Total Damage: 12") {
-			t.Fatal(tip)
+		if strings.Contains(tip, it.Description) || !strings.Contains(tip, want) {
+			t.Fatalf("want %q:\n%s", want, tip)
 		}
 	}
 	// Confirm the live path still applies real party buffs.

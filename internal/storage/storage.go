@@ -19,6 +19,8 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
+	"testing"
 	"time"
 
 	"ugataima/internal/assetmanifest"
@@ -83,9 +85,38 @@ func fileSHA256(path string) (string, bool) {
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
-// SetDataRootForTesting points the writable data root at a temp dir so tests
-// never touch the real saves directory. Pass "" to restore default resolution.
+// SetDataRootForTesting points the writable data root at a temp dir. Pass "" to
+// restore the default, which under go test is still the process's own temp root.
 func SetDataRootForTesting(dir string) { dataRoot = dir }
+
+// testSaveRoot keeps go test processes out of real saves: a test that sets no
+// root never writes next to the executable or into its working directory. Runs
+// older than a day are pruned; concurrent runs keep their fresh directories.
+var testSaveRoot = sync.OnceValue(func() string {
+	parent := filepath.Join(os.TempDir(), "rays-and-magic-test-saves")
+	if err := os.MkdirAll(parent, 0755); err != nil {
+		return parent
+	}
+	if entries, err := os.ReadDir(parent); err == nil {
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil && strings.HasPrefix(e.Name(), "run-") && time.Since(info.ModTime()) > 24*time.Hour {
+				_ = os.RemoveAll(filepath.Join(parent, e.Name()))
+			}
+		}
+	}
+	if dir, err := os.MkdirTemp(parent, "run-"); err == nil {
+		return dir
+	}
+	return parent
+})
+
+// saveRoots is appDataRoots for persistent player data.
+func saveRoots() []string {
+	if scenarioRoot == "" && dataRoot == "" && testing.Testing() {
+		return []string{testSaveRoot()}
+	}
+	return appDataRoots()
+}
 
 // dataRoot is the writable runtime root when running as a .app bundle (empty
 // otherwise). Set once by SetupBundleRuntime; AppSaveDir writes saves under it.
@@ -115,7 +146,7 @@ func UseTestScenarioDirectory(key string) error {
 // during creation are logged to stderr; callers always receive a path string
 // even if the directory could not be created.
 func AppSaveDir() string {
-	roots := appDataRoots()
+	roots := saveRoots()
 	for _, root := range roots {
 		dir := filepath.Join(root, savesDirName)
 		if err := os.MkdirAll(dir, 0755); err == nil {

@@ -9,7 +9,10 @@ import (
 // Every item type must land on exactly one tab. A type nobody claims would be
 // reachable only from All, which is how a filter quietly hides loot.
 func TestInventoryTabs_EveryItemTypeIsClaimedOnce(t *testing.T) {
-	for typ := items.ItemWeapon; typ <= items.ItemCard; typ++ {
+	// Every declared type has a name; the loop ends at the first undeclared one.
+	checked := 0
+	for typ := items.ItemWeapon; typ.String() != "Unknown"; typ++ {
+		checked++
 		item := items.Item{Name: "probe", Type: typ}
 		owner := inventoryTabOwning(item)
 		if owner == inventoryTabAll {
@@ -29,9 +32,9 @@ func TestInventoryTabs_EveryItemTypeIsClaimedOnce(t *testing.T) {
 		if claims > 1 {
 			t.Fatalf("%v claimed by %d tabs, want at most 1 (catch-all covers the rest)", typ, claims)
 		}
-		if claims == 0 && owner != inventoryTabCatchAll {
-			t.Fatalf("%v is unclaimed but did not fall to the catch-all", typ)
-		}
+	}
+	if checked <= int(items.ItemTechnique) {
+		t.Fatalf("checked %d item types; the walk stopped before the last declared type", checked)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 )
 
 func TestRareRulesCheapestMaterial(t *testing.T) {
-	g, c := rareClassGame(t, character.ClassAlchemist, false)
+	g, _ := rareClassGame(t, character.ClassAlchemist, false)
 	for ri, r := range config.GlobalAlchemy.Recipes {
 		for choice, source := range r.Ingredients[1].Alternatives {
 			for _, batches := range []int{1, 2} {
@@ -44,7 +44,7 @@ func TestRareRulesCheapestMaterial(t *testing.T) {
 					g.selectedRare, g.alchemyBatches, g.brewAnimation = ri, batches, nil
 					g.alchemy.Choices = map[string][]int{r.Key: {0, choice}}
 					g.alchemy.Selections = nil // Each case loads a different legacy source.
-					if g.party.MaxAlchemyBatches(&r, []int{0, choice}) != batches {
+					if (&UISystem{game: g}).alchemyPlan(&r, g.alchemySelection(&r), batches).max != batches {
 						t.Fatal("preview disagrees with stocked base")
 					}
 					if !g.brewSelectedRecipe() {
@@ -65,8 +65,9 @@ func TestRareRulesCheapestMaterial(t *testing.T) {
 					costly := stock[0]
 					g.party.AddItem(costly)
 					g.party.AddItem(herb)
-					if _, _, err := g.party.Brew(c, &r, []int{0, choice}, batches); err != nil {
-						t.Fatal(err)
+					g.brewAnimation = nil
+					if !g.brewSelectedRecipe() {
+						t.Fatal(g.rareBookMessage)
 					}
 				})
 			}
@@ -157,6 +158,10 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 		}
 	}
 	// Exercise the actual commits, including the staff modifier shared with spells.
+	staff, ok := config.GetWeaponDefinition("archmage_staff")
+	if !ok || staff.SpellCooldownMultiplier <= 0 || staff.SpellCooldownMultiplier >= 1 {
+		t.Fatal("archmage_staff must author a spell_cooldown_multiplier below 1")
+	}
 	for _, action := range []string{"purify", "harm_flask"} {
 		t.Run("commit/"+action, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassAlchemist, false)
@@ -169,7 +174,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 			c.Speed = 16
 			g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
 			seconds, _ := baseCastCooldownSeconds(spells.SpellID(action))
-			want := clampRTCooldown(clampRTCooldown(int(math.Round(seconds*float64(g.config.GetTPS())*spellCooldownSpeedFactor(c.GetEffectiveSpeed())*.8))) * 65 / 100)
+			want := clampRTCooldown(clampRTCooldown(int(math.Round(seconds*float64(g.config.GetTPS())*spellCooldownSpeedFactor(c.GetEffectiveSpeed())*staff.SpellCooldownMultiplier))) * 65 / 100)
 			if action == "purify" {
 				if !g.useTechnique(0, action, false, false) {
 					t.Fatal("purify rejected")
@@ -439,12 +444,18 @@ func TestRareRulesCatalogEligibility(t *testing.T) {
 	rareClassGame(t, character.ClassAlchemist, false)
 	original := config.GlobalItems
 	t.Cleanup(func() { config.GlobalItems = original })
-	for _, key := range []string{"dawnleaf", "grave_orchid", "harm_flask", "brewed_health_potion", "carp_scale"} {
+	// Harvest herbs, crafted flasks and brews never roll; an ordinary material does.
+	eligible := 0
+	keys := []string{"dawnleaf", "grave_orchid", "harm_flask", "brewed_health_potion", "carp_scale"}
+	for _, key := range keys {
 		def := original.Items[key]
+		want := !def.CraftedOnly && def.HarvestSprite == ""
+		if want {
+			eligible++
+		}
 		t.Run(key, func(t *testing.T) {
 			config.GlobalItems = &config.ItemSystemConfig{Items: map[string]*config.ItemDefinitionConfig{key: def}}
 			_, ok := rollCatalogItem(def.Type, exactRarity(def.Rarity))
-			want := key == "carp_scale"
 			if ok != want || config.CatalogItemMatchesFilter(key, def.Type, exactRarity(def.Rarity)) != want {
 				t.Fatal("runtime and validation eligibility disagree")
 			}
@@ -457,6 +468,9 @@ func TestRareRulesCatalogEligibility(t *testing.T) {
 				}
 			}
 		})
+	}
+	if eligible == 0 || eligible == len(keys) {
+		t.Fatalf("fixture needs eligible and forbidden materials, got %d of %d eligible", eligible, len(keys))
 	}
 }
 

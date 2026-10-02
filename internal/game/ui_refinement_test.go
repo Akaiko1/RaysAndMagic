@@ -73,9 +73,8 @@ func TestControlTipsDisplayedNavigation(t *testing.T) {
 				if h.g.mainMenuMode != MenuControlTips {
 					t.Fatal("click did not open tips")
 				}
-				w, height = menuPanelSize(MenuControlTips, size[0], size[1])
-				px, py = (size[0]-w)/2, (size[1]-height)/2
-				h.clicks(false, px+24+menuBackButtonW/2, py+height-46+menuBackButtonH/2, 1)
+				back := controlTipsBackRect(mainMenuPanelRect(size[0], size[1], MenuControlTips))
+				h.clicks(false, back.x+back.w/2, back.y+back.h/2, 1)
 				if h.g.mainMenuMode != MenuMain || !h.g.mainMenuOpen {
 					t.Fatal("Back did not return to pause menu")
 				}
@@ -110,7 +109,7 @@ func TestHeroRosterUsesAvailableWidth(t *testing.T) {
 				continue
 			}
 			prev := visible[i-1]
-			if prev.x+prev.w+12+r.w <= w-20 {
+			if prev.x+prev.w+partyPoolCardGap+r.w <= l.poolArea.x+l.poolArea.w {
 				t.Fatalf("%v: wrapped with enough space left in row", physical)
 			}
 		}

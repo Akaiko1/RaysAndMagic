@@ -43,8 +43,9 @@ func TestCardMoveBurstMovementContract(t *testing.T) {
 					g.cardSlots[slot].key = "gorilla_titan_card"
 				}
 				def := cardDef("gorilla_titan_card")
-				if def.CardMoveAoePct != 10 || def.CardMoveAoeDmg != 50 || def.CardMoveAoeRadiusTiles != 5 {
-					t.Fatalf("unexpected authored card: %+v", def)
+				dmg, radius := def.CardMoveAoeDmg, def.CardMoveAoeRadiusTiles
+				if def.CardMoveAoePct <= 0 || dmg <= 0 || radius <= 1 {
+					t.Fatalf("fixture: gorilla_titan_card burst %d%%/%d dmg/%v tiles", def.CardMoveAoePct, dmg, radius)
 				}
 				oldChance := def.CardMoveAoePct
 				def.CardMoveAoePct = 100 // Deterministic successful RNG branch.
@@ -66,19 +67,22 @@ func TestCardMoveBurstMovementContract(t *testing.T) {
 				}
 				wantDamage := []int{}
 				if !tc.empty {
+					// Offsets in tiles from the arrival point: inside, exactly on the
+					// radius (straight and on a 3-4-5 diagonal) and just outside it.
+					inside := radius * 2 / 5
 					for i, target := range []struct {
 						dx, dy float64
 						resist int
 						immune bool
 						loss   int
 					}{
-						{-2, 0, 0, false, 50},
-						{-2, -1, 0, false, 50},
-						{-5, 0, 0, false, 50},
-						{-3, -4, 0, false, 50},
-						{-5.01, 0, 0, false, 0},
-						{-2, 0, 50, false, 25},
-						{-2, 0, 0, true, 0},
+						{-inside, 0, 0, false, dmg},
+						{-inside, -radius / 5, 0, false, dmg},
+						{-radius, 0, 0, false, dmg},
+						{-radius * 3 / 5, -radius * 4 / 5, 0, false, dmg},
+						{-radius - 0.01, 0, 0, false, 0},
+						{-inside, 0, 50, false, dmg * (100 - 50) / 100},
+						{-inside, 0, 0, true, 0},
 					} {
 						m := monster.NewMonster3DFromConfig(arrivalX+target.dx*tile, g.camera.Y+target.dy*tile, "mummy", g.config)
 						m.ID = fmt.Sprintf("mummy%d", i)
@@ -116,7 +120,7 @@ func TestCardMoveBurstMovementContract(t *testing.T) {
 					t.Fatalf("ground FX present=%v, want %v", got, tc.wantBurst)
 				}
 				if tc.wantBurst {
-					assertCardQuakeFootprint(t, g, 5)
+					assertCardQuakeFootprint(t, g, radius)
 				}
 				logged := false
 				for _, message := range g.combatLogHistory {
@@ -167,13 +171,16 @@ func TestCardMoveBurstRadiusAfterSaveLoad(t *testing.T) {
 	if err := loaded.applySave(wm, &save); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.cardMoveAoePct() != 20 || loaded.cardMoveAoeDmg() != 100 || loaded.cardMoveAoeRadiusTiles() != 5 {
+	// Duplicates add chance and damage; the radius is one card's.
+	def := cardDef("gorilla_titan_card")
+	pct, dmg, radius := 2*def.CardMoveAoePct, 2*def.CardMoveAoeDmg, def.CardMoveAoeRadiusTiles
+	if loaded.cardMoveAoePct() != pct || loaded.cardMoveAoeDmg() != dmg || loaded.cardMoveAoeRadiusTiles() != radius {
 		t.Fatal("loaded duplicate cards changed burst chance, damage or radius")
 	}
-	if got := strings.Join(loaded.cardCollectionEffectLines(), "\n"); !strings.Contains(got, "20% on move: 100 physical true damage within 5 tiles") {
-		t.Fatalf("aggregate tooltip does not match loaded cards: %s", got)
+	want := fmt.Sprintf("%d%% on move: %d physical true damage within %g tiles", pct, dmg, radius)
+	if got := strings.Join(loaded.cardCollectionEffectLines(), "\n"); !strings.Contains(got, want) {
+		t.Fatalf("aggregate tooltip does not match loaded cards: want %q in %s", want, got)
 	}
-	def := cardDef("gorilla_titan_card")
 	oldRadius := def.CardMoveAoeRadiusTiles
 	def.CardMoveAoeRadiusTiles = 3.5
 	t.Cleanup(func() { def.CardMoveAoeRadiusTiles = oldRadius })

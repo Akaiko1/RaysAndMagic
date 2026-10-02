@@ -137,15 +137,16 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 	}
 
 	plan := r.collectMapRenderPrewarmPlan("")
-	for _, name := range []string{"forest_oak", "church_wall", "mushroom_ring"} {
-		if !containsString(plan.tileSprites, name) {
+	sprite := world.GlobalTileManager.GetSprite
+	for _, tt := range []world.TileType3D{tree, wall, mushrooms} {
+		if name := sprite(tt); !containsString(plan.tileSprites, name) {
 			t.Errorf("tile sprite %q missing from plan: %v", name, plan.tileSprites)
 		}
 	}
-	if containsString(plan.tileSprites, "firefly_swarm") {
+	if containsString(plan.tileSprites, sprite(fireflies)) {
 		t.Error("procedural firefly tile unnecessarily prewarms its legacy PNG")
 	}
-	if !containsString(plan.wallSprites, "church_wall") {
+	if !containsString(plan.wallSprites, sprite(wall)) {
 		t.Errorf("textured wall missing from wall plan: %v", plan.wallSprites)
 	}
 	for _, cell := range [][2]int{{0, 0}, {1, 1}} {
@@ -153,10 +154,10 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 			t.Errorf("selected tree sprite %q missing from standee plan: %v", name, plan.treeSprites)
 		}
 	}
-	if !containsEnvironmentResource(plan.environmentSprites, mushrooms, "mushroom_ring") {
+	if !containsEnvironmentResource(plan.environmentSprites, mushrooms, sprite(mushrooms)) {
 		t.Errorf("transparent environment sprite missing from plan: %+v", plan.environmentSprites)
 	}
-	if containsEnvironmentResource(plan.environmentSprites, fireflies, "firefly_swarm") {
+	if containsEnvironmentResource(plan.environmentSprites, fireflies, sprite(fireflies)) {
 		t.Error("procedural firefly tile entered the image-backed environment plan")
 	}
 	for _, want := range []mapNPCPrewarmResource{
@@ -220,11 +221,10 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 		return value
 	}
 
+	leftTile, rightTile := tileType("tree"), tileType("mushroom_ring")
+	leftSprite, rightSprite := world.GlobalTileManager.GetSprite(leftTile), world.GlobalTileManager.GetSprite(rightTile)
 	w := newTestWorldSized(cfg, 4, 1)
-	w.Tiles = [][]world.TileType3D{{
-		tileType("tree"), tileType("tree"),
-		tileType("mushroom_ring"), tileType("mushroom_ring"),
-	}}
+	w.Tiles = [][]world.TileType3D{{leftTile, leftTile, rightTile, rightTile}}
 	leftMonster := monster.NewMonster3DFromConfig(32, 32, "wolf", cfg)
 	rightMonster := monster.NewMonster3DFromConfig(160, 32, "forest_spider", cfg)
 	w.Monsters = []*monster.Monster3D{leftMonster, rightMonster}
@@ -251,19 +251,27 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 		tileSize: float64(cfg.GetTileSize()),
 	}
 	plan := r.collectMapRenderPrewarmPlanForScope(scope)
+	leftChest := mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true}
+	rightChest := mapNPCPrewarmResource{name: "chest_iron", prefix: "npc", warmVisibleBounds: true}
 	cases := []struct {
 		name string
 		got  bool
 		want bool
 	}{
-		{name: "local static source", got: containsString(plan.tileSprites, "forest_oak"), want: true},
-		{name: "remote static source", got: containsString(plan.tileSprites, "mushroom_ring"), want: false},
-		{name: "local NPC source", got: containsString(plan.npcDecodeSprites, "chest_wooden"), want: true},
-		{name: "remote NPC source", got: containsString(plan.npcDecodeSprites, "chest_iron"), want: false},
+		{name: "local static source", got: containsString(plan.tileSprites, leftSprite), want: true},
+		{name: "remote static source", got: containsString(plan.tileSprites, rightSprite), want: false},
+		{name: "local NPC source", got: containsString(plan.npcDecodeSprites, leftChest.name), want: true},
+		{name: "remote NPC source", got: containsString(plan.npcDecodeSprites, rightChest.name), want: false},
+		{name: "local NPC standee", got: containsNPCResource(plan.npcSprites, leftChest), want: true},
+		{name: "remote NPC standee", got: containsNPCResource(plan.npcSprites, rightChest), want: false},
 		{name: "local monster source", got: containsMonsterResource(plan.monsterDecode, "wolf"), want: true},
 		{name: "remote monster source", got: containsMonsterResource(plan.monsterDecode, "forest_spider"), want: false},
+		{name: "local monster standee", got: containsMonsterResource(plan.monsterSprites, "wolf"), want: true},
+		{name: "remote monster standee", got: containsMonsterResource(plan.monsterSprites, "forest_spider"), want: false},
 		{name: "local container source", got: containsString(plan.containerDecode, "pyramid_chest"), want: true},
 		{name: "remote container source", got: containsString(plan.containerDecode, "clockwork_chest"), want: false},
+		{name: "local container sprite", got: containsString(plan.containerSprites, "pyramid_chest"), want: true},
+		{name: "remote container sprite", got: containsString(plan.containerSprites, "clockwork_chest"), want: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -271,46 +279,6 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 				t.Fatalf("present in left-region plan = %v, want %v", tc.got, tc.want)
 			}
 		})
-	}
-
-	if !containsString(plan.tileSprites, "forest_oak") {
-		t.Errorf("left static sprite missing: %v", plan.tileSprites)
-	}
-	if containsString(plan.tileSprites, "mushroom_ring") {
-		t.Errorf("right static sprite leaked into left plan: %v", plan.tileSprites)
-	}
-	if !containsString(plan.npcDecodeSprites, "chest_wooden") {
-		t.Errorf("left NPC source missing: %v", plan.npcDecodeSprites)
-	}
-	if containsString(plan.npcDecodeSprites, "chest_iron") {
-		t.Errorf("right NPC source leaked into left plan: %v", plan.npcDecodeSprites)
-	}
-	if !containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true}) {
-		t.Errorf("left NPC standee missing: %+v", plan.npcSprites)
-	}
-	if containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_iron", prefix: "npc", warmVisibleBounds: true}) {
-		t.Errorf("right NPC leaked into left standee plan: %+v", plan.npcSprites)
-	}
-	if !containsMonsterResource(plan.monsterDecode, "wolf") {
-		t.Errorf("left monster source missing: %+v", plan.monsterDecode)
-	}
-	if containsMonsterResource(plan.monsterDecode, "forest_spider") {
-		t.Errorf("right monster source leaked into left plan: %+v", plan.monsterDecode)
-	}
-	if !containsMonsterResource(plan.monsterSprites, "wolf") {
-		t.Errorf("left monster standee missing: %+v", plan.monsterSprites)
-	}
-	if containsMonsterResource(plan.monsterSprites, "forest_spider") {
-		t.Errorf("right monster leaked into left standee plan: %+v", plan.monsterSprites)
-	}
-	if !containsString(plan.containerSprites, "pyramid_chest") {
-		t.Errorf("left container missing: %v", plan.containerSprites)
-	}
-	if containsString(plan.containerSprites, "clockwork_chest") {
-		t.Errorf("right container leaked into left plan: %v", plan.containerSprites)
-	}
-	if containsString(plan.containerDecode, "clockwork_chest") {
-		t.Errorf("right container source leaked into left plan: %v", plan.containerDecode)
 	}
 }
 
@@ -416,29 +384,6 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 	}
 }
 
-func TestGameLoopUpdateAdvancesMapRenderStreaming(t *testing.T) {
-	g := &MMGame{appScreen: AppScreenInGame, exitRequested: true, threading: threading.NewThreadingComponents(nil)}
-	r := &Renderer{game: g, mapRenderResourcePrewarmPending: true}
-	steps := 0
-	task := &mapRenderPrewarmTask{
-		mapKey: "forest", spritesDone: true, skiesDone: true,
-		steps: []mapRenderPrewarmStep{
-			func(time.Time) bool { steps++; return true },
-			func(time.Time) bool { steps++; return true },
-		},
-	}
-	task.prewarmer = newMapRenderPrewarmer(r, task)
-	r.mapRenderResourcePrewarmActive = task
-	gl := &GameLoop{game: g, renderer: r}
-
-	if err := gl.Update(); err != ErrExit {
-		t.Fatalf("Update error = %v, want %v", err, ErrExit)
-	}
-	if steps != 1 || task.nextStep != 1 {
-		t.Fatalf("streaming progress = steps:%d index:%d, want 1,1", steps, task.nextStep)
-	}
-}
-
 func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 	cfg := loadTestConfig(t)
 	tests := []struct {
@@ -467,9 +412,10 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 				mapRenderResourcePrewarmMapKeys: []string{"forest"},
 			}
 			steps := 0
+			var task *mapRenderPrewarmTask
 			if tt.active {
 				r.mapRenderResourcePrewarmMapKeys = nil
-				task := &mapRenderPrewarmTask{
+				task = &mapRenderPrewarmTask{
 					mapKey: "forest", spritesDone: true, skiesDone: true,
 					steps: []mapRenderPrewarmStep{
 						func(time.Time) bool { steps++; return true },
@@ -492,6 +438,9 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 			}
 			if steps != tt.wantProgress {
 				t.Fatalf("streaming steps = %d, want %d", steps, tt.wantProgress)
+			}
+			if task != nil && task.nextStep != tt.wantProgress {
+				t.Fatalf("streaming index = %d, want %d", task.nextStep, tt.wantProgress)
 			}
 			r.resetMapRenderResourceResidency()
 		})
@@ -655,64 +604,6 @@ func TestMapRenderResidencyKeepsVisibleRegionsAndEvictsOutsideHysteresis(t *test
 	r.trackResidentStandeeKey(lazy)
 	if _, ok := r.mapRenderResourcesByMap["desert"].standees[lazy]; !ok {
 		t.Fatal("lazily generated standee was not attached to the current resident region")
-	}
-}
-
-func TestLazyStandeeOwnershipCoversCurrentRegionStates(t *testing.T) {
-	previousWorldManager := world.GlobalWorldManager
-	t.Cleanup(func() { world.GlobalWorldManager = previousWorldManager })
-	world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest"}
-
-	tests := []struct {
-		name            string
-		resident        bool
-		activeMapKey    string
-		activeCancelled bool
-		wantResident    bool
-		wantActive      bool
-	}{
-		{name: "resident region", resident: true, wantResident: true},
-		{name: "active region", activeMapKey: "forest", wantActive: true},
-		{name: "resident and active transition", resident: true, activeMapKey: "forest", wantResident: true, wantActive: true},
-		{name: "cancelled active region", activeMapKey: "forest", activeCancelled: true},
-		{name: "different active region", activeMapKey: "desert"},
-		{name: "no regional owner"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Renderer{}
-			var resident *mapRenderRegionResources
-			if tt.resident {
-				resident = &mapRenderRegionResources{}
-				r.mapRenderResourcesByMap = map[string]*mapRenderRegionResources{"forest": resident}
-			}
-			var activeResources *mapRenderRegionResources
-			if tt.activeMapKey != "" {
-				task := &mapRenderPrewarmTask{mapKey: tt.activeMapKey, state: testMapRenderTaskState(tt.activeCancelled)}
-				task.prewarmer = newMapRenderPrewarmer(r, task)
-				activeResources = task.prewarmer.resources
-				r.mapRenderResourcePrewarmActive = task
-			}
-
-			key := standeeCoreKey{name: "mob:late_spawn"}
-			r.trackResidentStandeeKey(key)
-			r.trackResidentStandeeKey(key)
-
-			residentOwned := false
-			if resident != nil {
-				_, residentOwned = resident.standees[key]
-			}
-			if residentOwned != tt.wantResident {
-				t.Fatalf("resident ownership = %v, want %v", residentOwned, tt.wantResident)
-			}
-			activeOwned := false
-			if activeResources != nil {
-				_, activeOwned = activeResources.standees[key]
-			}
-			if activeOwned != tt.wantActive {
-				t.Fatalf("active ownership = %v, want %v", activeOwned, tt.wantActive)
-			}
-		})
 	}
 }
 

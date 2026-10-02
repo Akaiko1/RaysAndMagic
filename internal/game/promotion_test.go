@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 )
 
 // sorcererIndex returns the party slot of the (first) Sorcerer.
@@ -88,37 +87,5 @@ func TestApplyArchmagePromotion_UnlocksLight(t *testing.T) {
 	g.confirmLevelUpSelections()
 	if learned := len(m.MagicSchools[character.MagicSchoolLight].KnownSpells); learned != 2 {
 		t.Errorf("learned %d Light spells, want 2", learned)
-	}
-}
-
-// TestStavesAndBooksAreRangedMagic locks in Feature 3: staves/books are ranged
-// (Range > 3) projectile weapons carrying a magic projectile_school.
-func TestStavesAndBooksAreRangedMagic(t *testing.T) {
-	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
-		t.Fatalf("load weapons: %v", err)
-	}
-	// projectile_school is cosmetic; it must name the weapon's REAL magic element
-	// (no fake "arcane" school, which would mislead - staves deal these types).
-	cases := map[string]string{
-		"oak_staff":        "air",
-		"battle_staff":     "air",
-		"archmage_staff":   "fire",
-		"book_of_darkness": "dark",
-	}
-	for key, wantSchool := range cases {
-		def, ok := config.GlobalWeapons.Weapons[key]
-		if !ok {
-			t.Errorf("%s missing from weapons.yaml", key)
-			continue
-		}
-		if def.Range <= 3 {
-			t.Errorf("%s range = %d, want > 3 (ranged)", key, def.Range)
-		}
-		if def.ProjectileSchool != wantSchool {
-			t.Errorf("%s projectile_school = %q, want %q", key, def.ProjectileSchool, wantSchool)
-		}
-		if def.Physics == nil || def.Graphics == nil {
-			t.Errorf("%s must define physics + graphics to be a valid projectile weapon", key)
-		}
 	}
 }

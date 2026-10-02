@@ -44,127 +44,96 @@ func equipSpellAndPrepareCaster(t *testing.T, cs *CombatSystem, spellKey string,
 	cs.game.selectedChar = 0
 }
 
-func TestCastEquippedSpell_ConsumesSpellPoints(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	// Fireball: spell_points_cost = 4 in YAML.
-	equipSpellAndPrepareCaster(t, cs, "fireball", 10, 0)
-
-	if !cs.CastEquippedSpell() {
-		t.Fatalf("CastEquippedSpell returned false despite sufficient SP")
-	}
-	caster := cs.game.party.Members[0]
-	want := 10 - 4
-	if caster.SpellPoints != want {
-		t.Errorf("SP after cast: got %d, want %d", caster.SpellPoints, want)
+// CastEquippedSpell pays the definition's effective cost when the caster can
+// afford it, and refuses without spending when SP falls short or no spell is
+// slotted.
+func TestCastEquippedSpell(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		spare   int // SP beyond the effective cost (negative: short)
+		equip   bool
+		wantPay bool
+	}{
+		{"pays_effective_cost", 6, true, true},
+		{"refuses_when_sp_short", -1, true, false},
+		{"refuses_without_equipped_spell", 100, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			caster := cs.game.party.Members[0]
+			def, err := spells.GetSpellDefinitionByID("fireball")
+			if err != nil {
+				t.Fatalf("fireball def: %v", err)
+			}
+			cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+			if cost <= 0 {
+				t.Fatalf("fireball must cost SP, got %d", cost)
+			}
+			equipSpellAndPrepareCaster(t, cs, "fireball", cost+tc.spare, 0)
+			if !tc.equip {
+				delete(caster.Equipment, items.SlotSpell)
+			}
+			before := caster.SpellPoints
+			if got := cs.CastEquippedSpell(); got != tc.wantPay {
+				t.Fatalf("CastEquippedSpell=%v, want %v", got, tc.wantPay)
+			}
+			want := before
+			if tc.wantPay {
+				want -= cost
+			}
+			if caster.SpellPoints != want {
+				t.Errorf("SP after cast: got %d, want %d", caster.SpellPoints, want)
+			}
+		})
 	}
 }
 
-func TestCastEquippedSpell_FailsWhenSPInsufficient(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	// Fireball costs 4; give caster 3.
-	equipSpellAndPrepareCaster(t, cs, "fireball", 3, 0)
-	before := cs.game.party.Members[0].SpellPoints
-
-	if cs.CastEquippedSpell() {
-		t.Errorf("cast should fail when SP < cost")
-	}
-	if got := cs.game.party.Members[0].SpellPoints; got != before {
-		t.Errorf("SP should be unchanged on failed cast: got %d, want %d", got, before)
-	}
-}
-
-func TestCastEquippedSpell_FailsWithoutEquippedSpell(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	caster := cs.game.party.Members[0]
-	caster.SpellPoints = 100
-	if caster.Equipment != nil {
-		delete(caster.Equipment, items.SlotSpell)
-	}
-	cs.game.selectedChar = 0
-
-	if cs.CastEquippedSpell() {
-		t.Errorf("cast should fail when no spell is equipped")
-	}
-}
-
+// CalculateSpellDamage follows the canonical formula: base = cost x
+// SpellDamagePerSP x damage_cost_multiplier (default 1); the stat term is the
+// school's stat / SpellIntellectDivisor, plus Personality when the spell
+// scales_with_personality; mastery adds nothing at Novice.
 func TestCalculateSpellDamage_FollowsCanonicalFormula(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	// Reuse the helper to load a real spell; assertion below derives expected
-	// damage purely from balance constants + YAML cost - no magic literal.
-	equipSpellAndPrepareCaster(t, cs, "fireball", 100, 14)
-	caster := cs.game.party.Members[0]
-	def, _ := spells.GetSpellDefinitionByID("fireball")
+	for _, tc := range []struct {
+		name                string
+		spell               string
+		intellect, personal int
+		// multiplied/personality: the authored flags this row exercises.
+		multiplied, personality bool
+	}{
+		{"fireball_intellect_only", "fireball", 14, 0, false, false},
+		{"fireball_ignores_personality", "fireball", 90, 60, false, false},
+		{"ray_of_light_cost_multiplier_and_both_stats", "ray_of_light", 90, 60, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			equipSpellAndPrepareCaster(t, cs, tc.spell, 100, tc.intellect)
+			caster := cs.game.party.Members[0]
+			caster.Personality = tc.personal
+			def, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.spell))
+			if err != nil {
+				t.Fatalf("%s def: %v", tc.spell, err)
+			}
+			if (def.DamageCostMultiplier > 1) != tc.multiplied || def.ScalesWithPersonality != tc.personality {
+				t.Fatalf("%s no longer exercises this row: damage_cost_multiplier=%d scales_with_personality=%v",
+					tc.spell, def.DamageCostMultiplier, def.ScalesWithPersonality)
+			}
 
-	base, intBonus, total := cs.CalculateSpellDamage(def.ID, caster)
+			base, statBonus, total := cs.CalculateSpellDamage(def.ID, caster)
 
-	// Canonical formula: base = cost x SpellDamagePerSP, intBonus =
-	// intellect / SpellIntellectDivisor, total = base + intBonus (+ mastery
-	// bonus, which is 0 at Novice - the default for a freshly created char).
-	wantBase := def.SpellPointsCost * spells.SpellDamagePerSP
-	wantInt := caster.Intellect / spells.SpellIntellectDivisor
-	wantTotal := wantBase + wantInt
-
-	if base != wantBase {
-		t.Errorf("base damage: got %d, want %d (cost=%d x %d)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
-	}
-	if intBonus != wantInt {
-		t.Errorf("intellect bonus: got %d, want %d (int=%d / %d)", intBonus, wantInt, caster.Intellect, spells.SpellIntellectDivisor)
-	}
-	if total != wantTotal {
-		t.Errorf("total damage: got %d, want %d", total, wantTotal)
-	}
-}
-
-// Ray of Light: base damage = cost x SpellDamagePerSP x 2 (damage_cost_multiplier),
-// and the stat term scales with BOTH Intellect AND Personality (scales_with_personality).
-func TestRayOfLight_DamageScalesWithCostAndBothStats(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	equipSpellAndPrepareCaster(t, cs, "ray_of_light", 100, 90) // sp=100, intellect=90
-	caster := cs.game.party.Members[0]
-	caster.Personality = 60
-	def, _ := spells.GetSpellDefinitionByID("ray_of_light")
-
-	if def.DamageCostMultiplier != 2 {
-		t.Fatalf("ray_of_light should have damage_cost_multiplier 2 in YAML, got %d", def.DamageCostMultiplier)
-	}
-	if !def.ScalesWithPersonality {
-		t.Fatalf("ray_of_light should have scales_with_personality true in YAML")
-	}
-
-	base, statBonus, total := cs.CalculateSpellDamage(def.ID, caster)
-
-	wantBase := def.SpellPointsCost * spells.SpellDamagePerSP * 2
-	wantStat := caster.GetEffectiveIntellect()/spells.SpellIntellectDivisor +
-		caster.GetEffectivePersonality()/spells.SpellIntellectDivisor
-	wantTotal := wantBase + wantStat
-
-	if base != wantBase {
-		t.Errorf("base: got %d, want %d (cost %d x %d x 2)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
-	}
-	if statBonus != wantStat {
-		t.Errorf("stat bonus: got %d, want %d (Int/%d + Per/%d)", statBonus, wantStat, spells.SpellIntellectDivisor, spells.SpellIntellectDivisor)
-	}
-	if total != wantTotal {
-		t.Errorf("total: got %d, want %d", total, wantTotal)
-	}
-}
-
-// Regression: a normal spell (no multiplier / personality flag) is unchanged by
-// the new data-driven fields - base stays cost x SpellDamagePerSP, stat term is
-// Intellect-only.
-func TestNormalSpell_UnaffectedByRayOfLightFields(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	equipSpellAndPrepareCaster(t, cs, "fireball", 100, 90)
-	caster := cs.game.party.Members[0]
-	caster.Personality = 60
-	def, _ := spells.GetSpellDefinitionByID("fireball")
-
-	base, statBonus, _ := cs.CalculateSpellDamage(def.ID, caster)
-
-	if want := def.SpellPointsCost * spells.SpellDamagePerSP; base != want {
-		t.Errorf("fireball base changed: got %d, want %d (cost x perSP, multiplier defaults to 1)", base, want)
-	}
-	if want := caster.GetEffectiveIntellect() / spells.SpellIntellectDivisor; statBonus != want {
-		t.Errorf("fireball stat bonus should be Intellect-only: got %d, want %d (Personality must NOT contribute)", statBonus, want)
+			wantBase := def.SpellPointsCost * spells.SpellDamagePerSP * max(1, def.DamageCostMultiplier)
+			wantStat := caster.GetEffectiveIntellect() / spells.SpellIntellectDivisor
+			if def.ScalesWithPersonality {
+				wantStat += caster.GetEffectivePersonality() / spells.SpellIntellectDivisor
+			}
+			if base != wantBase {
+				t.Errorf("base: got %d, want %d (cost %d x %d x %d)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP, max(1, def.DamageCostMultiplier))
+			}
+			if statBonus != wantStat {
+				t.Errorf("stat bonus: got %d, want %d", statBonus, wantStat)
+			}
+			if total != wantBase+wantStat {
+				t.Errorf("total: got %d, want %d", total, wantBase+wantStat)
+			}
+		})
 	}
 }

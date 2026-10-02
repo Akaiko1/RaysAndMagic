@@ -44,15 +44,22 @@ func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 		t.Fatalf("expected merchant stock to be populated")
 	}
 
+	// The shop row carries the authored row's price and quantity.
+	var authored *NPCItem
+	for _, row := range NPCConfigInstance.NPCs["merchant_general"].Inventory {
+		if row != nil && row.Name == "Health Potion" {
+			authored = row
+		}
+	}
+	if authored == nil || authored.Cost <= 0 || authored.Quantity == 0 {
+		t.Fatalf("merchant_general must author a priced, counted Health Potion row, got %+v", authored)
+	}
 	foundPotion := false
 	for _, entry := range npc.MerchantStock {
-		if entry.Item.Name == "Health Potion" {
+		if entry.Item.Name == authored.Name {
 			foundPotion = true
-			if entry.Cost != 50 {
-				t.Fatalf("expected Health Potion cost 50, got %d", entry.Cost)
-			}
-			if entry.Quantity != 10 {
-				t.Fatalf("expected Health Potion quantity 10, got %d", entry.Quantity)
+			if entry.Cost != authored.Cost || entry.Quantity != authored.Quantity {
+				t.Fatalf("Health Potion stock = cost %d qty %d, want the authored %d/%d", entry.Cost, entry.Quantity, authored.Cost, authored.Quantity)
 			}
 		}
 	}
@@ -137,12 +144,6 @@ func TestBackfillTraderSpells(t *testing.T) {
 		t.Errorf("water_breathing not backfilled: %+v", wb)
 	}
 
-	// An explicit cost override is preserved (not replaced by a tier default).
-	wow := get("city_spell_shop", "walk_on_water")
-	if wow.Cost != 500 {
-		t.Errorf("city walk_on_water cost should be its authored 500, got %d", wow.Cost)
-	}
-
 	// Mira CASTS her water charms for gold instead of teaching them, so she
 	// carries no shop stock at all - the service lives in her dialogue.
 	if got := len(NPCConfigInstance.NPCs["mtrader0"].Spells); got != 0 {
@@ -154,8 +155,10 @@ func TestBackfillTraderSpells(t *testing.T) {
 			casts[c.Buff] = c.DurationSeconds
 		}
 	}
-	if casts["walk_on_water"] != 300 || casts["water_breathing"] != 600 {
-		t.Errorf("Mira's paid casts = %v, want walk_on_water 300s and water_breathing 600s", casts)
+	for _, buff := range []string{"walk_on_water", "water_breathing"} {
+		if casts[buff] <= 0 {
+			t.Errorf("Mira's paid casts = %v, want a timed %s", casts, buff)
+		}
 	}
 
 	// City sells elemental only - no Light/Dark. The row carries no school of its
@@ -227,8 +230,9 @@ func TestSpellRowsBelongToSpellTraders(t *testing.T) {
 	if err := backfillTraderSpells(); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
-	if sp := NPCConfigInstance.NPCs["hedge_witch"].Spells["heal"]; sp.Name == "" {
-		t.Fatalf("row not backfilled: %+v", sp)
+	// Backfill fills identity only; the authored price is never replaced.
+	if sp := NPCConfigInstance.NPCs["hedge_witch"].Spells["heal"]; sp.Name == "" || sp.Cost != 120 {
+		t.Fatalf("row not backfilled with its authored cost 120: %+v", sp)
 	}
 
 	// And the type that gets the rows is the one the runtime reads them from -

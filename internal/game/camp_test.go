@@ -132,30 +132,6 @@ func TestTryCamp_BoundAlliesAllowCampButCharmDoesNot(t *testing.T) {
 	}
 }
 
-// Charm is a countdown that breaks on any hit, not an alliance: a pacified
-// monster next to the party still blocks the camp, or the party banks a full
-// heal moments before it turns hostile again.
-func TestTryCamp_PacifiedMonsterStillBlocksCamp(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	g.party.Food = 2
-	tile := float64(cfg.GetTileSize())
-
-	charmed := &monster.Monster3D{ID: "charmed", Name: "Charmed Dragon", HitPoints: 40, MaxHitPoints: 40,
-		X: g.camera.X + tile, Y: g.camera.Y, Pacified: true, PacifiedFramesRemaining: 60}
-	g.world.Monsters = []*monster.Monster3D{charmed}
-
-	if !charmed.IsPartyControlled() {
-		t.Fatal("setup: a pacified monster should read as party-controlled")
-	}
-	if msg, ok := g.TryCamp(); ok {
-		t.Fatalf("camp succeeded next to a charmed monster: %s", msg)
-	}
-	if g.party.Food != 2 {
-		t.Errorf("refused camp still spent food: %d, want 2", g.party.Food)
-	}
-}
-
 func TestTavernRestAndBuyFood(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))

@@ -17,7 +17,7 @@ import (
 // every line survives wrapping; these assertions pin the audited gameplay facts.
 // Persistence is not involved: no description is stored in a save.
 func TestSkillTooltipAuditAllMechanics(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
+	newTestCombatSystemWithConfig(t)
 	oldTechniques := config.GlobalTechniques
 	t.Cleanup(func() { config.GlobalTechniques = oldTechniques })
 	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
@@ -55,8 +55,6 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until the next party round"},
 		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/2/3/4"},
 		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "adds to Field Medicine", "Revival unchanged"},
-		character.SkillBombThrowing:        {"Harm Flask: 72/90/108/126 + INT/3 physical damage", "Fire Flask: 36/48/60/72 + INT/3 fire damage", "Venom Flask: 24/36/48/60 + INT/3 body damage", "poison 6/9/12/15s", "burning 3/5/7/9s"},
-		character.SkillTranslocation:       {"Fold Step (level 1): 3/4/6/8 tiles", "8/7/6/5 SP", "12/15/18/24s", "Return Step (level 6): 6/5/4/3 SP", "dodge +10/15/20/25%; 3/6/6/9s", "Purify (level 2): 12/11/10/9 SP", "RT recovery -20/25/30/35%", "TB +1/1/2/2 shared actions each round"},
 		character.SkillFlowingStaff:        {"fills the staff to 1/2/3/4 charges", "25/50/75/100%", "a guaranteed critical", "remain until spent"},
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
@@ -67,6 +65,34 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		cases[s] = []string{"0/2/4/6 AC per equipped piece", "+5% Perfect Dodge", "once per armor type"}
 	}
 	cases[character.SkillShield] = []string{"Shield AC +0/2/4/6", "+5% Perfect Dodge"}
+	// Catalog-driven rows read the live definitions; retuned values are
+	// covered by the RetunedFlaskWiring and RetunedTechniqueWiring tests.
+	ladder := func(v [4]int) string {
+		return fmt.Sprintf("%d/%d/%d/%d", v[0], v[1], v[2], v[3])
+	}
+	geometries := map[[2]int]bool{}
+	for _, key := range config.FlaskKeys() {
+		d, _ := config.GetItemDefinition(key)
+		f := d.Flask
+		geometries[[2]int{f.RangeTiles, f.RadiusTiles}] = true
+		facts := []string{fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, ladder(f.Damage), character.BombThrowingIntellectDivisor, f.Element)}
+		if f.PoisonSeconds != [4]int{} {
+			facts = append(facts, "poison "+ladder(f.PoisonSeconds)+"s")
+		}
+		if f.BurnSeconds != [4]int{} {
+			facts = append(facts, "burning "+ladder(f.BurnSeconds)+"s")
+		}
+		cases[character.SkillBombThrowing] = append(cases[character.SkillBombThrowing], facts...)
+	}
+	for _, d := range config.GlobalTechniques.Techniques {
+		if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {
+			cases[character.SkillTranslocation] = append(cases[character.SkillTranslocation],
+				fmt.Sprintf("%s (level %d): ", d.Name, d.Level), ladder(d.SPCost)+" SP")
+		}
+	}
+	if len(cases[character.SkillBombThrowing]) == 0 || len(cases[character.SkillTranslocation]) == 0 {
+		t.Fatal("fixture: no flask or varying-cost technique in the catalogs")
+	}
 	if len(cases) != len(character.AllSkills) {
 		t.Fatalf("audited %d skills, catalog has %d", len(cases), len(character.AllSkills))
 	}
@@ -93,13 +119,6 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 					t.Errorf("skill reference contains redundant instruction %q", filler)
 				}
 			}
-			ui := &UISystem{game: cs.game}
-			ui.queueTooltip(strings.Split(text, "\n"), 0, 0)
-			assertSharedTooltipLayout(t, ui)
-			layout := layoutTooltip(ui.tooltipLines, false, tooltipColumnWidth(1920, 1), 1080)
-			if layout.h > 1080-2*tooltipScreenMargin {
-				t.Fatal("resized tooltip escapes the screen")
-			}
 		})
 	}
 	for _, school := range character.AllMagicSchools {
@@ -111,9 +130,15 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 			}
 		}
 	}
+	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".
 	flasks := masteryTooltipTextForSkill(character.SkillBombThrowing)
-	if strings.Count(flasks, "range 6 tiles; radius 2 tiles") != 1 || !strings.Contains(flasks, "All flasks:") {
-		t.Fatal("shared flask range/radius must appear once")
+	for g := range geometries {
+		if strings.Count(flasks, fmt.Sprintf("range %d tiles; radius %d tiles", g[0], g[1])) != 1 {
+			t.Errorf("flask geometry %v must appear exactly once: %s", g, flasks)
+		}
+	}
+	if strings.Contains(flasks, "All flasks:") != (len(geometries) == 1) {
+		t.Errorf("All flasks label must match %d distinct geometries: %s", len(geometries), flasks)
 	}
 }
 

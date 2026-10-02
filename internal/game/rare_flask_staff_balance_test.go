@@ -2,16 +2,32 @@ package game
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
+// Every flask launches and lands its authored per-tier damage (+ Intellect)
+// and burn, and the item card states the same numbers.
 func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
+	rareClassGame(t, character.ClassAlchemist, false)
+	var flasks []string
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalItems.Items)) {
+		if config.GlobalItems.Items[key].Flask != nil {
+			flasks = append(flasks, key)
+		}
+	}
+	if len(flasks) == 0 {
+		t.Fatal("no flask items in the catalog")
+	}
 	for _, tb := range []bool{false, true} {
-		for key, base := range map[string][4]int{"harm_flask": {72, 90, 108, 126}, "venom_flask": {24, 36, 48, 60}, "fire_flask": {36, 48, 60, 72}} {
+		for _, key := range flasks {
+			d, _ := config.GetItemDefinition(key)
 			for tier := 0; tier < 4; tier++ {
 				t.Run(fmt.Sprintf("TB=%v/%s/tier=%d", tb, key, tier), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassAlchemist, tb)
@@ -24,11 +40,8 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 						t.Fatal("flask did not launch")
 					}
 					p := &g.magicProjectiles[0]
-					wantDamage := base[tier] + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
-					burnSeconds := 0
-					if key == "fire_flask" {
-						burnSeconds = [4]int{3, 5, 7, 9}[tier]
-					}
+					wantDamage := d.Flask.Damage[tier] + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
+					burnSeconds := d.Flask.BurnSeconds[tier]
 					if p.Damage != wantDamage || p.FlaskBurnFrames != burnSeconds*g.config.GetTPS() {
 						t.Fatalf("launch damage/burn=%d/%d, expected %d/%d", p.Damage, p.FlaskBurnFrames, wantDamage, burnSeconds*g.config.GetTPS())
 					}

@@ -58,75 +58,42 @@ func (m *mockTileChecker) setOpaque(tileX, tileY int, opaque bool) {
 	m.opaqueTiles[tileY][tileX] = opaque
 }
 
-func TestCastRay_HorizontalLine(t *testing.T) {
-	checker := newMockTileChecker(10, 10)
-	cs := NewCollisionSystem(checker, 64.0)
-
-	// Test horizontal line from (0,0) to (320,0) - should cross 5 tiles
-	x1, y1 := 0.0, 32.0
-	x2, y2 := 320.0, 32.0
-
-	_, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if hasHit {
-		t.Errorf("Expected no hit for clear horizontal line")
-	}
-
-	// Add an opaque tile at position (3, 0) - tile coordinates
-	checker.setOpaque(3, 0, true)
-
-	hit, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if !hasHit {
-		t.Errorf("Expected hit for horizontal line with opaque tile")
-	} else if hit.TileX != 3 || hit.TileY != 0 {
-		t.Errorf("Expected hit at tile (3, 0), got (%d, %d)", hit.TileX, hit.TileY)
-	}
-}
-
-func TestCastRay_VerticalLine(t *testing.T) {
-	checker := newMockTileChecker(10, 10)
-	cs := NewCollisionSystem(checker, 64.0)
-
-	// Test vertical line from (32,0) to (32,320) - should cross 5 tiles
-	x1, y1 := 32.0, 0.0
-	x2, y2 := 32.0, 320.0
-
-	_, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if hasHit {
-		t.Errorf("Expected no hit for clear vertical line")
-	}
-
-	// Add an opaque tile at position (0, 3) - tile coordinates
-	checker.setOpaque(0, 3, true)
-
-	hit, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if !hasHit {
-		t.Errorf("Expected hit for vertical line with opaque tile")
-	} else if hit.TileX != 0 || hit.TileY != 3 {
-		t.Errorf("Expected hit at tile (0, 3), got (%d, %d)", hit.TileX, hit.TileY)
-	}
-}
-
-func TestCastRay_DiagonalLine(t *testing.T) {
-	checker := newMockTileChecker(10, 10)
-	cs := NewCollisionSystem(checker, 64.0)
-
-	// Test diagonal line from (0,0) to (192,192) - 45 degree angle
-	x1, y1 := 0.0, 0.0
-	x2, y2 := 192.0, 192.0
-
-	_, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if hasHit {
-		t.Errorf("Expected no hit for clear diagonal line")
-	}
-
-	// Add an opaque tile at position (1, 1) - should be crossed by diagonal
-	checker.setOpaque(1, 1, true)
-
-	hit, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if !hasHit {
-		t.Errorf("Expected hit for diagonal line with opaque tile")
-	} else if hit.TileX != 1 || hit.TileY != 1 {
-		t.Errorf("Expected hit at tile (1, 1), got (%d, %d)", hit.TileX, hit.TileY)
+// A clear segment reports no hit; an opaque tile on it is hit at that tile.
+// The CheckLineOfSight row covers the boolean wrapper over the same ray.
+func TestCastRay_OpaqueTileOnSegment(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		x1, y1, x2, y2   float64
+		opaqueX, opaqueY int
+		viaLineOfSight   bool
+	}{
+		{name: "horizontal", x1: 0, y1: 32, x2: 320, y2: 32, opaqueX: 3, opaqueY: 0},
+		{name: "vertical", x1: 32, y1: 0, x2: 32, y2: 320, opaqueX: 0, opaqueY: 3},
+		{name: "diagonal", x1: 0, y1: 0, x2: 192, y2: 192, opaqueX: 1, opaqueY: 1},
+		{name: "line of sight wrapper", x1: 32, y1: 32, x2: 192, y2: 32, opaqueX: 1, opaqueY: 0, viaLineOfSight: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := newMockTileChecker(10, 10)
+			cs := NewCollisionSystem(checker, 64.0)
+			if tc.viaLineOfSight {
+				if !cs.CheckLineOfSight(tc.x1, tc.y1, tc.x2, tc.y2) {
+					t.Fatal("expected clear line of sight")
+				}
+				checker.setOpaque(tc.opaqueX, tc.opaqueY, true)
+				if cs.CheckLineOfSight(tc.x1, tc.y1, tc.x2, tc.y2) {
+					t.Fatal("expected blocked line of sight")
+				}
+				return
+			}
+			if _, hasHit := cs.CastRay(tc.x1, tc.y1, tc.x2, tc.y2, true); hasHit {
+				t.Fatal("expected no hit for a clear line")
+			}
+			checker.setOpaque(tc.opaqueX, tc.opaqueY, true)
+			hit, hasHit := cs.CastRay(tc.x1, tc.y1, tc.x2, tc.y2, true)
+			if !hasHit || hit.TileX != tc.opaqueX || hit.TileY != tc.opaqueY {
+				t.Fatalf("hit = %v at (%d,%d), want hit at (%d,%d)", hasHit, hit.TileX, hit.TileY, tc.opaqueX, tc.opaqueY)
+			}
+		})
 	}
 }
 
@@ -258,27 +225,6 @@ func TestCastRay_DistanceCalculation(t *testing.T) {
 	// Ensure distance is positive and reasonable
 	if hit.Dist < 0 || hit.Dist > 200 {
 		t.Errorf("Distance %f is unreasonable for this test case", hit.Dist)
-	}
-}
-
-func TestCheckLineOfSight_Integration(t *testing.T) {
-	checker := newMockTileChecker(10, 10)
-	cs := NewCollisionSystem(checker, 64.0)
-
-	x1, y1 := 32.0, 32.0
-	x2, y2 := 192.0, 32.0
-
-	// Test clear line of sight
-	hasLOS := cs.CheckLineOfSight(x1, y1, x2, y2)
-	if !hasLOS {
-		t.Errorf("Expected clear line of sight")
-	}
-
-	// Add opaque tile and test again
-	checker.setOpaque(1, 0, true)
-	hasLOS = cs.CheckLineOfSight(x1, y1, x2, y2)
-	if hasLOS {
-		t.Errorf("Expected blocked line of sight")
 	}
 }
 

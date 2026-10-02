@@ -85,40 +85,7 @@ func NewWorld3D(cfg *config.Config) *World3D {
 		OutOfBoundsKey:        "oob_cliff",
 		environmentSpriteSeed: rand.Uint64(),
 	}
-
-	// Note: Map loading is now handled by WorldManager
-	// No longer auto-loading forest.map here to avoid conflicts
-
 	return world
-}
-
-// loadFromMapFile loads the world from the forest.map file. Used by tests
-// that need a deterministic map without going through the world manager.
-func (w *World3D) loadFromMapFile() {
-	// Create map loader
-	mapLoader := NewMapLoader(w.config)
-
-	// Load the forest map
-	mapData, err := mapLoader.LoadForestMap()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to load map file: %v", err))
-	}
-
-	// Use loaded map data
-	w.Width = mapData.Width
-	w.Height = mapData.Height
-	w.StartX = mapData.StartX
-	w.StartY = mapData.StartY
-
-	// Copy loaded tiles directly (already converted to TileType3D)
-	w.Tiles = mapData.Tiles
-	w.entityFloors = mapData.entityFloors
-
-	// Load NPCs from map data
-	w.loadNPCsFromMapData(mapData.NPCSpawns)
-
-	// Load monsters from map data (fixed placements only)
-	w.loadMonstersFromMapData(mapData.MonsterSpawns, "")
 }
 
 // CanProjectileMoveTo reports clearance at projectile/attack height at (x,y).

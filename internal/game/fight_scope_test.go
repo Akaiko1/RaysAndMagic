@@ -120,10 +120,17 @@ func TestStrandedHunterSurvivesSaveWithoutHoldingTheParty(t *testing.T) {
 					t.Fatal(err)
 				}
 				ts := cfg.GetTileSize()
-				g.camera.X, g.camera.Y = wm.ProjectWorldPos("dragon_cliffs", 25.5*ts, 25.5*ts)
+				// The authored start tile: a region start unified, the map's own split.
+				g.camera.X, g.camera.Y = g.world.GetStartingPosition()
+				if sx, sy, ok := wm.OpenWorldRegionStart("dragon_cliffs"); ok {
+					g.camera.X, g.camera.Y = sx, sy
+				}
 				x, y := g.camera.X+6*ts, g.camera.Y
 				if place == "other_region" {
-					x, y = wm.ProjectWorldPos("deep_jungle", 28.5*ts, 14.5*ts)
+					var ok bool
+					if x, y, ok = wm.OpenWorldRegionStart("deep_jungle"); !ok {
+						t.Fatal("deep_jungle region has no start")
+					}
 				}
 				hunter := monster.NewMonster3DFromConfig(x, y, "ocelot", cfg)
 				hunter.WasAttacked, hunter.IsEngagingPlayer, hunter.State = true, true, monster.StatePursuing

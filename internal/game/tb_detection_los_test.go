@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
@@ -73,12 +74,25 @@ func TestTurnBasedAlarmRallyRequiresDirectSight(t *testing.T) {
 }
 
 type sightAggroScenario struct {
-	name          string
-	monsterKey    string
+	name       string
+	monsterKey string
+	// distanceTiles is from the party; fromRadius adds the monster's own
+	// authored alert_radius.
 	distanceTiles float64
+	fromRadius    bool
 	blocked       bool
 	lootGuard     bool
 	want          bool
+}
+
+// authoredAlertRadius is a monster's alert_radius in tiles.
+func authoredAlertRadius(t *testing.T, key string) float64 {
+	t.Helper()
+	def, ok := monster.MonsterConfig.Monsters[key]
+	if !ok || def.AlertRadius <= 0 {
+		t.Fatalf("%s has no authored alert_radius", key)
+	}
+	return def.AlertRadius
 }
 
 func runSightAggroScenario(t *testing.T, scenario sightAggroScenario, turnBased bool) bool {
@@ -87,7 +101,11 @@ func runSightAggroScenario(t *testing.T, scenario sightAggroScenario, turnBased 
 	game.turnBasedMode = turnBased
 	placePlayerAtTile(game, 3, 5, tile)
 
-	mobX := game.camera.X + scenario.distanceTiles*tile
+	distance := scenario.distanceTiles
+	if scenario.fromRadius {
+		distance += authoredAlertRadius(t, scenario.monsterKey)
+	}
+	mobX := game.camera.X + distance*tile
 	mob := monster.NewMonster3DFromConfig(mobX, game.camera.Y, scenario.monsterKey, game.config)
 	if mob == nil {
 		t.Fatalf("%s missing from monsters.yaml", scenario.monsterKey)
@@ -125,10 +143,10 @@ func runSightAggroScenario(t *testing.T, scenario sightAggroScenario, turnBased 
 // future mode-local radius/LoS check cannot silently drift from Monster3D.
 func TestSightAggroMatchesRealTimeAndTurnBased(t *testing.T) {
 	cases := []sightAggroScenario{
-		{name: "goblin at authored radius", monsterKey: "goblin", distanceTiles: 4, want: true},
-		{name: "goblin outside authored radius", monsterKey: "goblin", distanceTiles: 5, want: false},
-		{name: "alarm at authored seven-tile radius", monsterKey: "alarm_clock", distanceTiles: 7, want: true},
-		{name: "alarm outside authored radius", monsterKey: "alarm_clock", distanceTiles: 8, want: false},
+		{name: "goblin at authored radius", monsterKey: "goblin", fromRadius: true, want: true},
+		{name: "goblin outside authored radius", monsterKey: "goblin", distanceTiles: 1, fromRadius: true, want: false},
+		{name: "alarm at authored radius", monsterKey: "alarm_clock", fromRadius: true, want: true},
+		{name: "alarm outside authored radius", monsterKey: "alarm_clock", distanceTiles: 1, fromRadius: true, want: false},
 		{name: "wall blocks normal sight", monsterKey: "goblin", distanceTiles: 3, blocked: true, want: false},
 		{name: "loot guard uses exact seven-tile range", monsterKey: "goblin", distanceTiles: 6.5, lootGuard: true, want: true},
 		{name: "wall blocks loot-guard sight", monsterKey: "goblin", distanceTiles: 6.5, lootGuard: true, blocked: true, want: false},
@@ -151,9 +169,11 @@ func TestAlarmRallyRequiresBellVisionWithinItsAuthoredRadius(t *testing.T) {
 	game, _, tile := tbBehaviorGame(t, 20, 20)
 	placePlayerAtTile(game, 3, 5, tile)
 
-	alarmX, alarmY := TileCenterFromTile(11, 5, tile) // eight tiles: clear LoS, outside alert_radius 7
+	// One whole tile past the bell's authored alert_radius, with clear LoS.
+	outside := 3 + int(math.Floor(authoredAlertRadius(t, "alarm_clock"))) + 1
+	alarmX, alarmY := TileCenterFromTile(outside, 5, tile)
 	alarm := monster.NewMonster3DFromConfig(alarmX, alarmY, "alarm_clock", game.config)
-	wokenX, wokenY := TileCenterFromTile(11, 6, tile)
+	wokenX, wokenY := TileCenterFromTile(outside, 6, tile)
 	wouldBeWoken := monster.NewMonster3DFromConfig(wokenX, wokenY, "goblin", game.config)
 	if alarm == nil || wouldBeWoken == nil {
 		t.Fatal("test monsters missing from monsters.yaml")
@@ -185,7 +205,9 @@ func TestTurnBasedPackAggroRequiresOwnPartyLoS(t *testing.T) {
 
 		hitX, hitY := TileCenterFromTile(6, 4, tile)
 		hit := monster.NewMonster3DFromConfig(hitX, hitY, "goblin", game.config)
-		visibleX, visibleY := TileCenterFromTile(7, 4, tile) // four tiles from party, beyond goblin alert radius 3
+		// One whole tile past the goblin's own alert_radius: only the pack may wake it.
+		visibleTX := 3 + int(math.Floor(authoredAlertRadius(t, "goblin"))) + 1
+		visibleX, visibleY := TileCenterFromTile(visibleTX, 4, tile)
 		visible := monster.NewMonster3DFromConfig(visibleX, visibleY, "goblin", game.config)
 		hiddenX, hiddenY := TileCenterFromTile(6, 8, tile)
 		hidden := monster.NewMonster3DFromConfig(hiddenX, hiddenY, "goblin", game.config)
@@ -199,6 +221,11 @@ func TestTurnBasedPackAggroRequiresOwnPartyLoS(t *testing.T) {
 		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 		if game.collisionSystem.CheckLineOfSight(hidden.X, hidden.Y, game.camera.X, game.camera.Y) {
 			t.Fatal("setup: hidden neighbour must not see the party")
+		}
+		if Distance(visible.X, visible.Y, game.camera.X, game.camera.Y) <= visible.AlertRadius ||
+			Distance(visible.X, visible.Y, hit.X, hit.Y) > TurnBasedPackAggroRadiusTiles*tile ||
+			!game.collisionSystem.CheckLineOfSight(visible.X, visible.Y, game.camera.X, game.camera.Y) {
+			t.Fatal("setup: visible neighbour must see the party from past its own radius, inside the pack radius")
 		}
 		hit.TakeDamageParts(damagecalc.Parts{Normal: 1}, monster.DamagePhysical, 0)
 		game.combat.markMonsterHit(hit)
@@ -232,7 +259,7 @@ func TestAlarmRallyCapsTargetsAndDoesNotRelay(t *testing.T) {
 	}
 
 	// The source sees the party by itself. The second bell is its first calm
-	// target; its own far target lies outside the source bell's 15-tile radius.
+	// target; its own far target lies just outside the source bell's rally radius.
 	source := spawn(t, "alarm_clock", 5, 5)
 	source.IsEngagingPlayer = true
 	relayedBell := spawn(t, "alarm_clock", 10, 5)
@@ -243,13 +270,23 @@ func TestAlarmRallyCapsTargetsAndDoesNotRelay(t *testing.T) {
 		spawn(t, "goblin", 9, 5),
 		spawn(t, "goblin", 10, 6),
 	}
-	farOnlyForRelay := spawn(t, "goblin", 21, 5) // source distance 16; relay distance 11
+	rally := source.RallyOnAggroTiles
+	farOnlyForRelay := spawn(t, "goblin", 5+int(math.Floor(rally))+1, 5)
 	game.world.Monsters = append([]*monster.Monster3D{source, relayedBell}, near...)
 	game.world.Monsters = append(game.world.Monsters, farOnlyForRelay)
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	if source.RallyMaxTargets != 4 {
-		t.Fatalf("alarm rally_max_targets = %d, want 4 from monsters.yaml", source.RallyMaxTargets)
+	if Distance(source.X, source.Y, farOnlyForRelay.X, farOnlyForRelay.Y) <= rally*tile ||
+		Distance(relayedBell.X, relayedBell.Y, farOnlyForRelay.X, farOnlyForRelay.Y) > relayedBell.RallyOnAggroTiles*tile {
+		t.Fatalf("setup: far goblin must lie outside the source rally (%.1f tiles) but inside the relay's", rally)
+	}
+	for _, m := range append([]*monster.Monster3D{relayedBell}, near...) {
+		if Distance(source.X, source.Y, m.X, m.Y) > rally*tile {
+			t.Fatalf("setup: calm target at (%.0f,%.0f) lies outside the source rally", m.X, m.Y)
+		}
+	}
+	if source.RallyMaxTargets <= 0 || source.RallyMaxTargets > len(near) {
+		t.Fatalf("alarm rally_max_targets = %d; the fixture needs a cap below its %d calm targets", source.RallyMaxTargets, len(near)+1)
 	}
 	game.rallyAggroedAlarms()
 
@@ -259,8 +296,8 @@ func TestAlarmRallyCapsTargetsAndDoesNotRelay(t *testing.T) {
 			woken++
 		}
 	}
-	if woken != 4 {
-		t.Fatalf("source alarm woke %d monsters, want cap of 4", woken)
+	if woken != source.RallyMaxTargets {
+		t.Fatalf("source alarm woke %d monsters, want its cap of %d", woken, source.RallyMaxTargets)
 	}
 	if !relayedBell.IsEngagingPlayer || !relayedBell.WasAttacked || !relayedBell.RallyDone {
 		t.Fatalf("relayed bell = engaging:%v attacked:%v done:%v, want hostile but relay-suppressed", relayedBell.IsEngagingPlayer, relayedBell.WasAttacked, relayedBell.RallyDone)

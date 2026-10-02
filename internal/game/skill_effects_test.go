@@ -9,53 +9,6 @@ import (
 	"ugataima/internal/items"
 )
 
-// TestSkillTooltips_NoOmission: every skill (weapon/armor/misc) describes its
-// effect - none silently returns an empty tooltip.
-func TestSkillTooltips_NoOmission(t *testing.T) {
-	for _, s := range character.AllSkills {
-		if strings.TrimSpace(masteryTooltipTextForSkill(s)) == "" {
-			t.Errorf("skill %v (%d) has no tooltip text", s, int(s))
-		}
-	}
-}
-
-// TestSkillTooltips_UseRealConstants: numeric skill tooltips cite the same
-// constants the mechanics use, so tooltip and combat can't drift.
-func TestSkillTooltips_UseRealConstants(t *testing.T) {
-	checks := map[character.SkillType]int{
-		character.SkillSword:        MasteryWeaponTrueDamagePerTier,
-		character.SkillLeather:      MasteryArmorACPerLevel,
-		character.SkillBodybuilding: character.BodybuildingHPPerTier,
-		character.SkillMeditation:   character.MeditationRegenPerTier,
-		character.SkillLearning:     LearningXPPctPerTier,
-		character.SkillArmsMaster:   ArmsMasterDamagePerTier,
-		character.SkillMerchant:     MerchantPricePctPerTier,
-		character.SkillDisarmTrap:   DisarmTrapDamageReductionPerTier,
-	}
-	for s, want := range checks {
-		if tip := masteryTooltipTextForSkill(s); !strings.Contains(tip, fmt.Sprint(want)) {
-			t.Errorf("skill %v tooltip %q should cite constant %d", s, tip, want)
-		}
-	}
-}
-
-func TestDisarmTrapTooltipMatchesChestMechanic(t *testing.T) {
-	tip := masteryTooltipTextForSkill(character.SkillDisarmTrap)
-	for _, want := range []string{"best active user", "40/60/80/100%", "0/1/2/3"} {
-		if !strings.Contains(tip, want) {
-			t.Errorf("Disarm Trap tooltip %q should contain %q", tip, want)
-		}
-	}
-}
-
-func TestAnimalBondingTooltipQuotesLiveSummonCap(t *testing.T) {
-	tip := masteryTooltipTextForSkill(character.SkillAnimalBonding)
-	want := fmt.Sprintf("up to %d living bears", character.AnimalBondingSummonMax)
-	if !strings.Contains(tip, want) {
-		t.Errorf("Animal Bonding tooltip %q should contain %q", tip, want)
-	}
-}
-
 // TestSpeedTooltip_NoTurnBasedLie: Speed grants party-wide turn-based bonus
 // action slots, so its tooltip must not claim it has no turn-based effect.
 func TestSpeedTooltip_NoTurnBasedLie(t *testing.T) {

@@ -34,30 +34,43 @@ func TestNightMotesComeOnlyFromTileConfig(t *testing.T) {
 }
 
 func TestNightMoteFliesOneTileForConfiguredLifetime(t *testing.T) {
-	cfg := loadTestConfig(t)
-	tps := cfg.GetTPS()
+	r, _ := nightMoteTreeTestRenderer(t, 0)
+	cfg := r.game.config
 	tileSize := float64(cfg.GetTileSize())
-	lifeTicks := int64(math.Round(cfg.Graphics.NightMotes.LifetimeSeconds * float64(tps)))
-	fly := nightMote{
-		startX: 32, startY: 32,
-		targetX: 96, targetY: 32,
-		bornTick: 10,
-		dieTick:  10 + lifeTicks,
-		phase:    0.4,
-	}
-	if got := fly.dieTick - fly.bornTick; got != lifeTicks {
-		t.Fatalf("lifetime = %d ticks, want configured %d", got, lifeTicks)
-	}
-	mid, ok := fly.pose((fly.bornTick+fly.dieTick)/2, tileSize)
-	if !ok || mid.x <= fly.startX || mid.x >= fly.targetX || mid.alpha <= 0 {
-		t.Fatalf("mid-flight pose = %+v, %v", mid, ok)
-	}
-	last, ok := fly.pose(fly.dieTick-1, tileSize)
-	if !ok || math.Hypot(last.x-fly.targetX, last.y-fly.targetY) > tileSize*0.02 {
-		t.Fatalf("final pose = %+v, want arrival near adjacent tile center", last)
-	}
-	if _, ok := fly.pose(fly.dieTick, tileSize); ok {
-		t.Fatal("mote remained alive after its configured lifetime")
+	lifeTicks := int64(math.Round(cfg.Graphics.NightMotes.LifetimeSeconds * float64(cfg.GetTPS())))
+	tree := &r.treeTilesCache[0]
+	// The target direction is random: repeat to cover several neighbours.
+	for i := 0; i < 16; i++ {
+		r.nightMotes = r.nightMotes[:0]
+		if !r.spawnNightMote(10, tree, r.game.world) || len(r.nightMotes) != 1 {
+			t.Fatalf("spawn %d: no mote from a tree with open neighbours", i)
+		}
+		fly := r.nightMotes[0]
+		if got := fly.dieTick - fly.bornTick; fly.bornTick != 10 || got != lifeTicks {
+			t.Fatalf("born %d, lifetime = %d ticks, want 10 and configured %d", fly.bornTick, got, lifeTicks)
+		}
+		if fly.startX != tree.worldX || fly.startY != tree.worldY {
+			t.Fatalf("mote starts at (%.1f,%.1f), want tree center (%.1f,%.1f)", fly.startX, fly.startY, tree.worldX, tree.worldY)
+		}
+		tx, ty := int(fly.targetX/tileSize), int(fly.targetY/tileSize)
+		if dx, dy := tx-tree.tileX, ty-tree.tileY; dx < -1 || dx > 1 || dy < -1 || dy > 1 || dx == 0 && dy == 0 {
+			t.Fatalf("target tile (%d,%d) is not adjacent to tree tile (%d,%d)", tx, ty, tree.tileX, tree.tileY)
+		}
+
+		dirX, dirY := fly.targetX-fly.startX, fly.targetY-fly.startY
+		route := math.Hypot(dirX, dirY)
+		mid, ok := fly.pose((fly.bornTick+fly.dieTick)/2, tileSize)
+		along := ((mid.x-fly.startX)*dirX + (mid.y-fly.startY)*dirY) / (route * route)
+		if !ok || along <= 0 || along >= 1 || mid.alpha <= 0 {
+			t.Fatalf("mid-flight pose = %+v (%.2f of the route), %v", mid, along, ok)
+		}
+		last, ok := fly.pose(fly.dieTick-1, tileSize)
+		if !ok || math.Hypot(last.x-fly.targetX, last.y-fly.targetY) > tileSize*0.02 {
+			t.Fatalf("final pose = %+v, want arrival near adjacent tile center", last)
+		}
+		if _, ok := fly.pose(fly.dieTick, tileSize); ok {
+			t.Fatal("mote remained alive after its configured lifetime")
+		}
 	}
 }
 

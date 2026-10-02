@@ -108,17 +108,16 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	if totalPages <= 1 {
 		return
 	}
-	const btnW, btnH = 30, 18
 	mouseX, mouseY := uiCursorPosition()
 
-	drawBtn := func(bx int, label string, enabled bool, step int) {
-		ui.drawButtonFrame(screen, bx, y, btnW, btnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH))
+	drawBtn := func(r layoutRect, label string, enabled bool, step int) {
+		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
 		if !enabled {
-			drawFilledRect(screen, bx+2, y+2, btnW-4, btnH-4, color.RGBA{0, 0, 0, 100})
+			drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 100})
 		}
-		drawCenteredUIText(screen, label, bx, y+2, btnW, btnH-2)
-		ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, btnW, btnH}, func() {
-			if enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH) {
+		drawCenteredUIText(screen, label, r.x, r.y+2, r.w, r.h-2)
+		ui.onDisplayedInput(uiCommandNavigation, r, func() {
+			if enabled && clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 				*page = max(0, min(totalPages-1, *page+step))
 				for _, change := range onChange {
 					change()
@@ -127,10 +126,17 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 		})
 	}
 
-	drawBtn(x, "<", *page > 0, -1)
-	drawBtn(x+w-btnW, ">", *page < totalPages-1, 1)
+	prev, next := pagerButtonRects(x, y, w)
+	drawBtn(prev, "<", *page > 0, -1)
+	drawBtn(next, ">", *page < totalPages-1, 1)
 
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, pagerBtnH-2)
+}
+
+// pagerButtonRects are drawPager's Prev and Next buttons for a strip at (x,y)
+// spanning w.
+func pagerButtonRects(x, y, w int) (prev, next layoutRect) {
+	return layoutRect{x, y, pagerBtnW, pagerBtnH}, layoutRect{x + w - pagerBtnW, y, pagerBtnW, pagerBtnH}
 }
 
 const (

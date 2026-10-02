@@ -8,6 +8,8 @@ import (
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/stash"
+	"ugataima/internal/storage"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -124,65 +126,53 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 	}
 	g.campConfirmOpen = false
 	if got := ui.topModalLayer(); got != modalLayerStackSplit {
-		t.Fatalf("top modal after level choice = %d, want stack split %d", got, modalLayerStackSplit)
+		t.Fatalf("top modal after camp = %d, want stack split %d", got, modalLayerStackSplit)
 	}
 }
 
 func TestModalIdentityChangeDropsQueuedClicks(t *testing.T) {
 	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	ui := NewUISystem(g)
-	g.dialogActive = true
-	ui.beginDisplayedInput()
-	ui.endDisplayedInput()
-	g.mouseLeftClicks = []queuedClick{{x: 1, y: 2}}
-	g.mouseRightClicks = []queuedClick{{x: 3, y: 4}}
+	for _, replaced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replaced=%v", replaced), func(t *testing.T) {
+			g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+			ui := NewUISystem(g)
+			g.dialogActive = true
+			// The dialog's displayed command covers both presses: it fires only
+			// while the dialog is still the displayed owner.
+			fired := 0
+			ui.beginDisplayedInput()
+			ui.onDisplayedInput(uiCommandClick, layoutRect{0, 0, 10, 10}, func() {
+				if g.consumeLeftClickIn(0, 0, 10, 10) || g.consumeRightClickIn(0, 0, 10, 10) {
+					fired++
+				}
+			})
+			ui.endDisplayedInput()
+			g.mouseLeftClicks = []queuedClick{{x: 1, y: 2}}
+			g.mouseRightClicks = []queuedClick{{x: 3, y: 4}}
 
-	g.dialogActive = false
-	g.rosterScreenOpen = true
-	if ui.displayedInputCurrent() {
-		t.Fatal("dialog-to-roster replacement was not detected")
-	}
-	ui.dispatchDisplayedInput()
-	if layer := ui.topModalLayer(); layer != modalLayerRoster {
-		t.Fatalf("input owner = %d, want roster %d", layer, modalLayerRoster)
-	}
-	if len(g.mouseLeftClicks) != 0 || len(g.mouseRightClicks) != 0 {
-		t.Fatal("clicks from the prior modal survived into its replacement")
-	}
-}
-
-func TestNestedModalCloseActivatesRedrawBarrier(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	g.appScreen = AppScreenInGame
-	ui := NewUISystem(g)
-	g.stashScreenOpen = true
-	ui.renderedModalSnapshot = modalLayerSnapshot{layer: modalLayerStackSplit}
-
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("closing stack split onto its stash parent did not activate the identity barrier")
-	}
-}
-
-func TestMainMenuContentChangeActivatesRedrawBarrier(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	g.appScreen = AppScreenInGame
-	g.mainMenuOpen = true
-	g.mainMenuMode = MenuMain
-	ui := NewUISystem(g)
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-
-	g.mainMenuMode = MenuLoadSelect
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("Main -> Load content replacement did not activate the redraw barrier")
-	}
-
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-	g.savePage++
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("save-page replacement did not activate the redraw barrier")
+			want := modalLayerDialog
+			if replaced {
+				g.dialogActive = false
+				g.rosterScreenOpen = true
+				want = modalLayerRoster
+			}
+			if ui.displayedInputCurrent() == replaced {
+				t.Fatalf("displayed input current = %v after replaced=%v", !replaced, replaced)
+			}
+			ui.dispatchDisplayedInput()
+			if layer := ui.topModalLayer(); layer != want {
+				t.Fatalf("input owner = %d, want %d", layer, want)
+			}
+			if replaced && fired != 0 {
+				t.Fatal("the replaced dialog's command consumed a press")
+			}
+			if !replaced && fired == 0 {
+				t.Fatal("control failed: the current dialog's command never fired")
+			}
+			if len(g.mouseLeftClicks) != 0 || len(g.mouseRightClicks) != 0 {
+				t.Fatal("clicks from the prior modal survived into its replacement")
+			}
+		})
 	}
 }
 
@@ -214,60 +204,77 @@ func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	}
 }
 
-// Production selection lives in selectedCharIdx (portrait clicks, arrow keys,
-// the trainer popup); the snapshot must track THAT field, or switching the
-// character under a trader/trainer never arms the barrier and a later Update
-// buys or trains for a selection the player has not seen drawn.
-func TestDialogSnapshotTracksTraderCharacterSelection(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	g.appScreen = AppScreenInGame
-	ui := NewUISystem(g)
-	g.dialogActive = true
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-
-	g.selectedCharIdx = 1
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("switching the dialog's selected character did not activate the redraw barrier")
-	}
-}
-
-// Any transaction a modal displays must change its snapshot, or a second
-// buffered click acts on contents whose replacement has not been drawn yet.
-// Gold and the bag/party/reserve lengths cover buy/sell/teach/train/hire
+// Any change to what a displayed modal shows must change its snapshot, or a
+// second buffered click acts on contents whose replacement has not been drawn
+// yet. Gold and the bag/party/reserve lengths cover buy/sell/teach/train/hire
 // without per-callsite bookkeeping; the tavern's embedded stash and roster
-// sub-state ride on the dialog snapshot.
+// sub-state ride on the dialog snapshot. Production selection lives in
+// selectedCharIdx (portrait clicks, arrow keys, the trainer popup), so a
+// switch under a trader/trainer must arm the barrier too. A top-level screen
+// is never held by a gameplay modal left open behind it.
 func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 	cfg := loadTestConfig(t)
+	openDialog := func(g *MMGame, _ *UISystem) { g.dialogActive = true }
+	openMainMenu := func(mode MainMenuMode) func(*MMGame, *UISystem) {
+		return func(g *MMGame, _ *UISystem) { g.mainMenuOpen, g.mainMenuMode = true, mode }
+	}
+	openStash := func(g *MMGame, _ *UISystem) {
+		storage.SetDataRootForTesting(t.TempDir())
+		g.stash = &stash.Stash{}
+		g.stashScreenOpen = true
+	}
 	tests := []struct {
-		name   string
-		mutate func(*MMGame)
+		name    string
+		open    func(*MMGame, *UISystem)
+		mutate  func(*testing.T, *MMGame, *UISystem)
+		blocked bool
 	}{
-		{"gold spent", func(g *MMGame) { g.party.Gold -= 100 }},
-		{"arena points spent", func(g *MMGame) { g.party.ArenaPoints -= 5 }},
-		{"item bought", func(g *MMGame) { g.party.Inventory = append(g.party.Inventory, items.Item{Name: "Sword"}) }},
+		{"gold spent", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.party.Gold -= 100 }, true},
+		{"arena points spent", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.party.ArenaPoints -= 5 }, true},
+		{"item bought", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) {
+			g.party.Inventory = append(g.party.Inventory, items.Item{Name: "Sword"})
+		}, true},
 		// Length-neutral mutations: only Party.contentRev can see these.
-		{"purchase merged into stack", func(g *MMGame) {
+		{"purchase merged into stack", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) {
 			g.party.AddItem(items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1})
-		}},
-		{"partial currency drain", func(g *MMGame) {
+		}, true},
+		{"partial currency drain", openDialog, func(t *testing.T, g *MMGame, _ *UISystem) {
 			if !g.party.RemoveItemsByName("Health Potion", 2) {
-				panic("staging: currency stack missing")
+				t.Fatal("staging: currency stack missing")
 			}
-		}},
-		{"bench swap", func(g *MMGame) {
+		}, true},
+		{"bench swap", openDialog, func(t *testing.T, g *MMGame, _ *UISystem) {
 			if !g.party.SwapActiveReserve(0, 0) {
-				panic("staging: swap rejected")
+				t.Fatal("staging: swap rejected")
 			}
-		}},
-		{"member hired", func(g *MMGame) { g.party.Reserve = g.party.Reserve[:len(g.party.Reserve)-1] }},
-		{"embedded stash tab", func(g *MMGame) { g.stashShowCards = true }},
-		{"embedded stash page", func(g *MMGame) { g.stashInvPage++ }},
-		{"embedded roster selection", func(g *MMGame) { g.rosterSelectedActive = 2 }},
-		{"content revision", func(g *MMGame) { g.bumpModalContentRev() }},
+		}, true},
+		{"member hired", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.party.Reserve = g.party.Reserve[:len(g.party.Reserve)-1] }, true},
+		{"embedded stash tab", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashShowCards = true }, true},
+		{"embedded stash page", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashInvPage++ }, true},
+		{"embedded roster selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.rosterSelectedActive = 2 }, true},
+		{"trader character selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.selectedCharIdx = 1 }, true},
+		{"content revision", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.bumpModalContentRev() }, true},
+		{"main menu to load list", openMainMenu(MenuMain), func(_ *testing.T, g *MMGame, _ *UISystem) { g.mainMenuMode = MenuLoadSelect }, true},
+		{"save page turned", openMainMenu(MenuLoadSelect), func(_ *testing.T, g *MMGame, _ *UISystem) { g.savePage++ }, true},
+		{"stack split closed onto its stash", func(g *MMGame, ui *UISystem) {
+			g.stashScreenOpen = true
+			ui.stackSplitPicker.open = true
+		}, func(_ *testing.T, _ *MMGame, ui *UISystem) { ui.stackSplitPicker.open = false }, true},
+		// A chest cell-to-cell move changes neither the bag length nor the gold;
+		// the journalled transfer chokepoint bumps the explicit revision.
+		{"stash transfer committed", openStash, func(t *testing.T, g *MMGame, _ *UISystem) {
+			if !g.commitStashTransfer(g.stashSnapshot()) {
+				t.Fatal("stash transfer commit failed in the isolated save dir")
+			}
+		}, true},
+		{"entry screen over a background dialog", openDialog, func(_ *testing.T, g *MMGame, ui *UISystem) {
+			g.appScreen = AppScreenMainMenu
+			ui.renderedModalSnapshot = modalLayerSnapshot{}
+		}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Cleanup(func() { storage.SetDataRootForTesting("") })
 			g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
 			g.appScreen = AppScreenInGame
 			fillTestParty(t, g)
@@ -276,12 +283,15 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 			g.party.Reserve = []*character.MMCharacter{{}}
 			g.party.Inventory = []items.Item{{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5}}
 			ui := NewUISystem(g)
-			g.dialogActive = true
+			tt.open(g, ui)
 			ui.renderedModalSnapshot = ui.topModalSnapshot()
+			if ui.modalRedrawBarrierActive() {
+				t.Fatal("fixture: the barrier is up before the change")
+			}
 
-			tt.mutate(g)
-			if !ui.modalRedrawBarrierActive() {
-				t.Fatal("modal content mutation did not activate the redraw barrier")
+			tt.mutate(t, g, ui)
+			if got := ui.modalRedrawBarrierActive(); got != tt.blocked {
+				t.Fatalf("redraw barrier = %v after the change, want %v", got, tt.blocked)
 			}
 		})
 	}
@@ -363,10 +373,9 @@ func TestOverlayWidgetsCannotEatTopModalClicks(t *testing.T) {
 	g.dialogNPC = npc
 
 	dlg := npcDialogLayout(g)
-	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
-	pagerX := dlg.x + (600-gridW)/2
-	pagerY := spellTraderPagerY(dlg.y)
-	nextClick := queuedClick{x: pagerX + gridW - 15, y: pagerY + 9, at: 1000}
+	pager := spellTraderPagerRect(dlg.x, dlg.y)
+	_, next := pagerButtonRects(pager.x, pager.y, pager.w)
+	nextClick := queuedClick{x: next.x + next.w/2, y: next.y + next.h/2, at: 1000}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.dispatchDisplayedInput()
@@ -397,23 +406,6 @@ func TestOverlayWidgetsCannotEatTopModalClicks(t *testing.T) {
 	}
 	if g.currentLevelUpChoice() == nil {
 		t.Fatal("staging broke: the level-up choice disappeared")
-	}
-}
-
-// A chest cell-to-cell stash move changes neither the bag length nor the gold;
-// the journalled transfer chokepoint must bump the explicit content revision.
-func TestStashTransferBumpsModalContentRevision(t *testing.T) {
-	g := stashTestGame(t)
-	g.appScreen = AppScreenInGame
-	g.stashScreenOpen = true
-	ui := NewUISystem(g)
-	ui.renderedModalSnapshot = ui.topModalSnapshot()
-
-	if !g.commitStashTransfer(g.stashSnapshot()) {
-		t.Fatal("stash transfer commit failed in the isolated test dir")
-	}
-	if !ui.modalRedrawBarrierActive() {
-		t.Fatal("a committed stash transfer did not activate the redraw barrier")
 	}
 }
 
@@ -456,18 +448,6 @@ func TestPickerEscapeIsConsumedInUpdate(t *testing.T) {
 			t.Fatal("ESC cancelled the promotion picker - it must stay committed")
 		}
 	})
-}
-
-func TestTopLevelScreenIgnoresGameplayModalBarrier(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	ui := NewUISystem(g)
-	g.appScreen = AppScreenMainMenu
-	g.dialogActive = true
-
-	if ui.modalRedrawBarrierActive() {
-		t.Fatal("a background gameplay modal blocked the entry screen")
-	}
 }
 
 // The identity contract's other half: for EVERY layer a few real Draw frames

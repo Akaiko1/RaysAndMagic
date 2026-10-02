@@ -595,20 +595,6 @@ func (qm *QuestManager) GetActiveQuests() []*Quest {
 	return quests
 }
 
-// GetCompletedQuests returns all completed quests (with unclaimed rewards)
-func (qm *QuestManager) GetCompletedQuests() []*Quest {
-	qm.mu.RLock()
-	defer qm.mu.RUnlock()
-
-	quests := make([]*Quest, 0)
-	for _, quest := range qm.activeQuests {
-		if quest.Status == QuestStatusCompleted && !quest.RewardsClaimed {
-			quests = append(quests, quest)
-		}
-	}
-	return quests
-}
-
 // GetAllQuests returns all quests (active and completed)
 func (qm *QuestManager) GetAllQuests() []*Quest {
 	qm.mu.RLock()
@@ -687,23 +673,6 @@ func (q *Quest) GetProgressString() string {
 		return fmt.Sprintf("%d/%d %s", q.CurrentCount, q.Target(), target)
 	}
 	return fmt.Sprintf("%d/%d", q.CurrentCount, q.Target())
-}
-
-// GetStatusString returns a human-readable status
-func (q *Quest) GetStatusString() string {
-	switch q.Status {
-	case QuestStatusActive:
-		return "In Progress"
-	case QuestStatusCompleted:
-		if q.RewardsClaimed {
-			return "Completed"
-		}
-		return "Complete! (Claim Reward)"
-	case QuestStatusFailed:
-		return "Failed"
-	default:
-		return "Unknown"
-	}
 }
 
 // CreateEncounterQuest creates and activates a quest for an encounter

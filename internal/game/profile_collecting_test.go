@@ -13,8 +13,21 @@ import (
 )
 
 func TestProfileCollectingChestSources(t *testing.T) {
+	crateTestGame(t) // loads the crate catalog for the source list
+	sources := append(sortedMapKeys(config.GlobalLoots.Crates), "encounter", "monster", "sealed", "gold only")
+	chests, props := 0, 0
+	for _, crate := range config.GlobalLoots.Crates {
+		if crate.TreasureChest {
+			chests++
+		} else {
+			props++
+		}
+	}
+	if chests == 0 || props == 0 {
+		t.Fatalf("crate catalog has %d chests and %d props, want both kinds", chests, props)
+	}
 	for _, tb := range []bool{false, true} {
-		for _, source := range []string{"chest_wooden", "chest_iron", "chest_golden", "chest_gearwood", "chest_chrono", "chest_regal", "pile_of_old_boxes", "campfire", "encounter", "monster", "sealed", "gold only"} {
+		for _, source := range sources {
 			t.Run(fmt.Sprintf("%s/TB=%v", source, tb), func(t *testing.T) {
 				g := crateTestGame(t)
 				profilePath := attachStatisticsProfile(t, g)
@@ -40,14 +53,10 @@ func TestProfileCollectingChestSources(t *testing.T) {
 					g.addLootBagDrop(g.camera.X, g.camera.Y, loot, 0)
 					g.pickupGroundContainerAt(0)
 				default:
+					// Only a treasure chest's loot counts as chest loot.
 					crate := config.GetCrateConfig(source)
-					if source == "pile_of_old_boxes" || source == "campfire" {
+					if !crate.TreasureChest {
 						want = 0
-						if crate.TreasureChest {
-							t.Fatal("non-chest tagged as chest")
-						}
-					} else if !crate.TreasureChest {
-						t.Fatal("authored chest lacks provenance")
 					}
 					// Force a deterministic catalog reward while retaining authored provenance
 					// and driving the real one-shot interaction guard.

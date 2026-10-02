@@ -47,8 +47,8 @@ const (
 	partyPanelContentRight  = 18
 	partyPanelContentTop    = 18
 	partyPanelContentBottom = 82
-	// utilityStatusIconSize is the authored size of a utility status icon
-	// (AGENTS.md, Icons). Drawing at native size avoids resampling.
+	// utilityStatusIconSize is the status rail's icon cell (AGENTS.md, Icons);
+	// drawSpellIcon scales every source icon into it.
 	utilityStatusIconSize = 24
 )
 
@@ -829,10 +829,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				drawPartyFrameBand(screen, cardRect, partyStateBandGap, partyFrameWhole, 1, partyFrameTrack)
 				drawPartyFrameBand(screen, cardRect, partyStateBandGap, partyFrameUpperHalf, 1, partyFrameSpent)
 			}
-		case member.MainHandArmed() && member.IsDualWielding():
-			// The split readout represents two ATTACKING hands, so both must
-			// actually hold a weapon: an empty (or shield-bearing) off-hand has
-			// no off-hand attack, and either way one half would sit "ready".
+		case partyCardShowsSplitCooldown(member):
 			if mainProgress, offProgress, active := ui.partyArmsMasterCooldownProgress(member); active {
 				drawPartyArmsMasterCooldownFrame(screen, cardRect, mainProgress, offProgress)
 			}
@@ -1237,8 +1234,6 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	}
 
 	_, _, _, partyStartY := partyPortraitLayout(ui.game)
-	// Utility status icons are authored 24x24 (AGENTS.md, Icons) - drawn at their
-	// native size they stay crisp and the compact rail holds the most effects.
 	const iconSize = utilityStatusIconSize
 	const iconGap = 5
 	const barPadding = 4
@@ -1735,9 +1730,34 @@ func combatMessageArea(g *MMGame) (x, y, w, h int) {
 	return g.hudMessageBlockRect(count)
 }
 
+// partyCardShowsSplitCooldown gates the RT split readout: it represents two
+// ATTACKING hands, so both must hold a weapon - an empty (or shield-bearing)
+// off-hand has no off-hand attack, and one half would sit "ready" forever.
+func partyCardShowsSplitCooldown(member *character.MMCharacter) bool {
+	return member.MainHandArmed() && member.IsDualWielding()
+}
+
 func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {
 	r := centeredRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), 700, 640)
 	return r.x, r.y, r.w, r.h
+}
+
+// combatLogLayout is the game-log overlay geometry its draw and its click
+// handler share.
+type combatLogLayout struct {
+	close, content, up, down layoutRect
+}
+
+func makeCombatLogLayout(g *MMGame) combatLogLayout {
+	x, y, w, h := combatLogPanelLayout(g)
+	content := layoutRect{x + 28, y + 54, w - 72, h - 88}
+	buttonX := x + w - 36
+	return combatLogLayout{
+		close:   layoutRect{x + w - 30, y + 8, 20, 20},
+		content: content,
+		up:      layoutRect{buttonX, content.y + 8, 22, 22},
+		down:    layoutRect{buttonX, content.bottom() - 30, 22, 22},
+	}
 }
 
 func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
@@ -1747,11 +1767,10 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	ui.drawPatternFrame(screen, "menu_panel_frame", x, y, w, h, menuPanelFrameSlice)
 	drawCenteredUIText(screen, "GAME LOG", x, y+18, w, 20)
 
-	closeX, closeY := x+w-30, y+8
-	ui.drawCloseButtonVisual(screen, closeX, closeY, 20, 20)
+	l := makeCombatLogLayout(ui.game)
+	ui.drawCloseButtonVisual(screen, l.close.x, l.close.y, l.close.w, l.close.h)
 
-	contentX, contentY := x+28, y+54
-	contentW, contentH := w-72, h-88
+	contentX, contentY, contentW, contentH := l.content.x, l.content.y, l.content.w, l.content.h
 	ui.drawThemeFrame(screen, frameGold, contentX, contentY, contentW, contentH)
 
 	rowY := contentY + contentH - 22
@@ -1767,16 +1786,15 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 		entryIndex--
 	}
 
-	buttonX := x + w - 36
 	for _, btn := range []struct {
-		y     int
+		r     layoutRect
 		label string
 	}{
-		{contentY + 8, "^"},
-		{contentY + contentH - 30, "v"},
+		{l.up, "^"},
+		{l.down, "v"},
 	} {
-		ui.drawButtonFrame(screen, buttonX, btn.y, 22, 22, false)
-		drawCenteredUIText(screen, btn.label, buttonX, btn.y+2, 22, 18)
+		ui.drawButtonFrame(screen, btn.r.x, btn.r.y, btn.r.w, btn.r.h, false)
+		drawCenteredUIText(screen, btn.label, btn.r.x, btn.r.y+2, btn.r.w, 18)
 	}
 	drawUITextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }

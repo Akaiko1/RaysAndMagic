@@ -495,28 +495,6 @@ func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	return detectionRadius, disengageMult
 }
 
-// PlayerDetectionRange returns the current sight radius and hysteresis range
-// multiplier used for player engagement. Keeping the calculation here lets UI
-// and pursuit code consume the same radii while the initial LoS gate stays
-// centralized in HasLineOfSightToPlayer.
-func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, playerX, playerY float64) (float64, float64) {
-	detectionRadius, disengageMult := m.playerAlertRadii()
-
-	// Passive detection needs LINE OF SIGHT: an unaware monster never aggros
-	// through walls or trees. Engagement, once made, is distance-ruled only
-	// (the hysteresis at the callers), so pursuit survives corners and cover.
-	// The DDA trace runs only when its result can matter: unaware AND in range.
-	// DELIBERATE: the rule is absolute - the old outside-tether exemption
-	// (a lured mob kept detecting through cover) is gone with it; a mob that
-	// disengages behind a wall walks home like any other unaware monster.
-	if !m.IsEngagingPlayer && collisionChecker != nil &&
-		distance(m.X, m.Y, playerX, playerY) <= detectionRadius &&
-		!m.HasLineOfSightToPlayer(collisionChecker, playerX, playerY) {
-		return 0, disengageMult
-	}
-	return detectionRadius, disengageMult
-}
-
 // ShouldDisengageFromPlayer is the shared non-sticky pursuit exit rule. RT
 // applies it to every sight-only party encounter; TB applies it only to the
 // loot-guard objective, whose encounter deliberately returns to its post at

@@ -18,18 +18,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// EffectLines returns user-facing description lines for the non-base
-// special effects of a weapon (damage type override, stun, disintegrate,
-// AoE splash, max airborne projectiles, per-monster bonus multipliers).
-// Single source of truth - both the in-game tooltip and the map-viewer
-// card pull from here so any new effect surfaces everywhere automatically.
-//
-// Base attributes (Damage, Range, BonusStat, CritChance) are shown
-// separately by each consumer because their formatting differs - e.g.
-// the in-game tooltip renders crit as "Critical Chance: total% (Base: X,
-// Luck: +N)" using character context, while the map-viewer card shows
-// the raw "Crit Chance: X%". Listing crit here too would render it
-// twice in every in-game tooltip.
 // cooldownMultLine renders a cooldown multiplier as a +/-% line ("Spell cooldown
 // -20%"); 0 (unset) and exactly 1.0 produce nothing.
 func cooldownMultLine(label string, mult float64) string {
@@ -53,10 +41,6 @@ func WeaponStatusTurns(seconds int) int {
 
 func weaponStatusDurationLabel(seconds int) string {
 	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
-}
-
-func (w *WeaponDefinitionConfig) EffectLines() []string {
-	return append(w.effectLines(true), w.SetLines()...)
 }
 
 // SpecialEffectLines excludes set membership, compared as a separate rule.

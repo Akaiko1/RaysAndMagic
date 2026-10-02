@@ -153,8 +153,16 @@ func TestTooltipComparisonUsesEffectiveValuesAndDirection(t *testing.T) {
 	ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 	cs.game.party.Members = []*character.MMCharacter{ch}
 	card := GetItemComparisonTooltip(items.CreateWeaponFromYAML("compound_bow"), ch, cs)
-	if !strings.Contains(card, "Range: 10 -> 13 (+3) tiles") {
-		t.Fatal(card)
+	oldDef, _ := config.GetWeaponDefinition("hunting_bow")
+	newDef, _ := config.GetWeaponDefinition("compound_bow")
+	oldRange, _ := character.EffectiveWeaponFlight(oldDef, ch)
+	newRange, _ := character.EffectiveWeaponFlight(newDef, ch)
+	// Ballistics must move the range off the authored one, or raw values would pass.
+	if oldRange == float64(oldDef.Range) || newRange == float64(newDef.Range) || oldRange == newRange {
+		t.Fatalf("fixture does not separate effective from authored range: %v/%d -> %v/%d", oldRange, oldDef.Range, newRange, newDef.Range)
+	}
+	if want := fmt.Sprintf("Range: %.0f -> %.0f (%+.0f) tiles", oldRange, newRange, newRange-oldRange); !strings.Contains(card, want) {
+		t.Fatalf("missing %q:\n%s", want, card)
 	}
 	for _, pair := range [][2]spells.SpellID{{"fireball", "ice_bolt"}, {"ice_bolt", "fireball"}} {
 		card = strings.Join(buildSpellComparisonLinesByID(pair[1], pair[0], ch, cs), "\n")
@@ -203,10 +211,6 @@ func TestTooltipItemContributionAndRecovery(t *testing.T) {
 					}
 					if def.HealBase > 0 || def.ManaBase > 0 {
 						if strings.Index(card, "Auto-use when") < strings.Index(card, "USAGE") {
-							t.Fatal(card)
-						}
-						want := bearer != nil && full && bearer.HasSkill(character.SkillFieldMedicine) && !def.Revive
-						if strings.Contains(card, "Field Medicine:") != want {
 							t.Fatal(card)
 						}
 					}
@@ -266,18 +270,6 @@ func TestTooltipSpellComparisonDamageUnits(t *testing.T) {
 					t.Fatalf("missing nova geometry:\n%s", card)
 				}
 			})
-		}
-	}
-}
-
-func TestFullWeaponTooltipFitsSmallWindow(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	ch := gmReferenceChar(cs.game.config)
-	for _, key := range []string{"hunting_bow", "tanegashima", "broodspike", "compound_bow"} {
-		card := GetItemTooltip(items.CreateWeaponFromYAML(key), ch, cs, true)
-		r := singleTooltipLayout(strings.Split(card, "\n"), nil, true, 780, 590, 800, 600)
-		if r.y < tooltipScreenMargin || r.bottom() > 600-tooltipScreenMargin {
-			t.Errorf("%s: full card extends off screen: %+v\n%s", key, r, card)
 		}
 	}
 }

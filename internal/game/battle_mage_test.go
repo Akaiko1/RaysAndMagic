@@ -7,88 +7,12 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
-	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
-
-// The Battle Mage kit contract: skills, four schools with their authored
-// spells, and the three-piece starting equipment routed by slot.
-func TestBattleMageClassKit(t *testing.T) {
-	cfg := loadTestConfig(t)
-	ch := character.CreateCharacter("Isolde", character.ClassBattleMage, cfg)
-
-	for _, skill := range []character.SkillType{
-		character.SkillSword, character.SkillMace, character.SkillAxe,
-		character.SkillPlate, character.SkillBodybuilding,
-		character.SkillSpellAbsorption, character.SkillStrongMagic,
-	} {
-		if !ch.HasSkill(skill) {
-			t.Errorf("battle mage kit is missing skill %s", skill)
-		}
-	}
-	wantSpells := map[character.MagicSchoolID]spells.SpellID{
-		"light": "resurrect",
-		"earth": "rock_blast",
-		"fire":  "firewall",
-		"air":   "sparks",
-	}
-	for school, spellID := range wantSpells {
-		ms, ok := ch.MagicSchools[school]
-		if !ok {
-			t.Errorf("school %s is not open", school)
-			continue
-		}
-		found := false
-		for _, known := range ms.KnownSpells {
-			if known == spellID {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("school %s does not know %s: %v", school, spellID, ms.KnownSpells)
-		}
-	}
-	if got := ch.Equipment[items.SlotMainHand]; got.Name != "Silver Sword" {
-		t.Errorf("main hand = %q, want Silver Sword", got.Name)
-	}
-	if got := ch.Equipment[items.SlotArmor]; got.Name != "Iron Armor" {
-		t.Errorf("armor slot = %q, want Iron Armor", got.Name)
-	}
-	if got := ch.Equipment[items.SlotRing1]; got.Name != "Magic Ring" {
-		t.Errorf("ring slot = %q, want Magic Ring", got.Name)
-	}
-	// The class is registered end to end: key round-trip, roster, description.
-	if key := character.ClassBattleMage.Key(); key != "battle_mage" {
-		t.Fatalf("class key = %q", key)
-	}
-	if cls, ok := character.ClassFromKey("battle_mage"); !ok || cls != character.ClassBattleMage {
-		t.Fatal("ClassFromKey does not resolve battle_mage")
-	}
-	if character.ClassBattleMage.String() != "Battle Mage" || len(cfg.Characters.Classes["battle_mage"].Description) == 0 {
-		t.Fatal("battle mage String/description incomplete")
-	}
-	found := false
-	for _, cls := range character.PlayableClasses {
-		if cls == character.ClassBattleMage {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("battle mage missing from PlayableClasses")
-	}
-	recruit := false
-	for _, entry := range cfg.Characters.TavernRecruits {
-		if entry.Name == "Isolde" && entry.Class == "battle_mage" {
-			recruit = true
-		}
-	}
-	if !recruit {
-		t.Fatal("Isolde (battle_mage) missing from tavern_recruits")
-	}
-}
 
 func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *character.MMCharacter {
 	member := cs.game.party.Members[0]
@@ -103,7 +27,9 @@ func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *charac
 // channels can be absorbed, and an absorbed hit deals nothing while restoring
 // HP and SP equal to the packet's own damage. Non-spell rows are deterministic;
 // spell rows sample the real roll (miss probability at GM over 400 tries is
-// 0.4^400, i.e. never).
+// 0.4^400, i.e. never). Projectile rows fly a real monster dart or bolt into
+// the party, so the absorber is only one of the weighted targets - still far
+// past any chance of 400 misses.
 func TestSpellAbsorptionChannelTable(t *testing.T) {
 	if got := []int{
 		character.SpellAbsorbChancePct(0), character.SpellAbsorbChancePct(1),
@@ -121,32 +47,54 @@ func TestSpellAbsorptionChannelTable(t *testing.T) {
 		t.Fatal("dragon-breath channel must be a spell")
 	}
 
+	// Channels: "hit" calls monsterHitCharacter with the row's label, "parts"
+	// calls damagePartyMemberParts, "dart" and "bolt" fly a real monster Arrow
+	// or MagicProjectile through CheckProjectilePlayerCollisions.
 	tests := []struct {
 		name       string
-		spell      bool
-		viaParts   bool // drive damagePartyMemberParts instead of monsterHitCharacter
+		channel    string
+		spell      bool // label for the "hit" and "parts" channels
 		absorbable bool
 	}{
-		{name: "melee hit is never absorbed", spell: false, absorbable: false},
-		{name: "weapon dart is never absorbed", spell: false, absorbable: false},
-		{name: "spell projectile can be absorbed", spell: true, absorbable: true},
-		{name: "fireburst channel can be absorbed", spell: true, viaParts: true, absorbable: true},
-		{name: "crate trap channel is never absorbed", spell: false, viaParts: true, absorbable: false},
+		{name: "melee hit is never absorbed", channel: "hit", spell: false, absorbable: false},
+		{name: "weapon dart is never absorbed", channel: "dart", absorbable: false},
+		{name: "spell projectile can be absorbed", channel: "bolt", absorbable: true},
+		{name: "fireburst channel can be absorbed", channel: "parts", spell: true, absorbable: true},
+		{name: "crate trap channel is never absorbed", channel: "parts", spell: false, absorbable: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
 			member := absorptionTestMember(cs, character.MasteryGrandMaster)
 			mob := mkTestMonster("Goblin", 1000)
 			parts := damagecalc.Parts{Normal: 10, True: 5}
 			absorbed := false
 			for try := 0; try < 400; try++ {
 				member.HitPoints, member.SpellPoints = 100, 10
-				if tt.viaParts {
-					cs.damagePartyMemberParts(0, member, parts, "fire", tt.spell)
-				} else {
+				id := fmt.Sprintf("absorb_%s_%d", tt.channel, try)
+				switch tt.channel {
+				case "hit":
 					hit := monsterCharacterHit{Parts: parts, DamageType: "fire", Spell: tt.spell}
 					cs.monsterHitCharacter(mob, member, "Test Mob", hit)
+				case "parts":
+					cs.damagePartyMemberParts(0, member, parts, "fire", tt.spell)
+				case "dart":
+					g.arrows = append(g.arrows[:0], Arrow{
+						ID: id, X: g.camera.X, Y: g.camera.Y, Damage: parts.Normal, TrueDamage: parts.True,
+						LifeTime: 10, Active: true, DamageType: "fire",
+						Owner: ProjectileOwnerMonster, SourceName: mob.Name, SourceMonster: mob,
+					})
+				case "bolt":
+					g.magicProjectiles = append(g.magicProjectiles[:0], MagicProjectile{
+						ID: id, X: g.camera.X, Y: g.camera.Y, Damage: parts.Normal, TrueDamage: parts.True,
+						LifeTime: 10, Active: true, SpellType: "firebolt",
+						Owner: ProjectileOwnerMonster, SourceName: mob.Name, SourceMonster: mob,
+					})
+				}
+				if tt.channel == "dart" || tt.channel == "bolt" {
+					g.collisionSystem.RegisterEntity(collision.NewEntity(id, g.camera.X, g.camera.Y, 8, 8, collision.CollisionTypeProjectile, false))
+					cs.CheckProjectilePlayerCollisions()
 				}
 				if member.HitPoints > 100 || member.SpellPoints > 10 {
 					absorbed = true

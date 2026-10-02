@@ -22,7 +22,9 @@ func TestKillQuestBatchCredit(t *testing.T) {
 							t.Chdir("../..")
 							g, wm, cfg := bootOpenWorldGame(t, merged)
 							const id = "batch_hunt"
+							// The cells below spawn forest goblins and count to 5.
 							def := *g.questManager.Definitions()["goblin_hunt"]
+							def.TargetMonster, def.TargetCount, def.TargetMap = "goblin", 5, "forest"
 							def.Exterminate, def.EncounterOnly = exterminate, sourceOnly
 							g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{id: &def}})
 							previous := quests.GlobalQuestManager

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
 	"ugataima/internal/character"
@@ -12,10 +13,11 @@ import (
 // ONE home for party-controlled monsters: who can create them, how they are
 // classified, and how they behave. Two shapes live here on purpose:
 //   - the SOURCE x PROPERTY matrix (allySourceCases) - every way the party gains
-//     control, checked against the same property list;
-//   - per-reach-class follow tests - the same escort rule over allies whose
-//     attack ranges differ wildly (melee 1 to ranged 11), which is where a
-//     follow distance derived from attack range goes wrong.
+//     control, checked against the same property list; its summon rows span
+//     every reach class (bear melee 1, huntress ranged 6, Ice Elemental ranged
+//     11), which is where a follow distance derived from attack range goes wrong;
+//   - per-reach-class behaviour tests - hunting before escorting, routing
+//     around a wall.
 // Charm-break paths and deep kill-path rewards stay in summon_lifecycle_test.go.
 
 // Every way the party can end up controlling a monster, built through its REAL
@@ -172,6 +174,9 @@ func TestAllyMatrix_PartyDamageTransparency(t *testing.T) {
 			if tc.pure && m.HitPoints != hp {
 				t.Errorf("pure summon took %d zone damage", hp-m.HitPoints)
 			}
+			if !tc.pure && m.HitPoints >= hp {
+				t.Errorf("a former enemy shrugged off zone damage (HP %d -> %d)", hp, m.HitPoints)
+			}
 		})
 	}
 }
@@ -207,41 +212,53 @@ func TestAllyMatrix_KillRewards(t *testing.T) {
 }
 
 // Escort: with no enemy on the map every ALLY closes on the party and holds the
-// shared follow distance; a charmed monster stays where it was charmed.
+// shared follow distance in both modes; a charmed monster stays where it was
+// charmed.
 func TestAllyMatrix_EscortDistance(t *testing.T) {
 	for _, tc := range allySourceCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			g, ts := summonTileWorld(t)
-			m := tc.spawn(t, g)
-			// Park it far away, then let the real RT loop drive it home.
-			m.X, m.Y = g.camera.X+14*ts, g.camera.Y
-			g.refreshMonsterCollisionState(m)
-			runRTFoeTicks(g, 20*g.config.GetTPS())
-			d := Distance(g.camera.X, g.camera.Y, m.X, m.Y)
+		for _, tb := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/TB_%v", tc.name, tb), func(t *testing.T) {
+				g, ts := summonTileWorld(t)
+				m := tc.spawn(t, g)
+				// Park it far away, then let the real loop drive it home.
+				m.X, m.Y = g.camera.X+14*ts, g.camera.Y
+				g.refreshMonsterCollisionState(m)
+				g.turnBasedMode = tb
+				if tb {
+					// 15 turns of TB clocks stay inside the 60s charm/bind holds.
+					gl := &GameLoop{game: g}
+					for range 15 {
+						runOneMonsterTurn(g, gl)
+					}
+				} else {
+					runRTFoeTicks(g, 20*g.config.GetTPS())
+				}
+				d := Distance(g.camera.X, g.camera.Y, m.X, m.Y)
 
-			if !tc.escorts {
-				// A charmed monster keeps wandering, so its distance may drift either
-				// way by chance. What must hold is that it never PURSUES: its AI target
-				// is itself and it stays out of the combat states.
-				tx, ty := g.combat.monsterAITargetPoint(m)
-				if tx != m.X || ty != m.Y {
-					t.Errorf("charmed target point = (%.0f,%.0f), want its own position (%.0f,%.0f)",
-						tx, ty, m.X, m.Y)
+				if !tc.escorts {
+					// A charmed monster keeps wandering, so its distance may drift either
+					// way by chance. What must hold is that it never PURSUES: its AI target
+					// is itself and it stays out of the combat states.
+					tx, ty := g.combat.monsterAITargetPoint(m)
+					if tx != m.X || ty != m.Y {
+						t.Errorf("charmed target point = (%.0f,%.0f), want its own position (%.0f,%.0f)",
+							tx, ty, m.X, m.Y)
+					}
+					switch m.State {
+					case monsterPkg.StatePursuing, monsterPkg.StateAttacking, monsterPkg.StateAlert:
+						t.Errorf("charmed monster entered combat state %v", m.State)
+					}
+					if m.IsEngagingPlayer {
+						t.Error("charmed monster is engaging the party")
+					}
+					return
 				}
-				switch m.State {
-				case monsterPkg.StatePursuing, monsterPkg.StateAttacking, monsterPkg.StateAlert:
-					t.Errorf("charmed monster entered combat state %v", m.State)
+				if limit := (monsterPkg.AllyFollowDistanceTiles + 0.5) * ts; d > limit {
+					t.Errorf("ally settled %.1f tiles away, want within %.1f",
+						d/ts, monsterPkg.AllyFollowDistanceTiles)
 				}
-				if m.IsEngagingPlayer {
-					t.Error("charmed monster is engaging the party")
-				}
-				return
-			}
-			if limit := (monsterPkg.AllyFollowDistanceTiles + 0.5) * ts; d > limit {
-				t.Errorf("ally settled %.1f tiles away, want within %.1f",
-					d/ts, monsterPkg.AllyFollowDistanceTiles)
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -289,7 +306,7 @@ func TestAllyMatrix_WorldSwitchDeparture(t *testing.T) {
 
 // allyKeys covers one ally of each reach class the game can summon: the card
 // huntress (ranged 6), the druid's bear (melee 1) and the Ice Elemental (ranged
-// 11). Their weapon reach differs by design; their ESCORT distance must not.
+// 11). Their weapon reach differs by design; their hunt-first rule must not.
 var allyKeys = []string{"masked_huntress", "bear", "frost_elemental"}
 
 // allyFollowWorld drops one ally of `key` far from the party, with no enemies on
@@ -306,46 +323,6 @@ func allyFollowWorld(t *testing.T, key string) (*MMGame, *GameLoop, *monsterPkg.
 	game.world.Monsters = []*monsterPkg.Monster3D{ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	return game, gl, ally, ts
-}
-
-// Every ally, whatever its attack range, walks back to the party when it has
-// nothing to hunt and settles inside the shared follow distance.
-func TestAllyFollowsPartyWithinFollowDistanceRT(t *testing.T) {
-	for _, key := range allyKeys {
-		t.Run(key, func(t *testing.T) {
-			game, _, ally, ts := allyFollowWorld(t, key)
-			d0 := Distance(game.camera.X, game.camera.Y, ally.X, ally.Y)
-			runRTFoeTicks(game, 20*game.config.GetTPS())
-			d := Distance(game.camera.X, game.camera.Y, ally.X, ally.Y)
-			if d >= d0 {
-				t.Fatalf("ally did not follow the party (%.0f -> %.0fpx)", d0, d)
-			}
-			if limit := (monsterPkg.AllyFollowDistanceTiles + 0.5) * ts; d > limit {
-				t.Errorf("ally settled %.1f tiles away, want within %.1f",
-					d/ts, monsterPkg.AllyFollowDistanceTiles)
-			}
-		})
-	}
-}
-
-func TestAllyFollowsPartyWithinFollowDistanceTB(t *testing.T) {
-	for _, key := range allyKeys {
-		t.Run(key, func(t *testing.T) {
-			game, gl, ally, ts := allyFollowWorld(t, key)
-			d0 := Distance(game.camera.X, game.camera.Y, ally.X, ally.Y)
-			for i := 0; i < 30; i++ {
-				runOneMonsterTurn(game, gl)
-			}
-			d := Distance(game.camera.X, game.camera.Y, ally.X, ally.Y)
-			if d >= d0 {
-				t.Fatalf("ally did not follow the party (%.0f -> %.0fpx)", d0, d)
-			}
-			if limit := (monsterPkg.AllyFollowDistanceTiles + 0.5) * ts; d > limit {
-				t.Errorf("ally settled %.1f tiles away, want within %.1f",
-					d/ts, monsterPkg.AllyFollowDistanceTiles)
-			}
-		})
-	}
 }
 
 func wallBlockedMeleeEscort(t *testing.T) (*MMGame, *GameLoop, *monsterPkg.Monster3D) {
@@ -469,6 +446,17 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 			t.Fatalf("summonCardAllies = %d, want 1", n)
 		}
 		assertAlly(t, cs.game, cs.game.world.Monsters[len(cs.game.world.Monsters)-1], cardSummonOwner)
+	})
+
+	t.Run("animal_bonding", func(t *testing.T) {
+		game, _ := summonTileWorld(t)
+		druid := character.CreateCharacter("Druid", character.ClassDruid, game.config)
+		druid.Skills[character.SkillAnimalBonding].Mastery = character.MasteryMaster
+		game.party.Members = []*character.MMCharacter{druid}
+		if !game.combat.summonAnimalBondingBear(druid) {
+			t.Fatal("Animal Bonding could not place a bear")
+		}
+		assertAlly(t, game, game.world.Monsters[len(game.world.Monsters)-1], animalBondingOwner(druid))
 	})
 
 	t.Run("spell", func(t *testing.T) {

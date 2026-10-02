@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ugataima/internal/boot"
+	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
@@ -152,14 +153,32 @@ func TestSaveBrowserCollectionUsesLoadRulesReadOnly(t *testing.T) {
 		})
 	}
 	// Both authored prose fields must survive the actual editor card path.
+	words := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	prose := 0
 	for _, c := range buildItemsCards() {
-		if c.key == "tonbogiri" {
-			text := strings.Join(c.tooltipRows, "\n")
-			for _, want := range []string{"A legendary spear so keen", "A dragonfly that lit"} {
-				if !strings.Contains(text, want) {
-					t.Fatal(text)
-				}
+		var description, flavor string
+		switch c.kind {
+		case cardWeapon:
+			if def := config.GlobalWeapons.Weapons[c.key]; def != nil {
+				description, flavor = def.Description, def.Flavor
+			}
+		case cardItem:
+			if def, ok := config.GetItemDefinition(c.key); ok && def != nil {
+				description, flavor = def.Description, def.Flavor
 			}
 		}
+		text := words(strings.Join(c.tooltipRows, "\n"))
+		for _, want := range []string{description, flavor} {
+			if want == "" {
+				continue
+			}
+			prose++
+			if !strings.Contains(text, words(want)) {
+				t.Errorf("%s card lost authored prose %q:\n%s", c.key, want, text)
+			}
+		}
+	}
+	if prose == 0 {
+		t.Fatal("no item card authors description or flavor")
 	}
 }

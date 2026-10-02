@@ -10,25 +10,10 @@ import (
 	"ugataima/internal/world"
 )
 
-// addMainDamageStat adds v to the attribute that scales a class's primary
-// damage source: Intellect for arcane casters, Personality for clerics (their
-// holy/light magic scales on Personality), Accuracy for ranged, Might for the
-// melee fighters. Derived from class because the game stores no explicit
-// "primary stat" field; kept as a single switch so the convention is obvious
-// and in one place.
+// addMainDamageStat adds v to the class's authored primary stat (auto_stats.primary).
 func addMainDamageStat(c *character.MMCharacter, v int) {
-	if v <= 0 {
-		return
-	}
-	switch c.Class {
-	case character.ClassSorcerer, character.ClassDruid:
-		c.Intellect += v
-	case character.ClassCleric:
-		c.Personality += v
-	case character.ClassArcher, character.ClassThief:
-		c.Accuracy += v
-	default: // Knight, Paladin - melee weapon scaling on Might
-		c.Might += v
+	if stat := primaryDamageStat(c); stat != nil && v > 0 {
+		*stat += v
 	}
 }
 

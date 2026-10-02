@@ -197,43 +197,34 @@ func TestQuestManager_ClaimRewards(t *testing.T) {
 	}
 }
 
+// The progress line: a kill quest derives its wording from the target (one
+// monster, or "targets" for several); an interact quest uses its own words.
 func TestQuest_GetProgressString(t *testing.T) {
-	quest := &Quest{
-		ID: "test",
-		Definition: &QuestDefinition{
-			Type:          QuestTypeKill,
-			TargetMonster: "goblin",
-			TargetCount:   5,
-		},
-		CurrentCount: 3,
-	}
-
-	progress := quest.GetProgressString()
-	expected := "3/5 goblins killed"
-	if progress != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, progress)
+	for _, tc := range []struct {
+		name  string
+		def   QuestDefinition
+		count int
+		want  string
+	}{
+		{"single kill target", QuestDefinition{Type: QuestTypeKill, TargetMonster: "goblin", TargetCount: 5}, 3, "3/5 goblins killed"},
+		{"multiple kill targets", QuestDefinition{Type: QuestTypeKill, TargetMonsters: []string{"boss_a", "boss_b"}, TargetCount: 2}, 1, "1/2 targets killed"},
+		{"interact authored wording", QuestDefinition{Type: QuestTypeInteract, TargetMonster: "arena_duel", TargetCount: 3, ProgressText: "arena duels won"}, 1, "1/3 arena duels won"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &Quest{ID: "test", Definition: &tc.def, CurrentCount: tc.count}
+			if got := q.GetProgressString(); got != tc.want {
+				t.Errorf("progress = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
 // An interact quest says what it counts IN ITS OWN WORDS, and the load refuses
 // one that does not. The derived line was kill-quest phrasing frozen at
 // "closed" from when valves were the only interact quest, so the arena read
-// "1/3 arena duels closed".
+// "1/3 arena duels closed". The load also requires the single tag the props
+// pass to OnInteract.
 func TestInteractQuestProgressIsAuthored(t *testing.T) {
-	q := &Quest{
-		ID: "pit",
-		Definition: &QuestDefinition{
-			Type: QuestTypeInteract, TargetMonster: "arena_duel", TargetCount: 3,
-			ProgressText: "arena duels won",
-		},
-		CurrentCount: 1,
-	}
-	if got, want := q.GetProgressString(), "1/3 arena duels won"; got != want {
-		t.Errorf("progress = %q, want %q", got, want)
-	}
-
-	// The contract, enforced at load: an interact quest must author its wording
-	// AND credit through the single tag the props pass to OnInteract.
 	for _, tc := range []struct {
 		name  string
 		def   *QuestDefinition
@@ -273,35 +264,6 @@ func TestInteractQuestProgressIsAuthored(t *testing.T) {
 	}}
 	if err := validateQuestConfig(kill); err != nil {
 		t.Fatalf("a kill quest without progress_text was rejected: %v", err)
-	}
-}
-
-func TestQuest_GetStatusString(t *testing.T) {
-	tests := []struct {
-		name           string
-		status         QuestStatus
-		completed      bool
-		rewardsClaimed bool
-		expected       string
-	}{
-		{"Active", QuestStatusActive, false, false, "In Progress"},
-		{"Completed unclaimed", QuestStatusCompleted, true, false, "Complete! (Claim Reward)"},
-		{"Completed claimed", QuestStatusCompleted, true, true, "Completed"},
-		{"Failed", QuestStatusFailed, false, false, "Failed"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			quest := &Quest{
-				Status:         tt.status,
-				Completed:      tt.completed,
-				RewardsClaimed: tt.rewardsClaimed,
-				Definition:     &QuestDefinition{},
-			}
-			if got := quest.GetStatusString(); got != tt.expected {
-				t.Errorf("Expected '%s', got '%s'", tt.expected, got)
-			}
-		})
 	}
 }
 
@@ -346,55 +308,6 @@ func TestQuestManager_ActivateQuest(t *testing.T) {
 	err = qm.ActivateQuest("nonexistent")
 	if err == nil {
 		t.Error("Should not be able to activate non-existent quest")
-	}
-}
-
-func TestQuestManager_GetCompletedQuests(t *testing.T) {
-	config := &QuestConfig{
-		Quests: map[string]*QuestDefinition{
-			"quest1": {
-				Name:            "Quest 1",
-				Type:            QuestTypeKill,
-				TargetMonster:   "goblin",
-				TargetCount:     1,
-				IsStartingQuest: true,
-				Rewards:         QuestRewards{Gold: 50},
-			},
-			"quest2": {
-				Name:            "Quest 2",
-				Type:            QuestTypeKill,
-				TargetMonster:   "wolf",
-				TargetCount:     1,
-				IsStartingQuest: true,
-				Rewards:         QuestRewards{Gold: 75},
-			},
-		},
-	}
-
-	qm := NewQuestManager(config)
-	qm.InitializeStartingQuests()
-
-	// No completed quests initially
-	completed := qm.GetCompletedQuests()
-	if len(completed) != 0 {
-		t.Errorf("Expected 0 completed quests, got %d", len(completed))
-	}
-
-	// Complete quest1
-	qm.OnMonsterKilled("goblin", "")
-
-	completed = qm.GetCompletedQuests()
-	if len(completed) != 1 {
-		t.Errorf("Expected 1 completed quest, got %d", len(completed))
-	}
-
-	// Claim quest1 rewards
-	qm.ClaimRewards("quest1")
-
-	// Should not appear in completed (unclaimed) list anymore
-	completed = qm.GetCompletedQuests()
-	if len(completed) != 0 {
-		t.Errorf("Expected 0 unclaimed completed quests, got %d", len(completed))
 	}
 }
 
@@ -707,20 +620,6 @@ func TestValidateQuestConfigRequiresStableUniqueSpawnIDs(t *testing.T) {
 	change := cfg.Quests["spawn_test"].OnCompleteTiles[0]
 	if change.Map != "forest" || change.Tile != "bridge" {
 		t.Fatalf("tile change was not canonicalized: %+v", change)
-	}
-}
-
-func TestQuestProgressStringForMultipleTargets(t *testing.T) {
-	q := &Quest{
-		Definition: &QuestDefinition{
-			Type:           QuestTypeKill,
-			TargetMonsters: []string{"boss_a", "boss_b"},
-			TargetCount:    2,
-		},
-		CurrentCount: 1,
-	}
-	if got := q.GetProgressString(); got != "1/2 targets killed" {
-		t.Fatalf("multi-target progress = %q", got)
 	}
 }
 

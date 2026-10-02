@@ -1,9 +1,6 @@
 package game
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
 // One Space tap picks up exactly one ground container: a fresh press fires, a
 // sustained hold only auto-repeats after rtHoldRepeatDelay.
@@ -19,41 +16,6 @@ func TestSpacePickupGate_TapFiresOnce(t *testing.T) {
 	}
 	if spacePickupWanted(false, rtHoldRepeatDelay) != true {
 		t.Fatal("a deliberate hold must start vacuuming a pile")
-	}
-}
-
-// Sampling cannot carry a buffered click across a UI-layer flip. Within the
-// same layer it preserves the current batch for dispatch in this Update.
-func TestClickQueueFlushedOnModalTransition(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	g.appScreen = AppScreenInGame
-	ui := &UISystem{game: g}
-
-	// Baseline: world layer, queue empty.
-	g.prevWorldClickAllowed = true
-
-	// Dialog opens; a click arrives while it is open and sits in the buffer.
-	g.dialogActive = true
-	ui.renderedModalSnapshot = ui.topModalSnapshot() // the dialog has been presented
-	ui.updateMouseState()                            // world->modal flip
-	g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: 100, y: 100, at: time.Now().UnixMilli()})
-
-	// Dialog closes: the buffered click belongs to the closed layer.
-	g.dialogActive = false
-	ui.updateMouseState()
-	if n := len(g.mouseLeftClicks); n != 0 {
-		t.Fatalf("stale click survived the modal->world transition (%d left in queue)", n)
-	}
-	ui.renderedModalSnapshot = modalLayerSnapshot{} // the replacement world frame landed
-	ui.updateMouseState()                           // record the newly visible world layer
-
-	// Sampling within one layer leaves the batch for downstream handlers.
-	// The complete Update, tested separately, expires any unmatched events.
-	g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: 50, y: 50, at: time.Now().UnixMilli()})
-	ui.updateMouseState()
-	if n := len(g.mouseLeftClicks); n != 1 {
-		t.Fatalf("click within one UI layer must survive (%d left in queue)", n)
 	}
 }
 

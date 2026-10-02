@@ -24,36 +24,54 @@ func makeDualWielder(t *testing.T, member *character.MMCharacter) {
 	member.Equipment[items.SlotOffHand] = items.CreateWeaponFromYAML("magic_dagger")
 }
 
-func TestAttackSlotFor_RTPicksWhicheverHandIsReady(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = false
-	member := g.party.Members[0]
-	makeDualWielder(t, member)
-
-	member.RTCooldown, member.OffHandRTCooldown = 0, 0
-	if got := cs.attackSlotFor(member); got != items.SlotMainHand {
-		t.Errorf("both hands ready: slot = %v, want SlotMainHand (main preferred)", got)
-	}
-	member.NextTBAttackOffHand = true
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("both hands ready, off-hand cursor: slot = %v, want SlotOffHand", got)
-	}
-	member.NextTBAttackOffHand = false
-
-	member.RTCooldown = 30
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("main hand on cooldown: slot = %v, want SlotOffHand", got)
-	}
-
-	// attackSlotFor only ever gets consulted after AnyWeaponHandReady() has
-	// confirmed at least one hand is free - "both busy" is a can't-happen
-	// input in practice, but the function must still degrade predictably
-	// (falls to the off-hand, same as "main hand not ready") rather than panic
-	// or pick unpredictably.
-	member.RTCooldown, member.OffHandRTCooldown = 30, 30
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("both hands busy (can't-happen input): slot = %v, want the same SlotOffHand fallback as main-hand-busy", got)
+// attackSlotFor case table. RT follows readiness (main preferred, the cursor
+// breaks a both-ready tie), TB follows the cursor; a single weapon always swings
+// the main hand; an empty main hand always redirects to the off hand. "Both
+// busy" cannot reach attackSlotFor (AnyWeaponHandReady gates it) but must still
+// degrade like "main busy" instead of panicking.
+func TestAttackSlotFor_CaseTable(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		tb              bool
+		gear            string // dual, single, dual_no_main
+		mainCD, offCD   int
+		offCursor, want bool // want: true = off hand
+	}{
+		{name: "rt/dual/both_ready", gear: "dual"},
+		{name: "rt/dual/both_ready_off_cursor", gear: "dual", offCursor: true, want: true},
+		{name: "rt/dual/main_busy", gear: "dual", mainCD: 30, want: true},
+		{name: "rt/dual/both_busy", gear: "dual", mainCD: 30, offCD: 30, want: true},
+		{name: "rt/single/main_busy", gear: "single", mainCD: 999},
+		{name: "rt/dual_no_main/both_ready", gear: "dual_no_main", want: true},
+		{name: "tb/dual/main_cursor", tb: true, gear: "dual"},
+		{name: "tb/dual/off_cursor", tb: true, gear: "dual", offCursor: true, want: true},
+		{name: "tb/single/off_cursor", tb: true, gear: "single", offCursor: true},
+		{name: "tb/dual_no_main/main_cursor", tb: true, gear: "dual_no_main", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			cs.game.turnBasedMode = tc.tb
+			member := cs.game.party.Members[0]
+			switch tc.gear {
+			case "single":
+				member.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
+				delete(member.Equipment, items.SlotOffHand)
+			case "dual", "dual_no_main":
+				makeDualWielder(t, member)
+				if tc.gear == "dual_no_main" {
+					delete(member.Equipment, items.SlotMainHand)
+				}
+			}
+			member.RTCooldown, member.OffHandRTCooldown = tc.mainCD, tc.offCD
+			member.NextTBAttackOffHand = tc.offCursor
+			want := items.SlotMainHand
+			if tc.want {
+				want = items.SlotOffHand
+			}
+			if got := cs.attackSlotFor(member); got != want {
+				t.Errorf("slot = %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -96,35 +114,6 @@ func TestBowAndAxeDualWield_DispatchesRangedOrMeleeByResolvedHand(t *testing.T) 
 	}
 	if last := g.arrows[len(g.arrows)-1]; last.BowKey != "hunting_bow" {
 		t.Errorf("arrow BowKey = %q, want hunting_bow - createArrowAttack read the wrong slot", last.BowKey)
-	}
-}
-
-func TestAttackSlotFor_NonDualWielderAlwaysMainHand(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	member := cs.game.party.Members[0]
-	member.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
-	delete(member.Equipment, items.SlotOffHand)
-	member.RTCooldown = 999 // even on cooldown, a single-weapon fighter has nowhere else to go
-
-	if got := cs.attackSlotFor(member); got != items.SlotMainHand {
-		t.Errorf("non-dual-wielder slot = %v, want SlotMainHand always", got)
-	}
-}
-
-func TestAttackSlotFor_TBFollowsCursorAndWraps(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = true
-	member := g.party.Members[0]
-	makeDualWielder(t, member)
-
-	member.NextTBAttackOffHand = false
-	if got := cs.attackSlotFor(member); got != items.SlotMainHand {
-		t.Errorf("cursor=false: slot = %v, want SlotMainHand", got)
-	}
-	member.NextTBAttackOffHand = true
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("cursor=true: slot = %v, want SlotOffHand", got)
 	}
 }
 
@@ -374,11 +363,8 @@ func TestSmartAttack_MonkSkipsOffensiveQuickSpellForWeaponAttack(t *testing.T) {
 	}
 }
 
-// TestSpiritualTrainingChanceFormulaAndFreeCast checks the tier->chance
-// formula (deterministic) and that the proc never spends spell points across
-// many trials at the highest chance tier - it must be free (0 SP) whether or
-// not it actually fires, mirroring the Pixie Card's free Fire Bolt proc.
-func TestSpiritualTrainingChanceFormulaAndFreeCast(t *testing.T) {
+// TestSpiritualTrainingChanceFormula checks the tier->chance formula.
+func TestSpiritualTrainingChanceFormula(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	member := cs.game.party.Members[0]
 
@@ -394,20 +380,58 @@ func TestSpiritualTrainingChanceFormulaAndFreeCast(t *testing.T) {
 	if got, want := spiritualTrainingChancePct(member), 4*character.SpiritualTrainingProcPctPerTier; got != want {
 		t.Errorf("Grandmaster chance = %d, want %d", got, want)
 	}
+}
 
-	spellItem, err := spells.CreateSpellItem(spells.SpellID("mind_blast"))
-	if err != nil {
-		t.Fatalf("setup: CreateSpellItem(mind_blast): %v", err)
-	}
-	member.Equipment[items.SlotSpell] = spellItem
-	member.SpellPoints, member.MaxSpellPoints = 20, 20
+// The Spiritual Training proc is a FREE offensive cast and nothing else: it
+// never spends SP (fired or not), never free-procs a party buff, and never
+// rolls its own Orc Warlord summon (that roll belongs to the swing that
+// triggered it; the card is forced to 100% so a leak spawns at once). Only a
+// trained monk with an offensive quick spell launches anything.
+func TestSpiritualTrainingFreeOffensiveProcOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		skill    bool
+		spell    spells.SpellID
+		wantCast bool
+	}{
+		{name: "gm/offensive", skill: true, spell: "mind_blast", wantCast: true},
+		{name: "untrained/offensive", spell: "mind_blast"},
+		{name: "gm/party_buff", skill: true, spell: "bless"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
+			setupSummonableWorld(t, cs)
+			forceOrcWarlordSummonAlways(t, g)
+			member := g.party.Members[0]
+			delete(member.Skills, character.SkillSpiritualTraining)
+			if tc.skill {
+				member.Skills[character.SkillSpiritualTraining] = &character.Skill{Mastery: character.MasteryGrandMaster}
+			}
+			spellItem, err := spells.CreateSpellItem(tc.spell)
+			if err != nil {
+				t.Fatalf("setup: CreateSpellItem(%s): %v", tc.spell, err)
+			}
+			member.Equipment[items.SlotSpell] = spellItem
+			member.SpellPoints, member.MaxSpellPoints = 20, 20
+			g.selectedChar = 0
 
-	for i := 0; i < 300; i++ {
-		before := member.SpellPoints
-		cs.trySpiritualTraining(member)
-		if member.SpellPoints != before {
-			t.Fatalf("Spiritual Training proc spent SP (%d -> %d); it must always be free", before, member.SpellPoints)
-		}
+			for i := 0; i < 500; i++ {
+				cs.trySpiritualTraining(member)
+				if member.SpellPoints != 20 {
+					t.Fatalf("proc %d spent SP (20 -> %d); it must always be free", i, member.SpellPoints)
+				}
+			}
+			if cast := len(g.magicProjectiles) > 0; cast != tc.wantCast {
+				t.Errorf("projectiles launched = %v, want %v", cast, tc.wantCast)
+			}
+			if len(g.statBuffs) != 0 {
+				t.Errorf("proc applied %d party buff(s); only offensive spells may proc", len(g.statBuffs))
+			}
+			if got := cs.countCardSummons(); got != 0 {
+				t.Errorf("proc rolled its own Orc Warlord summon: %d allies", got)
+			}
+		})
 	}
 }
 
@@ -445,26 +469,6 @@ func TestSpiritualTrainingRollsOnAttackActionWithoutMonsterHit(t *testing.T) {
 	}
 }
 
-// TestSpiritualTrainingNeverFiresWithoutTheSkill is a no-op safety net: with
-// chance forced to 0 (no skill), 200 calls must never touch SP or panic.
-func TestSpiritualTrainingNeverFiresWithoutTheSkill(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	member := cs.game.party.Members[0]
-	spellItem, err := spells.CreateSpellItem(spells.SpellID("mind_blast"))
-	if err != nil {
-		t.Fatalf("setup: CreateSpellItem(mind_blast): %v", err)
-	}
-	member.Equipment[items.SlotSpell] = spellItem
-	member.SpellPoints, member.MaxSpellPoints = 20, 20
-
-	for i := 0; i < 200; i++ {
-		cs.trySpiritualTraining(member)
-	}
-	if member.SpellPoints != 20 {
-		t.Errorf("SP changed to %d without Spiritual Training skill at all", member.SpellPoints)
-	}
-}
-
 // TestRtActionReady_SmartAllowsOffhandWeaponFallback verifies Space
 // (rtActSmart) can wake up for an off-hand-only-ready dual-wielder. input.go
 // handles that state as weapon fallback only, so it does not let heals/spells
@@ -483,30 +487,6 @@ func TestRtActionReady_SmartAllowsOffhandWeaponFallback(t *testing.T) {
 	}
 	if !g.rtActionReady(0, rtActSmart) {
 		t.Error("rtActSmart should be ready for off-hand weapon fallback")
-	}
-}
-
-// TestAttackSlotFor_RedirectsToOffHandWhenMainHandUnequipped covers unequipping
-// just the main hand of a dual-wielder (legal for anyone but a zero-other-
-// weapon-skill character - see HasAnyWeaponSkill). attackSlotFor must not
-// blindly follow cooldown/cursor into a slot that's actually empty.
-func TestAttackSlotFor_RedirectsToOffHandWhenMainHandUnequipped(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	member := g.party.Members[0]
-	makeDualWielder(t, member)
-	delete(member.Equipment, items.SlotMainHand)
-
-	g.turnBasedMode = false
-	member.RTCooldown, member.OffHandRTCooldown = 0, 0 // main hand would normally win
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("RT, main hand empty: slot = %v, want SlotOffHand", got)
-	}
-
-	g.turnBasedMode = true
-	member.NextTBAttackOffHand = false // cursor would normally point at the main hand
-	if got := cs.attackSlotFor(member); got != items.SlotOffHand {
-		t.Errorf("TB, main hand empty: slot = %v, want SlotOffHand", got)
 	}
 }
 
@@ -606,38 +586,6 @@ func forceOrcWarlordSummonAlways(t *testing.T, g *MMGame) {
 	}
 }
 
-// TestTrySpiritualTraining_NeverRollsItsOwnOrcWarlordSummon is the regression
-// guard for the double-roll bug: trySpiritualTraining's free cast used to go
-// through the normal castResolvedSpell path, which unconditionally rolled
-// tryCardSummonOnAction - a second, independent roll on top of the one
-// EquipmentMeleeAttack already made for the same attack action. With the
-// summon chance forced far past 100%, any leak here spawns allies
-// immediately instead of hiding behind low odds.
-func TestTrySpiritualTraining_NeverRollsItsOwnOrcWarlordSummon(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	setupSummonableWorld(t, cs)
-	forceOrcWarlordSummonAlways(t, g)
-
-	member := g.party.Members[0]
-	member.Skills[character.SkillSpiritualTraining] = &character.Skill{Mastery: character.MasteryGrandMaster}
-	spellItem, err := spells.CreateSpellItem(spells.SpellID("mind_blast"))
-	if err != nil {
-		t.Fatalf("setup: CreateSpellItem(mind_blast): %v", err)
-	}
-	member.Equipment[items.SlotSpell] = spellItem
-	member.SpellPoints, member.MaxSpellPoints = 20, 20
-
-	for i := 0; i < 300; i++ {
-		cs.trySpiritualTraining(member)
-	}
-
-	if got := cs.countCardSummons(); got != 0 {
-		t.Errorf("countCardSummons() = %d, want 0 - trySpiritualTraining's free cast must never roll "+
-			"the Orc Warlord summon itself (that roll belongs to the swing that triggered it)", got)
-	}
-}
-
 // TestEquipmentMeleeAttack_StillRollsOrcWarlordSummonWithoutSpiritualTraining
 // is the contrast case: a character with no Spiritual Training must still
 // trigger the normal once-per-action summon roll, confirming the fix didn't
@@ -709,30 +657,5 @@ func TestSmartAttack_OffhandFallbackDoesNotCastPastMainCooldown(t *testing.T) {
 	member.RTCooldown = 0
 	if _, spellID := cs.SmartAttack(); spellID == "" {
 		t.Error("with the main hand ready, Space should cast the equipped offensive spell")
-	}
-}
-
-// TestSpiritualTraining_DoesNotFreeProcPartyBuffs pins the offensive-only gate:
-// a non-offensive utility spell (Bless) slotted as the quick-spell must NOT be
-// free-cast by melee swings. Without the IsOffensive() filter a Monk could keep
-// Bless/Heroism/Stone Skin/Hour of Power permanently up for 0 SP off autoattacks.
-func TestSpiritualTraining_DoesNotFreeProcPartyBuffs(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	member := g.party.Members[0]
-	member.Skills[character.SkillSpiritualTraining] = &character.Skill{Mastery: character.MasteryGrandMaster}
-	blessItem, err := spells.CreateSpellItem(spells.SpellID("bless"))
-	if err != nil {
-		t.Fatalf("setup: CreateSpellItem(bless): %v", err)
-	}
-	member.Equipment[items.SlotSpell] = blessItem
-	member.SpellPoints, member.MaxSpellPoints = 99, 99
-	g.selectedChar = 0
-
-	for i := 0; i < 500; i++ {
-		cs.trySpiritualTraining(member)
-	}
-	if len(g.statBuffs) != 0 {
-		t.Errorf("Spiritual Training free-proc'd a party buff (Bless): statBuffs=%d, want 0 - only offensive spells should proc", len(g.statBuffs))
 	}
 }

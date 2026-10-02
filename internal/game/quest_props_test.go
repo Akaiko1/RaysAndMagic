@@ -19,16 +19,27 @@ func TestQuestPropsLifecycle(t *testing.T) {
 	t.Chdir("../..")
 	storage.SetDataRootForTesting(t.TempDir())
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	ids := activityQuestIDs(t)
 	for _, unified := range []bool{false, true} {
-		for _, id := range []string{"unbroken_desert", "unbroken_jungle"} {
+		for _, id := range ids {
 			for _, npcTurnIn := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/stitched=%v/npc=%v", id, unified, npcTurnIn), func(t *testing.T) {
 					g, wm, cfg := bootOpenWorldGame(t, unified)
 					def := g.questManager.Definitions()[id]
 					forage := len(def.Activity.Forage) > 0
-					initial, partial, ready := 3, 3, 3
-					if forage {
-						initial, partial, ready = 5, 4, 0
+					// A sequence keeps every prop until the claim; forage removes
+					// each flower as it is gathered.
+					initial := len(g.activeQuestPropPlacements(id))
+					if initial == 0 {
+						t.Fatalf("%s places no props", id)
+					}
+					// Shown names of every authored prop: derived props must never
+					// persist as NPC state.
+					propNames := map[string]bool{}
+					for _, layout := range def.PropLayouts() {
+						for _, p := range layout.Props {
+							propNames[character.NPCConfigInstance.NPCs[p.NPC].Name] = true
+						}
 					}
 					terrain := map[string]map[[2]int]int{}
 					for _, p := range g.activeQuestPropPlacements(id) {
@@ -83,8 +94,8 @@ func TestQuestPropsLifecycle(t *testing.T) {
 							t.Fatal(err)
 						}
 						for _, npc := range save.NPCStates {
-							if npc.Name == "Sunlotus" || npc.Name == "Moonbell" || npc.Name == "Spring Sluice" || npc.Name == "Travelers Sluice" || npc.Name == "Monastery Sluice" {
-								t.Fatal("derived prop persisted as NPC state")
+							if propNames[npc.Name] {
+								t.Fatalf("derived prop %q persisted as NPC state", npc.Name)
 							}
 						}
 						return save
@@ -101,8 +112,10 @@ func TestQuestPropsLifecycle(t *testing.T) {
 					check("accepted", initial)
 					q := g.questManager.GetQuest(id)
 					tokens := append([]string(nil), def.Activity.Sequence...)
+					partial, ready := initial, initial
 					if forage {
 						tokens = append([]string(nil), q.Activity.Selected...)
+						partial, ready = initial-1, initial-len(tokens)
 					}
 					interact := func(token string) {
 						t.Helper()
@@ -132,11 +145,20 @@ func TestQuestPropsLifecycle(t *testing.T) {
 					check("ready", ready)
 					completed := capture()
 					if npcTurnIn {
+						g.dialogNPC = nil
 						for _, npc := range g.allLoadedNPCs() {
-							if npc.Key == "sister_mira" {
-								g.dialogNPC = npc
-								break
+							if npc.DialogueData == nil || g.dialogNPC != nil {
+								continue
 							}
+							_ = npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
+								if c.Action == "turn_in_quest" && c.QuestID == id {
+									g.dialogNPC = npc
+								}
+								return nil
+							})
+						}
+						if g.dialogNPC == nil {
+							t.Fatalf("no placed NPC takes in %s", id)
 						}
 						(&InputHandler{game: g}).handleTurnInQuest(id)
 					} else {
@@ -173,6 +195,29 @@ func TestQuestPropsLifecycle(t *testing.T) {
 			}
 		}
 	}
+}
+
+// activityQuestIDs lists the shipped activity quests, requiring both the
+// sequence and the forage kind so the lifecycle table covers each.
+func activityQuestIDs(t *testing.T) []string {
+	t.Helper()
+	qc, err := quests.LoadQuestConfig("assets/quests.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	sequence, forage := false, false
+	for _, id := range sortedMapKeys(qc.Quests) {
+		if a := qc.Quests[id].Activity; a != nil {
+			ids = append(ids, id)
+			sequence = sequence || len(a.Sequence) > 0
+			forage = forage || len(a.Forage) > 0
+		}
+	}
+	if !sequence || !forage {
+		t.Fatalf("activity quests %v lack a sequence or a forage quest", ids)
+	}
+	return ids
 }
 
 func TestQuestPropsWorldValidation(t *testing.T) {
@@ -238,14 +283,17 @@ func TestQuestPropLayoutsPersistBeforeAcceptance(t *testing.T) {
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	for _, unified := range []bool{false, true} {
 		g, wm, cfg := bootOpenWorldGame(t, unified)
-		if len(g.questPropLayouts) != 2 {
-			t.Fatal("new game did not choose offered layouts")
-		}
-		for _, id := range []string{"unbroken_desert", "unbroken_jungle"} {
-			d := g.questManager.Definitions()[id]
-			if len(d.PropLayouts()) != 3 {
-				t.Fatal("expected three authored routes")
+		var ids []string
+		for _, id := range sortedMapKeys(g.questManager.Definitions()) {
+			if len(g.questManager.Definitions()[id].PropLayouts()) > 0 {
+				ids = append(ids, id)
 			}
+		}
+		if len(ids) == 0 || len(g.questPropLayouts) != len(ids) {
+			t.Fatalf("new game chose %d layouts for %d quests with routes", len(g.questPropLayouts), len(ids))
+		}
+		for _, id := range ids {
+			d := g.questManager.Definitions()[id]
 			for _, layout := range d.PropLayouts() {
 				t.Run(fmt.Sprintf("%v/%s/%s", unified, id, layout.ID), func(t *testing.T) {
 					g.questManager.Reset()

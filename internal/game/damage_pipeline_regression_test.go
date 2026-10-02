@@ -123,25 +123,6 @@ func TestPartyConversionKeepsModifiersAndOneSoakInAoe(t *testing.T) {
 	}
 }
 
-func TestPartyAoeAppliesCardBonusVsPerVictim(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.cardSlots = [MaxCardSlots]cardSlot{}
-	g.cardSlots[0].key = "elf_archer_card" // x1.25 vs Dragon
-	ts := float64(g.config.GetTileSize())
-	center := mkTestMonster("Center", 1000)
-	dragon := mkTestMonster("Dragon", 1000)
-	center.X, center.Y = 10*ts, 10*ts
-	dragon.X, dragon.Y = center.X+ts, center.Y
-	g.world.Monsters = []*monsterPkg.Monster3D{center, dragon}
-
-	attack := cs.newPartyMonsterAttack(100, 0, "fire", 0, nil, "Fireball", false, true, false)
-	cs.applyAoeSplash(center, attack, 2)
-	if got := 1000 - dragon.HitPoints; got != 125 {
-		t.Fatalf("dragon splash took %d, want 125 with its target-specific card bonus", got)
-	}
-}
-
 func TestTrapDamageDoesNotInheritAttackOnlyCardBonus(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game

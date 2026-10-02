@@ -85,20 +85,28 @@ func TestScreenBannerAnimationSlidesInHoldsAndLeaves(t *testing.T) {
 // Banners never pile up without bound, and the newest news always survives.
 func TestScreenBannerQueueIsBounded(t *testing.T) {
 	g := bannerGame(t)
-	const qid = "forest_wolf_cull" // 21 wolves: plenty of counter events
+	const qid = "forest_wolf_cull" // a counted kill quest: one banner per kill
+	kills := 3 * bannerQueueMax
+	def := g.questManager.Definitions()[qid]
+	if def == nil || def.TargetMonster == "" || def.TargetCount <= kills {
+		t.Fatalf("fixture: %s must count more than %d kills of one monster", qid, kills)
+	}
 	if err := g.questManager.ActivateQuest(qid); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
-	name := g.questManager.Definitions()[qid].Name
-	for i := 0; i < 12; i++ {
-		g.questManager.OnMonsterKilled("wolf", "")
+	for i := 0; i < kills; i++ {
+		g.questManager.OnMonsterKilled(def.TargetMonster, "")
 		g.syncQuestBanners(true)
 	}
 	if len(g.screenBannerQueue) > bannerQueueMax {
 		t.Fatalf("queue length %d exceeds the cap %d", len(g.screenBannerQueue), bannerQueueMax)
 	}
+	q := g.questManager.GetQuest(qid)
+	if q.CurrentCount != kills {
+		t.Fatalf("fixture: quest counted %d of %d kills", q.CurrentCount, kills)
+	}
 	last := g.screenBannerQueue[len(g.screenBannerQueue)-1].text
-	if want := name + "  12/21"; last != want {
+	if want := questBannerText(bannerQuestProgress, q); last != want {
 		t.Fatalf("newest banner = %q, want %q", last, want)
 	}
 }
@@ -791,52 +799,6 @@ func TestLegendaryDropBannerIgnoresADuplicateContainer(t *testing.T) {
 	}
 }
 
-// A CHEST announces when its lid comes up, not when it spawns: an encounter
-// clear can drop one a region away, sealed, and naming the contents then spoils
-// a container the party has not opened and may never reach.
-func TestLegendaryChestAnnouncesOnOpenNotOnSpawn(t *testing.T) {
-	g := bannerGame(t)
-	g.addGroundContainer(GroundContainer{
-		ID:    "pyramid_reliquary_1",
-		Kind:  ContainerKindTreasureChest,
-		X:     100,
-		Y:     100,
-		Items: []items.Item{{Name: "Sunspine Reliquary", Rarity: "legendary"}},
-	})
-	g.tickScreenBanners()
-	if b := g.currentScreenBanner(); b != nil {
-		t.Fatalf("a sealed chest announced %q at spawn", b.text)
-	}
-	if n := len(g.groundContainers); n != 1 {
-		t.Fatalf("the chest itself must still be spawned, got %d containers", n)
-	}
-
-	g.pickupGroundContainerAt(0)
-	g.tickScreenBanners()
-	b := g.currentScreenBanner()
-	if b == nil || !strings.Contains(b.text, "Sunspine Reliquary") {
-		t.Fatalf("opening the chest raised %+v, want the legendary banner", b)
-	}
-	if b.kind != bannerLegendaryDrop {
-		t.Fatalf("banner kind = %d, want the legendary kind", b.kind)
-	}
-}
-
-// The drop banner rides the ground-drop funnel, so every death path announces
-// alike instead of each caller remembering to.
-func TestLegendaryDropBannerRidesTheDropFunnel(t *testing.T) {
-	g := bannerGame(t)
-	g.addLootBagDrop(100, 100, []items.Item{{Name: "Wyrmspine Wing", Rarity: "legendary"}}, 0)
-	g.tickScreenBanners()
-	b := g.currentScreenBanner()
-	if b == nil || !strings.Contains(b.text, "Wyrmspine Wing") {
-		t.Fatalf("a mob drop raised %+v, want the legendary banner", b)
-	}
-	if b.kind != bannerLegendaryDrop {
-		t.Fatalf("banner kind = %d, want the legendary kind", b.kind)
-	}
-}
-
 // One event can put SEVERAL containers on the floor - a wiped pack drops a bag
 // each, legendaries among them. They announce as ONE heading: four in a row
 // would bury each other and fill the queue on their own (bannerQueueMax is 4,
@@ -910,68 +872,6 @@ func TestLegendaryDropBannerCountsWhatItCannotName(t *testing.T) {
 	}
 }
 
-// A monster drop is combat information, not a visibility discovery. A DoT or an
-// ally can finish a monster after the party crossed a region seam; the drop is
-// still announced at the event that created it.
-func TestLegendaryDropBannerIgnoresVisibilityAndRegion(t *testing.T) {
-	g := bannerGame(t)
-	// Two real worlds, the party standing in one of them: without a world manager
-	// every map key resolves to "here" and the test would prove nothing.
-	prev := world.GlobalWorldManager
-	t.Cleanup(func() { world.GlobalWorldManager = prev })
-	wm := world.NewWorldManager(g.config)
-	wm.LoadedMaps = map[string]*world.World3D{
-		"forest":    g.world,
-		"pyramid_1": newTestWorld(g.config),
-		// A MERGED region: the unified world is one World3D shared by every
-		// outdoor region, so "same world" spans the whole outdoors and is NOT the
-		// question the banner asks.
-		"highlands": g.world,
-	}
-	wm.CurrentMapKey = "forest"
-	world.GlobalWorldManager = wm
-
-	g.addGroundContainer(GroundContainer{
-		ID:     "far_reliquary",
-		Kind:   ContainerKindLootBag,
-		MapKey: "pyramid_1", // the party is not there
-		X:      100,
-		Y:      100,
-		Items:  []items.Item{{Name: "Sunspine Reliquary", Rarity: "legendary"}},
-	})
-	g.tickScreenBanners()
-	if b := g.currentScreenBanner(); b == nil || !strings.Contains(b.text, "Sunspine Reliquary") {
-		t.Fatalf("a drop on another map raised %+v, want its legendary announced", b)
-	}
-	if len(g.groundContainers) != 1 {
-		t.Fatalf("the container itself must still be spawned, got %d containers", len(g.groundContainers))
-	}
-
-	g.screenBannerQueue = nil
-
-	// Same again for a region merged into the party's own world.
-	g.addGroundContainer(GroundContainer{
-		ID:     "merged_reliquary",
-		Kind:   ContainerKindLootBag,
-		MapKey: "highlands",
-		X:      200,
-		Y:      200,
-		Items:  []items.Item{{Name: "Wyrmcleaver", Rarity: "legendary"}},
-	})
-	g.tickScreenBanners()
-	if b := g.currentScreenBanner(); b == nil || !strings.Contains(b.text, "Wyrmcleaver") {
-		t.Fatalf("a drop in a merged region raised %+v, want its legendary announced", b)
-	}
-
-	g.screenBannerQueue = nil
-	// Positive control: the ordinary nearby drop follows the same path.
-	g.addLootBagDrop(100, 100, []items.Item{{Name: "Broodscale Aegis", Rarity: "legendary"}}, 0)
-	g.tickScreenBanners()
-	if b := g.currentScreenBanner(); b == nil || !strings.Contains(b.text, "Broodscale Aegis") {
-		t.Fatalf("a drop at the party's feet raised %+v", b)
-	}
-}
-
 // The banner paints after the overlay pass (above the dialog's dim), so it must
 // stand down for the full screens drawn BEFORE it that do not pause the world.
 func TestScreenBannerYieldsToTheMapAndGameOver(t *testing.T) {
@@ -1003,7 +903,7 @@ func TestScreenBannerLinesAreAsciiAndFit(t *testing.T) {
 	g := bannerGame(t)
 	lines := []string{
 		g.interactionPromptText(promptTestNPC(g, "Sewerman Garran")),
-		"Legendary drop - Wyrmcleaver, the Closing Jaws",
+		legendaryDropBannerText([]string{"Wyrmcleaver, the Closing Jaws"}, 1280),
 	}
 	for _, text := range lines {
 		for _, r := range text {
@@ -1075,47 +975,10 @@ func TestLootBagBelongsToTheRegionItFellIn(t *testing.T) {
 
 // An overlay ends the approach. The nudge fires once per approach, so a player
 // who opens the inventory in front of a merchant and closes it again would
-// otherwise be left with no affordance at all - the persistent HUD hint this
-// banner replaced was always on screen, and the only way back was to walk two
-// seconds away. A DIALOG is not in this set: acting on the object settles it.
-func TestInteractPromptReturnsAfterAnOverlay(t *testing.T) {
-	g := bannerGame(t)
-	npc := promptTestNPC(g, "Merchant")
-	g.focusedNPC = npc
-	g.tickScreenBanners()
-	if b := g.currentScreenBanner(); b == nil || b.kind != bannerInteractPrompt {
-		t.Fatalf("approach raised %+v, want the nudge", b)
-	}
-	// It ages out while the party keeps standing there, and stays quiet.
-	for i := 0; i < g.bannerLifetime(bannerInteractPrompt)+1; i++ {
-		g.tickScreenBanners()
-	}
-	if b := g.currentScreenBanner(); b != nil {
-		t.Fatalf("the nudge repeated itself while standing still: %q", b.text)
-	}
-
-	// The character hub opens (menuOpen is the same pause contract as ESC), the
-	// world stops ticking, and it closes again with focus still held.
-	g.menuOpen = true
-	if !g.gameplayPausedByOverlay() {
-		t.Fatal("fixture: the overlay does not pause gameplay")
-	}
-	g.forgetInteractPromptTarget() // what the paused Update path does
-	g.menuOpen = false
-
-	g.tickScreenBanners()
-	b := g.currentScreenBanner()
-	if b == nil || b.kind != bannerInteractPrompt {
-		t.Fatalf("after the overlay closed the nudge is %+v, want it raised again", b)
-	}
-	if want := g.interactionPromptText(npc); b.text != want {
-		t.Fatalf("nudge = %q, want %q", b.text, want)
-	}
-}
-
-// The wiring, not just the rule: the re-arm lives on GameLoop's pause path, so
-// this drives the REAL frame (the same updateExploration the playthrough sim
-// runs) with an overlay opening and closing in front of a live NPC.
+// otherwise be left with no affordance at all. A DIALOG is not in this set:
+// acting on the object settles it. The re-arm lives on GameLoop's pause path,
+// so this drives the REAL frame (updateExploration) with an overlay opening and
+// closing in front of a live NPC.
 func TestInteractPromptReturnsAfterAnOverlayOnTheRealFrame(t *testing.T) {
 	t.Chdir("../..")
 	g, _, cfg := bootOpenWorldGame(t, true)
@@ -1138,7 +1001,7 @@ func TestInteractPromptReturnsAfterAnOverlayOnTheRealFrame(t *testing.T) {
 
 	gl.updateExploration()
 	if g.focusedNPC != inn {
-		t.Skipf("focus resolved to %v, not the inn - this test needs the inn in interact focus", g.focusedNPC)
+		t.Fatalf("fixture: focus resolved to %v, not the inn - this test needs the inn in interact focus", g.focusedNPC)
 	}
 	if b := g.currentScreenBanner(); b == nil || b.kind != bannerInteractPrompt {
 		t.Fatalf("standing at the inn raised %+v, want the nudge", b)
@@ -1156,13 +1019,21 @@ func TestInteractPromptReturnsAfterAnOverlayOnTheRealFrame(t *testing.T) {
 	gl.updateExploration()
 	g.menuOpen = false
 	gl.updateExploration()
-	if b := g.currentScreenBanner(); b == nil || b.kind != bannerInteractPrompt {
+	b := g.currentScreenBanner()
+	if b == nil || b.kind != bannerInteractPrompt {
 		t.Fatalf("after the hub closed the nudge is %+v, want it raised again", b)
+	}
+	if want := g.interactionPromptText(inn); b.text != want {
+		t.Fatalf("nudge = %q, want %q", b.text, want)
 	}
 }
 
 // THE WHOLE RULE, one cell per row: monster loot is announced at the drop event
-// regardless of location; sealed chest loot is announced only when opened.
+// regardless of location (a DoT or an ally can finish a monster after the party
+// crossed a region seam); sealed chest loot is announced only when opened - an
+// encounter clear can drop one a region away, and naming its contents then
+// spoils a container the party has not opened. Every spawn still puts the
+// container on the floor.
 func TestLegendaryAnnouncementTable(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
@@ -1173,15 +1044,20 @@ func TestLegendaryAnnouncementTable(t *testing.T) {
 	}{
 		{"bag at the party's feet", ContainerKindLootBag, "", true, false},
 		{"bag a region away", ContainerKindLootBag, "pyramid_1", true, false},
+		{"bag in a merged region", ContainerKindLootBag, "highlands", true, false},
 		{"chest at the party's feet", ContainerKindTreasureChest, "", false, true},
 		{"chest a region away", ContainerKindTreasureChest, "pyramid_1", false, true},
+		{"chest in a merged region", ContainerKindTreasureChest, "highlands", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := bannerGame(t)
+			// Real worlds, the party standing in one of them: without a world
+			// manager every map key resolves to "here". The merged region shares
+			// the party's World3D, as the unified outdoors does.
 			prev := world.GlobalWorldManager
 			t.Cleanup(func() { world.GlobalWorldManager = prev })
 			wm := world.NewWorldManager(g.config)
-			wm.LoadedMaps = map[string]*world.World3D{"forest": g.world, "pyramid_1": newTestWorld(g.config)}
+			wm.LoadedMaps = map[string]*world.World3D{"forest": g.world, "pyramid_1": newTestWorld(g.config), "highlands": g.world}
 			wm.CurrentMapKey = "forest"
 			world.GlobalWorldManager = wm
 
@@ -1189,15 +1065,27 @@ func TestLegendaryAnnouncementTable(t *testing.T) {
 			if mapKey == "" {
 				mapKey = "forest"
 			}
+			const name = "Wyrmcleaver"
 			g.addGroundContainer(GroundContainer{
 				Kind: tc.kind, ID: "subject", MapKey: mapKey, X: 100, Y: 100,
-				Items: []items.Item{{Name: "Wyrmcleaver", Rarity: "legendary"}},
+				Items: []items.Item{{Name: name, Rarity: "legendary"}},
 			})
-			g.tickScreenBanners()
-			if got := g.currentScreenBanner() != nil; got != tc.wantOnSpawn {
-				t.Fatalf("announced at spawn = %v, want %v", got, tc.wantOnSpawn)
+			if n := len(g.groundContainers); n != 1 {
+				t.Fatalf("the container itself must be spawned, got %d containers", n)
 			}
-			g.screenBannerQueue = nil
+			announced := func(event string, want bool) {
+				t.Helper()
+				g.tickScreenBanners()
+				b := g.currentScreenBanner()
+				if got := b != nil; got != want {
+					t.Fatalf("announced on %s = %v, want %v", event, got, want)
+				}
+				if b != nil && (b.kind != bannerLegendaryDrop || !strings.Contains(b.text, name)) {
+					t.Fatalf("%s raised %+v, want the legendary banner naming %q", event, b, name)
+				}
+				g.screenBannerQueue = nil
+			}
+			announced("spawn", tc.wantOnSpawn)
 
 			// Travel to the container before opening it; spawning it remotely
 			// must not bypass physical reach at the later pickup event.
@@ -1205,10 +1093,7 @@ func TestLegendaryAnnouncementTable(t *testing.T) {
 			g.world = wm.GetCurrentWorld()
 			g.collisionSystem.UpdateTileChecker(g.world)
 			g.pickupGroundContainerAt(0)
-			g.tickScreenBanners()
-			if got := g.currentScreenBanner() != nil; got != tc.wantOnPickupOpen {
-				t.Fatalf("announced on pickup/open = %v, want %v", got, tc.wantOnPickupOpen)
-			}
+			announced("pickup/open", tc.wantOnPickupOpen)
 		})
 	}
 }

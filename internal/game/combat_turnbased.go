@@ -140,7 +140,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
 
-	// Process each monster's turn (only those in vision range).
+	// Process each monster's turn.
 	for _, m := range gl.game.world.Monsters {
 		if !m.IsAlive() {
 			continue

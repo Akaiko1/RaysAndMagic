@@ -16,15 +16,6 @@ func (ui *UISystem) updateMouseState() {
 		ui.dropQueuedClicks()
 		return
 	}
-	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
-	// drop the queues (a click aimed at one layer must not fire in the next).
-	// Runs before this frame's clicks enqueue; within one layer (dialog
-	// double-clicks) no flip occurs.
-	if allowed := ui.game.worldClickAllowed(); allowed != ui.game.prevWorldClickAllowed {
-		ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
-		ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
-		ui.game.prevWorldClickAllowed = allowed
-	}
 	ui.game.pruneClickQueues(now)
 	suppressLeftClick, releaseDrivenClicks := ui.recognizeGameplayPointer(now)
 

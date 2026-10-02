@@ -117,6 +117,11 @@ type controlTipsLayout struct {
 
 func (l controlTipsLayout) maxScroll() int { return max(0, l.contentH-l.body.h) }
 
+// controlTipsBackRect is the page's Back button in the footer band.
+func controlTipsBackRect(panel layoutRect) layoutRect {
+	return layoutRect{panel.x + controlTipsInset, panel.bottom() - 46, menuBackButtonW, menuBackButtonH}
+}
+
 // computeControlTipsLayout flows the groups into as many columns as fit, each
 // group kept whole, filling a column before starting the next.
 func computeControlTipsLayout(panel layoutRect) controlTipsLayout {

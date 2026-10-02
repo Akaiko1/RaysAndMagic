@@ -159,15 +159,16 @@ func TestFloorPropagationPolicies(t *testing.T) {
 			}
 		})
 	}
-	for _, key := range []string{
-		"sakura_garden_grass_edge", "sakura_garden_path", "sakura_garden_pond_edge", "sakura_garden_stream",
-		"quest_bridge", "dragon_cliffs_bridge", "dragon_cliffs_bridge_b", "dragon_cliffs_chasm_edge", "dragon_cliffs_chasm_edge_b",
-	} {
+	// Every tile authored exclude_as_under_floor (the directional edges, paths
+	// and bridges) is skipped by propagation and never resolves a floor.
+	excluded := 0
+	for key, data := range tm.ListTiles() {
+		if data == nil || !data.ExcludeAsUnderFloor {
+			continue
+		}
+		excluded++
 		t.Run(key, func(t *testing.T) {
 			edge := tile(key)
-			if !tm.GetTileData(edge).ExcludeAsUnderFloor {
-				t.Fatal("directional tile lacks explicit exclusion")
-			}
 			if got, ok := tm.ResolveFloors([][]TileType3D{{edge, rock, grass}}, nil).At(1, 0); !ok || got != grass {
 				t.Fatal("directional floor entered propagation")
 			}
@@ -175,6 +176,9 @@ func TestFloorPropagationPolicies(t *testing.T) {
 				t.Fatal("resolution accepted directional floor")
 			}
 		})
+	}
+	if excluded == 0 {
+		t.Fatal("no tile is authored exclude_as_under_floor (positive control)")
 	}
 }
 

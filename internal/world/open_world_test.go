@@ -2,6 +2,7 @@ package world
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -12,6 +13,13 @@ import (
 // bootOpenWorldTest loads the real content configs and builds the unified
 // world from assets/open_world.yaml. Globals are restored via t.Cleanup.
 func bootOpenWorldTest(t *testing.T) (*WorldManager, *config.OpenWorldConfig) {
+	t.Helper()
+	return bootWorldManagerTest(t, true)
+}
+
+// bootWorldManagerTest boots every shipped map through LoadAllMaps, stitched
+// or as classic split maps.
+func bootWorldManagerTest(t *testing.T, unified bool) (*WorldManager, *config.OpenWorldConfig) {
 	t.Helper()
 	t.Chdir("../..")
 
@@ -58,7 +66,9 @@ func bootOpenWorldTest(t *testing.T) (*WorldManager, *config.OpenWorldConfig) {
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("map configs: %v", err)
 	}
-	wm.SetOpenWorldConfig(owc)
+	if unified {
+		wm.SetOpenWorldConfig(owc)
+	}
 	if err := wm.LoadAllMaps(); err != nil {
 		t.Fatalf("load maps: %v", err)
 	}
@@ -110,11 +120,16 @@ func TestOpenWorldStitchGeometry(t *testing.T) {
 		}
 	}
 
-	// The split-world travel devices are stripped: no gate NPCs, and no
-	// teleporters registered under any merged region key.
-	for _, npc := range wm.OpenWorld.NPCs {
-		if npc.Key == "portal_gate_highlands" || npc.Key == "portal_gate_forest" {
-			t.Errorf("gate NPC %q must be removed from the unified world", npc.Key)
+	// The split-world travel devices are stripped: no removed NPC stands in
+	// its region (a removal naming an NPC the map lacks fails the boot), and
+	// no teleporters register under any merged region key.
+	for region, removal := range owc.Removals {
+		for _, key := range removal.NPCs {
+			for _, npc := range wm.OpenWorld.NPCs {
+				if npc.Key == key && wm.MapKeyAt(wm.OpenWorld, int(npc.X/wm.config.GetTileSize()), int(npc.Y/wm.config.GetTileSize())) == region {
+					t.Errorf("removed NPC %q still stands in region %q", key, region)
+				}
+			}
 		}
 	}
 	for _, tp := range wm.GlobalTeleporterRegistry.Teleporters {
@@ -159,35 +174,29 @@ func TestOpenWorldStitchGeometry(t *testing.T) {
 		}
 	}
 
-	// Projection round-trip on a region interior point.
+	// Every region round-trips position and heading local -> unified -> local
+	// (oriented placements included), and its '+' start lands on walkable ground.
 	ts := wm.config.GetTileSize()
-	desert := wm.OpenWorldRegionByKey("desert")
-	lx, ly := 10.5*ts, 20.5*ts
-	gx, gy := wm.ProjectWorldPos("desert", lx, ly)
-	if key, backX, backY, ok := wm.LocalizeWorldPos(gx, gy); !ok || key != "desert" || backX != lx || backY != ly {
-		t.Errorf("projection round-trip: got (%q, %.1f, %.1f, %v), want (desert, %.1f, %.1f)", key, backX, backY, ok, lx, ly)
-	}
-
-	// Same round-trip through an ORIENTED region (highlands is placed rot270):
-	// position and heading must survive local -> unified -> local exactly.
-	if r := wm.OpenWorldRegionByKey("highlands"); r != nil && r.Orient != "" && r.Orient != "none" {
-		hx, hy := wm.ProjectWorldPos("highlands", lx, ly)
-		if key, backX, backY, ok := wm.LocalizeWorldPos(hx, hy); !ok || key != "highlands" ||
+	for i := range wm.OpenWorldRegions {
+		r := &wm.OpenWorldRegions[i]
+		lx, ly := (float64(r.LocalWidth/2)+0.5)*ts, (float64(r.LocalHeight/2)+0.5)*ts
+		gx, gy := wm.ProjectWorldPos(r.MapKey, lx, ly)
+		if key, backX, backY, ok := wm.LocalizeWorldPos(gx, gy); !ok || key != r.MapKey ||
 			math.Abs(backX-lx) > 1e-6 || math.Abs(backY-ly) > 1e-6 {
-			t.Errorf("oriented round-trip: got (%q, %.1f, %.1f, %v), want (highlands, %.1f, %.1f)", key, backX, backY, ok, lx, ly)
+			t.Errorf("%s (orient %q) round-trip: got (%q, %.1f, %.1f, %v), want (%.1f, %.1f)", r.MapKey, r.Orient, key, backX, backY, ok, lx, ly)
 		}
 		a := 1.234
-		back := wm.LocalizeAngle("highlands", wm.ProjectAngle("highlands", a))
+		back := wm.LocalizeAngle(r.MapKey, wm.ProjectAngle(r.MapKey, a))
 		if math.Abs(math.Mod(back-a+3*math.Pi, 2*math.Pi)-math.Pi) > 1e-9 {
-			t.Errorf("oriented angle round-trip: got %.4f, want %.4f", back, a)
+			t.Errorf("%s (orient %q) angle round-trip: got %.4f, want %.4f", r.MapKey, r.Orient, back, a)
 		}
-		// The '+' start must land on a walkable unified tile.
-		if sx, sy, ok := wm.OpenWorldRegionStart("highlands"); !ok ||
+		if r.StartX < 0 {
+			continue
+		}
+		if sx, sy, ok := wm.OpenWorldRegionStart(r.MapKey); !ok ||
 			!GlobalTileManager.IsWalkable(wm.OpenWorld.Tiles[int(sy/ts)][int(sx/ts)]) {
-			t.Error("oriented region start did not project onto a walkable tile")
+			t.Errorf("%s (orient %q) start did not project onto a walkable tile", r.MapKey, r.Orient)
 		}
-	} else {
-		t.Error("expected highlands to be placed with an orientation (layout regression?)")
 	}
 
 	// A corridor position localizes to a connected region's INTERIOR (never a
@@ -212,7 +221,6 @@ func TestOpenWorldStitchGeometry(t *testing.T) {
 		t.Errorf("unified start = (%d,%d), want forest region start (%d,%d)",
 			wm.OpenWorld.StartX, wm.OpenWorld.StartY, forest.StartX, forest.StartY)
 	}
-	_ = desert
 }
 
 // tilesReachable BFS-walks the merged grid's walkable tiles from start to goal.
@@ -310,49 +318,41 @@ func TestOpenWorldRegionMonsterPools(t *testing.T) {
 }
 
 // A per-placement ground override belongs to the PLACEMENT, so it must survive
-// the unified-world transform: the shipped lake chest stands on deep water in
-// the merged world exactly as it does on the standalone forest map.
+// the unified-world transform: every [npc:key@tile] on every merged map stands
+// on that tile in the merged world exactly as on its standalone map.
 func TestOpenWorldKeepsPerPlacementGroundOverride(t *testing.T) {
-	wm, _ := bootOpenWorldTest(t)
+	wm, owc := bootOpenWorldTest(t)
 	merged := wm.OpenWorld
 	if merged == nil {
 		t.Fatal("unified world missing")
 	}
-	deepWater, ok := GlobalTileManager.GetTileTypeFromKey("deep_water")
-	if !ok {
-		t.Fatal("deep_water tile key not found")
-	}
-
-	// The forest map authors [npc:chest_iron@deep_water]; find that placement's
-	// unified tile through the projection layer and read the ground under it.
-	local := forestChestOverridePlacement(t, wm)
-	// An identity projection is legal (a region may sit at 0,0 unrotated), so the
-	// only thing worth asserting is the GROUND at the resulting tile.
-	tx, ty := wm.ProjectTile("forest", local[0], local[1])
-	if got := merged.Tiles[ty][tx]; got != deepWater {
-		t.Fatalf("unified ground under the lake chest = %q, want deep_water",
-			GlobalTileManager.GetTileKey(got))
-	}
-}
-
-// forestChestOverridePlacement returns the map-local tile of the lake chest -
-// the chest_iron placement standing on deep water. Other NPCs are free to carry
-// their own overrides; only THIS one is the subject here. Fails if the content
-// stopped authoring it, since the test would otherwise prove nothing.
-func forestChestOverridePlacement(t *testing.T, wm *WorldManager) [2]int {
-	t.Helper()
-	data, err := NewMapLoaderWithBiome(wm.config, "forest").LoadMap("assets/forest.map")
-	if err != nil {
-		t.Fatalf("load forest map: %v", err)
-	}
-	var found [][2]int
-	for _, spawn := range data.NPCSpawns {
-		if spawn.NPCKey == "chest_iron" && spawn.GroundTile == "deep_water" {
-			found = append(found, [2]int{spawn.X, spawn.Y})
+	checked := 0
+	for i := range wm.OpenWorldRegions {
+		region := wm.OpenWorldRegions[i].MapKey
+		mc := wm.MapConfigs[region]
+		data, err := NewMapLoaderWithBiome(wm.config, mc.Biome).LoadMap("assets/" + mc.File)
+		if err != nil {
+			t.Fatalf("load %s: %v", region, err)
+		}
+		for _, spawn := range data.NPCSpawns {
+			if spawn.GroundTile == "" || slices.Contains(owc.Removals[region].NPCs, spawn.NPCKey) {
+				continue // removed travel devices give their ground back
+			}
+			ground, ok := GlobalTileManager.GetTileTypeFromKey(spawn.GroundTile)
+			if !ok {
+				t.Fatalf("%s: %s@%s names an unknown tile", region, spawn.NPCKey, spawn.GroundTile)
+			}
+			checked++
+			// An identity projection is legal (a region may sit at 0,0 unrotated),
+			// so only the GROUND at the projected tile is asserted.
+			tx, ty := wm.ProjectTile(region, spawn.X, spawn.Y)
+			if got := merged.Tiles[ty][tx]; got != ground {
+				t.Errorf("%s: unified ground under %s = %q, want %q", region, spawn.NPCKey,
+					GlobalTileManager.GetTileKey(got), spawn.GroundTile)
+			}
 		}
 	}
-	if len(found) != 1 {
-		t.Fatalf("forest.map has %d chest_iron@deep_water placements, want exactly 1", len(found))
+	if checked == 0 {
+		t.Fatal("no merged map authors a per-placement ground override (positive control)")
 	}
-	return found[0]
 }

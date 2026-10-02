@@ -340,26 +340,36 @@ func TestMonsterProjectileAoEUsesDamageablePartyMembersNotCanAct(t *testing.T) {
 
 // Regression: antivenom (cure_poison) must stop the background HP drain, not
 // just clear the Poisoned icon. RemoveCondition alone left PoisonFramesRemaining
-// ticking, so the cure looked like it worked while damage kept landing.
+// ticking, so the cure looked like it worked while damage kept landing. RT is
+// the frame-driven path; TB poison only advances in startPartyTurn.
 func TestCurePoison_StopsBackgroundTick(t *testing.T) {
 	tps := config.GetTargetTPS()
-	member := &character.MMCharacter{HitPoints: 100, MaxHitPoints: 100}
-	member.ApplyPoison(tps * 10)
-	if !member.HasCondition(character.ConditionPoisoned) {
-		t.Fatal("expected Poisoned condition after ApplyPoison")
-	}
+	for name, cured := range map[string]bool{"cured": true, "uncured_control": false} {
+		t.Run(name, func(t *testing.T) {
+			member := &character.MMCharacter{HitPoints: 100, MaxHitPoints: 100}
+			member.ApplyPoison(tps * 10)
+			if !member.HasCondition(character.ConditionPoisoned) {
+				t.Fatal("expected Poisoned condition after ApplyPoison")
+			}
+			if cured {
+				member.CurePoison()
+				if member.HasCondition(character.ConditionPoisoned) || member.PoisonFramesRemaining != 0 {
+					t.Fatalf("CurePoison left poisoned=%v frames=%d",
+						member.HasCondition(character.ConditionPoisoned), member.PoisonFramesRemaining)
+				}
+			}
 
-	member.CurePoison()
-	if member.HasCondition(character.ConditionPoisoned) {
-		t.Error("CurePoison should clear the Poisoned condition")
-	}
-
-	before := member.HitPoints
-	for i := 0; i < tps*3; i++ {
-		member.UpdateWithMode(true) // TB path ticks poison directly every frame too
-	}
-	if member.HitPoints != before {
-		t.Errorf("HP dropped from %d to %d after cure - background poison timer kept ticking", before, member.HitPoints)
+			before := member.HitPoints
+			for i := 0; i < tps*3; i++ {
+				member.UpdateWithMode(false)
+			}
+			if cured && member.HitPoints != before {
+				t.Errorf("HP dropped from %d to %d after cure - background poison timer kept ticking", before, member.HitPoints)
+			}
+			if !cured && member.HitPoints >= before {
+				t.Errorf("uncured control kept HP %d over 3s of RT poison", member.HitPoints)
+			}
+		})
 	}
 }
 

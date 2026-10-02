@@ -1,6 +1,10 @@
 package game
 
-import "fmt"
+import (
+	"fmt"
+
+	uitext "ugataima/assets/text"
+)
 
 // Menu layout boxes. Each collision-prone menu exposes its sections (headings,
 // item grids, buttons, pagers) as labelled rectangles derived from the SAME
@@ -45,17 +49,14 @@ func namedLayoutBox(name string, r layoutRect) uiBox {
 }
 
 func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	px := (screenW - mainMenuPanelW) / 2
-	py := (screenH - mainMenuPanelH) / 2
-	region := uiBox{"main-menu", px, py, mainMenuPanelW, mainMenuPanelH}
-	boxes := []uiBox{textLineBox("title", "Main Menu", px+16, py+14)}
+	panel := mainMenuPanelRect(screenW, screenH, MenuMain)
+	title := mainMenuTitleRect(panel)
+	boxes := []uiBox{centeredTextBox("title", mainMenuTitle, title.x, title.y, title.w, title.h)}
 	for i, option := range mainMenuOptions {
-		row, _, textY := menuRowRect(px, py, mainMenuPanelW, mainMenuListTopY, mainMenuRowPitch, i)
+		row, _, _ := menuRowRect(panel.x, panel.y, panel.w, mainMenuListTopY, mainMenuRowPitch, i)
 		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, option.key), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
-		_ = textY
 	}
-
-	return region, boxes
+	return namedLayoutBox("main-menu", panel), boxes
 }
 
 func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox) {
@@ -187,13 +188,12 @@ func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		x, y, w, h := spellTraderPortraitRect(dialog.x, dialog.y, i)
 		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 6 + uiTextCharHeight})
 	}
-	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
-	gridX := dialog.x + (dialog.w-gridW)/2
-	gridY := spellTraderGridTop(dialog.y)
+	// The pager is as wide as the spell grid it pages.
+	pager := spellTraderPagerRect(dialog.x, dialog.y)
 	gridH := spellTraderGridRows*spellTraderRowPitch - spellTraderRowGap
 	boxes = append(boxes,
-		uiBox{"spell-grid", gridX, gridY, gridW, gridH},
-		uiBox{"pager", gridX, spellTraderPagerY(dialog.y), gridW, pagerBtnH},
+		uiBox{"spell-grid", pager.x, spellTraderGridTop(dialog.y), pager.w, gridH},
+		namedLayoutBox("pager", pager),
 		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * uiTextCharHeight}),
 	)
 	return namedLayoutBox("spell-trader", dialog), boxes
@@ -232,20 +232,19 @@ func merchantDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 func cardCollectorLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	dialog := layoutRect{(screenW - npcDialogWidth) / 2, (screenH - npcDialogHeight) / 2, npcDialogWidth, npcDialogHeight}
 	l := computeNPCDialogSectionLayout(dialog, false)
+	c := makeCardCollectorLayout(dialog.x, dialog.y)
 	boxes := []uiBox{
 		namedLayoutBox("title", l.title), namedLayoutBox("greeting", l.greeting),
-		textLineBox("collection-heading", "Collection (active effects)", dialog.x+20, dialog.y+96),
-		textLineBox("inventory-heading", "Your cards (double-click to add)", dialog.x+20, dialog.y+176),
+		textLineBox("collection-heading", uitext.Text("dialog.collection_active_effects"), c.collectionHeading.x, c.collectionHeading.y),
+		textLineBox("inventory-heading", uitext.Text("dialog.your_cards_double_click_to_add"), c.looseHeading.x, c.looseHeading.y),
 	}
 	for i := 0; i < MaxCardSlots; i++ {
 		x, y, w, h := cardCollectorSlotRect(dialog.x, dialog.y, i)
 		boxes = append(boxes, uiBox{fmt.Sprintf("active-card-%d", i), x, y, w, h})
 	}
-	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
-	invGridX := dialog.x + (dialog.w-invGridW)/2
 	boxes = append(boxes,
-		uiBox{"inventory-cards", invGridX, dialog.y + cardInvTop, invGridW, 2*cardInvSize + cardInvRowPitch - cardInvSize},
-		uiBox{"pager", invGridX, dialog.y + cardInvTop + 2*cardInvRowPitch - 4, invGridW, pagerBtnH},
+		namedLayoutBox("inventory-cards", c.looseGrid),
+		namedLayoutBox("pager", c.pager),
 		namedLayoutBox("footer", l.footer[0]),
 	)
 	return namedLayoutBox("card-collector", dialog), boxes
@@ -281,18 +280,19 @@ func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []ui
 	prev, next := savePagerButtonRects(px, py, saveMenuPanelW, saveMenuPanelH)
 	region := uiBox{"save-menu", px, py, saveMenuPanelW, next.y2 - py + 4}
 
-	title, help := "Save Game - Select Slot", "Enter: Save  R: Rename  Left/Right: Page"
+	mode := MenuSaveSelect
 	if modeLoad {
-		title, help = "Load Game - Select Slot", "Enter: Load  Left/Right: Page"
+		mode = MenuLoadSelect
 	}
+	header := saveMenuHeaderLines(mode, px, py)
 	boxes := []uiBox{
-		textLineBox("title", title, px+16, py+14),
-		textLineBox("help", help, px+16, py+32),
+		textLineBox("title", header[0].text, header[0].x, header[0].y),
+		textLineBox("help", header[1].text, header[1].x, header[1].y),
 	}
 	for i := 0; i < saveRowsPerPage; i++ {
 		row := page*saveRowsPerPage + i
-		y := py + saveMenuListTopY + i*saveMenuRowPitch
-		boxes = append(boxes, textLineBox(fmt.Sprintf("row-%d", row), saveRowLabel(row), px+28, y))
+		_, tx, ty := menuRowRect(px, py, saveMenuPanelW, saveMenuListTopY, saveMenuRowPitch, i)
+		boxes = append(boxes, textLineBox(fmt.Sprintf("row-%d", row), saveRowLabel(row), tx, ty))
 	}
 	boxes = append(boxes,
 		uiBox{"pager-prev", prev.x1, prev.y1, prev.x2 - prev.x1, prev.y2 - prev.y1},
@@ -304,27 +304,18 @@ func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []ui
 // entryLoadLayoutBoxes returns the title-screen Load list's panel and section
 // boxes (rows, Prev/Next buttons, Back) for the given page.
 func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
-	px := (screenW - entryLoadPanelW) / 2
-	py := (screenH - entryLoadPanelH) / 2
-	region := uiBox{"entry-load-panel", px, py, entryLoadPanelW, entryLoadPanelH}
-	rowX := px + menuFrameInset
-	rowW := entryLoadPanelW - 2*menuFrameInset
-	startY := py + menuFrameInset + 22
-
-	boxes := []uiBox{textLineBox("title", "Load Game", px+menuFrameInset, py+menuFrameInset-4)}
-	for i := 0; i < saveRowsPerPage; i++ {
-		row := page*saveRowsPerPage + i
-		y := startY + i*entryLoadRowH
-		boxes = append(boxes, uiBox{fmt.Sprintf("row-%d", row), rowX, y, rowW, entryLoadRowH - 8})
+	panel := entryLoadPanelRect(screenW, screenH)
+	l := makeEntryLoadListLayout(panel)
+	boxes := []uiBox{textLineBox("title", entryLoadTitle, l.title.x, l.title.y)}
+	for i, r := range l.rows {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("row-%d", page*saveRowsPerPage+i), r))
 	}
-	pagerY := startY + saveRowsPerPage*entryLoadRowH + 6
-	const pbW, pbH = 96, 26
 	boxes = append(boxes,
-		uiBox{"pager-prev", rowX, pagerY, pbW, pbH},
-		uiBox{"pager-next", rowX + rowW - pbW, pagerY, pbW, pbH},
-		uiBox{"back", px + menuFrameInset, pagerY + pbH + 12, menuBackButtonW, menuBackButtonH},
+		namedLayoutBox("pager-prev", l.prev),
+		namedLayoutBox("pager-next", l.next),
+		namedLayoutBox("back", l.back),
 	)
-	return region, boxes
+	return namedLayoutBox("entry-load-panel", panel), boxes
 }
 
 // skillTrainerPopupLayoutBoxes returns the mastery-trainer popup's region and
@@ -336,12 +327,13 @@ func skillTrainerPopupLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	dialogY := (screenH - npcDialogHeight) / 2
 	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, npcDialogWidth, npcDialogHeight)
 	region := uiBox{"trainer-popup", px, py, pw, ph}
+	l := makeSkillTrainerPopupLayout(px, py, pw, ph)
 
 	boxes := []uiBox{
-		centeredTextBox("header", "Charname - Trainable Masteries", px, py+10, pw, 18),
-		textLineBox("gold", "Gold: 999999", px+12, py+30),
-		{Name: "pager", X: px + 12, Y: py + ph - 46, W: 396, H: 18},
-		textLineBox("instructions", "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22),
+		centeredTextBox("header", uitext.Text("dialog.trainable_masteries", "Charname"), l.header.x, l.header.y, l.header.w, l.header.h),
+		textLineBox("gold", uitext.Text("dialog.gold", 999999), l.gold.x, l.gold.y),
+		namedLayoutBox("pager", l.pager),
+		textLineBox("instructions", uitext.Text("dialog.click_to_select_double_click_train_esc"), l.hint.x, l.hint.y),
 	}
 	for row := 0; row < skillTrainerPageSize(ph); row++ {
 		x, y, w, h := skillTrainerOptionRect(px, py, row)

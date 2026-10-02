@@ -139,6 +139,16 @@ func TestAISocialMovementRestrictions(t *testing.T) {
 	}
 }
 
+// disableRandomSpecials zeroes every chance-rolled or cadenced special action,
+// so a test of base movement or the base attack sees none of them preempt it.
+// On-hit riders (poison, ignite, stun, dispel) stay: they never replace an action.
+func disableRandomSpecials(m *monster.Monster3D) {
+	m.FireburstChance, m.DragonBreathChance, m.PiercingShotChance, m.AllyHealChance = 0, 0, 0, 0
+	m.InfernoChance, m.TeleportChance, m.RootPartyChance, m.RearBlinkChance = 0, 0, 0, 0
+	m.TrapVolleyCount = 0
+	m.SummonChance, m.SummonFirstGuaranteed, m.SummonMonsters = 0, false, nil
+}
+
 func TestAIStationaryMonsterCanStillAttack(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
@@ -146,11 +156,11 @@ func TestAIStationaryMonsterCanStillAttack(t *testing.T) {
 			g.turnBasedMode = tb
 			placePlayerAtTile(g, 15, 10, tile)
 			m := monster.NewMonster3DFromConfig(10.5*tile, 10.5*tile, "dragon_brood_mother", g.config)
-			m.SummonChance = 0
-			m.InfernoChance = 0
-			m.TrapVolleyCount = 0
-			m.SummonFirstGuaranteed = false
-			m.DragonBreathChance = 0
+			if !m.HasRangedAttack() {
+				t.Fatal("fixture needs a ranged attacker")
+			}
+			m.Speed = 0
+			disableRandomSpecials(m)
 			m.WasAttacked = true
 			m.BeginPlayerEngagement()
 			g.world.Monsters = []*monster.Monster3D{m}

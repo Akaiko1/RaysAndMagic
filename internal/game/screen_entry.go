@@ -131,6 +131,11 @@ func makeEntryMenuRootLayout(w, h int) entryMenuRootLayout {
 	}
 }
 
+// button is the i-th root button's box.
+func (l entryMenuRootLayout) button(i int) layoutRect {
+	return layoutRect{l.buttonX, l.buttonStartY + i*(l.buttonH+l.buttonGap), l.buttonW, l.buttonH}
+}
+
 // consumeEntryMenuRootReleaseAt handles root buttons after the button is
 // released. A press sampled while macOS is still settling a fullscreen/focus
 // transition can carry a stale cursor position even though the release has the
@@ -144,8 +149,8 @@ func (g *MMGame) consumeEntryMenuRootReleaseAt(x, y int) bool {
 	}
 	layout := makeEntryMenuRootLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	for i, button := range entryButtons() {
-		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
-		if !isMouseHoveringBox(x, y, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH) {
+		r := layout.button(i)
+		if !isMouseHoveringBox(x, y, r.x, r.y, r.right(), r.bottom()) {
 			continue
 		}
 		g.mouseLeftClicks = g.mouseLeftClicks[:0]
@@ -268,9 +273,9 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 	// Vertical stack of buttons, centered.
 	mouseX, mouseY := uiCursorPosition()
 	for i, b := range entryButtons() {
-		by := layout.buttonStartY + i*(layout.buttonH+layout.buttonGap)
-		hover := isMouseHoveringBox(mouseX, mouseY, layout.buttonX, by, layout.buttonX+layout.buttonW, by+layout.buttonH)
-		ui.drawMenuButton(screen, b.label, layout.buttonX, by, layout.buttonW, layout.buttonH, hover)
+		r := layout.button(i)
+		hover := isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
+		ui.drawMenuButton(screen, b.label, r.x, r.y, r.w, r.h, hover)
 	}
 }
 
@@ -281,21 +286,49 @@ func entryLoadPanelRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, entryLoadPanelW, entryLoadPanelH)
 }
 
+// entryLoadListLayout is the title-screen Load list: the title origin, one
+// framed button per save row, the pager row and Back.
+type entryLoadListLayout struct {
+	title      layoutRect
+	rows       [saveRowsPerPage]layoutRect
+	prev, next layoutRect
+	page       layoutRect // the "Page x/y" label box between Prev and Next
+	back       layoutRect
+}
+
+const entryLoadTitle = "Load Game"
+
+func makeEntryLoadListLayout(panel layoutRect) entryLoadListLayout {
+	const pbW, pbH = 96, 26
+	rowX := panel.x + menuFrameInset
+	rowW := panel.w - 2*menuFrameInset
+	startY := panel.y + menuFrameInset + 22
+	var l entryLoadListLayout
+	l.title = layoutRect{rowX, panel.y + menuFrameInset - 4, rowW, uiTextCharHeight}
+	for i := range l.rows {
+		l.rows[i] = layoutRect{rowX, startY + i*entryLoadRowH, rowW, entryLoadRowH - 8}
+	}
+	pagerY := startY + saveRowsPerPage*entryLoadRowH + 6
+	l.prev = layoutRect{rowX, pagerY, pbW, pbH}
+	l.next = layoutRect{rowX + rowW - pbW, pagerY, pbW, pbH}
+	l.page = layoutRect{rowX, pagerY + (pbH-12)/2, rowW, 12}
+	l.back = layoutRect{rowX, pagerY + pbH + 12, menuBackButtonW, menuBackButtonH}
+	return l
+}
+
 func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	g := ui.game
 	panel := entryLoadPanelRect(w, h)
 	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
-	drawUIText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
+	layout := makeEntryLoadListLayout(panel)
+	drawUIText(screen, entryLoadTitle, layout.title.x, layout.title.y)
 
 	mouseX, mouseY := uiCursorPosition()
-	rowX := px + menuFrameInset
-	rowW := panelW - 2*menuFrameInset
-	startY := py + menuFrameInset + 22
 	rowH := entryLoadRowH
 	for i := 0; i < saveRowsPerPage; i++ {
 		row := g.savePage*saveRowsPerPage + i
-		y := startY + i*rowH
+		rowX, y, rowW := layout.rows[i].x, layout.rows[i].y, layout.rows[i].w
 		sum := GetSaveRowSummary(row)
 		hover := isMouseHoveringBox(mouseX, mouseY, rowX, y, rowX+rowW, y+rowH-8)
 		ui.drawButtonFrame(screen, rowX, y, rowW, rowH-8, sum.Exists && hover)
@@ -336,22 +369,20 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 
 	// Page controls: distinct Prev/Next buttons on their own row (dimmed at the
 	// ends), clearly above the Back button so neither overlaps the other.
-	pagerY := startY + saveRowsPerPage*rowH + 6
-	const pbW, pbH = 96, 26
-	drawEntryPagerBtn := func(bx int, label string, enabled bool, onClick func()) {
-		ui.drawButtonFrame(screen, bx, pagerY, pbW, pbH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, pagerY, bx+pbW, pagerY+pbH))
-		drawCenteredUIText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, pagerY, (bx + pbW) - (bx), (pagerY + pbH) - (pagerY)}, func() {
-			if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
+	drawEntryPagerBtn := func(r layoutRect, label string, enabled bool, onClick func()) {
+		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
+		drawCenteredUIText(screen, label, r.x, layout.page.y, r.w, layout.page.h)
+		ui.onDisplayedInput(uiCommandClick, r, func() {
+			if enabled && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 				onClick()
 			}
 		})
 	}
-	drawEntryPagerBtn(rowX, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
-	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
+	drawEntryPagerBtn(layout.prev, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
+	drawEntryPagerBtn(layout.next, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), layout.page.x, layout.page.y, layout.page.w, layout.page.h)
 
-	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })
+	ui.drawBackButton(screen, layout.back.x, layout.back.y, func() { g.entryMenuMode = EntryMenuRoot })
 }
 
 // ---------------------------------------------------------------------------
@@ -445,5 +476,11 @@ func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func(
 // drawBackHint prints a small return hint at the bottom for full-bleed sub
 // screens (e.g. high scores) that draw their own background.
 func (ui *UISystem) drawBackHint(screen *ebiten.Image, h int) {
-	ui.drawBackButton(screen, 20, h-44, func() { ui.game.entryMenuMode = EntryMenuRoot })
+	back := backHintRect(h)
+	ui.drawBackButton(screen, back.x, back.y, func() { ui.game.entryMenuMode = EntryMenuRoot })
+}
+
+// backHintRect is drawBackHint's button in the bottom-left corner.
+func backHintRect(screenH int) layoutRect {
+	return layoutRect{20, screenH - 44, menuBackButtonW, menuBackButtonH}
 }

@@ -38,11 +38,29 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 				t.Fatal(err)
 			}
 			if legacy {
-				if len(g.party.Reserve) != 3 || g.party.Reserve[0].Name != "Mara" || g.party.Reserve[1].Name != "Elara" || g.party.Reserve[2].Name != "Kael" {
-					t.Fatal("old save did not receive new recruit")
+				// Opt-in recruits the old roster lacks join once, in authored order.
+				present := map[string]bool{}
+				for _, m := range loaded.Party.Members {
+					present[m.Name] = true
+				}
+				var want []string
+				for _, entry := range g.config.Characters.TavernRecruits {
+					if entry.AvailableInExistingSaves && !present[entry.Name] {
+						want = append(want, entry.Name)
+					}
+				}
+				if len(want) == 0 {
+					t.Fatal("no authored recruit is available in existing saves")
+				}
+				var got []string
+				for _, m := range g.party.Reserve {
+					got = append(got, m.Name)
+				}
+				if fmt.Sprint(got) != fmt.Sprint(want) {
+					t.Fatalf("old save reserve = %v, want the new recruits %v", got, want)
 				}
 				g.ensureAdditionalRecruits()
-				if len(g.party.Reserve) != 3 {
+				if len(g.party.Reserve) != len(want) {
 					t.Fatal("duplicate recruit")
 				}
 			} else {
@@ -143,22 +161,31 @@ func TestTavernRosterScrollAndSwapThroughDisplayedInput(t *testing.T) {
 
 func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 	cfg := loadTestConfig(t)
+	// Speed and endurance columns are offsets from the class's authored auto
+	// targets; the primary column is absolute.
+	speedTarget := autoSpeedTarget(character.ClassSniper, cfg)
+	enduranceTarget := autoEnduranceTarget(character.ClassSniper, cfg)
 	for _, tc := range []struct {
-		name                                                                       string
-		points, speed, endurance, accuracy, wantSpeed, wantEndurance, wantAccuracy int
+		name                                                        string
+		points, speed, endurance, primary, wantSpeed, wantEndurance int
+		wantPrimary                                                 int
 	}{
-		{"speed floor", 1, 15, 17, 18, 16, 17, 18},
-		{"endurance and accuracy", 2, 16, 17, 18, 16, 18, 19},
-		{"accuracy focus", 6, 16, 18, 18, 16, 18, 24},
-		{"accuracy cap", 2, 16, 18, 99, 16, 20, 99},
+		{"speed floor", 1, -1, -1, 18, 0, -1, 18},
+		{"endurance and primary", 2, 0, -1, 18, 0, 0, 19},
+		{"primary focus", 6, 0, 0, 18, 0, 0, 24},
+		{"primary cap", 2, 0, 0, MaxStatValue, 0, 2, MaxStatValue},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ch := character.CreateCharacter("Mara", character.ClassSniper, cfg)
-			ch.Speed, ch.Endurance, ch.Accuracy = tc.speed, tc.endurance, tc.accuracy
+			ch := character.CreateCharacter("Sniper", character.ClassSniper, cfg)
+			primary := primaryDamageStat(ch, cfg)
+			if primary == nil || primary == &ch.Speed || primary == &ch.Endurance {
+				t.Fatal("sniper primary must be a stat apart from speed and endurance")
+			}
+			ch.Speed, ch.Endurance, *primary = speedTarget+tc.speed, enduranceTarget+tc.endurance, tc.primary
 			ch.FreeStatPoints = tc.points
 			autoDistributeStatPoints(ch, cfg)
-			if ch.Speed != tc.wantSpeed || ch.Endurance != tc.wantEndurance || ch.Accuracy != tc.wantAccuracy || ch.FreeStatPoints != 0 {
-				t.Fatalf("unexpected auto stats: speed=%d endurance=%d accuracy=%d", ch.Speed, ch.Endurance, ch.Accuracy)
+			if ch.Speed != speedTarget+tc.wantSpeed || ch.Endurance != enduranceTarget+tc.wantEndurance || *primary != tc.wantPrimary || ch.FreeStatPoints != 0 {
+				t.Fatalf("unexpected auto stats: speed=%d endurance=%d primary=%d", ch.Speed, ch.Endurance, *primary)
 			}
 		})
 	}
@@ -226,8 +253,8 @@ func TestPartyCreateScrollingKeepsLastDisplayedHeroSelectableAndDraggable(t *tes
 			}
 			want := pc.pool[i]
 			r := lay.pool[i]
-			if r.w == 0 || want.char.Name != "Mara" {
-				t.Fatal("last hero not visible")
+			if lay.poolMaxScroll == 0 || pc.poolScroll < lay.poolMaxScroll || r.w == 0 {
+				t.Fatalf("pool scrolled to %d of %d, want its last row displayed", pc.poolScroll, lay.poolMaxScroll)
 			}
 			fp.moveTo(r.x+r.w/2, r.y+r.h/2)
 			fp.press()

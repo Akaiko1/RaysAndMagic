@@ -2,9 +2,11 @@ package game
 
 import (
 	"image/color"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -70,6 +72,8 @@ func TestFloorPropagationRendering(t *testing.T) {
 	}
 }
 
+// A lectern authored on impassable ground (the Pinnacle's chasm bottom) is a
+// Fly-only reward, split and stitched, fresh and after a save restore.
 func TestDragonCliffsChasmLecternWithFly(t *testing.T) {
 	t.Chdir("../..")
 	for _, mode := range []string{"split", "stitched"} {
@@ -80,23 +84,41 @@ func TestDragonCliffsChasmLecternWithFly(t *testing.T) {
 			}
 			g.world = wm.GetCurrentWorld()
 			g.collisionSystem.UpdateTileChecker(g.world)
-			x, y := wm.ProjectTile("dragon_cliffs", 26, 17)
+			tm := world.GlobalTileManager
+			mc := wm.MapConfigs["dragon_cliffs"]
+			md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var spawn *world.NPCSpawn
+			for i, s := range md.NPCSpawns {
+				if ground, ok := tm.GetTileTypeFromKey(s.GroundTile); s.NPCKey == "spell_lectern" && ok && !tm.IsWalkable(ground) {
+					spawn = &md.NPCSpawns[i]
+					break
+				}
+			}
+			if spawn == nil {
+				t.Fatal("no dragon_cliffs lectern is authored on impassable ground")
+			}
+			ground, _ := tm.GetTileTypeFromKey(spawn.GroundTile)
+			x, y := wm.ProjectTile("dragon_cliffs", spawn.X, spawn.Y)
 			var book *character.NPC
 			for _, npc := range g.world.NPCs {
-				if npc.Key == "spell_lectern" && int(npc.X/cfg.GetTileSize()) == x && int(npc.Y/cfg.GetTileSize()) == y {
+				if npc.Key == spawn.NPCKey && int(npc.X/cfg.GetTileSize()) == x && int(npc.Y/cfg.GetTileSize()) == y {
 					book = npc
 					break
 				}
 			}
 			if book == nil {
-				t.Fatal("authored chasm lectern is missing")
+				t.Fatal("authored chasm lectern is missing from the world")
 			}
 			r := g.gameLoop.renderer
 			r.precomputeFloorColorCache()
 			assertChasm := func() {
 				t.Helper()
-				if got := r.floorTextureGroupForTile(x, y, g.world.Tiles[y][x]); got != "chasm_floor_0" {
-					t.Fatalf("lectern stands on %s, want the surrounding chasm bottom", got)
+				want := tm.GetTileData(ground).FloorTextureGroup
+				if got := r.floorTextureGroupForTile(x, y, g.world.Tiles[y][x]); got != want {
+					t.Fatalf("lectern stands on %s, want its authored %s ground %s", got, spawn.GroundTile, want)
 				}
 			}
 			assertChasm()
@@ -218,38 +240,53 @@ func TestFloorPropagationSaveRestore(t *testing.T) {
 	}
 }
 
-func TestRemovedPortalStreamSurvivesSaveRestore(t *testing.T) {
+// The ground left under a removed travel device is derived at stitch time, so a
+// save round-trip must rebuild exactly the same cell.
+func TestRemovedDeviceGroundSurvivesSaveRestore(t *testing.T) {
 	t.Chdir("../..")
 	g, wm, cfg := bootOpenWorldGame(t, true)
-	mc := wm.MapConfigs["forest"]
-	md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+	tm := world.GlobalTileManager
+	r := g.gameLoop.renderer
+	type gap struct {
+		name, ground, group string
+		x, y                int
+	}
+	owc, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, spawn := range md.NPCSpawns {
-		if spawn.NPCKey != "portal_gate_highlands" {
-			continue
+	var gaps []gap
+	r.precomputeFloorColorCache()
+	for region, removal := range owc.Removals {
+		mc := wm.MapConfigs[region]
+		md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+		if err != nil {
+			t.Fatal(err)
 		}
-		found = true
-		x, y := wm.ProjectTile("forest", spawn.X, spawn.Y)
-		for _, restored := range []bool{false, true} {
-			if restored {
-				save := g.buildSave(wm)
-				if err := g.applySave(wm, &save); err != nil {
-					t.Fatal(err)
-				}
+		for _, spawn := range md.NPCSpawns {
+			if !slices.Contains(removal.NPCs, spawn.NPCKey) {
+				continue
 			}
-			g.gameLoop.renderer.precomputeFloorColorCache()
-			if got := world.GlobalTileManager.GetTileKey(wm.OpenWorld.Tiles[y][x]); got != "forest_stream" {
-				t.Fatalf("restored=%v: portal gap ground = %q, want forest_stream", restored, got)
-			}
-			if got := g.gameLoop.renderer.floorTextureGroupForTile(x, y, wm.OpenWorld.Tiles[y][x]); got != "forest_stream" {
-				t.Fatalf("restored=%v: portal gap texture = %q, want forest_stream", restored, got)
-			}
+			x, y := wm.ProjectTile(region, spawn.X, spawn.Y)
+			tile := wm.OpenWorld.Tiles[y][x]
+			gaps = append(gaps, gap{region + "/" + spawn.NPCKey, tm.GetTileKey(tile), r.floorTextureGroupForTile(x, y, tile), x, y})
 		}
 	}
-	if !found {
-		t.Fatal("authored forest portal fixture missing")
+	if len(gaps) == 0 {
+		t.Fatal("no removed travel device on any stitched region")
+	}
+	save := g.buildSave(wm)
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatal(err)
+	}
+	r.precomputeFloorColorCache()
+	for _, want := range gaps {
+		tile := wm.OpenWorld.Tiles[want.y][want.x]
+		if got := tm.GetTileKey(tile); got != want.ground {
+			t.Errorf("%s: ground after load = %q, want %q", want.name, got, want.ground)
+		}
+		if got := r.floorTextureGroupForTile(want.x, want.y, tile); got != want.group {
+			t.Errorf("%s: texture after load = %q, want %q", want.name, got, want.group)
+		}
 	}
 }

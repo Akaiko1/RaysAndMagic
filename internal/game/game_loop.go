@@ -775,7 +775,6 @@ type timedBuffActivation uint8
 
 const (
 	timedBuffNotHandled timedBuffActivation = iota
-	timedBuffUnchanged
 	timedBuffApplied
 )
 
@@ -875,8 +874,9 @@ func (g *MMGame) serviceBuffAlreadyCovered(id spells.SpellID) bool {
 }
 
 // activateTimedBuffFrames is the single activation path for flag-based timed
-// buffs. Exact refresh is used by spells; preserveLonger is used by paid
-// services so buying a shorter span never cuts an existing longer one.
+// buffs. Spells refresh the HUD status exactly; paid services (preserveLonger)
+// keep the longest span it has shown. Services refuse while the buff runs, so a
+// purchase never cuts a longer span.
 func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserveLonger bool) timedBuffActivation {
 	if frames <= 0 {
 		return timedBuffNotHandled
@@ -884,9 +884,6 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 	buff, ok := g.timedBuffByID(id)
 	if !ok {
 		return timedBuffNotHandled
-	}
-	if preserveLonger && *buff.active && frames <= *buff.duration {
-		return timedBuffUnchanged
 	}
 	*buff.active = true
 	*buff.duration = frames
@@ -904,8 +901,8 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 // grantTimedBuffSeconds activates a registry buff for a FIXED span - the path
 // for effects granted by something other than a cast (a paid NPC service), so
 // the duration is the authored one rather than the caster's mastery curve.
-// Refreshing never shortens a longer span already running. The result separates
-// an unknown id from a recognized no-op so callers never charge for no benefit.
+// The result separates an unknown id from an applied buff so callers never
+// charge for no benefit.
 func (g *MMGame) grantTimedBuffSeconds(id string, seconds int) timedBuffActivation {
 	if seconds <= 0 {
 		return timedBuffNotHandled

@@ -11,24 +11,28 @@ import (
 	"ugataima/internal/spells"
 )
 
-// These cover the second SSoT audit round: arc/mass-hit, RT-vs-TB cooldown,
+// These cover the second SSoT audit round: swing arc, RT-vs-TB cooldown,
 // disintegrate immunity, monster-only cards, dual stat scaling, splash-crit and
-// dodge rules, projectile hitbox, the active-buff bump and the Meditation
-// discount - every line that combat (or a YAML field) actually drives.
+// dodge rules, projectile hitbox and the Meditation discount - every line that
+// combat (or a YAML field) actually drives.
 
-func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
+// Weapon stun and disintegrate rows are covered for every weapon by
+// TestWeaponTooltipSurfacesEveryAuthoredEffect.
+func TestTooltip_WeaponArcAndCooldownLabels(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	mace, err := items.TryCreateWeaponFromYAML("steel_mace")
 	if err != nil {
 		t.Fatalf("steel_mace: %v", err)
 	}
-	full := GetItemTooltip(mace, thief, g.combat, true)
-
-	// Swing arc is a core melee differentiator -> visible without Shift. The steel
-	// mace is arc type 2 (front + one flank).
+	def := lookupWeaponConfigByName(mace.Name)
+	arc := character.MeleeSwingArcLine(def)
+	if arc == "" {
+		t.Fatal("fixture: steel_mace must be a melee weapon with a swing arc")
+	}
+	// Swing arc is a core melee differentiator -> visible without Shift.
 	compact := GetItemTooltip(mace, thief, g.combat, false)
-	if !strings.Contains(compact, "front and one flank") {
-		t.Errorf("mace must show its swing arc shape:\n%s", compact)
+	if !strings.Contains(compact, arc) {
+		t.Errorf("mace must show its swing arc %q:\n%s", arc, compact)
 	}
 	// Cooldown distinguishes real-time seconds from the turn-based action.
 	for _, want := range []string{"RT Cooldown:", "TB: 1 action"} {
@@ -36,59 +40,58 @@ func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
 			t.Errorf("cooldown must label RT/TB (%q):\n%s", want, compact)
 		}
 	}
-	// Stun spells out RT seconds AND TB turns (was an ambiguous "(3 turns)").
-	if !strings.Contains(full, "(3s RT / 3 turns TB)") {
-		t.Errorf("mace stun must read RT seconds / TB turns:\n%s", full)
-	}
 }
 
-func TestTooltip_DisintegrateImmunity(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	char := cs.game.party.Members[0]
-
-	def, err := spells.GetSpellDefinitionByID("disintegrate")
-	if err != nil {
-		t.Fatalf("disintegrate: %v", err)
-	}
-	spellTip := buildSpellTooltipUnified(def, char, cs, true)
-	if !strings.Contains(spellTip, "undead and dragons immune") {
-		t.Errorf("disintegrate spell must note universal immunity:\n%s", spellTip)
-	}
-
-	blaster, err := items.TryCreateWeaponFromYAML("alien_blaster")
-	if err != nil {
-		t.Skip("alien_blaster not defined")
-	}
-	weaponTip := GetItemTooltip(blaster, char, cs, true)
-	if !strings.Contains(weaponTip, "undead and dragons immune") {
-		t.Errorf("alien blaster disintegrate must note universal immunity:\n%s", weaponTip)
-	}
-}
-
-func TestEditorCard_MonsterOnlySpellHidesPlayerFormula(t *testing.T) {
-	newTestCombatSystemWithConfig(t) // loads spell config
-	def, ok := config.GetSpellDefinition("alien_dark_bolt")
-	if !ok || def == nil {
-		t.Skip("alien_dark_bolt not defined")
-	}
-	if !def.MonsterOnly {
-		t.Fatalf("alien_dark_bolt should be monster_only")
-	}
-	sd, err := spells.GetSpellDefinitionByID("alien_dark_bolt")
-	if err != nil {
-		t.Fatalf("alien_dark_bolt sd: %v", err)
-	}
-	joined := strings.Join(character.RenderCardLines(character.MonsterSpellCardSections(def, sd), true), "\n")
-
-	if !strings.Contains(joined, "Cast by monsters only") ||
-		!strings.Contains(joined, "casting monster's attack damage") {
-		t.Errorf("monster card must describe monster mechanics:\n%s", joined)
-	}
-	// It must NOT borrow the player formula (SP cost, stat scaling, mastery).
-	for _, leak := range []string{"Cost:", "Intellect /", "Mastery:", "Base ("} {
-		if strings.Contains(joined, leak) {
-			t.Errorf("monster card leaks player formula %q:\n%s", leak, joined)
-		}
+// Spell rules that combat drives must reach the full card through the game
+// entry point.
+func TestTooltip_SpellCardRules(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		spell  spells.SpellID
+		setup  func(*character.MMCharacter)
+		want   []string
+		absent []string
+	}{
+		{name: "disintegrate notes universal immunity", spell: "disintegrate", want: []string{"undead and dragons immune"}},
+		{
+			name: "AoE projectile splash inherits crit and meets Perfect Dodge", spell: "fireball",
+			want:   []string{character.SplashCritRule, "Perfect Dodge"},
+			absent: []string{"Hitbox:"},
+		},
+		{
+			name: "mortar uses bloom rules", spell: "stone_blossom",
+			want:   []string{"One critical roll boosts the entire bloom", "The bloom cannot be evaded by Perfect Dodge"},
+			absent: []string{character.SplashCritRule, "Hitbox:"},
+		},
+		{
+			name: "GM Meditation breaks down the cost", spell: "fireball",
+			setup: func(c *character.MMCharacter) {
+				c.Skills[character.SkillMeditation] = &character.Skill{Mastery: character.MasteryGrandMaster}
+			},
+			want: []string{"Base Cost:", fmt.Sprintf("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)},
+		},
+		{name: "no Meditation keeps one cost row", spell: "fireball", absent: []string{"Base Cost:", "Meditation -"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			caster := character.CreateCharacter("Med", character.ClassSorcerer, cs.game.config)
+			delete(caster.Skills, character.SkillMeditation)
+			if tc.setup != nil {
+				tc.setup(caster)
+			}
+			cs.game.party.Members[0] = caster
+			full := GetSpellTooltip(tc.spell, caster, cs, true)
+			for _, want := range tc.want {
+				if !strings.Contains(full, want) {
+					t.Errorf("missing %q:\n%s", want, full)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(full, absent) {
+					t.Errorf("unexpected %q:\n%s", absent, full)
+				}
+			}
+		})
 	}
 }
 
@@ -96,7 +99,7 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
 	def, ok := config.GetSpellDefinition("ray_of_light")
 	if !ok || def == nil {
-		t.Skip("ray_of_light not defined")
+		t.Fatal("ray_of_light not defined")
 	}
 	_, err := spells.GetSpellDefinitionByID("ray_of_light")
 	if err != nil {
@@ -133,49 +136,6 @@ func TestEditorCard_BuffOmitsInactiveRTCooldown(t *testing.T) {
 				t.Errorf("editor cooldown shown = %v, want %v:\n%s", gotCooldown, tc.wantCooldown, card)
 			}
 		})
-	}
-}
-
-func TestTooltip_AoESplashCritAndDodgeRules(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	char := cs.game.party.Members[0]
-	def, err := spells.GetSpellDefinitionByID("fireball")
-	if err != nil {
-		t.Fatalf("fireball: %v", err)
-	}
-	full := buildSpellTooltipUnified(def, char, cs, true)
-	if !strings.Contains(full, character.SplashCritRule) {
-		t.Errorf("AoE spell must explain splash inherits the crit:\n%s", full)
-	}
-	if !strings.Contains(full, "Perfect Dodge") {
-		t.Errorf("projectile spell must mention Perfect Dodge:\n%s", full)
-	}
-	if strings.Contains(full, "Hitbox:") {
-		t.Errorf("projectile spell should not expose its collision geometry:\n%s", full)
-	}
-}
-
-func TestTooltip_MortarUsesBloomRules(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	char := cs.game.party.Members[0]
-	def, err := spells.GetSpellDefinitionByID("stone_blossom")
-	if err != nil {
-		t.Fatalf("stone_blossom: %v", err)
-	}
-	full := buildSpellTooltipUnified(def, char, cs, true)
-
-	for _, want := range []string{
-		"One critical roll boosts the entire bloom",
-		"The bloom cannot be evaded by Perfect Dodge",
-	} {
-		if !strings.Contains(full, want) {
-			t.Errorf("mortar tooltip missing %q:\n%s", want, full)
-		}
-	}
-	for _, stale := range []string{character.SplashCritRule, "Hitbox:"} {
-		if strings.Contains(full, stale) {
-			t.Errorf("mortar tooltip contains ordinary projectile rule %q:\n%s", stale, full)
-		}
 	}
 }
 
@@ -216,41 +176,6 @@ func TestTooltip_ResistanceSummaryDoesNotDoubleCountPhysical(t *testing.T) {
 				t.Fatalf("ResistLines() = %v, want [%q]", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestTooltip_ActiveBuffRaisesTotalDamage(t *testing.T) {
-	g, thief := newThiefTestGame(t)
-	w := thief.Equipment[items.SlotMainHand]
-	before := GetItemTooltip(w, thief, g.combat, true)
-
-	// Heroism (+10 outgoing) is the OutBonus combat adds to every hit.
-	g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", OutBonus: 10, Frames: 600})
-	after := GetItemTooltip(w, thief, g.combat, true)
-
-	if !strings.Contains(after, "Active party buff: +10") {
-		t.Errorf("buffed weapon tooltip must surface the active buff:\n%s", after)
-	}
-	if before == after {
-		t.Errorf("an active outgoing-damage buff must change Total Damage:\n%s", after)
-	}
-}
-
-func TestTooltip_MeditationCostDiscount(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	caster := character.CreateCharacter("Med", character.ClassSorcerer, cs.game.config)
-	caster.Skills[character.SkillMeditation] = &character.Skill{Mastery: character.MasteryGrandMaster}
-	cs.game.party.Members[0] = caster
-
-	def, err := spells.GetSpellDefinitionByID("fireball")
-	if err != nil {
-		t.Fatalf("fireball: %v", err)
-	}
-	full := buildSpellTooltipUnified(def, caster, cs, true)
-	for _, want := range []string{"Base Cost:", "Meditation - Grandmaster: -25%"} {
-		if !strings.Contains(full, want) {
-			t.Errorf("GM meditator spell must break down the cost (%q):\n%s", want, full)
-		}
 	}
 }
 

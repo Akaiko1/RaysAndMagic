@@ -91,10 +91,9 @@ func TestParkSelection_RTCyclingUnaffected(t *testing.T) {
 	}
 }
 
-// TestRTHoldSpace_HighSpeedAttacksMore verifies the per-character cooldown +
-// auto-advance model: holding the attack key, a high-Speed member (shorter
-// cooldown) acts more often than slow ones. Mirrors the real-time act loop in
-// handleCombatInput using the shared helpers.
+// TestRTHoldSpace_HighSpeedAttacksMore: holding the attack key drives the real
+// RT dispatcher every frame; a high-Speed member (shorter cooldown) acts more
+// often than slow ones, and round-robin never starves anyone.
 func TestRTHoldSpace_HighSpeedAttacksMore(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -104,41 +103,38 @@ func TestRTHoldSpace_HighSpeedAttacksMore(t *testing.T) {
 	if n < 2 {
 		t.Skip("need >=2 party members")
 	}
-	// Isolate Speed: same weapon for all (sword mult 1.0 -> cooldown is the pure
-	// Speed curve), equal HP, all ready, all weapon-capable.
+	// Isolate Speed: same weapon for all, equal HP, all ready, all weapon-capable.
 	for i, m := range members {
 		m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
+		delete(m.Equipment, items.SlotOffHand)
 		m.HitPoints, m.MaxHitPoints = 50, 50
-		m.RTCooldown = 0
+		m.RTCooldown, m.OffHandRTCooldown = 0, 0
 		m.Speed = 5
 		if i == 0 {
 			m.Speed = 60 // the fast one
 		}
 	}
 
+	ih := NewInputHandler(g)
 	counts := make([]int, n)
 	g.selectedChar = 0
-	stagger := 0
-	for f := 0; f < 2400; f++ { // 20s at 120 TPS
-		for _, m := range members {
+	for f := 0; f < 20*g.config.GetTPS(); f++ {
+		// The per-frame RT clocks the game loop advances.
+		if g.spellInputCooldown > 0 {
+			g.spellInputCooldown--
+		}
+		before := make([]int, n)
+		for i, m := range members {
 			if m.RTCooldown > 0 {
 				m.RTCooldown--
 			}
+			before[i] = m.RTCooldown
 		}
-		if stagger > 0 {
-			stagger--
-			continue
-		}
-		g.ensureSelectedCanActRT()
-		if !g.rtActionReady(g.selectedChar, rtActWeapon) {
-			g.advanceRTActor(rtActWeapon)
-		}
-		if g.rtActionReady(g.selectedChar, rtActWeapon) {
-			sel := members[g.selectedChar]
-			sel.RTCooldown = cs.WeaponCooldownFrames(sel)
-			counts[g.selectedChar]++
-			stagger = rtActionStagger
-			g.advanceRTActor(rtActWeapon)
+		ih.performRTCombatAction(rtActWeapon, false)
+		for i, m := range members {
+			if m.RTCooldown > before[i] {
+				counts[i]++
+			}
 		}
 	}
 	t.Logf("attack counts per member: %v", counts)
@@ -152,151 +148,77 @@ func TestRTHoldSpace_HighSpeedAttacksMore(t *testing.T) {
 	}
 }
 
-// TestSmartAttack_HealsMostWoundedThenAttacks: with a heal slotted, Space heals
-// the most-wounded ally when someone is hurt, and reverts to a weapon swing when
-// the party is healthy.
-func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = false
-	members := g.party.Members
-	if len(members) < 2 {
-		t.Skip("need >=2 party members")
+// TestSmartAttack_HealPriority: Space heals the most-wounded ally first. A
+// slotted heal wins over the book pick, a book heal outranks a slotted combat
+// spell or an empty slot, and a healthy party gets no spell at all.
+func TestSmartAttack_HealPriority(t *testing.T) {
+	slot := func(t *testing.T, c *character.MMCharacter, id spells.SpellID) {
+		t.Helper()
+		spellItem, err := spells.CreateSpellItem(id)
+		if err != nil {
+			t.Fatalf("create %s spell item: %v", id, err)
+		}
+		c.LearnSpell(id)
+		c.Equipment[items.SlotSpell] = spellItem
 	}
-	caster := members[0]
-	g.selectedChar = 0
-	caster.LearnSpell("heal_other")
-	caster.Equipment[items.SlotSpell] = items.Item{
-		Name: "Heal", Type: items.ItemUtilitySpell,
-		SpellEffect: items.SpellEffectHealOther, SpellCost: 4,
+	slottedHeal := func(t *testing.T, c *character.MMCharacter) {
+		c.LearnSpell("heal_other")
+		c.Equipment[items.SlotSpell] = items.Item{
+			Name: "Heal", Type: items.ItemUtilitySpell,
+			SpellEffect: items.SpellEffectHealOther, SpellCost: 4,
+		}
 	}
-	caster.SpellPoints, caster.MaxSpellPoints = 50, 50
-	for _, m := range members {
-		m.HitPoints = m.MaxHitPoints // everyone full
-	}
-	// Wound member 1 to ~30%.
-	hurt := members[1]
-	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
-	before := hurt.HitPoints
+	for _, tc := range []struct {
+		name   string
+		caster int // Celestine (2) knows heal_other from the class kit
+		hurt   int // -1: the whole party is healthy
+		setup  func(t *testing.T, c *character.MMCharacter)
+		sp     int
+		want   spells.SpellID
+	}{
+		{"slotted_heal_heals_most_wounded", 0, 1, slottedHeal, 50, "heal_other"},
+		{"healthy_party_casts_nothing", 0, -1, slottedHeal, 50, ""},
+		{"book_heal_without_quick_slot", 2, 0, func(_ *testing.T, c *character.MMCharacter) { delete(c.Equipment, items.SlotSpell) }, 50, "heal_other"},
+		{"book_heal_over_offensive_slot", 2, 1, func(t *testing.T, c *character.MMCharacter) { slot(t, c, "harm") }, 50, "heal_other"},
+		{"slotted_heal_over_book_heal", 2, 1, func(t *testing.T, c *character.MMCharacter) { slot(t, c, "mass_heal") }, 80, "mass_heal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
+			g.turnBasedMode = false
+			members := g.party.Members
+			if len(members) <= max(tc.caster, tc.hurt) {
+				t.Skipf("need >%d party members", max(tc.caster, tc.hurt))
+			}
+			caster := members[tc.caster]
+			g.selectedChar = tc.caster
+			tc.setup(t, caster)
+			caster.SpellPoints, caster.MaxSpellPoints = tc.sp, tc.sp
+			for _, m := range members {
+				m.HitPoints = m.MaxHitPoints
+			}
+			before := 0
+			if tc.hurt >= 0 {
+				hurt := members[tc.hurt]
+				hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
+				before = hurt.HitPoints
+			}
+			spBefore := caster.SpellPoints
 
-	cast, id := cs.SmartAttack()
-	if !cast || id != spells.SpellID("heal_other") {
-		t.Fatalf("expected smart-attack to cast heal_other on the wounded ally, got cast=%v id=%q", cast, id)
-	}
-	if hurt.HitPoints <= before {
-		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
-	}
-
-	// Now everyone is healthy -> smart-attack must NOT heal (weapon swing instead).
-	for _, m := range members {
-		m.HitPoints = m.MaxHitPoints
-	}
-	spBefore := caster.SpellPoints
-	_, spellID := cs.SmartAttack() // acted=true (weapon swing), but no SPELL may fire
-	if spellID != "" {
-		t.Errorf("smart-attack cast %q on a full-HP party; should have attacked with the weapon", spellID)
-	}
-	if caster.SpellPoints != spBefore {
-		t.Errorf("smart-attack spent SP with no wounded ally (%d -> %d)", spBefore, caster.SpellPoints)
-	}
-}
-
-// TestSmartAttack_BookHealWithoutQuickSlot: a healer with an EMPTY quick slot
-// still auto-triages - Space finds the strongest heal in the spellbook when
-// anyone in the party (not just the caster) is wounded.
-func TestSmartAttack_BookHealWithoutQuickSlot(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = false
-	members := g.party.Members
-	if len(members) < 3 {
-		t.Skip("need >=3 party members")
-	}
-	cleric := members[2] // Celestine knows heal_other from the class kit
-	g.selectedChar = 2
-	delete(cleric.Equipment, items.SlotSpell) // no quick-slotted spell at all
-	cleric.SpellPoints, cleric.MaxSpellPoints = 50, 50
-	for _, m := range members {
-		m.HitPoints = m.MaxHitPoints
-	}
-	hurt := members[0] // someone OTHER than the caster
-	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
-	before := hurt.HitPoints
-
-	cast, id := cs.SmartAttack()
-	if !cast || id != spells.SpellID("heal_other") {
-		t.Fatalf("expected book heal_other on the wounded ally, got cast=%v id=%q", cast, id)
-	}
-	if hurt.HitPoints <= before {
-		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
-	}
-}
-
-// TestSmartAttack_BookHealOverOffensiveQuickSlot: a healer keeping a COMBAT
-// spell in the quick slot still heals first - the book heal outranks the
-// slotted offensive spell while an ally is wounded.
-func TestSmartAttack_BookHealOverOffensiveQuickSlot(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = false
-	members := g.party.Members
-	if len(members) < 3 {
-		t.Skip("need >=3 party members")
-	}
-	cleric := members[2]
-	g.selectedChar = 2
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("harm")); err == nil {
-		cleric.LearnSpell("harm")
-		cleric.Equipment[items.SlotSpell] = spellItem
-	} else {
-		t.Fatalf("create harm spell item: %v", err)
-	}
-	cleric.SpellPoints, cleric.MaxSpellPoints = 50, 50
-	for _, m := range members {
-		m.HitPoints = m.MaxHitPoints
-	}
-	hurt := members[1]
-	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
-	before := hurt.HitPoints
-
-	cast, id := cs.SmartAttack()
-	if !cast || id != spells.SpellID("heal_other") {
-		t.Fatalf("expected the book heal to outrank the slotted combat spell, got cast=%v id=%q", cast, id)
-	}
-	if hurt.HitPoints <= before {
-		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
-	}
-}
-
-// TestSmartAttack_QuickSlottedHealPreferred: when the quick slot holds a heal,
-// it wins over the book pick (here Mass Heal from the slot vs heal_other in
-// the book).
-func TestSmartAttack_QuickSlottedHealPreferred(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.turnBasedMode = false
-	members := g.party.Members
-	if len(members) < 3 {
-		t.Skip("need >=3 party members")
-	}
-	cleric := members[2]
-	g.selectedChar = 2
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("mass_heal")); err == nil {
-		cleric.LearnSpell("mass_heal")
-		cleric.Equipment[items.SlotSpell] = spellItem
-	} else {
-		t.Fatalf("create mass_heal spell item: %v", err)
-	}
-	cleric.SpellPoints, cleric.MaxSpellPoints = 80, 80
-	for _, m := range members {
-		m.HitPoints = m.MaxHitPoints
-	}
-	hurt := members[1]
-	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
-
-	cast, id := cs.SmartAttack()
-	if !cast || id != spells.SpellID("mass_heal") {
-		t.Fatalf("expected the quick-slotted heal to be preferred over the book heal, got cast=%v id=%q", cast, id)
+			cast, id := cs.SmartAttack()
+			if id != tc.want || (tc.want != "" && !cast) {
+				t.Fatalf("SmartAttack cast=%v id=%q, want %q", cast, id, tc.want)
+			}
+			if tc.hurt < 0 {
+				if caster.SpellPoints != spBefore {
+					t.Errorf("smart-attack spent SP with no wounded ally (%d -> %d)", spBefore, caster.SpellPoints)
+				}
+				return
+			}
+			if got := members[tc.hurt].HitPoints; got <= before {
+				t.Errorf("wounded ally not healed: %d -> %d", before, got)
+			}
+		})
 	}
 }
 

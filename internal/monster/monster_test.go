@@ -1,9 +1,6 @@
 package monster
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
 // Boss flags travel in pairs (chance + magnitude, evasive phase + tuning);
 // load-time validation must reject a half-configured boss instead of letting
@@ -216,66 +213,73 @@ func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 	}
 }
 
+// Dragon breath travels from the definition to the runtime monster unchanged;
+// the synthetic row keeps the rule covered whatever the catalog authors.
 func TestDragonBreathLoadedFromConfig(t *testing.T) {
-	tests := []struct {
-		key        string
-		damageType string
-	}{
-		{"dragon", "fire"},
-		{"dragon_red", "dark"},
-		{"dragon_green", "earth"},
-		{"dragon_gold", "air"},
-		{"elder_dragon", "fire"},
-		{"elder_dragon_red", "dark"},
-		{"elder_dragon_green", "earth"},
-		{"elder_dragon_gold", "air"},
+	defs := map[string]MonsterDefinition{"synthetic": {Name: "Breather", DragonBreathChance: 0.5, DragonBreathType: "earth"}}
+	for key, def := range MonsterConfig.Monsters {
+		if def.DragonBreathChance > 0 {
+			defs[key] = def
+		}
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.key, func(t *testing.T) {
-			m := NewMonster3DFromConfig(0, 0, tt.key, nil)
-			if math.Abs(m.DragonBreathChance-0.33) > 0.0001 {
-				t.Fatalf("DragonBreathChance = %v, want 0.33", m.DragonBreathChance)
+	for key, def := range defs {
+		t.Run(key, func(t *testing.T) {
+			var m *Monster3D
+			if key == "synthetic" {
+				m = &Monster3D{Resistances: make(map[DamageType]int)}
+				m.SetupMonsterFromConfig(&def)
+			} else {
+				m = NewMonster3DFromConfig(0, 0, key, nil)
 			}
-			if m.DragonBreathDamageType != tt.damageType {
-				t.Fatalf("DragonBreathDamageType = %q, want %q", m.DragonBreathDamageType, tt.damageType)
-			}
-			if (tt.key == "dragon" || tt.key == "elder_dragon") && m.FireburstChance != 0 {
-				t.Fatalf("%s still has FireburstChance %v", tt.key, m.FireburstChance)
+			if m.DragonBreathChance != def.DragonBreathChance || m.DragonBreathDamageType != def.DragonBreathType {
+				t.Fatalf("breath = %v/%q, want %v/%q", m.DragonBreathChance, m.DragonBreathDamageType, def.DragonBreathChance, def.DragonBreathType)
 			}
 		})
 	}
 }
 
+// A biome-specific definition wins over a universal one sharing its letter;
+// the universal one serves every other biome.
 func TestMonsterLetterResolutionPrefersBiomeSpecificDefinition(t *testing.T) {
-	_, key, err := MonsterConfig.GetMonsterByLetterForBiome("o", "water")
-	if err != nil {
-		t.Fatalf("resolve water o: %v", err)
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"sea_o":    {Letter: "o", Biomes: []string{"water"}},
+		"forest_o": {Letter: "o", Biomes: []string{"forest"}},
+		"plain_o":  {Letter: "o"},
+	}}
+	for _, tc := range []struct{ biome, want string }{
+		{"water", "sea_o"},
+		{"forest", "forest_o"},
+		{"desert", "plain_o"},
+		{"", "plain_o"},
+	} {
+		if _, key, err := cfg.GetMonsterByLetterForBiome("o", tc.biome); err != nil || key != tc.want {
+			t.Errorf("biome %q: o resolved to %q (err %v), want %q", tc.biome, key, err, tc.want)
+		}
 	}
-	if key != "octopus" {
-		t.Fatalf("expected water o to resolve to octopus, got %s", key)
-	}
-
-	_, key, err = MonsterConfig.GetMonsterByLetterForBiome("o", "forest")
-	if err != nil {
-		t.Fatalf("resolve forest o: %v", err)
-	}
-	if key != "orc" {
-		t.Fatalf("expected forest o to resolve to orc, got %s", key)
+	if _, _, err := cfg.GetMonsterByLetterForBiome("q", "water"); err == nil {
+		t.Error("an unknown letter resolved")
 	}
 }
 
-func TestWaterMonsterBehaviorConfig(t *testing.T) {
-	medusa := NewMonster3DFromConfig(0, 0, "medusa", nil)
-	if !medusa.PassiveUntilAttacked {
-		t.Fatalf("medusa should be passive until attacked")
+// passive_until_attacked and the attack cadence travel from every definition to
+// the runtime monster; the synthetic row keeps the rule covered.
+func TestSetupMonsterFromConfig_CopiesPassiveAndCadence(t *testing.T) {
+	check := func(t *testing.T, m *Monster3D, def MonsterDefinition) {
+		t.Helper()
+		if m.PassiveUntilAttacked != def.PassiveUntilHit || m.AttackCooldownMultiplier != def.AttackCooldownMult {
+			t.Fatalf("passive=%v cooldown=%v, want %v/%v", m.PassiveUntilAttacked, m.AttackCooldownMultiplier, def.PassiveUntilHit, def.AttackCooldownMult)
+		}
+		if def.AttacksPerRound > 0 && m.GetTurnBasedAttackCount() != def.AttacksPerRound {
+			t.Fatalf("TB attacks = %d, want authored %d", m.GetTurnBasedAttackCount(), def.AttacksPerRound)
+		}
 	}
-
-	octopus := NewMonster3DFromConfig(0, 0, "octopus", nil)
-	if got := octopus.GetTurnBasedAttackCount(); got != 4 {
-		t.Fatalf("expected octopus to attack 4 times in turn-based mode, got %d", got)
-	}
-	if octopus.AttackCooldownMultiplier != 0.25 {
-		t.Fatalf("expected octopus real-time cooldown multiplier 0.25, got %v", octopus.AttackCooldownMultiplier)
+	t.Run("synthetic", func(t *testing.T) {
+		def := MonsterDefinition{Name: "Probe", PassiveUntilHit: true, AttacksPerRound: 4, AttackCooldownMult: 0.25}
+		m := &Monster3D{Resistances: make(map[DamageType]int)}
+		m.SetupMonsterFromConfig(&def)
+		check(t, m, def)
+	})
+	for key, def := range MonsterConfig.Monsters {
+		t.Run(key, func(t *testing.T) { check(t, NewMonster3DFromConfig(0, 0, key, nil), def) })
 	}
 }

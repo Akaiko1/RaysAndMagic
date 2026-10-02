@@ -3,6 +3,8 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,7 +111,8 @@ func TestRestrictedEquipmentAllEntryPoints(t *testing.T) {
 				item := items.CreateItemFromYAML(key)
 				g.party.Inventory = []items.Item{item}
 				ui := &UISystem{game: g, lastClickedItem: -1}
-				want := class != character.ClassKnight
+				def, _ := config.GetItemDefinition(key)
+				want := len(def.AllowedClasses) == 0 || slices.Contains(def.AllowedClasses, class.Key())
 				if ui.canSelectedCharacterEquipInventoryItem(item) != want {
 					t.Fatal("icon eligibility differs from model")
 				}
@@ -257,8 +260,22 @@ func TestJournalRewardPreviewCache(t *testing.T) {
 	}
 }
 
+// Every monster whose spell projectile carries an authored stun (its own
+// stun_char_* rider or the spell's stun) delivers exactly that rider.
 func TestAuthoredProjectileStunPreserved(t *testing.T) {
-	for _, key := range []string{"ancient_god_of_death", "alien_enforcer", "dragon_gold", "elder_dragon_gold", "gale_novice"} {
+	newTestCombatSystemWithConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	var stunners []string
+	for _, key := range slices.Sorted(maps.Keys(monster.MonsterConfig.Monsters)) {
+		d := monster.MonsterConfig.Monsters[key]
+		if d.ProjectileSpell != "" && d.ProjectileStun(d.ProjectileSpell).Chance > 0 {
+			stunners = append(stunners, key)
+		}
+	}
+	if len(stunners) == 0 {
+		t.Fatal("no monster carries an authored projectile stun")
+	}
+	for _, key := range stunners {
 		for _, route := range []string{"party", "crossfire"} {
 			t.Run(key+"/"+route, func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)

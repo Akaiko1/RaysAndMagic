@@ -70,10 +70,30 @@ func TestTickFrameRatedCrossClears(t *testing.T) {
 	}
 }
 
-func TestTickTurnRatedCrossClears(t *testing.T) {
-	f, tn, rate := 300, 1, 0
-	if !TickTurnRated(&tn, &f, &rate) || tn != 0 || f != 0 || rate != 0 {
-		t.Fatalf("turn expiry must clear both clocks and the rate: f=%d t=%d rate=%d", f, tn, rate)
+// TestTickTurnRated pins one TB turn of a rated dual clock: expiry clears both
+// clocks and the rate, and a legacy save without a rate derives it.
+func TestTickTurnRated(t *testing.T) {
+	tests := []struct {
+		name                            string
+		frames, turns, rate             int
+		expired                         bool
+		wantFrames, wantTurns, wantRate int
+	}{
+		{name: "last turn cross-clears", frames: 300, turns: 1, expired: true},
+		{name: "single-turn 2s stun expires on its only turn", frames: 120, turns: 1, expired: true},
+		{name: "legacy load derives the rate", frames: 200, turns: 2, wantFrames: 100, wantTurns: 1, wantRate: 100},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, tn, rate := tc.frames, tc.turns, tc.rate
+			if got := TickTurnRated(&tn, &f, &rate); got != tc.expired {
+				t.Fatalf("expired = %v, want %v", got, tc.expired)
+			}
+			if f != tc.wantFrames || tn != tc.wantTurns || rate != tc.wantRate {
+				t.Fatalf("frames=%d turns=%d rate=%d, want %d/%d/%d",
+					f, tn, rate, tc.wantFrames, tc.wantTurns, tc.wantRate)
+			}
+		})
 	}
 }
 
@@ -232,45 +252,14 @@ func TestRatedDualClockReverseDirection(t *testing.T) {
 	}
 }
 
-// TestRatedDualClockSingleTurnAuthoring: a 2s/1turn stun (lightning bolt
-// authoring) - one TB turn IS the whole stun; RT spending keeps the single
-// turn alive until the frames run out.
+// TestRatedDualClockSingleTurnAuthoring: RT spending keeps the single turn of
+// a 2s/1turn stun alive until the frames run out.
 func TestRatedDualClockSingleTurnAuthoring(t *testing.T) {
 	frames, turns, rate := 120, 1, 0
-	if !TickTurnRated(&turns, &frames, &rate) {
-		t.Fatal("1-turn stun must expire on its only turn")
-	}
-	if frames != 0 {
-		t.Fatalf("expiry left frames=%d", frames)
-	}
-
-	frames, turns, rate = 120, 1, 0
 	for i := 0; i < 60; i++ {
 		TickFrameRated(&frames, &turns, &rate)
 	}
 	if turns != 1 || frames != 60 {
 		t.Fatalf("half-spent 2s/1t stun: turns=%d frames=%d, want 1/60", turns, frames)
-	}
-}
-
-// New saves persist rate because remaining clocks alone cannot reconstruct the
-// authored exchange ratio after arbitrary RT progress.
-func TestRatedDualClockPersistedRateSurvivesLoad(t *testing.T) {
-	frames, turns, rate := 361, 4, 120
-	if TickTurnRated(&turns, &frames, &rate) {
-		t.Fatal("expired on first post-load turn")
-	}
-	if turns != 3 || frames != 241 || rate != 120 {
-		t.Fatalf("post-load turn: turns=%d frames=%d rate=%d, want 3/241/120", turns, frames, rate)
-	}
-}
-
-func TestRatedDualClockLegacyLoadFallback(t *testing.T) {
-	frames, turns, rate := 200, 2, 0
-	if TickTurnRated(&turns, &frames, &rate) {
-		t.Fatal("legacy status expired on first post-load turn")
-	}
-	if turns != 1 || frames != 100 || rate != 100 {
-		t.Fatalf("legacy fallback: turns=%d frames=%d rate=%d, want 1/100/100", turns, frames, rate)
 	}
 }

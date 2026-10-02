@@ -113,18 +113,24 @@ func drawSettingsSlider(screen *ebiten.Image, r pagerRect, value float64, tint c
 }
 
 type potionSettingsLayout struct {
-	panel, types layoutRect
-	slider       pagerRect
-	cardW        int
+	panel, types, track layoutRect
+	slider              pagerRect
+	cardW               int
 }
 
 func makePotionSettingsLayout(px, py, panelW, row int) potionSettingsLayout {
 	p := layoutRect{px + 28, py + 120 + row*156, panelW - 56, 144}
 	types := layoutRect{p.x + 244, p.y + 12, p.w - 258, 120}
-	return potionSettingsLayout{p, types, pagerRect{p.x + 20, p.y + 78, p.x + 214, p.y + 98}, (types.w - 6) / 2}
+	track := layoutRect{types.right() + 3, types.y, 3, types.h}
+	return potionSettingsLayout{p, types, track, pagerRect{p.x + 20, p.y + 78, p.x + 214, p.y + 98}, (types.w - 6) / 2}
 }
 func (l potionSettingsLayout) card(index, offset int) layoutRect {
 	return layoutRect{l.types.x + (index%2)*(l.cardW+6), l.types.y + (index/2)*62 - offset, l.cardW, 56}
+}
+
+// typesHeight is the scrolled height of count potion cards, two per row.
+func (l potionSettingsLayout) typesHeight(count int) int {
+	return max(0, ((count+1)/2)*62-6)
 }
 func (g *MMGame) updatePotionSettingsPointer(px, py, panelW int) {
 	mx, my := pointerPosition()
@@ -177,7 +183,7 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 		drawUITextColored(screen, "Off", l.slider.x1-6, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
 		drawUITextColored(screen, "100%", l.slider.x2-22, l.slider.y2+8, color.RGBA{134, 139, 140, 255})
 		choices := config.AutomaticPotionChoices(mana)
-		total := max(0, ((len(choices)+1)/2)*62-6)
+		total := l.typesHeight(len(choices))
 		limit := max(0, total-l.types.h)
 		offset := max(0, min(g.potionSettingsScroll[row], limit))
 		g.potionSettingsScroll[row] = offset
@@ -234,7 +240,7 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				ui.queueItemTooltip(lines, item, nil, mx+16, my+8)
 			}
 		}
-		ui.drawScrollbar(screen, fmt.Sprintf("potion:%d", row), layoutRect{l.types.right() + 3, l.types.y, 3, l.types.h}, offset, total, ui.audioSettingsOwnsInput(), func(v int) {
+		ui.drawScrollbar(screen, fmt.Sprintf("potion:%d", row), l.track, offset, total, ui.audioSettingsOwnsInput(), func(v int) {
 			g.potionSettingsScroll[row] = v
 		})
 	}

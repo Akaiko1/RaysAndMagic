@@ -36,93 +36,87 @@ func spawnSummonsBossScenario(t *testing.T, g *MMGame, key string,
 	return boss, ally
 }
 
+// bossKitAbility is one authored boss special: has reports whether a boss
+// carries it, prep isolates it on a quest-unsealed boss, want is its log line.
+type bossKitAbility struct {
+	name string
+	has  func(m *monsterPkg.Monster3D) bool
+	prep func(m *monsterPkg.Monster3D)
+	want string
+}
+
+var bossKitAbilities = []bossKitAbility{
+	{
+		name: "traps",
+		has:  func(m *monsterPkg.Monster3D) bool { return m.TrapVolleyCount > 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 0 },
+		want: "seeds the ground with smouldering eggs",
+	},
+	{
+		name: "adds",
+		has:  func(m *monsterPkg.Monster3D) bool { return len(m.SummonMonsters) > 0 },
+		prep: func(m *monsterPkg.Monster3D) { m.SummonChance = 1.0; m.InfernoChance = 0 },
+		want: "raises the war-banner",
+	},
+	{
+		name: "enrage",
+		has:  func(m *monsterPkg.Monster3D) bool { return m.EnrageAtHP > 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 0; m.HitPoints = m.EnrageAtHP },
+		want: "flies into a furious rage",
+	},
+	{
+		name: "inferno",
+		has:  func(m *monsterPkg.Monster3D) bool { return m.InfernoChance > 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 1.0 },
+		want: "Inferno scorches",
+	},
+	{
+		name: "lowhp_blink",
+		has:  func(m *monsterPkg.Monster3D) bool { return m.TeleportAtHP > 0 && m.TeleportChance > 0 },
+		prep: func(m *monsterPkg.Monster3D) {
+			noSummons(m)
+			m.InfernoChance = 0
+			m.TeleportChance = 1.0
+			m.HitPoints = m.TeleportAtHP
+		},
+		want: "blinks away in a golden flash",
+	},
+}
+
+// Rows are every YAML boss x every kit ability it authors, in both loops.
 func TestBossSpecialsFireWhileFightingSummons(t *testing.T) {
-	cases := []struct {
-		name string
-		key  string
-		prep func(m *monsterPkg.Monster3D)
-		want string
-	}{
-		{
-			name: "brood-mother-traps", key: "dragon_brood_mother",
-			prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 0 },
-			want: "seeds the ground with smouldering eggs",
-		},
-		{
-			name: "brood-mother-adds", key: "dragon_brood_mother",
-			prep: func(m *monsterPkg.Monster3D) { m.SummonChance = 1.0; m.InfernoChance = 0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "brood-mother-enrage", key: "dragon_brood_mother",
-			prep: func(m *monsterPkg.Monster3D) {
-				noSummons(m)
-				m.InfernoChance = 0
-				m.HitPoints = m.EnrageAtHP
-			},
-			want: "flies into a furious rage",
-		},
-		{
-			name: "brood-mother-inferno", key: "dragon_brood_mother",
-			prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 1.0 },
-			want: "Inferno scorches",
-		},
-		{
-			name: "samurai-adds", key: "old_samurai",
-			prep: func(m *monsterPkg.Monster3D) { aggro(m); m.SummonChance = 1.0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "orc-warlord-adds", key: "orc_hero_boss",
-			prep: func(m *monsterPkg.Monster3D) { m.BossAggro = true; m.SummonChance = 1.0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "gorilla-titan-adds", key: "gorilla_titan",
-			prep: func(m *monsterPkg.Monster3D) { m.BossAggro = true; m.SummonChance = 1.0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "ancient-god-adds", key: "ancient_god_of_death",
-			prep: func(m *monsterPkg.Monster3D) { m.BossAggro = true; m.SummonChance = 1.0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "alien-enforcer-adds", key: "alien_enforcer",
-			prep: func(m *monsterPkg.Monster3D) { m.BossAggro = true; m.SummonChance = 1.0 },
-			want: "raises the war-banner",
-		},
-		{
-			name: "gtb-lowhp-blink", key: "golden_thief_bug",
-			prep: func(m *monsterPkg.Monster3D) {
-				aggro(m)
-				noSummons(m)
-				m.InfernoChance = 0
-				m.TeleportChance = 1.0
-				m.HitPoints = m.TeleportAtHP
-			},
-			want: "blinks away in a golden flash",
-		},
-	}
+	probe, _ := newSpecialsTestGame(t)
+	rows := 0
+	for _, key := range activeBossKeys(t) {
+		boss := monsterPkg.NewMonster3DFromConfig(0, 0, key, probe.config)
+		for _, ability := range bossKitAbilities {
+			if !ability.has(boss) {
+				continue
+			}
+			rows++
+			for _, mode := range []string{"rt", "tb"} {
+				t.Run(key+"/"+ability.name+"/"+mode, func(t *testing.T) {
+					g, gl := newSpecialsTestGame(t)
+					spawnSummonsBossScenario(t, g, key, func(m *monsterPkg.Monster3D) {
+						aggro(m)
+						ability.prep(m)
+					})
 
-	for _, tc := range cases {
-		for _, mode := range []string{"rt", "tb"} {
-			t.Run(tc.name+"/"+mode, func(t *testing.T) {
-				g, gl := newSpecialsTestGame(t)
-				spawnSummonsBossScenario(t, g, tc.key, tc.prep)
+					if mode == "rt" {
+						runRTCombatSeconds(g, 12) // trap interval is 10s
+					} else {
+						runTBMonsterTurns(g, gl, 4) // trap interval is 3 turns
+					}
 
-				if mode == "rt" {
-					runRTCombatSeconds(g, 12) // trap interval is 10s
-				} else {
-					runTBMonsterTurns(g, gl, 4) // trap interval is 3 turns
-				}
-
-				if countCombatLog(g, tc.want) == 0 {
-					t.Errorf("%s/%s: no %q in combat log while the boss fought a summon",
-						tc.name, mode, tc.want)
-				}
-			})
+					if countCombatLog(g, ability.want) == 0 {
+						t.Errorf("no %q in combat log while the boss fought a summon", ability.want)
+					}
+				})
+			}
 		}
+	}
+	if rows == 0 {
+		t.Fatal("no authored boss kit abilities found")
 	}
 }
 

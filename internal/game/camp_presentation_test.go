@@ -2,7 +2,10 @@ package game
 
 import (
 	"fmt"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -163,23 +166,45 @@ func TestCampSceneUsesPartyBiome(t *testing.T) {
 	}
 }
 
+// Every shipped camp scene keeps the top of every head below this fraction of
+// its height; the authored crop limit must leave them in the picture.
+const campSceneHeadroomFraction = .10
+
 func TestCampCoverPreservesProportionsAndHeads(t *testing.T) {
-	for _, res := range campHUDResolutions {
-		for _, hud := range []bool{true, false} {
-			h := res[1]
-			if hud {
-				h = gameplayViewportBottomWithPartyHUD(h)
-			}
-			x, y, w, height := campSceneCoverGeometry(res[0], h, 1536, 1024, .08)
-			if math.Abs(w/1536-height/1024) > 1e-9 {
-				t.Fatal("non-uniform artwork scaling")
-			}
-			if x > 0 || y > 0 || x+w < float64(res[0])-1e-9 || y+height < float64(h)-1e-9 {
-				t.Fatal("artwork does not cover viewport")
-			}
-			// All current scenes keep the top of every head below 10% of source height.
-			if y+.10*height <= 0 {
-				t.Fatalf("%v crops a character's head", res)
+	cfg, err := config.LoadConfig("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenes, err := filepath.Glob("../../assets/sprites/interface/camping/*.png")
+	if err != nil || len(scenes) == 0 {
+		t.Fatalf("no camp scene art found: %v", err)
+	}
+	for _, path := range scenes {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		art, err := png.DecodeConfig(f)
+		f.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, res := range campHUDResolutions {
+			for _, hud := range []bool{true, false} {
+				h := res[1]
+				if hud {
+					h = gameplayViewportBottomWithPartyHUD(h)
+				}
+				x, y, w, height := campSceneCoverGeometry(res[0], h, art.Width, art.Height, cfg.Camping.MaxTopCropFraction)
+				if math.Abs(w/float64(art.Width)-height/float64(art.Height)) > 1e-9 {
+					t.Fatalf("%s at %v: non-uniform artwork scaling", filepath.Base(path), res)
+				}
+				if x > 0 || y > 0 || x+w < float64(res[0])-1e-9 || y+height < float64(h)-1e-9 {
+					t.Fatalf("%s at %v: artwork does not cover viewport", filepath.Base(path), res)
+				}
+				if y+campSceneHeadroomFraction*height <= 0 {
+					t.Fatalf("%s at %v crops a character's head", filepath.Base(path), res)
+				}
 			}
 		}
 	}

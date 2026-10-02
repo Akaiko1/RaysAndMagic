@@ -36,7 +36,14 @@ func TestCreateProjectileUsesPhysicsConfig(t *testing.T) {
 	if projectile.LifeTime != physics.GetLifetimeFrames() {
 		t.Fatalf("expected lifetime %d from physics, got %d", physics.GetLifetimeFrames(), projectile.LifeTime)
 	}
-	if projectile.Size != 16 {
-		t.Fatalf("expected fireball projectile size 16, got %d", projectile.Size)
+	def, err := GetSpellDefinitionByID("fireball")
+	if err != nil {
+		t.Fatalf("get fireball definition: %v", err)
+	}
+	if def.ProjectileSize <= 0 {
+		t.Fatalf("fireball must author a projectile_size, got %d", def.ProjectileSize)
+	}
+	if projectile.Size != def.ProjectileSize {
+		t.Fatalf("expected projectile size %d from the definition, got %d", def.ProjectileSize, projectile.Size)
 	}
 }

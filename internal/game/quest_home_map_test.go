@@ -10,9 +10,9 @@ import (
 
 // A target_map kill quest counts the monsters created on its map wherever
 // they stand or die: a forest spider that chased the party into the desert is
-// still a lake spider, and one born in the desert never is. Five forest-born
-// spiders at the lake hold the quota at 5 in every row, so the subject alone
-// decides the kill credit and the census.
+// still a lake spider, and one born in the desert never is. A full quota of
+// forest-born spiders at the lake keeps the quest open in every row, so the
+// subject alone decides the kill credit and the census.
 func TestTargetMapQuestsCountMonstersByHome(t *testing.T) {
 	t.Chdir("../..")
 	for _, tc := range []struct {
@@ -55,9 +55,16 @@ func TestTargetMapQuestsCountMonstersByHome(t *testing.T) {
 				g.registerSpawnedMonster(m)
 				return m
 			}
-			for i := 0; i < 5; i++ {
+			def := g.questManager.Definitions()["lake_spiders"]
+			if def == nil || def.TargetCount <= 0 {
+				t.Fatalf("lake_spiders lost its target_count: %+v", def)
+			}
+			// Authored lake spiders, if the map ever places any, count too.
+			census := g.countLivingQuestTargets(def)
+			for i := 0; i < def.TargetCount; i++ {
 				spawn("forest")
 			}
+			census += def.TargetCount
 			subject := spawn(tc.born)
 			if subject.HomeMap != tc.born {
 				t.Fatalf("spawned in %s, home = %q", tc.born, subject.HomeMap)
@@ -98,10 +105,10 @@ func TestTargetMapQuestsCountMonstersByHome(t *testing.T) {
 			}
 
 			q := g.questManager.GetQuest("lake_spiders")
-			if q == nil || q.Target() != 5 || q.CurrentCount != 0 {
-				t.Fatalf("lake_spiders = %+v, want active at 0/5", q)
+			if q == nil || q.Target() != def.TargetCount || q.CurrentCount != 0 {
+				t.Fatalf("lake_spiders = %+v, want active at 0/%d", q, def.TargetCount)
 			}
-			wantCensus := 5
+			wantCensus := census
 			if tc.counts {
 				wantCensus++
 			}

@@ -84,6 +84,11 @@ func tavernContentRect(dialogX, dialogY, dialogWidth, dialogHeight int) layoutRe
 	return layoutRect{layout.body.x + 6, layout.body.y + 6, layout.body.w - 12, layout.body.h - 12}
 }
 
+// tavernRosterRect is the Roster tab's manager area inside the tavern content.
+func tavernRosterRect(area layoutRect) layoutRect {
+	return layoutRect{area.x + 16, area.y + 18, area.w - 32, area.h - 30}
+}
+
 func tavernServiceCardRect(area layoutRect, index int) layoutRect {
 	const (
 		sidePadding = 18
@@ -133,7 +138,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	tab := tabs[g.dialogTab]
 	switch tab.action {
 	case tavernRosterAction:
-		ui.drawRosterManager(screen, layoutRect{area.x + 16, area.y + 18, area.w - 32, area.h - 30}, ui.topModalLayer() == modalLayerDialog)
+		ui.drawRosterManager(screen, tavernRosterRect(area), ui.topModalLayer() == modalLayerDialog)
 	case tavernStashAction:
 		ui.drawTavernStash(screen, area)
 	case tavernServicesAction:

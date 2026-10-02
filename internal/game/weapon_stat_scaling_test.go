@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -17,21 +18,32 @@ func TestWeaponDamage_SpeedScaling(t *testing.T) {
 	char.Accuracy = 20
 	char.Speed = 30
 
-	// agility_katar: damage 7, primary Speed, secondary Accuracy.
-	katar := items.CreateWeaponFromYAML("agility_katar")
-	base, statBonus, total := cs.CalculateWeaponDamage(katar, char)
-	wantBonus := char.Speed/WeaponPrimaryStatDivisor + char.Accuracy/WeaponSecondaryStatDivisor
-	if base != 7 || statBonus != wantBonus || total != 7+wantBonus {
-		t.Errorf("katar: base=%d bonus=%d total=%d, want 7/%d/%d (Speed must drive the primary)",
-			base, statBonus, total, wantBonus, 7+wantBonus)
+	authored := func(key string) int {
+		t.Helper()
+		def, ok := config.GetWeaponDefinition(key)
+		if !ok || def == nil {
+			t.Fatalf("%s missing from weapons.yaml", key)
+		}
+		return def.Damage
 	}
 
-	// chitin_spear: damage 15, primary Might, secondary Speed.
+	// agility_katar: primary Speed, secondary Accuracy.
+	katar := items.CreateWeaponFromYAML("agility_katar")
+	want := authored("agility_katar")
+	base, statBonus, total := cs.CalculateWeaponDamage(katar, char)
+	wantBonus := char.Speed/WeaponPrimaryStatDivisor + char.Accuracy/WeaponSecondaryStatDivisor
+	if base != want || statBonus != wantBonus || total != want+wantBonus {
+		t.Errorf("katar: base=%d bonus=%d total=%d, want %d/%d/%d (Speed must drive the primary)",
+			base, statBonus, total, want, wantBonus, want+wantBonus)
+	}
+
+	// chitin_spear: primary Might, secondary Speed.
 	spear := items.CreateWeaponFromYAML("chitin_spear")
+	want = authored("chitin_spear")
 	base, statBonus, total = cs.CalculateWeaponDamage(spear, char)
 	wantBonus = char.Might/WeaponPrimaryStatDivisor + char.Speed/WeaponSecondaryStatDivisor
-	if base != 15 || statBonus != wantBonus || total != 15+wantBonus {
-		t.Errorf("spear: base=%d bonus=%d total=%d, want 15/%d/%d (secondary Speed must count)",
-			base, statBonus, total, wantBonus, 15+wantBonus)
+	if base != want || statBonus != wantBonus || total != want+wantBonus {
+		t.Errorf("spear: base=%d bonus=%d total=%d, want %d/%d/%d (secondary Speed must count)",
+			base, statBonus, total, want, wantBonus, want+wantBonus)
 	}
 }

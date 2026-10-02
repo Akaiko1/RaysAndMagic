@@ -48,19 +48,15 @@ func (ih *InputHandler) handleCombatLogInput() {
 
 func (ih *InputHandler) handleCombatLogMouseInput() {
 	g := ih.game
-	x, y, w, h := combatLogPanelLayout(g)
-	closeX, closeY := x+w-30, y+8
-	if g.consumeLeftClickIn(closeX, closeY, closeX+20, closeY+20) {
+	l := makeCombatLogLayout(g)
+	if g.consumeLeftClickIn(l.close.x, l.close.y, l.close.right(), l.close.bottom()) {
 		g.combatLogOpen = false
 		return
 	}
-
-	contentY, contentH := y+54, h-88
-	buttonX := x + w - 36
-	if g.consumeLeftClickIn(buttonX, contentY+8, buttonX+22, contentY+30) {
+	if g.consumeLeftClickIn(l.up.x, l.up.y, l.up.right(), l.up.bottom()) {
 		g.combatLogScroll += 3
 	}
-	if g.consumeLeftClickIn(buttonX, contentY+contentH-30, buttonX+22, contentY+contentH-8) {
+	if g.consumeLeftClickIn(l.down.x, l.down.y, l.down.right(), l.down.bottom()) {
 		g.combatLogScroll -= 3
 	}
 

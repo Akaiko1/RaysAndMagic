@@ -118,7 +118,6 @@ func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
 					g.exitRequested = true
 				}
 				h.ui.Draw(h.screen)
-				g.prevWorldClickAllowed = g.worldClickAllowed()
 				if state == "captured" {
 					h.ui.beginDisplayedInput()
 					h.ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() { h.ui.displayedInput.capturedGameplay = true })
@@ -171,7 +170,6 @@ func TestEmptyWorldPressArmsDynamicMonsterHold(t *testing.T) {
 			ui, r := g.gameLoop.ui, g.gameLoop.renderer
 			ui.beginDisplayedInput()
 			ui.endDisplayedInput()
-			g.prevWorldClickAllowed = true
 			r.monsterPick.hits = nil
 			fp.press()
 			if err := g.gameLoop.Update(); err != nil {

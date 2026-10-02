@@ -32,10 +32,6 @@ func TestBadgeAuraPulseBreathesWithinItsFloor(t *testing.T) {
 			t.Fatalf("frame %d and one period later differ: %.3f vs %.3f", f, a, b)
 		}
 	}
-	// Both badges read the same clock, so a portrait carrying both pulses as one.
-	if g.badgeAuraPulse(19) != g.badgeAuraPulse(19) {
-		t.Fatal("the pulse is not a pure function of the frame")
-	}
 }
 
 // The stat badge is green and the skill badge is gold, and each one's aura, hover

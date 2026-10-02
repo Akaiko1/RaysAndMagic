@@ -221,9 +221,9 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 	}
 }
 
-// FilteredSpellEffectLines drops the EffectLines entries the unified template
-// renders STRUCTURED elsewhere (the composed "X Damage - AoE" line and the
-// decomposed DAMAGE/HEALING sections), so they don't appear twice.
+// FilteredSpellEffectLines omits the rows the unified template renders
+// STRUCTURED elsewhere (the composed "X Damage - AoE" line and the decomposed
+// DAMAGE/HEALING sections), so they don't appear twice.
 func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 	return sd.CardEffectLines()
 }
@@ -366,7 +366,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 // MonsterSpellCardSections renders a MONSTER-ONLY spell. Monsters cast these
 // with their OWN attack damage (combat.go spawnMonsterSpellProjectile) - no SP
 // cost, no Intellect/mastery scaling, no crit - so the player-formula card would
-// be a fiction. Disintegrate / AoE / stun riders still fire, so the EffectLines
+// be a fiction. Disintegrate / AoE / stun riders still fire, so the effect lines
 // stay.
 func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}

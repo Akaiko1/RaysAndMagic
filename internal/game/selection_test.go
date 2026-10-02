@@ -33,29 +33,45 @@ func selectionTestGame(t *testing.T) *MMGame {
 	return g
 }
 
-func TestEnsureSelectedCharCanAct_NoopWhenSelectedIsAlive(t *testing.T) {
-	g := selectionTestGame(t)
-	g.ensureSelectedCharCanAct()
-	if g.selectedChar != 0 {
-		t.Errorf("selectedChar moved unexpectedly: %d, want 0", g.selectedChar)
+// TB keeps a living selected member (even exhausted or stunned, for the UI),
+// snaps off a KO to the first one who can act, and stays put when nobody can;
+// RT never auto-advances here.
+func TestEnsureSelectedCharCanAct(t *testing.T) {
+	knockOut := func(members ...*character.MMCharacter) {
+		for _, m := range members {
+			m.HitPoints = 0
+			m.AddCondition(character.ConditionUnconscious)
+		}
 	}
-}
-
-func TestEnsureSelectedCharCanAct_KeepsExhaustedLivingSelectedForUI(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].ActionsRemaining = 0
-	g.ensureSelectedCharCanAct()
-	if g.selectedChar != 0 {
-		t.Errorf("selectedChar moved off exhausted living member: %d, want 0", g.selectedChar)
-	}
-}
-
-func TestEnsureSelectedCharCanAct_KeepsStunnedLivingSelectedForUI(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].ApplyCharStun(60, 1)
-	g.ensureSelectedCharCanAct()
-	if g.selectedChar != 0 {
-		t.Fatalf("selected character moved off stunned member to %d", g.selectedChar)
+	for _, tc := range []struct {
+		name  string
+		rt    bool
+		setup func(g *MMGame)
+		want  int
+		// mustAct: the resulting selection must be a member who can act.
+		mustAct bool
+	}{
+		{"alive_noop", false, func(*MMGame) {}, 0, true},
+		{"exhausted_living_kept", false, func(g *MMGame) { g.party.Members[0].ActionsRemaining = 0 }, 0, false},
+		{"stunned_living_kept", false, func(g *MMGame) { g.party.Members[0].ApplyCharStun(60, 1) }, 0, false},
+		{"dead_advances", false, func(g *MMGame) { knockOut(g.party.Members[0]) }, 1, true},
+		{"skips_dead_in_order", false, func(g *MMGame) { knockOut(g.party.Members[0], g.party.Members[1]) }, 2, true},
+		{"everyone_dead_unchanged", false, func(g *MMGame) { knockOut(g.party.Members...) }, 0, false},
+		{"rt_noop_on_dead", true, func(g *MMGame) { knockOut(g.party.Members[0]) }, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := selectionTestGame(t)
+			g.turnBasedMode = !tc.rt
+			tc.setup(g)
+			g.selectedChar = 0
+			g.ensureSelectedCharCanAct()
+			if g.selectedChar != tc.want {
+				t.Fatalf("selectedChar=%d, want %d", g.selectedChar, tc.want)
+			}
+			if tc.mustAct && !g.party.Members[g.selectedChar].CanAct() {
+				t.Fatalf("snapped to non-actable index %d", g.selectedChar)
+			}
+		})
 	}
 }
 
@@ -77,110 +93,51 @@ func TestManualPartySelection_KeepsEradicatedMemberForInventory(t *testing.T) {
 	}
 }
 
-func TestEnsureSelectedCharCanAct_AdvancesWhenSelectedIsDead(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].HitPoints = 0
-	g.party.Members[0].AddCondition(character.ConditionUnconscious)
-	g.ensureSelectedCharCanAct()
-	if g.selectedChar == 0 {
-		t.Fatalf("selectedChar stayed on dead member 0")
-	}
-	if !g.party.Members[g.selectedChar].CanAct() {
-		t.Errorf("snapped to non-actable index %d", g.selectedChar)
-	}
-}
-
-func TestEnsureSelectedCharCanAct_SkipsDeadMembersInOrder(t *testing.T) {
-	g := selectionTestGame(t)
-	// Kill 0 and 1 - should snap to 2.
-	for i := 0; i < 2; i++ {
-		g.party.Members[i].HitPoints = 0
-		g.party.Members[i].AddCondition(character.ConditionUnconscious)
-	}
-	g.ensureSelectedCharCanAct()
-	if g.selectedChar != 2 {
-		t.Errorf("selectedChar=%d, want 2 (first living after 0,1 are KO)", g.selectedChar)
-	}
-}
-
-func TestEnsureSelectedCharCanAct_NoChangeWhenEveryoneDead(t *testing.T) {
-	g := selectionTestGame(t)
-	for _, m := range g.party.Members {
-		m.HitPoints = 0
-		m.AddCondition(character.ConditionUnconscious)
-	}
-	g.selectedChar = 0
-	g.ensureSelectedCharCanAct()
-	// firstEligiblePartyIndex returns -1; selectedChar should be unchanged.
-	if g.selectedChar != 0 {
-		t.Errorf("selectedChar moved to %d with full party wipe; expected unchanged", g.selectedChar)
-	}
-}
-
-func TestEnsureSelectedCharCanAct_NoopInRealTime(t *testing.T) {
-	g := selectionTestGame(t)
-	g.turnBasedMode = false
-	g.party.Members[0].HitPoints = 0
-	g.party.Members[0].AddCondition(character.ConditionUnconscious)
-	g.selectedChar = 0
-	g.ensureSelectedCharCanAct()
-	// Real-time mode: no auto-advance. Dead selected stays dead-selected.
-	if g.selectedChar != 0 {
-		t.Errorf("real-time mode shouldn't auto-advance; selectedChar=%d", g.selectedChar)
-	}
-}
-
-func TestConsumeSelectedCharAction_DecrementsAndStays(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].ActionsRemaining = 3 // multiple actions
-	g.consumeSelectedCharAction()
-	if got := g.party.Members[0].ActionsRemaining; got != 2 {
-		t.Errorf("ActionsRemaining=%d after one consume, want 2", got)
-	}
-	if g.selectedChar != 0 {
-		t.Errorf("selectedChar moved to %d but member 0 still had actions", g.selectedChar)
-	}
-}
-
-func TestConsumeSelectedCharAction_AdvancesOnExhaustion(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].ActionsRemaining = 1
-	// Members 1..3 all have 1 action remaining (default from selectionTestGame).
-	g.consumeSelectedCharAction()
-	if g.party.Members[0].ActionsRemaining != 0 {
-		t.Errorf("member 0 ActionsRemaining=%d, want 0", g.party.Members[0].ActionsRemaining)
-	}
-	if g.selectedChar == 0 {
-		t.Errorf("selectedChar should have advanced past 0")
-	}
-	if !g.canSelectChar(g.selectedChar) {
-		t.Errorf("auto-advanced to non-actable index %d", g.selectedChar)
-	}
-}
-
-func TestConsumeSelectedCharAction_EndsPartyTurnWhenAllExhausted(t *testing.T) {
-	g := selectionTestGame(t)
-	g.currentTurn = 0
-	for _, m := range g.party.Members {
-		m.ActionsRemaining = 0
-	}
-	g.party.Members[0].ActionsRemaining = 1 // only 0 has an action left
-	g.consumeSelectedCharAction()
-	if g.currentTurn != 1 {
-		t.Errorf("currentTurn=%d, want 1 (monster turn) after exhausting last action", g.currentTurn)
-	}
-	if g.monsterTurnResolved {
-		t.Errorf("monsterTurnResolved should be false to let monsters act")
-	}
-}
-
-func TestConsumeSelectedCharAction_NoopInRealTime(t *testing.T) {
-	g := selectionTestGame(t)
-	g.turnBasedMode = false
-	before := g.party.Members[0].ActionsRemaining
-	g.consumeSelectedCharAction()
-	if got := g.party.Members[0].ActionsRemaining; got != before {
-		t.Errorf("ActionsRemaining changed in real-time mode: %d -> %d", before, got)
+// One consumed TB action decrements the selected member, hands selection on
+// once they are exhausted, and starts the monster phase when the whole party
+// is spent; RT has no action slots to consume.
+func TestConsumeSelectedCharAction(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		rt          bool
+		actions     [4]int // action slots before the consume
+		wantActions int    // member 0 after the consume
+		advance     bool   // selection must leave member 0 for a selectable member
+		endTurn     bool   // the monster phase must begin
+	}{
+		{"decrements_and_stays", false, [4]int{3, 1, 1, 1}, 2, false, false},
+		{"advances_on_exhaustion", false, [4]int{1, 1, 1, 1}, 0, true, false},
+		{"ends_party_turn_when_all_exhausted", false, [4]int{1, 0, 0, 0}, 0, false, true},
+		{"rt_noop", true, [4]int{1, 1, 1, 1}, 1, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := selectionTestGame(t)
+			g.turnBasedMode = !tc.rt
+			g.currentTurn = 0
+			for i, m := range g.party.Members {
+				m.ActionsRemaining = tc.actions[i]
+			}
+			g.consumeSelectedCharAction()
+			if got := g.party.Members[0].ActionsRemaining; got != tc.wantActions {
+				t.Fatalf("ActionsRemaining=%d, want %d", got, tc.wantActions)
+			}
+			if tc.endTurn {
+				if g.currentTurn != 1 || g.monsterTurnResolved {
+					t.Fatalf("currentTurn=%d resolved=%v, want an unresolved monster turn", g.currentTurn, g.monsterTurnResolved)
+				}
+				return
+			}
+			if g.currentTurn != 0 {
+				t.Fatalf("currentTurn=%d, want the party turn to continue", g.currentTurn)
+			}
+			if tc.advance {
+				if g.selectedChar == 0 || !g.canSelectChar(g.selectedChar) {
+					t.Fatalf("selection did not advance to a selectable member: %d", g.selectedChar)
+				}
+			} else if g.selectedChar != 0 {
+				t.Fatalf("selectedChar moved to %d", g.selectedChar)
+			}
+		})
 	}
 }
 

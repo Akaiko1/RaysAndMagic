@@ -9,7 +9,6 @@ package game
 
 import (
 	"math"
-	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -40,15 +39,6 @@ func setMobs(game *MMGame, mobs ...*monster.Monster3D) {
 }
 
 func hurt(m *monster.Monster3D) bool { return m.HitPoints < m.MaxHitPoints }
-
-func hasCombatMsg(game *MMGame, substr string) bool {
-	for _, e := range game.combatLogHistory {
-		if strings.Contains(e.Text, substr) {
-			return true
-		}
-	}
-	return false
-}
 
 // Cause 1 (FIXED): reach is tile-index Chebyshev PLUS a true pixel-distance
 // fallback of (range+0.5) tiles. A mob ~1.06 tiles away straddling two tile
@@ -238,10 +228,10 @@ func TestRTMelee_OffHandSwing_UsesOffHandArc(t *testing.T) {
 	}
 }
 
-// Cause 4 (reach) + cause 5 (FIXED): off-hand swing also uses the OFF-hand
-// weapon's RANGE - a spear main hand reaches 2 tiles, the dagger off-hand
-// doesn't; the whiffed off-hand swing still reports acted=true (cooldown is
-// charged) but now announces itself in the combat log.
+// Cause 4 (reach): off-hand swing also uses the OFF-hand weapon's RANGE - a
+// spear main hand reaches 2 tiles, the dagger off-hand doesn't; the whiffed
+// off-hand swing still reports acted=true (cooldown is charged) and logs
+// nothing.
 func TestRTMelee_OffHandSwing_UsesOffHandRange_AndWhiffStillActs(t *testing.T) {
 	game, cs, ts := rtMeleeGame(t)
 	const ptx, pty = 10, 10
@@ -267,6 +257,7 @@ func TestRTMelee_OffHandSwing_UsesOffHandRange_AndWhiffStillActs(t *testing.T) {
 	mob.HitPoints = mob.MaxHitPoints
 
 	member.RTCooldown, member.OffHandRTCooldown = 30, 0
+	logBefore := game.combatLogVersion
 	acted := cs.EquipmentMeleeAttack()
 	if hurt(mob) {
 		t.Fatalf("dagger (range 1) off-hand swing must NOT reach 2 tiles")
@@ -274,8 +265,8 @@ func TestRTMelee_OffHandSwing_UsesOffHandRange_AndWhiffStillActs(t *testing.T) {
 	if !acted {
 		t.Errorf("whiffed swing still reports acted=true (cooldown gets charged) by design")
 	}
-	if hasCombatMsg(game, "swings at air") {
-		t.Errorf("whiffs are silent by design")
+	if game.combatLogVersion != logBefore {
+		t.Errorf("whiffs are silent by design, but the swing logged a line")
 	}
 }
 
@@ -294,14 +285,15 @@ func TestRTMelee_WhiffBehindIsSilentButActs(t *testing.T) {
 	mob := tankMobAt(game, float64(ptx-1)*ts+ts/2, float64(pty)*ts+ts/2) // directly behind
 	setMobs(game, mob)
 
+	logBefore := game.combatLogVersion
 	if !cs.EquipmentMeleeAttack() {
 		t.Fatalf("swing at air still counts as acting (this is the documented behavior)")
 	}
 	if hurt(mob) {
 		t.Errorf("no arc reaches a mob directly behind; if it got hit, the dead-zone matrix changed")
 	}
-	if hasCombatMsg(game, "swings at air") {
-		t.Errorf("whiffs are silent by design")
+	if game.combatLogVersion != logBefore {
+		t.Errorf("whiffs are silent by design, but the swing logged a line")
 	}
 }
 

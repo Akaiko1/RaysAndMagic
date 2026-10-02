@@ -1,114 +1,133 @@
 package game
 
-// Verifies that every weapon special-effect declared in weapons.yaml is
-// surfaced consistently by:
-//  1. config.WeaponDefinitionConfig.EffectLines (SSoT)
-//  2. comparisonEffectLines (in-game compare-tooltip)
-//
-// The map-viewer card and the main in-game tooltip both call EffectLines
-// directly, so structural consistency there is guaranteed by code - these
-// tests focus on the join-and-render layer that could silently drift.
+// Every weapon special effect authored in weapons.yaml must reach the cards the
+// game really renders: the item tooltip (shop, bearer and editor) and the
+// equipment comparison's Gain/Lose rows.
 
 import (
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
-	"ugataima/internal/bridge"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
-func loadWeaponConfigsForTest(t *testing.T) {
-	t.Helper()
-	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
-		t.Fatalf("load weapons: %v", err)
+// Each authored effect field maps to the row it must produce on the card.
+func TestWeaponTooltipSurfacesEveryAuthoredEffect(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	ch := gmReferenceChar(cs.game.config)
+	cs.game.party.Members = []*character.MMCharacter{ch}
+	exercised := map[string]bool{}
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalWeapons.Weapons)) {
+		def := config.GlobalWeapons.Weapons[key]
+		var want []string
+		add := func(field string, on bool, lines ...string) {
+			if on {
+				exercised[field] = true
+				want = append(want, lines...)
+			}
+		}
+		// Stun spells out RT seconds and TB turns; an unset stun_turns stuns one turn.
+		turns := max(1, def.StunTurns)
+		add("stun", def.StunChance > 0, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", def.StunChance*100, turns, turns))
+		add("disintegrate", def.DisintegrateChance > 0, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", def.DisintegrateChance*100))
+		add("spell_cooldown", def.SpellCooldownMultiplier > 0 && def.SpellCooldownMultiplier != 1,
+			fmt.Sprintf("Spell cooldown %+.0f%%", (def.SpellCooldownMultiplier-1)*100))
+		for _, vs := range slices.Sorted(maps.Keys(def.BonusVs)) {
+			add("bonus_vs", true, fmt.Sprintf("Bonus vs %s: x%.1f", config.TitleWords(vs), def.BonusVs[vs]))
+		}
+		add("damage_type", def.DamageType != "" && def.DamageType != "physical", character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+		add("aoe", def.AoeRadiusTiles > 0, character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+		want = append(want, def.CoreEffectLines()...)
+		for _, bearer := range []*character.MMCharacter{nil, ch} {
+			for _, full := range []bool{false, true} {
+				it := items.CreateWeaponFromYAML(key)
+				ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: it}
+				card := GetItemTooltip(it, bearer, cs, full)
+				rows := want
+				if full && def.MaxProjectiles > 0 {
+					exercised["max_projectiles"] = true
+					rows = append(slices.Clone(want), fmt.Sprintf("Maximum Projectiles: %d", def.MaxProjectiles))
+				}
+				for _, row := range rows {
+					if !strings.Contains(card, row) {
+						t.Errorf("%s bearer=%v full=%v: missing %q:\n%s", key, bearer != nil, full, row, card)
+					}
+				}
+			}
+		}
 	}
-	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
-		t.Fatalf("load items: %v", err)
+	for _, field := range []string{"stun", "disintegrate", "spell_cooldown", "bonus_vs", "damage_type", "aoe", "max_projectiles"} {
+		if !exercised[field] {
+			t.Errorf("no authored weapon exercises the %s row; the case is untested", field)
+		}
 	}
-	bridge.SetupWeaponBridge()
-	bridge.SetupItemBridge()
 }
 
-// TestWeaponEffectLines_ExpectedFieldsPerWeapon - locks the canonical
-// shape of EffectLines for known-effect weapons. If a future refactor
-// drops a field from EffectLines, every consumer downstream loses it
-// silently, so we assert per-weapon here.
-func TestWeaponEffectLines_ExpectedFieldsPerWeapon(t *testing.T) {
-	loadWeaponConfigsForTest(t)
-
-	cases := []struct {
-		weaponKey string
-		mustHave  []string // substrings every EffectLines output must contain
-	}{
-		// Steel Mace - uncommon stun proc. Crit is a base attribute now,
-		// rendered by each consumer separately (not via EffectLines).
-		{"steel_mace", []string{"Stun Chance:"}},
-		// Bow of Hellfire - dark damage type, AoE, max projectiles
-		// (no bonus_vs - that's Elven Bow).
-		{"bow_of_hellfire", []string{"Damage Type: Dark", "AoE radius:", "Max Airborne:"}},
-		// Elven Bow - bonus vs dragon, physical so no damage-type line.
-		{"elven_bow", []string{"Bonus vs Dragon"}},
-		// Alien Blaster - spirit damage type + disintegrate.
-		{"alien_blaster", []string{"Damage Type: Spirit", "Disintegrate Chance:"}},
+// The comparison panel lists effects as Gain/Lose rows; set membership has its
+// own Set activated/lost rows (TestEquipmentComparisonCompletedSets).
+func TestWeaponComparisonGainsAndLosesEveryEffect(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	ch := cs.game.party.Members[0]
+	comparisonTestHero(ch)
+	delete(ch.Skills, character.SkillDualWielding)
+	keys := slices.Sorted(maps.Keys(config.GlobalWeapons.Weapons))
+	effects := func(key string) []string {
+		def := config.GlobalWeapons.Weapons[key]
+		return append(def.SpecialEffectLines(), character.WeaponCombatLines(def)...)
 	}
-
-	for _, tc := range cases {
-		def, exists := config.GetWeaponDefinition(tc.weaponKey)
-		if !exists || def == nil {
-			t.Errorf("weapon %q missing from weapons.yaml", tc.weaponKey)
-			continue
-		}
-		lines := def.EffectLines()
+	plainAt := slices.IndexFunc(keys, func(key string) bool { return len(effects(key)) == 0 })
+	if plainAt < 0 {
+		t.Fatal("no authored weapon without special effects to compare against")
+	}
+	plain := items.CreateWeaponFromYAML(keys[plainAt])
+	checked := 0
+	for _, key := range keys {
+		lines := effects(key)
 		if len(lines) == 0 {
-			t.Errorf("weapon %q has zero EffectLines - expected %v", tc.weaponKey, tc.mustHave)
 			continue
 		}
-		joined := strings.Join(lines, "\n")
-		for _, want := range tc.mustHave {
-			if !strings.Contains(joined, want) {
-				t.Errorf("weapon %q EffectLines missing %q:\n%s", tc.weaponKey, want, joined)
+		checked++
+		it := items.CreateWeaponFromYAML(key)
+		ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: plain}
+		gain := GetItemComparisonTooltip(it, ch, cs)
+		ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: it}
+		lose := GetItemComparisonTooltip(plain, ch, cs)
+		for _, line := range lines {
+			if !strings.Contains(gain, "Gain: "+line) {
+				t.Errorf("%s: comparison hides gained %q:\n%s", key, line, gain)
+			}
+			if !strings.Contains(lose, "Lose: "+line) {
+				t.Errorf("%s: comparison hides lost %q:\n%s", key, line, lose)
 			}
 		}
+		// The same weapon on both sides gains and loses nothing.
+		if same := GetItemComparisonTooltip(items.CreateWeaponFromYAML(key), ch, cs); strings.Contains(same, "Gain: ") || strings.Contains(same, "Lose: ") {
+			t.Errorf("%s: identical weapon reports effect changes:\n%s", key, same)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no authored weapon has special effects")
 	}
 }
 
-// TestWeaponEffectsSummary_DelegatesToEffectLines - the compare-tooltip
-// (joined comma form) MUST contain every line from EffectLines, otherwise
-// the comparison panel hides effects from the main tooltip.
-func TestWeaponEffectsSummary_DelegatesToEffectLines(t *testing.T) {
-	loadWeaponConfigsForTest(t)
-
-	for _, weaponKey := range []string{"steel_mace", "bow_of_hellfire", "elven_bow", "alien_blaster"} {
-		def, exists := config.GetWeaponDefinition(weaponKey)
-		if !exists || def == nil {
-			t.Fatalf("weapon %q missing", weaponKey)
-		}
-		item := items.CreateWeaponFromYAML(weaponKey)
-		summary := strings.Join(comparisonEffectLines(item), ", ")
-		for _, line := range def.EffectLines() {
-			if !strings.Contains(summary, line) {
-				t.Errorf("weapon %q compare-tooltip lost effect line %q:\n  summary=%q",
-					weaponKey, line, summary)
-			}
-		}
+// BonusVs is a map: its rows must come out in sorted key order every call.
+func TestWeaponBonusVsLinesAreSorted(t *testing.T) {
+	def := &config.WeaponDefinitionConfig{BonusVs: map[string]float64{"undead": 1.5, "dragon": 2, "beast": 1.25, "giant": 3}}
+	var want []string
+	for _, k := range []string{"beast", "dragon", "giant", "undead"} {
+		want = append(want, fmt.Sprintf("Bonus vs %s: x%.1f", config.TitleWords(k), def.BonusVs[k]))
 	}
-}
-
-// TestWeaponEffectLines_OrderIsStable - map iteration over BonusVs is
-// non-deterministic in Go, but EffectLines sorts keys. Two calls must
-// produce byte-identical output so tests and golden files don't flake.
-func TestWeaponEffectLines_OrderIsStable(t *testing.T) {
-	loadWeaponConfigsForTest(t)
-	def, _ := config.GetWeaponDefinition("bow_of_hellfire")
-	if def == nil {
-		t.Fatal("bow_of_hellfire missing")
-	}
-	first := strings.Join(def.EffectLines(), "|")
 	for i := 0; i < 50; i++ {
-		got := strings.Join(def.EffectLines(), "|")
-		if got != first {
-			t.Fatalf("EffectLines drifted between calls:\n  first=%q\n  got  =%q", first, got)
+		if got := def.CoreEffectLines(); !slices.Equal(got, want) {
+			t.Fatalf("call %d: got %q, want %q", i, got, want)
+		}
+		if got := def.SpecialEffectLines(); !slices.Equal(got, want) {
+			t.Fatalf("call %d comparison rows: got %q, want %q", i, got, want)
 		}
 	}
 }

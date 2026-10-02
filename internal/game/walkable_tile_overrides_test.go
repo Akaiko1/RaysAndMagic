@@ -9,30 +9,35 @@ import (
 	"ugataima/internal/world"
 )
 
-// Case table: ordinary floor; matching/missing/wrong blocked-tile override;
+// Case table (made-up movers, not authored monsters): ordinary floor;
+// matching/missing/wrong blocked-tile override, one or several overrides;
 // flying/grounded chasm and wall; map bounds; live/snapshot movement and
 // tile-only occupancy; entity collision still applies only to movement.
 // These are the shared terrain entry points used by RT and TB pathfinding.
 func TestWalkableTileOverrideMovement(t *testing.T) {
 	g, ts := summonTileWorld(t)
+	dunes := []string{"desert_dune", "large_dune"}
+	undergrowth := []string{"thicket", "fern_patch"}
 	for _, tc := range []struct {
-		name, monster, tile string
-		want                bool
+		name, tile string
+		overrides  []string
+		flying     bool
+		want       bool
 	}{
-		{"floor", "bandit", "empty", true},
-		{"clearing", "bandit", "clearing", true},
-		{"blocked_without_override", "bandit", "desert_dune", false},
-		{"dervish_dune", "desert_dervish", "desert_dune", true},
-		{"dervish_wrong_dune", "desert_dervish", "large_dune", false},
-		{"dragon_dune", "dragon", "desert_dune", true},
-		{"dragon_large_dune", "dragon", "large_dune", true},
-		{"spider_thicket", "forest_spider", "thicket", true},
-		{"spider_fern", "forest_spider", "fern_patch", true},
-		{"spider_wrong_override", "forest_spider", "desert_dune", false},
-		{"grounded_chasm", "bandit", "dragon_cliffs_chasm_floor", false},
-		{"flying_chasm", "dragon_green", "dragon_cliffs_chasm_floor", true},
-		{"grounded_wall", "bandit", "wall", false},
-		{"flying_wall", "dragon_green", "wall", false},
+		{"floor", "empty", nil, false, true},
+		{"clearing", "clearing", nil, false, true},
+		{"blocked_without_override", "desert_dune", nil, false, false},
+		{"single_override", "desert_dune", dunes[:1], false, true},
+		{"wrong_single_override", "large_dune", dunes[:1], false, false},
+		{"first_of_two_overrides", "desert_dune", dunes, false, true},
+		{"second_of_two_overrides", "large_dune", dunes, false, true},
+		{"undergrowth_thicket", "thicket", undergrowth, false, true},
+		{"undergrowth_fern", "fern_patch", undergrowth, false, true},
+		{"undergrowth_wrong_override", "desert_dune", undergrowth, false, false},
+		{"grounded_chasm", "dragon_cliffs_chasm_floor", nil, false, false},
+		{"flying_chasm", "dragon_cliffs_chasm_floor", nil, true, true},
+		{"grounded_wall", "wall", nil, false, false},
+		{"flying_wall", "wall", nil, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tile, ok := world.GlobalTileManager.GetTileTypeFromKey(tc.tile)
@@ -41,9 +46,9 @@ func TestWalkableTileOverrideMovement(t *testing.T) {
 			}
 			w := newTestWorldSized(g.config, 3, 3)
 			w.Tiles[1][1] = tile
-			m := monster.NewMonster3DFromConfig(.5*ts, 1.5*ts, tc.monster, g.config)
+			const moverID = "mover"
 			cs := collision.NewCollisionSystem(w, ts)
-			cs.RegisterEntity(collision.NewEntity(m.ID, m.X, m.Y, 16, 16, collision.CollisionTypeMonster, false))
+			cs.RegisterEntity(collision.NewEntity(moverID, .5*ts, 1.5*ts, 16, 16, collision.CollisionTypeMonster, false))
 			for _, blocked := range []bool{false, true} {
 				if blocked {
 					cs.RegisterEntity(collision.NewEntity("blocker", 1.5*ts, 1.5*ts, 16, 16, collision.CollisionTypeNPC, true))
@@ -60,11 +65,11 @@ func TestWalkableTileOverrideMovement(t *testing.T) {
 					{"snapshot_tiles", snap.CanOccupyTilesWithTileOverrides, false},
 				} {
 					want := tc.want && !(blocked && entry.move)
-					if got := entry.call(m.ID, 1.5*ts, 1.5*ts, m.WalkableTileOverrides, m.Flying); got != want {
+					if got := entry.call(moverID, 1.5*ts, 1.5*ts, tc.overrides, tc.flying); got != want {
 						t.Errorf("%s blocked=%v: got %v, want %v", entry.name, blocked, got, want)
 					}
 					for _, x := range []float64{-ts, 4 * ts} {
-						if entry.call(m.ID, x, 1.5*ts, m.WalkableTileOverrides, m.Flying) {
+						if entry.call(moverID, x, 1.5*ts, tc.overrides, tc.flying) {
 							t.Errorf("%s accepted out-of-map position", entry.name)
 						}
 					}

@@ -56,32 +56,6 @@ func TestMeleeTargetsRandomLiving(t *testing.T) {
 	}
 }
 
-// TestRangedTB_SeventyThirtyTankSplit: turn-based ranged hits the tank ~70% and
-// a non-tank ~30% (RangedOffTankChance).
-func TestRangedTB_SeventyThirtyTankSplit(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	cs.game.turnBasedMode = true
-	m := cs.game.party.Members
-	if len(m) < 2 {
-		t.Skip("need >=2 members")
-	}
-	for _, x := range m {
-		x.HitPoints = x.MaxHitPoints
-	}
-	const trials = 6000
-	nonTank := 0
-	for i := 0; i < trials; i++ {
-		if cs.rangedTarget() != m[0] {
-			nonTank++
-		}
-	}
-	frac := float64(nonTank) / trials
-	t.Logf("TB ranged non-tank fraction: %.3f (target %.2f)", frac, RangedOffTankChance)
-	if math.Abs(frac-RangedOffTankChance) > 0.05 {
-		t.Errorf("TB ranged off-tank fraction %.3f not within 0.05 of %.2f", frac, RangedOffTankChance)
-	}
-}
-
 // This integration table mutation-checks the production projectile wiring in
 // both clocks. With an all-human party, each clock must retain the authored
 // 70/30 tank/off-tank split.

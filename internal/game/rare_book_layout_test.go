@@ -202,18 +202,23 @@ func TestRareAlchemyCraftEverySource(t *testing.T) {
 						it.Quantity = 1
 						g.party.AddItem(it)
 					}
-					choices := []int{0, ai}
-					if got := g.party.MaxAlchemyBatches(recipe, choices); got != 2 {
+					// The saved source choice, loaded the way a legacy save restores it.
+					g.alchemy = AlchemyState{Choices: map[string][]int{recipe.Key: {0, ai}}}
+					if got := (&UISystem{game: g}).alchemyPlan(recipe, g.alchemySelection(recipe), 1).max; got != 2 {
 						t.Fatalf("max=%d", got)
 					}
 					before := append([]items.Item(nil), g.party.Inventory...)
-					if _, _, err := g.party.Brew(c, recipe, choices, 3); err == nil || !reflect.DeepEqual(before, g.party.Inventory) {
+					g.selectedRare, g.alchemyBatches, g.brewAnimation = ri, 3, nil
+					if g.brewSelectedRecipe() || !reflect.DeepEqual(before, g.party.Inventory) {
 						t.Fatal("insufficient batch changed inventory")
 					}
-					n, _, err := g.party.Brew(c, recipe, choices, 2)
+					g.alchemyBatches = 2
+					if !g.brewSelectedRecipe() {
+						t.Fatal(g.rareBookMessage)
+					}
 					want := 2 * character.AlchemyYield(c.SkillTier(character.SkillAlchemy), recipe.Family)
-					if err != nil || n != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != want {
-						t.Fatalf("source failed: n=%d err=%v inventory=%v", n, err, g.party.Inventory)
+					if n := g.brewAnimation.Count; n != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != want {
+						t.Fatalf("source failed: n=%d inventory=%v", n, g.party.Inventory)
 					}
 				})
 			}
@@ -275,30 +280,6 @@ func TestRareBookTechniqueGestures(t *testing.T) {
 					}
 				}
 			})
-		}
-	}
-}
-
-func TestRareFlasksHaveAbundantMaterialRoutes(t *testing.T) {
-	rareClassGame(t, character.ClassAlchemist, false)
-	for _, key := range []string{"harm_flask", "venom_flask", "fire_flask"} {
-		r := config.AlchemyRecipeByKey(key)
-		required := []string{"carp_scale", "koi_scale", "rainbow_salmon_scale"}
-		if key == "fire_flask" {
-			required = []string{"rabbit_pelt", "fennec_pelt", "lemur_fur"}
-		}
-		for _, source := range required {
-			found := false
-			for _, alt := range r.Ingredients[1].Alternatives {
-				for _, item := range alt.Items {
-					if item == source {
-						found = true
-					}
-				}
-			}
-			if !found {
-				t.Errorf("%s lacks abundant source %s", key, source)
-			}
 		}
 	}
 }

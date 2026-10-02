@@ -1,8 +1,6 @@
 package game
 
 import (
-	"image"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
 )
@@ -424,70 +422,10 @@ func (r *Renderer) refreshRenderResourceRegistry() {
 	}
 }
 
-// CPU bytes are retained decoded pixels, separately from estimated owned GPU
-// pixels. The same RGBA referenced by multiple views is counted once.
-func (r *Renderer) retainedRenderCPUBytes() int64 {
-	seen := make(map[*image.RGBA]struct{})
-	var bytes int64
-	add := func(cpu *image.RGBA) {
-		if cpu == nil {
-			return
-		}
-		if _, ok := seen[cpu]; !ok {
-			seen[cpu] = struct{}{}
-			bytes += int64(len(cpu.Pix))
-		}
-	}
-	if task := r.mapRenderResourcePrewarmActive; task != nil {
-		for _, cpu := range task.cpuImages {
-			add(cpu)
-		}
-		for _, job := range task.standeeJobs {
-			add(job.cpu)
-		}
-		if task.standeeCommit != nil {
-			for _, write := range task.standeeCommit.writes {
-				add(write.cpu)
-			}
-		}
-		if task.skyCommit != nil {
-			add(task.skyCommit.cpu)
-		}
-		task.spriteCommit.VisitCommitPixels(add)
-		for _, builder := range task.wallRipmapBuilders {
-			if builder != nil {
-				add(builder.cpuRow)
-				add(builder.cpuLevel)
-			}
-		}
-	}
-	for _, cpu := range r.lazySpriteCPUPixels {
-		add(cpu)
-	}
-	return bytes
-}
-
 func (r *Renderer) cacheProcessedSprite(key processedSpriteKey, img *ebiten.Image) {
 	if r.processedSpriteCache == nil {
 		r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
 	}
 	r.processedSpriteCache[key] = img
 	r.indexProcessedSource(key, img)
-}
-
-type renderResidencyStats struct {
-	resources, allocations                                                    int
-	ownedGPUBytes, retainedCPUBytes, queuedCPUReservation, peakCPUReservation int64
-}
-
-func (r *Renderer) renderResourceStats() renderResidencyStats {
-	if r == nil {
-		return renderResidencyStats{}
-	}
-	r.refreshRenderResourceRegistry()
-	stats := renderResidencyStats{resources: len(r.mapRenderRegistry.records), allocations: len(r.mapRenderRegistry.allocations), ownedGPUBytes: r.mapRenderRegistry.estimatedGPUBytes(), retainedCPUBytes: r.retainedRenderCPUBytes()}
-	if task := r.mapRenderResourcePrewarmActive; task != nil {
-		stats.queuedCPUReservation, stats.peakCPUReservation = task.queueBudget.Usage()
-	}
-	return stats
 }

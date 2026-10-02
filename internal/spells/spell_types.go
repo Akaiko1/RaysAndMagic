@@ -241,24 +241,19 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunChance > 0
 }
 
-// EffectLines returns every character-independent mechanic, including reference
-// ranges/formulas used by comparisons and the editor. CoreEffectLines omits
-// summaries for values the live tooltip already renders with the current
-// caster; both views come from effectLines, so wording cannot drift.
-func (d SpellDefinition) EffectLines() []string {
-	return d.effectLines(true, true)
-}
-
+// CoreEffectLines omits summaries for values the live tooltip already renders
+// with the current caster; both views come from effectLines, so wording cannot
+// drift.
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(false, false)
+	return d.effectLines(false)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
 func (d SpellDefinition) CardEffectLines() []string {
-	return d.effectLines(true, false)
+	return d.effectLines(true)
 }
 
-func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool) []string {
+func (d SpellDefinition) effectLines(includeStructured bool) []string {
 	var out []string
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
@@ -273,15 +268,6 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	}
 	if d.JumpTiles > 0 {
 		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
-	}
-	if includeCardDetails && d.SparesParty {
-		out = append(out, uitext.Text("spell.the_party_is_not_caught_in_the"))
-	}
-	if includeCardDetails && d.StandeeDestroyChance > 0 {
-		out = append(out, uitext.Text("spell.chance_to_topple_each_tree_dune_or", d.StandeeDestroyChance*100))
-	}
-	if includeStructured && includeCardDetails && d.AoeRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.aoe_radius_tiles_splashes_nearby_monsters", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
 		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100))
@@ -358,14 +344,9 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	}
 	switch {
 	case d.HealParty:
-		if includeCardDetails {
-			out = append(out, uitext.Text("spell.heals_the_entire_party"))
-		}
 		out = append(out, uitext.Text("spell.heal_skips_allies_at_0_hp"))
 	case d.HealAmount > 0 && d.TargetSelf:
-		if includeCardDetails {
-			out = append(out, uitext.Text("spell.self_target_only"))
-		}
+		// Self heals have no ally to point at.
 	case d.HealAmount > 0:
 		out = append(out, uitext.Text("spell.heals_the_ally_you_point_at"))
 	}
@@ -420,21 +401,6 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 		out = append(out, uitext.Text("spell.wakes_all_unconscious_allies_back_to_hp"))
 	}
 
-	// Scaling source - character-INDEPENDENT (which stat & mastery the effect
-	// grows with), so the map-editor card and the in-game tooltip both surface
-	// what a spell scales from. The numeric bonus itself is caster-dependent and
-	// shown only by the in-game tooltip.
-	if includeStructured && includeCardDetails {
-		switch {
-		case d.IsProjectile && !d.DealsNoDamage:
-			out = append(out, uitext.Text("spell.damage_scales_with_mastery", d.DamageScalingStat(), d.School))
-		case d.ZoneRadiusTiles > 0:
-			out = append(out, uitext.Text("spell.tick_damage_scales_with_intellect_mastery", d.School))
-		}
-		if d.HealAmount > 0 {
-			out = append(out, uitext.Text("spell.healing_scales_with_personality_mastery", d.School))
-		}
-	}
 	if includeStructured && d.StatBonus > 0 {
 		if d.StatBonusGrandmaster > d.StatBonus {
 			out = append(out, uitext.Text("spell.to_to_all_stats_by_mastery_whole", d.StatBonus, d.StatBonusGrandmaster))
@@ -474,25 +440,6 @@ func SchoolScalesWithPersonality(school string) bool {
 		return true
 	}
 	return false
-}
-
-// DamageStatLabel names the stat(s) that scale a spell's damage: Personality for
-// self schools, Intellect otherwise, plus a second Personality term when the
-// spell is flagged scales_with_personality. Character-independent SSoT shared by
-// EffectLines and the in-game damage label.
-func DamageStatLabel(school string, scalesWithPersonality bool) string {
-	if SchoolScalesWithPersonality(school) {
-		return "Personality"
-	}
-	if scalesWithPersonality {
-		return "Intellect + Personality"
-	}
-	return "Intellect"
-}
-
-// DamageScalingStat is DamageStatLabel for this definition.
-func (d SpellDefinition) DamageScalingStat() string {
-	return DamageStatLabel(d.School, d.ScalesWithPersonality)
 }
 
 // IsHeal reports whether this spell restores HP to a living ally (single-target

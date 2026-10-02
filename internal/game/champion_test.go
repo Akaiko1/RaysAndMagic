@@ -1,6 +1,8 @@
 package game
 
 import (
+	"fmt"
+	"sort"
 	"testing"
 
 	"ugataima/internal/arena"
@@ -11,19 +13,27 @@ import (
 	"ugataima/internal/storage"
 )
 
-// TestChampionBuilds verifies both champions build as auto-leveled L25 fighters:
-// every level-up stat point spent by the party's own auto-distribution, authored
-// gear equipped, authored skill tiers applied.
+// TestChampionBuilds verifies champions build as auto-leveled fighters at the
+// tier's level: every level-up stat point spent by the party's own
+// auto-distribution, authored gear equipped, the tier's mastery applied.
 func TestChampionBuilds(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
+	tier := config.GetChampionTier("impossible")
+	if tier == nil {
+		t.Fatal("impossible champion tier missing")
+	}
+	wantMastery, ok := character.MasteryFromKey(tier.Mastery)
+	if !ok {
+		t.Fatalf("impossible tier: bad mastery %q", tier.Mastery)
+	}
 
 	arch := cs.game.championTemplate("hobbit_archer", "impossible")
 	if arch == nil {
 		t.Fatal("hobbit_archer template nil")
 	}
-	if arch.Level != 25 {
-		t.Errorf("archer level = %d, want 25", arch.Level)
+	if arch.Level != tier.Level {
+		t.Errorf("archer level = %d, want tier level %d", arch.Level, tier.Level)
 	}
 	if arch.FreeStatPoints != 0 {
 		t.Errorf("archer has %d unspent stat points, auto-distribution must spend all", arch.FreeStatPoints)
@@ -31,11 +41,12 @@ func TestChampionBuilds(t *testing.T) {
 	base := cs.game.config.Characters.Classes["archer"]
 	baseSum := base.Might + base.Intellect + base.Personality + base.Endurance + base.Accuracy + base.Speed + base.Luck
 	sum := arch.Might + arch.Intellect + arch.Personality + arch.Endurance + arch.Accuracy + arch.Speed + arch.Luck
-	if want := baseSum + 24*StatPointsPerLevel; sum != want {
-		t.Errorf("archer stat sum = %d, want class base %d + %d leveled points", sum, baseSum, 24*StatPointsPerLevel)
+	leveled := (tier.Level - 1) * StatPointsPerLevel
+	if want := baseSum + leveled; sum != want {
+		t.Errorf("archer stat sum = %d, want class base %d + %d leveled points", sum, baseSum, leveled)
 	}
-	if arch.SkillTier(character.SkillBow) != int(character.MasteryGrandMaster) {
-		t.Errorf("archer bow tier = %d, want grandmaster", arch.SkillTier(character.SkillBow))
+	if got := arch.SkillTier(character.SkillBow); got != int(wantMastery) {
+		t.Errorf("archer bow tier = %d, want tier mastery %d", got, int(wantMastery))
 	}
 	if _, ok := arch.Equipment[items.SlotMainHand]; !ok {
 		t.Error("archer has no main-hand weapon")
@@ -63,8 +74,12 @@ func TestApplyChampionStatsMirror(t *testing.T) {
 	}
 	cs.game.mirrorChampionStats(m)
 
-	if m.MaxHitPoints != 3000 || m.HitPoints != 3000 {
-		t.Errorf("champion HP = %d/%d, want authored boss pool 3000/3000", m.HitPoints, m.MaxHitPoints)
+	tier := config.GetChampionTier(championTierOf(m))
+	if tier == nil {
+		t.Fatalf("champion tier %q missing", championTierOf(m))
+	}
+	if m.MaxHitPoints != tier.HP || m.HitPoints != tier.HP {
+		t.Errorf("champion HP = %d/%d, want the tier's pool %d", m.HitPoints, m.MaxHitPoints, tier.HP)
 	}
 	if m.DamageMin <= 0 || m.DamageMin != m.DamageMax {
 		t.Errorf("mirror damage band = [%d,%d], want equal and positive", m.DamageMin, m.DamageMax)
@@ -133,24 +148,54 @@ func overrideChampionMainHand(t *testing.T, g *MMGame, championKey, tierName, we
 	t.Cleanup(func() { championTemplates[key] = original })
 }
 
+// meleeWeaponWithArc picks an authored single-target melee weapon (reach 1, no
+// splash) of the given arc type, so arc geometry tests follow content.
+func meleeWeaponWithArc(t *testing.T, arc int) string {
+	t.Helper()
+	keys := make([]string, 0, len(config.GlobalWeapons.Weapons))
+	for key := range config.GlobalWeapons.Weapons {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		def := config.GlobalWeapons.Weapons[key]
+		if def.Melee != nil && def.Melee.ArcType == arc && def.Range <= 1 && def.AoeRadiusTiles == 0 && !def.IsRanged() {
+			return key
+		}
+	}
+	t.Fatalf("no authored reach-1 melee weapon with arc %d", arc)
+	return ""
+}
+
+// championHandArc is the authored arc of a champion template's striking hand.
+func championHandArc(t *testing.T, ch *character.MMCharacter, offHand bool) int {
+	t.Helper()
+	weapon := championHandWeapon(ch, offHand)
+	def, _, ok := config.GetWeaponDefinitionByName(weapon.Name)
+	if !ok || def == nil || def.Melee == nil || def.AoeRadiusTiles > 0 {
+		t.Fatalf("champion hand %q is not an arc melee weapon", weapon.Name)
+	}
+	return def.Melee.ArcType
+}
+
 // TestChampionMeleeArc checks every authored arc width against a clean party.
 // The champion's formation targeting must remain independent from crossfire
 // targets: arc 1/2/3/4 catch 1/2/3/all living party members respectively.
 func TestChampionMeleeArc(t *testing.T) {
 	for _, tc := range []struct {
-		name, weapon string
-		want         int
+		arc, want int
 	}{
-		{name: "arc_1", weapon: "magic_dagger", want: 1},
-		{name: "arc_2", weapon: "steel_mace", want: 2},
-		{name: "arc_3", weapon: "muramasa", want: 3},
-		{name: "arc_4", weapon: "gorehorn_greataxe", want: 4},
+		{arc: 1, want: 1},
+		{arc: 2, want: 2},
+		{arc: 3, want: 3},
+		{arc: 4, want: 4},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("arc_%d", tc.arc), func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			primeTestChampions(t, cs.game)
 			fillTestParty(t, cs.game)
-			overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", tc.weapon)
+			weapon := meleeWeaponWithArc(t, tc.arc)
+			overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", weapon)
 
 			// Eliminate perfect-dodge variance so the struck formation is observable.
 			for _, mem := range cs.game.party.Members {
@@ -168,7 +213,7 @@ func TestChampionMeleeArc(t *testing.T) {
 				}
 			}
 			if hit != tc.want {
-				t.Fatalf("%s hit %d party members, want %d", tc.weapon, hit, tc.want)
+				t.Fatalf("%s hit %d party members, want %d", weapon, hit, tc.want)
 			}
 		})
 	}
@@ -192,8 +237,8 @@ func TestChampionRTDualStreams(t *testing.T) {
 	if !cs.championRTDualStrike(m, true) {
 		t.Fatal("dual strike not handled")
 	}
-	if m.AttackCDFrames != m.AttackCooldownFrames() && m.AttackCDFrames <= 0 {
-		t.Fatalf("main CD not armed: %d", m.AttackCDFrames)
+	if want := m.AttackCooldownFrames(); want <= 0 || m.AttackCDFrames != want {
+		t.Fatalf("main CD = %d, want the main weapon's own %d", m.AttackCDFrames, want)
 	}
 	if want := cs.OffHandWeaponCooldownFrames(ch); m.OffHandCDFrames != want {
 		t.Fatalf("off CD = %d, want the off weapon's own %d", m.OffHandCDFrames, want)
@@ -313,7 +358,7 @@ func TestChampionAttackDamage(t *testing.T) {
 			crits++
 		}
 	}
-	// Katana 14% + luck bonus: 200 swings statistically must crit at least once.
+	// Weapon crit + luck bonus: 200 swings statistically must crit at least once.
 	if crits == 0 {
 		t.Error("no crits in 200 swings - crit roll not wired")
 	}
@@ -430,9 +475,9 @@ func TestChampionVictoryRewardsFromCardSummonKill(t *testing.T) {
 }
 
 // TestArenaGladiatorShop: BOTH gladiators (gatekeeper outside, duel master
-// inside) carry the points shop as a dialog tab: the authored unlimited
-// consumables plus EVERY uncommon weapon at the flat rack price - counts and
-// prices derived from content, not restated.
+// inside) carry the points shop as a dialog tab: every authored entry at its
+// authored price and stock, plus EVERY weapon of the authored rack rarity at
+// the rack price - all derived from content, not restated.
 func TestArenaGladiatorShop(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
 	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
@@ -443,65 +488,79 @@ func TestArenaGladiatorShop(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create %s: %v", key, err)
 		}
-		checkArenaShop(t, npc)
+		data, ok := character.NPCConfigInstance.GetNPCData(key)
+		if !ok {
+			t.Fatalf("%s: npc data missing", key)
+		}
+		checkArenaShop(t, npc, data)
 	}
 }
 
-func checkArenaShop(t *testing.T, npc *character.NPC) {
+func checkArenaShop(t *testing.T, npc *character.NPC, data *character.NPCData) {
 	t.Helper()
 	if npc.Currency != character.CurrencyArenaPoints {
 		t.Fatalf("%s currency = %q, want arena_points", npc.Name, npc.Currency)
 	}
-	uncommon := config.WeaponKeysByRarity("uncommon")
-	unique := config.WeaponKeysByRarity("unique")
-	// 5 unlimited consumables + 10 unlimited set-armor pieces + the unique
-	// weapons (three copies, incl. the Parma shield item) + the uncommon rack.
-	wantTotal := 5 + 10 + len(unique) + 1 + len(uncommon)
-	if len(npc.MerchantStock) != wantTotal {
-		t.Fatalf("stock size = %d, want %d (5 consumables + 10 armor + %d uniques + parma + %d uncommon weapons)",
-			len(npc.MerchantStock), wantTotal, len(unique), len(uncommon))
+	if data.StockWeaponsRarity == "" || data.StockWeaponsCost <= 0 {
+		t.Fatalf("%s authors no weapon rack", npc.Name)
 	}
-	weaponRack, uniqueRack := 0, 0
+	rack := map[string]bool{}
+	for _, key := range config.WeaponKeysByRarity(data.StockWeaponsRarity) {
+		rack[config.GlobalWeapons.Weapons[key].Name] = true
+	}
+	authored := map[string]*character.NPCItem{}
+	for _, entry := range data.Inventory {
+		authored[entry.Name] = entry
+	}
+	if want := len(data.Inventory) + len(rack); len(npc.MerchantStock) != want {
+		t.Fatalf("stock size = %d, want %d authored entries + %d %s weapons",
+			len(npc.MerchantStock), len(data.Inventory), len(rack), data.StockWeaponsRarity)
+	}
+	soldUniques := map[string]bool{}
+	rackSeen := 0
 	for _, entry := range npc.MerchantStock {
 		if !entry.InStock() {
 			t.Fatalf("%s not in stock", entry.Item.Name)
 		}
-		rarity := entry.Item.Rarity
-		if entry.Item.Type == items.ItemWeapon {
-			if def, _, ok := config.GetWeaponDefinitionByName(entry.Item.Name); ok && def != nil {
-				rarity = def.Rarity
-			}
+		if def, _, ok := config.GetWeaponDefinitionByName(entry.Item.Name); ok && def != nil && def.Rarity == "unique" {
+			soldUniques[entry.Item.Name] = true
 		}
-		if rarity == "unique" {
-			// Arena uniques: 5000 ap, exactly three copies - they do sell out.
-			uniqueRack++
-			if entry.Cost != 5000 {
-				t.Fatalf("unique %s costs %d, want 5000", entry.Item.Name, entry.Cost)
+		if src, ok := authored[entry.Item.Name]; ok {
+			if entry.Cost != src.Cost {
+				t.Fatalf("%s costs %d, want authored %d", entry.Item.Name, entry.Cost, src.Cost)
 			}
-			for range 3 {
-				entry.Take()
+			if copies := src.Quantity; copies >= 0 { // negative = unlimited, 0 = one copy
+				copies = max(copies, 1)
+				for range copies {
+					entry.Take()
+				}
+				if entry.InStock() {
+					t.Fatalf("%s still in stock after its %d authored copies", entry.Item.Name, copies)
+				}
+				continue
 			}
-			if entry.InStock() {
-				t.Fatalf("unique %s still in stock after three purchases", entry.Item.Name)
+		} else {
+			if !rack[entry.Item.Name] {
+				t.Fatalf("%s is neither authored nor a %s rack weapon", entry.Item.Name, data.StockWeaponsRarity)
 			}
-			continue
+			rackSeen++
+			if entry.Cost != data.StockWeaponsCost {
+				t.Fatalf("weapon %s costs %d, want the rack price %d", entry.Item.Name, entry.Cost, data.StockWeaponsCost)
+			}
 		}
 		entry.Take()
 		if !entry.InStock() {
 			t.Fatalf("%s sold out after one purchase - stock must be unlimited", entry.Item.Name)
 		}
-		if entry.Item.Type == items.ItemWeapon {
-			weaponRack++
-			if entry.Cost != 750 {
-				t.Fatalf("weapon %s costs %d, want the flat rack price 750", entry.Item.Name, entry.Cost)
-			}
+	}
+	if rackSeen != len(rack) {
+		t.Fatalf("weapon rack = %d, want every %s weapon (%d)", rackSeen, data.StockWeaponsRarity, len(rack))
+	}
+	// The arena is the unique tier's shop: every unique weapon is sold here.
+	for _, key := range config.WeaponKeysByRarity("unique") {
+		if name := config.GlobalWeapons.Weapons[key].Name; !soldUniques[name] {
+			t.Fatalf("unique weapon %s is not sold by %s", name, npc.Name)
 		}
-	}
-	if uniqueRack != len(unique)+1 {
-		t.Fatalf("unique rack = %d, want every unique weapon + the Parma (%d)", uniqueRack, len(unique)+1)
-	}
-	if weaponRack != len(uncommon) {
-		t.Fatalf("weapon rack = %d, want every uncommon weapon (%d)", weaponRack, len(uncommon))
 	}
 
 	// Weapons are GROUPED by category: same-category entries must be adjacent

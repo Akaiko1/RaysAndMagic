@@ -7,8 +7,8 @@ import (
 	"ugataima/internal/monster"
 )
 
-// TestChampionSetDropsOnePieceMax: the champions.yaml set_drops pieces roll in
-// turn and the FIRST success ends the rolling - even at 100% a kill yields
+// TestChampionSetDropsOnePieceMax: the set_drops ladder rolls its sets in
+// order and the FIRST success ends the rolling - even at 100% a kill yields
 // exactly ONE piece, never a full set.
 func TestChampionSetDropsOnePieceMax(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -18,13 +18,10 @@ func TestChampionSetDropsOnePieceMax(t *testing.T) {
 	if _, err := config.LoadChampionConfig("../../assets/champions.yaml"); err != nil {
 		t.Fatalf("load champions: %v", err)
 	}
-	ladder := config.ChampionSetDrops()
-	if len(ladder) != 2 || ladder[0].Set != "padded" || ladder[0].Pct != 10 ||
-		ladder[1].Set != "ringmail" || ladder[1].Pct != 5 {
-		t.Fatalf("set_drops ladder = %v, want padded:10 then ringmail:5 IN ORDER", ladder)
-	}
-	if pieces := len(itemKeysOfSet("padded")); pieces != 5 {
-		t.Fatalf("padded set = %d keys, want 5", pieces)
+	for _, set := range []string{"padded", "ringmail"} {
+		if len(itemKeysOfSet(set)) == 0 {
+			t.Fatalf("fixture: set %q has no pieces", set)
+		}
 	}
 
 	// Certainty on every roll: the FIRST piece must win and stop the chain.

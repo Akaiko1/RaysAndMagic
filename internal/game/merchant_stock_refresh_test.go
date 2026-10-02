@@ -16,8 +16,15 @@ func TestPotionMerchantRestocksEverySevenSunrises(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create potion shop: %v", err)
 	}
+	// The authored shelf is what the weekly refresh must restore.
+	want, stocked := map[string]int{}, 0
 	for _, entry := range potionShop.MerchantStock {
+		want[entry.Item.Name] = entry.Quantity
+		stocked += entry.Quantity
 		entry.Quantity = 0
+	}
+	if stocked == 0 {
+		t.Fatal("fixture: potion shop has no limited stock to restock")
 	}
 
 	city := newTestWorld(cfg)
@@ -40,7 +47,6 @@ func TestPotionMerchantRestocksEverySevenSunrises(t *testing.T) {
 		t.Fatalf("calendar should enter week 2 after day 7, got day=%d week=%d", g.calendarDay, g.calendarWeek)
 	}
 	g.refreshScheduledMerchantStocks()
-	want := map[string]int{"Health Potion": 20, "Mana Potion": 20, "Revival Potion": 10}
 	for _, entry := range potionShop.MerchantStock {
 		if got := entry.Quantity; got != want[entry.Item.Name] {
 			t.Errorf("%s stock = %d, want %d after weekly refresh", entry.Item.Name, got, want[entry.Item.Name])

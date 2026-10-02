@@ -101,18 +101,10 @@ func TestRollLootEntriesHonorsRollCount(t *testing.T) {
 	}
 }
 
-func TestLootDropsOrc(t *testing.T) {
-	assertLootDrops(t, "orc", 1000)
-}
-
-func TestLootDropsForestOrc(t *testing.T) {
-	assertLootDrops(t, "forest_orc", 1000)
-}
-
-func TestLootDropsPixie(t *testing.T) {
-	assertLootDrops(t, "pixie", 1000)
-}
-
-func TestLootDropsDragon(t *testing.T) {
-	assertLootDrops(t, "dragon", 1000)
+func TestLootDrops(t *testing.T) {
+	for _, key := range []string{"orc", "forest_orc", "pixie", "dragon"} {
+		t.Run(key, func(t *testing.T) {
+			assertLootDrops(t, key, 1000)
+		})
+	}
 }

@@ -13,8 +13,9 @@ import (
 )
 
 // Sword racks roll the castle_armory pool, which must contain only ZONE gear +
-// gold and NEVER a unique - uniques drop from the boss alone. Guards the user's
-// "racks hold zone loot, not uniques" rule structurally and by sampling.
+// gold and NEVER a unique (legendary tier and up) - those drop from the boss
+// alone. Guards the user's "racks hold zone loot, not uniques" rule
+// structurally and by sampling.
 func TestCastleArmoryLootTable_NeverYieldsUniques(t *testing.T) {
 	newTestCombatSystemWithConfig(t) // loads weapons/items configs + bridges
 	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
@@ -24,18 +25,30 @@ func TestCastleArmoryLootTable_NeverYieldsUniques(t *testing.T) {
 	if !ok {
 		t.Fatal("castle_armory loot table missing")
 	}
-	// Structural: the pool lists none of the zone's uniques.
-	for _, e := range tbl.Entries {
-		switch e.Key {
-		case "muramasa", "tonbogiri", "kage_kunai", "inazuma_matchlock", "onryo_lamellar":
-			t.Fatalf("castle_armory must not list unique %q", e.Key)
+	unique := config.RarityTier("legendary")
+	// Positive control: the boss the racks wake really carries uniques.
+	bossUniques := 0
+	for _, e := range config.GetLootTable("old_samurai", true) {
+		if it, err := createLootItem(e.Type, e.Key); err == nil && config.RarityTier(it.Rarity) >= unique {
+			bossUniques++
 		}
 	}
+	if bossUniques == 0 {
+		t.Fatal("old_samurai drops no unique - the rack rule guards nothing")
+	}
+	// Structural: no pooled entry is a unique.
 	allowed := make(map[string]bool, len(tbl.Entries))
 	for _, e := range tbl.Entries {
-		allowed[e.Key] = true
+		it, err := createLootItem(e.Type, e.Key)
+		if err != nil {
+			t.Fatalf("castle_armory entry %s/%s: %v", e.Type, e.Key, err)
+		}
+		if config.RarityTier(it.Rarity) >= unique {
+			t.Fatalf("castle_armory must not list %s unique %q", it.Rarity, e.Key)
+		}
+		allowed[it.Name] = true
 	}
-	// Sampling: every roll yields Rolls items, gold in range, and only pooled keys.
+	// Sampling: every roll yields Rolls items, gold in range, and only pooled items.
 	for i := 0; i < 600; i++ {
 		loot, gold := rollWeightedLootTable("castle_armory")
 		if len(loot) != tbl.Rolls {
@@ -45,8 +58,8 @@ func TestCastleArmoryLootTable_NeverYieldsUniques(t *testing.T) {
 			t.Fatalf("gold %d outside [%d,%d]", gold, tbl.GoldMin, tbl.GoldMax)
 		}
 		for _, it := range loot {
-			if it.Name == "" {
-				t.Fatal("rolled item has no name (creation failed)")
+			if !allowed[it.Name] {
+				t.Fatalf("rolled %q, which castle_armory does not pool", it.Name)
 			}
 		}
 	}
@@ -116,17 +129,8 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Error("sealed boss must not be BossAggro while dormant")
 	}
 
-	// Collect all 5 racks -> quest completes -> boss turns aggressive.
-	if err := qm.ActivateQuest("castle_armory"); err != nil {
-		t.Fatalf("activate castle_armory: %v", err)
-	}
-	for i := 0; i < 5; i++ {
-		qm.OnInteract("sword_rack")
-	}
-	q := qm.GetQuest("castle_armory")
-	if q == nil || q.Status != quests.QuestStatusCompleted {
-		t.Fatalf("castle_armory should be completed after 5 racks, got %+v", q)
-	}
+	// Strip every rack the quest asks for -> quest completes -> boss turns aggressive.
+	finishInteractQuest(t, qm, "castle_armory")
 	if cs.bossEvasive(boss) {
 		t.Error("boss must turn aggressive once castle_armory completes")
 	}
@@ -425,32 +429,33 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 	}
 }
 
-// Regression: a weapon's display name must resolve to its YAML key via the real
-// name index, not a naive lower+underscore transform - otherwise flavor-named
-// weapons (commas, "of the ...") fail CanEquipWeaponByName and are
+// Regression: every weapon's display name must resolve to its YAML key via the
+// real name index, not a naive lower+underscore transform - otherwise
+// flavor-named weapons (commas, "of the ...") fail CanEquipWeaponByName and are
 // unequippable. Bug: Nyra (thief, has dagger) couldn't equip "Kage-kunai, the
 // Twin Shadows" because the transform yielded "kage-kunai,_the_twin_shadows".
 func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t) // sets up the weapon bridge (name index)
 
-	for name, want := range map[string]string{
-		"Kage-kunai, the Twin Shadows":   "kage_kunai",
-		"Muramasa, the Thirsting Edge":   "muramasa",
-		"Tonbogiri, the Dragonfly Spear": "tonbogiri",
-		"Tanegashima Matchlock":          "tanegashima",
-		"Kanabo":                         "kanabo",
-		"Silver Sword":                   "silver_sword", // well-named still resolves
-	} {
-		if got := items.GetWeaponKeyByName(name); got != want {
-			t.Errorf("GetWeaponKeyByName(%q) = %q, want %q", name, got, want)
+	for key, def := range config.GlobalWeapons.Weapons {
+		if got := items.GetWeaponKeyByName(def.Name); got != key {
+			t.Errorf("GetWeaponKeyByName(%q) = %q, want %q", def.Name, got, key)
 		}
 	}
 
 	// A dagger-skilled member who can wield the basic dagger must also wield the
-	// fancy-named twin blades - the equip gate now resolves by key, not by name shape.
+	// fancy-named twin blades - the equip gate resolves by key, not by name shape.
+	basic, ok := config.GetWeaponDefinition("magic_dagger")
+	if !ok {
+		t.Fatal("magic_dagger missing")
+	}
+	kunai, ok := config.GetWeaponDefinition("kage_kunai")
+	if !ok {
+		t.Fatal("kage_kunai missing")
+	}
 	var daggerUser *character.MMCharacter
 	for _, m := range cs.game.party.Members {
-		if m != nil && m.CanEquipWeaponByName("Magic Dagger") {
+		if m != nil && m.CanEquipWeaponByName(basic.Name) {
 			daggerUser = m
 			break
 		}
@@ -458,7 +463,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	if daggerUser == nil {
 		t.Fatal("no dagger-skilled party member found (expected the thief)")
 	}
-	if !daggerUser.CanEquipWeaponByName("Kage-kunai, the Twin Shadows") {
-		t.Error("a dagger user must be able to equip Kage-kunai (fancy name -> kage_kunai)")
+	if !daggerUser.CanEquipWeaponByName(kunai.Name) {
+		t.Errorf("a dagger user must be able to equip %q (fancy name -> kage_kunai)", kunai.Name)
 	}
 }

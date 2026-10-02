@@ -86,13 +86,11 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		{"Speed", &member.Speed},
 		{"Luck", &member.Luck},
 	}
-	yStart := popupY + 80
-	btnW, btnH := 28, 28
 	mouseX, mouseY := uiCursorPosition()
 	for i, stat := range statList {
-		y := yStart + i*36
-		plusX := popupX + 180
-		plusY := y - 4
+		plus := statPlusButtonRect(popup, i)
+		plusX, plusY, btnW, btnH := plus.x, plus.y, plus.w, plus.h
+		y := plusY + statPlusButtonLift
 		canAdd := member.FreeStatPoints > 0
 		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
 		ui.drawStatPointRow(screen, stat.Name, *stat.Ptr, y, plusX, plusY, btnW, btnH, canAdd, isHover)
@@ -131,9 +129,8 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	}
 
 	// Close button; only acts once the mouse was released after opening the popup.
-	closeX := popupX + popupW - 40
-	closeY := popupY + 12
-	ui.drawPopupCloseButton(screen, closeX, closeY, 28, interactive, func() {
+	closeRect := statPopupCloseRect(popup)
+	ui.drawPopupCloseButton(screen, closeRect.x, closeRect.y, closeRect.w, interactive, func() {
 		if !ui.justOpenedStatPopup {
 			ui.game.statPopupOpen = false
 		}
@@ -151,6 +148,24 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 // row click. onCancel==nil means not cancellable (no close X, ESC ignored).
 func statPopupRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, 340, 320)
+}
+
+// Stat popup rows: one "+" button per stat, its label baseline
+// statPlusButtonLift below the button top.
+const (
+	statPlusButtonSize = 28
+	statPlusButtonLift = 4
+	statPopupRowTop    = 80
+	statPopupRowPitch  = 36
+)
+
+func statPlusButtonRect(popup layoutRect, row int) layoutRect {
+	y := popup.y + statPopupRowTop + row*statPopupRowPitch - statPlusButtonLift
+	return layoutRect{popup.x + 180, y, statPlusButtonSize, statPlusButtonSize}
+}
+
+func statPopupCloseRect(popup layoutRect) layoutRect {
+	return layoutRect{popup.x + popup.w - 40, popup.y + 12, 28, 28}
 }
 
 func memberPickerRect(screenW, screenH, popupW, rows, rowH int) layoutRect {
@@ -287,6 +302,25 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	})
 }
 
+const rosterRowH = 30
+
+// rosterColumns places the roster manager's active (left) and reserve (right)
+// hero lists inside area; listY is the first row's text line.
+func rosterColumns(area layoutRect) (leftX, rightX, colW, listY int) {
+	colW = (area.w - 16) / 2
+	return area.x, area.x + colW + 16, colW, area.y + 38
+}
+
+// rosterRowRect is the hit box of the row-th visible hero in one column.
+func rosterRowRect(area layoutRect, reserve bool, row int) layoutRect {
+	leftX, rightX, colW, listY := rosterColumns(area)
+	x := leftX
+	if reserve {
+		x = rightX
+	}
+	return layoutRect{x, listY + row*rosterRowH - 2, colW, rosterRowH}
+}
+
 // drawRosterManager renders the complete roster workflow inside the supplied
 // area. It is shared by the legacy standalone screen and the tavern Roster tab.
 func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, interactive bool) {
@@ -295,11 +329,8 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 		ui.drawRosterInventoryWarning(screen, area, interactive)
 		return
 	}
-	const rowH = 30
-	colW := (area.w - 16) / 2
-	leftX := area.x
-	rightX := area.x + colW + 16
-	listY := area.y + 38
+	const rowH = rosterRowH
+	leftX, rightX, colW, listY := rosterColumns(area)
 
 	drawUIText(screen, "Click an active hero, then a reserve hero to swap.", area.x, area.y)
 	drawUIText(screen, "Active Party", leftX, listY-16)
@@ -316,7 +347,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 
 	// Active column
 	for i, m := range g.party.Members {
-		y := listY + i*rowH
+		y := rosterRowRect(area, false, i).y + 2
 		if y+rowH > area.bottom() {
 			break
 		}
@@ -364,7 +395,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 	// Reserve column
 	for j := start; j < min(len(g.party.Reserve), start+visible); j++ {
 		m := g.party.Reserve[j]
-		y := listY + (j-start)*rowH
+		y := rosterRowRect(area, true, j-start).y + 2
 		if y+rowH > area.bottom() {
 			break
 		}
@@ -704,6 +735,13 @@ func spellTraderPagerY(dialogY int) int {
 	return spellTraderGridTop(dialogY) + spellTraderGridRows*spellTraderRowPitch + 4
 }
 
+// spellTraderPagerRect is the page strip under the spell grid, as wide as it.
+func spellTraderPagerRect(dialogX, dialogY int) layoutRect {
+	gridX, _, _, _ := spellTraderIconRect(dialogX, dialogY, 0)
+	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
+	return layoutRect{gridX, spellTraderPagerY(dialogY), gridW, pagerBtnH}
+}
+
 const (
 	dialogFolderTabW   = 110
 	dialogFolderTabH   = 32
@@ -875,8 +913,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	}
 
 	// Page nav (only renders when there's more than one page).
-	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
-	ui.drawPager(screen, dialogX+(600-gridW)/2, spellTraderPagerY(dialogY), gridW, &ui.game.spellTraderPage, pages, true, func() {
+	pager := spellTraderPagerRect(dialogX, dialogY)
+	ui.drawPager(screen, pager.x, pager.y, pager.w, &ui.game.spellTraderPage, pages, true, func() {
 		// Page changed: move the selection onto the new page so a keyboard
 		// purchase (Enter) can't buy a now-hidden spell from the previous page.
 		if first := ui.game.spellTraderPage * spellTraderPerPage; first < len(spellKeys) {
@@ -918,10 +956,28 @@ func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h 
 		skillTrainerPortraitSize
 }
 
+// skillTrainerRowW is the width of the trainer popup's option rows and pager.
+const skillTrainerRowW = 396
+
 // skillTrainerOptionRect returns the rect for the row-th mastery option ON THE
 // CURRENT PAGE inside the modal popup (top-anchored).
 func skillTrainerOptionRect(popupX, popupY, row int) (x, y, w, h int) {
-	return popupX + 12, popupY + skillTrainerListTop + row*UIRowSpacing, 396, UIRowHeight
+	return popupX + 12, popupY + skillTrainerListTop + row*UIRowSpacing, skillTrainerRowW, UIRowHeight
+}
+
+// skillTrainerPopupLayout is the trainer popup's fixed chrome around its option
+// rows: the centred header, the gold and hint text origins, and the pager.
+type skillTrainerPopupLayout struct {
+	header, gold, pager, hint layoutRect
+}
+
+func makeSkillTrainerPopupLayout(px, py, pw, ph int) skillTrainerPopupLayout {
+	return skillTrainerPopupLayout{
+		header: layoutRect{px, py + 10, pw, 18},
+		gold:   layoutRect{px + 12, py + 30, pw - 24, uiTextCharHeight},
+		pager:  layoutRect{px + 12, py + ph - 46, skillTrainerRowW, pagerBtnH},
+		hint:   layoutRect{px + 12, py + ph - 22, pw - 24, uiTextCharHeight},
+	}
 }
 
 func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, y, w, h int) {
@@ -975,11 +1031,12 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	defer func() { ui.displayedInput.suspended = suspended }()
 	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
 	drawPortraitFrame(screen, px, py, pw, ph)
+	chrome := makeSkillTrainerPopupLayout(px, py, pw, ph)
 
 	member := ui.game.party.Members[ui.game.selectedCharIdx]
 	header := uitext.Text("dialog.trainable_masteries", member.Name)
-	drawCenteredUIText(screen, header, px, py+10, pw, 18)
-	drawUIText(screen, uitext.Text("dialog.gold", ui.game.party.Gold), px+12, py+30)
+	drawCenteredUIText(screen, header, chrome.header.x, chrome.header.y, chrome.header.w, chrome.header.h)
+	drawUIText(screen, uitext.Text("dialog.gold", ui.game.party.Gold), chrome.gold.x, chrome.gold.y)
 
 	options := trainerOptions(member, ui.game.dialogNPC)
 	if len(options) == 0 {
@@ -1018,14 +1075,14 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 		}
 		// Pager sits between the last row slot and the instructions line and
 		// registers its navigation action for Update.
-		ui.drawPager(screen, px+12, py+ph-46, 396, &ui.game.skillTrainerPage, pages, true, func() {
+		ui.drawPager(screen, chrome.pager.x, chrome.pager.y, chrome.pager.w, &ui.game.skillTrainerPage, pages, true, func() {
 			// Keep the highlight on the visible page so Enter / double-click
 			// always act on what's shown.
 			ui.game.dialogSelectedSpell = ui.game.skillTrainerPage * pageSize
 		})
 	}
 
-	drawUIText(screen, uitext.Text("dialog.click_to_select_double_click_train_esc"), px+12, py+ph-22)
+	drawUIText(screen, uitext.Text("dialog.click_to_select_double_click_train_esc"), chrome.hint.x, chrome.hint.y)
 }
 
 // partyMerchantTier returns the best Merchant mastery tier among active members
@@ -1061,6 +1118,24 @@ func (g *MMGame) merchantBuyPrice(base int) int {
 
 func (g *MMGame) merchantSellPrice(base int) int {
 	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
+}
+
+// merchantStockPriceText is the price line under a stock cell in the entry's
+// effective currency: haggled gold, an item count (plus compacted coins), or
+// flat arena points.
+func (g *MMGame) merchantStockPriceText(npc *character.NPC, entry *character.MerchantStockItem) string {
+	currency := entry.EffectiveCurrency(npc.Currency)
+	if _, ok := character.CurrencyItemKey(currency); ok {
+		if entry.GoldCost > 0 {
+			// Two currencies on one narrow line: compact the coins.
+			return uitext.Text("dialog.stack_additional_cost", entry.Cost, compactCoinAmount(entry.GoldCost))
+		}
+		return fmt.Sprintf("x%d", entry.Cost)
+	}
+	if currency == character.CurrencyArenaPoints {
+		return uitext.Text("dialog.arena_price_short", entry.Cost)
+	}
+	return uitext.Text("dialog.gold_price_short", g.merchantBuyPrice(entry.Cost))
 }
 
 // drawMerchantDialog draws an icon-based buy/sell UI: a paginated stock grid on
@@ -1152,17 +1227,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				displayItem.Quantity = entry.Quantity
 			}
 			ui.drawInventoryItemIcon(screen, displayItem, x, y, w, h, 4, !soldOut)
-			priceText := uitext.Text("dialog.gold_price_short", ui.game.merchantBuyPrice(entry.Cost))
-			entryCurrency := entry.EffectiveCurrency(ui.game.dialogNPC.Currency)
-			if _, ok := character.CurrencyItemKey(entryCurrency); ok {
-				priceText = fmt.Sprintf("x%d", entry.Cost)
-				if entry.GoldCost > 0 {
-					// Two currencies on one narrow line: compact the coins.
-					priceText = uitext.Text("dialog.stack_additional_cost", entry.Cost, compactCoinAmount(entry.GoldCost))
-				}
-			} else if entryCurrency == character.CurrencyArenaPoints {
-				priceText = uitext.Text("dialog.arena_price_short", entry.Cost) // flat price, victory currency
-			}
+			priceText := ui.game.merchantStockPriceText(ui.game.dialogNPC, entry)
 			if soldOut {
 				priceText = uitext.Text("dialog.sold_out")
 			}
@@ -1289,6 +1354,26 @@ func cardCollectorInvRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 	return startX + c*(cardInvSize+cardInvGap), dialogY + cardInvTop + r*cardInvRowPitch, cardInvSize, cardInvSize
 }
 
+// cardCollectorLayout is the collector dialog's section text origins, its
+// loose-card grid (both rows) and the pager under it.
+type cardCollectorLayout struct {
+	collectionHeading, looseHeading, emptyNote layoutRect
+	looseGrid, pager                           layoutRect
+}
+
+func makeCardCollectorLayout(dialogX, dialogY int) cardCollectorLayout {
+	gridX, gridY, _, _ := cardCollectorInvRect(dialogX, dialogY, 0)
+	gridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	textW := npcDialogWidth - 40
+	return cardCollectorLayout{
+		collectionHeading: layoutRect{dialogX + 20, dialogY + 96, textW, uiTextCharHeight},
+		looseHeading:      layoutRect{dialogX + 20, dialogY + 176, textW, uiTextCharHeight},
+		emptyNote:         layoutRect{dialogX + 20, dialogY + 200, textW, uiTextCharHeight},
+		looseGrid:         layoutRect{gridX, gridY, gridW, cardInvRowPitch + cardInvSize},
+		pager:             layoutRect{gridX, gridY + 2*cardInvRowPitch - 4, gridW, pagerBtnH},
+	}
+}
+
 // drawCardCell draws one card cell - the card's art when key is set, else a
 // placeholder frame (with emptyLabel). Returns whether the cursor is over it.
 // Shared by the collector dialog and the Cards menu tab so the cell looks and
@@ -1359,9 +1444,10 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 
 	mouseX, mouseY := uiCursorPosition()
 	var hoverLines []string
+	chrome := makeCardCollectorLayout(dialogX, dialogY)
 
 	// Active collection (8 slots).
-	drawUIText(screen, uitext.Text("dialog.collection_active_effects"), dialogX+20, dialogY+96)
+	drawUIText(screen, uitext.Text("dialog.collection_active_effects"), chrome.collectionHeading.x, chrome.collectionHeading.y)
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
 		key := ui.game.cardCollectionKey(slot)
@@ -1376,9 +1462,9 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	// Loose cards in the party inventory (paginated - the pack can hold more than
 	// one page of cards).
 	cardIdx := ui.game.inventoryCardIndices()
-	drawUIText(screen, uitext.Text("dialog.your_cards_double_click_to_add"), dialogX+20, dialogY+176)
+	drawUIText(screen, uitext.Text("dialog.your_cards_double_click_to_add"), chrome.looseHeading.x, chrome.looseHeading.y)
 	if len(cardIdx) == 0 {
-		drawUIText(screen, uitext.Text("dialog.no_loose_cards_to_add"), dialogX+20, dialogY+200)
+		drawUIText(screen, uitext.Text("dialog.no_loose_cards_to_add"), chrome.emptyNote.x, chrome.emptyNote.y)
 	}
 	invPages := pageCount(len(cardIdx), cardInvMaxShown)
 	clampPage(&ui.game.cardCollectorInvPage, invPages)
@@ -1397,8 +1483,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 			}
 		}
 	}
-	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
-	ui.drawPager(screen, dialogX+(npcDialogWidth-invGridW)/2, dialogY+cardInvTop+2*cardInvRowPitch-4, invGridW, &ui.game.cardCollectorInvPage, invPages, true)
+	ui.drawPager(screen, chrome.pager.x, chrome.pager.y, chrome.pager.w, &ui.game.cardCollectorInvPage, invPages, true)
 
 	drawUIText(screen, clipUIText(uitext.Text("dialog.double_click_a_card_to_slot_it"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
@@ -1571,7 +1656,7 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 }
 
 // handleMapOverlayInput claims the map overlay's clicks before lower displayed
-// commands: its close button sits over the hub's inventory grid.
+// commands: its close button sits over the hub's bag filter tabs.
 func (ui *UISystem) handleMapOverlayInput() {
 	if ui == nil || ui.game == nil || !ui.game.mapOverlayOpen {
 		return

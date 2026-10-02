@@ -78,18 +78,7 @@ func TestApplyTestArena(t *testing.T) {
 	// Snapshot base stats before progression so we can verify exactly the
 	// earned level-up points were distributed (nothing invented, nothing lost).
 	type baseStats struct{ speed, end, main int }
-	mainStat := func(m *character.MMCharacter) int {
-		switch m.Class {
-		case character.ClassSorcerer, character.ClassDruid:
-			return m.Intellect
-		case character.ClassCleric:
-			return m.Personality
-		case character.ClassArcher:
-			return m.Accuracy
-		default:
-			return m.Might
-		}
-	}
+	mainStat := func(m *character.MMCharacter) int { return *primaryDamageStat(m, cfg) }
 	base := make([]baseStats, len(game.party.Members))
 	for i, m := range game.party.Members {
 		base[i] = baseStats{m.Speed, m.Endurance, mainStat(m)}
@@ -163,18 +152,21 @@ func TestApplyTestArena(t *testing.T) {
 		t.Errorf("gold did not increase: before=%d after=%d", goldBefore, game.party.Gold)
 	}
 
-	// Shipwreck quest registered + completed (rewards auto-claimed).
-	found := false
-	for _, q := range quests.GlobalQuestManager.GetAllQuests() {
-		if q.ID == "shipwreck_bandits" {
-			found = true
-			if !q.Completed {
-				t.Error("shipwreck_bandits quest exists but is not completed")
-			}
-		}
+	// Each scenario NPC encounter's quest is registered and completed.
+	if len(scenarios["arena"].CompleteNPCEncounters) == 0 {
+		t.Fatal("arena scenario completes no NPC encounter")
 	}
-	if !found {
-		t.Error("shipwreck_bandits quest was not registered")
+	for _, key := range scenarios["arena"].CompleteNPCEncounters {
+		data, ok := character.NPCConfigInstance.GetNPCData(key)
+		if !ok || data.Encounter == nil || data.Encounter.QuestID == "" {
+			t.Fatalf("scenario encounter %q has no quest", key)
+		}
+		id := data.Encounter.QuestID
+		if q := quests.GlobalQuestManager.GetQuest(id); q == nil {
+			t.Errorf("%s quest was not registered", id)
+		} else if !q.Completed {
+			t.Errorf("%s quest exists but is not completed", id)
+		}
 	}
 }
 
