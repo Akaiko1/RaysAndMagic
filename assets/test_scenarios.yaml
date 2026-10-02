@@ -31,3 +31,20 @@ scenarios:
     endurance_target: 25
     learn_school_spells: true
     items: [health_potion, health_potion, health_potion, mana_potion, mana_potion]
+  # Benchmark parties (assets/bench_parties.yaml): one per party and level.
+  bench_seabright_15: {bench_party: seabright, level: 15}
+  bench_seabright_20: {bench_party: seabright, level: 20}
+  bench_seabright_25: {bench_party: seabright, level: 25}
+  bench_seabright_30: {bench_party: seabright, level: 30}
+  bench_classic_15: {bench_party: classic, level: 15}
+  bench_classic_20: {bench_party: classic, level: 20}
+  bench_classic_25: {bench_party: classic, level: 25}
+  bench_classic_30: {bench_party: classic, level: 30}
+  bench_rogues_15: {bench_party: rogues, level: 15}
+  bench_rogues_20: {bench_party: rogues, level: 20}
+  bench_rogues_25: {bench_party: rogues, level: 25}
+  bench_rogues_30: {bench_party: rogues, level: 30}
+  bench_rares_15: {bench_party: rares, level: 15}
+  bench_rares_20: {bench_party: rares, level: 20}
+  bench_rares_25: {bench_party: rares, level: 25}
+  bench_rares_30: {bench_party: rares, level: 30}

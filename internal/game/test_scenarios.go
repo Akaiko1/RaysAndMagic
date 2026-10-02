@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -20,6 +21,7 @@ import (
 type TestScenario struct {
 	Level                 int              `yaml:"level"`
 	Party                 []ScenarioMember `yaml:"party"`
+	BenchParty            string           `yaml:"bench_party"`
 	Map                   string           `yaml:"map"`
 	X                     int              `yaml:"x"`
 	Y                     int              `yaml:"y"`
@@ -67,6 +69,10 @@ func LoadTestScenarios(path string) (map[string]TestScenario, error) {
 		if key == "" || strings.ContainsAny(key, "/\\.") || s.Level < 0 || s.Level > 100 || len(s.Party) > 4 || s.Gold < 0 || s.SpeedTarget < 0 || s.EnduranceTarget < 0 || s.SafeRadius < 0 || (s.SafeRadius > 0 && s.Map == "") {
 			return nil, fmt.Errorf("invalid scenario %q", key)
 		}
+		// A bench party is a complete build: it owns the roster, stats and spells.
+		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells) {
+			return nil, fmt.Errorf("scenario %q: bench_party takes only a level and placement fields", key)
+		}
 		for _, m := range s.Party {
 			if _, ok := character.ClassFromKey(m.Class); !ok || m.Name == "" {
 				return nil, fmt.Errorf("scenario %q: invalid member %q", key, m.Class)
@@ -93,9 +99,15 @@ func (g *MMGame) ApplyTestScenario(path, key string) error {
 	if !ok {
 		return fmt.Errorf("unknown test scenario %q", key)
 	}
-	return g.applyTestScenario(s)
+	var bench *BenchCatalog
+	if s.BenchParty != "" {
+		if bench, err = LoadBenchCatalog(filepath.Join(filepath.Dir(path), "bench_parties.yaml")); err != nil {
+			return err
+		}
+	}
+	return g.applyTestScenario(s, bench)
 }
-func (g *MMGame) applyTestScenario(s TestScenario) error {
+func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 	// Resolve references before changing the live party or world.
 	wm := world.GlobalWorldManager
 	maps := append(append([]string(nil), s.ClearMaps...), s.RewardMapEncounters...)
@@ -132,6 +144,18 @@ func (g *MMGame) applyTestScenario(s TestScenario) error {
 		loot = append(loot, it)
 	}
 	var members []*character.MMCharacter
+	var benchParty BenchParty
+	if s.BenchParty != "" {
+		var ok bool
+		if benchParty, ok = bench.Parties[s.BenchParty]; !ok || !slices.Contains(bench.Levels, s.Level) {
+			return fmt.Errorf("scenario: no bench party %q at level %d", s.BenchParty, s.Level)
+		}
+		built, err := g.buildBenchMembers(benchParty, s.Level)
+		if err != nil {
+			return err
+		}
+		members = built
+	}
 	for _, data := range s.Party {
 		class, ok := character.ClassFromKey(data.Class)
 		if !ok {
@@ -166,6 +190,11 @@ func (g *MMGame) applyTestScenario(s TestScenario) error {
 	}
 	if len(members) > 0 {
 		g.party = character.NewPartyFromGroups(g.config, members, nil, nil)
+	}
+	if s.BenchParty != "" {
+		if err := g.applyBenchPartyState(benchParty, s.Level); err != nil {
+			return err
+		}
 	}
 	g.appScreen = AppScreenInGame
 	for _, key := range s.ClearMaps {

@@ -23,6 +23,7 @@ Supported fields:
 | Field | Meaning |
 | --- | --- |
 | `party` | Up to four members, with `name`, class key, optional `skills` mastery map and `equipment` item keys. Omit to keep the normal starting party. |
+| `bench_party` | A complete build from `assets/bench_parties.yaml` at `level` (see below). Excludes `party`, the stat targets and `learn_school_spells`. |
 | `level` | Raise active members through the normal XP progression to this level. Earned level-up choices remain unspent. |
 | `speed_target`, `endurance_target` | Spend earned attribute points toward these targets, then the class's primary attribute. |
 | `learn_school_spells` | Learn spells from each member's existing schools. |
@@ -37,6 +38,37 @@ Supported fields:
 Unknown fields, classes, skills, mastery names, items, maps and blocked start
 positions fail loudly. The launcher is a development fixture, not a balance
 migration or an automatic quest completion tool.
+
+## Benchmark parties
+
+`assets/bench_parties.yaml` holds four parties built at levels 15, 20, 25
+and 30. Together they field every class and every race:
+
+| Party | Members |
+| --- | --- |
+| `seabright` | Knight, Sorcerer, Alchemist, Wayfarer (the current run) |
+| `classic` | Paladin, Druid, Cleric, Archer |
+| `rogues` | dark-elf Thief, half-orc Knight, Arms Master, Monk |
+| `rares` | Battle Mage, Sniper, celestial Cleric, halfling Archer |
+
+Start one with `bin/test_scenario.command bench_rogues_25`. Each member is
+built by the normal progression: class kit, race, XP level-ups and the class
+auto stat chain. The build then sets the authored masteries, learns every
+spell of its open schools, and equips the listed gear, readied spell and quick
+slots. The party gets its cards, items and gold.
+
+`TestBenchPartiesBuildAsAuthored` keeps the catalog honest:
+
+- **Mastery budget.** Tiers above the class kit stay within one per third
+  level plus trainer purchases: 6 at L15, 8 at L20, 11 at L25 and 14 at L30.
+- **Availability.** Every piece of gear, card and item is obtainable by that
+  level. The earliest level comes from the data: drops from monsters of that
+  level, shops, quest chains and their givers, arena points from L20, clock
+  hands from L22, and dragon scales late.
+- **Persistence.** The built party survives save/load unchanged.
+
+When content changes, a bench build that no longer fits fails the test. Fix
+the build, not the rule.
 
 ## Pilgrimage check
 
