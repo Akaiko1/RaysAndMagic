@@ -823,13 +823,6 @@ func techniqueStepNames() []string {
 
 // -------------------------------------------------- misc item categories ----
 
-func buildSimpleItemTooltipUnified(item items.Item, full bool, bearers ...*character.MMCharacter) string {
-	var bearer *character.MMCharacter
-	if len(bearers) > 0 {
-		bearer = bearers[0]
-	}
-	return buildSimpleItemTooltipWithParty(item, full, bearer, nil, nil)
-}
 func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage ...string) string {
 	def, itemKey, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := item.DisplayKind()

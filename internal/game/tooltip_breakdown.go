@@ -222,13 +222,6 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	return effects
 }
 
-func tooltipValuePrefix(char *character.MMCharacter) string {
-	if char == nil {
-		return "Base"
-	}
-	return "Current"
-}
-
 func addDamageTotal(sec *ttSection, label string, total, trueDamage int) {
 	if trueDamage > 0 {
 		sec.Add("%s: %d (%d Normal + %d True)", label, total, total-trueDamage, trueDamage)
