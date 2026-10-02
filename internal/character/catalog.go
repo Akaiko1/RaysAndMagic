@@ -81,8 +81,10 @@ const (
 	WeaponPrimaryStatDivisor = 3
 	// WeaponSecondaryStatDivisor: bonus_stat_secondary adds stat/this.
 	WeaponSecondaryStatDivisor = 4
-	// ArmorPierceRangedChancePct: a ranged physical hit has this % chance to
-	// ignore the target's armor entirely.
+	// ArmorPierceRangedChancePct: a ranged physical hit ON A MONSTER (from the
+	// party or from another monster) has this % chance to ignore its armor
+	// entirely. Monster shots never pierce party armor, by design: only a
+	// weapon's own armor_pierce_pct does.
 	ArmorPierceRangedChancePct = 33
 	// Party armor mitigation - a PERCENTAGE model with diminishing returns:
 	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
@@ -353,6 +355,11 @@ func WeaponCooldownMultiplier(def *config.WeaponDefinitionConfig) float64 {
 	return mult
 }
 
+// ArmorPierceShotsLine is the one wording of the ranged armor pierce rule.
+func ArmorPierceShotsLine() string {
+	return fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)
+}
+
 // WeaponCombatLines lists combat traits governed by character rules.
 func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 	if def == nil {
@@ -361,7 +368,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 	var out []string
 	damageType, damageTypeErr := damagecalc.ParseType(def.DamageType)
 	if def.Physics != nil && (def.DamageType == "" || (damageTypeErr == nil && damageType == damagecalc.Physical)) {
-		out = append(out, fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct))
+		out = append(out, ArmorPierceShotsLine())
 	}
 	return out
 }
@@ -439,7 +446,7 @@ func (s SkillType) Description() string {
 		}
 		return fmt.Sprintf("%s +0/%d/%d/%d true damage (resistance applies); it still lands when the target Perfect Dodges.\n\nGrandmaster:\n+%d%% crit; attacks ignore Perfect Dodge.", lead, MasteryWeaponTrueDamagePerTier, 2*MasteryWeaponTrueDamagePerTier, 3*MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillLeather, SkillChain, SkillPlate:
-		return fmt.Sprintf("Allows wearing %s armor. +0/%d/%d/%d AC per equipped piece.\n\nGrandmaster:\n+%d%% Perfect Dodge, once per armor type.", weaponNoun(s), MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel, ArmorGMDodgeBonus)
+		return fmt.Sprintf("Allows wearing %s armor. +0/%d/%d/%d AC per equipped piece.\n\nGrandmaster:\n%s.", weaponNoun(s), MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel, ArmorGMDodgeRule())
 	case SkillShield:
 		return fmt.Sprintf("Allows using a shield. Shield AC +0/%d/%d/%d.\n\nGrandmaster:\n+%d%% Perfect Dodge with a shield equipped.", MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel, ArmorGMDodgeBonus)
 	case SkillBodybuilding:
@@ -504,8 +511,23 @@ func SpellAbsorbChancePct(tier int) int {
 // StrongMagicPct is the Strong Magic exchange rate at the given tier: the
 // percent of the spell's SP cost burned as HP, and the percent added to the
 // spell's damage - 25/50/75/100%.
+// ArmorGMDodgeRule is the armor Grandmaster dodge rule as the skill page and
+// every armor piece state it: the bonus counts once per armor type worn.
+func ArmorGMDodgeRule() string {
+	return fmt.Sprintf("+%d%% Perfect Dodge, once per armor type", ArmorGMDodgeBonus)
+}
+
 func StrongMagicPct(tier int) int {
 	return (tier + 1) * StrongMagicPctPerTier
+}
+
+// StrongMagicHPCost is the HP a damaging cast burns: pct% of the paid SP,
+// rounded to the nearest point. Combat also stops it from taking the last HP.
+func StrongMagicHPCost(paidSP, pct int) int {
+	if paidSP <= 0 || pct <= 0 {
+		return 0
+	}
+	return (paidSP*pct + 50) / 100
 }
 
 // WeaponNoun is the exported canonical lowercase noun for a weapon skill

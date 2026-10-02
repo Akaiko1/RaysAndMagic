@@ -84,7 +84,8 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 
 // resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
 // another monster (bound undead <-> enemy crossfire). Damage is the projectile's
-// own; the party is rewarded ONLY when an enemy falls (never for a bound ally).
+// own; a kill is finalized like any other, so a fallen enemy or bound ally
+// rewards the party and a pure party summon gives nothing.
 func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, pType string, target *monsterPkg.Monster3D, entityID string) {
 	var parts damagecalc.Parts
 	var dmgTypeStr, spellFx, sourceName string
@@ -222,9 +223,11 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.applyCrossfireAoeSplash(target, srcMonster, owner, packet, weaponDef, ignoreArmor, aoeRadiusTiles)
 		// A CHAMPION's AoE bolt that reaches the party strikes it too (the extra
 		// action - the summon-splash's party twin). Plain mob crossfire never hits
-		// the party, so this is gated to champions.
+		// the party, so this is gated to champions. Walls shield the party like
+		// any other blast victim.
 		if srcMonster != nil && srcMonster.IsChampion() &&
-			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) {
+			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) &&
+			cs.attackLineClear(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) {
 			hit := monsterCharacterHit{
 				SpellID:        spellFx,
 				Parts:          parts, // already weakened once at packet build
@@ -268,9 +271,9 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 		} else if !source.CanAttackActor(candidate) {
 			continue
 		}
-		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius {
+		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius && cs.attackLineClear(center.X, center.Y, candidate.X, candidate.Y) {
 			// An explosion cannot be Perfect-Dodged, but still uses the victim's
-			// armor, resistance and one shared soak.
+			// armor, resistance and one shared soak. Walls shield what is behind them.
 			cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, ignoreArmor, false, false)
 		}
 	}

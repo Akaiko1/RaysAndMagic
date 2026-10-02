@@ -135,7 +135,7 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 			section := ""
 			var body []string
 			for _, line := range strings.Split(card, "\n") {
-				if tooltipSectionHeading(line) {
+				if character.IsCardSectionTitle(line) {
 					section = line
 				} else if section == tc.group {
 					body = append(body, line)
@@ -158,7 +158,7 @@ func TestReferenceTooltipsKeepCanonicalDescriptions(t *testing.T) {
 			lines := strings.Split(card, "\n")
 			var body []string
 			for _, line := range lines[1:] {
-				if !tooltipSectionHeading(line) {
+				if !character.IsCardSectionTitle(line) {
 					body = append(body, line)
 				}
 			}

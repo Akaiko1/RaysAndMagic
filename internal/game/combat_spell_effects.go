@@ -329,12 +329,16 @@ func casterSpellMasteryTier(caster *character.MMCharacter, def spells.SpellDefin
 }
 
 func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCharacter, base, max int) int {
+	return scaledMasteryValueAt(base, max, casterSpellMasteryTier(caster, def))
+}
+
+// scaledMasteryValueAt interpolates base..max (the *_grandmaster cap) by tier.
+func scaledMasteryValueAt(base, max, tier int) int {
 	if base <= 0 || max <= base {
 		return base
 	}
-	tier := casterSpellMasteryTier(caster, def)
 	gmTier := int(character.MasteryGrandMaster)
-	if tier <= 0 || gmTier <= 0 {
+	if tier <= 0 {
 		return base
 	}
 	if tier > gmTier {

@@ -5,6 +5,7 @@ import (
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
+	"ugataima/internal/monster"
 )
 
 // restParty cures afflictions, fully restores every living member's HP/SP and wakes the
@@ -33,7 +34,7 @@ func (g *MMGame) TryCamp() (string, bool) {
 	if g.party.Food < CampFoodCost {
 		return uitext.Text("ui.camp_no_food"), false
 	}
-	if reason, safe := g.safeToPrepare(); !safe {
+	if reason, safe := g.safeToPrepare(campActivity()); !safe {
 		return reason, false
 	}
 	g.party.Food -= CampFoodCost
@@ -57,9 +58,22 @@ func (g *MMGame) applyPartyStatBonuses() {
 	}
 }
 
-// safeToPrepare shares camp's threat rules without spending food or restoring
-// resources. Inventory pause never makes an unsafe field suitable for brewing.
-func (g *MMGame) safeToPrepare() (string, bool) {
+// fieldActivity holds one field action's refusal texts; the threat rule is
+// shared, the wording belongs to the action.
+type fieldActivity struct{ inCombat, enemiesNear string }
+
+func campActivity() fieldActivity {
+	return fieldActivity{uitext.Text("ui.camp_in_combat"), uitext.Text("ui.camp_enemies_near")}
+}
+
+func brewActivity() fieldActivity {
+	return fieldActivity{uitext.Text("ui.brew_in_combat"), uitext.Text("ui.brew_enemies_near")}
+}
+
+// safeToPrepare is the one safe-field rule for camping and brewing, without
+// spending food or restoring resources. Inventory pause never makes an unsafe
+// field suitable for either.
+func (g *MMGame) safeToPrepare(activity fieldActivity) (string, bool) {
 	if g.world == nil || g.camera == nil || g.config == nil {
 		return "The field is not ready.", false
 	}
@@ -76,15 +90,21 @@ func (g *MMGame) safeToPrepare() (string, bool) {
 		}
 		// No resting mid-combat: a pursuer kited beyond the radius (or a
 		// ranged monster shooting from outside it) still blocks the camp.
-		if m.TargetsParty() {
-			return uitext.Text("ui.camp_in_combat"), false
+		if g.monsterPressesParty(m) {
+			return activity.inCombat, false
 		}
 		// Measure to the monster's box EDGE, not its center - a large monster
 		// whose body pokes into the radius counts as near.
 		mw, mh := m.GetSize()
 		if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= radius+math.Max(mw, mh)/2 {
-			return uitext.Text("ui.camp_enemies_near"), false
+			return activity.enemiesNear, false
 		}
 	}
 	return "", true
+}
+
+// monsterPressesParty is the "party is in a fight" scope shared by camping,
+// brewing, automatic techniques and scale shedding. Allies never press.
+func (g *MMGame) monsterPressesParty(m *monster.Monster3D) bool {
+	return m != nil && m.IsAlive() && !m.Bound && g.camera != nil && m.PressesParty(g.camera.X, g.camera.Y)
 }

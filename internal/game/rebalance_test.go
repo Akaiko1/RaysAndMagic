@@ -193,6 +193,30 @@ func TestArmorGMDodge(t *testing.T) {
 	}
 }
 
+// Every armor piece states the Grandmaster dodge rule as combat applies it: a
+// full plate set grants the bonus once, and each piece says it is once per
+// armor type rather than promising it per piece.
+func TestArmorGMDodgeCardMatchesCombat(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	m := cs.game.party.Members[0]
+	m.Skills[character.SkillPlate] = gmSkill()
+	pieces := map[items.EquipSlot]string{
+		items.SlotArmor: "clockplate_cuirass", items.SlotHelmet: "clockplate_helm", items.SlotGauntlets: "clockplate_gauntlets",
+	}
+	for slot, key := range pieces {
+		m.Equipment[slot] = items.CreateItemFromYAML(key)
+	}
+	if got := cs.armorGMDodgeBonus(m); got != ArmorGMDodgeBonus {
+		t.Fatalf("three GM plate pieces -> %d dodge, want %d once", got, ArmorGMDodgeBonus)
+	}
+	for _, key := range pieces {
+		card := GetItemTooltip(items.CreateItemFromYAML(key), m, cs, true)
+		if !strings.Contains(card, "Grandmaster: "+character.ArmorGMDodgeRule()) || strings.Contains(card, "while worn") {
+			t.Fatalf("%s card does not state the once-per-type rule:\n%s", key, card)
+		}
+	}
+}
+
 // TestBodybuildingGM_MaxHPPercent: at GM, Bodybuilding adds the flat per-tier HP
 // plus a percent of base Max HP.
 func TestBodybuildingGM_MaxHPPercent(t *testing.T) {

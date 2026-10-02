@@ -352,7 +352,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	if m.ShouldDisengageFromPlayer(collisionChecker, partyX, partyY) {
+	if m.ShouldDisengageFromPlayer(partyX, partyY) {
 		// Stop engaging player - return to idle (only if not recently attacked).
 		m.EndPlayerEngagement()
 	}
@@ -521,12 +521,29 @@ func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, play
 // applies it to every sight-only party encounter; TB applies it only to the
 // loot-guard objective, whose encounter deliberately returns to its post at
 // the exact seven-tile radius instead of becoming a sticky TB fight.
-func (m *Monster3D) ShouldDisengageFromPlayer(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+func (m *Monster3D) ShouldDisengageFromPlayer(playerX, playerY float64) bool {
 	if m == nil || !m.IsEngagingPlayer || m.WasAttacked {
 		return false
 	}
-	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
-	return distance(m.X, m.Y, playerX, playerY) > detectionRadius*disengageMult
+	return distance(m.X, m.Y, playerX, playerY) > m.PursuitLeashPixels()
+}
+
+// PursuitLeashPixels is the distance at which this monster drops a sight-only
+// chase: detection radius times the disengage hysteresis.
+func (m *Monster3D) PursuitLeashPixels() float64 {
+	detectionRadius, disengageMult := m.playerAlertRadii()
+	return detectionRadius * disengageMult
+}
+
+// PressesParty reports a party-hostile monster close enough to press the
+// fight: within its pursuit leash or its attack reach. Sticky hostility keeps
+// the AI hunting from any distance, but a hunter stranded beyond both (another
+// region of the open world, no route) is not a fight the party is in.
+func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
+	if !m.TargetsParty() {
+		return false
+	}
+	return distance(m.X, m.Y, partyX, partyY) <= math.Max(m.PursuitLeashPixels(), m.PursuitReachPixels())
 }
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {

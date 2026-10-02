@@ -2042,9 +2042,6 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 
 	// Create and register the monster
 	m := monster.NewMonster3DFromConfig(sx, sy, key, g.config)
-	if m == nil {
-		return false
-	}
 	m.QuestProgressIgnored = true // Dead Branch / ad-hoc summons are not map quest targets.
 	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))

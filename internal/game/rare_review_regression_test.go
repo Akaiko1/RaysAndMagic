@@ -329,8 +329,14 @@ func TestRareBookSafetyAndMaximumBatches(t *testing.T) {
 					g.currentTab = TabInventory
 					ih.toggleTabbedMenu(TabSpellbook)
 				}
-				if (g.menuOpen && g.currentTab == TabSpellbook) != safe {
-					t.Fatal("unsafe book entry")
+				// The book opens on every route; only the brew transaction is gated.
+				if !g.menuOpen || g.currentTab != TabSpellbook {
+					t.Fatal("book entry refused")
+				}
+				g.selectedRare = 0
+				stockAlchemyRecipe(g, &config.GlobalAlchemy.Recipes[0], 1)
+				if g.brewSelectedRecipe() != safe {
+					t.Fatalf("brew in safe=%v field: %q", safe, g.rareBookMessage)
 				}
 			})
 		}
@@ -380,13 +386,8 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 			}
 			m := zoneVictim(t, g)
 			h.clicks(false, tab.x+10, tab.y+10, 1)
-			if g.currentTab == TabSpellbook {
-				t.Fatal("unsafe displayed tab opened")
-			}
-			m.HitPoints = 0
-			h.clicks(false, tab.x+10, tab.y+10, 1)
 			if g.currentTab != TabSpellbook {
-				t.Fatal("safe displayed tab refused")
+				t.Fatal("displayed tab refused the book")
 			}
 			g.selectedRare = 0
 			r := &config.GlobalAlchemy.Recipes[0]
@@ -404,6 +405,11 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 			if g.alchemyBatches != 7 {
 				t.Fatalf("Max selected %d batches", g.alchemyBatches)
 			}
+			h.clicks(false, a.brew.x+40, a.brew.y+15, 1)
+			if got := g.party.MaxAlchemyBatches(r, nil); got != 7 {
+				t.Fatalf("unsafe displayed Brew consumed materials: %d batches left", got)
+			}
+			m.HitPoints = 0
 			h.clicks(false, a.brew.x+40, a.brew.y+15, 1)
 			if got := g.party.MaxAlchemyBatches(r, nil); got != 0 {
 				t.Fatalf("displayed Brew left %d batches", got)

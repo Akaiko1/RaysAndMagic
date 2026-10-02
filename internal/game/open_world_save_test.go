@@ -448,3 +448,39 @@ func TestOpenWorldBiomeIsResolvedPerTile(t *testing.T) {
 		t.Fatalf("both regions resolved to %q - the party's region was used for a foreign tile", forestBiome)
 	}
 }
+
+// A save naming a monster that monsters.yaml no longer has (removed or
+// renamed since) still loads: that one record is dropped, every other monster
+// comes back.
+func TestLoadDropsMonstersMissingFromTheCatalog(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, _ := bootOpenWorldGame(t, true)
+	save := g.buildSave(wm)
+	total, region := 0, ""
+	for key, bucket := range save.MapMonsters {
+		total += len(bucket)
+		if region == "" && len(bucket) > 0 && wm.IsOpenWorldRegion(key) {
+			region = key
+		}
+	}
+	if region == "" {
+		t.Fatal("save holds no open-world monsters")
+	}
+	save.MapMonsters[region][0].Key = "monster_removed_since"
+	save.MapMonsters[region][0].Name = "Removed Monster"
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	restored := len(wm.OpenWorld.Monsters)
+	for _, w := range wm.LoadedMaps {
+		restored += len(w.Monsters)
+	}
+	if restored != total-1 {
+		t.Fatalf("restored %d monsters, want %d (all but the unknown one)", restored, total-1)
+	}
+	for _, m := range wm.OpenWorld.Monsters {
+		if m.Key == "monster_removed_since" {
+			t.Fatal("the unknown monster came back")
+		}
+	}
+}

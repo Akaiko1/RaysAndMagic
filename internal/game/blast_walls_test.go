@@ -105,3 +105,73 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 		}
 	}
 }
+
+// Monster blasts obey the same wall rule: an AoE bolt fired by a bound ally,
+// by an enemy at bound allies, or by a champion whose splash reaches the party
+// never hits what stands behind a wall. Without the wall the same victim is hit
+// (positive control), and a neighbour on the blast's side is always hit.
+func TestMonsterBlastsStopAtWalls(t *testing.T) {
+	for _, source := range []string{"ally_bolt", "enemy_bolt", "champion_party"} {
+		for _, walled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/wall=%v", source, walled), func(t *testing.T) {
+				g, ts := summonTileWorld(t)
+				if walled {
+					for y := 6; y <= 14; y++ {
+						g.world.Tiles[y][15] = world.TileWall
+					}
+				}
+				g.collisionSystem.UpdateTileChecker(g.world)
+				cx, cy := 14.85*ts, 10.5*ts
+				mob := func(id string, x, y float64, bound bool) *monsterPkg.Monster3D {
+					m := mkTestMonster(id, 5000)
+					m.ID, m.X, m.Y, m.Bound = id, x, y, bound
+					m.PerfectDodge = 0
+					return m
+				}
+				alliesHit := source != "ally_bolt" // enemies fire at bound allies
+				shooter := mob("shooter", 5.5*ts, cy, !alliesHit)
+				if source == "champion_party" {
+					shooter.ChampionKey = "test_champion"
+				}
+				target := mob("target", cx, cy, alliesHit)
+				open := mob("open", cx, cy+0.8*ts, alliesHit)
+				shielded := mob("shielded", 16.2*ts, cy, alliesHit)
+				g.world.Monsters = []*monsterPkg.Monster3D{shooter, target, open, shielded}
+				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+				owner := ProjectileOwnerMonsterAtBound
+				if source == "ally_bolt" {
+					owner = ProjectileOwnerBoundUndead
+				}
+				partyHP := 0
+				if source == "champion_party" {
+					// The party stands behind the wall, the splash victim the champion aims at.
+					placePlayerAtTile(g, 16, 10, ts)
+					g.camera.X, g.camera.Y = 16.2*ts, cy
+					for _, m := range g.party.Members {
+						m.HitPoints, m.MaxHitPoints = 5000, 5000
+						partyHP += m.HitPoints
+					}
+				}
+				bolt := &MagicProjectile{ID: "bolt", Active: true, LifeTime: 30, Damage: 30, SpellType: "fireball",
+					Owner: owner, SourceMonster: shooter, SourceName: "Shooter", IgnoresDodge: true}
+				g.combat.resolveMonsterProjectileVsMonster(bolt, "magic_projectile", target, bolt.ID)
+				if target.HitPoints >= 5000 || open.HitPoints >= 5000 {
+					t.Fatalf("the bolt or the open-side splash never landed (target %d, open %d)", target.HitPoints, open.HitPoints)
+				}
+				if source == "champion_party" {
+					after := 0
+					for _, m := range g.party.Members {
+						after += m.HitPoints
+					}
+					if got := after < partyHP; got != !walled {
+						t.Fatalf("party behind the wall line hit=%v, want %v", got, !walled)
+					}
+					return
+				}
+				if got := shielded.HitPoints < 5000; got != !walled {
+					t.Fatalf("monster across the wall line hit=%v, want %v (hp %d)", got, !walled, shielded.HitPoints)
+				}
+			})
+		}
+	}
+}

@@ -90,7 +90,8 @@ func addCooldownAdjustments(sec *ttSection, cs *CombatSystem, raw, clamped, tota
 	}
 }
 
-func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *CombatSystem) {
+// addCastingCost shows the SP a cast pays and returns it.
+func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *CombatSystem) int {
 	cost := base
 	if cs != nil {
 		cost = cs.effectiveSpellCost(ch, base)
@@ -100,6 +101,7 @@ func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *Com
 		sec.AddDetail("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)
 	}
 	sec.Add("Cost: %d SP", cost)
+	return cost
 }
 
 func addSpellCooldown(sec *ttSection, id spells.SpellID, ch *character.MMCharacter, cs *CombatSystem) {
@@ -173,15 +175,18 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	for _, ln := range def.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
+	hero := char != nil
 	if def.SummonMonster != "" {
 		if tierName != "" {
 			effects.AddDetail("%s Mastery - %s", formatSchoolName(spellSchoolForChar(char, def)), tierName)
 		}
-		if hp := masteryLadderValue(def.SummonHPByMastery, tier); hp > 0 {
-			effects.Add("Summon HP: %d", hp)
-		}
-		if damage := masteryLadderValue(def.SummonDamageByMastery, tier); damage > 0 {
-			effects.Add("Summon Damage: %d", damage)
+		for _, stat := range []struct {
+			label  string
+			ladder []int
+		}{{"Summon HP", def.SummonHPByMastery}, {"Summon Damage", def.SummonDamageByMastery}} {
+			if values := tierValues(func(t int) int { return masteryLadderValue(stat.ladder, t) }); values != ([4]int{}) {
+				effects.Add("%s: %s", stat.label, tierValueText(hero, tier, values))
+			}
 		}
 		if monsterPkg.MonsterConfig != nil {
 			if m, err := monsterPkg.MonsterConfig.GetMonsterByKey(def.SummonMonster); err == nil && m.ProjectileSpell != "" {
@@ -191,25 +196,27 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 			}
 		}
 	}
+	// Each magnitude interpolates its authored *_grandmaster cap by tier: the
+	// hero's own value, or every tier on a catalog card.
+	scaled := func(label, format string, base, gm int) {
+		values := tierValues(func(t int) int { return scaledMasteryValueAt(base, gm, t) })
+		effects.Add("%s: "+format, tierLabel(hero, label, values), tierValueText(hero, tier, values))
+	}
 	if def.StatBonus > 0 {
-		current := scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
-		effects.Add("%s bonus to all stats: +%d", tooltipValuePrefix(char), current)
+		scaled("bonus to all stats", "+%s", def.StatBonus, def.StatBonusGrandmaster)
 	}
 	if def.ResistBuffPct > 0 {
-		current := scaledSpellMasteryValue(def, char, def.ResistBuffPct, def.ResistBuffPctGrandmaster)
-		effects.Add("%s incoming damage: -%d%%", tooltipValuePrefix(char), current)
+		scaled("incoming damage", "-%s%%", def.ResistBuffPct, def.ResistBuffPctGrandmaster)
 	}
 	if def.OutgoingDamageBonus > 0 {
-		current := scaledSpellMasteryValue(def, char, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
 		target := "damage"
 		if damageType, err := damagecalc.ParseType(def.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
 			target = "physical damage"
 		}
-		effects.Add("%s %s bonus: +%d", tooltipValuePrefix(char), target, current)
+		scaled(target+" bonus", "+%s", def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
 	}
 	if def.IncomingDamageReduction > 0 {
-		current := scaledIncomingDamageReduction(def, char)
-		effects.Add("%s reduction: -%d per hit", tooltipValuePrefix(char), current)
+		scaled("reduction", "-%s per hit", def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster)
 		effects.AddDetail("Cuts normal damage after armor and resistance; true damage and damage over time pass")
 	}
 	return effects

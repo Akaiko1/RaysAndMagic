@@ -221,6 +221,40 @@ func buildSpellCards() []contentCard {
 		emitSchool(s)
 	}
 	cards = append(cards, buildTrapCards()...)
+	cards = append(cards, buildTechniqueCards()...)
+	return cards
+}
+
+// buildTechniqueCards lists the Pilgrim's techniques by level with the game's
+// own catalog card (base cost, every tier, the reuse locks).
+func buildTechniqueCards() []contentCard {
+	if config.GlobalTechniques == nil {
+		return nil
+	}
+	techniques := append([]config.TechniqueDefinition(nil), config.GlobalTechniques.Techniques...)
+	sort.SliceStable(techniques, func(i, j int) bool {
+		if techniques[i].Level != techniques[j].Level {
+			return techniques[i].Level < techniques[j].Level
+		}
+		return techniques[i].Name < techniques[j].Name
+	})
+	section := fmt.Sprintf("Techniques (%s)", character.ClassWayfarer)
+	var cards []contentCard
+	for _, d := range techniques {
+		it, ok := config.TechniqueItem(d.Key)
+		if !ok {
+			panic("unknown catalog technique: " + d.Key)
+		}
+		cards = append(cards, contentCard{
+			kind:        cardSpell,
+			section:     section,
+			key:         d.Key,
+			name:        d.Name,
+			subtitle:    fmt.Sprintf("Lv %d  SP %d", d.Level, d.SPCost[0]),
+			tooltipRows: strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n"),
+			icon:        d.Icon,
+		})
+	}
 	return cards
 }
 

@@ -41,8 +41,12 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 							}
 						}
 						rng, flight := character.EffectiveWeaponFlight(def, ch)
-						if !strings.Contains(card, fmt.Sprintf("Range: %.0f tiles", rng)) {
+						// Ranged weapons state their range; melee reach is the swing-arc line.
+						if def.IsRanged() && !strings.Contains(card, fmt.Sprintf("Range: %.0f tiles", rng)) {
 							t.Fatal(card)
+						}
+						if !def.IsRanged() && (strings.Contains(card, "Range: ") || !strings.Contains(card, character.MeleeSwingArcLine(def))) {
+							t.Fatalf("melee card must state reach by its swing arc only:\n%s", card)
 						}
 						if full && def.Physics != nil && !strings.Contains(card, fmt.Sprintf("Projectile Speed: %.1f tiles/s", flight)) {
 							t.Fatal(card)

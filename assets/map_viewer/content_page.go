@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ugataima/internal/character"
 	"ugataima/internal/game"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -264,7 +265,9 @@ type tooltipLine struct {
 	kind tooltipLineKind
 }
 
-func isTooltipSection(text string) bool {
+// isInspectorHeading spots the headings of the editor's own map-inspector
+// boxes (MONSTER, TERRAIN, ...). Catalog cards use character.IsCardSectionTitle.
+func isInspectorHeading(text string) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" || strings.Contains(trimmed, ":") {
 		return false
@@ -294,7 +297,7 @@ func cardTooltipLines(c *contentCard) []tooltipLine {
 				kind = tooltipLineCategory
 			case text == "":
 				kind = tooltipLineSpacer
-			case isTooltipSection(text):
+			case character.IsCardSectionTitle(text):
 				kind = tooltipLineSection
 			case strings.HasPrefix(text, "\""):
 				kind = tooltipLineFlavor

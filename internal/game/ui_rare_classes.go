@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -396,21 +397,84 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 		ui.rareBookText(screen, message, p.message)
 	}
 }
+
+// techniqueMagnitude states what a technique does: the hero's own tier, or
+// with no hero (catalog cards) every tier as "Novice/Expert/Master/GM".
 func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition, tps int) string {
-	tier := c.SkillTier(character.SkillTranslocation)
+	v := func(values [4]int) string {
+		tier := 0
+		if c != nil {
+			tier = c.SkillTier(character.SkillTranslocation)
+		}
+		return tierValueText(c != nil, tier, values)
+	}
 	switch d.Key {
 	case "fold_step":
-		return fmt.Sprintf("Range %d-%d tiles | Anchor %ds", d.MinRange, config.TierValue(d.Range, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("Range %d-%s tiles | Anchor %ss", d.MinRange, v(d.Range), v(d.Duration))
 	case "phase_veil":
-		return fmt.Sprintf("Dodge +%d%% | %ds", config.TierValue(d.Power, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("Dodge +%s%% | %ss", v(d.Power), v(d.Duration))
 	case "quickening":
-		return fmt.Sprintf("RT recovery -%d%% | TB pool +%d | %ds", config.TierValue(d.Power, tier), config.TierValue(d.TBPower, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("RT recovery -%s%% | TB pool +%s | %ss", v(d.Power), v(d.TBPower), v(d.Duration))
 	case "purify":
 		return "All curable afflictions | No healing or revival"
 	case "return_step":
+		if c == nil {
+			return "Any distance, same map"
+		}
 		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Frames/max(1, tps))
 	}
 	return ""
+}
+
+// tierLadder prints a per-mastery value set, or one value when all agree.
+func tierLadder(values [4]int) string {
+	if tierFlat(values) {
+		return strconv.Itoa(values[0])
+	}
+	return fmt.Sprintf("%d/%d/%d/%d", values[0], values[1], values[2], values[3])
+}
+
+// tierCountText is a counted ladder: "1 round" when flat, else "1/1/2/2 rounds".
+func tierCountText(values [4]int, singular, plural string) string {
+	if tierFlat(values) {
+		return pluralizeCount(values[0], singular, plural)
+	}
+	return tierLadder(values) + " " + plural
+}
+
+func tierFlat(values [4]int) bool {
+	return values[0] == values[1] && values[1] == values[2] && values[2] == values[3]
+}
+
+// tierValues evaluates one mastery-scaled value at every tier through the
+// same function the effect itself uses.
+func tierValues(at func(tier int) int) [4]int {
+	var out [4]int
+	for t := range out {
+		out[t] = at(t)
+	}
+	return out
+}
+
+// tierValueText is the hero's own tier, or with no hero (catalog cards,
+// editor) every tier.
+func tierValueText(hero bool, tier int, values [4]int) string {
+	if hero {
+		return strconv.Itoa(config.TierValue(values, tier))
+	}
+	return tierLadder(values)
+}
+
+// tierLabel names a value line: the hero's "Current" value, a catalog
+// "Base" value when every tier agrees, else the bare label over the ladder.
+func tierLabel(hero bool, label string, values [4]int) string {
+	switch {
+	case hero:
+		return "Current " + label
+	case tierFlat(values):
+		return "Base " + label
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
 }
 
 func (ih *InputHandler) handleRareBookInput() bool {

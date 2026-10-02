@@ -2045,7 +2045,10 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.TBActionsPerRound < 0 {
 			return fmt.Errorf("weapon '%s': tb_actions_per_round must not be negative", key)
 		}
-		if isProjectileWeapon(def) {
+		if projectileCategory(def) && !def.IsRanged() {
+			return fmt.Errorf("weapon '%s' (category %q) has range %d; a projectile weapon needs range >= %d", key, def.Category, def.Range, RangedWeaponMinRangeTiles)
+		}
+		if def.IsRanged() {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
 			}
@@ -2096,18 +2099,27 @@ func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
 	return nil
 }
 
-func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
+// RangedWeaponMinRangeTiles is the reach from which a weapon shoots
+// projectiles; anything shorter swings in melee. The one "is it ranged" rule
+// for combat, tooltips and validation.
+const RangedWeaponMinRangeTiles = 4
+
+// IsRanged reports whether the weapon attacks with projectiles.
+func (d *WeaponDefinitionConfig) IsRanged() bool {
+	return d != nil && d.Range >= RangedWeaponMinRangeTiles
+}
+
+// projectileCategory names categories that only make sense as ranged weapons;
+// one authored with melee reach would swing and do nothing.
+func projectileCategory(def *WeaponDefinitionConfig) bool {
 	category := strings.ToLower(strings.TrimSpace(def.Category))
-	return def.Range > 3 ||
-		strings.Contains(category, "bow") ||
-		strings.Contains(category, "throwing") ||
-		strings.Contains(category, "blaster")
+	return strings.Contains(category, "bow") || strings.Contains(category, "throwing") || strings.Contains(category, "blaster")
 }
 
 // IsMagicRangedWeapon is the shared staff/book rule for validation, rendering,
 // and runtime audio. Range remains data-driven rather than inferred by category.
 func IsMagicRangedWeapon(def *WeaponDefinitionConfig) bool {
-	if def == nil || !isProjectileWeapon(def) {
+	if def == nil || !def.IsRanged() {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(def.Category)) {
@@ -2126,7 +2138,7 @@ func RangedWeaponSoundCategories() []string {
 	}
 	categories := make(map[string]struct{})
 	for _, def := range GlobalWeapons.Weapons {
-		if def == nil || !isProjectileWeapon(def) || IsMagicRangedWeapon(def) {
+		if def == nil || !def.IsRanged() || IsMagicRangedWeapon(def) {
 			continue
 		}
 		category := strings.ToLower(strings.TrimSpace(def.Category))

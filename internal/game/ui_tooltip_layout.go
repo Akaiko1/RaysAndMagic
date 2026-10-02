@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/character"
 	"ugataima/internal/graphics"
 )
 
@@ -22,17 +23,6 @@ type tooltipGeometry struct {
 	lineHeight int
 }
 
-func tooltipSectionHeading(line string) bool {
-	switch line {
-	case "DAMAGE", "DAMAGE PER TICK", "HEALING", "CRITICAL", "ATTACK", "EFFECTS",
-		"DEFENSE", "CASTING", "ZONE", "PLACEMENT", "CONTROL", "USAGE", "REQUIREMENTS",
-		"RECOVERY", "DURATION", "MASTERY", "GRANDMASTER", "TRIGGER", "LIMITS",
-		"ATTRIBUTES", "RESISTANCES", "CHANGES", "REAL TIME", "TURN BASED", equipmentSetSectionTitle:
-		return true
-	}
-	return false
-}
-
 func tooltipBodyColors(lines []string, accent color.Color) []color.Color {
 	if accent == nil {
 		accent = color.RGBA{224, 206, 158, 255}
@@ -46,7 +36,7 @@ func tooltipBodyColors(lines []string, accent color.Color) []color.Color {
 		if i == 0 {
 			colors[i] = color.RGBA{250, 240, 214, 255}
 		}
-		if tooltipSectionHeading(line) {
+		if character.IsCardSectionTitle(line) {
 			colors[i] = accent
 		}
 		for _, prefix := range []string{"Total Damage:", "Critical Damage:", "Chance:", "RT Cooldown:", "Range:", "Strikes per attack:", "Total Healing:", "Total per tick:", "Total Stun:", "Total Root:", "Item Armor Class:", "Cost:", "Damage:", "Current ", "Base Duration:", "Radius:", "Target:", "Targets:", "Restores ", "Summon HP:", "Summon Damage:"} {
@@ -66,7 +56,7 @@ func layoutTooltip(lines []string, hasIcon bool, maxWidth, screenH int) tooltipG
 	naturalWidth, structured := 0, false
 	for _, line := range lines {
 		naturalWidth = max(naturalWidth, uiTextWidth(line)+12+tooltipTextOffset(hasIcon))
-		structured = structured || tooltipSectionHeading(line)
+		structured = structured || character.IsCardSectionTitle(line)
 	}
 	width := min(560, naturalWidth, maxWidth)
 	if structured {
@@ -131,7 +121,7 @@ func drawTooltipLayout(screen *ebiten.Image, lines []string, colors []color.Colo
 			if title != nil {
 				textColor = title
 			}
-		} else if tooltipSectionHeading(lines[row.source]) {
+		} else if character.IsCardSectionTitle(lines[row.source]) {
 			textColor = styles[row.source]
 			drawFilledRect(screen, x+row.x-2, y+row.y-1, row.w+2, layout.lineHeight, color.RGBA{48, 49, 76, 255})
 		}

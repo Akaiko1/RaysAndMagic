@@ -44,11 +44,10 @@ func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) i
 // passive never takes the last hit point. The matching damage boost lives in spellDamageParts, so tooltips
 // and combat read one number.
 func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def spells.SpellDefinition, paidCost int) {
-	pct := strongMagicPct(caster, def)
-	if pct <= 0 || paidCost <= 0 {
+	burn := character.StrongMagicHPCost(paidCost, strongMagicPct(caster, def))
+	if burn <= 0 {
 		return
 	}
-	burn := (paidCost*pct + 50) / 100
 	if burn >= caster.HitPoints {
 		burn = caster.HitPoints - 1
 	}
@@ -350,7 +349,13 @@ func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
 // CalculateSpellRangeTiles returns the configured range in tiles for a spell.
 func (cs *CombatSystem) CalculateSpellRangeTiles(spellID spells.SpellID) (float64, bool) {
 	def, ok := config.GetSpellDefinition(string(spellID))
-	if !ok || def == nil || def.Physics == nil || def.Physics.RangeTiles <= 0 {
+	if !ok || def == nil {
+		return 0, false
+	}
+	if def.MortarRangeTiles > 0 {
+		return def.MortarRangeTiles, true // a mortar always lands exactly this far
+	}
+	if def.Physics == nil || def.Physics.RangeTiles <= 0 {
 		return 0, false
 	}
 	return def.Physics.RangeTiles, true

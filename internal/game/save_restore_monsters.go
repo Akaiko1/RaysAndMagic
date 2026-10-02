@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"sort"
 	"ugataima/internal/collision"
 	"ugataima/internal/monster"
@@ -69,6 +70,12 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					key = findMonsterKeyByName(ms.Name)
 				}
 				if key == "" {
+					continue
+				}
+				// A monster removed or renamed in monsters.yaml since the save was
+				// written cannot be rebuilt; drop it rather than fail the load.
+				if _, err := monster.MonsterConfig.GetMonsterByKey(key); err != nil {
+					fmt.Printf("[Load] dropping saved monster %q: %v\n", key, err)
 					continue
 				}
 				x, y := ms.X, ms.Y

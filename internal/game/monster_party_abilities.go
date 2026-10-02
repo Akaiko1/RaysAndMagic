@@ -90,7 +90,7 @@ func (g *MMGame) updateAuthoredBandAggro() {
 			if !m.IsAlive() || m.AIFoe != nil {
 				continue
 			}
-			sight = sight || (m.IsEngagingPlayer && !m.ShouldDisengageFromPlayer(g.collisionSystem, g.camera.X, g.camera.Y)) || m.CanStartPlayerEngagement(g.collisionSystem, g.camera.X, g.camera.Y)
+			sight = sight || (m.IsEngagingPlayer && !m.ShouldDisengageFromPlayer(g.camera.X, g.camera.Y)) || m.CanStartPlayerEngagement(g.collisionSystem, g.camera.X, g.camera.Y)
 		}
 		for _, m := range peers {
 			if !m.IsAlive() || m.IsPartyControlled() || m.AIFoe != nil {

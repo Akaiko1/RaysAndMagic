@@ -126,21 +126,23 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 		"samurai_card":         "+20 true melee damage",
 		"masked_huntress_card": "+20% ranged damage",
 	} {
-		if got := cardEffectText(cardDef(key)); got != want {
-			t.Errorf("cardEffectText(%s) = %q, want %q", key, got, want)
+		if got := strings.Join(cardDef(key).CardCollectionLines(), ", "); got != want {
+			t.Errorf("collection lines of %s = %q, want %q", key, got, want)
 		}
 	}
 
-	// The effect also appears in the item tooltip (EffectLines), so hovering a
-	// loose card anywhere shows what it does in the collection.
-	found := false
-	for _, ln := range cardDef("ocelot_card").EffectLines() {
-		if ln == "Collection: +15 Speed" {
-			found = true
-		}
+	// One card for every view: the bag/shop card and the collector's card are
+	// the same text, the collector only adding its double-click hint, and both
+	// list each collection effect on its own line.
+	bag := GetItemTooltip(items.CreateItemFromYAML("ocelot_card"), nil, nil, false)
+	collector := strings.Join(cardItemTooltipLines("ocelot_card", "Double-click to remove"), "\n")
+	if !strings.Contains(bag, "EFFECTS\n+15 Speed") || strings.Replace(collector, "\nDouble-click to remove", "", 1) != bag {
+		t.Errorf("card views differ:\nbag:\n%s\ncollector:\n%s", bag, collector)
 	}
-	if !found {
-		t.Errorf("ocelot card tooltip should list its collection effect, got %v", cardDef("ocelot_card").EffectLines())
+	// A card whose effect is not built yet says so in every view.
+	stub := &config.ItemDefinitionConfig{Type: "card"}
+	if lines := stub.EffectLines(); len(lines) != 1 || lines[0] != "Currently not implemented" {
+		t.Errorf("an effectless card shows %v", lines)
 	}
 }
 
@@ -183,8 +185,8 @@ func TestCardEffects_BatchB(t *testing.T) {
 		"lich_card":          "10% to cheat death (half HP+SP)",
 		"gorilla_titan_card": "10% on move: 50 physical true damage within 5 tiles",
 	} {
-		if got := cardEffectText(cardDef(key)); got != want {
-			t.Errorf("cardEffectText(%s) = %q, want %q", key, got, want)
+		if got := strings.Join(cardDef(key).CardCollectionLines(), ", "); got != want {
+			t.Errorf("collection lines of %s = %q, want %q", key, got, want)
 		}
 	}
 }
@@ -1032,8 +1034,8 @@ func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
 			t.Errorf("%s: no item definition found", key)
 			continue
 		}
-		if got := cardEffectText(def); got == "" || got == "Currently not implemented" {
-			t.Errorf("%s: cardEffectText = %q, want a real effect", key, got)
+		if len(def.CardEffectLines()) == 0 {
+			t.Errorf("%s has no real collection effect", key)
 		}
 	}
 }

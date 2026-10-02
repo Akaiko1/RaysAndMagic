@@ -129,8 +129,8 @@ func TestMobInfo_GoldDragonShowsOnlyMonsterFacingStun(t *testing.T) {
 }
 
 // TestSpellCard_SharesMechanicsWithGame verifies the editor's spell card pulls
-// its base mechanics from the shared game tooltip, so previously-missing fields (stun chance, buff bonuses, charm,
-// zone, revive...) now appear and can't drift from the game.
+// its mechanics from the shared game tooltip, so previously-missing fields (stun chance, buff bonuses, charm,
+// zone, revive, every mastery tier...) appear and can't drift from the game.
 func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
@@ -146,8 +146,10 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	}
 	want := map[string]string{
 		"psychic_shock": "Stun chance: 10%",
-		"stone_skin":    "Base reduction: -4 per hit",
-		"heroism":       "Base physical damage bonus: +3",
+		"stone_skin":    "Reduction: -4/6/8/10 per hit",
+		"heroism":       "Physical damage bonus: +3/5/7/10",
+		"bless":         "Bonus to all stats: +5/6/8/10",
+		"earthquake":    "Damage: 50/100/200/400",
 		"charm":         "Pacifies",
 		"stun":          "Stuns every monster within 3.0 tiles",
 		"raise_dead":    "Revives the first fallen ally in party order to 25% HP",

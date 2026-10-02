@@ -450,20 +450,51 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	}
 }
 
+// Every catalog entry that spawns a monster by key resolves at boot: boss
+// summons, summon spells and summon cards. A typo would otherwise panic in the
+// monster constructor on the first summon, mid-fight.
 func TestShippedMonsterCatalogReferencesResolve(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	// The shipped catalog is a GLOBAL; under -shuffle no earlier test is
 	// guaranteed to have loaded it.
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	if err := monsterPkg.ValidateCatalogReferences(monsterPkg.MonsterConfig, cs.game.config); err != nil {
+	shipped := monsterPkg.MonsterConfig
+	if err := monsterPkg.ValidateCatalogReferences(shipped, cs.game.config); err != nil {
 		t.Fatalf("shipped monster catalog reference: %v", err)
 	}
-
-	bad := &monsterPkg.MonsterYAMLConfig{Monsters: map[string]monsterPkg.MonsterDefinition{
-		"summoner": {SummonMonsters: []string{"missing"}},
-	}}
-	if err := monsterPkg.ValidateCatalogReferences(bad, cs.game.config); err == nil {
-		t.Fatal("unknown summon monster passed catalog validation")
+	for _, tc := range []struct {
+		name, want string
+		breakRef   func(t *testing.T) *monsterPkg.MonsterYAMLConfig
+	}{
+		{"boss summon", "summon_monsters", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
+			bad := &monsterPkg.MonsterYAMLConfig{Monsters: map[string]monsterPkg.MonsterDefinition{}}
+			for k, v := range shipped.Monsters {
+				bad.Monsters[k] = v
+			}
+			bad.Monsters["summoner"] = monsterPkg.MonsterDefinition{SummonMonsters: []string{"missing"}}
+			return bad
+		}},
+		{"summon spell", "summon_monster", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
+			spell := config.GlobalSpells.Spells["summon_ice_elemental"]
+			prev := spell.SummonMonster
+			spell.SummonMonster = "missing"
+			t.Cleanup(func() { spell.SummonMonster = prev })
+			return shipped
+		}},
+		{"summon card", "card_summon_monster", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
+			card := config.GlobalItems.Items["orc_warlord_card"]
+			prev := card.CardSummonMonster
+			card.CardSummonMonster = "missing"
+			t.Cleanup(func() { card.CardSummonMonster = prev })
+			return shipped
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := monsterPkg.ValidateCatalogReferences(tc.breakRef(t), cs.game.config)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "missing") {
+				t.Fatalf("unknown %s key passed catalog validation: %v", tc.want, err)
+			}
+		})
 	}
 }
 

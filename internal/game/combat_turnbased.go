@@ -232,7 +232,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// modes. Ordinary fights intentionally remain sticky in TB, but this
 		// objective-specific encounter returns to its prop when the party leaves.
 		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
-			if m.ShouldDisengageFromPlayer(gl.game.collisionSystem, playerX, playerY) {
+			if m.ShouldDisengageFromPlayer(playerX, playerY) {
 				m.EndPlayerEngagement()
 				gl.game.refreshMonsterCollisionState(m)
 				continue

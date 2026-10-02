@@ -94,7 +94,7 @@ func (g *MMGame) brewSelectedRecipe() bool {
 	if config.GlobalAlchemy == nil || g.selectedRare < 0 || g.selectedRare >= len(config.GlobalAlchemy.Recipes) {
 		return false
 	}
-	if reason, safe := g.safeToPrepare(); !safe {
+	if reason, safe := g.safeToPrepare(brewActivity()); !safe {
 		g.AddCombatMessage(reason)
 		g.rareBookMessage = reason
 		return false
@@ -110,19 +110,5 @@ func (g *MMGame) brewSelectedRecipe() bool {
 	g.rareBookMessage = fmt.Sprintf("Prepared %d x %s.", n, d.Name)
 	g.AddCombatMessage(g.rareBookMessage)
 	g.startAlchemyBrewAnimation(r, n, ingredients)
-	return true
-}
-
-// Gate every book entry (hotkey or tab click). The transaction rechecks safety
-// because the selected hero can also change while an already-open menu is paused.
-func (g *MMGame) canOpenClassBook(tab MenuTab) bool {
-	if tab != TabSpellbook || g.party == nil || g.party.Members[g.selectedChar].Class != character.ClassAlchemist {
-		return true
-	}
-	if reason, safe := g.safeToPrepare(); !safe {
-		g.rareBookMessage = reason
-		g.AddCombatMessage(reason)
-		return false
-	}
 	return true
 }

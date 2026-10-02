@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -184,7 +185,7 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 	d, _ := config.GetItemDefinition("brewed_health_potion")
 	bonus := g.party.PotionSupport(recipient, d.HealBase, d.HealEnduranceDivisor, false)
 	want := character.ConsumableRestore(recipient, d.HealBase, d.HealEnduranceDivisor, false, bonus)
-	tooltip := buildSimpleItemTooltipWithParty(it, true, recipient, g.party)
+	tooltip := buildSimpleItemTooltipWithParty(it, true, recipient, g.party, g.combat)
 	if !strings.Contains(tooltip, fmt.Sprint(want)) || !strings.Contains(tooltip, "Master") {
 		t.Fatalf("tooltip diverged: %s", tooltip)
 	}
@@ -933,4 +934,71 @@ func finishRareHarvest(t *testing.T, g *MMGame) {
 		}
 	}
 	t.Fatal("harvest search did not finish")
+}
+
+// A technique card states its price and locks from the data and functions the
+// use path reads: the hero's SP cost and real recovery, and a reuse lock equal
+// to the one a real use sets. The catalog card (no hero) shows base values and
+// every tier, and no description repeats a lock number.
+func TestTechniqueCardsMatchTheirUse(t *testing.T) {
+	g0, _ := rareClassGame(t, character.ClassWayfarer, false)
+	tps := g0.config.GetTPS()
+	for _, d := range config.GlobalTechniques.Techniques {
+		d := d
+		item, ok := config.TechniqueItem(d.Key)
+		if !ok {
+			t.Fatalf("%s has no item", d.Key)
+		}
+		if d.ReuseSeconds > 0 && strings.Contains(d.Description, strconv.Itoa(d.ReuseSeconds)+" second") {
+			t.Errorf("%s description restates its reuse lock in prose", d.Key)
+		}
+		catalog := GetItemTooltip(item, nil, nil, true)
+		for _, want := range []string{fmt.Sprintf("Technique - Level %d", d.Level), fmt.Sprintf("Cost: %d SP", d.SPCost[0]), techniqueMagnitude(nil, &d, tps)} {
+			if !strings.Contains(catalog, want) {
+				t.Errorf("%s catalog card lacks %q:\n%s", d.Key, want, catalog)
+			}
+		}
+		for tier := 0; tier <= 3; tier++ {
+			for _, tb := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/tier%d/tb=%v", d.Key, tier, tb), func(t *testing.T) {
+					g, c := rareClassGame(t, character.ClassWayfarer, tb)
+					c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.SkillMastery(tier)}
+					card := GetItemTooltip(item, c, g.combat, true)
+					if want := fmt.Sprintf("Cost: %d SP", g.techniqueSPCost(c, &d)); !strings.Contains(card, want) {
+						t.Fatalf("card lacks %q:\n%s", want, card)
+					}
+					if frames := g.techniqueCooldown(c, &d); frames > 0 && !strings.Contains(card, cooldownLine(g.combat, frames)) {
+						t.Fatalf("card lacks the real recovery %q:\n%s", cooldownLine(g.combat, frames), card)
+					}
+					if d.ReuseSeconds == 0 {
+						if strings.Contains(card, "Reuse:") {
+							t.Fatalf("a technique without a lock shows one:\n%s", card)
+						}
+						return
+					}
+					if !strings.Contains(card, fmt.Sprintf("Reuse: %ds", d.ReuseSeconds)) {
+						t.Fatalf("card lacks the %ds reuse lock:\n%s", d.ReuseSeconds, card)
+					}
+					g.party.Members[1].PoisonFramesRemaining = 100 // something for Purify to clear
+					if d.Key == "return_step" {
+						// Return needs the anchor a Fold leaves; then let space settle.
+						if !g.useTechnique(0, "fold_step", false, false) {
+							t.Fatal("fold failed")
+						}
+						g.spatialReuseFrames, g.spatialStepThisTurn = 0, false
+					}
+					if !g.useTechnique(0, d.Key, false, false) {
+						t.Fatal("use failed")
+					}
+					lock := c.RareClass.PurifyFrames
+					if d.FreeStep {
+						lock = g.spatialReuseFrames
+					}
+					if lock != d.ReuseSeconds*tps {
+						t.Fatalf("use set a %d-frame lock, the card says %ds", lock, d.ReuseSeconds)
+					}
+				})
+			}
+		}
+	}
 }

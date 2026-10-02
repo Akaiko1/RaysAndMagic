@@ -239,9 +239,6 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 			continue
 		}
 		add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
-		if add == nil {
-			continue
-		}
 		add.WasAttacked = true
 		add.BeginPlayerEngagement() // summons wake hostile
 		add.SummonedBy = m.ID

@@ -632,9 +632,6 @@ func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.Pac
 			key = r.Monster
 		}
 		m := monster.NewMonster3DFromConfig(x, y, key, g.config)
-		if m == nil {
-			continue
-		}
 		m.PackKey = tag
 		m.QuestProgressIgnored = !member.QuestProgress
 		g.stampMonsterHome(w, m)

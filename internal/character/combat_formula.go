@@ -88,18 +88,32 @@ type DurationBreakdown struct {
 }
 
 func SpellDurationBreakdown(def spells.SpellDefinition, c *MMCharacter) DurationBreakdown {
+	return SpellDurationAtTier(def, SpellMasteryTier(c, def))
+}
+
+func SpellDurationAtTier(def spells.SpellDefinition, tier int) DurationBreakdown {
 	if def.Duration <= 0 {
 		return DurationBreakdown{}
 	}
-	out := DurationBreakdown{Base: def.Duration, MasteryPct: SpellMasteryTier(c, def) * SpellMasteryDurationBonusPct}
+	out := DurationBreakdown{Base: def.Duration, MasteryPct: tier * SpellMasteryDurationBonusPct}
 	out.Seconds = out.Base * (100 + out.MasteryPct) / 100
+	return out
+}
+
+// SpellFormulaTiers evaluates a spell formula for a statless caster at every
+// tier: the catalog view of what mastery alone adds.
+func SpellFormulaTiers(f stats.Formula) [4]stats.Breakdown {
+	var out [4]stats.Breakdown
+	for t := range out {
+		out[t] = f.Evaluate(stats.StatBonuses{}, t)
+	}
 	return out
 }
 
 // WeaponStrikeCount and WeaponStrikeDamage describe one melee action. Ranged
 // volleys retain full damage per projectile; their count is authored separately.
 func WeaponStrikeCount(def *config.WeaponDefinitionConfig) int {
-	if def != nil && def.Range <= 3 && def.DoubleStrike {
+	if def != nil && !def.IsRanged() && def.DoubleStrike {
 		return 2
 	}
 	return 1
@@ -111,7 +125,7 @@ func WeaponStrikeDamage(def *config.WeaponDefinitionConfig, normal int) int {
 }
 
 func BallisticsWeapon(def *config.WeaponDefinitionConfig) bool {
-	return def != nil && def.Range > 3 && (def.Category == "bow" || def.Category == "blaster")
+	return def.IsRanged() && (def.Category == "bow" || def.Category == "blaster")
 }
 
 // EffectiveWeaponFlight is shared by launch, target eligibility and tooltips.

@@ -29,6 +29,8 @@ func TestEditorCardsWired(t *testing.T) {
 				case cardSpell:
 					if trap, ok := config.TrapItem(c.key); ok {
 						it = trap
+					} else if technique, ok := config.TechniqueItem(c.key); ok {
+						it = technique
 					} else {
 						var err error
 						it, err = spells.CreateSpellItem(spells.SpellID(c.key))
@@ -54,6 +56,16 @@ func TestEditorCardsWired(t *testing.T) {
 					t.Fatal("save hover mutated the item")
 				}
 			})
+		}
+	}
+	// Every technique has a catalog card.
+	listed := map[string]bool{}
+	for _, c := range buildSpellCards() {
+		listed[c.key] = true
+	}
+	for _, d := range config.GlobalTechniques.Techniques {
+		if !listed[d.Key] {
+			t.Errorf("technique %s is missing from the catalog", d.Key)
 		}
 	}
 	// Starting equipment hovers resolve through these same catalogs.

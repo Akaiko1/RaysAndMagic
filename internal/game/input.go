@@ -1667,9 +1667,6 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 		g.spellInputCooldown = g.config.UI.SpellInputCooldown
 		return
 	}
-	if !g.canOpenClassBook(tab) {
-		return
-	}
 	g.currentTab = tab
 	if tab == TabSpellbook {
 		g.selectedSpell = -1 // clear highlight until the user picks one
@@ -1678,9 +1675,6 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 
 // openTabbedMenu opens the tabbed menu with the specified tab
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
-	if !ih.game.canOpenClassBook(tab) {
-		return
-	}
 	ih.game.menuOpen = true
 	ih.game.currentTab = tab
 	if tab == TabSpellbook {

@@ -52,7 +52,11 @@ func TestWeaponCardsExcludeBallisticsDescription(t *testing.T) {
 						if strings.Contains(card, description) {
 							t.Fatal("weapon card includes the Ballistics skill description")
 						}
-						if !strings.Contains(card, "Range:") || !strings.Contains(card, "DAMAGE") {
+						reach := "Range:" // melee states reach in its swing-arc line
+						if !def.IsRanged() {
+							reach = character.MeleeSwingArcLine(def)
+						}
+						if !strings.Contains(card, reach) || !strings.Contains(card, "DAMAGE") {
 							t.Fatal("weapon facts are missing")
 						}
 					})

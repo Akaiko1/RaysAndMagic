@@ -132,7 +132,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 				m.Purify()
 			}
 			g.partyRoot = PartyRootState{}
-			c.RareClass.PurifyFrames = 6 * tps
+			c.RareClass.PurifyFrames = d.ReuseSeconds * tps
 		case "phase_veil", "quickening":
 			b := TimedCombatBuff{SpellID: key, Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, TechniqueTier: tier}
 			if key == "phase_veil" {
@@ -357,7 +357,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	} else {
 		c.RareClass.Anchor = character.SpatialAnchor{}
 	}
-	g.spatialReuseFrames = 3 * g.config.GetTPS()
+	g.spatialReuseFrames = config.Technique(key).ReuseSeconds * g.config.GetTPS()
 	if g.turnBasedMode {
 		g.spatialStepThisTurn = true
 	}
@@ -373,7 +373,7 @@ func (g *MMGame) automaticTechniqueTrigger(key string) bool {
 	engaged, near := false, 0
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && !m.Bound && m.TargetsParty() {
+		if g.monsterPressesParty(m) {
 			engaged = true
 			if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= 2*ts {
 				near++

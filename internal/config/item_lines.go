@@ -214,10 +214,20 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 		lines = append(lines, uitext.Text("item.offers_a_party_member_the_path_of"))
 	}
 	lines = append(lines, d.TooltipEffects...)
-	if cl := d.CardEffectLines(); len(cl) > 0 {
-		lines = append(lines, uitext.Text("item.collection")+strings.Join(cl, ", "))
+	if d.Type == "card" {
+		lines = append(lines, d.CardCollectionLines()...)
 	}
 	return lines
+}
+
+// CardCollectionLines is what a monster card does while it is in the
+// collection, one effect per line; a card with no Card* field yet says so.
+// Every card view (bag, shop, collector, Cards tab, editor) shows this list.
+func (d *ItemDefinitionConfig) CardCollectionLines() []string {
+	if lines := d.CardEffectLines(); len(lines) > 0 {
+		return lines
+	}
+	return []string{uitext.Text("item.card_not_implemented")}
 }
 
 // RecoveryLines describes the item's base recovery and attribute scaling.

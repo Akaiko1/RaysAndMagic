@@ -288,7 +288,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 	ui.rareBookButton(screen, layoutRect{a.controls.x + 30, a.controls.y, 26, 26}, "+", g.alchemyBatches < preview.max, func() { g.alchemyBatches++ })
 	drawCenteredUIText(screen, fittingUIForm(a.controls.w-218, fmt.Sprintf("Batches %d/%d", g.alchemyBatches, preview.max), fmt.Sprintf("%d/%d", g.alchemyBatches, preview.max)), a.controls.x+60, a.controls.y, a.controls.w-218, 26)
 	ui.rareBookButton(screen, a.maximum, "Max", preview.max > 0, func() { g.alchemyBatches = preview.max })
-	reason, safe := g.safeToPrepare()
+	reason, safe := g.safeToPrepare(brewActivity())
 	ui.rareBookButton(screen, a.brew, fmt.Sprintf("Brew %d items", yield*g.alchemyBatches), safe && preview.err == nil, func() { g.brewSelectedRecipe() })
 	message := g.rareBookMessage
 	if message == "" {

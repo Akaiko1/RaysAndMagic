@@ -894,9 +894,24 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 		return nil
 	}
 	wm := world.GlobalWorldManager
+	// Kill progress matches a monster by its normalized display name
+	// (questMonsterTag), so a target must name at least one monster that way.
+	monsterTags := map[string]bool{}
+	if monster.MonsterConfig != nil {
+		for _, def := range monster.MonsterConfig.Monsters {
+			monsterTags[quests.NormalizeTarget(def.Name)] = true
+		}
+	}
 	for id, def := range qm.Definitions() {
 		if def == nil {
 			return fmt.Errorf("quest %q has empty definition", id)
+		}
+		if def.Type == quests.QuestTypeKill && len(monsterTags) > 0 {
+			for _, target := range append([]string{def.TargetMonster}, def.TargetMonsters...) {
+				if target != "" && !monsterTags[quests.NormalizeTarget(target)] {
+					return fmt.Errorf("quest %q target %q matches no monster name in monsters.yaml (kills are counted by normalized name)", id, target)
+				}
+			}
 		}
 		if wm != nil && def.TargetMap != "" && wm.WorldByKey(def.TargetMap) == nil {
 			return fmt.Errorf("quest %q references unknown target_map %q", id, def.TargetMap)

@@ -62,27 +62,32 @@ func (g *MMGame) ownerTrapCount(owner *character.MMCharacter) int {
 // flat base + (Intellect+Accuracy)/divisor + Trapper mastery. The SAME
 // function feeds the trap-book tooltip, so combat and UI can't drift.
 func trapDamage(def *config.TrapDefinitionConfig, owner *character.MMCharacter) int {
-	dmg := def.DamageBase
-	if dmg <= 0 {
+	if def.DamageBase <= 0 || owner == nil {
+		return trapDamageAtTier(def, 0)
+	}
+	stat := (owner.GetEffectiveIntellect() + owner.GetEffectiveAccuracy()) / character.TrapStatScalingDivisor
+	return trapDamageAtTier(def, owner.SkillTier(character.SkillTrapper)) + stat
+}
+
+// trapDamageAtTier is a trap's damage for a statless owner at a Trapper tier.
+func trapDamageAtTier(def *config.TrapDefinitionConfig, tier int) int {
+	if def.DamageBase <= 0 {
 		return 0
 	}
-	if owner != nil {
-		dmg += (owner.GetEffectiveIntellect() + owner.GetEffectiveAccuracy()) / character.TrapStatScalingDivisor
-		dmg += owner.SkillTier(character.SkillTrapper) * character.TrapperDamagePerTier
-	}
-	return dmg
+	return def.DamageBase + tier*character.TrapperDamagePerTier
 }
 
 // trapControlDuration returns the mastery-extended control duration of a trap
 // in TB turns and RT seconds (whichever pair the trap carries - stun or root).
 func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacter) (turns, seconds int) {
-	turns, seconds = baseTurns, baseSeconds
-	if owner != nil {
-		tier := owner.SkillTier(character.SkillTrapper)
-		turns += character.TrapperTurnBonus(tier)
-		seconds += tier * character.TrapperSecondsPerTier
+	if owner == nil {
+		return baseTurns, baseSeconds
 	}
-	return turns, seconds
+	return trapControlDurationAtTier(baseTurns, baseSeconds, owner.SkillTier(character.SkillTrapper))
+}
+
+func trapControlDurationAtTier(baseTurns, baseSeconds, tier int) (turns, seconds int) {
+	return baseTurns + character.TrapperTurnBonus(tier), baseSeconds + tier*character.TrapperSecondsPerTier
 }
 
 // equipTrap puts a trap into the character's quick slot. Refuses unknown keys

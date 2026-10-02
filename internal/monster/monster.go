@@ -764,7 +764,7 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 // future poison source follows the same rule. Refreshing never shortens an
 // existing, longer poison.
 func (m *Monster3D) ApplyPoison(frames int) bool {
-	if m == nil || frames <= 0 || m.MonsterType == "undead" {
+	if m == nil || frames <= 0 || m.MonsterType == TypeUndead {
 		return false
 	}
 	return status.Refresh(&m.PoisonedFramesRemaining, frames)

@@ -21,6 +21,12 @@ var tooltipDetailHeld = func() bool {
 // GetItemTooltip is shared by inventory, shops and editor catalogs. A nil
 // character requests the item's base values, independent of any active game.
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+	return itemTooltipWithUsage(item, char, combatSystem, full)
+}
+
+// itemTooltipWithUsage is GetItemTooltip with context hints appended to the
+// card's USAGE section (the Card Collector names its double-click action).
+func itemTooltipWithUsage(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) string {
 	if char == nil {
 		combatSystem = nil
 	}
@@ -53,25 +59,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	switch item.Type {
 	case items.ItemTechnique:
 		if d := config.Technique(string(item.SpellEffect)); d != nil {
-			tier := 0
-			if char != nil {
-				tier = char.SkillTier(character.SkillTranslocation)
-			}
-			cost := config.TierValue(d.SPCost, tier)
-			if combatSystem != nil && combatSystem.game != nil && char != nil {
-				cost = combatSystem.game.techniqueSPCost(char, d)
-			}
-			core = fmt.Sprintf("%s\nTechnique | Level %d | %d SP\n\n%s", d.Name, d.Level, cost, d.Description)
-			if char != nil {
-				tps := config.DefaultTPS
-				if combatSystem != nil && combatSystem.game != nil {
-					tps = combatSystem.game.config.GetTPS()
-				}
-				core += "\n" + techniqueMagnitude(char, d, tps)
-			}
-			if d.Automatic {
-				core += "\n\nAutocast (switch on in the technique book): " + d.Trigger
-			}
+			core = buildTechniqueTooltipUnified(d, char, combatSystem, full)
 		}
 	case items.ItemTrap:
 		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
@@ -86,7 +74,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if combatSystem != nil && combatSystem.game != nil {
 			party = combatSystem.game.party
 		}
-		core = buildSimpleItemTooltipWithParty(item, full, char, party)
+		core = buildSimpleItemTooltipWithParty(item, full, char, party, combatSystem, usage...)
 	}
 	if core == "" {
 		core = fmt.Sprintf("%s\n%s", item.Name, item.DisplayKind())
@@ -103,7 +91,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	if len(tail) > 0 {
 		core += "\n\n" + strings.Join(tail, "\n")
 	}
-	return core
+	return hintLast(core)
 }
 
 // GetItemComparisonTooltip returns a comparison block against the currently equipped item
@@ -434,7 +422,7 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	if def.Description != "" {
 		out += "\n\n\"" + def.Description + "\""
 	}
-	return out
+	return hintLast(out)
 }
 
 // spellSchoolForChar is the school a card SCORES this spell under: the one the

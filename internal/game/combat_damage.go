@@ -319,7 +319,7 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		preview.True, _ = cs.weaponMasteryStrike(char, def)
 		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
 	}
-	isRanged := def.Range > 3
+	isRanged := def.IsRanged()
 	if char != nil && cs != nil && cs.game != nil && cs.game.isPartyMember(char) {
 		if isRanged {
 			preview.CardDamagePct = cs.game.cardRangedDmgPct()

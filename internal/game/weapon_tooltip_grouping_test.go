@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -42,7 +43,7 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 					lines := strings.Split(card, "\n")
 					group := ""
 					for _, line := range lines {
-						if tooltipSectionHeading(line) {
+						if character.IsCardSectionTitle(line) {
 							group = line
 						}
 						for _, expected := range []struct{ prefix, section string }{

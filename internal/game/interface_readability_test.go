@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -54,7 +55,7 @@ func tooltipCatalog(t *testing.T) (*CombatSystem, []itemTooltipCard) {
 			})
 		}
 		if key := itemCardKey(it); key != "" {
-			cards = append(cards, itemTooltipCard{name: "card " + key, lines: cardCollectionTooltipLines(cardDef(key))})
+			cards = append(cards, itemTooltipCard{name: "card " + key, lines: cardItemTooltipLines(key, uitext.Text("dialog.double_click_to_remove"))})
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {

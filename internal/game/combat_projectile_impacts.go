@@ -571,17 +571,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	if rollMonsterDisintegrate(monster, disintegrateChance) {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, attack.Packet.normalDamage())
-
-		monster.HitPoints = 0
-		cs.markMonsterHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
-
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
-		if aoeRadiusTiles > 0 {
-			cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
-		}
+		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, aoeRadiusTiles,
+			fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		return
 	}
 
@@ -609,20 +601,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	actualDamage, isCrit := hit.Total(), hit.Critical
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)
-	executed := false
-	if monster.IsAlive() {
-		cs.tryApplyWeaponHitRiders(monster, weaponDef)
+	executed, xpAwarded := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, func() {
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
 			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
 		}
-		// The Maw already credits its kill and announces itself.
-		executed = cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName)
-	}
-	xpAwarded := 0
-	if !monster.IsAlive() && !executed {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef, attacker)
-	}
+	})
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if executed {
@@ -633,20 +617,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 
 	if !monster.IsAlive() {
-		prefix := ""
-		if isCrit {
-			prefix = "Critical! "
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
-			prefix, attackerName, monster.Name, actualDamage))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+		cs.announcePartyKill(isCrit, attackerName, monster.Name, actualDamage, xpAwarded)
 	} else {
-		prefix := ""
-		if isCrit {
-			prefix = "Critical! "
-		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
-			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
+			critPrefix(isCrit), weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
 	}
 
 	if aoeRadiusTiles > 0 {

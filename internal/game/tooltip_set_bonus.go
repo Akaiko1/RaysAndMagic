@@ -1,16 +1,16 @@
 package game
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
-const equipmentSetSectionTitle = "SET"
+const equipmentSetSectionTitle = character.CardSectionSet
 
 var equipmentBenefitColor = color.RGBA{120, 225, 135, 255}
 
@@ -18,7 +18,7 @@ func equipmentSetTooltipLines(key string, bearer *character.MMCharacter) []strin
 	lines := config.EquipmentSetLines(key)
 	if bearer != nil && len(lines) > 0 {
 		count, required := bearer.EquipmentSetProgress(key)
-		lines[0] = fmt.Sprintf("Set: %s (%d/%d equipped)", config.GetItemSet(key).Name, count, required)
+		lines[0] = uitext.Text("item.set_equipped", config.GetItemSet(key).Name, count, required)
 	}
 	return lines
 }

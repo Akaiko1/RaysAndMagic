@@ -880,7 +880,7 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 		switch {
 		case line == "":
 			boxH += spacerH
-		case isTooltipSection(line):
+		case isInspectorHeading(line):
 			boxH += headerH
 		default:
 			boxH += lineH
@@ -908,7 +908,7 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 		switch {
 		case line == "":
 			y += spacerH
-		case isTooltipSection(line):
+		case isInspectorHeading(line):
 			drawTooltipSectionLine(screen, line, boxX+7, y, boxW-14, headerH)
 			y += headerH
 		default:

@@ -177,7 +177,7 @@ func TestCardMoveBurstRadiusAfterSaveLoad(t *testing.T) {
 	oldRadius := def.CardMoveAoeRadiusTiles
 	def.CardMoveAoeRadiusTiles = 3.5
 	t.Cleanup(func() { def.CardMoveAoeRadiusTiles = oldRadius })
-	if loaded.cardMoveAoeRadiusTiles() != 3.5 || !strings.Contains(cardEffectText(def), "within 3.5 tiles") ||
+	if loaded.cardMoveAoeRadiusTiles() != 3.5 || !strings.Contains(strings.Join(def.CardCollectionLines(), ", "), "within 3.5 tiles") ||
 		!strings.Contains(strings.Join(loaded.cardCollectionEffectLines(), "\n"), "within 3.5 tiles") {
 		t.Fatal("runtime and tooltips must use the live catalog radius")
 	}

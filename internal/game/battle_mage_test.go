@@ -710,3 +710,52 @@ func TestStrongMagicContractTable(t *testing.T) {
 		}
 	})
 }
+
+// The spell card names the HP a damaging cast burns, and it is exactly what
+// the real cast takes; spells that deal no damage and heals show no price.
+func TestStrongMagicSpellCardStatesHPCost(t *testing.T) {
+	tiers := []struct {
+		name  string
+		skill *character.Skill
+	}{
+		{"no skill", nil},
+		{"novice", &character.Skill{Mastery: character.MasteryNovice}},
+		{"expert", &character.Skill{Mastery: character.MasteryExpert}},
+		{"master", &character.Skill{Mastery: character.MasteryMaster}},
+		{"grandmaster", &character.Skill{Mastery: character.MasteryGrandMaster}},
+	}
+	for _, key := range []spells.SpellID{"rock_blast", "fireball", "stun", "heal"} {
+		for _, tier := range tiers {
+			t.Run(fmt.Sprintf("%s/%s", key, tier.name), func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				caster := cs.game.party.Members[0]
+				delete(caster.Skills, character.SkillStrongMagic)
+				if tier.skill != nil {
+					caster.Skills[character.SkillStrongMagic] = tier.skill
+				}
+				def, err := spells.GetSpellDefinitionByID(key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				caster.HitPoints, caster.MaxHitPoints = 500, 500
+				caster.SpellPoints, caster.MaxSpellPoints = 500, 500
+				cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+				want := character.StrongMagicHPCost(cost, strongMagicPct(caster, def))
+				card := GetSpellTooltip(key, caster, cs, false)
+				shown := strings.Contains(card, "Strong Magic: also burns")
+				if shown != (want > 0) || (want > 0 && !strings.Contains(card, fmt.Sprintf("also burns %d HP", want))) {
+					t.Fatalf("card shows a Strong Magic price = %v, want %d HP:\n%s", shown, want, card)
+				}
+				if !def.IsOffensive() || def.DealsNoDamage {
+					return
+				}
+				if !cs.castResolvedSpell(key, def, caster, cost, false, false) {
+					t.Fatal("cast failed")
+				}
+				if got := 500 - caster.HitPoints; got != want {
+					t.Fatalf("the cast burned %d HP, the card says %d", got, want)
+				}
+			})
+		}
+	}
+}

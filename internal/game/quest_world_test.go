@@ -437,3 +437,49 @@ func TestQuestWorldReferencesRejectOffChainStepLinks(t *testing.T) {
 		t.Fatalf("own-chain links rejected: %v", err)
 	}
 }
+
+// Kill progress matches a monster by its normalized display name, so every
+// kill target must name at least one monster that way: a renamed monster or a
+// typo fails the boot instead of silently freezing the quest.
+func TestKillQuestTargetsMatchMonsterNames(t *testing.T) {
+	cfg := loadTestConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	prevWM := world.GlobalWorldManager
+	world.GlobalWorldManager = nil // map references are another validator's job
+	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
+	g := &MMGame{config: cfg}
+	shipped, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.validateQuestWorldReferences(quests.NewQuestManager(shipped)); err != nil {
+		t.Fatalf("shipped quests: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		def     quests.QuestDefinition
+		wantErr bool
+	}{
+		{"display name", quests.QuestDefinition{TargetMonster: "forest spider"}, false},
+		{"name shared by a group", quests.QuestDefinition{TargetMonster: "elder_dragon"}, false},
+		{"monster key that is not its name", quests.QuestDefinition{TargetMonster: "rat"}, true},
+		{"typo", quests.QuestDefinition{TargetMonster: "forest_spidr"}, true},
+		{"one bad entry in a list", quests.QuestDefinition{TargetMonsters: []string{"wolf", "wolff"}}, true},
+		{"interact tags are not monsters", quests.QuestDefinition{Type: quests.QuestTypeInteract, TargetMonster: "valve"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := tc.def
+			if def.Type == "" {
+				def.Type = quests.QuestTypeKill
+			}
+			qc := &quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"probe": &def}}
+			for id, q := range shipped.Quests {
+				qc.Quests[id] = q
+			}
+			err := g.validateQuestWorldReferences(quests.NewQuestManager(qc))
+			if got := err != nil && strings.Contains(err.Error(), "matches no monster name"); got != tc.wantErr || (!tc.wantErr && err != nil) {
+				t.Fatalf("validation error = %v, want the target error %v", err, tc.wantErr)
+			}
+		})
+	}
+}

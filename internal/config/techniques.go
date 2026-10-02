@@ -22,8 +22,11 @@ type TechniqueDefinition struct {
 	Range           [4]int  `yaml:"range_tiles"`
 	MinRange        int     `yaml:"min_range_tiles"`
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`
-	Automatic       bool    `yaml:"automatic"`
-	FreeStep        bool    `yaml:"free_step"`
+	// ReuseSeconds locks the technique after use: Purify's own recovery, and
+	// for steps the party's shared spatial lock (TB: also once per turn).
+	ReuseSeconds int  `yaml:"reuse_seconds"`
+	Automatic    bool `yaml:"automatic"`
+	FreeStep     bool `yaml:"free_step"`
 }
 type TechniqueConfig struct {
 	Techniques []TechniqueDefinition `yaml:"techniques"`
@@ -49,6 +52,11 @@ func LoadTechniques(filename string) error {
 		seen[d.Key] = true
 		if d.FreeStep != (d.Key == "fold_step" || d.Key == "return_step") || d.Automatic == d.FreeStep {
 			return fmt.Errorf("technique %q has incompatible controls", d.Key)
+		}
+		// Only steps (one shared spatial lock) and Purify (its own recovery)
+		// have a reuse lock in code; on any other technique it would be ignored.
+		if wantsLock := d.FreeStep || d.Key == "purify"; d.ReuseSeconds < 0 || wantsLock != (d.ReuseSeconds > 0) {
+			return fmt.Errorf("technique %q: reuse_seconds is required on steps and purify and unsupported elsewhere", d.Key)
 		}
 		if d.MinRange < 0 || d.Key == "fold_step" && d.MinRange < 1 {
 			return fmt.Errorf("technique %q has invalid minimum range", d.Key)

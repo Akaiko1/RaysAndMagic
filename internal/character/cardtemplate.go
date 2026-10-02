@@ -157,6 +157,21 @@ const WeaponSplashCritRule = SplashCritRule + "; Designate Target's critical bon
 
 // CooldownLine formats a real-time cooldown, noting that turn-based combat
 // ignores the seconds and spends the actor's single action for the turn instead.
+// CardSectionSet titles the equipment-set block of a card.
+const CardSectionSet = "SET"
+
+var cardSectionTitles = map[string]bool{
+	"DAMAGE": true, "DAMAGE PER TICK": true, "HEALING": true, "CRITICAL": true, "ATTACK": true, "EFFECTS": true,
+	"DEFENSE": true, "CASTING": true, "ZONE": true, "PLACEMENT": true, "CONTROL": true, "USAGE": true, "REQUIREMENTS": true,
+	"RECOVERY": true, "DURATION": true, "MASTERY": true, "GRANDMASTER": true, "TRIGGER": true, "LIMITS": true,
+	"ATTRIBUTES": true, "RESISTANCES": true, "CHANGES": true, "REAL TIME": true, "TURN BASED": true, CardSectionSet: true,
+}
+
+// IsCardSectionTitle reports whether a card line is a section heading. Game
+// tooltips and the editor catalog both read headings from this one list, so a
+// new section is one entry here.
+func IsCardSectionTitle(line string) bool { return cardSectionTitles[line] }
+
 func CooldownLine(seconds float64) string {
 	return CooldownLineTB(seconds, "1 action")
 }
@@ -192,7 +207,7 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 	if dt == "" || (err == nil && school == damagecalc.Physical) {
 		sec.AddDetail("Reduced by target Armor (up to %d%%, diminishing)", ArmorPhysicalMitigationCap)
 		if isRanged {
-			sec.AddDetail("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)
+			sec.AddDetail("%s", ArmorPierceShotsLine())
 		}
 	} else {
 		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, config.TitleWords(dt))

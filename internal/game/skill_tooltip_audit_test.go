@@ -132,7 +132,7 @@ func assertSkillGrandMasterSection(t *testing.T, text string, want bool) {
 		t.Fatal("Grandmaster label repeated below its heading")
 	}
 	if want {
-		if !tooltipSectionHeading("GRANDMASTER") {
+		if !character.IsCardSectionTitle("GRANDMASTER") {
 			t.Fatal("Grandmaster bonus lacks the shared heading style")
 		}
 		_, bonus, _ := strings.Cut(text, "\n\nGRANDMASTER\n")

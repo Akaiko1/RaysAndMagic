@@ -322,7 +322,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			drawCenteredUIText(screen, clipUIText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
 
 			if hovered {
-				hover = ui.appendCardArtHint(cardCollectionTooltipLines(def), key)
+				hover = ui.appendCardArtHint(cardItemTooltipLines(key), key)
 			}
 		}
 	}
@@ -342,9 +342,6 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 	}
 
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
-		if !ui.game.canOpenClassBook(tab) {
-			return
-		}
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
 			ui.game.selectedSpell = -1
