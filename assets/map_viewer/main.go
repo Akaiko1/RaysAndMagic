@@ -2374,50 +2374,9 @@ func (v *viewer) rebuildLegend(resetScroll bool) {
 	}
 }
 
-// legendBuildItem is a legend entry plus whether its source def is
-// biome-specific (used to drop the universal fallback when a biome-specific
-// def claims the same letter).
-type legendBuildItem struct {
-	entry    legendEntry
-	specific bool
-}
-
-// emitBiomeScopedSplit partitions biome-SPECIFIC and universal ("general")
-// entries so the editor can list universally-placeable
-// objects (fern patches, wall props, ...) under their own "biome: general"
-// header instead of repeating them in every biome section. The letter-collision
-// rule is unchanged: when a biome-specific def claims a letter, the universal
-// entry for that letter is dropped from BOTH buckets (it never resolves here).
-func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, general []legendEntry) {
-	letters := make([]string, 0, len(byLetter))
-	for l := range byLetter {
-		letters = append(letters, l)
-	}
-	sort.Strings(letters)
-	for _, l := range letters {
-		items := byLetter[l]
-		hasSpecific := false
-		for _, it := range items {
-			if it.specific {
-				hasSpecific = true
-				break
-			}
-		}
-		kept := make([]legendEntry, 0, len(items))
-		for _, it := range items {
-			if hasSpecific && !it.specific {
-				continue // biome-specific def wins this letter; hide universal
-			}
-			kept = append(kept, it.entry)
-		}
-		sort.Slice(kept, func(i, j int) bool { return kept[i].Text < kept[j].Text })
-		if hasSpecific {
-			specific = append(specific, kept...)
-		} else {
-			general = append(general, kept...)
-		}
-	}
-	return specific, general
+// sortLegendEntries orders palette rows by their text.
+func sortLegendEntries(entries []legendEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Text < entries[j].Text })
 }
 
 const (
@@ -2551,11 +2510,11 @@ func appendLegendGroup(out []legendEntry, group legendGroup, collapsed map[strin
 	return out
 }
 
-// buildLegendEntries builds the editor palette scoped to one biome: universal
-// tiles/monsters plus those whose biome list contains `biome`. Other biomes'
-// entries are hidden so a forest tree can't be painted into a desert map, and
-// when a biome-specific def shares a letter with a universal one, only the
-// biome-specific (the def that actually resolves) is shown.
+// buildLegendEntries builds the editor palette scoped to one biome. Each grid
+// letter shows the def the map loader resolves for it in this biome (the
+// runtime resolvers own the biome-over-universal rule), so what is painted is
+// what loads; biome-specific winners list under the biome, universal ones
+// under "general". Then editor-only restrictions apply.
 func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string, collapsed map[string]bool) []legendEntry {
 	var entries []legendEntry
 	const toolsCollapseID = "scope:tools"
@@ -2570,7 +2529,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	}
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 
-	tileItems := make(map[string][]legendBuildItem)
+	tileLetters := map[string]bool{}
 	var generalLabelTiles []legendEntry
 	var biomeLabelTiles []legendEntry
 	var tiles map[string]*config.TileData
@@ -2600,54 +2559,57 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 			}
 			continue
 		}
-		if !matchesBiome(data.Biomes, biome) {
+		tileLetters[data.Letter] = true
+	}
+	sortLegendEntries(generalLabelTiles)
+	sortLegendEntries(biomeLabelTiles)
+	var tileSpecific, tileGeneral []legendEntry
+	for letter := range tileLetters {
+		tt, ok := tm.GetTileTypeFromLetterForBiome(letter, biome)
+		if !ok {
 			continue
 		}
-		text := fmt.Sprintf("%s  %s (%s)", data.Letter, key, data.Name)
-		tileItems[data.Letter] = append(tileItems[data.Letter], legendBuildItem{
-			entry: legendEntry{
-				Text:    text,
-				Kind:    brushTile,
-				Letter:  data.Letter,
-				TileKey: key,
-			},
-			specific: len(data.Biomes) > 0,
-		})
+		key := tm.GetTileKey(tt)
+		data := tiles[key]
+		entry := legendEntry{Text: fmt.Sprintf("%s  %s (%s)", letter, key, data.Name), Kind: brushTile, Letter: letter, TileKey: key}
+		if len(data.Biomes) > 0 {
+			tileSpecific = append(tileSpecific, entry)
+		} else {
+			tileGeneral = append(tileGeneral, entry)
+		}
 	}
-	sort.Slice(generalLabelTiles, func(i, j int) bool { return generalLabelTiles[i].Text < generalLabelTiles[j].Text })
-	sort.Slice(biomeLabelTiles, func(i, j int) bool { return biomeLabelTiles[i].Text < biomeLabelTiles[j].Text })
-	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
+	sortLegendEntries(tileSpecific)
+	sortLegendEntries(tileGeneral)
 
 	var monSpecific, monGeneral []legendEntry
 	if mc != nil {
-		monsterItems := make(map[string][]legendBuildItem)
-		for key, def := range mc.Monsters {
-			letter := def.Letter
-			if letter == "" {
+		monsterLetters := map[string]bool{}
+		for _, def := range mc.Monsters {
+			if def.Letter != "" {
+				monsterLetters[def.Letter] = true
+			}
+		}
+		for letter := range monsterLetters {
+			def, key, err := mc.GetMonsterByLetterForBiome(letter, biome)
+			if err != nil {
 				continue
 			}
 			// Champion carriers only work through the arena duel flow
-			// (startArenaDuel spawns + mirrors them) - placing one by hand
-			// yields a broken mob, so keep them out of the palette.
+			// (startArenaDuel spawns + mirrors them): a letter that resolves to
+			// one here would load as a broken mob, so it is not paintable.
 			if def.Champion != "" {
 				continue
 			}
-			if !matchesBiome(def.Biomes, biome) {
-				continue
+			entry := legendEntry{Text: fmt.Sprintf("%s  %s (%s)", letter, key, def.Name), Kind: brushMonster,
+				Letter: letter, MonsterKey: key, MonsterName: def.Name}
+			if len(def.Biomes) > 0 {
+				monSpecific = append(monSpecific, entry)
+			} else {
+				monGeneral = append(monGeneral, entry)
 			}
-			text := fmt.Sprintf("%s  %s (%s)", letter, key, def.Name)
-			monsterItems[letter] = append(monsterItems[letter], legendBuildItem{
-				entry: legendEntry{
-					Text:        text,
-					Kind:        brushMonster,
-					Letter:      letter,
-					MonsterKey:  key,
-					MonsterName: def.Name,
-				},
-				specific: len(def.Biomes) > 0,
-			})
 		}
-		monSpecific, monGeneral = emitBiomeScopedSplit(monsterItems)
+		sortLegendEntries(monSpecific)
+		sortLegendEntries(monGeneral)
 	}
 
 	biomeGroups := groupTileEntriesByBehavior(append(tileSpecific, biomeLabelTiles...), tm)

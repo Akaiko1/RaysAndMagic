@@ -38,7 +38,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
 
-	var tooltip string
+	var tooltip character.CardRows
 	var tooltipItem items.Item
 	var tooltipHasItem bool
 	var tooltipX, tooltipY int
@@ -72,7 +72,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
 			ui.equipSlotDragSource(ui.game.selectedChar, slotInfo.slot, item, x, y, w, h) // pick up equipped item
 			if isHovering {
-				tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
+				tooltip = GetItemTooltipRows(item, currentChar, ui.game.combat, tooltipDetailHeld())
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
@@ -91,8 +91,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	drawCenteredUIText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
 
-	if tooltip != "" && tooltipHasItem {
-		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
+	if len(tooltip) > 0 && tooltipHasItem {
+		lines := ui.appendCardArtHintRows(tooltip, itemCardKey(tooltipItem))
 		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
 	}
 
@@ -364,7 +364,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		return
 	}
 	mouseX, mouseY := uiCursorPosition()
-	var tooltip string
+	var tooltip character.CardRows
 	var tooltipX, tooltipY int
 	textColor := color.RGBA{240, 240, 240, 255}
 	headingColor := color.RGBA{235, 200, 120, 255}
@@ -444,8 +444,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			}
 			drawUITextColored(screen, fmt.Sprintf(" (%+d)", delta), x+uiTextWidth(line), y, clr)
 		}
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
-			tooltip = statTooltipText(stat.name)
+		if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
+			tooltip = statTooltipRows(stat.name)
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
 	}
@@ -470,8 +470,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			x := layout.magic.x + sectionTextInset + (i/rows)*colW
 			y := layout.magic.y + sectionBodyY + (i%rows)*sectionRowH
 			drawUITextColored(screen, clipUIText(school.text, colW-8), x, y, textColor)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
-				tooltip = magicMasteryTooltipText(school.id)
+			if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = magicMasteryTooltipRows(school.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
 			}
 		}
@@ -501,8 +501,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			x := layout.skills.x + sectionTextInset + (i/rows)*colW
 			y := layout.skills.y + sectionBodyY + (i%rows)*sectionRowH
 			drawUITextColored(screen, clipUIText(skill.text, colW-8), x, y, textColor)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
-				tooltip = masteryTooltipTextForSkill(skill.id)
+			if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = masteryTooltipRowsForSkill(skill.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
 			}
 		}
@@ -568,8 +568,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	drawUITextColored(screen, clipUIText(fmt.Sprintf("Party resist buff: +%d%%", ui.game.combatBuffResistPct()), rightW), rightX, partyBuffY, headingColor)
 
 	drawCenteredUIText(screen, "Use the party strip or keys 1-4 to switch character", layout.instructions.x, layout.instructions.y, layout.instructions.w, layout.instructions.h)
-	if tooltip != "" {
-		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
+	if len(tooltip) > 0 {
+		ui.queueCardTooltip(tooltip, nil, nil, nil, "", tooltipX, tooltipY)
 	}
 }
 
@@ -631,8 +631,8 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		return
 	}
 
-	var spellTooltip string
-	var spellCompareTooltip string
+	var spellTooltip character.CardRows
+	var spellCompareTooltip character.CardRows
 	var spellTooltipID spells.SpellID
 	var tooltipX, tooltipY int
 
@@ -677,8 +677,8 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, selectedSchool, isSelected)
 
 			if isHovering {
-				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
-				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
+				spellTooltip = GetSpellTooltipRows(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
+				spellCompareTooltip = GetSpellComparisonTooltipRows(spellID, currentChar, ui.game.combat)
 				spellTooltipID = spellID
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
@@ -687,16 +687,16 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	}
 
 	// Draw spell tooltip if hovering over a spell
-	if spellTooltip != "" {
-		lines := strings.Split(spellTooltip, "\n")
+	if len(spellTooltip) > 0 {
+		lines := spellTooltip
 		plate := color.Color(nil)
 		if def, err := spells.GetSpellDefinitionByID(spellTooltipID); err == nil {
 			plate = schoolPlateColor(def.School)
 		}
-		ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
-		if spellCompareTooltip != "" {
-			compareLines := strings.Split(spellCompareTooltip, "\n")
-			ui.queueTitledTooltipComparison(compareLines, nil, plate, nil)
+		ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
+		if len(spellCompareTooltip) > 0 {
+			compareLines := spellCompareTooltip
+			ui.queueCardComparison(compareLines, nil, plate, nil)
 		}
 	}
 

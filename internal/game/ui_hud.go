@@ -1213,15 +1213,17 @@ func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isH
 	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
 }
 
-// drawSpellStatusBar draws active party effects on a compact rail directly
-// above the responsive party deck.
-func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
-	if !ui.game.showPartyStats {
-		return
-	}
+// spellStatusRailLayout places the active party effects on the rail above the
+// party deck; drawing, hover and dispel clicks all read these rects.
+type spellStatusRailLayout struct {
+	bar      layoutRect
+	statuses []*UtilitySpellStatus
+	icons    []layoutRect
+}
 
-	statuses := make([]*UtilitySpellStatus, 0, len(ui.game.utilitySpellStatuses))
-	for _, status := range ui.game.utilitySpellStatuses {
+func (g *MMGame) spellStatusRail() (spellStatusRailLayout, bool) {
+	statuses := make([]*UtilitySpellStatus, 0, len(g.utilitySpellStatuses))
+	for _, status := range g.utilitySpellStatuses {
 		if status != nil && status.Duration > 0 {
 			statuses = append(statuses, status)
 		}
@@ -1230,21 +1232,21 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		return statuses[i].SpellID < statuses[j].SpellID
 	})
 	if len(statuses) == 0 {
-		return
+		return spellStatusRailLayout{}, false
 	}
 
-	_, _, _, partyStartY := partyPortraitLayout(ui.game)
+	_, _, _, partyStartY := partyPortraitLayout(g)
 	const iconSize = utilityStatusIconSize
 	const iconGap = 5
 	const barPadding = 4
 	iconPitch := iconSize + iconGap
 	barX := 10
-	rightEdge := ui.game.config.GetScreenWidth() - 10
-	if actions, visible := inGameActionBarLayout(ui.game); visible {
+	rightEdge := g.config.GetScreenWidth() - 10
+	if actions, visible := inGameActionBarLayout(g); visible {
 		rightEdge = actions.bounds.x - 10
 	}
-	if lines := ui.game.hudMessageLines(); len(lines) > 0 {
-		messageX, _, _, _ := ui.game.hudMessageBlockRect(len(lines))
+	if lines := g.hudMessageLines(); len(lines) > 0 {
+		messageX, _, _, _ := g.hudMessageBlockRect(len(lines))
 		rightEdge = min(rightEdge, messageX-10)
 	}
 	availableW := max(iconSize+barPadding*2, rightEdge-barX)
@@ -1255,22 +1257,42 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	maxRowCount := min(iconsPerRow, len(statuses))
 	barW := barPadding*2 + maxRowCount*iconSize + max(0, maxRowCount-1)*iconGap
 
-	uiFillRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), color.RGBA{5, 9, 16, 222}, false)
-	uiFillRect(screen, float32(barX+2), float32(barY+2), float32(barW-4), 2, color.RGBA{88, 118, 158, 190}, false)
-	uiStrokeRect(screen, float32(barX), float32(barY), float32(barW), float32(barH), 1, color.RGBA{180, 147, 76, 235}, false)
-
-	for i, status := range statuses {
+	rail := spellStatusRailLayout{bar: layoutRect{barX, barY, barW, barH}, statuses: statuses}
+	for i := range statuses {
 		row := i / iconsPerRow
 		col := i % iconsPerRow
 		rowStart := row * iconsPerRow
 		rowCount := min(iconsPerRow, len(statuses)-rowStart)
 		iconX := centeredIconRowX(barX, barW, iconSize, iconGap, rowCount) + col*iconPitch
 		iconY := barY + barPadding + row*iconPitch
-		x, y, w, h := ui.drawSpellIcon(screen, iconX, iconY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
+		rail.icons = append(rail.icons, layoutRect{iconX, iconY, iconSize, iconSize})
+	}
+	return rail, true
+}
+
+// drawSpellStatusBar draws active party effects on a compact rail directly
+// above the responsive party deck.
+func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
+	if !ui.game.showPartyStats {
+		return
+	}
+	rail, ok := ui.game.spellStatusRail()
+	if !ok {
+		return
+	}
+	bar := rail.bar
+	uiFillRect(screen, float32(bar.x), float32(bar.y), float32(bar.w), float32(bar.h), color.RGBA{5, 9, 16, 222}, false)
+	uiFillRect(screen, float32(bar.x+2), float32(bar.y+2), float32(bar.w-4), 2, color.RGBA{88, 118, 158, 190}, false)
+	uiStrokeRect(screen, float32(bar.x), float32(bar.y), float32(bar.w), float32(bar.h), 1, color.RGBA{180, 147, 76, 235}, false)
+
+	for i, status := range rail.statuses {
+		icon := rail.icons[i]
+		x, y, w, h := ui.drawSpellIcon(screen, icon.x, icon.y, icon.w, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
 		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
 		mouseX, mouseY := uiCursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
-			ui.queueTooltipIcon(ui.game.buffStatusTooltip(status), status.Icon, mouseX+12, mouseY+8)
+			lines, plate := ui.game.buffStatusCardRows(status)
+			ui.queueCardTooltip(lines, nil, plate, nil, status.Icon, mouseX+12, mouseY+8)
 		}
 	}
 }
@@ -1718,7 +1740,16 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	// Draw lines from top to bottom (most recent at bottom)
 	for i, line := range lines {
 		textY := ly + 5 + (i * hudMessageSpacing)
-		drawUITextColored(log, line.Text, lx+5, textY, line.Color)
+		drawLogTone(log, line.Tone, lx+1, textY, uiTextCharHeight)
+		drawColoredTextSegments(log, lx+5, textY, line.logLineSegments())
+	}
+}
+
+// drawLogTone is the stripe left of a log line that tells what it means for
+// the party; a line without a tone has none.
+func drawLogTone(dst *ebiten.Image, tone logTone, x, y, h int) {
+	if col, ok := logToneStripes[tone]; ok {
+		uiFillRect(dst, float32(x), float32(y), 3, float32(h), col, false)
 	}
 }
 
@@ -1777,9 +1808,10 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	entryIndex := len(ui.game.combatLogHistory) - 1 - ui.game.combatLogScroll
 	for entryIndex >= 0 && rowY >= contentY+8 {
 		entry := ui.game.combatLogHistory[entryIndex]
-		lines := wrapUIText(entry.Text, contentW-24)
+		lines := wrapLogEntry(entry, contentW-24)
 		for i := len(lines) - 1; i >= 0 && rowY >= contentY+8; i-- {
-			drawUITextColored(screen, lines[i], contentX+10, rowY, entry.Color)
+			drawLogTone(screen, entry.Tone, contentX+4, rowY, uiTextCharHeight)
+			drawColoredTextSegments(screen, contentX+10, rowY, lines[i].logLineSegments())
 			rowY -= 16
 		}
 		rowY -= 4

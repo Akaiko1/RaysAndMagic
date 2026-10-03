@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -230,7 +231,7 @@ func (ui *UISystem) rareBookItem(screen *ebiten.Image, it items.Item, r layoutRe
 	ui.drawInventoryItemIcon(screen, it, r.x, r.y, r.w, r.h, 2, true)
 	mx, my := uiCursorPosition()
 	if isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()) {
-		ui.queueItemTooltip(strings.Split(GetItemTooltip(it, c, ui.game.combat, tooltipDetailHeld()), "\n"), it, c, mx+16, my+8)
+		ui.queueItemTooltip(GetItemTooltipRows(it, c, ui.game.combat, tooltipDetailHeld()), it, c, mx+16, my+8)
 	}
 }
 func (ui *UISystem) rareBookRow(screen *ebiten.Image, r layoutRect, it items.Item, subtitle string, selected bool, action func()) {
@@ -412,9 +413,9 @@ func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition,
 	case "fold_step":
 		return fmt.Sprintf("Range %d-%s tiles | Anchor %ss", d.MinRange, v(d.Range), v(d.Duration))
 	case "phase_veil":
-		return fmt.Sprintf("Dodge +%s%% | %ss", v(d.Power), v(d.Duration))
+		return fmt.Sprintf("%s | %ss", uitext.Text("buff.dodge", v(d.Power)), v(d.Duration))
 	case "quickening":
-		return fmt.Sprintf("RT recovery -%s%% | TB pool +%s | %ss", v(d.Power), v(d.TBPower), v(d.Duration))
+		return fmt.Sprintf("%s | %s | %ss", uitext.Text("buff.rt_recovery", v(d.Power)), uitext.Text("buff.tb_pool", v(d.TBPower)), v(d.Duration))
 	case "purify":
 		return "All curable afflictions | No healing or revival"
 	case "return_step":

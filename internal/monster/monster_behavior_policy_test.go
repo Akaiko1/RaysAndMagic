@@ -39,6 +39,11 @@ func TestCurrentAIBehaviorPrecedence(t *testing.T) {
 			want: AIBehaviorFightFoe,
 		},
 		{
+			name: "flee wins over a foe",
+			mob:  Monster3D{HitPoints: 1, AIFoe: foe, State: StateFleeing},
+			want: AIBehaviorFleeing,
+		},
+		{
 			name: "relentless party pursuit wins over flee",
 			mob:  Monster3D{HitPoints: 1, BossAggro: true, State: StateFleeing},
 			want: AIBehaviorRelentlessParty,

@@ -658,5 +658,5 @@ func cardForSavedItem(it items.Item) contentCard {
 		kind = cardSpell
 	}
 	return contentCard{kind: kind, name: it.Name, rarity: it.Rarity,
-		tooltipRows: strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")}
+		tooltipRows: game.GetItemTooltipRows(it, nil, nil, true)}
 }

@@ -2,7 +2,6 @@ package game
 
 import (
 	"image/color"
-	"strings"
 
 	"ugataima/internal/config"
 
@@ -30,68 +29,85 @@ type keywordRun struct {
 	text string
 }
 
-// wrapKeywordText wraps marked-up prose to maxW, keeping each word whole and
-// its highlight intact.
+// wrapKeywordText wraps marked-up prose to maxW, every word keeping its
+// highlight.
 func wrapKeywordText(spans []config.KeywordSpan, maxW int) [][]keywordRun {
-	// A word is the runs between two spaces: "{damage:Harm}," is one word.
-	var words [][]keywordRun
-	var word []keywordRun
-	flush := func() {
-		if len(word) > 0 {
-			words = append(words, word)
-			word = nil
-		}
+	runs := make([]styledRun[string], len(spans))
+	for i, s := range spans {
+		runs[i] = styledRun[string]{s.Text, s.Kind}
 	}
-	for _, span := range spans {
-		for i, piece := range strings.Split(span.Text, " ") {
-			if i > 0 {
-				flush()
-			}
-			if piece != "" {
-				word = append(word, keywordRun{span.Kind, piece})
-			}
-		}
-	}
-	flush()
-
 	var lines [][]keywordRun
-	var line []keywordRun
-	lineText := ""
-	for _, w := range words {
-		text := ""
-		for _, r := range w {
-			text += r.text
+	for _, line := range wrapStyled(runs, maxW) {
+		row := make([]keywordRun, len(line))
+		for i, r := range line {
+			row[i] = keywordRun{r.style, r.text}
 		}
-		next := text
-		if lineText != "" {
-			next = lineText + " " + text
-		}
-		if lineText != "" && uiTextWidth(next) > maxW {
-			lines = append(lines, line)
-			line, lineText, next = nil, "", text
-		} else if lineText != "" {
-			line = append(line, keywordRun{"", " "})
-		}
-		line = append(line, w...)
-		lineText = next
-	}
-	if len(line) > 0 {
-		lines = append(lines, line)
+		lines = append(lines, row)
 	}
 	return lines
 }
 
 // drawKeywordLine draws one wrapped line, plain runs in plain.
 func drawKeywordLine(dst *ebiten.Image, line []keywordRun, x, y int, plain color.Color) {
-	drawn := ""
-	for _, r := range line {
-		col := plain
+	segs := make([]coloredTextSegment, len(line))
+	for i, r := range line {
+		segs[i] = coloredTextSegment{r.text, plain}
 		if r.kind != "" {
-			col = keywordColors[r.kind]
+			segs[i].color = keywordColors[r.kind]
 		}
-		if strings.TrimSpace(r.text) != "" {
-			drawUITextColored(dst, r.text, x+uiTextWidth(drawn), y, col)
-		}
-		drawn += r.text
 	}
+	drawColoredTextSegments(dst, x, y, segs)
+}
+
+// styledRun is a piece of text in one style: a keyword kind, a color.
+type styledRun[S any] struct {
+	text  string
+	style S
+}
+
+// wrapStyled wraps styled text with exactly wrapUIText's breaks: the plain
+// text is wrapped, then every byte of each line takes its piece's style.
+func wrapStyled[S any](runs []styledRun[S], maxW int) [][]styledRun[S] {
+	plain := ""
+	var owner []int // run index of each byte of plain
+	for i, r := range runs {
+		plain += r.text
+		for range len(r.text) {
+			owner = append(owner, i)
+		}
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	space := func(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\v' || b == '\f' }
+	var out [][]styledRun[S]
+	at, last := 0, 0
+	for _, text := range wrapUIText(plain, maxW) {
+		var line []styledRun[S]
+		emit := func(b byte, run int) {
+			if n := len(line); n > 0 && last == run {
+				line[n-1].text += string(b)
+				return
+			}
+			line = append(line, styledRun[S]{string(b), runs[run].style})
+			last = run
+		}
+		for k := 0; k < len(text); k++ {
+			for at < len(plain) && plain[at] != text[k] && space(plain[at]) {
+				at++
+			}
+			if at >= len(plain) || plain[at] != text[k] {
+				emit(text[k], last) // unreachable for wrapUIText output
+				continue
+			}
+			emit(text[k], owner[at])
+			at++
+			// A run of spaces wrapUIText collapsed belongs to this one.
+			for text[k] == ' ' && at < len(plain) && space(plain[at]) && (k+1 >= len(text) || text[k+1] != ' ') {
+				at++
+			}
+		}
+		out = append(out, line)
+	}
+	return out
 }

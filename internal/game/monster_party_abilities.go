@@ -93,20 +93,30 @@ func (g *MMGame) updateAuthoredBandAggro() {
 			sight = sight || (m.IsEngagingPlayer && !m.ShouldDisengageFromPlayer(g.camera.X, g.camera.Y)) || m.CanStartPlayerEngagement(g.collisionSystem, g.camera.X, g.camera.Y)
 		}
 		for _, m := range peers {
-			if !m.IsAlive() || m.IsPartyControlled() || m.AIFoe != nil {
-				continue
-			}
-			if hit {
-				m.WasAttacked = true
-			}
-			if hit || sight {
-				if !m.IsEngagingPlayer {
-					m.BeginPlayerEngagement()
-				}
-			} else if m.IsEngagingPlayer {
-				m.EndPlayerEngagement()
-			}
+			answerBandAlarm(m, hit, hit || sight)
 		}
+	}
+}
+
+// answerBandAlarm hands one peer its authored band's state. Every free peer
+// remembers the party's hit; only a peer whose mode answers the band (not a
+// fleeing or relentless one, not one busy with a foe) is roused or calmed.
+func answerBandAlarm(m *monster.Monster3D, hit, alarm bool) {
+	if !m.IsAlive() || m.IsPartyControlled() {
+		return
+	}
+	if hit {
+		m.WasAttacked = true
+	}
+	if !m.CurrentAIBehavior().Caps().AnswersBand {
+		return
+	}
+	if alarm {
+		if !m.IsEngagingPlayer {
+			m.BeginPlayerEngagement()
+		}
+	} else if m.IsEngagingPlayer {
+		m.EndPlayerEngagement()
 	}
 }
 
@@ -120,13 +130,7 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 		g.indexAuthoredBands()
 	}
 	for _, peer := range target.BandPeers {
-		if !peer.IsAlive() || peer.IsPartyControlled() {
-			continue
-		}
-		peer.WasAttacked = true
-		if !peer.IsEngagingPlayer && peer.AIFoe == nil {
-			peer.BeginPlayerEngagement()
-		}
+		answerBandAlarm(peer, true, true)
 	}
 }
 

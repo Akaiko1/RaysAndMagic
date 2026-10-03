@@ -8,12 +8,6 @@ import (
 	"ugataima/internal/items"
 )
 
-func sameColor(a, b color.Color) bool {
-	ar, ag, ab, aa := a.RGBA()
-	br, bg, bb, ba := b.RGBA()
-	return ar == br && ag == bg && ab == bb && aa == ba
-}
-
 func TestCombatLogHistoryKeepsMoreThanHUD(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	g.maxMessages = 4

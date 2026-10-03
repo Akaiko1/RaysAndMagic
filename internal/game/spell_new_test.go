@@ -108,7 +108,7 @@ func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inferno def: %v", err)
 	}
-	payload := game.combat.CalculateInfernoDamage(def, caster)
+	payload := game.combat.CalculatePartyNovaDamage(def, caster)
 
 	if !game.combat.CastEquippedSpell() {
 		t.Fatal("inferno cast failed")

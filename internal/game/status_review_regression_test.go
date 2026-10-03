@@ -156,6 +156,9 @@ func TestStatusReviewProvidenceCleanup(t *testing.T) {
 	}
 }
 
+// The Gorilla Titan Card's slam shakes the ground around the party: walls and
+// doors do not shield from it, only its radius bounds it. Its rubble is drawn
+// on ground the party can see only.
 func TestCardMoveBurstObstacles(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, kind := range []string{"clear", "wall", "closed_door", "opened_door", "blocked_endpoint", "outside_radius"} {
@@ -170,13 +173,13 @@ func TestCardMoveBurstObstacles(t *testing.T) {
 				d.CardMoveAoePct = 100
 				t.Cleanup(func() { d.CardMoveAoePct = old })
 				targetX := 14.5 * ts
-				want := true
+				want, seen := true, true
 				switch kind {
 				case "wall":
 					for y := range g.world.Tiles {
 						g.world.Tiles[y][12] = world.TileWall
 					}
-					want = false
+					seen = false
 				case "closed_door", "opened_door":
 					// One closed room separator with a single door opening.
 					for y := range g.world.Tiles {
@@ -185,16 +188,17 @@ func TestCardMoveBurstObstacles(t *testing.T) {
 					g.world.Tiles[10][12] = world.TileEmpty
 					door := collision.NewSightBlockingEntity("door", 12.5*ts, 10.5*ts, ts, ts, collision.CollisionTypeNPC, true)
 					g.collisionSystem.RegisterEntity(door)
-					want = kind == "opened_door"
-					if want {
+					if kind == "opened_door" {
 						g.collisionSystem.UnregisterEntity(door.ID)
+					} else {
+						seen = false
 					}
 				case "blocked_endpoint":
 					g.world.Tiles[10][14] = world.TileWall
-					want = false
+					seen = false
 				case "outside_radius":
 					targetX = 17.5 * ts
-					want = false
+					want, seen = false, false
 				}
 				m := monster.NewMonster3DFromConfig(targetX, 10.5*ts, "mummy", g.config)
 				g.world.Monsters = []*monster.Monster3D{m}
@@ -226,8 +230,8 @@ func TestCardMoveBurstObstacles(t *testing.T) {
 						targetPainted = targetPainted || (p.X == targetX && p.Y == 10.5*ts)
 					}
 				}
-				if targetPainted != want {
-					t.Fatalf("target ground painted=%v, want %v", targetPainted, want)
+				if targetPainted != seen {
+					t.Fatalf("target ground painted=%v, want %v", targetPainted, seen)
 				}
 				if g.screenShake != 0 {
 					t.Fatal("movement proc added camera shake")

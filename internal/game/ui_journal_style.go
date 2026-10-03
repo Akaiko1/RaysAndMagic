@@ -8,6 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
@@ -166,9 +167,9 @@ func (ui *UISystem) drawJournalEntry(dst *ebiten.Image, quest *quests.Quest, r l
 			ui.drawInventoryItemIcon(dst, item, icon.x, icon.y, icon.w, icon.h, 0, true)
 			mx, my := pointerPosition()
 			if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, icon.x, icon.y, icon.right(), icon.bottom()) {
-				lines := strings.Split(GetItemTooltip(item, nil, ui.game.combat, tooltipDetailHeld()), "\n")
+				lines := GetItemTooltipRows(item, nil, ui.game.combat, tooltipDetailHeld())
 				if i >= len(quest.Definition.Rewards.Items) {
-					lines = append(lines, "One random reward from this pool.")
+					lines.Add(character.CardRowHint, "One random reward from this pool.")
 				}
 				ui.queueItemTooltip(lines, item, nil, mx+16, my+8)
 			}

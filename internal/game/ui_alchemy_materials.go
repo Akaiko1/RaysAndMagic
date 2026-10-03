@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
@@ -274,8 +273,8 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			drawUITextColored(dst, fmt.Sprintf("%d per batch", cell.count), tx, cell.rect.y+38, color.RGBA{156, 159, 145, 255})
 			mx, my := pointerPosition()
 			if image.Pt(mx, my).In(hit) {
-				lines := strings.Split(GetItemTooltip(it, c, g.combat, tooltipDetailHeld()), "\n")
-				lines = append(lines, fmt.Sprintf("Bag: %d | Per batch: %d", have, cell.count))
+				lines := GetItemTooltipRows(it, c, g.combat, tooltipDetailHeld())
+				lines.Add(character.CardRowHint, fmt.Sprintf("Bag: %d | Per batch: %d", have, cell.count))
 				ui.queueItemTooltip(lines, it, c, mx+16, my+8)
 			}
 			key, gi := cell.key, cell.group

@@ -5,7 +5,6 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"unicode"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -13,35 +12,42 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Every heading a card prints is in the one shared list the game layout and
-// the editor catalog read (character.IsCardSectionTitle), in the catalog
-// variant and the hero variant, compact and full. A new section that skipped
-// the list would render as body text in one of them. A compact card's Shift
-// hint is its last line, below the set block, value and description.
-func TestCardSectionTitlesAreRegistered(t *testing.T) {
+// Invariant: producers retain row roles through all item/spell categories,
+// base/live contexts and compact/full views. Details stay in their section;
+// the compact expansion hint follows all appended content. Persistence: N/A.
+func TestCardSectionRolesAndHint(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
 		t.Fatal(err)
 	}
 	hero := cs.game.party.Members[0]
-	looksLikeHeading := func(line string) bool {
-		if len(line) < 3 || strings.ContainsAny(line, ":0123456789") {
-			return false
-		}
-		for _, r := range line {
-			if !unicode.IsUpper(r) && r != ' ' {
-				return false
-			}
-		}
-		return true
-	}
-	check := func(name, card string) {
-		if strings.Contains(card, shiftDetailHint) && !strings.HasSuffix(card, "\n\n"+shiftDetailHint) {
-			t.Errorf("%s: the Shift hint is not the last line:\n%s", name, card)
-		}
-		for _, line := range strings.Split(card, "\n") {
-			if looksLikeHeading(line) && !character.IsCardSectionTitle(line) {
-				t.Errorf("%s: heading %q is not a registered card section", name, line)
+	check := func(name string, rows character.CardRows, full bool) {
+		t.Helper()
+		section := ""
+		detailSeen := false
+		for i, row := range rows {
+			switch row.Kind {
+			case character.CardRowSection:
+				if row.Text == "" || row.Section != row.Text {
+					t.Fatalf("%s: section lacks identity: %+v", name, row)
+				}
+				section, detailSeen = row.Section, false
+			case character.CardRowResult, character.CardRowDetail:
+				if row.Section != "" && row.Section != section {
+					t.Fatalf("%s: row detached from mechanic: %+v", name, row)
+				}
+				if row.Kind == character.CardRowDetail {
+					if !full {
+						t.Fatalf("%s: compact card leaked detail: %+v", name, row)
+					}
+					detailSeen = true
+				} else if row.Section != "" && detailSeen {
+					t.Fatalf("%s: result buried below detail: %+v", name, row)
+				}
+			case character.CardRowHint:
+				if i != len(rows)-1 {
+					t.Fatalf("%s: expansion hint is not last: %s", name, rows.String())
+				}
 			}
 		}
 	}
@@ -66,12 +72,12 @@ func TestCardSectionTitlesAreRegistered(t *testing.T) {
 	}
 	for _, full := range []bool{false, true} {
 		for _, it := range cards {
-			check(it.Name, GetItemTooltip(it, nil, nil, full))
-			check(it.Name+" (hero)", GetItemTooltip(it, hero, cs, full))
+			check(it.Name, GetItemTooltipRows(it, nil, nil, full), full)
+			check(it.Name+" (hero)", GetItemTooltipRows(it, hero, cs, full), full)
 		}
 		for key := range config.GlobalSpells.Spells {
-			check(key, GetSpellTooltip(spells.SpellID(key), nil, nil, full))
-			check(key+" (hero)", GetSpellTooltip(spells.SpellID(key), hero, cs, full))
+			check(key, GetSpellTooltipRows(spells.SpellID(key), nil, nil, full), full)
+			check(key+" (hero)", GetSpellTooltipRows(spells.SpellID(key), hero, cs, full), full)
 		}
 	}
 }

@@ -31,15 +31,24 @@ func (g *MMGame) restParty() {
 // while any living monster prowls within CampEnemyRadiusTiles of the party or
 // when the larder is empty. Returns the message to show and whether it worked.
 func (g *MMGame) TryCamp() (string, bool) {
-	if g.party.Food < CampFoodCost {
-		return uitext.Text("ui.camp_no_food"), false
-	}
-	if reason, safe := g.safeToPrepare(campActivity()); !safe {
+	if reason := g.campBlocked(); reason != "" {
 		return reason, false
 	}
 	g.party.Food -= CampFoodCost
 	g.restParty()
 	return uitext.Text("ui.camp_rested"), true
+}
+
+// campBlocked is TryCamp's refusal without spending anything; "" means the
+// party can camp now.
+func (g *MMGame) campBlocked() string {
+	if g.party.Food < CampFoodCost {
+		return uitext.Text("ui.camp_no_food")
+	}
+	if reason, safe := g.safeToPrepare(campActivity()); !safe {
+		return reason
+	}
+	return ""
 }
 
 // applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto

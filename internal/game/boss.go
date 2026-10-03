@@ -121,7 +121,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	// GetAttackDamage/AttackCooldownFrames, so it is save-safe.
 	if m.EnrageAtHP > 0 && !m.Enraged && m.IsEnraged() {
 		m.Enraged = true
-		cs.game.AddCombatMessage(fmt.Sprintf("%s flies into a furious rage!", m.Name))
+		cs.game.logCombat(logToneBad, "%s flies into a %s!", logMonsterName(m), logKeyword("damage", "furious rage"))
 	}
 	// Summon fires on the melee attack moment OR when the boss TAKES DAMAGE while
 	// able to act. The hurt-provoke is the RT anti-kite: a boss being shot from
@@ -152,7 +152,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	}
 	if m.TeleportAtHP > 0 && m.HitPoints <= m.TeleportAtHP && rand.Float64() < m.TeleportChance {
 		if cs.blinkMonsterRandom(m) {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s blinks away in a golden flash!", m.Name))
+			cs.game.logCombat(logToneBad, "%s %s in a golden flash!", logMonsterName(m), logAbility("blinks away"))
 			return true
 		}
 	}
@@ -251,7 +251,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 	if spawned == 0 {
 		return false
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner - retainers rush to its side!", m.Name))
+	cs.game.logCombat(logToneBad, "%s raises the %s - retainers rush to its side!", logMonsterName(m), logAbility("war-banner"))
 	return true
 }
 
@@ -390,7 +390,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	defer cs.game.observeOverwatchAttack(m)
 	defer cs.game.beginProfileMonsterHit(m, m.Name)()
-	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
+	cs.game.logCombat(logToneBad, "%s erupts in a %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "wave of fire"))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
@@ -402,8 +402,8 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 			true, // boss Inferno is a cast - absorbable
 			m,
 		)
-		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s scorches %s for %s! %s", logSchoolWord(monsterPkg.DamageFire.String(), "Inferno"),
+			logHeroName(member), logDamage(dealt, monsterPkg.DamageFire.String()), logHP(member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx)
 	})
 }

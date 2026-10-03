@@ -424,7 +424,7 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	strayInBefore, strayOutBefore := strayIn.HitPoints, strayOut.HitPoints
 
 	def := spells.SpellDefinition{Name: "Test Nova", School: "fire", SpellPointsCost: 20, MapWide: true}
-	if !g.combat.tryCastInferno(def, g.party.Members[g.selectedChar]) {
+	if !g.combat.tryCastPartyNova(def, g.party.Members[g.selectedChar]) {
 		t.Fatal("MapWide nova was not handled")
 	}
 	if near.HitPoints >= nearBefore {

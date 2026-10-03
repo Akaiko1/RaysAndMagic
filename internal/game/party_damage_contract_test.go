@@ -200,9 +200,9 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 					z := &PersistentDamageZone{SpellID: key, FieldID: 1, X: primary.X, Y: primary.Y, Radius: 2 * tile, FramesLeft: 60, TickDamage: normal, TrueTickDamage: trueDamage}
 					g.combat.damageZoneMonsters(key, []*PersistentDamageZone{z}, []*PersistentDamageZone{z})
 				case def.PartyAoeRadiusTiles > 0 || def.MapWide:
-					parts := g.combat.spellDamageParts(def.ID, ch, g.combat.CalculateInfernoDamage(def, ch))
+					parts := g.combat.spellDamageParts(def.ID, ch, g.combat.CalculatePartyNovaDamage(def, ch))
 					normal, trueDamage = parts.Normal, parts.True
-					if !g.combat.tryCastInferno(def, ch) {
+					if !g.combat.tryCastPartyNova(def, ch) {
 						t.Fatal("nova not handled")
 					}
 				default:

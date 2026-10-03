@@ -116,7 +116,7 @@ func TestSaveTooltipBrowseKeepsFileAndNormalizesItems(t *testing.T) {
 					cards++
 				}
 				card := cardForSavedItem(*row.item)
-				text := strings.Join(card.tooltipRows, "\n")
+				text := card.tooltipRows.String()
 				if text == "" || strings.Contains(text, "9999") {
 					t.Fatalf("stale or empty tooltip: %s", text)
 				}

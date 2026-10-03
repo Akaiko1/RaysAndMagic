@@ -241,7 +241,7 @@ func TestInfernoScalesByMasteryAndStaysNormalDamage(t *testing.T) {
 	for tier := character.MasteryNovice; tier <= character.MasteryGrandMaster; tier++ {
 		caster.MagicSchools[character.MagicSchoolFire].Mastery = tier
 		want := def.SpellPointsCost*spells.SpellDamagePerSP + int(tier)*def.MasteryDamagePerTier
-		got := cs.CalculateInfernoDamage(def, caster)
+		got := cs.CalculatePartyNovaDamage(def, caster)
 		if got != want {
 			t.Errorf("Inferno tier %d = %d, want %d", tier, got, want)
 		}

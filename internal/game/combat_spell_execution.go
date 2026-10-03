@@ -215,14 +215,14 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// the number really applied (e.g. Bless is +5 base, +10 only at GM).
 		isStatBuff := spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0
 		var statBuff character.StatBonuses
-		msg := result.Message
+		msg, summary := result.Message, logStyled{"", keywordColors["buff"]}
 		if isStatBuff {
 			statBuff = cs.spellStatBuffBonuses(spellID, caster)
 			if suffix := statBuff.Summary(); suffix != "" {
-				msg = fmt.Sprintf("%s (%s)", strings.TrimSpace(result.Message), suffix)
+				msg, summary.text = strings.TrimSpace(result.Message), " ("+suffix+")"
 			}
 		}
-		cs.game.AddCombatMessage(msg)
+		cs.game.logCombat(logToneGood, "%s%s", msg, summary)
 
 		// Apply healing
 		if spellDef.HealAmount > 0 {

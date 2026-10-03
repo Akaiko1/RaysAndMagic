@@ -602,7 +602,7 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 					}
 				}
 				stun := func() int {
-					g.combat.tryApplyMonsterStun(mob, c, "")
+					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c})
 					got := c.StunFramesRemaining
 					if tb {
 						got = c.StunTurnsRemaining

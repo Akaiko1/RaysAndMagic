@@ -142,7 +142,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	before := ch.HitPoints
 	g.applyFlatHeal(targetIdx, base, div)
 	bag.Consume(itemIdx, 1)
-	g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, ch.HitPoints-before))
+	g.logCombat(logToneGood, "%s uses %s and heals %s HP!", logHeroName(ch), logItemName(item), logHealed(ch.HitPoints-before))
 	return true
 }
 
@@ -328,7 +328,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 			ch.SpellPoints = ch.MaxSpellPoints
 		}
 		bag.Consume(itemIndex, 1)
-		g.AddCombatMessage(fmt.Sprintf("%s drinks %s and recovers %d SP!", ch.Name, item.Name, ch.SpellPoints-before))
+		g.logCombat(logToneGood, "%s drinks %s and recovers %s SP!", logHeroName(ch), logItemName(item), logRecoveredSP(ch.SpellPoints-before))
 		return true
 	}
 

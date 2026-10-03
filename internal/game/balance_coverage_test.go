@@ -22,12 +22,15 @@ type balanceAbility struct {
 	bareLine func(line string, heroes map[string]string) bool
 }
 
-// heroLine matches "<hero><suffix>" for any of the suffixes.
-func heroLine(suffixes ...string) func(line string, heroes map[string]string) bool {
+// heroLine matches a line opening with "<hero><phrase>" for any of the
+// phrases; a duration may follow ("Mara is stunned! (1 turn)").
+func heroLine(phrases ...string) func(line string, heroes map[string]string) bool {
 	return func(line string, heroes map[string]string) bool {
-		for _, suffix := range suffixes {
-			if name, ok := strings.CutSuffix(line, suffix); ok && heroes[name] != "" {
-				return true
+		for hero := range heroes {
+			for _, phrase := range phrases {
+				if strings.HasPrefix(line, hero+phrase) {
+					return true
+				}
 			}
 		}
 		return false

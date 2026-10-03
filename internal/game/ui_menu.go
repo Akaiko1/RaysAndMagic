@@ -333,7 +333,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	drawCenteredUIText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y, layout.subtitle.w, layout.subtitle.h)
 
 	mouseX, mouseY := uiCursorPosition()
-	var hover []string
+	var hover character.CardRows
 
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		card := layout.cards[slot]
@@ -348,7 +348,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			drawCenteredUIText(screen, clipUIText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
 
 			if hovered {
-				hover = ui.appendCardArtHint(cardItemTooltipLines(key), key)
+				hover = ui.appendCardArtHintRows(cardItemTooltipRows(key), key)
 			}
 		}
 	}
@@ -356,7 +356,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	ui.drawCardEffectsList(screen, layout.summary)
 
 	if hover != nil {
-		ui.queueTooltip(hover, mouseX+16, mouseY+8)
+		ui.queueCardTooltip(hover, nil, nil, nil, "", mouseX+16, mouseY+8)
 	}
 }
 

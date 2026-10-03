@@ -84,9 +84,9 @@ func TestEquippedSetTooltipActivation(t *testing.T) {
 							t.Fatalf("wrong set progress: %s", text)
 						}
 					}
-					lines := strings.Split(text, "\n")
+					rows := GetItemTooltipRows(target, ch, cs, full)
 					ui := &UISystem{game: cs.game}
-					ui.queueItemTooltip(lines, target, ch, 0, 0)
+					ui.queueItemTooltip(rows, target, ch, 0, 0)
 					if strings.Contains(text, "[ACTIVE]") || strings.Contains(strings.Join(ui.tooltipLines, "\n"), "[ACTIVE]") {
 						t.Fatalf("set activity leaked into visible text: %s", text)
 					}
@@ -127,8 +127,9 @@ func TestSetHighlightSurvivesLongAuthoredText(t *testing.T) {
 	t.Cleanup(func() { *set = original })
 	set.Name = strings.Repeat("Long authored set name ", 5)
 	for _, full := range []bool{false, true} {
-		lines := strings.Split(GetItemTooltip(armor, ch, cs, full), "\n")
-		colors := activeSetBonusColors(lines, nil, armor, ch)
+		rows := GetItemTooltipRows(armor, ch, cs, full)
+		lines := rows.Lines()
+		colors := activeSetBonusRowColors(rows, nil, armor, ch)
 		wrapped, colors := wrapTooltipLines(lines, colors, 0, 300, 0)
 		active := false
 		greenRows := 0

@@ -506,25 +506,25 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 		}
 
 		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			var tooltip string
+			var tooltip character.CardRows
 			switch strings.ToLower(option.choice.Type) {
 			case "spell":
-				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat, tooltipDetailHeld())
+				tooltip = GetSpellTooltipRows(option.spellID, member, ui.game.combat, tooltipDetailHeld())
 			case "weapon_mastery", "armor_mastery":
-				tooltip = masteryTooltipTextForSkill(option.skillType)
+				tooltip = masteryTooltipRowsForSkill(option.skillType)
 			case "magic_mastery":
-				tooltip = magicMasteryTooltipText(option.school)
+				tooltip = magicMasteryTooltipRows(option.school)
 			}
-			if tooltip != "" {
-				lines := strings.Split(tooltip, "\n")
+			if len(tooltip) > 0 {
+				lines := tooltip
 				if strings.ToLower(option.choice.Type) == "spell" {
 					plate := color.Color(nil)
 					if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
 						plate = schoolPlateColor(def.School)
 					}
-					ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
+					ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
 				} else {
-					ui.queueTooltipIcon(lines, "", mouseX+16, mouseY+8)
+					ui.queueCardTooltip(lines, nil, nil, nil, "", mouseX+16, mouseY+8)
 				}
 			}
 		}
@@ -782,15 +782,20 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 // where the party decides whether a spell is worth buying, so it needs the whole
 // card, not a name and a number.
 func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMCharacter) []string {
+	return ui.spellTraderTooltipRows(spellKey, char).Lines()
+}
+
+func (ui *UISystem) spellTraderTooltipRows(spellKey string, char *character.MMCharacter) character.CardRows {
 	// Every authored row resolves: backfillTraderSpells rejects a key spells.yaml
 	// does not define, so there is no "unknown spell" case to fall back to.
 	npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 	if char == nil && len(ui.game.party.Members) > 0 {
 		char = ui.game.party.Members[0]
 	}
-	lines := strings.Split(GetSpellTooltip(spells.SpellID(spellKey), char, ui.game.combat, tooltipDetailHeld()), "\n")
+	lines := GetSpellTooltipRows(spells.SpellID(spellKey), char, ui.game.combat, tooltipDetailHeld())
 	if npcSpell != nil {
-		lines = append(lines, "", uitext.Text("dialog.price_gold", npcSpell.Cost))
+		lines.Add(character.CardRowSpacer, "")
+		lines.Add(character.CardRowResult, uitext.Text("dialog.price_gold", npcSpell.Cost))
 	}
 	return lines
 }
@@ -904,12 +909,12 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	// stocked per trader, not gated by level.
 	if hoverSpellIdx >= 0 {
 		spellKey := spellKeys[hoverSpellIdx]
-		lines := ui.spellTraderTooltipLines(spellKey, selectedChar)
+		lines := ui.spellTraderTooltipRows(spellKey, selectedChar)
 		plate := color.Color(nil)
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellKey)); err == nil {
 			plate = schoolPlateColor(def.School)
 		}
-		ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
+		ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}
 
 	// Page nav (only renders when there's more than one page).
@@ -1066,11 +1071,11 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 			}
 			drawUIText(screen, label, x+6, y)
 			if hover {
-				tooltip := masteryTooltipTextForSkill(option.SkillType)
+				tooltip := masteryTooltipRowsForSkill(option.SkillType)
 				if option.IsMagic {
-					tooltip = magicMasteryTooltipText(option.School)
+					tooltip = magicMasteryTooltipRows(option.School)
 				}
-				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+				ui.queueCardTooltip(tooltip, nil, nil, nil, "", mouseX+16, mouseY+8)
 			}
 		}
 		// Pager sits between the last row slot and the instructions line and
@@ -1307,9 +1312,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 
 	// The shop and editor share the base card, independent of selected character.
 	if tooltipHasItem {
-		tip := GetItemTooltip(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
-		if tip != "" {
-			lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
+		tip := GetItemTooltipRows(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
+		if len(tip) > 0 {
+			lines := ui.appendCardArtHintRows(tip, itemCardKey(tooltipItem))
 			ui.queueItemTooltip(lines, tooltipItem, nil, mouseX+16, mouseY+8)
 		}
 	}
@@ -1405,12 +1410,12 @@ func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size in
 	return hovered
 }
 
-// appendCardArtHint adds the SHIFT hint to a card tooltip when full art exists.
-func (ui *UISystem) appendCardArtHint(lines []string, key string) []string {
+// appendCardArtHintRows adds the SHIFT hint to a card tooltip when full art exists.
+func (ui *UISystem) appendCardArtHintRows(rows character.CardRows, key string) character.CardRows {
 	if _, ok := ui.game.cardFullArtSprite(key); ok {
-		return append(lines, uitext.Text("dialog.hold_shift_to_view_the_art"))
+		rows.Add(character.CardRowHint, uitext.Text("dialog.hold_shift_to_view_the_art"))
 	}
-	return lines
+	return rows
 }
 
 // drawCardFullArtOverlay dims the screen and shows a card's full art fitted
@@ -1443,7 +1448,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := uiCursorPosition()
-	var hoverLines []string
+	var hoverLines character.CardRows
 	chrome := makeCardCollectorLayout(dialogX, dialogY)
 
 	// Active collection (8 slots).
@@ -1454,7 +1459,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "+") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint(cardItemTooltipLines(key, uitext.Text("dialog.double_click_to_remove")), key)
+				hoverLines = ui.appendCardArtHintRows(cardItemTooltipRows(key, uitext.Text("dialog.double_click_to_remove")), key)
 			}
 		}
 	}
@@ -1479,7 +1484,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = ui.appendCardArtHint(cardItemTooltipLines(key, uitext.Text("dialog.double_click_to_add_to_collection")), key)
+				hoverLines = ui.appendCardArtHintRows(cardItemTooltipRows(key, uitext.Text("dialog.double_click_to_add_to_collection")), key)
 			}
 		}
 	}
@@ -1488,7 +1493,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	drawUIText(screen, clipUIText(uitext.Text("dialog.double_click_a_card_to_slot_it"), layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
 	if hoverLines != nil {
-		ui.queueTooltip(hoverLines, mouseX+16, mouseY+8)
+		ui.queueCardTooltip(hoverLines, nil, nil, nil, "", mouseX+16, mouseY+8)
 	}
 }
 

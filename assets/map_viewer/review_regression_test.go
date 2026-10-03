@@ -167,7 +167,7 @@ func TestSaveBrowserCollectionUsesLoadRulesReadOnly(t *testing.T) {
 				description, flavor = def.Description, def.Flavor
 			}
 		}
-		text := words(strings.Join(c.tooltipRows, "\n"))
+		text := words(c.tooltipRows.String())
 		for _, want := range []string{description, flavor} {
 			if want == "" {
 				continue

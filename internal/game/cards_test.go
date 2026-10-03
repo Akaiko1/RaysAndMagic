@@ -1415,7 +1415,7 @@ func TestMummyCard_PoisonImmunity(t *testing.T) {
 	member := g.party.Members[0]
 	member.Conditions = nil
 	for i := 0; i < 50; i++ {
-		cs.tryApplyMonsterPoison(m, member)
+		cs.applyMonsterHitRiders(m, "", heroHitTarget{cs, member})
 	}
 	if member.HasCondition(character.ConditionPoisoned) {
 		t.Error("mummy card should have fully resisted every poison roll")

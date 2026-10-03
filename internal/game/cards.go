@@ -799,11 +799,15 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 // cardItemTooltipLines is the shared card for a monster card, plus the view's
 // own action hint (the collector's double-click).
 func cardItemTooltipLines(key string, usage ...string) []string {
+	return cardItemTooltipRows(key, usage...).Lines()
+}
+
+func cardItemTooltipRows(key string, usage ...string) character.CardRows {
 	it, err := items.TryCreateItemFromYAML(key)
 	if err != nil {
 		return nil
 	}
-	return strings.Split(itemTooltipWithUsage(it, nil, nil, false, usage...), "\n")
+	return itemTooltipWithUsageRows(it, nil, nil, false, usage...)
 }
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.

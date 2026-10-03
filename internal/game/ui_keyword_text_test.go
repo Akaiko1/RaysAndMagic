@@ -89,8 +89,10 @@ func TestClassDescriptionsWrapInEveryFont(t *testing.T) {
 			}
 			for _, line := range wrapKeywordText(spans, width) {
 				for _, r := range line {
-					if r.kind != "" {
-						kept = append(kept, r.kind+":"+r.text)
+					for _, word := range strings.Fields(r.text) {
+						if r.kind != "" {
+							kept = append(kept, r.kind+":"+word)
+						}
 					}
 				}
 			}

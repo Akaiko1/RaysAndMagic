@@ -96,6 +96,15 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 	})
 }
 
+// xpShare is each hero's part of a kill's experience: the kill is split by
+// the active party, and every living hero then gains that share.
+func (g *MMGame) xpShare(xp int) int {
+	if g.party == nil || len(g.party.Members) == 0 {
+		return 0
+	}
+	return xp / len(g.party.Members)
+}
+
 // grantSharedXP gives `amount` experience to every LIVING hero - active party,
 // tavern reserve, and imprisoned captives - and applies any level-ups. Benched
 // heroes thus "train alongside the party" (their stat points / L3 choice bank

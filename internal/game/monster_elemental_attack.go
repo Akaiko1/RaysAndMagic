@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math/rand"
 
 	"ugataima/internal/config"
@@ -41,7 +40,7 @@ func (cs *CombatSystem) normalMonsterMeleeHit(m *monster.Monster3D, damage int) 
 	}
 	hit.ElementalAttack = elemental
 	if elemental {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s uses Elemental Attack (%s)!", m.Name, school))
+		cs.game.logCombat(logToneBad, "%s uses %s (%s)!", logMonsterName(m), logAbility("Elemental Attack"), logSchoolWord(school, school))
 		cs.game.addMonsterElementalAttackFX(m, school)
 	}
 	return hit

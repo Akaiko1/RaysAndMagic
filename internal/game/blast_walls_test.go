@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 )
@@ -173,5 +174,117 @@ func TestMonsterBlastsStopAtWalls(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A champion's AoE swing is a point blast at the champion: summons and the
+// party it reaches in the open are struck, the same ones behind a wall are
+// not. Without the walls the same victims are struck (positive control), and
+// the summon it swings at is always hit.
+func TestChampionSwingBlastStopsAtWalls(t *testing.T) {
+	for _, walled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("wall=%v", walled), func(t *testing.T) {
+			g, ts := summonTileWorld(t)
+			primeTestChampions(t, g)
+			fillTestParty(t, g)
+			overrideChampionMainHand(t, g, "weapon_master", "impossible", "tonbogiri")
+			if def, ok := config.GetWeaponDefinition("tonbogiri"); !ok || def.AoeRadiusTiles < 1.9 {
+				t.Fatal("tonbogiri lost its 2-tile splash")
+			}
+			if walled {
+				g.world.Tiles[9][10] = world.TileWall  // between the champion and the summon north of it
+				g.world.Tiles[11][10] = world.TileWall // between the champion and the party south of it
+			}
+			g.collisionSystem.UpdateTileChecker(g.world)
+			at := func(x, y float64) (float64, float64) { return x * ts, y * ts }
+			champ := monsterPkg.NewMonster3DFromConfig(10.5*ts, 10.5*ts, "weapon_master", g.config)
+			champ.ChampionTier = "impossible"
+			summon := func(id string, x, y float64) *monsterPkg.Monster3D {
+				px, py := at(x, y)
+				m := monsterPkg.NewMonster3DFromConfig(px, py, "masked_huntress", g.config)
+				m.ID, m.MaxHitPoints, m.HitPoints, m.PerfectDodge = id, 5000, 5000, 0
+				markCardAlly(m)
+				return m
+			}
+			front := summon("front", 11.5, 10.5)
+			shielded := summon("shielded", 10.5, 8.6)
+			g.world.Monsters = []*monsterPkg.Monster3D{champ, front, shielded}
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			g.camera.X, g.camera.Y = at(10.5, 12.4)
+			partyHP := 0
+			for _, m := range g.party.Members {
+				m.Luck, m.HitPoints, m.MaxHitPoints = 0, 5000, 5000
+				partyHP += m.HitPoints
+			}
+
+			g.combat.championCrossfireStrike(champ, front, false)
+
+			if front.HitPoints >= 5000 {
+				t.Fatal("the swing never struck the summon in front (positive control)")
+			}
+			if got := shielded.HitPoints < 5000; got != !walled {
+				t.Errorf("summon across the wall hit=%v, want %v (hp %d)", got, !walled, shielded.HitPoints)
+			}
+			after := 0
+			for _, m := range g.party.Members {
+				after += m.HitPoints
+			}
+			if got := after < partyHP; got != !walled {
+				t.Errorf("party across the wall hit=%v, want %v", got, !walled)
+			}
+		})
+	}
+}
+
+// Area effects that do not spread along open ground reach behind walls:
+// Earthquake and the Gorilla Titan Card shake the ground around the party, and
+// Stone Blossom is artillery lobbed in a high arc. A point blast with the same
+// wall in the way is shielded (the control).
+func TestQuakesAndArtilleryReachBehindWalls(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cast    func(g *MMGame, ts float64)
+		reaches bool
+	}{
+		"earthquake": {func(g *MMGame, _ float64) {
+			def, err := spells.GetSpellDefinitionByID("earthquake")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !g.combat.tryCastPartyNova(def, g.party.Members[0]) {
+				t.Fatal("earthquake did not go off")
+			}
+		}, true},
+		"gorilla titan card": {func(g *MMGame, _ float64) {
+			if !g.combat.cardMoveBurstApply(50, 10) {
+				t.Fatal("the slam hit nothing")
+			}
+		}, true},
+		"stone blossom": {func(g *MMGame, ts float64) {
+			g.combat.detonateMortar(pendingMortar{X: 14.85 * ts, Y: 10.5 * ts, SpellID: "stone_blossom", Damage: 30,
+				Caster: g.party.Members[0], RadiusTiles: 3, School: "earth"})
+		}, true},
+		"point blast (control)": {func(g *MMGame, ts float64) {
+			attack := g.combat.newPartyMonsterAttack(30, 0, "fire", 0, nil, "Blast", false, true, false)
+			g.combat.applyAoeSplashAt(14.85*ts, 10.5*ts, attack, 3, nil, func(*monsterPkg.Monster3D, int) {})
+		}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, ts := summonTileWorld(t)
+			for y := 6; y <= 14; y++ {
+				g.world.Tiles[y][15] = world.TileWall
+			}
+			g.collisionSystem.UpdateTileChecker(g.world)
+			shielded := mkTestMonster("shielded", 5000)
+			shielded.ID, shielded.X, shielded.Y, shielded.PerfectDodge = "shielded", 16.2*ts, 10.5*ts, 0
+			g.world.Monsters = []*monsterPkg.Monster3D{shielded}
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			if g.combat.attackLineClear(g.camera.X, g.camera.Y, shielded.X, shielded.Y) {
+				t.Fatal("the wall does not stand between the party and the monster")
+			}
+			tc.cast(g, ts)
+			if got := shielded.HitPoints < 5000; got != tc.reaches {
+				t.Errorf("monster behind the wall hit=%v, want %v", got, tc.reaches)
+			}
+		})
 	}
 }

@@ -207,7 +207,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 		TileX: tileX, TileY: tileY, X: cx, Y: cy, Owner: caster,
 		FramesLeft: def.LifetimeSeconds * cs.game.config.GetTPS(),
 	})
-	cs.game.AddCombatMessage(fmt.Sprintf("%s arms a %s!", caster.Name, def.Name))
+	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
 	cs.game.spawnTrapSwirl(cx, cy, def.Element)
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
@@ -324,27 +324,20 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	if !ok {
 		return
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s springs under %s!", def.Name, victim.Name))
+	cs.game.logCombat(logToneGood, "%s springs under %s!", logAbility(def.Name), logMonsterName(victim))
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
 	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
-			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
-			for _, m := range cs.game.world.Monsters {
-				// Like every point blast, the burst stops at walls.
-				if m == nil || !m.IsAlive() || isPurePartySummon(m) ||
-					Distance(t.X, t.Y, m.X, m.Y) > radius || !cs.attackLineClear(t.X, t.Y, m.X, m.Y) {
-					continue
-				}
+			hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
+			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), hurts, func(m *monsterPkg.Monster3D) {
 				if cs.tryDarkElfBindInstead(t.Owner, m) {
-					if m == victim {
-						boundVictim = true
-					}
-					continue
+					boundVictim = boundVictim || m == victim
+					return
 				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
-			}
+			})
 		} else {
 			if cs.tryDarkElfBindInstead(t.Owner, victim) {
 				boundVictim = true
@@ -398,8 +391,8 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
 	cs.markMonsterHit(m)
 	cs.spawnHitSparks(m)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s! (HP: %d/%d)",
-		m.Name, dealt, sourceName, m.HitPoints, m.MaxHitPoints))
+	cs.game.logCombat(logToneGood, "%s takes %s damage from %s! %s",
+		logMonsterName(m), logDamage(dealt, ""), logAbility(sourceName), logHP(m.HitPoints, m.MaxHitPoints))
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,

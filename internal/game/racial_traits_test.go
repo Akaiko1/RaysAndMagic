@@ -263,7 +263,7 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 				if err != nil {
 					t.Fatalf("load Inferno: %v", err)
 				}
-				cs.tryCastInferno(def, caster)
+				cs.tryCastPartyNova(def, caster)
 			},
 		},
 		{
@@ -735,7 +735,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
 	})
 	dispeller := &monster.Monster3D{Name: "Dispeller", DispelChance: 1}
-	cs.tryApplyMonsterDispel(dispeller, g.party.Members[0])
+	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]})
 	if len(g.statBuffs) != 1 || len(g.combatBuffs) != 1 {
 		t.Fatalf("phase-bound buffs entered the monster dispel pool: stat=%d combat=%d", len(g.statBuffs), len(g.combatBuffs))
 	}

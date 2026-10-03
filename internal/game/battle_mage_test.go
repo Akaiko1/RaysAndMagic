@@ -184,7 +184,7 @@ func TestSpellAbsorptionChannelTable(t *testing.T) {
 		}
 		for try := 0; try < 100; try++ {
 			member.HitPoints = member.MaxHitPoints
-			if !cs.tryCastInferno(def, member) {
+			if !cs.tryCastPartyNova(def, member) {
 				t.Fatal("inferno was not handled")
 			}
 			if member.HitPoints >= member.MaxHitPoints {
@@ -442,9 +442,9 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 				if err != nil {
 					t.Fatalf("inferno definition: %v", err)
 				}
-				parts := cs.spellDamageParts(def.ID, caster, cs.CalculateInfernoDamage(def, caster))
+				parts := cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster))
 				before := mob.HitPoints
-				if !cs.tryCastInferno(def, caster) {
+				if !cs.tryCastPartyNova(def, caster) {
 					t.Fatal("inferno was not handled")
 				}
 				return formResult{got: before - mob.HitPoints, want: parts.Total() + flatBonus}
@@ -613,7 +613,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 			}},
 			{spellID: "inferno", needle: "Damage: ", expected: func(def spells.SpellDefinition) string {
 				parts, _ := cs.spellPartsWithOutgoingBuff(
-					cs.spellDamageParts(def.ID, caster, cs.CalculateInfernoDamage(def, caster)), def.School,
+					cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster)), def.School,
 				)
 				return fmt.Sprintf("Damage: %d", parts.Total())
 			}},

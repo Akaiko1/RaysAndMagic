@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/config"
@@ -236,7 +235,7 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 			ui.settingsClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() { g.toggleAutomaticPotion(mana, choice.Key) })
 			mx, my := pointerPosition()
 			if image.Pt(mx, my).In(hit) {
-				lines := strings.Split(GetItemTooltip(item, nil, g.combat, tooltipDetailHeld()), "\n")
+				lines := GetItemTooltipRows(item, nil, g.combat, tooltipDetailHeld())
 				ui.queueItemTooltip(lines, item, nil, mx+16, my+8)
 			}
 		}

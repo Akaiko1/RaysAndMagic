@@ -32,7 +32,7 @@ type contentCard struct {
 
 	// Tooltip-only fields (full data).
 	description string
-	tooltipRows []string // complete shared tooltip, including name and category
+	tooltipRows character.CardRows // complete shared tooltip, including name and category
 
 	// icon overrides the icon_<kind>_<key>.png naming convention (traps ship
 	// their sprite name in traps.yaml).
@@ -251,7 +251,7 @@ func buildTechniqueCards() []contentCard {
 			key:         d.Key,
 			name:        d.Name,
 			subtitle:    fmt.Sprintf("Lv %d  SP %d", d.Level, d.SPCost[0]),
-			tooltipRows: strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n"),
+			tooltipRows: game.GetItemTooltipRows(it, nil, nil, true),
 			icon:        d.Icon,
 		})
 	}
@@ -276,7 +276,7 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 	if !ok {
 		panic("unknown catalog trap: " + key)
 	}
-	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,
@@ -303,7 +303,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	if def.TrueDamage > 0 {
 		subtitle += fmt.Sprintf("  +%d True", def.TrueDamage)
 	}
-	rows := strings.Split(game.GetItemTooltip(items.CreateWeaponFromYAML(key), nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(items.CreateWeaponFromYAML(key), nil, nil, true)
 	return contentCard{
 		kind:        cardWeapon,
 		section:     section,
@@ -324,7 +324,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 		subtitle = strings.TrimSpace(kind + "  " + subtitle)
 	}
 
-	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
 		kind:        cardItem,
 		section:     section,
@@ -383,7 +383,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	if def.MonsterOnly {
 		subtitle = "Monster only - " + titleCase(def.School)
 	}
-	rows := strings.Split(game.GetSpellTooltip(spells.SpellID(key), nil, nil, true), "\n")
+	rows := game.GetSpellTooltipRows(spells.SpellID(key), nil, nil, true)
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,

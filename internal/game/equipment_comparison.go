@@ -46,6 +46,10 @@ func previewEquippedItem(cs *CombatSystem, original *character.MMCharacter, item
 }
 
 func buildEquipmentComparisonLines(item items.Item, original *character.MMCharacter, cs *CombatSystem, slot items.EquipSlot) []string {
+	return buildEquipmentComparisonRows(item, original, cs, slot).Lines()
+}
+
+func buildEquipmentComparisonRows(item items.Item, original *character.MMCharacter, cs *CombatSystem, slot items.EquipSlot) character.CardRows {
 	before, beforeCS := equipmentComparisonContext(cs, original)
 	after, afterCS := previewEquippedItem(cs, original, item, slot)
 	equipped, occupied := before.Equipment[slot]
@@ -60,9 +64,9 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 	if slot == items.SlotRing2 {
 		slotLabel = "Ring 2"
 	}
-	lines := []string{fmt.Sprintf("%s: %s", slotLabel, name), "After equipping (current -> new)"}
+	lines := character.CardRows{{Text: fmt.Sprintf("%s: %s", slotLabel, name), Kind: character.CardRowTitle}, {Text: "After equipping (current -> new)", Kind: character.CardRowCategory}}
 	if !original.ItemFitsSlot(item, slot) {
-		lines = append(lines, "Cannot equip: requirements not met")
+		lines.Add(character.CardRowBody, "Cannot equip: requirements not met")
 	}
 	attack := ttSection{Title: "ATTACK"}
 	defense := ttSection{Title: "DEFENSE"}
@@ -172,12 +176,13 @@ func buildEquipmentComparisonLines(item items.Item, original *character.MMCharac
 			}
 		}
 	}
-	body := character.RenderCardLines([]ttSection{attack, defense, attributes, resistances, effects, set}, true)
+	body := character.RenderCardRows([]ttSection{attack, defense, attributes, resistances, effects, set}, true)
 	if len(body) > 0 {
-		lines = append(append(lines, ""), body...)
+		lines.Add(character.CardRowSpacer, "")
+		lines = append(lines, body...)
 	}
 	if len(lines) == 2 {
-		lines = append(lines, "No change to current stats or abilities")
+		lines.Add(character.CardRowBody, "No change to current stats or abilities")
 	}
 	return lines
 }
@@ -199,7 +204,7 @@ func comparisonEffectLines(item items.Item) []string {
 // Numerical gains and losses use readable colors independently of item rarity.
 // Recovery stays neutral: a lower duration is better, unlike these stat rows.
 func equipmentComparisonColors(lines []string, base []color.Color) []color.Color {
-	out := tooltipLineColors(len(lines), base)
+	out := tooltipColorOverrides(len(lines), base, color.White)
 	for i, line := range lines {
 		if strings.Contains(line, " -> ") && strings.Contains(line, " (+") {
 			out[i] = equipmentBenefitColor

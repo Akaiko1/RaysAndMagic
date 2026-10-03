@@ -57,33 +57,46 @@ func SectionsHaveDetail(sections []CardSection) bool {
 	return false
 }
 
-// RenderCardLines flattens sections into display lines, hiding empty sections.
-// Results precede details; compact (full=false) skips detail lines.
-// The map editor always passes true - it's a reference panel, not a tooltip.
-func RenderCardLines(sections []CardSection, full bool) []string {
-	var out []string
+// RenderCardRows flattens nonempty sections with results before details.
+// Compact cards omit details; every row retains its mechanic and semantic role.
+func RenderCardRows(sections []CardSection, full bool) CardRows {
+	var out CardRows
 	for _, sec := range sections {
-		var lines []string
+		var rows CardRows
 		for _, detail := range []bool{false, true} {
 			if detail && !full {
 				continue
 			}
-			for _, l := range sec.lines {
-				if l.detail == detail {
-					lines = append(lines, l.text)
+			for _, line := range sec.lines {
+				if line.detail != detail {
+					continue
+				}
+				kind := CardRowResult
+				if detail {
+					kind = CardRowDetail
+				}
+				start := len(rows)
+				rows.Add(kind, line.text)
+				for i := start; i < len(rows); i++ {
+					rows[i].Section = sec.Title
 				}
 			}
 		}
-		if len(lines) == 0 {
+		if len(rows) == 0 {
 			continue
 		}
 		if len(out) > 0 {
-			out = append(out, "")
+			out.Add(CardRowSpacer, "")
 		}
-		out = append(out, sec.Title)
-		out = append(out, lines...)
+		out.Add(CardRowSection, sec.Title)
+		out = append(out, rows...)
 	}
 	return out
+}
+
+// RenderCardLines is the plain-text projection for non-rendering consumers.
+func RenderCardLines(sections []CardSection, full bool) []string {
+	return RenderCardRows(sections, full).Lines()
 }
 
 // DamageTypeAoELine composes "Fire Damage - splash radius 2 tiles" (any element).
@@ -155,23 +168,10 @@ const SplashCritRule = "One base critical roll applies to the primary hit and it
 
 const WeaponSplashCritRule = SplashCritRule + "; Designate Target's critical bonus applies separately to each marked victim"
 
-// CooldownLine formats a real-time cooldown, noting that turn-based combat
-// ignores the seconds and spends the actor's single action for the turn instead.
 // CardSectionSet titles the equipment-set block of a card.
 const CardSectionSet = "SET"
 
-var cardSectionTitles = map[string]bool{
-	"DAMAGE": true, "DAMAGE PER TICK": true, "HEALING": true, "CRITICAL": true, "ATTACK": true, "EFFECTS": true,
-	"DEFENSE": true, "CASTING": true, "ZONE": true, "PLACEMENT": true, "CONTROL": true, "USAGE": true, "REQUIREMENTS": true,
-	"RECOVERY": true, "DURATION": true, "MASTERY": true, "GRANDMASTER": true, "TRIGGER": true, "LIMITS": true,
-	"ATTRIBUTES": true, "RESISTANCES": true, "CHANGES": true, "REAL TIME": true, "TURN BASED": true, CardSectionSet: true,
-}
-
-// IsCardSectionTitle reports whether a card line is a section heading. Game
-// tooltips and the editor catalog both read headings from this one list, so a
-// new section is one entry here.
-func IsCardSectionTitle(line string) bool { return cardSectionTitles[line] }
-
+// CooldownLine formats real-time recovery and the turn-based action cost.
 func CooldownLine(seconds float64) string {
 	return CooldownLineTB(seconds, "1 action")
 }

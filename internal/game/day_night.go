@@ -222,17 +222,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
 		g.combat.applyStatBuffSpellFromSource(spellID, celestialProvidenceSourceID, frames, g.combat.spellStatBuffBonuses(spellID, caster))
 	} else {
-		g.addCombatBuff(TimedCombatBuff{
-			SpellID:         string(spellID),
-			SourceID:        celestialProvidenceSourceID,
-			Frames:          frames,
-			OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
-			OutDamageType:   def.OutgoingDamageType,
-			InReduce:        scaledIncomingDamageReduction(def, caster),
-			ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
-			ResistSchool:    def.ResistBuffSchool,
-			ResistSchoolPct: def.ResistBuffSchoolPct,
-		})
+		g.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, celestialProvidenceSourceID))
 	}
 	g.celestialBuffSpellID = string(spellID)
 	g.setUtilityStatus(spellID, frames)

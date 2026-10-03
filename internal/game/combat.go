@@ -56,11 +56,11 @@ func (cs *CombatSystem) rollRacialProc(chancePct int) bool {
 func (cs *CombatSystem) knockOut(target *character.MMCharacter) {
 	if pct := cs.game.cardLethalSavePct(); pct > 0 && rand.Intn(100) < pct {
 		reviveHalf(target)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s cheats death! (Lich Card)", target.Name))
+		cs.game.logCombat(logToneGood, "%s cheats death! (Lich Card)", logHeroName(target))
 		return
 	}
 	target.AddCondition(character.ConditionUnconscious)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+	cs.game.logCombat(logToneBad, "%s %s!", logHeroName(target), logColored("falls unconscious", logDyingHP))
 }
 
 // knockOutLethalDoTVictims finds party members poison/burn ticked to 0 HP this
@@ -109,7 +109,7 @@ func (cs *CombatSystem) tryCardHealOnAttack() {
 	}
 	if m := cs.game.party.Members[idx]; m != nil && m.HitPoints > 0 {
 		cs.healMember(idx, amt)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's Ningyo Card mends %d HP.", m.Name, amt))
+		cs.game.logCombat(logToneGood, "%s's Ningyo Card mends %s HP.", logHeroName(m), logHealed(amt))
 	}
 }
 
@@ -135,7 +135,7 @@ func (cs *CombatSystem) tryCardMoveBurst() {
 	}
 	radiusTiles := cs.game.cardMoveAoeRadiusTiles()
 	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg(), radiusTiles) {
-		cs.game.AddCombatMessage(fmt.Sprintf("The Gorilla Titan Card erupts for %d physical true damage!", cs.game.cardMoveAoeDmg()))
+		cs.game.logCombat(logToneGood, "The Gorilla Titan Card erupts for %s physical true damage!", logTrueDamage(cs.game.cardMoveAoeDmg()))
 	}
 	// Play the existing ground FX on every successful roll, even over empty
 	// ground. This is only presentation, not an Earthquake spell cast.
@@ -143,20 +143,18 @@ func (cs *CombatSystem) tryCardMoveBurst() {
 }
 
 // cardMoveBurstApply deals `dmg` physical true damage to every living monster
-// within the authored radius. Resistance applies; armor and soak do not.
+// within the authored radius. Resistance applies; armor and soak do not. The
+// slam shakes the ground around the party, so walls do not shield from it.
 func (cs *CombatSystem) cardMoveBurstApply(dmg int, radiusTiles float64) bool {
 	if dmg <= 0 || radiusTiles <= 0 || cs.game.world == nil {
 		return false
 	}
-	radius := float64(cs.game.config.GetTileSize()) * radiusTiles
-	px, py := cs.game.camera.X, cs.game.camera.Y
 	hit := false
-	for _, m := range cs.game.world.Monsters {
-		// This automatic movement proc follows the party auto-target policy.
-		if isExcludedFromPartyAutoTarget(m) || !m.IsAlive() || m.IsDamageInvulnerable() ||
-			math.Hypot(m.X-px, m.Y-py) > radius || !cs.attackLineClear(px, py, m.X, m.Y) {
-			continue
-		}
+	// This automatic movement proc follows the party auto-target policy.
+	hurts := func(m *monsterPkg.Monster3D) bool {
+		return !isExcludedFromPartyAutoTarget(m) && !m.IsDamageInvulnerable()
+	}
+	cs.forEachAreaVictim(cs.partyNova(radiusTiles*float64(cs.game.config.GetTileSize())), hurts, func(m *monsterPkg.Monster3D) {
 		cs.applyMonsterDamagePacket(
 			m,
 			singleMonsterDamagePacket(
@@ -171,7 +169,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int, radiusTiles float64) bool {
 		if !m.IsAlive() {
 			cs.finishMonsterKill(m)
 		}
-	}
+	})
 	return hit
 }
 
@@ -281,7 +279,7 @@ func (cs *CombatSystem) summonAnimalBondingBear(druid *character.MMCharacter) bo
 		attack = 1
 	}
 	bear.DamageMin, bear.DamageMax = attack, attack
-	cs.game.AddCombatMessage(fmt.Sprintf("%s's Animal Bonding calls a bear ally!", druid.Name))
+	cs.game.logCombat(logToneGood, "%s's %s calls a bear ally!", logHeroName(druid), logAbility("Animal Bonding"))
 	return true
 }
 
@@ -400,7 +398,7 @@ func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
 		}
 		if !isPurePartySummon(m) {
 			g.combat.awardExperienceOnly(m)
-			g.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
+			g.logCombat(logToneNone, "Your bound %s crumbles as you leave.", logMonsterName(m))
 		}
 		// The departing world's monsters live in the single shared collision system
 		// (switchToMap unregisters the old map's monsters one by one); a crumbled
@@ -430,7 +428,7 @@ func (cs *CombatSystem) summonCardAllies(source cardSummonSource, n int) int {
 		}
 	}
 	if spawned > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("The %s rallies %d ally to your side!", source.CardName, spawned))
+		cs.game.logCombat(logToneGood, "The %s rallies %d ally to your side!", logAbility(source.CardName), spawned)
 	}
 	return spawned
 }
@@ -1402,12 +1400,10 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 		cs.game.playMonsterSound(soundMonsterHit, monster)
 	}
 	cs.markMonsterHit(monster)
+	cs.game.logCombat(logToneGood, "%s dodges, but %s lands %s true damage! %s",
+		logMonsterName(monster), logHeroText(attackerName), logTrueDamage(actual), logHP(monster.HitPoints, monster.MaxHitPoints))
 	if !monster.IsAlive() {
-		xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's true damage pierces %s's dodge for %d and kills it!", attackerName, monster.Name, actual))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s lands %d true damage! (HP: %d/%d)", monster.Name, attackerName, actual, monster.HitPoints, monster.MaxHitPoints))
+		cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
 }
 
@@ -1459,7 +1455,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		if trueDmg > 0 {
 			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
 		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, attackerName))
+			cs.game.logCombat(logToneNone, "%s dodges %s's attack!", logMonsterName(monster), logHeroText(attackerName))
 		}
 		return
 	}
@@ -1469,8 +1465,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Weapon and card chances share the projectile policy and immunity gate.
 	if rollMonsterDisintegrate(monster, cs.game.weaponDisintegrateChance(weaponDef)) {
-		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, weaponAoeRadius(weaponDef),
-			fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
+		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, weaponAoeRadius(weaponDef), logHeroText(attackerName))
 		return
 	}
 
@@ -1479,28 +1474,22 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	hit := cs.applyPartyMonsterAttack(monster, attack)
 	finalDamage, isCrit := hit.Total(), hit.Critical
 	cs.markMonsterHit(monster)
+	cs.game.logCombat(logToneGood, "%s%s hits %s for %s damage! %s", logCrit(isCrit), logHeroText(attackerName),
+		logMonsterName(monster), logDamage(finalDamage, damageTypeStr), logHP(monster.HitPoints, monster.MaxHitPoints))
 	cs.trySleightOfHand(attacker, monster)
 	cs.spawnWeaponHitImpactFX(monster, finalDamage)
-	executed, xpAwarded := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, nil)
-	if !executed {
-		if monster.IsAlive() {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage! (HP: %d/%d)",
-				critPrefix(isCrit), attackerName, monster.Name, finalDamage, monster.HitPoints, monster.MaxHitPoints))
-		} else {
-			cs.announcePartyKill(isCrit, attackerName, monster.Name, finalDamage, xpAwarded)
-		}
-	}
+	cs.settlePartyHit(monster, weaponDef, attacker, attackerName, nil)
 	if radius := weaponAoeRadius(weaponDef); radius > 0 {
 		cs.applyAoeSplash(monster, attack, radius)
 	}
 }
 
-// settlePartyHit is what every landed party hit does after its damage: the
-// weapon's riders plus the caller's own (a spell's stun), the Maw's execute,
-// and the kill finalization. executed means the Maw finished the target and
-// announced it itself.
+// settlePartyHit is what every landed party hit does after its damage (and its
+// log line): the weapon's riders plus the caller's own (a spell's stun), the
+// Maw's execute, and the kill finalization. executed means the Maw finished
+// the target.
 func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig,
-	attacker *character.MMCharacter, attackerName string, riders func()) (executed bool, xpAwarded int) {
+	attacker *character.MMCharacter, attackerName string, riders func()) (executed bool) {
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
 		if riders != nil {
@@ -1509,29 +1498,22 @@ func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef 
 		executed = cs.tryWeaponExecute(monster, weaponDef, attacker, attackerName)
 	}
 	if !monster.IsAlive() && !executed {
-		xpAwarded = cs.finishWeaponKill(monster, weaponDef, attacker)
+		cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
-	return executed, xpAwarded
+	return executed
 }
 
 // disintegratePartyTarget is the instakill rider of melee and projectile hits:
 // the target dies through the shared kill path and the blast still goes off.
 func (cs *CombatSystem) disintegratePartyTarget(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig,
-	attacker *character.MMCharacter, attack partyMonsterAttack, aoeRadiusTiles float64, message string) {
+	attacker *character.MMCharacter, attack partyMonsterAttack, aoeRadiusTiles float64, who logPart) {
 	monster.HitPoints = 0
 	cs.markMonsterHit(monster)
-	xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
-	cs.game.AddCombatMessage(message)
-	cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+	cs.game.logCombat(logToneGood, "%s disintegrates %s!", who, logMonsterName(monster))
+	cs.finishWeaponKill(monster, weaponDef, attacker)
 	if aoeRadiusTiles > 0 {
 		cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
 	}
-}
-
-// announcePartyKill is the kill line of every party hit.
-func (cs *CombatSystem) announcePartyKill(isCrit bool, attackerName, victim string, damage, xpAwarded int) {
-	cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!", critPrefix(isCrit), attackerName, victim, damage))
-	cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 }
 
 func critPrefix(isCrit bool) string {
@@ -1644,12 +1626,10 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 		monster.OffHandCDFrames--
 	}
 
-	// These behavior modes own no RT attack action. Keep this explicit here:
-	// stale StateAttacking, pounce data, or an attack-post claim must never
-	// bypass the mode-independent behavior policy.
-	if behavior == monsterPkg.AIBehaviorAmbient || behavior == monsterPkg.AIBehaviorPacified ||
-		behavior == monsterPkg.AIBehaviorFleeing ||
-		behavior == monsterPkg.AIBehaviorPassive {
+	// Modes that may not attack own no RT attack action: stale StateAttacking,
+	// pounce data, or an attack-post claim must never bypass the policy. An
+	// evasive quest boss still reaches the boss rider below, which owns its blink.
+	if !behavior.Caps().MayAttack && behavior != monsterPkg.AIBehaviorEvasive {
 		return
 	}
 	// Bound (Bind Undead): hunts the nearest enemy monster using its normal
@@ -1706,7 +1686,7 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
 			cs.monsterCanPounceParty(monster) {
 			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
-				cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
+				cs.game.logCombat(logToneBad, "%s %s at the party!", logMonsterName(monster), logAbility("pounces"))
 				cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
 				monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
 				return
@@ -2019,13 +1999,13 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			true,
 		).True
 		if trueDealt <= 0 {
-			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
+			cs.game.logCombat(logToneNone, "Perfect Dodge! %s evades %s's attack!", logHeroName(target), logMonsterAs(monster, sourceName))
 			return
 		}
 		trueDealt = cs.redirectDamageThroughSacrifice(target, trueDealt)
 		cs.takeHeroHP(target, trueDealt, sourceName)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s but still takes %d! (HP: %d/%d)",
-			target.Name, sourceName, trueDealt, target.HitPoints, target.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s dodges %s but still takes %s! %s",
+			logHeroName(target), logMonsterAs(monster, sourceName), logTrueDamage(trueDealt), logHP(target.HitPoints, target.MaxHitPoints))
 		if target.HitPoints == 0 {
 			cs.knockOut(target)
 		}
@@ -2038,7 +2018,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	if hit.DisintegrateChance > 0 && rand.Float64() < hit.DisintegrateChance {
 		damage := target.HitPoints
 		target.Eradicate()
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", target.Name, sourceName))
+		cs.game.logCombat(logToneBad, "%s is %s by %s!", logHeroName(target), logColored("eradicated", logDyingHP), logMonsterAs(monster, sourceName))
 		cs.game.TriggerDamageHit(targetIndex, damage)
 		return
 	}
@@ -2053,8 +2033,8 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	finalDamage := dealt.Total()
 	finalDamage = cs.redirectDamageThroughSacrifice(target, finalDamage)
 	cs.takeHeroHP(target, finalDamage, sourceName)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
-		sourceName, target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
+	cs.game.logCombat(logToneBad, "%s hits %s for %s damage! %s", logMonsterAs(monster, sourceName),
+		logHeroName(target), logDamage(finalDamage, hit.DamageType), logHP(target.HitPoints, target.MaxHitPoints))
 	if target.HitPoints == 0 {
 		cs.knockOut(target)
 	}
@@ -2064,10 +2044,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 
 	if monster != nil {
-		cs.tryApplyMonsterPoison(monster, target)
-		cs.tryApplyMonsterIgnite(monster, target)
-		cs.tryApplyMonsterStun(monster, target, hit.SpellID)
-		cs.tryApplyMonsterDispel(monster, target)
+		cs.applyMonsterHitRiders(monster, hit.SpellID, heroHitTarget{cs, target})
 		cs.reflectMonsterDamage(monster, target, finalDamage, hit.Melee)
 	}
 	growScaleStacks(target, finalDamage) // Drakehide: every damaging hit grows a scale
@@ -2106,12 +2083,11 @@ func (cs *CombatSystem) reflectMonsterDamage(monster *monsterPkg.Monster3D, targ
 			monsterDamageOptions{IgnoreArmor: true},
 		).Total()
 	}
+	if dealt > 0 {
+		cs.game.logCombat(logToneGood, "%s takes %s reflected damage!", logMonsterName(monster), logDamage(dealt, monsterPkg.DamagePhysical.String()))
+	}
 	if !monster.IsAlive() {
-		xpAwarded := cs.finishMonsterKill(monster)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's reflected wrath destroys %s!", target.Name, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
-	} else if dealt > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d reflected damage!", monster.Name, dealt))
+		cs.finishMonsterKill(monster)
 	}
 }
 
@@ -2164,7 +2140,7 @@ func (cs *CombatSystem) tryReflectMonsterProjectile(
 		*lifetime = returnFrames
 	}
 	*owner = ProjectileOwnerReflected
-	cs.game.AddCombatMessage(fmt.Sprintf("The mirror scales turn %s's bolt back!", source.Name))
+	cs.game.logCombat(logToneGood, "The mirror scales turn %s's bolt back!", logMonsterName(source))
 	return true
 }
 
@@ -2292,34 +2268,151 @@ func (cs *CombatSystem) trySpiritualTraining(attacker *character.MMCharacter) {
 	cs.castResolvedSpell(spellID, def, attacker, 0, false, false)
 }
 
-// tryApplyMonsterPoison rolls the attacker's PoisonChance against a character
-// that just took a hit. Shared by the RT and TB melee paths.
-func (cs *CombatSystem) tryApplyMonsterPoison(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
-	if monster.PoisonChance <= 0 || rand.Float64() >= monster.PoisonChance {
+// hitStatusTarget is whoever a landed monster hit struck, as the hit's on-hit
+// statuses see it: a hero or another monster, each with its own resistances,
+// durations and log line.
+type hitStatusTarget interface {
+	poison(frames int)
+	ignite(frames int)
+	stun(frames, turns int)
+	dispel(attacker *monsterPkg.Monster3D)
+}
+
+// applyMonsterHitRiders rolls a landed monster hit's on-hit statuses once, in
+// one order - poison, ignite, stun (a bolt's own spell rider when it has one),
+// dispel - and lands each on the struck target through its own rules. A
+// champion's striking weapon is stamped onto these fields before it swings.
+func (cs *CombatSystem) applyMonsterHitRiders(attacker *monsterPkg.Monster3D, spellID string, target hitStatusTarget) {
+	if attacker == nil || target == nil {
 		return
 	}
+	tps := cs.game.config.GetTPS()
+	if attacker.PoisonChance > 0 && rand.Float64() < attacker.PoisonChance {
+		target.poison(tps * attacker.PoisonDurationSec) // guaranteed by load-time validation
+	}
+	if attacker.IgniteChance > 0 && rand.Float64() < attacker.IgniteChance {
+		target.ignite(tps * attacker.IgniteDurationSec)
+	}
+	chance, seconds, turns := attacker.StunCharChance, attacker.StunCharSeconds, attacker.StunCharTurns
+	if spellID != "" {
+		rider := attacker.ProjectileStun(spellID)
+		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
+	}
+	if chance > 0 && rand.Float64() < chance {
+		target.stun(tps*seconds, turns)
+	}
+	if attacker.DispelChance > 0 && rand.Float64() < attacker.DispelChance {
+		target.dispel(attacker)
+	}
+}
+
+// heroHitTarget lands monster riders on a party member: cards and gear shorten
+// or resist them, stuns walk the hero's diminishing-returns chain.
+type heroHitTarget struct {
+	cs   *CombatSystem
+	hero *character.MMCharacter
+}
+
+func (t heroHitTarget) poison(frames int) {
+	cs := t.cs
 	// Mummy Card: chance to resist the poison outright.
 	if resist := cs.game.cardPoisonResistPct(); resist > 0 && rand.Intn(100) < resist {
 		return
 	}
-	// poison_duration_seconds is guaranteed by load-time validation. The Still
-	// Court aegis (status_duration_pct) shortens the affliction on its wearer.
-	poisonFrames := cs.scaledStatusFrames(target, cs.game.config.GetTPS()*monster.PoisonDurationSec)
-	target.ApplyPoison(poisonFrames)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", target.Name))
+	// The Still Court aegis (status_duration_pct) shortens it on its wearer.
+	t.hero.ApplyPoison(cs.scaledStatusFrames(t.hero, frames))
+	cs.game.logCombat(logToneBad, "%s is %s!", logHeroName(t.hero), logColored("poisoned", logPoison))
 }
 
-// tryApplyMonsterIgnite rolls the attacker's IgniteChance and sets the target on
-// fire - a burn DoT 3x as strong as poison that STACKS with it (independent tick).
-func (cs *CombatSystem) tryApplyMonsterIgnite(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
-	if monster.IgniteChance <= 0 || rand.Float64() >= monster.IgniteChance {
+// ignite is a burn DoT 3x as strong as poison that STACKS with it.
+func (t heroHitTarget) ignite(frames int) {
+	t.hero.ApplyBurn(t.cs.scaledStatusFrames(t.hero, frames))
+	t.cs.game.logCombat(logToneBad, "%s bursts into %s!", logHeroName(t.hero), logSchoolWord(monsterPkg.DamageFire.String(), "flames"))
+}
+
+func (t heroHitTarget) stun(frames, turns int) {
+	if !t.cs.applyScaledCharStun(t.hero, frames, turns) {
+		t.cs.game.logCombat(logToneGood, "%s resists the %s!", logHeroName(t.hero), logKeyword("control", "stun"))
 		return
 	}
-	// ignite_duration_seconds is guaranteed by load-time validation. The Still
-	// Court aegis (status_duration_pct) shortens the burn on its wearer.
-	burnFrames := cs.scaledStatusFrames(target, cs.game.config.GetTPS()*monster.IgniteDurationSec)
-	target.ApplyBurn(burnFrames)
-	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s bursts into flames!", target.Name), combatMessageOrange)
+	t.cs.game.logCombat(logToneBad, "%s is %s!%s", logHeroName(t.hero), logKeyword("control", "stunned"),
+		t.cs.game.logStatusLength(t.hero.StunTurnsRemaining, t.hero.StunFramesRemaining))
+}
+
+// dispel strips one random active party buff (stat or combat). Buffs are
+// party-wide, so the struck hero only triggers the roll.
+func (t heroHitTarget) dispel(monster *monsterPkg.Monster3D) {
+	cs := t.cs
+	type dispelTarget struct {
+		spellID string
+		combat  bool
+	}
+	var pool []dispelTarget
+	for i := range cs.game.statBuffs {
+		if cs.game.statBuffs[i].SourceID != "" {
+			continue
+		}
+		pool = append(pool, dispelTarget{cs.game.statBuffs[i].SpellID, false})
+	}
+	for i := range cs.game.combatBuffs {
+		if cs.game.combatBuffs[i].SourceID != "" {
+			continue
+		}
+		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
+	}
+	if len(pool) == 0 {
+		return
+	}
+	pick := pool[rand.Intn(len(pool))]
+	name := pick.spellID
+	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(pick.spellID)); err == nil && def.Name != "" {
+		name = def.Name
+	}
+	if pick.combat {
+		cs.game.removeCombatBuff(pick.spellID)
+	} else {
+		cs.game.removeStatBuff(pick.spellID)
+	}
+	cs.game.logCombat(logToneBad, "%s rips %s from the party!", logMonsterName(monster), logKeyword("buff", name))
+}
+
+// monsterHitTarget lands monster riders on another monster: a party summon
+// struck by a foe, or a foe struck by the party's ally. Its stuns share the
+// monsters' diminishing returns; a wildlife hunt stays out of the log.
+type monsterHitTarget struct {
+	cs               *CombatSystem
+	attacker, target *monsterPkg.Monster3D
+}
+
+func (t monsterHitTarget) announce() bool { return !quietActorCombat(t.attacker, t.target) }
+
+func (t monsterHitTarget) poison(frames int) {
+	if t.target.ApplyPoison(frames) && t.announce() {
+		t.cs.game.logCombat(monsterStatusTone(t.target), "%s is %s!", logMonsterName(t.target), logColored("poisoned", logPoison))
+	}
+}
+
+func (t monsterHitTarget) ignite(frames int) {
+	t.target.ApplyBurn(frames)
+	if t.announce() {
+		t.cs.game.logCombat(monsterStatusTone(t.target), "%s catches %s!", logMonsterName(t.target), logSchoolWord(monsterPkg.DamageFire.String(), "fire"))
+	}
+}
+
+func (t monsterHitTarget) stun(frames, turns int) {
+	t.cs.applyStunDR(t.target, turns, frames, t.announce())
+}
+
+// dispel answers a hit on the party only: party buffs are the party's.
+func (monsterHitTarget) dispel(*monsterPkg.Monster3D) {}
+
+// monsterStatusTone is how an affliction on a monster reads for the party:
+// good on a foe, bad on the party's own ally.
+func monsterStatusTone(m *monsterPkg.Monster3D) logTone {
+	if monsterIsPartyAlly(m) {
+		return logToneBad
+	}
+	return logToneGood
 }
 
 // applyScaledCharStun stuns a party member for frames/turns, first applying the
@@ -2362,64 +2455,6 @@ func (cs *CombatSystem) scaledStatusFrames(target *character.MMCharacter, frames
 	return scaleHostileStatusDuration(frames, clampHostileStatusDurationPct(target.ItemStatusDurationPct()))
 }
 
-// tryApplyMonsterStun rolls the attacker's StunCharChance and stuns the struck
-// character (skips its actions: RT seconds / TB turns).
-func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter, spellID string) {
-	chance, seconds, turns := monster.StunCharChance, monster.StunCharSeconds, monster.StunCharTurns
-	if spellID != "" {
-		rider := monster.ProjectileStun(spellID)
-		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
-	}
-	if chance <= 0 || rand.Float64() >= chance {
-		return
-	}
-	if !cs.applyScaledCharStun(target, cs.game.config.GetTPS()*seconds, turns) {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s resists the stun!", target.Name))
-		return
-	}
-	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s is stunned!", target.Name), combatMessageYellow)
-}
-
-// tryApplyMonsterDispel rolls the attacker's DispelChance and strips one random
-// active party buff (stat or combat). Buffs are party-wide, so the struck
-// character only triggers the roll.
-func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *character.MMCharacter) {
-	if monster.DispelChance <= 0 || rand.Float64() >= monster.DispelChance {
-		return
-	}
-	type dispelTarget struct {
-		spellID string
-		combat  bool
-	}
-	var pool []dispelTarget
-	for i := range cs.game.statBuffs {
-		if cs.game.statBuffs[i].SourceID != "" {
-			continue
-		}
-		pool = append(pool, dispelTarget{cs.game.statBuffs[i].SpellID, false})
-	}
-	for i := range cs.game.combatBuffs {
-		if cs.game.combatBuffs[i].SourceID != "" {
-			continue
-		}
-		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
-	}
-	if len(pool) == 0 {
-		return
-	}
-	pick := pool[rand.Intn(len(pool))]
-	name := pick.spellID
-	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(pick.spellID)); err == nil && def.Name != "" {
-		name = def.Name
-	}
-	if pick.combat {
-		cs.game.removeCombatBuff(pick.spellID)
-	} else {
-		cs.game.removeStatBuff(pick.spellID)
-	}
-	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s rips %s from the party!", monster.Name, name), combatMessagePurple)
-}
-
 // tryAbsorbSpellHit is Spell Absorption's SINGLE gate: a hostile SPELL hit on
 // a member holding the skill has a per-tier chance to be eaten whole - it
 // deals no damage and its own (pre-mitigation) damage returns as both HP and
@@ -2444,8 +2479,8 @@ func (cs *CombatSystem) tryAbsorbSpellHit(member *character.MMCharacter, parts d
 	} else {
 		sourceName += "'s"
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s absorbs %s spell! (+%d HP, +%d SP)",
-		member.Name, sourceName, hpRestored, spRestored))
+	cs.game.logCombat(logToneGood, "%s absorbs %s spell! (+%s HP, +%s SP)",
+		logHeroName(member), sourceName, logHealed(hpRestored), logRecoveredSP(spRestored))
 	return true
 }
 
@@ -2565,7 +2600,7 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 		// TriggerDamageHit owns it; Sacrifice adds only the protector's card FX.
 		cs.game.triggerDamageFx(idx)
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s sacrifices %d HP to protect %s!", protector.Name, redirected, victim.Name))
+	cs.game.logCombat(logToneBad, "%s sacrifices %s HP to protect %s!", logHeroName(protector), logTrueDamage(redirected), logHeroName(victim))
 	if protector.HitPoints == 0 {
 		cs.knockOut(protector)
 	}
@@ -2574,7 +2609,7 @@ func (cs *CombatSystem) redirectDamageThroughSacrifice(victim *character.MMChara
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	defer cs.game.beginProfileMonsterHit(monster, monster.Name)()
-	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
+	cs.game.logCombat(logToneBad, "%s casts %s!", logMonsterName(monster), logSchoolWord(monsterPkg.DamageFire.String(), "Fireburst"))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, monster)
 
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
@@ -2592,8 +2627,8 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 			true, // Fireburst is a cast - absorbable
 			monster,
 		)
-		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s hits %s for %s damage! %s", logSchoolWord(monsterPkg.DamageFire.String(), "Fireburst"),
+			logHeroName(member), logDamage(dealt, monsterPkg.DamageFire.String()), logHP(member.HitPoints, member.MaxHitPoints))
 	})
 }
 
@@ -2652,7 +2687,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
 	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s breathes %s over the whole party!", monster.Name, damageType))
+	cs.game.logCombat(logToneBad, "%s breathes %s over the whole party!", logMonsterName(monster), logSchoolWord(damageType, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), hit)
 	})
@@ -2684,7 +2719,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 	}
 	targets := monster.PiercingShotTargets
 
-	cs.game.AddCombatMessage(fmt.Sprintf("%s fires a Piercing Shot!", monster.Name))
+	cs.game.logCombat(logToneBad, "%s fires a %s!", logMonsterName(monster), logAbility("Piercing Shot"))
 	if weaponDef, exists := config.GetWeaponDefinition(monster.ProjectileWeapon); exists {
 		cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
 	}
@@ -2720,11 +2755,11 @@ func (cs *CombatSystem) tryMonsterAllyHeal(monster *monsterPkg.Monster3D) bool {
 		return false
 	}
 	if target == monster {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s mends itself for %d HP! (HP: %d/%d)",
-			monster.Name, actual, target.HitPoints, target.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s mends itself for %s HP! %s",
+			logMonsterName(monster), logHealed(actual), logHP(target.HitPoints, target.MaxHitPoints))
 	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s mends %s for %d HP! (HP: %d/%d)",
-			monster.Name, target.Name, actual, target.HitPoints, target.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s mends %s for %s HP! %s",
+			logMonsterName(monster), logMonsterName(target), logHealed(actual), logHP(target.HitPoints, target.MaxHitPoints))
 	}
 	return true
 }
@@ -2991,12 +3026,12 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 	// Drakeforged riders. Same seconds->turns convention as the arena tier.
 	if weaponDef.IgniteChance > 0 && weaponDef.IgniteSeconds > 0 && rand.Float64() < weaponDef.IgniteChance {
 		monster.ApplyBurn(weaponDef.IgniteSeconds * tps)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s catches fire!", monster.Name))
+		cs.game.logCombat(logToneGood, "%s catches %s!", logMonsterName(monster), logSchoolWord(monsterPkg.DamageFire.String(), "fire"))
 	}
 	if weaponDef.PoisonChance > 0 && weaponDef.PoisonSeconds > 0 &&
 		rand.Float64() < weaponDef.PoisonChance &&
 		monster.ApplyPoison(weaponDef.PoisonSeconds*tps) {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", monster.Name))
+		cs.game.logCombat(logToneGood, "%s is %s!", logMonsterName(monster), logColored("poisoned", logPoison))
 	}
 	if weaponDef.SlowPct > 0 && weaponDef.SlowSeconds > 0 {
 		frames, turns := weaponStatusClocks(weaponDef.SlowSeconds, tps)
@@ -3035,7 +3070,7 @@ func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
 	}
 	frames := cs.game.config.GetTPS() * durationSec
 	if monster.ApplyPoison(frames) {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", monster.Name))
+		cs.game.logCombat(logToneGood, "%s is %s!", logMonsterName(monster), logColored("poisoned", logPoison))
 	}
 }
 
@@ -3069,10 +3104,36 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		cs.game.playMonsterSound(soundEnemyDeath, m)
 	}
 	cs.scatterBandOnMemberDeath(m)
+	cs.announceKill(m, cs.killExperience(m))
 	if m.IsChampion() {
 		cs.recordChampionVictory(m)
 	}
 	return cs.awardExperienceAndGold(m)
+}
+
+// announceKill is THE death line of the log: every kill the party is told
+// about, with the experience it gives. Strike lines report only their damage.
+func (cs *CombatSystem) announceKill(m *monsterPkg.Monster3D, xp int) {
+	if quietDeath(m) {
+		return
+	}
+	tone := logToneGood
+	if monsterIsPartyAlly(m) {
+		tone = logToneBad
+	}
+	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), cs.game.rewardOwner().logKillXP(xp))
+}
+
+// killExperience is what a kill is worth to the party: nothing for its own
+// summons, caravans, wildlife prey or a boss's unbound adds.
+func (cs *CombatSystem) killExperience(monster *monsterPkg.Monster3D) int {
+	if isPurePartySummon(monster) || monster.NoKillRewards || monster.IsCaravan() {
+		return 0
+	}
+	if monster.SummonedBy != "" && !monster.CharmedByParty {
+		return 0
+	}
+	return monster.Experience
 }
 
 // finishMonsterKillImmediately finalizes a death that must stop colliding in
@@ -3137,14 +3198,11 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	}
 
 	recipient.recordProfileKill(monster)
-	xpAwarded := monster.Experience
-	if monster.SummonedBy != "" && !monster.CharmedByParty {
-		xpAwarded = 0
-	}
+	xpAwarded := cs.killExperience(monster)
 
 	// Each living hero - active, reserve, or captive - gets the per-member share.
 	if xpAwarded > 0 {
-		recipient.grantSharedXP(xpAwarded / len(recipient.party.Members))
+		recipient.grantSharedXP(recipient.xpShare(xpAwarded))
 	}
 
 	// Check for loot drops
@@ -3190,7 +3248,7 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 		rallied++
 	}
 	if rallied > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s falls - its retainers turn on you in a vengeful fury!", dead.Name))
+		cs.game.logCombat(logToneBad, "%s falls - its retainers turn on you in a vengeful fury!", logMonsterName(dead))
 	}
 }
 
@@ -3253,9 +3311,8 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 
 			if announce {
 				cs.game.playSound(soundLevelUp)
-				message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
-					character.Name, character.Level, oldLevel, StatPointsPerLevel)
-				cs.game.AddCombatMessage(message)
+				cs.game.logCombat(logToneReward, "%s reached %s! (was level %d) [+%d stat points]",
+					logHeroName(character), logColored(fmt.Sprintf("level %d", character.Level), combatMessageGold), oldLevel, StatPointsPerLevel)
 			}
 
 			// Offer a class-progression choice every LevelUpChoiceInterval levels
@@ -3329,9 +3386,8 @@ func (cs *CombatSystem) tryWeaponExecute(monster *monsterPkg.Monster3D, weaponDe
 	}
 	monster.HitPoints = 0
 	cs.markMonsterHit(monster)
-	xpAwarded := cs.finishWeaponKill(monster, weaponDef, attacker)
-	cs.game.AddCombatMessage(fmt.Sprintf("The Maw closes - %s devours %s outright!", attackerName, monster.Name))
-	cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+	cs.game.logCombat(logToneGood, "The Maw closes - %s devours %s outright!", logHeroText(attackerName), logMonsterName(monster))
+	cs.finishWeaponKill(monster, weaponDef, attacker)
 	return true
 }
 
@@ -3444,11 +3500,11 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	switch {
 	case m.BossDormant:
 		cs.game.spawnImpactSparks(m.X, m.Y)
-		cs.game.AddCombatMessage(fmt.Sprintf("The seal holds - %s is impervious.", m.Name))
+		cs.game.logCombat(logToneNone, "The seal holds - %s is impervious.", logMonsterName(m))
 		return true
 	case m.BossWarded:
 		cs.game.spawnImpactSparks(m.X, m.Y)
-		cs.game.AddCombatMessage(fmt.Sprintf("The idols' ward holds - %s is impervious. Shatter the idols!", m.Name))
+		cs.game.logCombat(logToneNone, "The idols' ward holds - %s is impervious. Shatter the idols!", logMonsterName(m))
 		return true
 	}
 	return false
@@ -3470,7 +3526,7 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 
 	if effTurns <= 0 && effFrames <= 0 { // worn down -> immune this attempt
 		if announce && !wasStunned {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s resists the stun!", m.Name))
+			cs.game.logCombat(logToneNone, "%s resists the %s!", logMonsterName(m), logKeyword("control", "stun"))
 		}
 		return false
 	}
@@ -3482,7 +3538,8 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 		effTurns,
 	)
 	if announce && !wasStunned {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", m.Name))
+		cs.game.logCombat(monsterStatusTone(m), "%s is %s!%s", logMonsterName(m), logKeyword("control", "stunned"),
+			cs.game.logStatusLength(m.StunTurnsRemaining, m.StunFramesRemaining))
 	}
 	return true
 }
@@ -3508,7 +3565,8 @@ func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, turns, frames 
 		frames,
 		turns,
 	)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", m.Name))
+	cs.game.logCombat(logToneGood, "%s is %s in place!%s", logMonsterName(m), logKeyword("control", "pinned"),
+		cs.game.logStatusLength(m.RootTurnsRemaining, m.RootFramesRemaining))
 }
 
 // applyBindUndead (Bind Undead) takes control of an UNDEAD target - it hunts
@@ -3516,7 +3574,7 @@ func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, turns, frames 
 // damage is dealt. A separate, mutually exclusive effect from Pacify (Charm).
 func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, spellName string) {
 	if m.MonsterType != monsterPkg.TypeUndead {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s - only the undead can be bound.", spellName, m.Name))
+		cs.game.logCombat(logToneNone, "%s washes over %s - only the undead can be bound.", logKeyword("control", spellName), logMonsterName(m))
 		return
 	}
 	m.Bound = true
@@ -3527,7 +3585,7 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	m.Pacified = false
 	m.PacifiedFramesRemaining = 0
 	m.WasAttacked = false
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+	cs.game.logCombat(logToneGood, "%s is %s to your will!", logMonsterName(m), logKeyword("control", "bound"))
 }
 
 const darkElfBindingChancePct = character.DarkElfBindingChancePct
@@ -3553,7 +3611,7 @@ func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, t
 	target.PacifiedFramesRemaining = 0
 	target.WasAttacked = false
 	target.AIFoe = nil
-	cs.game.AddCombatMessage(fmt.Sprintf("%s's dark binding claims %s instead of the hit!", attacker.Name, target.Name))
+	cs.game.logCombat(logToneGood, "%s's dark binding claims %s instead of the hit!", logHeroName(attacker), logMonsterName(target))
 	return true
 }
 
@@ -3563,18 +3621,18 @@ func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, t
 // mutually exclusive effect from Bind Undead.
 func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellName string) {
 	if m.MonsterType == monsterPkg.TypeUndead || m.MonsterType == monsterPkg.TypeFormless {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the %s %s.", spellName, m.MonsterType, m.Name))
+		cs.game.logCombat(logToneNone, "%s has no hold over the %s %s.", logKeyword("control", spellName), m.MonsterType, logMonsterName(m))
 		return
 	}
 	if m.Bound {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is already bound to your will.", m.Name))
+		cs.game.logCombat(logToneNone, "%s is already bound to your will.", logMonsterName(m))
 		return
 	}
 	m.Pacified = true
 	m.PacifiedFramesRemaining = seconds * cs.game.config.GetTPS()
 	m.CharmedByParty = true
 	m.WasAttacked = false
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is charmed and stops attacking!", m.Name))
+	cs.game.logCombat(logToneGood, "%s is %s and stops attacking!", logMonsterName(m), logKeyword("control", "charmed"))
 }
 
 // breakPacifyOnHit releases a pacified (Charm) monster the instant it takes any
@@ -3586,7 +3644,7 @@ func (cs *CombatSystem) breakPacifyOnHit(m *monsterPkg.Monster3D) {
 		m.PacifiedFramesRemaining = 0
 		m.WasAttacked = true
 		m.BeginPlayerEngagement()
-		cs.game.AddCombatMessage(fmt.Sprintf("%s breaks free of the charm!", m.Name))
+		cs.game.logCombat(logToneBad, "%s breaks free of the %s!", logMonsterName(m), logKeyword("control", "charm"))
 	}
 }
 
@@ -3688,11 +3746,10 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 	if foe := cs.game.caravanFoe(m); foe != nil {
 		return foe
 	}
-	switch m.CurrentAIBehavior() {
-	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified,
-		monsterPkg.AIBehaviorEvasive, monsterPkg.AIBehaviorPassive:
+	switch behavior := m.CurrentAIBehavior(); {
+	case !behavior.Caps().TakesFoe:
 		return nil
-	case monsterPkg.AIBehaviorBoundAlly:
+	case behavior == monsterPkg.AIBehaviorBoundAlly:
 		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
 	}
 	// Normal monster: only bother if any bound undead exist this frame.
@@ -3811,13 +3868,12 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.addActorCombatMessage(attacker, target, "%s dodges, but %s lands %d true damage!", target.Name, attacker.Name, actual)
+			cs.game.addActorCombatMessage(attacker, target, "%s dodges, but %s lands %s true damage!", logMonsterName(target), logMonsterName(attacker), logTrueDamage(actual))
 			if !target.IsAlive() {
-				cs.game.addActorCombatMessage(attacker, target, "%s slays %s!", attacker.Name, target.Name)
 				cs.finishActorKill(attacker, target)
 			}
 		} else {
-			cs.game.addActorCombatMessage(attacker, target, "%s dodges %s's attack!", target.Name, attacker.Name)
+			cs.game.addActorCombatMessage(attacker, target, "%s dodges %s's attack!", logMonsterName(target), logMonsterName(attacker))
 		}
 		return false
 	}
@@ -3834,11 +3890,11 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	if attacker.Bound {
 		verb = "(bound) strikes"
 	}
-	cs.game.addActorCombatMessage(attacker, target, "%s %s %s for %d!", attacker.Name, verb, target.Name, actual)
+	cs.game.addActorCombatMessage(attacker, target, "%s %s %s for %s!", logMonsterName(attacker), verb, logMonsterName(target), logDamage(actual, packet.primarySchool()))
 	if target.IsAlive() {
+		cs.applyMonsterHitRiders(attacker, "", monsterHitTarget{cs, attacker, target})
 		return actual > 0
 	}
-	cs.game.addActorCombatMessage(attacker, target, "%s slays %s!", attacker.Name, target.Name)
 	cs.finishActorKill(attacker, target)
 	return actual > 0
 }

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
@@ -54,6 +55,24 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		ArmorBonus:      def.BuffArmorClass,
 		DodgePct:        def.BuffDodgePct,
 	}, true
+}
+
+// timedCombatBuffFromSpell is the one spell-definition -> runtime mapping for
+// party combat buffs: an ordinary cast (sourceID "") and a system grant such
+// as Celestial Providence. Magnitudes scale with the caster's mastery where
+// the spell authors a *_grandmaster cap.
+func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, frames int, sourceID string) TimedCombatBuff {
+	return TimedCombatBuff{
+		SpellID:         string(spellID),
+		SourceID:        sourceID,
+		Frames:          frames,
+		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
+		OutDamageType:   def.OutgoingDamageType,
+		InReduce:        scaledIncomingDamageReduction(def, caster),
+		ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
+		ResistSchool:    def.ResistBuffSchool,
+		ResistSchoolPct: def.ResistBuffSchoolPct,
+	}
 }
 
 // addCombatBuff activates a buff (same-spell recast refreshes).

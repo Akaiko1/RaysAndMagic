@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -37,9 +38,15 @@ import (
 
 type ProjectileOwner int
 
+// combatLogEntry is one line of the combat log. Text is the plain line (what
+// tests and tools read); Segments, when set, draw it piece by piece and Color
+// is the tint of a line without them.
 type combatLogEntry struct {
-	Text  string
-	Color color.Color
+	Text     string
+	Color    color.Color
+	Segments []coloredTextSegment
+	Tone     logTone
+	Divider  bool // a turn marker: the game log shows it, the HUD skips it
 }
 
 const maxCombatLogHistory = 500
@@ -2010,8 +2017,12 @@ func (g *MMGame) AddCombatMessage(message string) {
 // color. The HUD slice is derived on demand (GetCombatMessages), so text and
 // color can never fall out of sync.
 func (g *MMGame) AddColoredCombatMessage(message string, messageColor color.Color) {
+	g.appendCombatLog(combatLogEntry{Text: message, Color: messageColor})
+}
+
+func (g *MMGame) appendCombatLog(entry combatLogEntry) {
 	g.combatLogVersion++
-	g.combatLogHistory = append(g.combatLogHistory, combatLogEntry{Text: message, Color: messageColor})
+	g.combatLogHistory = append(g.combatLogHistory, entry)
 	if len(g.combatLogHistory) > maxCombatLogHistory {
 		g.combatLogHistory = g.combatLogHistory[len(g.combatLogHistory)-maxCombatLogHistory:]
 	}
@@ -2049,14 +2060,18 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 }
 
 // hudLog returns the tail of the combat log shown on the HUD (last maxMessages
-// entries). GetCombatMessages and GetCombatMessageColor both index into it, so
-// the row text and its color always come from the same entry.
+// entries, turn dividers skipped). GetCombatMessages and GetCombatMessageColor
+// both index into it, so the row text and its color always come from the same
+// entry.
 func (g *MMGame) hudLog() []combatLogEntry {
-	n := g.maxMessages
-	if n <= 0 || n > len(g.combatLogHistory) {
-		n = len(g.combatLogHistory)
+	var tail []combatLogEntry
+	for i := len(g.combatLogHistory) - 1; i >= 0 && (g.maxMessages <= 0 || len(tail) < g.maxMessages); i-- {
+		if !g.combatLogHistory[i].Divider {
+			tail = append(tail, g.combatLogHistory[i])
+		}
 	}
-	return g.combatLogHistory[len(g.combatLogHistory)-n:]
+	slices.Reverse(tail)
+	return tail
 }
 
 const (
@@ -2080,9 +2095,7 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 	}
 	var lines []combatLogEntry
 	for _, e := range g.hudLog() {
-		for _, l := range wrapUIText(e.Text, hudMessageWidth-10) {
-			lines = append(lines, combatLogEntry{Text: l, Color: e.Color})
-		}
+		lines = append(lines, wrapLogEntry(e, hudMessageWidth-10)...)
 	}
 	if len(lines) > maxHudMessageLines {
 		lines = lines[len(lines)-maxHudMessageLines:]
@@ -2746,6 +2759,9 @@ func (g *MMGame) sweepLethalDoTVictims() {
 
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn(initial ...bool) {
+	if len(initial) == 0 || !initial[0] {
+		g.logTurnDivider("Party turn")
+	}
 	if w := g.GetCurrentWorld(); w != nil {
 		for _, m := range w.Monsters {
 			if m != nil {
@@ -2962,6 +2978,7 @@ func (g *MMGame) endPartyTurn() {
 		}
 	}
 
+	g.logTurnDivider("Enemy turn")
 	g.currentTurn = 1 // Monster turn
 	g.monsterTurnResolved = false
 }
@@ -3106,7 +3123,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// TB is active; clearing them here made Tab an attack/cast reset.
 		g.turnBasedMode = false
 		g.turnBasedTurnSuspended = true
-		g.AddCombatMessage("Real-time mode activated!")
+		g.logCombat(logToneNone, "Real-time mode activated!")
 		return
 	}
 
@@ -3137,7 +3154,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.startPartyTurn(true)
 	}
 	g.turnBasedTurnSuspended = false
-	g.AddCombatMessage("Turn-based mode activated!")
+	g.logCombat(logToneNone, "Turn-based mode activated!")
 }
 
 // snapToTileCenter moves the player to the center of their current tile and snaps direction to nearest cardinal
@@ -3254,9 +3271,7 @@ func monsterAttackTargetAt(m *monster.Monster3D, partyX, partyY float64, hasPart
 		return "", 0, 0, false
 	}
 	behavior := m.CurrentAIBehavior()
-	switch behavior {
-	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive,
-		monster.AIBehaviorFleeing, monster.AIBehaviorPassive:
+	if !behavior.Caps().MayAttack {
 		return "", 0, 0, false
 	}
 	// SNAPSHOT reads only: this runs inside the PARALLEL wrapper update, where

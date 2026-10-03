@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"strings"
 	"time"
 
 	"ugataima/internal/character"
@@ -162,16 +161,16 @@ func (ui *UISystem) drawQuickSlotCard(screen *ebiten.Image) {
 	if ui.tooltipLines != nil || dwellNow().Sub(c.since) < quickSlotCardDelay {
 		return
 	}
-	lines := strings.Split(GetItemTooltip(c.item, c.owner, ui.game.combat, tooltipDetailHeld()), "\n")
+	lines := GetItemTooltipRows(c.item, c.owner, ui.game.combat, tooltipDetailHeld())
 	plate, title := ui.itemTitleColors(c.item)
-	colors := activeSetBonusColors(lines, nil, c.item, c.owner)
+	colors := activeSetBonusRowColors(lines, nil, c.item, c.owner)
 	icon := ui.validTooltipIcon(itemTooltipIconName(c.item))
 	screenW, screenH := uiBounds(screen).Dx(), uiBounds(screen).Dy()
 	maxW := tooltipColumnWidth(screenW, 1)
-	layout := layoutTooltip(lines, icon != "", maxW, screenH)
+	layout := layoutCardTooltip(lines, icon != "", maxW, screenH)
 	r := positionTooltipBox(c.x, c.y, layout.w, layout.h, screenW, screenH)
 	r.y = cardYClearOf(r.y, layout.h, c.bar, screenH)
-	drawTooltip(screen, lines, colors, plate, title, icon, r.x, r.y, r.x+maxW, ui.game.sprites)
+	drawCardTooltip(screen, lines, colors, plate, title, icon, r.x, r.y, r.x+maxW, ui.game.sprites)
 	c.drawn = r
 }
 

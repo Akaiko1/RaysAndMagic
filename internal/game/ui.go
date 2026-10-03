@@ -87,11 +87,13 @@ type UISystem struct {
 	hubInteractionOpen    bool
 	hubInteractionChar    int
 	hubInteractionTab     MenuTab
+	tooltipRows           character.CardRows
 	tooltipLines          []string
 	tooltipColors         []color.Color
 	tooltipIcon           string
 	tooltipX              int
 	tooltipY              int
+	tooltipCompareRows    character.CardRows
 	tooltipCompareLines   []string
 	tooltipCompareColors  []color.Color
 	tooltipTitleColor     color.Color // nameplate base behind the main tooltip's first line (nil = none)
@@ -288,9 +290,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 // clearQueuedTooltips starts a frame with no tooltip queued.
 func (ui *UISystem) clearQueuedTooltips() {
 	ui.tooltipLines = nil
+	ui.tooltipRows = nil
 	ui.tooltipColors = nil
 	ui.tooltipIcon = ""
 	ui.tooltipCompareLines = nil
+	ui.tooltipCompareRows = nil
 	ui.tooltipCompareColors = nil
 	ui.tooltipTitleColor = nil
 	ui.tooltipTitleText = nil
@@ -322,7 +326,7 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 
 			mainX, compareX := tooltipPairX(ui.tooltipX, pair.mainW, pair.compareW, gap, screenW)
 			ui.drawMainTooltip(screen, mainX, y, pair.mainCap)
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+pair.compareCap, ui.game.sprites)
+			drawCardTooltip(screen, ui.compareTooltipRows(), ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+pair.compareCap, ui.game.sprites)
 		}
 	}
 }

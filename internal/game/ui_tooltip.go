@@ -21,12 +21,21 @@ var tooltipDetailHeld = func() bool {
 // GetItemTooltip is shared by inventory, shops and editor catalogs. A nil
 // character requests the item's base values, independent of any active game.
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
-	return itemTooltipWithUsage(item, char, combatSystem, full)
+	return GetItemTooltipRows(item, char, combatSystem, full).String()
+}
+
+// GetItemTooltipRows retains the producer's row roles for game and editor rendering.
+func GetItemTooltipRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
+	return itemTooltipWithUsageRows(item, char, combatSystem, full)
 }
 
 // itemTooltipWithUsage is GetItemTooltip with context hints appended to the
 // card's USAGE section (the Card Collector names its double-click action).
 func itemTooltipWithUsage(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) string {
+	return itemTooltipWithUsageRows(item, char, combatSystem, full, usage...).String()
+}
+
+func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) character.CardRows {
 	if char == nil {
 		combatSystem = nil
 	}
@@ -49,148 +58,161 @@ func itemTooltipWithUsage(item items.Item, char *character.MMCharacter, combatSy
 		}
 	}
 	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
-		return buildSpellItemTooltipFromDefinition(item, char, combatSystem, full)
+		return buildSpellItemTooltipFromDefinitionRows(item, char, combatSystem, full)
 	}
 
 	// Every category uses result-first mechanic sections. Compact is the
 	// default; full=true (Shift held) adds calculations and exceptions within
 	// their sections. Pure formatter - no input read.
-	var core string
+	var core character.CardRows
 	switch item.Type {
 	case items.ItemTechnique:
 		if d := config.Technique(string(item.SpellEffect)); d != nil {
-			core = buildTechniqueTooltipUnified(d, char, combatSystem, full)
+			core = buildTechniqueTooltipUnifiedRows(d, char, combatSystem, full)
 		}
 	case items.ItemTrap:
 		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
-			core = buildTrapTooltipUnified(string(item.SpellEffect), def, char, combatSystem, full)
+			core = buildTrapTooltipUnifiedRows(string(item.SpellEffect), def, char, combatSystem, full)
 		}
 	case items.ItemWeapon:
-		core = buildWeaponTooltipUnified(item, char, combatSystem, full)
+		core = buildWeaponTooltipUnifiedRows(item, char, combatSystem, full)
 	case items.ItemArmor, items.ItemAccessory:
-		core = buildArmorTooltipUnified(item, char, combatSystem, full)
+		core = buildArmorTooltipUnifiedRows(item, char, combatSystem, full)
 	case items.ItemConsumable, items.ItemThrowable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
 		var party *character.Party
 		if combatSystem != nil && combatSystem.game != nil {
 			party = combatSystem.game.party
 		}
-		core = buildSimpleItemTooltipWithParty(item, full, char, party, combatSystem, usage...)
+		core = buildSimpleItemTooltipWithPartyRows(item, full, char, party, combatSystem, usage...)
 	}
-	if core == "" {
-		core = fmt.Sprintf("%s\n%s", item.Name, item.DisplayKind())
+	if len(core) == 0 {
+		core.Add(character.CardRowTitle, item.Name)
+		core.Add(character.CardRowCategory, item.DisplayKind())
 	}
 
 	if setLines := equipmentSetTooltipLines(item.Set, wearer); len(setLines) > 0 {
-		core += "\n\n" + equipmentSetSectionTitle + "\n" + strings.Join(setLines, "\n")
+		set := ttSection{Title: equipmentSetSectionTitle}
+		for _, line := range setLines {
+			set.Add("%s", line)
+		}
+		core.Add(character.CardRowSpacer, "")
+		core = append(core, character.RenderCardRows([]ttSection{set}, true)...)
 	}
-	var tail []string
+	var tail character.CardRows
 	if val, ok := item.Attributes["value"]; ok && val > 0 {
-		tail = append(tail, fmt.Sprintf("Value: %d gold", val))
+		tail.Add(character.CardRowResult, fmt.Sprintf("Value: %d gold", val))
 	}
-	tail = append(tail, itemProseLines(item)...)
+	tail = append(tail, itemProseRows(item)...)
 	if len(tail) > 0 {
-		core += "\n\n" + strings.Join(tail, "\n")
+		core.Add(character.CardRowSpacer, "")
+		core = append(core, tail...)
 	}
-	return hintLast(core)
+	return hintRowsLast(core)
 }
 
 // GetItemComparisonTooltip returns a comparison block against the currently equipped item
 // for the default equip destination, including empty slots and mixed wearable types.
 func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	return GetItemComparisonTooltipRows(item, char, combatSystem).String()
+}
+
+// GetItemComparisonTooltipRows retains the producer's row roles for game and editor rendering.
+func GetItemComparisonTooltipRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
-		return ""
+		return nil
 	}
 
 	slot, ok := char.EquipDestination(item)
 	if !ok {
-		return ""
+		return nil
 	}
 	equipped, hasEquipped := char.Equipment[slot]
 	if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-		return joinTooltipLines(buildEquipmentComparisonLines(item, char, combatSystem, slot))
+		return buildEquipmentComparisonRows(item, char, combatSystem, slot)
 	}
 	if !hasEquipped {
-		return ""
+		return nil
 	}
 
 	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
-			return ""
+			return nil
 		}
 		itemID := spells.SpellID(item.SpellEffect)
 		equippedID := spells.SpellID(equipped.SpellEffect)
 		if itemID == "" || equippedID == "" || itemID == equippedID {
-			return ""
+			return nil
 		}
 		if def, err := spells.GetSpellDefinitionByID(itemID); err == nil && def.IsUtility {
-			return ""
+			return nil
 		}
 		if def, err := spells.GetSpellDefinitionByID(equippedID); err == nil && def.IsUtility {
-			return ""
+			return nil
 		}
-		return joinTooltipLines(buildSpellComparisonLines(item, equipped, char, combatSystem))
+		return buildSpellComparisonRowsByID(spells.SpellID(item.SpellEffect), spells.SpellID(equipped.SpellEffect), char, combatSystem)
 	default:
-		return ""
+		return nil
 	}
 }
 
 // GetSpellComparisonTooltip returns a comparison block for a spellbook spell against the equipped spell.
 func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	return GetSpellComparisonTooltipRows(spellID, char, combatSystem).String()
+}
+
+// GetSpellComparisonTooltipRows retains the producer's row roles for game and editor rendering.
+func GetSpellComparisonTooltipRows(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
-		return ""
+		return nil
 	}
 	equipped, hasEquipped := char.Equipment[items.SlotSpell]
 	if !hasEquipped {
-		return ""
+		return nil
 	}
 	if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
-		return ""
+		return nil
 	}
 	equippedID := spells.SpellID(equipped.SpellEffect)
 	if equippedID == "" {
-		return ""
+		return nil
 	}
 	if spellID == equippedID {
-		return ""
+		return nil
 	}
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.IsUtility {
-		return ""
+		return nil
 	}
 	if def, err := spells.GetSpellDefinitionByID(equippedID); err == nil && def.IsUtility {
-		return ""
+		return nil
 	}
-	return joinTooltipLines(buildSpellComparisonLinesByID(spellID, equippedID, char, combatSystem))
+	return buildSpellComparisonRowsByID(spellID, equippedID, char, combatSystem)
 }
 
-func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+func buildSpellItemTooltipFromDefinitionRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
 	spellID := spells.SpellID(item.SpellEffect)
-	_, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		lines := []string{
-			item.Name,
-			"Unknown Spell",
-		}
+	var rows character.CardRows
+	if _, err := spells.GetSpellDefinitionByID(spellID); err != nil {
+		rows.Add(character.CardRowTitle, item.Name)
+		rows.Add(character.CardRowCategory, "Unknown Spell")
 		if item.SpellSchool != "" {
-			lines = append(lines, fmt.Sprintf("%s Magic", formatSchoolName(item.SpellSchool)))
+			rows.Add(character.CardRowBody, fmt.Sprintf("%s Magic", formatSchoolName(item.SpellSchool)))
 		}
 		if item.SpellCost > 0 {
-			lines = append(lines, fmt.Sprintf("Spell Points: %d", item.SpellCost))
+			rows.Add(character.CardRowResult, fmt.Sprintf("Spell Points: %d", item.SpellCost))
 		}
 		if item.Description != "" {
-			lines = append(lines, "", fmt.Sprintf("\"%s\"", item.Description))
+			rows.Add(character.CardRowSpacer, "")
+			rows.Add(character.CardRowFlavor, fmt.Sprintf("\"%s\"", item.Description))
 		}
-		return joinTooltipLines(lines)
+		return rows
 	}
-
-	tooltip := GetSpellTooltip(spellID, char, combatSystem, full)
-	lines := strings.Split(tooltip, "\n")
-
+	rows = GetSpellTooltipRows(spellID, char, combatSystem, full)
 	if val, ok := item.Attributes["value"]; ok && val > 0 {
-		lines = append(lines, "", fmt.Sprintf("Value: %d gold", val))
+		rows.Add(character.CardRowSpacer, "")
+		rows.Add(character.CardRowResult, fmt.Sprintf("Value: %d gold", val))
 	}
-
-	return joinTooltipLines(lines)
+	return hintRowsLast(rows)
 }
 
 func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
@@ -211,11 +233,6 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 		return fmt.Sprintf("Requires: %s Skill", display)
 	}
 	return fmt.Sprintf("Requires: %s Skill (Missing)", display)
-}
-
-// joinTooltipLines joins tooltip lines with newlines
-func joinTooltipLines(lines []string) string {
-	return strings.Join(lines, "\n")
 }
 
 func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem, after *character.MMCharacter, afterCombat *CombatSystem) []string {
@@ -289,6 +306,10 @@ func buildSpellComparisonLines(item, equipped items.Item, char *character.MMChar
 }
 
 func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) []string {
+	return buildSpellComparisonRowsByID(itemID, equippedID, char, combatSystem).Lines()
+}
+
+func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	itemDef, err := spells.GetSpellDefinitionByID(itemID)
 	if err != nil {
 		return nil
@@ -304,7 +325,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		itemCost = combatSystem.effectiveSpellCost(char, itemCost)
 		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
 	}
-	lines := []string{fmt.Sprintf("Equipped: %s", equippedDef.Name), "After equipping (current -> new)"}
+	lines := character.CardRows{{Text: fmt.Sprintf("Equipped: %s", equippedDef.Name), Kind: character.CardRowTitle}, {Text: "After equipping (current -> new)", Kind: character.CardRowCategory}}
 	casting := ttSection{Title: "CASTING"}
 	damageSection := ttSection{Title: "DAMAGE"}
 	healing := ttSection{Title: "HEALING"}
@@ -372,12 +393,13 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 	if itemEffects != eqEffects {
 		effects.Add("Effects: %s -> %s", effectOrNone(eqEffects), effectOrNone(itemEffects))
 	}
-	body := character.RenderCardLines([]ttSection{damageSection, healing, effects, casting}, true)
+	body := character.RenderCardRows([]ttSection{damageSection, healing, effects, casting}, true)
 	if len(body) > 0 {
-		lines = append(append(lines, ""), body...)
+		lines.Add(character.CardRowSpacer, "")
+		lines = append(lines, body...)
 	}
 	if len(lines) == 2 {
-		lines = append(lines, "No change to current stats or abilities")
+		lines.Add(character.CardRowBody, "No change to current stats or abilities")
 	}
 
 	return lines
@@ -409,20 +431,26 @@ func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter
 
 // GetSpellTooltip returns a comprehensive tooltip for spells in the spellbook using centralized spell definitions
 func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
+	return GetSpellTooltipRows(spellID, char, combatSystem, full).String()
+}
+
+// GetSpellTooltipRows retains the producer's row roles for game and editor rendering.
+func GetSpellTooltipRows(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
-		return fmt.Sprintf("Unknown Spell (%s)", spellID)
+		return character.CardRows{{Text: fmt.Sprintf("Unknown Spell (%s)", spellID), Kind: character.CardRowTitle}}
 	}
-	var out string
+	var out character.CardRows
 	if authored, ok := config.GetSpellDefinition(string(spellID)); ok && authored.MonsterOnly {
-		out = renderTooltip(def.Name, "Monster spell - "+spellSchoolsLabel(def), character.MonsterSpellCardSections(authored, def), full)
+		out = renderTooltipRows(def.Name, "Monster spell - "+spellSchoolsLabel(def), character.MonsterSpellCardSections(authored, def), full)
 	} else {
-		out = buildSpellTooltipUnified(def, char, combatSystem, full)
+		out = buildSpellTooltipUnifiedRows(def, char, combatSystem, full)
 	}
 	if def.Description != "" {
-		out += "\n\n\"" + def.Description + "\""
+		out.Add(character.CardRowSpacer, "")
+		out.Add(character.CardRowFlavor, "\""+def.Description+"\"")
 	}
-	return hintLast(out)
+	return hintRowsLast(out)
 }
 
 // spellSchoolForChar is the school a card SCORES this spell under: the one the
@@ -439,6 +467,17 @@ func spellSchoolForChar(char *character.MMCharacter, def spells.SpellDefinition)
 // spellSchoolsLabel names EVERY school a spell belongs to ("Earth / Air"), so a
 // dual-school page does not read as the one school its definition happens to
 // list first - the shop sells it to either caster.
+// cardDurationText is the card span format: seconds, then the TB rounds the
+// same span covers.
+func cardDurationText(seconds, rounds string) string {
+	return fmt.Sprintf("%ss (TB: %s)", seconds, rounds)
+}
+
+// tbRoundsForSeconds rounds a real-time span up to whole TB rounds.
+func tbRoundsForSeconds(seconds int) int {
+	return (seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
+}
+
 func spellSchoolsLabel(def spells.SpellDefinition) string {
 	schools := def.SchoolList()
 	names := make([]string, 0, len(schools))
@@ -459,7 +498,8 @@ func formatSchoolName(school string) string {
 
 // Authored description and flavor have different jobs. Legacy saves may store
 // only flavor in Description, so known definitions always supply both texts.
-func itemProseLines(item items.Item) []string {
+
+func itemProseRows(item items.Item) character.CardRows {
 	if item.Type == items.ItemTechnique {
 		return nil // the technique card already states its description
 	}
@@ -475,12 +515,12 @@ func itemProseLines(item items.Item) []string {
 	} else {
 		flavor = item.Description
 	}
-	var lines []string
+	var lines character.CardRows
 	if description != "" {
-		lines = append(lines, description)
+		lines.Add(character.CardRowDescription, description)
 	}
 	if flavor != "" && flavor != description {
-		lines = append(lines, fmt.Sprintf("\"%s\"", flavor))
+		lines.Add(character.CardRowFlavor, fmt.Sprintf("\"%s\"", flavor))
 	}
 	return lines
 }

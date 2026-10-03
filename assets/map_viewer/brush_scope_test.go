@@ -60,6 +60,9 @@ func brushScopeViewer(t *testing.T) *viewer {
 		"override":  {Letter: "a", Biomes: []string{"forest"}},
 		"scoped":    {Letter: "b", Biomes: []string{"culverts"}},
 		"champion":  {Letter: "c", Champion: "test"},
+		// An arena champion claims a wild monster's letter in its own biome.
+		"wolf":         {Letter: "w"},
+		"arena_master": {Letter: "w", Biomes: []string{"arena"}, Champion: "test"},
 	}}}
 }
 
@@ -96,6 +99,9 @@ func TestBrushScopeAcrossEntryPoints(t *testing.T) {
 		{"shadowed monster", "forest", brush{kind: brushMonster, monsterKey: "universal"}, false},
 		{"override monster", "forest", brush{kind: brushMonster, monsterKey: "override"}, true},
 		{"champion", "forest", brush{kind: brushMonster, monsterKey: "champion"}, false},
+		{"letter a biome champion claims", "arena", brush{kind: brushMonster, monsterKey: "wolf"}, false},
+		{"biome champion", "arena", brush{kind: brushMonster, monsterKey: "arena_master"}, false},
+		{"same letter elsewhere", "forest", brush{kind: brushMonster, monsterKey: "wolf"}, true},
 		{"missing monster", "forest", brush{kind: brushMonster, monsterKey: "missing"}, false},
 		{"special", "forest", brush{kind: brushSpecialTile, tileKey: "portal"}, true},
 		{"missing special", "forest", brush{kind: brushSpecialTile, tileKey: "missing"}, false},

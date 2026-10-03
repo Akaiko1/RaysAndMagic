@@ -213,7 +213,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		case monster.AIBehaviorPassive:
-			// Passive monsters mirror RT behavior: no move or attack until hit.
+			// Passive monsters neither move nor attack until hit. Like every idle
+			// monster in TB, they hold their tile: TB never patrols.
 			m.StandDownFromCombat()
 			gl.game.refreshMonsterCollisionState(m)
 			continue

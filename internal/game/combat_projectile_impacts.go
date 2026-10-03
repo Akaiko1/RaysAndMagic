@@ -537,7 +537,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		if trueDmg > 0 {
 			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
 		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
+			cs.game.logCombat(logToneNone, "%s dodges the %s!", logMonsterName(monster), logSchoolWord(damageTypeStr, weaponName))
 		}
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.burstSpellShot(spellShot, monster.X, monster.Y, monster)
@@ -573,7 +573,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, attack.Packet.normalDamage())
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, aoeRadiusTiles,
-			fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
+			logParts(logHeroText(attackerName+"'s "), logSchoolWord(damageTypeStr, weaponName)))
 		return
 	}
 
@@ -601,7 +601,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	actualDamage, isCrit := hit.Total(), hit.Critical
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)
-	executed, xpAwarded := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, func() {
+	cs.game.logCombat(logToneGood, "%s%s hit %s for %s %s damage! %s", logCrit(isCrit), logSchoolWord(damageTypeStr, weaponName),
+		logMonsterName(monster), logDamage(actualDamage, damageTypeStr), logSchoolWord(damageTypeStr, damageTypeStr),
+		logHP(monster.HitPoints, monster.MaxHitPoints))
+	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, func() {
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
 			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
@@ -614,13 +617,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cs.applyAoeSplash(monster, attack, aoeRadiusTiles)
 		}
 		return
-	}
-
-	if !monster.IsAlive() {
-		cs.announcePartyKill(isCrit, attackerName, monster.Name, actualDamage, xpAwarded)
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
-			critPrefix(isCrit), weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
 	}
 
 	if aoeRadiusTiles > 0 {
@@ -683,16 +679,11 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 func (cs *CombatSystem) applyPartySplashFrom(x, y float64, attack partyMonsterAttack, radiusTiles float64, exclude *monsterPkg.Monster3D) {
 	cs.applyAoeSplashAt(x, y, attack, radiusTiles, exclude, func(m *monsterPkg.Monster3D, actual int) {
 		cs.markMonsterHit(m)
-		primarySchool := monsterPkg.DamagePhysical.String()
-		if len(attack.Packet.Components) > 0 {
-			primarySchool = attack.Packet.Components[0].School.String()
-		}
+		primarySchool := attack.Packet.primarySchool()
 		cs.spawnMonsterHitBurst(m, primarySchool)
+		cs.game.logCombat(logToneGood, "%s splashes %s for %s damage.", logSchoolWord(primarySchool, attack.WeaponName), logMonsterName(m), logDamage(actual, primarySchool))
 		if !m.IsAlive() {
-			xpAwarded := cs.finishWeaponKill(m, attack.WeaponDef, attack.Attacker)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", attack.WeaponName, m.Name, xpAwarded))
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d damage.", attack.WeaponName, m.Name, actual))
+			cs.finishWeaponKill(m, attack.WeaponDef, attack.Attacker)
 		}
 	})
 }
@@ -706,18 +697,12 @@ func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack
 	if radiusTiles <= 0 {
 		return
 	}
-	radius := radiusTiles * float64(cs.game.config.GetTileSize())
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || m == exclude || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() {
-			continue
+	hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) && !m.IsDamageInvulnerable() }
+	cs.forEachAreaVictim(cs.pointBlast(x, y, radiusTiles), hurts, func(m *monsterPkg.Monster3D) {
+		if !cs.tryDarkElfBindInstead(attack.Attacker, m) {
+			onHit(m, cs.applyPartyMonsterAttack(m, attack).Total())
 		}
-		dx, dy := m.X-x, m.Y-y
-		if dx*dx+dy*dy > radius*radius || !cs.attackLineClear(x, y, m.X, m.Y) || cs.tryDarkElfBindInstead(attack.Attacker, m) {
-			continue
-		}
-		actual := cs.applyPartyMonsterAttack(m, attack).Total()
-		onHit(m, actual)
-	}
+	}, exclude)
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes

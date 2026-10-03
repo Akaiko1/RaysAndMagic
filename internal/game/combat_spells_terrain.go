@@ -183,7 +183,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		add.DamageMin, add.DamageMax = dmg, dmg
 	}
 	// spawnPartyAlly already registered it in the world and collision system.
-	cs.game.AddCombatMessage(fmt.Sprintf("%s answers the call! (%d HP, %d damage)", add.Name, add.MaxHitPoints, add.DamageMax))
+	cs.game.logCombat(logToneGood, "%s answers the call! (%d HP, %d damage)", logMonsterName(add), add.MaxHitPoints, add.DamageMax)
 	return castCommitted
 }
 

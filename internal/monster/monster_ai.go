@@ -704,15 +704,11 @@ func (m *Monster3D) usesAttackPosts() bool {
 	if m == nil {
 		return false
 	}
-	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
+	behavior := m.CurrentAIBehavior()
+	if !behavior.Caps().MayAttack {
 		return false
-	case AIBehaviorBoundAlly:
-		return m.AIFoe != nil
-	case AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorSeekParty:
-		return true
 	}
-	return false
+	return behavior != AIBehaviorBoundAlly || m.AIFoe != nil
 }
 
 // entersTargetTile reports whether (x, y) would land an attacker on the

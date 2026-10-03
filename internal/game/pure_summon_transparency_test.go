@@ -152,7 +152,7 @@ func TestPartyAreaAttacksIgnorePureSummonsButHitBoundUndead(t *testing.T) {
 		{
 			name: "party nova",
 			apply: func(cs *CombatSystem, _ *monsterPkg.Monster3D) {
-				cs.tryCastInferno(spells.SpellDefinition{
+				cs.tryCastPartyNova(spells.SpellDefinition{
 					Name:                "Test Nova",
 					School:              "fire",
 					SpellPointsCost:     40,

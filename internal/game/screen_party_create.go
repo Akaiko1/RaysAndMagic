@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
-	"strings"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
@@ -682,12 +681,12 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	if len(c.Skills) > 0 {
 		var skills []heroDetailToken
 		for st, sk := range c.Skills {
-			text := masteryTooltipTextForSkill(st)
+			text := masteryTooltipRowsForSkill(st)
 			skills = append(skills, heroDetailToken{
 				text: st.MasteryLabel(sk.Mastery),
 				key:  "party_create_skill:" + st.String(),
 				tooltip: func(x, y int) {
-					ui.queueTooltip(strings.Split(text, "\n"), x, y)
+					ui.queueCardTooltip(text, nil, nil, nil, "", x, y)
 				},
 			})
 		}
@@ -723,7 +722,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 				}
 				if item, err := spells.CreateSpellItem(sid); err == nil {
 					token.tooltip = func(x, y int) {
-						lines := strings.Split(GetItemTooltip(item, c, ui.game.combat, tooltipDetailHeld()), "\n")
+						lines := GetItemTooltipRows(item, c, ui.game.combat, tooltipDetailHeld())
 						ui.queueItemTooltip(lines, item, c, x, y)
 					}
 				}

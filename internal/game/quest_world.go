@@ -423,14 +423,15 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	}
 	g.playSound(soundQuestComplete)
 	if message != "" {
-		g.AddCombatMessage(message)
+		g.logCombat(logToneReward, "%s", message)
 		return
 	}
+	name := logColored(q.Definition.Name, combatMessageGold)
 	if q.RewardsClaimed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed!", q.Definition.Name))
+		g.logCombat(logToneReward, "Quest '%s' completed!", name)
 		return
 	}
-	g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", q.Definition.Name))
+	g.logCombat(logToneReward, "Quest '%s' completed! Open Quests (J) to claim reward.", name)
 }
 
 // spawnQuestCompletionMonsters places each completed quest's on_complete_spawns

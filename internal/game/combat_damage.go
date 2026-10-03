@@ -24,6 +24,15 @@ type monsterDamagePacket struct {
 	Components []monsterDamageComponent
 }
 
+// primarySchool is the school of the packet's first component, the one a log
+// line colors its damage by.
+func (p monsterDamagePacket) primarySchool() string {
+	if len(p.Components) == 0 {
+		return monsterPkg.DamagePhysical.String()
+	}
+	return p.Components[0].School.String()
+}
+
 func (p monsterDamagePacket) normalDamage() int {
 	total := 0
 	for _, component := range p.Components {

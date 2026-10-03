@@ -162,8 +162,8 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		// Party heal: restore everyone, ignore the single target.
 		if def.HealParty {
 			n := cs.healWholeParty(healAmount)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s, healing %d allies for %d HP!",
-				caster.Name, def.Name, n, healAmount))
+			cs.game.logCombat(logToneGood, "%s casts %s, healing %d allies for %s HP!",
+				logHeroName(caster), logKeyword("heal", def.Name), n, logHealed(healAmount))
 			return castCommitted
 		}
 
@@ -182,9 +182,9 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 
 		cs.healMember(targetIndex, healAmount)
 		if targetIndex == cs.game.selectedChar {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s heals themselves for %d HP with %s!", caster.Name, healAmount, def.Name))
+			cs.game.logCombat(logToneGood, "%s heals themselves for %s HP with %s!", logHeroName(caster), logHealed(healAmount), logKeyword("heal", def.Name))
 		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
+			cs.game.logCombat(logToneGood, "%s heals %s for %s HP with %s!", logHeroName(caster), logHeroName(target), logHealed(healAmount), logKeyword("heal", def.Name))
 		}
 		return castCommitted
 	})

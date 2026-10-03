@@ -40,6 +40,34 @@ const (
 	AIBehaviorAmbient
 )
 
+// BehaviorCaps is what a behavior mode lets its monster do. The AI sites -
+// attack targets, posts and commits, foe selection, band alarms - read these
+// instead of re-listing the modes; movement algorithms and clocks stay their
+// own per mode.
+type BehaviorCaps struct {
+	MayAttack   bool // may hold an attack target and post, and commit a hit
+	TakesFoe    bool // foe selection may hand it a monster to fight
+	AnswersBand bool // its band's alarm (a peer's sight or hit) may rouse it
+}
+
+// A passive peer ignores its band's sight; the band's hit is shared before
+// caps are read, which provokes it out of Passive.
+var behaviorCaps = [...]BehaviorCaps{
+	AIBehaviorInert:           {},
+	AIBehaviorBoundAlly:       {MayAttack: true, TakesFoe: true},
+	AIBehaviorPacified:        {},
+	AIBehaviorEvasive:         {},
+	AIBehaviorFightFoe:        {MayAttack: true, TakesFoe: true},
+	AIBehaviorRelentlessParty: {MayAttack: true, TakesFoe: true},
+	AIBehaviorFleeing:         {},
+	AIBehaviorPassive:         {},
+	AIBehaviorSeekParty:       {MayAttack: true, TakesFoe: true, AnswersBand: true},
+	AIBehaviorAmbient:         {TakesFoe: true},
+}
+
+// Caps returns the mode's capabilities.
+func (b AIBehaviorMode) Caps() BehaviorCaps { return behaviorCaps[b] }
+
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
 	Gold              int                   `yaml:"gold"`
@@ -119,6 +147,11 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.IsCaravan() || (m.IsWildlife() && (m.AmbientFlee || m.AIFoe == nil)) {
 		return AIBehaviorAmbient
 	}
+	// A fleeing monster keeps fleeing even with a foe at hand; only a relentless
+	// hunter (a raging boss, an avenging retainer) never breaks off.
+	if m.State == StateFleeing && !m.relentlessHunter() {
+		return AIBehaviorFleeing
+	}
 	if m.AIFoe != nil {
 		// A stale crossfire target must not wake a passive creature. Normal
 		// selection clears it too, but keeping the policy here makes every AI
@@ -130,9 +163,6 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	}
 	if m.relentlessHunter() {
 		return AIBehaviorRelentlessParty
-	}
-	if m.State == StateFleeing {
-		return AIBehaviorFleeing
 	}
 	if m.IsPassiveUntilProvoked() {
 		return AIBehaviorPassive

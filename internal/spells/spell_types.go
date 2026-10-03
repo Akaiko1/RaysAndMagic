@@ -242,18 +242,33 @@ func (d SpellDefinition) IsOffensive() bool {
 }
 
 // CoreEffectLines omits summaries for values the live tooltip already renders
-// with the current caster; both views come from effectLines, so wording cannot
+// with the current caster; all views come from effectLines, so wording cannot
 // drift.
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(false)
+	return d.effectLines(effectViewCore)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
 func (d SpellDefinition) CardEffectLines() []string {
-	return d.effectLines(true)
+	return d.effectLines(effectViewCard)
 }
 
-func (d SpellDefinition) effectLines(includeStructured bool) []string {
+// BuffMechanicLines omits magnitudes supplied by running stat and combat buffs.
+// Their cast or saved values may differ from the current spell definition.
+func (d SpellDefinition) BuffMechanicLines() []string {
+	return d.effectLines(effectViewBuff)
+}
+
+type effectView uint8
+
+const (
+	effectViewCore effectView = iota
+	effectViewCard
+	effectViewBuff
+)
+
+func (d SpellDefinition) effectLines(view effectView) []string {
+	includeStructured := view == effectViewCard
 	var out []string
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
@@ -332,7 +347,7 @@ func (d SpellDefinition) effectLines(includeStructured bool) []string {
 	if d.TownPortal {
 		out = append(out, uitext.Text("spell.opens_a_portal_to_visited_taverns_towns"))
 	}
-	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+	if view != effectViewBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
 		out = append(out, uitext.Text("spell.party_resists_for_the_duration",
 			strings.ToUpper(d.ResistBuffSchool[:1])+d.ResistBuffSchool[1:], d.ResistBuffSchoolPct))
 	}
@@ -368,10 +383,7 @@ func (d SpellDefinition) effectLines(includeStructured bool) []string {
 		}
 	}
 	if includeStructured && d.OutgoingDamageBonus > 0 {
-		target := uitext.Text("spell.attacks")
-		if damageType, err := damagecalc.ParseType(d.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
-			target = uitext.Text("spell.physical_attacks")
-		}
+		target := OutgoingDamageTarget(d.OutgoingDamageType)
 		if d.OutgoingDamageBonusGrandmaster > d.OutgoingDamageBonus {
 			out = append(out, uitext.Text("spell.party_deal_to_damage_by_mastery", target, d.OutgoingDamageBonus, d.OutgoingDamageBonusGrandmaster))
 		} else {
@@ -408,13 +420,29 @@ func (d SpellDefinition) effectLines(includeStructured bool) []string {
 			out = append(out, uitext.Text("spell.to_all_stats_whole_party", d.StatBonus))
 		}
 	}
-	if len(d.StatBonuses) > 0 {
-		// Per-stat buffs are authored absolute (no mastery scaling) - the exact
-		// numbers are character-independent, so they belong in this shared SSoT.
-		for _, key := range config.StatNames {
-			if v, ok := d.StatBonuses[key]; ok && v != 0 {
-				out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
-			}
+	// Per-stat buffs are authored absolute (no mastery scaling) - the exact
+	// numbers are character-independent, so they belong in this shared SSoT.
+	if view != effectViewBuff {
+		out = append(out, PerStatBonusLines(d.StatBonuses)...)
+	}
+	return out
+}
+
+// OutgoingDamageTarget names what a party damage buff boosts, by the same
+// damage-type parse combat applies.
+func OutgoingDamageTarget(damageType string) string {
+	if t, err := damagecalc.ParseType(damageType); err == nil && t == damagecalc.Physical {
+		return uitext.Text("spell.physical_attacks")
+	}
+	return uitext.Text("spell.attacks")
+}
+
+// PerStatBonusLines states a per-stat party bonus map in canonical stat order.
+func PerStatBonusLines(bonuses map[string]int) []string {
+	var out []string
+	for _, key := range config.StatNames {
+		if v := bonuses[key]; v != 0 {
+			out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
 		}
 	}
 	return out
