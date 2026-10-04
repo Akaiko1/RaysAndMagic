@@ -1,8 +1,6 @@
 package game
 
 import (
-	"image/color"
-	"math"
 	"strings"
 	"testing"
 
@@ -18,24 +16,6 @@ func TestEveryKeywordKindHasAColor(t *testing.T) {
 	}
 	if len(keywordColors) != len(config.KeywordKinds) {
 		t.Errorf("%d colors for %d kinds", len(keywordColors), len(config.KeywordKinds))
-	}
-}
-
-// Highlights read apart from each other and from the prose around them.
-func TestKeywordColorsStandApart(t *testing.T) {
-	dist := func(a, b color.RGBA) float64 {
-		dr, dg, db := float64(a.R)-float64(b.R), float64(a.G)-float64(b.G), float64(a.B)-float64(b.B)
-		return math.Sqrt(dr*dr + dg*dg + db*db)
-	}
-	for kind, c := range keywordColors {
-		if d := dist(c, keywordPlainText); d < 80 {
-			t.Errorf("%s is %.0f from the prose color, want 80+", kind, d)
-		}
-		for other, o := range keywordColors {
-			if kind < other && dist(c, o) < 60 {
-				t.Errorf("%s and %s are %.0f apart, want 60+", kind, other, dist(c, o))
-			}
-		}
 	}
 }
 

@@ -106,6 +106,9 @@ func (tm *TileManager) validateTileConfiguration() error {
 		if data.FlyOver && (data.Walkable || data.Solid || !data.Transparent || data.RenderType != config.TileRenderFloor) {
 			return fmt.Errorf("tile %q uses fly_over but is not a transparent, non-solid, non-walkable floor", key)
 		}
+		if data.WallUpperMirrorY && (data.RenderType != config.TileRenderWall || data.Sprite == "" || data.WallHeightMultiplier != 2) {
+			return fmt.Errorf("tile %q uses wall_upper_mirror_y but is not a sprite wall with wall_height_multiplier: 2", key)
+		}
 		if data.RemovedSizeTiles != nil {
 			return fmt.Errorf("tile %q uses removed size_tiles - visual sizing is class-based", key)
 		}

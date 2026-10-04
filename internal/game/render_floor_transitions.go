@@ -22,6 +22,7 @@ const (
 	floorBlendCliffEast
 	floorBlendCliffWest
 	floorBlendVoid
+	floorBlendChasm
 )
 
 const floorShoreReach = 2.0
@@ -64,6 +65,8 @@ func floorProfileByte(profile config.FloorTransition) byte {
 		return floorBlendCliffWest
 	case config.FloorTransitionVoid:
 		return floorBlendVoid
+	case config.FloorTransitionChasm:
+		return floorBlendChasm
 	default:
 		return floorBlendHard
 	}

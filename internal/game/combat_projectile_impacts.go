@@ -539,7 +539,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// weapon strike ignores it; otherwise the normal hit is dodged but typed
 	// TRUE damage still lands.
 	// A blast spell still goes off around a target that dodged or was bound.
-	if monsterPerfectDodges(monster, attack.IgnoreDodge) {
+	if cs.monsterPerfectDodges(monster, attack.IgnoreDodge) {
 		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
 			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)

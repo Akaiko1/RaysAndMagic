@@ -102,11 +102,11 @@ func TestSolsticeAuthoredRoutesAndRewards(t *testing.T) {
 		t.Fatal("gallery vane does nothing")
 	}
 	v.effectState("regulator_lane_0").Warning = 1
-	if !g.effectEnabled(a, v, *a.Effect("arena_jet_0")) {
-		t.Fatal("announced vane invisible")
+	if g.effectEnabled(a, v, *a.Effect("arena_jet_0")) {
+		t.Fatal("escape vane opened before hub control")
 	}
 	g.useAdventureControl("hub_vane")
-	if g.effectEnabled(a, v, *a.Effect("arena_jet_0")) || !g.effectEnabled(a, v, *a.Effect("return_jet")) {
+	if !g.effectEnabled(a, v, *a.Effect("arena_jet_0")) || !g.effectEnabled(a, v, *a.Effect("return_jet")) {
 		t.Fatal("hub vane failed to secure arena and return route")
 	}
 }

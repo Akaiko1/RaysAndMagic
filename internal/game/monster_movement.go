@@ -14,3 +14,9 @@ func (g *MMGame) monsterMovementHeld(m *monster.Monster3D) bool {
 func (gl *GameLoop) monsterCanStepTB(m *monster.Monster3D) bool {
 	return !gl.game.monsterMovementHeld(m)
 }
+
+// monsterCanBeDisplaced gates external pushes and stack separation alike.
+// Canopy trajectories and scripted set pieces must retain their anchors.
+func (g *MMGame) monsterCanBeDisplaced(m *monster.Monster3D) bool {
+	return m != nil && m.Arbor.Phase == "" && !m.IsInertSetPiece() && !g.monsterMovementHeld(m)
+}

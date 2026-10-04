@@ -43,6 +43,7 @@ type EnvironmentEffect struct {
 	BossBelowPercent int     `yaml:"boss_below_percent,omitempty"`
 }
 type EnvironmentControl struct {
+	Message        string            `yaml:"message,omitempty"`
 	ID             string            `yaml:"id"`
 	Disable        []string          `yaml:"disable,omitempty"`
 	Tiles          []EnvironmentTile `yaml:"tiles,omitempty"`

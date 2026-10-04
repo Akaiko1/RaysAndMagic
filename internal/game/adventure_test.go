@@ -230,3 +230,103 @@ func TestSolsticeWardRecipes(t *testing.T) {
 		}
 	}
 }
+
+func TestAdventureScalingSaveProvenance(t *testing.T) {
+	t.Chdir("../..")
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	g, wm, _ := bootOpenWorldGame(t, false)
+	const key = "solstice_earth"
+	if err := g.transitionToMap(mapTransition{mapKey: key, arrival: mapArrivalEntrance}); err != nil {
+		t.Fatal(err)
+	}
+	stats := func(m *monster.Monster3D) [8]int {
+		return [8]int{m.Level, m.MaxHitPoints, m.HitPoints, m.ArmorClass, m.DamageMin, m.DamageMax, m.Experience, m.EnrageAtHP}
+	}
+	for _, format := range []string{"current", "legacy", "legacy_no_anchor"} {
+		t.Run(format, func(t *testing.T) {
+			g.adventureVisit(key).Level = 56
+			g.world.Monsters = nil
+			want := map[string][8]int{}
+			spawn := wm.LoadedMaps[key].MonsterSpawns[0]
+			for i, kind := range []string{"authored", "charmed", "boss", "boss_add", "quest", "party_summon", "unscaled"} {
+				if kind == "unscaled" && format != "current" {
+					continue
+				}
+				x, y := TileCenterFromTile(spawn.X, spawn.Y, g.config.GetTileSize())
+				m := monster.NewMonster3DFromConfig(x, y, spawn.MonsterKey, g.config)
+				m.HomeMap = key
+				switch kind {
+				case "authored", "charmed":
+					scaleAdventureMonster(m, 56)
+					if kind == "charmed" {
+						m.Bound, m.CharmedByParty, m.BoundFramesRemaining = true, true, 100000
+					}
+				case "boss":
+					for _, sp := range wm.LoadedMaps[key].MonsterSpawns {
+						if sp.MonsterKey == "solstice_talura" {
+							x, y = TileCenterFromTile(sp.X, sp.Y, g.config.GetTileSize())
+							m = monster.NewMonster3DFromConfig(x, y, sp.MonsterKey, g.config)
+							m.HomeMap = key
+						}
+					}
+					scaleAdventureMonster(m, 56)
+				case "boss_add":
+					m.SummonedBy, m.QuestProgressIgnored = "boss-owner", true
+				case "quest":
+					m.IsEncounterMonster, m.EncounterRewards = true, &monster.EncounterRewards{}
+				case "party_summon":
+					m.SummonedBy, m.QuestProgressIgnored, m.Bound = spellSummonOwnerPrefix+"test", true, true
+					m.BoundFramesRemaining = 100000
+					m.MaxHitPoints, m.ArmorClass, m.DamageMin, m.DamageMax = 900, 90, 45, 67
+				}
+				m.ID = fmt.Sprintf("%s-%d", kind, i)
+				m.HitPoints = m.MaxHitPoints - 7
+				want[m.ID] = stats(m)
+				g.world.Monsters = append(g.world.Monsters, m)
+			}
+			for reload := 0; reload < 2; reload++ {
+				saved := auditSaveJSON(t, g.buildSave(wm))
+				if format != "current" && reload == 0 {
+					// Exercise pre-provenance JSON, including older saves without anchors.
+					raw, _ := json.Marshal(saved)
+					var document map[string]any
+					if err := json.Unmarshal(raw, &document); err != nil {
+						t.Fatal(err)
+					}
+					strip := func(records []any) {
+						for _, record := range records {
+							fields := record.(map[string]any)
+							delete(fields, "adventure_scale_level")
+							if format == "legacy_no_anchor" {
+								delete(fields, "spawn_position")
+							}
+						}
+					}
+					strip(document["monsters"].([]any))
+					for _, records := range document["map_monsters"].(map[string]any) {
+						if records != nil {
+							strip(records.([]any))
+						}
+					}
+					raw, _ = json.Marshal(document)
+					saved = GameSave{}
+					if err := json.Unmarshal(raw, &saved); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := g.applySave(wm, &saved); err != nil {
+					t.Fatal(err)
+				}
+				if len(g.world.Monsters) != len(want) {
+					t.Fatal("reload changed roster")
+				}
+				for _, m := range g.world.Monsters {
+					if got := stats(m); got != want[m.ID] {
+						t.Errorf("reload %d %s stats=%v want=%v", reload, m.ID, got, want[m.ID])
+					}
+				}
+			}
+		})
+	}
+}

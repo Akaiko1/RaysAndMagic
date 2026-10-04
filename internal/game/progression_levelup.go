@@ -193,6 +193,7 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	outgoing.BuffBonuses = character.StatBonuses{}
 	outgoing.BonusMaxHP = 0
 	outgoing.BonusRegenPct = 0
+	outgoing.BuffHPRegenPct, outgoing.BuffManaRegenPct = 0, 0
 	outgoing.RecalculateMaxStatsKeepingCurrent(g.config)
 	g.applyPartyStatBonuses()
 	g.drainOwedChoices(activeIdx)

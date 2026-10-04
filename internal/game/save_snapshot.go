@@ -249,6 +249,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SummonedBy:              mon.SummonedBy,
 				SummonerName:            mon.SummonerName,
 			}
+			scaleLevel := mon.AdventureScaleLevel
+			saveEntry.AdventureScaleLevel = &scaleLevel
 			saveEntry.SpawnPosition = &[2]float64{mon.SpawnX, mon.SpawnY}
 			if isPurePartySummon(mon) {
 				saveEntry.RuntimeStats = &MonsterRuntimeStatsSave{

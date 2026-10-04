@@ -110,6 +110,12 @@ func makeAlchemyMaterialLayout(l rareBookLayout, r *config.AlchemyRecipe) alchem
 	cols := max(1, (w-2)/126)
 	cellW := (w - 8 - (cols-1)*6) / cols
 	y := 0
+	selectableGroups := 0
+	for _, group := range r.Ingredients {
+		if len(group.Materials()) > 1 {
+			selectableGroups++
+		}
+	}
 	for gi, group := range r.Ingredients {
 		material := group.Materials()
 		if len(material) == 1 {
@@ -125,7 +131,11 @@ func makeAlchemyMaterialLayout(l rareBookLayout, r *config.AlchemyRecipe) alchem
 			if len(keys) == 0 {
 				continue
 			}
-			a.headings = append(a.headings, alchemyMaterialHeading{category.Label, layoutRect{x + 2, a.viewport.y + y, w - 10, 18}})
+			label := category.Label
+			if selectableGroups > 1 {
+				label = group.Label + ": " + label
+			}
+			a.headings = append(a.headings, alchemyMaterialHeading{label, layoutRect{x + 2, a.viewport.y + y, w - 10, 18}})
 			y += alchemyHeadingPitch
 			for i, key := range keys {
 				a.cells = append(a.cells, alchemyMaterialCell{key, gi, material[key], layoutRect{x + (i%cols)*(cellW+6), a.viewport.y + y + (i/cols)*alchemyCellPitch, cellW, alchemyCellH}})
@@ -155,10 +165,12 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 	for index, n := range preview.plan {
 		used[carried[index].Name] += n
 	}
+	fixedBase := false
 	for _, group := range r.Ingredients {
 		if len(group.Materials()) != 1 {
 			continue
 		}
+		fixedBase = true
 		for key, cost := range group.Materials() {
 			it, _ := items.TryCreateItemFromYAML(key)
 			have, need := g.party.CountItemsByName(it.Name), cost*g.alchemyBatches
@@ -174,6 +186,9 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			drawUITextColored(screen, profileText("Base: "+it.Name, stockX-4-nameX), nameX, textY, color.RGBA{207, 185, 128, 255})
 			drawUITextColored(screen, stock, stockX, textY, col)
 		}
+	}
+	if !fixedBase {
+		ui.rareBookText(screen, "Choose a base and stock below.", a.base)
 	}
 	checked := 0
 	for _, cell := range a.cells {

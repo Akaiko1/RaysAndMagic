@@ -14,9 +14,10 @@ import (
 func TestSolsticeDamageDraughts(t *testing.T) {
 	for _, school := range []string{"fire", "water", "earth", "air"} {
 		for _, tier := range []struct {
-			suffix  string
-			percent int
-		}{{"_field", 15}, {"", 30}, {"_advanced", 40}} {
+			suffix   string
+			percent  int
+			hp, mana int
+		}{{"_field", 15, 0, 0}, {"", 30, 3, 0}, {"_advanced", 40, 5, 5}} {
 			for _, brewed := range []bool{false, true} {
 				if brewed && tier.suffix == "_advanced" {
 					continue
@@ -28,7 +29,7 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 				t.Run(key, func(t *testing.T) {
 					g := newTestCombatSystemWithConfig(t).game
 					d, _ := config.GetItemDefinition(key)
-					if d.DamageBuffPct != tier.percent || d.DamageBuffSchool != school || d.ResistBuffSchoolPct != 0 {
+					if d.DamageBuffPct != tier.percent || d.DamageBuffSchool != school || d.ResistBuffSchoolPct != 0 || d.BuffHPRegenPct != tier.hp || d.BuffManaRegenPct != tier.mana {
 						t.Fatalf("incorrect effect: %+v", d)
 					}
 					g.party.Inventory = []items.Item{items.CreateItemFromYAML(key)}
@@ -36,6 +37,12 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 						t.Fatal("not consumed")
 					}
 					g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves(g.combatBuffs))
+					g.applyPartyStatBonuses()
+					for _, member := range g.party.Members {
+						if member.BuffHPRegenPct != tier.hp || member.BuffManaRegenPct != tier.mana {
+							t.Fatal("consumption/restore lost regeneration")
+						}
+					}
 					if len(g.combatBuffs) != 1 || g.combatBuffs[0].Frames != 60*g.config.GetTPS() {
 						t.Fatal("lost clock")
 					}
@@ -52,6 +59,9 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 					card := GetItemTooltip(items.CreateItemFromYAML(key), nil, g.combat, true)
 					if !strings.Contains(card, fmt.Sprintf("damage +%d%%", tier.percent)) || strings.Contains(card, "resistance") {
 						t.Fatal(card)
+					}
+					if tier.hp > 0 && !strings.Contains(card, fmt.Sprintf("%d%% max HP", tier.hp)) || tier.mana > 0 && !strings.Contains(card, fmt.Sprintf("%d%% max mana", tier.mana)) {
+						t.Fatal("item card omits regeneration: " + card)
 					}
 				})
 			}
@@ -85,6 +95,139 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			g.combatBuffs[2].Frames = 0
 			if got := g.elementalDamageBuff(damagecalc.Parts{Normal: 100}, "fire").Normal; got != 130 {
 				t.Fatalf("expired strongest still applies: %d", got)
+			}
+		})
+	}
+}
+
+func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
+			g, _, wm := clockSaveFixture(t)
+			g.turnBasedMode = tb
+			drink := func(key string) {
+				t.Helper()
+				g.party.Inventory = []items.Item{items.CreateItemFromYAML(key)}
+				if !g.UseConsumableFromInventory(0, 0) {
+					t.Fatalf("cannot drink %s", key)
+				}
+			}
+			checkBonus := func(hp, mana int) {
+				t.Helper()
+				for _, c := range g.party.Members {
+					if c.BuffHPRegenPct != hp || c.BuffManaRegenPct != mana {
+						t.Fatalf("regen=%d/%d, want %d/%d", c.BuffHPRegenPct, c.BuffManaRegenPct, hp, mana)
+					}
+				}
+			}
+			pulse := func() {
+				if tb {
+					g.endPartyTurn()
+				} else {
+					g.updatePartyClocks()
+				}
+			}
+			prime := func() {
+				g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
+				for _, c := range g.party.Members {
+					c.RestoreRealtimeRegenProgress(character.ManaRegenIntervalFrames-1, character.ManaRegenIntervalFrames-1)
+				}
+			}
+			drink("solstice_fire_ward")
+			drink("brewed_solstice_water_ward")
+			drink("brewed_solstice_fire_ward")
+			checkBonus(3, 0)
+			if len(g.combatBuffs) != 2 {
+				t.Fatal("brewed recast duplicated its base buff")
+			}
+			c := g.party.Members[0]
+			c.MaxHitPoints, c.HitPoints = 1000, 500
+			c.MaxSpellPoints, c.SpellPoints = 1000, 500
+			prime()
+			pulse()
+			if c.HitPoints != 530 {
+				t.Fatalf("medium regeneration HP=%d, want 530", c.HitPoints)
+			}
+			// Refreshing a potion must not reset a partially completed tick.
+			c.RestoreRealtimeRegenProgress(123, 123)
+			drink("solstice_fire_advanced_ward")
+			drink("solstice_air_advanced_ward")
+			checkBonus(5, 5)
+			if sp, hp := c.RealtimeRegenProgress(); sp != 123 || hp != 123 {
+				t.Fatal("consuming a potion reset regeneration progress")
+			}
+			g.cardSlots[0].key = "troll_card"
+			g.recomputeStatBonuses()
+			c.MaxHitPoints, c.HitPoints = 1000, 500
+			c.MaxSpellPoints, c.SpellPoints = 1000, 500
+			ordinaryMana := c.CalculateManaRegenAmount()
+			prime()
+			pulse()
+			if c.HitPoints != 570 || c.SpellPoints != 550+ordinaryMana {
+				t.Fatalf("combined regeneration HP/SP=%d/%d, want 570/%d", c.HitPoints, c.SpellPoints, 550+ordinaryMana)
+			}
+			// Thinking in TB must not advance RT clocks, or grant a second tick.
+			g.turnBasedMode = true
+			for range character.ManaRegenIntervalFrames {
+				g.updatePartyClocks()
+			}
+			if c.HitPoints != 570 || c.SpellPoints != 550+ordinaryMana {
+				t.Fatal("TB thinking granted regeneration")
+			}
+			g.turnBasedMode = tb
+			c.HitPoints, c.SpellPoints = 999, 999
+			prime()
+			pulse()
+			if c.HitPoints != 1000 || c.SpellPoints != 1000 {
+				t.Fatal("regeneration exceeded maxima")
+			}
+			for _, unconscious := range []bool{false, true} {
+				c.HitPoints, c.SpellPoints = 0, 10
+				if unconscious {
+					c.HitPoints = 10
+					c.AddCondition(character.ConditionUnconscious)
+				}
+				startHP := c.HitPoints
+				prime()
+				pulse()
+				if c.HitPoints != startHP || c.SpellPoints != 10 {
+					t.Fatal("draught regenerated an incapacitated hero")
+				}
+			}
+			c.Conditions = nil
+			c.RecalculateMaxStatsKeepingCurrent(g.config)
+			c.HitPoints, c.SpellPoints = c.MaxHitPoints/2, 0
+			prime()
+			saved := auditSaveJSON(t, g.buildSave(wm))
+			g.resetTimedEffects()
+			checkBonus(0, 0)
+			if err := g.applySave(wm, &saved); err != nil {
+				t.Fatal(err)
+			}
+			checkBonus(5, 5)
+			c = g.party.Members[0]
+			startHP, startSP := c.HitPoints, c.SpellPoints
+			wantHP := min(c.MaxHitPoints, startHP+c.MaxHitPoints*7/100)
+			wantSP := min(c.MaxSpellPoints, startSP+c.CalculateManaRegenAmount()+c.MaxSpellPoints*5/100)
+			pulse()
+			if c.HitPoints != wantHP || c.SpellPoints != wantSP {
+				t.Fatalf("save lost the next regeneration tick: HP/SP=%d/%d, want %d/%d", c.HitPoints, c.SpellPoints, wantHP, wantSP)
+			}
+			if !g.swapRosterMember(0, 0) {
+				t.Fatal("roster swap failed")
+			}
+			if c.BuffHPRegenPct != 0 || c.BuffManaRegenPct != 0 {
+				t.Fatal("benched hero retained a timed buff")
+			}
+			checkBonus(5, 5)
+			g.removeCombatBuff("solstice_fire_advanced_ward")
+			checkBonus(5, 5)
+			g.removeCombatBuff("solstice_air_advanced_ward")
+			checkBonus(3, 0)
+			g.advanceCombatBuffs(60*g.config.GetTPS(), tb)
+			checkBonus(0, 0)
+			if g.party.Members[0].BonusRegenPct != 2 {
+				t.Fatal("draught expiry removed troll regeneration")
 			}
 		})
 	}

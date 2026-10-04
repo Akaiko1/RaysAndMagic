@@ -100,7 +100,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				if m.HomeMap == "" {
 					m.HomeMap = homeFallback
 				}
-				g.restoreAdventureMonster(m)
+				g.restoreAdventureMonster(m, g.savedAdventureScaleLevel(wm, w, m, ms))
 				m.HitPoints = ms.HitPoints
 				// The enrage EFFECT is derived from HP; only the announcement
 				// latch is saved, so a threshold crossed just before the save
@@ -306,7 +306,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					// Gameplay respawns preserve party charms. A load must not
 					// carry those allies over from the previous timeline.
 					w.Monsters = nil
-					w.RespawnAuthoredMonsters()
+					g.respawnAuthoredMonsters(w)
 					w.LastRespawnDay = g.currentCalendarDay()
 					g.loadNeedsResave = true
 					continue
@@ -526,4 +526,30 @@ func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) M
 		ms.SpawnPosition = &[2]float64{x, y}
 	}
 	return ms
+}
+
+// Legacy saves did not record scaling provenance. Only authored actors from a
+// scaled visit inherit its level; encounter and summon markers exclude runtime
+// spawns even when they reuse an authored monster key and spawn position.
+func (g *MMGame) savedAdventureScaleLevel(wm *world.WorldManager, w *world.World3D, m *monster.Monster3D, saved MonsterSave) int {
+	if saved.AdventureScaleLevel != nil {
+		return max(0, *saved.AdventureScaleLevel)
+	}
+	visit := g.adventure.Visits[m.HomeMap]
+	if visit == nil || visit.Level <= 0 || saved.SummonedBy != "" || saved.QuestProgressIgnored || saved.IsEncounterMonster || saved.RuntimeStats != nil || saved.PackKey != "" || saved.Population != "" {
+		return 0
+	}
+	if home := wm.LoadedMaps[m.HomeMap]; home != nil {
+		w = home
+	}
+	for _, spawn := range w.MonsterSpawns {
+		if spawn.MonsterKey != m.Key {
+			continue
+		}
+		x, y := TileCenterFromTile(spawn.X, spawn.Y, g.config.GetTileSize())
+		if saved.SpawnPosition == nil || *saved.SpawnPosition == [2]float64{x, y} {
+			return visit.Level
+		}
+	}
+	return 0
 }

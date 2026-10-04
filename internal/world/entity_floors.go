@@ -1,6 +1,11 @@
 package world
 
-import "ugataima/internal/character"
+import (
+	"maps"
+	"slices"
+
+	"ugataima/internal/character"
+)
 
 // entityFloor remembers derived ground without serializing it. Tile allows an
 // explicit terrain edit to override automatic ground until that edit is undone.
@@ -41,7 +46,15 @@ func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 		}
 	}
 	for _, spawn := range md.MonsterSpawns {
-		add(spawn.X, spawn.Y)
+		if !md.hasCell(spawn.X, spawn.Y) {
+			continue
+		}
+		if tile, ok := tm.GetTileTypeFromKey(spawn.GroundTile); ok {
+			md.Tiles[spawn.Y][spawn.X] = tile
+			delete(md.entityFloors, [2]int{spawn.X, spawn.Y})
+		} else {
+			add(spawn.X, spawn.Y)
+		}
 	}
 	for _, spawn := range md.NPCSpawns {
 		if !md.hasCell(spawn.X, spawn.Y) {
@@ -67,17 +80,45 @@ func (md *MapData) RebuildFloors(tm *TileManager, biome string) {
 // or moved. Preserve any explicit terrain edit that replaced that stamp.
 // It reports whether a ground stamp was cleared.
 func (md *MapData) ClearNPCGround(tm *TileManager, spawn NPCSpawn, fallback TileType3D) bool {
-	if tm == nil || !md.hasCell(spawn.X, spawn.Y) {
+	return md.clearGround(tm, spawn.X, spawn.Y, spawn.groundTileKey(), fallback)
+}
+
+// ClearMonsterGround is ClearNPCGround for a keyed monster placement.
+func (md *MapData) ClearMonsterGround(tm *TileManager, spawn MonsterSpawn, fallback TileType3D) bool {
+	return md.clearGround(tm, spawn.X, spawn.Y, spawn.GroundTile, fallback)
+}
+
+func (md *MapData) clearGround(tm *TileManager, x, y int, ground string, fallback TileType3D) bool {
+	if tm == nil || !md.hasCell(x, y) {
 		return false
 	}
 	cleared := false
-	if tile, ok := tm.GetTileTypeFromKey(spawn.groundTileKey()); ok && md.Tiles[spawn.Y][spawn.X] == tile {
-		md.Tiles[spawn.Y][spawn.X] = fallback
+	if tile, ok := tm.GetTileTypeFromKey(ground); ok && md.Tiles[y][x] == tile {
+		md.Tiles[y][x] = fallback
 		cleared = true
 	}
-	delete(md.entityFloors, [2]int{spawn.X, spawn.Y})
+	delete(md.entityFloors, [2]int{x, y})
 	md.Floors = nil
 	return cleared
+}
+
+// Clone deep-copies the map with its derived ground, so an editor draft and its
+// undo snapshots never share mutable state with the loaded map. Floors is
+// replaced wholesale on rebuild, never edited in place, so it may be shared.
+func (md *MapData) Clone() *MapData {
+	if md == nil {
+		return nil
+	}
+	out := *md
+	out.Tiles = make([][]TileType3D, len(md.Tiles))
+	for i := range md.Tiles {
+		out.Tiles[i] = slices.Clone(md.Tiles[i])
+	}
+	out.MonsterSpawns = slices.Clone(md.MonsterSpawns)
+	out.NPCSpawns = slices.Clone(md.NPCSpawns)
+	out.SpecialTileSpawns = slices.Clone(md.SpecialTileSpawns)
+	out.entityFloors = maps.Clone(md.entityFloors)
+	return &out
 }
 
 func (md *MapData) hasCell(x, y int) bool {

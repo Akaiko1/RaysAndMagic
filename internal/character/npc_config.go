@@ -19,6 +19,9 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
+	// EditorOwnerMap identifies local definitions whose last placement can be deleted.
+	EditorOwnerMap string `yaml:"editor_owner_map,omitempty"`
+
 	ShopDialogue bool `yaml:"shop_dialogue,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
 	Biomes        []string `yaml:"biomes,omitempty"`
@@ -343,10 +346,14 @@ func LoadNPCConfig(filename string) error {
 	}
 
 	NPCConfigInstance = &config
+	return validateLoadedNPCConfig(&config)
+}
+
+func validateLoadedNPCConfig(cfg *NPCConfig) error {
 	if err := backfillTraderSpells(); err != nil {
 		return err
 	}
-	if err := validateNPCItemSources(&config); err != nil {
+	if err := validateNPCItemSources(cfg); err != nil {
 		return err
 	}
 	if err := validatePricedChoices(); err != nil {
@@ -354,7 +361,7 @@ func LoadNPCConfig(filename string) error {
 	}
 	// A rarity weapon rack without a positive price would sell every listed
 	// weapon for free - fail the load instead.
-	for key, npc := range config.NPCs {
+	for key, npc := range cfg.NPCs {
 		if npc != nil && npc.StockRefreshWeeks < 0 {
 			return fmt.Errorf("NPC %q: stock_refresh_weeks cannot be negative", key)
 		}
@@ -370,16 +377,16 @@ func LoadNPCConfig(filename string) error {
 			return fmt.Errorf("NPC %q: sell_available needs a gold till, but the shop trades in %q", key, npc.Currency)
 		}
 	}
-	if err := validateNPCTypes(&config); err != nil {
+	if err := validateNPCTypes(cfg); err != nil {
 		return err
 	}
-	if err := validateNPCTraining(&config); err != nil {
+	if err := validateNPCTraining(cfg); err != nil {
 		return err
 	}
-	if err := validateCratesAndLecterns(&config); err != nil {
+	if err := validateCratesAndLecterns(cfg); err != nil {
 		return err
 	}
-	for key, npc := range config.NPCs {
+	for key, npc := range cfg.NPCs {
 		if npc != nil && npc.RemovedSizeTiles != nil {
 			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
 		}

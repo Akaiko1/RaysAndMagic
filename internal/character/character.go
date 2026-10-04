@@ -158,6 +158,9 @@ type MMCharacter struct {
 	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
 	BonusRegenPct int
 	hpRegenTimer  int
+	// Timed party draught bonuses are derived from active buffs, never saved here.
+	BuffHPRegenPct   int
+	BuffManaRegenPct int
 
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
@@ -783,8 +786,8 @@ func (c *MMCharacter) updateRegenAndPoison() bool {
 		c.spellRegenTimer = 0 // Reset timer
 		regenCadenceCompleted = true
 	}
-	// Troll Card(s): regenerate a % of max HP on the same cadence.
-	if c.BonusRegenPct > 0 {
+	// Cards and timed draughts share one HP regeneration cadence.
+	if c.BonusRegenPct+c.BuffHPRegenPct > 0 {
 		c.hpRegenTimer++
 		if c.hpRegenTimer >= ManaRegenIntervalFrames {
 			c.hpRegenTimer = 0
@@ -841,21 +844,25 @@ func (c *MMCharacter) RegenerateSpellPoints() {
 	if c.SpellPoints >= c.MaxSpellPoints {
 		return
 	}
-	c.SpellPoints += c.CalculateManaRegenAmount()
+	c.SpellPoints += c.CalculateManaRegenAmount() + c.MaxSpellPoints*c.BuffManaRegenPct/100
 	if c.SpellPoints > c.MaxSpellPoints {
 		c.SpellPoints = c.MaxSpellPoints
 	}
 }
 
-// ApplyCardRegenTick heals BonusRegenPct% of max HP (Troll Card(s)), capped at
+// ApplyCardRegenTick heals card and timed-draught percentages of max HP, capped at
 // max. Called on its own frame-timer cadence in RT (updateRegenAndPoison) and
 // on the TB round counter (endPartyTurn), matching RegenerateSpellPoints' two
 // cadences for the two modes.
 func (c *MMCharacter) ApplyCardRegenTick() {
-	if !c.CanAct() || c.BonusRegenPct <= 0 || c.HitPoints >= c.MaxHitPoints {
+	if !c.CanAct() {
 		return
 	}
-	c.HitPoints += c.MaxHitPoints * c.BonusRegenPct / 100
+	percent := c.BonusRegenPct + c.BuffHPRegenPct
+	if percent <= 0 || c.HitPoints >= c.MaxHitPoints {
+		return
+	}
+	c.HitPoints += c.MaxHitPoints * percent / 100
 	if c.HitPoints > c.MaxHitPoints {
 		c.HitPoints = c.MaxHitPoints
 	}

@@ -37,10 +37,11 @@ recipes:
   output: brewed_health_potion
   family: common
   ingredients:
-  - label: Dawnleaf
+  - label: Healing base
     alternatives:
     - items:
       - dawnleaf
+      - solstice_rain_pearl
       count: 1
   - label: Restorative stock
     alternatives:
@@ -67,10 +68,11 @@ recipes:
   output: brewed_mana_potion
   family: common
   ingredients:
-  - label: Mooncap
+  - label: Mana base
     alternatives:
     - items:
       - mooncap
+      - solstice_whisper_silk
       count: 1
   - label: Resonant catalyst
     alternatives:

@@ -61,6 +61,7 @@ var pageTabDefs = []struct {
 	{pageMobs, "Mobs", "F7"},
 	{pageSaves, "Save Stashes", "F8"},
 	{pageOpenWorld, "Open World", "F9"},
+	{pageOverlay, "Overlay", "F10"},
 }
 
 type mapInfo struct {
@@ -75,6 +76,7 @@ type mapInfo struct {
 }
 
 type viewer struct {
+	overlay         overlayPage
 	page            int
 	cfg             *config.Config
 	owc             *config.OpenWorldConfig // open-world rules (nil when absent)
@@ -120,10 +122,11 @@ type viewer struct {
 	gameSprites *graphics.SpriteManager
 
 	// Content page state: per-page card lists and independent scroll offsets.
-	pageCards   map[int][]contentCard
-	pageScroll  map[int]int
-	charDetails []charDetail // Characters page (custom full-detail renderer)
-	iconImages  *graphics.AsyncImageCache
+	pageCards     map[int][]contentCard
+	pageScroll    map[int]int
+	charDetails   []charDetail // Characters page (custom full-detail renderer)
+	iconImages    *graphics.AsyncImageCache
+	mapThumbnails map[string]*ebiten.Image
 }
 
 // contentCard, contentKind, and the cardX constants live in content_cards.go.
@@ -275,7 +278,7 @@ func main() {
 		gameSprites: graphics.NewSpriteManager(),
 	}
 	game.ApplySpriteColorKey(v.gameSprites, cfg)
-	defer v.iconImages.Close()
+	defer v.closeEditorArt()
 	// Legend is biome-scoped to the current map (universal tiles/monsters
 	// plus the map biome's own); rebuilt whenever the map changes.
 	v.refreshLegend()
@@ -283,6 +286,7 @@ func main() {
 		v.lastErr = "no maps loaded"
 	}
 
+	ebiten.SetWindowClosingHandled(true)
 	ebiten.SetWindowSize(windowWidth, windowHeight)
 	ebiten.SetWindowTitle("RaysAndMagic Map Viewer")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
@@ -295,6 +299,16 @@ func main() {
 }
 
 func (v *viewer) Update() error {
+	if v.overlay.quit {
+		return ebiten.Termination
+	}
+	if ebiten.IsWindowBeingClosed() && v.overlayRequestQuit() {
+		return ebiten.Termination
+	}
+	if v.overlay.modal != nil {
+		v.updateOverlayModal()
+		return nil
+	}
 	// Flush even when a modal/page switch consumes the release before drag input.
 	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || v.page != pageMaps {
 		v.finishBrushFloors()
@@ -304,13 +318,21 @@ func (v *viewer) Update() error {
 		v.handleSaveDialogInput()
 		return nil
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		return ebiten.Termination
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) && v.page != pageOverlay {
+		if v.overlayRequestQuit() {
+			return ebiten.Termination
+		}
+		return nil
 	}
 
 	// Top-page switching via the F-key declared by each page tab.
 	for i, def := range pageTabDefs {
 		if inpututil.IsKeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
+			if v.page == pageOverlay {
+				if d := v.overlayDoc(); d != nil {
+					v.overlayCancelGesture(d)
+				}
+			}
 			v.page = def.page
 		}
 	}
@@ -321,6 +343,11 @@ func (v *viewer) Update() error {
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		_, my := ebiten.CursorPosition()
 		if my < pageBarHeight {
+			if v.page == pageOverlay {
+				if d := v.overlayDoc(); d != nil {
+					v.overlayCancelGesture(d)
+				}
+			}
 			v.handlePageBarClick()
 			return nil
 		}
@@ -336,6 +363,10 @@ func (v *viewer) Update() error {
 		return nil
 	}
 
+	if v.page == pageOverlay {
+		v.updateOverlayPage()
+		return nil
+	}
 	if v.page == pageOpenWorld {
 		v.updateOpenWorldPage()
 		return nil
@@ -544,6 +575,7 @@ func (v *viewer) updateMapDrag() {
 }
 
 func (v *viewer) Draw(screen *ebiten.Image) {
+	defer v.drawOverlayModal(screen)
 	screen.Fill(color.RGBA{15, 15, 22, 255})
 
 	v.drawPageBar(screen)
@@ -558,6 +590,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	}
 	if v.page == pageSaves {
 		v.drawSavesPage(screen)
+		return
+	}
+	if v.page == pageOverlay {
+		v.drawOverlayPage(screen)
 		return
 	}
 	if v.page == pageOpenWorld {
@@ -1192,7 +1228,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 				}
 			}
 			if tileSize >= 6 && sprite != "" && thumb != nil {
-				if img := firstFrame(thumb(sprite)); img != nil {
+				if img := thumb(sprite); img != nil {
 					under := floorUnderObjectColor(m, tm, tileDataByKey, tx, ty, floorColor)
 					vector.FillRect(clip, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), under, false)
 					drawImageInBox(clip, img, drawX, drawY, tileSize, tileSize)
@@ -1238,7 +1274,7 @@ func firstFrame(img *ebiten.Image) *ebiten.Image {
 func drawTileThumb(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, sprite string, outline color.RGBA, fallbackLetter string, thumb func(string) *ebiten.Image) {
 	var img *ebiten.Image
 	if sprite != "" && thumb != nil {
-		img = firstFrame(thumb(sprite))
+		img = thumb(sprite)
 	}
 	if img == nil {
 		drawTileMarkerCircle(screen, originX, originY, tileSize, tx, ty, outline, false)
@@ -1474,7 +1510,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 			// colour swatch (floor tiles, teleporters, eraser) below.
 			if thumb != nil {
 				if sprite := legendEntrySprite(entry, tileDataByKey); sprite != "" {
-					if img := firstFrame(thumb(sprite)); img != nil {
+					if img := thumb(sprite); img != nil {
 						drawImageInBox(screen, img, sx, sy, sw, sw)
 						drawn = true
 					}
@@ -1992,11 +2028,53 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 		grid[y] = row
 	}
 
+	occupied := map[[2]int]bool{}
+	reserve := func(x, y int) error {
+		cell := [2]int{x, y}
+		if x < 0 || y < 0 || x >= width || y >= height || occupied[cell] {
+			return fmt.Errorf("Invalid or overlapping entity at %d,%d", x, y)
+		}
+		occupied[cell] = true
+		return nil
+	}
+	for _, p := range m.Data.MonsterSpawns {
+		if err := reserve(p.X, p.Y); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range m.Data.NPCSpawns {
+		if err := reserve(p.X, p.Y); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range m.Data.SpecialTileSpawns {
+		if err := reserve(p.X, p.Y); err != nil {
+			return nil, err
+		}
+	}
 	monsterLetters := make(map[[2]int]string)
+	keyedMonsters := make(map[[2]int]string)
 	if monster.MonsterConfig != nil {
 		for _, spawn := range m.Data.MonsterSpawns {
 			def, ok := monster.MonsterConfig.Monsters[spawn.MonsterKey]
-			if !ok || def.Letter == "" {
+			if !ok {
+				return nil, fmt.Errorf("Unknown monster %s", spawn.MonsterKey)
+			}
+			biome := ""
+			if m.Config != nil {
+				biome = m.Config.Biome
+			}
+			_, resolved, err := monster.MonsterConfig.GetMonsterByLetterForBiome(def.Letter, biome)
+			ground := m.Data.Tiles[spawn.Y][spawn.X]
+			_, authoredGround := m.Data.AuthoredEntityGround(spawn.X, spawn.Y)
+			if err != nil || resolved != spawn.MonsterKey || def.Letter == "" || authoredGround {
+				keyedMonsters[[2]int{spawn.X, spawn.Y}] = func() string {
+					key := spawn.MonsterKey
+					if authoredGround {
+						key += "@" + tm.GetTileKey(ground)
+					}
+					return key
+				}()
 				continue
 			}
 			monsterLetters[[2]int{spawn.X, spawn.Y}] = def.Letter
@@ -2042,6 +2120,12 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 			s string
 		}
 		var atDefs, dollarDefs []xdef
+		for cell, key := range keyedMonsters {
+			if cell[1] == y {
+				row[cell[0]] = world.MapCellInteractive
+				atDefs = append(atDefs, xdef{cell[0], world.FormatMapDef(world.MapDefMonster, key)})
+			}
+		}
 		for _, npc := range npcByRow[y] {
 			if npc.X < 0 || npc.X >= width {
 				continue
@@ -2066,7 +2150,7 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 		// General letterless tiles live in the grid: any cell whose type carries a
 		// short_label is re-emitted as a '$' placeholder + [tile:label] def.
 		for x := 0; x < width; x++ {
-			if label := tm.GetShortLabelFromType(m.Data.Tiles[y][x]); label != "" {
+			if label := tm.GetShortLabelFromType(m.Data.Tiles[y][x]); label != "" && row[x] != world.MapCellInteractive && monsterLetters[[2]int{x, y}] == "" {
 				row[x] = world.MapCellGeneral
 				dollarDefs = append(dollarDefs, xdef{x, world.FormatMapDef(world.MapDefTile, label)})
 			}

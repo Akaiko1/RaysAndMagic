@@ -239,6 +239,8 @@ func resolveBrewedItems(c *ItemSystemConfig) error {
 		d.BuffDodgePct = source.BuffDodgePct
 		d.DamageBuffSchool = source.DamageBuffSchool
 		d.DamageBuffPct = source.DamageBuffPct
+		d.BuffHPRegenPct = source.BuffHPRegenPct
+		d.BuffManaRegenPct = source.BuffManaRegenPct
 		d.BuffDurationSeconds = source.BuffDurationSeconds
 		d.StatusIcon = source.StatusIcon
 	}

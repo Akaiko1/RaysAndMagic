@@ -462,7 +462,10 @@ const questPropAction = "prop"
 // at load (prop block <-> action "prop"), a prop row no longer needs to be
 // intercepted ahead of the dispatch.
 var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NPCDialogueChoice){
-	"disarm_environment": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	"disarm_environment": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+		if !ih.game.sceneInteractionInCurrentRegion(n) {
+			return
+		}
 		ih.game.disarmEnvironment(c.Control)
 		ih.game.closeConversation()
 	},
@@ -477,7 +480,10 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 			ih.game.closeConversation()
 		}
 	},
-	"adventure_control": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+	"adventure_control": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+		if !ih.game.sceneInteractionInCurrentRegion(n) {
+			return
+		}
 		ih.game.useAdventureControl(c.Control)
 		ih.game.closeConversation()
 	},

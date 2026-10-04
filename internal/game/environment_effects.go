@@ -369,7 +369,11 @@ func (g *MMGame) useAdventureControl(id string) {
 		g.gameLoop.renderer.precomputeFloorColorCache()
 		g.gameLoop.renderer.buildTransparentSpriteCache()
 	}
-	g.AddCombatMessage("The service mechanism locks into its safe position.")
+	if c.Message != "" {
+		g.AddCombatMessage(c.Message)
+	} else {
+		g.AddCombatMessage("The service mechanism locks into its safe position.")
+	}
 	if g.turnBasedMode {
 		g.endPartyTurnAfterMovement()
 	}

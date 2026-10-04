@@ -2351,6 +2351,11 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		if spriteName := world.GlobalTileManager.GetSprite(tileType); spriteName != "" {
 			sprite := r.game.sprites.GetSprite(spriteName)
 			if sprite != nil {
+				if data := world.GlobalTileManager.GetTileData(tileType); data != nil && data.WallUpperMirrorY {
+					r.drawMirroredUpperWallSlice(screen, sprite, screenX, width, wallSide, textureCoord,
+						distance, wallGridLine, hasWallGridLine, queueMipmapped)
+					return
+				}
 				r.drawSpriteTexturedWallSlice(screen, sprite, screenX, width, wallSide, textureCoord,
 					distance, heightMultiplier, wallGridLine, hasWallGridLine, queueMipmapped)
 				return
@@ -2394,14 +2399,30 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 // texels: then it instead maps the two ray boundaries to a mesh quad, exposing
 // the source footprint required for linear mipmap filtering.
 func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, heightMultiplier, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
+	wallHeightF, floorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		floorBottomF-wallHeightF, wallHeightF, wallGridLine, hasWallGridLine, queueMipmapped)
+}
+
+// Both layers sample the same source and resident ripmap. A negative height
+// reflects the upper layer around their shared seam without copying pixels.
+func (r *Renderer) drawMirroredUpperWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
+	height, bottom := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, 1)
+	seam := bottom - height
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		seam, height, wallGridLine, hasWallGridLine, queueMipmapped)
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		seam, -height, wallGridLine, hasWallGridLine, queueMipmapped)
+}
+
+func (r *Renderer) drawSpriteWallLayer(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, wallTopF, wallHeightF, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
 	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 {
 		return
 	}
-	wallHeightF, floorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
-	if wallHeightF <= 0 {
+	if wallHeightF == 0 {
 		return
 	}
 
@@ -2410,12 +2431,12 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 		if ok {
 			if wallTextureUsesMipmappedSlice(spriteWidth, spriteHeight, width, leftU, rightU, wallHeightF) {
 				if queueMipmapped && r.queueMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					wallTopF, wallHeightF, leftU, rightU) {
 					return
 				}
 				r.flushMipmappedWallBatch(screen)
 				if r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					wallTopF, wallHeightF, leftU, rightU) {
 					return
 				}
 			}
@@ -2425,7 +2446,11 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	// Close walls deliberately retain the former nearest-column behavior: it
 	// keeps their authored pixel art sharp and avoids changing their look.
 	wallHeight := int(wallHeightF)
-	wallTop := int(floorBottomF) - wallHeight
+	wallTop := int(wallTopF+wallHeightF) - wallHeight
+	if wallHeightF < 0 {
+		// Use the lower layer's exact integer seam, even at fractional zoom.
+		wallTop = int(wallTopF-wallHeightF) + wallHeight
+	}
 	r.flushMipmappedWallBatch(screen)
 	r.drawNearestSpriteWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
 }
@@ -2473,7 +2498,7 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
-	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 || wallHeight <= 0 {
+	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 || wallHeight == 0 {
 		return
 	}
 

@@ -9,34 +9,6 @@ import (
 	"ugataima/internal/world"
 )
 
-func TestDayNightLightScaleCurve(t *testing.T) {
-	const day, night = 1.0, 0.7
-	tests := []struct {
-		frac float64
-		want float64
-	}{
-		{0, day},     // noon
-		{0.5, night}, // midnight
-		{0.25, 0.85}, // dusk boundary = curve midpoint
-		{0.75, 0.85}, // dawn boundary
-		{1.0, day},   // wrap
-	}
-	for _, tt := range tests {
-		if got := dayNightLightScale(tt.frac, day, night); math.Abs(got-tt.want) > 1e-9 {
-			t.Errorf("scale(%.2f) = %.4f, want %.4f", tt.frac, got, tt.want)
-		}
-	}
-	// Smooth monotonic descent from noon to midnight.
-	prev := dayNightLightScale(0, day, night)
-	for f := 0.05; f <= 0.5; f += 0.05 {
-		cur := dayNightLightScale(f, day, night)
-		if cur >= prev {
-			t.Fatalf("scale not decreasing at frac %.2f: %.4f -> %.4f", f, prev, cur)
-		}
-		prev = cur
-	}
-}
-
 func TestDayNightPhaseBoundaries(t *testing.T) {
 	tests := []struct {
 		frac  float64

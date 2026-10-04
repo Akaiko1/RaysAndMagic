@@ -162,7 +162,7 @@ func (cs *CombatSystem) resolveBackwashCharge(shot *Arrow, target *monster.Monst
 // boundary or reserved attack post. RT and TB share the same physical rules.
 func (cs *CombatSystem) pushElementalTarget(m *monster.Monster3D, tiles float64) {
 	g := cs.game
-	if g.collisionSystem == nil {
+	if g.collisionSystem == nil || !g.monsterCanBeDisplaced(m) {
 		return
 	}
 	px, py := cs.logicalCameraXY()

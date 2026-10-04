@@ -393,21 +393,16 @@ func (g *MMGame) maybeRespawnMapMonsters() {
 	if mc == nil || mc.RespawnDays <= 0 {
 		return
 	}
-	if g.world.LastRespawnDay == 0 {
-		// Never stamped: a fresh map's first arrival, or a roster restored from a
-		// pre-stamp save whose age is unknown. Rewind to the CURRENT authored
-		// roster now (a fresh map rebuilds its identical spawn list - harmless),
-		// so old saves pick up re-authored maps on first entry, silently.
-		g.world.RespawnAuthoredMonsters()
-		g.world.LastRespawnDay = g.currentCalendarDay()
+	unstamped := g.world.LastRespawnDay == 0
+	if !unstamped && g.currentCalendarDay()-g.world.LastRespawnDay < mc.RespawnDays {
 		return
 	}
-	if g.currentCalendarDay()-g.world.LastRespawnDay < mc.RespawnDays {
-		return
-	}
-	g.world.RespawnAuthoredMonsters()
+	// Unknown-age rosters adopt the current authored spawns on first entry.
+	g.respawnAuthoredMonsters(g.world)
 	g.world.LastRespawnDay = g.currentCalendarDay()
-	g.AddCombatMessage("The tower mechanism grinds - its horrors are wound anew.")
+	if !unstamped {
+		g.AddCombatMessage("The tower mechanism grinds - its horrors are wound anew.")
+	}
 }
 
 // merchantShopTabs returns the dialog's shop tab labels (authored stock

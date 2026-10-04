@@ -22,7 +22,7 @@ func (c *transferObstacleTiles) IsTileBlockingForMonster(x, y int, overrides []s
 
 func TestTransferStrikeDisplacement(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, obstacle := range []string{"clear", "wall", "water", "flight", "arena", "post", "solid_prop"} {
+		for _, obstacle := range []string{"clear", "wall", "water", "flight", "arena", "post", "solid_prop", "idol", "canopy", "root", "stun", "latched_stun", "immobile", "full_slow"} {
 			t.Run(fmt.Sprintf("%s/TB=%v", obstacle, tb), func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				g := cs.game
@@ -30,6 +30,27 @@ func TestTransferStrikeDisplacement(t *testing.T) {
 				g.camera.X, g.camera.Y = 96, 96
 				m, _ := partyDamageTargets(g, 64)
 				g.world.Monsters = g.world.Monsters[:1]
+				m.Speed = 1
+				held := true
+				switch obstacle {
+				case "idol":
+					m.WarlordIdol = true
+				case "canopy":
+					m.Arbor.Phase = "perched"
+				case "root":
+					m.RootFramesRemaining, m.RootTurnsRemaining = 60, 2
+				case "stun":
+					m.StunFramesRemaining, m.StunTurnsRemaining = 60, 2
+				case "latched_stun":
+					held = tb
+					g.turnBasedMonsterStunned = map[*monster.Monster3D]bool{m: true}
+				case "immobile":
+					m.Speed = 0
+				case "full_slow":
+					m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining = 100, 60, 2
+				default:
+					held = false
+				}
 				def, _ := config.GetWeaponDefinition("solstice_transfer_blade")
 				g.party.Members[0].Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("solstice_transfer_blade")
 				g.party.Members[0].BuffBonuses.Accuracy = 300 // The proc must stay fixed.
@@ -64,7 +85,11 @@ func TestTransferStrikeDisplacement(t *testing.T) {
 						t.Fatal("push before third hit")
 					}
 				}
-				if obstacle == "clear" || obstacle == "flight" {
+				if held {
+					if m.X != x {
+						t.Fatalf("immovable target pushed from %g to %g", x, m.X)
+					}
+				} else if obstacle == "clear" || obstacle == "flight" || obstacle == "latched_stun" {
 					want := x + def.ElementalAbility.RangeTiles*64
 					if math.Abs(m.X-want) > 1e-6 {
 						t.Fatalf("push=%g want=%g", m.X, want)

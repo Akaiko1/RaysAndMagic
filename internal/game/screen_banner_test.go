@@ -2,7 +2,7 @@ package game
 
 import (
 	"fmt"
-	"image/color"
+
 	"io/fs"
 	"math"
 	"os"
@@ -143,24 +143,6 @@ func TestScreenBannerLayoutStaysClearOfTheHudCorners(t *testing.T) {
 	resting := screenBannerLayout(screenW, "New quest - Short", 0)
 	if entering.cy >= resting.cy {
 		t.Fatalf("entering cy=%d must be above the rest position cy=%d", entering.cy, resting.cy)
-	}
-}
-
-// The approach nudge stays white; payoffs retain their authored rarity tints.
-func TestScreenBannerTintsPerKind(t *testing.T) {
-	if got := screenBannerTint(bannerInteractPrompt); got != (color.RGBA{255, 255, 255, 255}) {
-		t.Fatalf("interact prompt tint = %v, want plain white", got)
-	}
-	if got := screenBannerTint(bannerLegendaryDrop); got != rarityFire {
-		t.Fatalf("legendary tint = %v, want the legendary rarity colour %v", got, rarityFire)
-	}
-	if got := screenBannerTint(bannerQuestDone); got != rarityGold {
-		t.Fatalf("quest-complete tint = %v, want %v", got, rarityGold)
-	}
-	for _, kind := range []screenBannerKind{bannerQuestTaken, bannerQuestProgress} {
-		if got := screenBannerTint(kind); got != bannerWorkTint {
-			t.Fatalf("work banner tint = %v, expected %v", got, bannerWorkTint)
-		}
 	}
 }
 

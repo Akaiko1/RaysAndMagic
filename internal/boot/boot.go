@@ -80,6 +80,11 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 		log.Fatalf("Hero pitches: %v", err)
 	}
 	config.MustLoadChampionConfig("assets/champions.yaml")
+	var mechanicsErr error
+	config.GlobalBossMechanics, mechanicsErr = config.ReadBossMechanics(config.BossMechanicsPath)
+	if mechanicsErr != nil {
+		log.Fatalf("Boss mechanics: %v", mechanicsErr)
+	}
 
 	// Build every champion once so a bad class/skill/equipment key fails loud at
 	// startup instead of mid-combat (needs the class, weapon and item catalogs

@@ -99,6 +99,11 @@ func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"ward without icon", &ItemDefinitionConfig{Type: "consumable", ResistBuffSchool: "fire", ResistBuffSchoolPct: 50, BuffDurationSeconds: 60}},
 		{"physical ward", &ItemDefinitionConfig{Type: "consumable", ResistBuffSchool: "physical", ResistBuffSchoolPct: 50, BuffDurationSeconds: 60, StatusIcon: "ward"}},
 		{"buff on armor", &ItemDefinitionConfig{Type: "armor", BuffArmorClass: 10, BuffDurationSeconds: 60, StatusIcon: "stone"}},
+		{"negative HP regen", &ItemDefinitionConfig{BuffHPRegenPct: -1}},
+		{"mana regen over one hundred", &ItemDefinitionConfig{BuffManaRegenPct: 101}},
+		{"regen without duration", &ItemDefinitionConfig{Type: "consumable", BuffHPRegenPct: 3, StatusIcon: "regen"}},
+		{"regen without icon", &ItemDefinitionConfig{Type: "consumable", BuffManaRegenPct: 5, BuffDurationSeconds: 60}},
+		{"regen on armor", &ItemDefinitionConfig{Type: "armor", BuffHPRegenPct: 3, BuffDurationSeconds: 60, StatusIcon: "regen"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

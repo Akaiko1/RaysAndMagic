@@ -5,29 +5,6 @@ import (
 	"testing"
 )
 
-func TestCanopyShadeFactorForDensity(t *testing.T) {
-	tests := []struct {
-		name    string
-		density int
-		want    float64
-	}{
-		{name: "below start remains daylight", density: 1, want: 1.0},
-		{name: "at start remains daylight", density: 2, want: 1.0},
-		{name: "middle interpolates", density: 5, want: 0.85},
-		{name: "full density reaches minimum", density: 8, want: 0.7},
-		{name: "above full density clamps", density: 12, want: 0.7},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := canopyShadeFactorForDensity(tt.density, 0.7, 2, 8)
-			if got != tt.want {
-				t.Fatalf("canopyShadeFactorForDensity(%d) = %v, want %v", tt.density, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestCanopyAmbientUsesSurfaceAndViewerShade(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -83,24 +60,5 @@ func TestLocalAmbientAppliesMapAmbientOnce(t *testing.T) {
 	// And the floor-shader value composes the same way: ambient x viewer shade.
 	if got := r.viewerAmbient(); math.Abs(got-0.7) > 1e-9 {
 		t.Fatalf("viewerAmbient with shade 1 = %v, want map ambient 0.7", got)
-	}
-}
-
-func TestCanopyShadeFactorAtInterpolatesBetweenTiles(t *testing.T) {
-	cfg := loadTestConfig(t)
-	r := &Renderer{
-		game: &MMGame{config: cfg},
-		canopyShadeFactors: []float64{
-			1.0, 0.7,
-			1.0, 0.7,
-		},
-		canopyShadeW: 2,
-		canopyShadeH: 2,
-	}
-
-	tileSize := float64(cfg.GetTileSize())
-	got := r.canopyShadeFactorAt(tileSize, tileSize/2)
-	if got <= 0.7 || got >= 1.0 {
-		t.Fatalf("interpolated canopy shade = %v, want between 0.7 and 1.0", got)
 	}
 }

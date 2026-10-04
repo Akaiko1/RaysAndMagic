@@ -194,6 +194,7 @@ type MapPose struct {
 
 type MMGame struct {
 	adventure               AdventureState
+	projectedAdventures     map[string]projectedAdventure
 	alchemy                 AlchemyState
 	harvestRuntime          harvestRuntime
 	selectedRare            int

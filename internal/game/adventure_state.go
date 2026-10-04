@@ -56,7 +56,7 @@ func cloneAdventureState(s AdventureState) AdventureState {
 func (g *MMGame) adventureConfig(key string) *config.AdventureConfig {
 	if wm := world.GlobalWorldManager; wm != nil {
 		if m := wm.MapConfigs[key]; m != nil {
-			return m.Adventure
+			return g.projectAdventureConfig(key, m.Adventure)
 		}
 	}
 	return nil
@@ -230,6 +230,7 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	if m.IsBoss() {
 		ratio = math.Exp(.101 * float64(level-d.Level))
 	}
+	m.AdventureScaleLevel = level
 	m.Level = level
 	m.MaxHitPoints = max(1, int(math.Round(float64(d.MaxHitPoints)*ratio)))
 	m.HitPoints = m.MaxHitPoints
@@ -248,10 +249,10 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 		m.EnrageAtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.EnrageAtHP)/float64(d.MaxHitPoints))))
 	}
 }
-func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D) {
+func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D, level int) {
+	scaleAdventureMonster(m, level)
 	if m != nil {
-		if v := g.adventure.Visits[m.HomeMap]; v != nil && v.Level > 0 {
-			scaleAdventureMonster(m, v.Level)
+		if v := g.adventure.Visits[m.HomeMap]; v != nil {
 			if a := g.adventureConfig(m.HomeMap); a != nil && a.Boss != nil && a.Boss.Monster == m.Key {
 				for _, c := range a.Controls {
 					if v.Controls[c.ID] {
@@ -259,6 +260,22 @@ func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func (g *MMGame) respawnAuthoredMonsters(w *world.World3D) {
+	previous := w.Monsters
+	w.RespawnAuthoredMonsters()
+	for _, m := range w.Monsters {
+		// Controls survive ordinary respawns. Retained allies already have live
+		// stats; restoring them would heal or weaken them a second time.
+		if !slices.Contains(previous, m) {
+			level := 0
+			if v := g.adventure.Visits[m.HomeMap]; v != nil {
+				level = v.Level
+			}
+			g.restoreAdventureMonster(m, level)
 		}
 	}
 }

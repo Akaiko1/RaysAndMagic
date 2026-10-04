@@ -396,7 +396,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.logCombat(logToneBad, "%s erupts in a %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "wave of fire"))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		parts := m.OutgoingDamage(damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
+		parts := cs.monsterOutgoingDamage(m, damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
 		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,

@@ -57,6 +57,7 @@ func (g *MMGame) campBlocked() string {
 // MUST be called after every change to g.statBonuses - it is what makes buffs
 // behave like real stats everywhere (combat formulas AND HP/SP maxima).
 func (g *MMGame) applyPartyStatBonuses() {
+	g.applyPartyRegenBuffs()
 	for _, m := range g.party.Members {
 		if m == nil {
 			continue

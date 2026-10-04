@@ -710,7 +710,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 		for _, spawn := range p.data.MonsterSpawns {
 			sx, sy := owXformTile(p.off.Orient, p.data.Width, p.data.Height, spawn.X, spawn.Y)
 			merged.MonsterSpawns = append(merged.MonsterSpawns, MonsterSpawn{
-				X: sx + p.off.X, Y: sy + p.off.Y, MonsterKey: spawn.MonsterKey,
+				X: sx + p.off.X, Y: sy + p.off.Y, MonsterKey: spawn.MonsterKey, GroundTile: spawn.GroundTile,
 			})
 		}
 

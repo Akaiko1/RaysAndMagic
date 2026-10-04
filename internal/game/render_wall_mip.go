@@ -260,7 +260,7 @@ func wallTextureUsesMipmappedSlice(textureWidth, textureHeight, screenWidth int,
 	if screenWidth <= 0 {
 		screenWidth = 1
 	}
-	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || wallHeight < float64(textureHeight)*0.5
+	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || math.Abs(wallHeight) < float64(textureHeight)*0.5
 }
 
 // wallSliceFootprint is how many source texels one screen pixel of this slice
@@ -275,10 +275,10 @@ func wallSliceFootprint(leftU, rightU, textureWidth float64, screenWidth int) fl
 // wallSliceVerticalFootprint is the same rate along Y: the full texture height
 // is always mapped onto the slice's drawn wallHeight pixels.
 func wallSliceVerticalFootprint(textureHeight, wallHeight float64) float64 {
-	if wallHeight <= 0 {
+	if wallHeight == 0 {
 		return 1
 	}
-	return textureHeight / wallHeight
+	return textureHeight / math.Abs(wallHeight)
 }
 
 // wallRipmapSizes lists the level grid for one tile: sizes[iy][ix] halves the

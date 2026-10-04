@@ -451,17 +451,6 @@ func buildSkillCards() []contentCard {
 
 func titleCase(s string) string { return config.TitleWords(s) }
 
-// tileSpriteThumbnail loads a tile's sprite image (for legend previews),
-// searching the same sprite dirs the game does. Returns nil for tiles with no
-// sprite (floors) or no file on disk. Cached alongside card icons.
-func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
-	if sprite == "" {
-		return nil
-	}
-	img, _ := v.iconImages.Get(sprite)
-	return img
-}
-
 // iconForCard loads the per-card sprite by naming convention
 // (icon_<kind>_<key>), resolved anywhere under assets/sprites via the shared
 // index. Returns nil if no file.

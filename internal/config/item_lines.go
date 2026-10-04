@@ -95,7 +95,17 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 		lines = append(lines, uitext.Text("item.party_dodge_for_s", d.BuffDodgePct, d.BuffDurationSeconds))
 	}
 	if hasTimedBuff && d.DamageBuffPct > 0 {
-		lines = append(lines, fmt.Sprintf("Party %s damage +%d%% for %ds; strongest draught per element applies.", TitleWords(d.DamageBuffSchool), d.DamageBuffPct, d.BuffDurationSeconds))
+		lines = append(lines, uitext.Text("item.party_elemental_draught", TitleWords(d.DamageBuffSchool), d.DamageBuffPct, d.BuffDurationSeconds))
+	}
+	if hasTimedBuff && (d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0) {
+		var recovery []string
+		if d.BuffHPRegenPct > 0 {
+			recovery = append(recovery, uitext.Text("item.regeneration_hp", d.BuffHPRegenPct))
+		}
+		if d.BuffManaRegenPct > 0 {
+			recovery = append(recovery, uitext.Text("item.regeneration_mana", d.BuffManaRegenPct))
+		}
+		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds, d.BuffDurationSeconds))
 	}
 	if hasTimedBuff && d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin_armor_class_for_s", d.BuffArmorClass, d.BuffDurationSeconds))

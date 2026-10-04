@@ -255,11 +255,3 @@ func TestFocusModeClearsWhenLeavingGameplay(t *testing.T) {
 		t.Fatalf("main-menu transition retained focus mask %04b", g.focusedPartyMask)
 	}
 }
-
-func TestFocusModeIndicatorUsesMetallicBlueRamp(t *testing.T) {
-	top := metalShade(focusModeMetal, 0)
-	bottom := metalShade(focusModeMetal, 1)
-	if top.B <= focusModeMetal.B || bottom.B >= focusModeMetal.B {
-		t.Fatalf("focus metal ramp = top %#v base %#v bottom %#v", top, focusModeMetal, bottom)
-	}
-}

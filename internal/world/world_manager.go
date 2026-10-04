@@ -86,6 +86,12 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		wm.MapConfigs[key] = &configCopy
 	}
 
+	if config.GlobalBossMechanics != nil {
+		if err := config.GlobalBossMechanics.Validate(wm.MapConfigs); err != nil {
+			return err
+		}
+	}
+
 	// Store biome definitions (floor texture groups etc.) shared by maps, each
 	// with the shared groups folded in.
 	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))

@@ -72,13 +72,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if !g.monsterCanBeDisplaced(m) {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if i == owner || !g.monsterCanBeDisplaced(m) {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)

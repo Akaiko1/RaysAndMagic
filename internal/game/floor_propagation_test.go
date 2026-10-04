@@ -32,8 +32,8 @@ func TestFloorPropagationRendering(t *testing.T) {
 		{"edge-only fallback", "default", edge, false},
 		{"chasm bottom", "chasm_floor_0", void, true},
 		{"other chasm bottom", "chasm_floor_1", terrainTile(t, "dragon_cliffs_chasm_floor_b"), true},
-		{"water", "water", terrainTile(t, "water"), true},
-		{"deep water", "water", terrainTile(t, "deep_water"), true},
+		{"water requires explicit placement", "default", terrainTile(t, "water"), false},
+		{"deep water requires explicit placement", "default", terrainTile(t, "deep_water"), false},
 		{"terrain changed back", "basalt", basalt, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

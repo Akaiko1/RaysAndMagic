@@ -1448,7 +1448,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Check monster perfect dodge. A Grandmaster ignores it entirely; otherwise
 	// the normal hit is avoided but weapon-mastery TRUE damage still lands.
-	if monsterPerfectDodges(monster, attack.IgnoreDodge) {
+	if cs.monsterPerfectDodges(monster, attack.IgnoreDodge) {
 		// A targeted party attack is enough to end Charm, even when the target
 		// avoids the damage. Otherwise a 100%-dodge charmed mob could remain
 		// pacified forever while absorbing melee swings.
@@ -2624,7 +2624,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage > minDamage {
 			raw = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
-		parts := monster.OutgoingDamage(damagecalc.Parts{Normal: raw, True: monster.TrueDamage})
+		parts := cs.monsterOutgoingDamage(monster, damagecalc.Parts{Normal: raw, True: monster.TrueDamage})
 		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,
@@ -2692,7 +2692,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
-	hit := hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
+	hit := cs.hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
 	cs.game.logCombat(logToneBad, "%s breathes %s over the whole party!", logMonsterName(monster), logSchoolWord(damageType, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), hit)
@@ -2737,7 +2737,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 			monster,
 			target,
 			"Piercing Shot",
-			hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false, false),
+			cs.hitFromMonster(monster, cs.monsterAttackDamage(monster), monsterPkg.DamagePhysical.String(), true, 0, false, false),
 		)
 	}
 	return true
@@ -2840,7 +2840,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 	// Projectile damage is immutable once fired. Snapshot source-side modifiers
 	// here so a Weaken expiring or landing while the bolt is in flight cannot
 	// rewrite an already committed attack.
-	parts = monster.OutgoingDamage(parts)
+	parts = cs.monsterOutgoingDamage(monster, parts)
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
 	projectile, err := castingSystem.CreateProjectile(spellID, monster.X, monster.Y, angle)
@@ -2931,7 +2931,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	for i := 0; i < volley; i++ {
 		back := spacing * float64(i)
 		damage := cs.monsterAttackDamage(monster)
-		parts := monster.OutgoingDamage(damagecalc.Parts{Normal: damage, True: monster.TrueDamage})
+		parts := cs.monsterOutgoingDamage(monster, damagecalc.Parts{Normal: damage, True: monster.TrueDamage})
 		arrow := Arrow{
 			ID:                 cs.game.GenerateProjectileID("monster_arrow"),
 			SuppressAoE:        i > 0, // an AoE-rider weapon engulfs the party once per VOLLEY, not per dart
@@ -3866,7 +3866,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		return false // already slain this frame - no double damage/reward
 	}
 	cs.game.notifyCaravanAttack(target)
-	if canDodge && monsterPerfectDodges(target, ignoreDodge) {
+	if canDodge && cs.monsterPerfectDodges(target, ignoreDodge) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
 			packet.trueOnly(),

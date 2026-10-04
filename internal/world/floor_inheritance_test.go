@@ -143,6 +143,10 @@ func TestFloorPropagationPolicies(t *testing.T) {
 		want     TileType3D
 		ok       bool
 	}{
+		{"water cannot propagate", [][]TileType3D{{tile("water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
+		{"deep water cannot propagate", [][]TileType3D{{tile("deep_water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
+		{"land beside water wins", [][]TileType3D{{tile("water"), rock, rock, grass}}, nil, 1, 0, grass, true},
+		{"land beside deep water wins", [][]TileType3D{{tile("deep_water"), rock, rock, grass}}, nil, 1, 0, grass, true},
 		{"propagated owner exclusion", [][]TileType3D{{stream, rock, tree, rock, grass}}, nil, 2, 0, grass, true},
 		{"excluded source cannot pass tree", [][]TileType3D{{stream, rock, tree, rock}}, nil, 3, 0, TileEmpty, false},
 		{"same-wave tie stays stable", [][]TileType3D{{grass, rock, rock, rock, basalt}}, nil, 2, 0, grass, true},

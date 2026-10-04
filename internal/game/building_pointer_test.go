@@ -181,3 +181,46 @@ func TestSolsticeEntranceRenderedPicking(t *testing.T) {
 		})
 	}
 }
+
+func TestSolsticeEntranceWallPlacement(t *testing.T) {
+	t.Chdir("../..")
+	for _, stitched := range []bool{false, true} {
+		g, wm, _ := bootOpenWorldGame(t, stitched)
+		for _, key := range []string{"deep_jungle", "solstice_approach"} {
+			if err := g.transitionToMap(mapTransition{mapKey: key, arrival: mapArrivalEntrance}); err != nil {
+				t.Fatal(err)
+			}
+			target := "solstice_jungle_entrance"
+			if key == "solstice_approach" {
+				target = "solstice_vestibule_entrance"
+			}
+			found := false
+			for _, npc := range g.world.NPCs {
+				if npc.Key != target {
+					continue
+				}
+				found = true
+				dx, dy := g.buildingWallOffset(npc)
+				ts := float64(g.config.GetTileSize())
+				if math.Abs(math.Hypot(dx, dy)-ts/2) > 1e-6 {
+					t.Fatalf("%s stitched=%v: no flush wall offset", key, stitched)
+				}
+				for _, tile := range g.buildingFootprintTiles(npc) {
+					if !world.GlobalTileManager.IsSolid(g.world.GetTileAt(tile[0]+2*dx, tile[1]+2*dy)) {
+						t.Fatal("gap behind facade")
+					}
+					if world.GlobalTileManager.IsSolid(g.world.GetTileAt(tile[0]-2*dx, tile[1]-2*dy)) {
+						t.Fatal("blocked approach")
+					}
+				}
+			}
+			if stitched && key == "deep_jungle" {
+				if found {
+					t.Fatal("stitched jungle passage retained its split-map facade")
+				}
+			} else if !found {
+				t.Fatalf("missing facade in %s (%v)", key, wm.FailedMaps)
+			}
+		}
+	}
+}

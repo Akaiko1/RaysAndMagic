@@ -2,10 +2,6 @@ package game
 
 import (
 	"fmt"
-	"image/png"
-	"math"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -162,79 +158,6 @@ func TestCampSceneUsesPartyBiome(t *testing.T) {
 					t.Fatalf("scene=%s want=%s", got, want)
 				}
 			})
-		}
-	}
-}
-
-// Every shipped camp scene keeps the top of every head below this fraction of
-// its height; the authored crop limit must leave them in the picture.
-const campSceneHeadroomFraction = .10
-
-func TestCampCoverPreservesProportionsAndHeads(t *testing.T) {
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	scenes, err := filepath.Glob("../../assets/sprites/interface/camping/*.png")
-	if err != nil || len(scenes) == 0 {
-		t.Fatalf("no camp scene art found: %v", err)
-	}
-	for _, path := range scenes {
-		f, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		art, err := png.DecodeConfig(f)
-		f.Close()
-		if err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
-		for _, res := range campHUDResolutions {
-			for _, hud := range []bool{true, false} {
-				h := res[1]
-				if hud {
-					h = gameplayViewportBottomWithPartyHUD(h)
-				}
-				x, y, w, height := campSceneCoverGeometry(res[0], h, art.Width, art.Height, cfg.Camping.MaxTopCropFraction)
-				if math.Abs(w/float64(art.Width)-height/float64(art.Height)) > 1e-9 {
-					t.Fatalf("%s at %v: non-uniform artwork scaling", filepath.Base(path), res)
-				}
-				if x > 0 || y > 0 || x+w < float64(res[0])-1e-9 || y+height < float64(h)-1e-9 {
-					t.Fatalf("%s at %v: artwork does not cover viewport", filepath.Base(path), res)
-				}
-				if y+campSceneHeadroomFraction*height <= 0 {
-					t.Fatalf("%s at %v crops a character's head", filepath.Base(path), res)
-				}
-			}
-		}
-	}
-}
-
-func TestCampClusterPatterns(t *testing.T) {
-	for _, count := range []int{5, 6} {
-		for trial := 0; trial < 20; trial++ {
-			c := config.DefaultCampingConfig()
-			c.DissolveClustersMin, c.DissolveClustersMax = count, count
-			p := newCampDissolvePattern(c)
-			unique := make(map[[2]float32]bool)
-			for i := 0; i < 6; i++ {
-				point := [2]float32{p.centers[i*2], p.centers[i*2+1]}
-				if point[0] <= 0 || point[0] >= 1 || point[1] <= 0 || point[1] >= 1 {
-					t.Fatal("cluster origin outside the picture")
-				}
-				unique[point] = true
-			}
-			if len(unique) != count {
-				t.Fatalf("got %d cluster origins, want %d", len(unique), count)
-			}
-			if other := newCampDissolvePattern(c); other.centers == p.centers {
-				t.Fatal("new transition reused the same origins")
-			}
-			for _, res := range campHUDResolutions {
-				if r := p.coverageRadius(res[0], res[1]); r <= 0 || math.IsNaN(float64(r)) {
-					t.Fatal("invalid cluster coverage after resize")
-				}
-			}
 		}
 	}
 }

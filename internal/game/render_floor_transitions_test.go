@@ -122,6 +122,7 @@ func TestTerrainAuthoredProfilesEncode(t *testing.T) {
 		config.FloorTransitionCliffEast: floorBlendCliffEast,
 		config.FloorTransitionCliffWest: floorBlendCliffWest,
 		config.FloorTransitionVoid:      floorBlendVoid,
+		config.FloorTransitionChasm:     floorBlendChasm,
 	}
 	tileKeys := world.GlobalTileManager.GetAllTileKeys()
 	sort.Strings(tileKeys)

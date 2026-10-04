@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -117,8 +118,9 @@ func TestAlchemyKeyedSelectionPersistence(t *testing.T) {
 			state := AlchemyState{Choices: map[string][]int{r.Key: {0, 1}}}
 			want := character.AlchemySourceSelection(r, []int{0, 1})
 			if mode != "legacy" {
-				want = character.AlchemySelection{{"dawnleaf": true}, {}}
+				want = character.AlchemySelection{{"dawnleaf": false}, {}}
 				if mode == "multiple" {
+					want[0]["solstice_rain_pearl"] = true
 					want[1] = map[string]bool{"wolf_pelt": true, "carp_scale": true, "koi_scale": false}
 				}
 				state.Selections = map[string]character.AlchemySelection{r.Key: want.Clone()}
@@ -280,13 +282,24 @@ func TestAlchemyDisplayedMaterialScrollAndSelection(t *testing.T) {
 			if !reflect.DeepEqual(before, g.alchemySelection(r)) {
 				t.Fatal("closing the book lost checked materials")
 			}
-			// Select just one on-screen scale and brew through the displayed button.
+			// Select the alternative base and one stock through displayed controls.
 			h.ui.alchemyScroll[r.Key] = 0
 			h.clicks(false, a.toolbar.right()-20, a.toolbar.y+10, 1)
-			first := a.cells[0]
-			h.clicks(false, first.rect.x+15, first.rect.y+25, 1)
+			for _, key := range []string{"solstice_rain_pearl", "carp_scale"} {
+				for _, cell := range a.cells {
+					if cell.key != key {
+						continue
+					}
+					target := min(cell.rect.y-a.viewport.y, max(0, a.height-a.viewport.h))
+					fp.moveTo(a.viewport.x+10, a.viewport.y+10)
+					wheel = float64(h.ui.alchemyScroll[r.Key]-target) / 40
+					h.pointerStep()
+					wheel = 0
+					h.clicks(false, cell.rect.x+15, cell.rect.y-target+25, 1)
+				}
+			}
 			g.party.Inventory = nil
-			for _, key := range []string{"dawnleaf", first.key, "ocelot_pelt"} {
+			for _, key := range []string{"dawnleaf", "solstice_rain_pearl", "carp_scale", "ocelot_pelt"} {
 				it, _ := items.TryCreateItemFromYAML(key)
 				it.Quantity = 4
 				g.party.AddItem(it)
@@ -315,10 +328,19 @@ func TestAlchemyCategoriesAreSharedAcrossRecipes(t *testing.T) {
 			count[cell.key]++
 		}
 		previous := -1
+		previousGroup := ""
 		for _, heading := range a.headings {
+			group, label, grouped := strings.Cut(heading.label, ": ")
+			if !grouped {
+				group, label = "", heading.label
+			}
+			if group != previousGroup {
+				previous = -1
+				previousGroup = group
+			}
 			at := -1
 			for i, category := range config.GlobalAlchemy.Categories {
-				if category.Label == heading.label {
+				if category.Label == label {
 					at = i
 				}
 			}

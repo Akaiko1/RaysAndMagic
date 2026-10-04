@@ -116,9 +116,12 @@ func armorAfterPierce(armorClass, piercePct int) int {
 	return armorClass * (100 - piercePct) / 100
 }
 
-func monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool {
-	return target != nil && target.PerfectDodge > 0 && !ignoresDodge &&
-		rand.Intn(100) < target.PerfectDodge
+func (cs *CombatSystem) monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool {
+	if target == nil || ignoresDodge {
+		return false
+	}
+	chance := cs.game.bossMechanicValue(target, "perfect_dodge", target.PerfectDodge)
+	return chance > 0 && rand.Intn(100) < chance
 }
 
 // partyMonsterAttack is the immutable source-side result shared by a primary

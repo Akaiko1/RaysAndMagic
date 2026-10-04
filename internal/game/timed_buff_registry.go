@@ -139,8 +139,8 @@ func (g *MMGame) resetTimedEffects() {
 	g.rareBookMessage = ""
 	g.brewAnimation = nil
 	g.statBuffs = nil
-	g.recomputeStatBonuses()
 	g.combatBuffs = nil
+	g.recomputeStatBonuses()
 	g.celestialBuffSpellID = ""
 	g.persistentDamageZones = nil
 	g.nextPersistentDamageZoneFieldID = 0

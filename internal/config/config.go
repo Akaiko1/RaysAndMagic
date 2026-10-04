@@ -1052,8 +1052,11 @@ type TileData struct {
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
 	// HeightMultiplier remains only to reject legacy billboard authoring.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
-	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
-	SizeClass            string  `yaml:"size_class,omitempty"`
+	// WallUpperMirrorY draws a two-tile wall as an unchanged lower tile and
+	// the same texture flipped vertically above it, sharing their top edge.
+	WallUpperMirrorY bool    `yaml:"wall_upper_mirror_y,omitempty"`
+	HeightMultiplier float64 `yaml:"height_multiplier,omitempty"`
+	SizeClass        string  `yaml:"size_class,omitempty"`
 	// RemovedSizeTiles catches the retired raw YAML key so a stale or mistyped
 	// content entry fails loudly instead of silently falling back to 1 tile.
 	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
@@ -2332,6 +2335,8 @@ type ItemDefinitionConfig struct {
 	BuffDodgePct            int    `yaml:"buff_dodge_pct,omitempty"`
 	DamageBuffSchool        string `yaml:"damage_buff_school,omitempty"`
 	DamageBuffPct           int    `yaml:"damage_buff_pct,omitempty"`
+	BuffHPRegenPct          int    `yaml:"buff_hp_regen_pct,omitempty"`
+	BuffManaRegenPct        int    `yaml:"buff_mana_regen_pct,omitempty"`
 	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
 	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
 	StatusIcon              string `yaml:"status_icon,omitempty"`
@@ -2348,7 +2353,7 @@ const MinHostileStatusDurationPct = -90
 func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 	return d != nil &&
 		d.BuffDurationSeconds > 0 &&
-		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0)
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0 || d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -2495,6 +2500,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if def.DamageBuffPct < 0 || def.DamageBuffPct > 100 || (def.DamageBuffSchool == "") != (def.DamageBuffPct == 0) {
 			return fmt.Errorf("item %q: damage_buff_school and damage_buff_pct (1..100) must be set together", key)
 		}
+		if def.BuffHPRegenPct < 0 || def.BuffHPRegenPct > 100 || def.BuffManaRegenPct < 0 || def.BuffManaRegenPct > 100 {
+			return fmt.Errorf("item %q: buff_hp_regen_pct and buff_mana_regen_pct must be in [0,100]", key)
+		}
 		if def.DamageBuffSchool != "" {
 			school, err := canonicalMagicSchool(def.DamageBuffSchool)
 			if err != nil {
@@ -2506,7 +2514,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
 		}
 		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
-		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0 || def.DamageBuffPct > 0
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0 || def.DamageBuffPct > 0 || def.BuffHPRegenPct > 0 || def.BuffManaRegenPct > 0
 		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
 		if hasBuffEffect && def.Type != "consumable" {
 			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
@@ -2515,7 +2523,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
 		}
 		if hasBuffMetadata && !hasBuffEffect {
-			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, or damage effect", key)
+			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, damage, or regeneration effect", key)
 		}
 		switch def.Type {
 		case "consumable":

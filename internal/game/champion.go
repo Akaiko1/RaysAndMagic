@@ -210,7 +210,8 @@ func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.
 	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
-	crit, _ := cs.RollWeaponCriticalChance(weapon, ch)
+	chance := cs.game.bossMechanicValue(m, "critical_chance", cs.CalculateWeaponCritChance(weapon, ch))
+	crit := rand.Intn(100) < chance
 	total = weaponCriticalDamage(total, crit)
 	if total < 1 {
 		total = 1
@@ -968,7 +969,13 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
 		parts := cs.spellDamageParts(spellID, ch, total)
-		parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+		if chance := cs.game.bossMechanicValue(m, "critical_chance", -1); chance >= 0 {
+			if rand.Intn(100) < chance {
+				parts = spellCriticalParts(parts)
+			}
+		} else {
+			parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+		}
 		// Champion spells use the spell's own damage packet. Weapon mastery true
 		// damage and dodge-pierce belong only to weapon strikes.
 		x, y, owner := cs.monsterAttackAim(m, target)

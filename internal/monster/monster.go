@@ -474,6 +474,9 @@ type Monster3D struct {
 	// HomeMap is the map or open-world region the monster was created in. A
 	// target_map kill quest counts it there wherever it wanders or dies.
 	HomeMap string
+	// AdventureScaleLevel is zero until an authored visit scales this actor.
+	// Runtime spawns in the same map keep their own unscaled archetype stats.
+	AdventureScaleLevel int
 
 	// Resistances and immunities
 	Resistances map[DamageType]int

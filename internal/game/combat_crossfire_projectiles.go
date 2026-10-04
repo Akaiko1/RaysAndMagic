@@ -160,7 +160,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// Crossfire uses the target's real Perfect Dodge too. Typed true damage still
 	// lands through a dodge; the avoided projectile cannot trigger riders or AoE,
 	// matching a party projectile that misses its primary target.
-	if monsterPerfectDodges(target, ignoresDodge) {
+	if cs.monsterPerfectDodges(target, ignoresDodge) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
 			packet.trueOnly(),

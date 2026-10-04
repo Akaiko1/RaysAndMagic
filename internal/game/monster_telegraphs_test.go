@@ -370,3 +370,51 @@ func TestSolsticeTelegraphSaveRestore(t *testing.T) {
 	}
 	t.Fatal("saved caster missing")
 }
+
+// Support casts need a fight even when a friendly target is already in range.
+func TestFlowShieldRequiresCombat(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, engagement := range []string{"idle", "party", "foe"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, engagement), func(t *testing.T) {
+				g, gl := newSpecialsTestGame(t)
+				g.gameLoop, g.turnBasedMode = gl, tb
+				placePlayerAtTile(g, 1, 1, 64)
+				m := spawnSpecialsMonster(g, "solstice_flow_automaton", 9, 9)
+				ally := spawnSpecialsMonster(g, "goblin", 9, 10)
+				m.IsEngagingPlayer, m.WasAttacked = false, false
+				ally.IsEngagingPlayer, ally.WasAttacked = false, false
+				m.State, ally.State = monster.StateIdle, monster.StateIdle
+				ally.Speed, ally.AttackCDFrames = 0, 100000
+				g.refreshMonsterAIState()
+				switch engagement {
+				case "party":
+					m.BeginPlayerEngagement()
+				case "foe":
+					foe := spawnSpecialsMonster(g, "goblin", 8, 9)
+					foe.Bound, foe.BoundFramesRemaining, foe.Speed = true, 100000, 0
+					foe.AttackCDFrames = 100000
+					m.AIFoe = foe
+				}
+				before := countCombatLog(g, "prepares")
+				if tb {
+					runTBMonsterTurns(g, gl, 1)
+				} else {
+					g.combat.HandleMonsterInteractions()
+				}
+				if engagement == "idle" {
+					if m.Telegraph.Warning != 0 || ally.SoakDamage != 0 || countCombatLog(g, "prepares") != before {
+						t.Fatal("idle shield started combat or logged a cast")
+					}
+				} else {
+					if m.Telegraph.Warning == 0 || m.Telegraph.TargetID != ally.ID {
+						t.Fatal("engaged shield failed to target its ally")
+					}
+					g.tickMonsterTelegraphs(telegraphDefinition(m).WarningSeconds, tb)
+					if ally.SoakDamage == 0 {
+						t.Fatal("engaged shield did not resolve")
+					}
+				}
+			})
+		}
+	}
+}

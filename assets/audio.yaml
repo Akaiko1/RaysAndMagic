@@ -95,9 +95,11 @@ music:
       file: audio/music/dragon_cliffs.ogg
       biomes: [dragon_cliffs]
       volume: 1.0
+    # The Solstice temple stands in the jungle and borrows its theme until the
+    # vestibule and the four chambers get their own; the approach is jungle.
     jungle:
       file: audio/music/jungle.ogg
-      biomes: [jungle]
+      biomes: [jungle, solstice_vestibule, solstice_fire, solstice_water, solstice_earth, solstice_air]
       volume: 1.0
     boss_fight:
       file: audio/music/boss_fight.ogg

@@ -182,30 +182,32 @@ func TestAlchemyHealthManaMixedScaleCostAtEveryMastery(t *testing.T) {
 		if len(stock.Items) < 2 || stock.Count < 2 {
 			t.Fatalf("fixture: %s first stock must mix several items", key)
 		}
-		for tier := 0; tier < 4; tier++ {
-			t.Run(fmt.Sprintf("%s/%d", key, tier), func(t *testing.T) {
-				c.Skills[character.SkillAlchemy] = &character.Skill{Mastery: character.SkillMastery(tier)}
-				g.party.Inventory = nil
-				add(base.Items[0], base.Count)
-				for i := 0; i < stock.Count-1; i++ {
-					add(stock.Items[i%len(stock.Items)], 1)
-				}
-				// No saved choice: every group uses its first source.
-				g.selectedRare, g.alchemyBatches, g.brewAnimation = recipeIndex, 1, nil
-				g.alchemy.Choices, g.alchemy.Selections = nil, nil
-				before := append([]items.Item(nil), g.party.Inventory...)
-				if g.brewSelectedRecipe() || !reflect.DeepEqual(before, g.party.Inventory) {
-					t.Fatalf("%d mixed items must not pay for a batch of %d", stock.Count-1, stock.Count)
-				}
-				add(stock.Items[(stock.Count-1)%len(stock.Items)], 1)
-				if !g.brewSelectedRecipe() {
-					t.Fatal(g.rareBookMessage)
-				}
-				yield := character.AlchemyYield(tier, recipe.Family)
-				if g.brewAnimation.Count != yield || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != yield {
-					t.Fatalf("%d mixed stock + %s: count=%d inventory=%v, want %d", stock.Count, base.Items[0], g.brewAnimation.Count, g.party.Inventory, yield)
-				}
-			})
+		for _, baseKey := range base.Items {
+			for tier := 0; tier < 4; tier++ {
+				t.Run(fmt.Sprintf("%s/%s/%d", key, baseKey, tier), func(t *testing.T) {
+					c.Skills[character.SkillAlchemy] = &character.Skill{Mastery: character.SkillMastery(tier)}
+					g.party.Inventory = nil
+					add(baseKey, base.Count)
+					for i := 0; i < stock.Count-1; i++ {
+						add(stock.Items[i%len(stock.Items)], 1)
+					}
+					// No saved choice: every group uses its first source.
+					g.selectedRare, g.alchemyBatches, g.brewAnimation = recipeIndex, 1, nil
+					g.alchemy.Choices, g.alchemy.Selections = nil, nil
+					before := append([]items.Item(nil), g.party.Inventory...)
+					if g.brewSelectedRecipe() || !reflect.DeepEqual(before, g.party.Inventory) {
+						t.Fatalf("%d mixed items must not pay for a batch of %d", stock.Count-1, stock.Count)
+					}
+					add(stock.Items[(stock.Count-1)%len(stock.Items)], 1)
+					if !g.brewSelectedRecipe() {
+						t.Fatal(g.rareBookMessage)
+					}
+					yield := character.AlchemyYield(tier, recipe.Family)
+					if g.brewAnimation.Count != yield || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != yield {
+						t.Fatalf("%d mixed stock + %s: count=%d inventory=%v, want %d", stock.Count, baseKey, g.brewAnimation.Count, g.party.Inventory, yield)
+					}
+				})
+			}
 		}
 	}
 }

@@ -755,6 +755,7 @@ func floorMaterialAt(tile vec2) vec4 {
 // solid, world-aligned side. Void never mixes with land, water, or bridges.
 func floorCanBlend(a,b vec4, delta vec2) bool {
 	if a.b==0 || b.b==0 { return false }
+	if a.b==6 || b.b==6 { return false }
 	if a.b==5 || b.b==5 { return a.b==5 && b.b==5 }
 	if a.b==3 || a.b==4 {
 		d := delta
@@ -801,10 +802,42 @@ func floorCellColor(q,tile vec2, material vec4, mip,texelsPerPixel,waterDistance
 	return base
 }
 
+// Chasm lips belong only to exposed banks. Adjacent chasm cells remain one
+// continuous opening, with no painted frame across the middle of a long gap.
+// Everything stays in world coordinates; walking and spell rules are unchanged.
+func floorChasmSurface(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint float) vec3 {
+	local := q-owner
+	edge := 1.0
+	bank := owner
+	for i:=0;i<4;i++ {
+		delta := vec2(-1,0)
+		distance := local.x
+		if i==1 { delta=vec2(1,0); distance=1.0-local.x }
+		if i==2 { delta=vec2(0,-1); distance=local.y }
+		if i==3 { delta=vec2(0,1); distance=1.0-local.y }
+		neighbor := owner+delta
+		if neighbor.x<0 || neighbor.y<0 || neighbor.x>=WorldSize.x || neighbor.y>=WorldSize.y { continue }
+		if floorMaterialAt(neighbor).b!=6 && distance<edge { edge=distance; bank=neighbor }
+	}
+	depth := floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0)
+	if edge==1.0 { return depth }
+	// Small fixed chips break the lip, fading out at minification. They never
+	// extend a walkable-looking ledge into the middle of the jump corridor.
+	detail := 1.0-smoothstep(0.04,0.18,maskFootprint)
+	d := max(0.0,edge+(floorNoise(q*18.0)-0.5)*0.025*detail)
+	bankColor := floorCellColor(q,bank,floorMaterialAt(bank),mip,texelsPerPixel,2.0,0)
+	filterWidth := max(0.002,min(0.035,maskFootprint*0.5))
+	face := bankColor*mix(0.16,0.5,1.0-smoothstep(0.04,0.17,d))
+	interior := mix(face,depth,smoothstep(0.17-filterWidth,0.17+filterWidth,d))
+	lip := 1.0-smoothstep(0.035-filterWidth,0.035+filterWidth,d)
+	return mix(interior,bankColor*0.9,lip)
+}
+
 func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3 {
 	owner := floor(q)
 	if owner.x<0 || owner.y<0 || owner.x>=WorldSize.x || owner.y>=WorldSize.y { return vec3(30.0/255.0) }
 	own := floorMaterialAt(owner)
+	if own.b==6 { return floorChasmSurface(q,owner,own,mip,texelsPerPixel,maskFootprint) }
 	if own.b==0 { return floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0) }
 	waterDistance := 2.0
 	if own.a>=128 { waterDistance = floorWaterDistance(q) }

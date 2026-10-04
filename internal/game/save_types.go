@@ -282,6 +282,8 @@ type MonsterSave struct {
 	HitPoints int     `json:"hit_points"`
 	// Optional for legacy saves; coordinates use the same map space as X/Y.
 	SpawnPosition *[2]float64 `json:"spawn_position,omitempty"`
+	// Nil migrates legacy saves; explicit zero preserves an unscaled actor.
+	AdventureScaleLevel *int `json:"adventure_scale_level,omitempty"`
 	// Pure party summons can replace their YAML stats at runtime from the
 	// summoner's mastery. Keep the snapshot optional so ordinary monsters still
 	// pick up current balance values from monsters.yaml after a load.

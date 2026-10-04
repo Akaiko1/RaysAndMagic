@@ -119,6 +119,11 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	if s.Warning > 0 || s.Released {
 		return true
 	}
+	// Support abilities obey the same combat-target gate as offensive casts.
+	// Keep an already committed warning intact when its target moves away.
+	if !m.TargetsParty() && (m.AIFoe == nil || !m.AIFoe.IsAlive() || !m.CanAttackActor(m.AIFoe)) {
+		return false
+	}
 	if !ready || s.Cooldown > 0 || s.Remaining > 0 {
 		return false
 	}

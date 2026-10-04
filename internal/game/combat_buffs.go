@@ -32,8 +32,10 @@ type TimedCombatBuff struct {
 	ResistSchool    string
 	ResistSchoolPct int
 	// ArmorBonus: flat party AC while active (stoneskin draught).
-	ArmorBonus int
-	DodgePct   int
+	ArmorBonus   int
+	DodgePct     int
+	HPRegenPct   int
+	ManaRegenPct int
 }
 
 func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
@@ -57,6 +59,8 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		DodgePct:        def.BuffDodgePct,
 		OutDamageType:   def.DamageBuffSchool,
 		OutPercent:      def.DamageBuffPct,
+		HPRegenPct:      def.BuffHPRegenPct,
+		ManaRegenPct:    def.BuffManaRegenPct,
 	}, true
 }
 
@@ -81,6 +85,7 @@ func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition
 // addCombatBuff activates a buff (same-spell recast refreshes).
 func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 	g.combatBuffs = upsertBuff(g.combatBuffs, b)
+	g.applyPartyRegenBuffs()
 }
 
 // removeCombatBuff drops a combat buff by ownership id. Ordinary casts use the
@@ -88,7 +93,29 @@ func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 func (g *MMGame) removeCombatBuff(buffID string) bool {
 	var removed bool
 	g.combatBuffs, removed = removeBuffByID(g, g.combatBuffs, buffID)
+	if removed {
+		g.applyPartyRegenBuffs()
+	}
 	return removed
+}
+
+// Draught regeneration uses the strongest active percentage per resource,
+// regardless of school. Card and natural regeneration remain independent.
+func (g *MMGame) applyPartyRegenBuffs() {
+	if g.party == nil {
+		return
+	}
+	hp, mana := 0, 0
+	for _, b := range g.combatBuffs {
+		if b.Frames > 0 {
+			hp, mana = max(hp, b.HPRegenPct), max(mana, b.ManaRegenPct)
+		}
+	}
+	for _, member := range g.party.Members {
+		if member != nil {
+			member.BuffHPRegenPct, member.BuffManaRegenPct = hp, mana
+		}
+	}
 }
 
 // combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
@@ -275,6 +302,8 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.DodgePct = itemBuff.DodgePct
 				b.OutPercent = itemBuff.OutPercent
 				b.OutDamageType = itemBuff.OutDamageType
+				b.HPRegenPct = itemBuff.HPRegenPct
+				b.ManaRegenPct = itemBuff.ManaRegenPct
 			}
 		}
 		out[i] = b
@@ -315,7 +344,8 @@ func (g *MMGame) tickCombatBuffsTurn(frames int) {
 }
 
 func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
-	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
+	var expired bool
+	g.combatBuffs, expired = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
 		if round && b.DeferFirstTurnTick {
 			b.DeferFirstTurnTick = false
 		} else {
@@ -323,4 +353,7 @@ func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
 		}
 		return b.Frames
 	})
+	if expired {
+		g.applyPartyRegenBuffs()
+	}
 }

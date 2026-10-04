@@ -224,3 +224,35 @@ func TestDragShouldPromote_OnlyAfterLeavingTheCell(t *testing.T) {
 		}
 	}
 }
+
+func TestMonsterGroundMoveCopyRoundTrip(t *testing.T) {
+	v, _ := dragTestViewer(t)
+	for _, copying := range []bool{false, true} {
+		m := &mapInfo{Data: &world.MapData{Width: 5, Height: 1, StartX: 0, StartY: 0, Tiles: [][]world.TileType3D{{world.TileSpawn, world.TileEmpty, world.TileEmpty, world.TileEmpty, world.TileEmpty}}, MonsterSpawns: []world.MonsterSpawn{{X: 1, MonsterKey: "orc", GroundTile: "solstice_lava"}}}}
+		v.maps = []mapInfo{*m}
+		m = &v.maps[0]
+		rebuildMapFloors(m, v.tileManager)
+		lava := m.Data.Tiles[0][1]
+		if !v.dropAt(m, grabAt(m, 1, 0), 3, 0, copying) {
+			t.Fatal("drag failed")
+		}
+		if m.Data.Tiles[0][3] != lava || m.Data.MonsterSpawns[len(m.Data.MonsterSpawns)-1].GroundTile != "solstice_lava" {
+			t.Fatal("moved monster lost explicit ground")
+		}
+		if !copying && m.Data.Tiles[0][1] == lava {
+			t.Fatal("vacated cell retained ground stamp")
+		}
+		if copying && m.Data.Tiles[0][1] != lava {
+			t.Fatal("copy cleared source ground")
+		}
+		v.savePath = filepath.Join(t.TempDir(), "monster.map")
+		if err := v.saveCurrentMap(); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := world.NewMapLoaderWithBiome(v.cfg, "forest").LoadMap(v.savePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compareMapData(t, m.Data, loaded)
+	}
+}

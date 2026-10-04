@@ -2,6 +2,12 @@ package uitext
 
 // Argument contracts for presentation templates; wording lives only in YAML.
 var signatures = map[string]string{
+	"item.party_elemental_draught":    "sdd",
+	"item.regeneration_hp":            "d",
+	"item.regeneration_mana":          "d",
+	"item.regeneration_join":          "",
+	"item.party_regeneration_draught": "sfdd",
+
 	"caravan.under_attack":         "",
 	"caravan.destroyed":            "",
 	"caravan.empty":                "",

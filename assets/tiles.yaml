@@ -1,4 +1,5 @@
 tiles:
+  # Mirrored upper walls keep the lower tile unchanged and flip the upper vertically.
   solstice_fire_wall:
     name: "Fire Service Wall"
     type: "wall"
@@ -6,6 +7,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_fire_wall_0"
     wall_color: [210, 105, 45]
     letter: "X"
@@ -17,6 +20,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_water_wall_0"
     wall_color: [65, 155, 170]
     letter: "X"
@@ -28,10 +33,23 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_earth_wall_0"
     wall_color: [140, 155, 80]
     letter: "X"
-    biomes: ["solstice_earth", "solstice_vestibule"]
+    biomes: ["solstice_earth"]
+  solstice_vestibule_wall:
+    name: "Earth Service Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_earth_wall_0"
+    wall_color: [140, 155, 80]
+    letter: "X"
+    biomes: ["solstice_vestibule"]
   solstice_air_wall:
     name: "Air Service Wall"
     type: "wall"
@@ -39,6 +57,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_air_wall_0"
     wall_color: [155, 195, 215]
     letter: "X"
@@ -50,6 +70,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_fire_wall_service"
     letter: "Y"
     biomes: ["solstice_fire"]
@@ -61,6 +83,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_water_wall_service"
     letter: "Y"
     biomes: ["solstice_water"]
@@ -72,9 +96,22 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_earth_wall_service"
     letter: "Y"
-    biomes: ["solstice_earth", "solstice_vestibule"]
+    biomes: ["solstice_earth"]
+
+  solstice_vestibule_service_wall:
+    name: "Earth Regulator Panel"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_earth_wall_service"
+    letter: "Y"
+    biomes: ["solstice_vestibule"]
 
   solstice_air_service_wall:
     name: "Air Regulator Panel"
@@ -83,6 +120,8 @@ tiles:
     transparent: false
     walkable: false
     render_type: "wall"
+    wall_height_multiplier: 2.0
+    wall_upper_mirror_y: true
     sprite: "solstice_air_wall_service"
     letter: "Y"
     biomes: ["solstice_air"]
@@ -96,6 +135,7 @@ tiles:
     fly_over: true
     render_type: "floor"
     sprite: ""
+    floor_texture_group: "chasm"
     floor_color: [20, 25, 30]
     letter: "~"
     biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air", "solstice_vestibule"]
@@ -174,6 +214,7 @@ tiles:
     fly_over: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [100, 150, 255]  # Blue water
     floor_near_color: [205, 175, 149]  # Sandy shore near water
     floor_texture_group: "water"
@@ -189,6 +230,7 @@ tiles:
     fly_over: true
     sprite: ""
     render_type: "floor"
+    exclude_as_under_floor: true
     floor_color: [30, 80, 180]  # Darker blue deep water
     floor_near_color: [205, 175, 149]  # Sandy shore near deep water
     floor_texture_group: "water"

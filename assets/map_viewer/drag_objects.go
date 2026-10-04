@@ -95,15 +95,16 @@ func (v *viewer) dropAt(m *mapInfo, d dragState, tx, ty int, copy bool) bool {
 	// a cell that holds another entity: clearing the source first keeps the
 	// moved object out of the removal sweep.
 	if !copy {
+		biome := ""
+		if m.Config != nil {
+			biome = m.Config.Biome
+		}
+		floor, _ := v.tileManager.GetTileTypeFromLetterForBiome(floorLetter, biome)
 		switch d.kind {
 		case dragMonster:
+			m.Data.ClearMonsterGround(v.tileManager, d.monster, floor)
 			m.Data.MonsterSpawns = removeMonsterAt(m.Data.MonsterSpawns, d.fromX, d.fromY)
 		case dragNPC:
-			biome := ""
-			if m.Config != nil {
-				biome = m.Config.Biome
-			}
-			floor, _ := v.tileManager.GetTileTypeFromLetterForBiome(floorLetter, biome)
 			m.Data.ClearNPCGround(v.tileManager, d.npc, floor)
 			m.Data.NPCSpawns = removeNPCAt(m.Data.NPCSpawns, d.fromX, d.fromY)
 		case dragSpecial:

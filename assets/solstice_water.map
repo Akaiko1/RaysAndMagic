@@ -1,8 +1,8 @@
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXYXXXXXXXXXXXX
-XX.......XXXX........XXXXXXXXXXX
+XX...@...XXXX........XXXXXXXXXXX  >[npc:solstice_water_exit]
 XX.......XXXY.ab.....YXXXXXXXXXX
-XX..+@....~..........XXXXXXXXXXX  >[npc:solstice_water_exit]
+XX..+.....~..........XXXXXXXXXXX
 XX.......XXXX...@....XXXXXXXXXXX  >[npc:solstice_water_intake_sluice]
 XX.......XXXX........XXXXXXXXXXX
 XXXXX.XYXXXXX.....ca.XXXXXXXXXXX
@@ -15,7 +15,7 @@ XX.......XXXXXXXXXXXXX........XX
 XX.ca....XXXXXXXXXXXXX.SSSSSS.XX
 XX.......XXXXXXXXXXXXX.SSSSSS.XX
 XX..@....XXXXXXXXXXXXX.....@caXX  >[npc:solstice_water_cache], [npc:solstice_water_return_sluice]
-XX....bc.XXXXXXXXXXXXX........XX
+XX....bc.XXXXXXXXXXXXX......S.XX
 XX.......YXXXXXXXXYXXXXXX.XYXXXX
 XXXXXXXXXXXX........XXXXX.XXXXXX
 XXXXXXXXXXXY.bc.....YXXXX.XXXXXX

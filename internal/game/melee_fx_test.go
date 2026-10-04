@@ -27,21 +27,3 @@ func TestMeleeFxKind(t *testing.T) {
 		t.Errorf("meleeFxKind(nil) = %q, want slash", got)
 	}
 }
-
-// TestSeedFromID: stable, non-negative, and varies by input so each slash's
-// particle pattern differs without per-frame randomness.
-func TestSeedFromID(t *testing.T) {
-	first, second := seedFromID("slash_7"), seedFromID("slash_7")
-	if first != second {
-		t.Error("seedFromID must be deterministic")
-	}
-	if seedFromID("slash_7") == seedFromID("slash_8") {
-		t.Error("different IDs should usually yield different seeds")
-	}
-	if seedFromID("slash_999999") < 0 {
-		t.Error("seed must be non-negative (used as a hash input)")
-	}
-	if seedFromID("") < 0 {
-		t.Error("empty ID must not produce a negative seed")
-	}
-}

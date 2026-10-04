@@ -77,28 +77,28 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 240
     no_loot: true
   solstice_heat_resistant_fang:
     name: "Heat Resistant Fang"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 180
     no_loot: true
   solstice_furnace_ceramic:
     name: "Furnace Ceramic"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 360
     no_loot: true
   solstice_furnace_bloom:
     name: "Furnace Bloom"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 75
     no_loot: true
     harvest_sprite: "solstice_furnace_bloom"
   solstice_thermal_core:
@@ -106,22 +106,23 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 2500
     no_loot: true
   solstice_sun_resin:
     name: "Sun Resin"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 25
     no_loot: true
     harvest_sprite: "solstice_sun_resin"
   solstice_fire_ward:
     name: "Heat Draught"
     type: "consumable"
-    description: "Adds 30% fire damage for 60 combat seconds."
+    description: "Adds 30% fire damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
     damage_buff_school: "fire"
     damage_buff_pct: 30
+    buff_hp_regen_pct: 3
     buff_duration_seconds: 60
     status_icon: "solstice_fire_ward"
     rarity: "uncommon"
@@ -159,9 +160,11 @@ items:
   solstice_fire_advanced_ward:
     name: "Advanced Heat Draught"
     type: "consumable"
-    description: "Adds 40% fire damage for 60 combat seconds."
+    description: "Adds 40% fire damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
     damage_buff_school: "fire"
     damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
     buff_duration_seconds: 60
     status_icon: "solstice_fire_advanced_ward"
     rarity: "uncommon"
@@ -172,28 +175,28 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 240
     no_loot: true
   solstice_coldwater_gland:
     name: "Coldwater Gland"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 180
     no_loot: true
   solstice_circulation_membrane:
     name: "Circulation Membrane"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 360
     no_loot: true
   solstice_moonwater_lotus:
     name: "Moonwater Lotus"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 75
     no_loot: true
     harvest_sprite: "solstice_moonwater_lotus"
   solstice_flow_core:
@@ -201,22 +204,23 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 2500
     no_loot: true
   solstice_rain_pearl:
     name: "Rain Pearl"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 25
     no_loot: true
     harvest_sprite: "solstice_rain_pearl"
   solstice_water_ward:
     name: "Flow Draught"
     type: "consumable"
-    description: "Adds 30% water damage for 60 combat seconds."
+    description: "Adds 30% water damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
     damage_buff_school: "water"
     damage_buff_pct: 30
+    buff_hp_regen_pct: 3
     buff_duration_seconds: 60
     status_icon: "solstice_water_ward"
     rarity: "uncommon"
@@ -254,9 +258,11 @@ items:
   solstice_water_advanced_ward:
     name: "Advanced Flow Draught"
     type: "consumable"
-    description: "Adds 40% water damage for 60 combat seconds."
+    description: "Adds 40% water damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
     damage_buff_school: "water"
     damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
     buff_duration_seconds: 60
     status_icon: "solstice_water_advanced_ward"
     rarity: "uncommon"
@@ -267,28 +273,28 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 240
     no_loot: true
   solstice_mineral_plate:
     name: "Mineral Plate"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 180
     no_loot: true
   solstice_petrified_conductor:
     name: "Petrified Conductor"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 360
     no_loot: true
   solstice_deepvein_moss:
     name: "Deepvein Moss"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 75
     no_loot: true
     harvest_sprite: "solstice_deepvein_moss"
   solstice_anchor_core:
@@ -296,22 +302,23 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 2500
     no_loot: true
   solstice_calendar_jade:
     name: "Calendar Jade"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 25
     no_loot: true
     harvest_sprite: "solstice_calendar_jade"
   solstice_earth_ward:
     name: "Anchor Draught"
     type: "consumable"
-    description: "Adds 30% earth damage for 60 combat seconds."
+    description: "Adds 30% earth damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
     damage_buff_school: "earth"
     damage_buff_pct: 30
+    buff_hp_regen_pct: 3
     buff_duration_seconds: 60
     status_icon: "solstice_earth_ward"
     rarity: "uncommon"
@@ -349,9 +356,11 @@ items:
   solstice_earth_advanced_ward:
     name: "Advanced Anchor Draught"
     type: "consumable"
-    description: "Adds 40% earth damage for 60 combat seconds."
+    description: "Adds 40% earth damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
     damage_buff_school: "earth"
     damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
     buff_duration_seconds: 60
     status_icon: "solstice_earth_advanced_ward"
     rarity: "uncommon"
@@ -362,28 +371,28 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 240
     no_loot: true
   solstice_charged_quill:
     name: "Charged Quill"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 180
     no_loot: true
   solstice_resonance_coil:
     name: "Resonance Coil"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 360
     no_loot: true
   solstice_sky_reed:
     name: "Sky Reed"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 75
     no_loot: true
     harvest_sprite: "solstice_sky_reed"
   solstice_vector_core:
@@ -391,22 +400,23 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 2500
     no_loot: true
   solstice_whisper_silk:
     name: "Whisper Silk"
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 12
+    value: 25
     no_loot: true
     harvest_sprite: "solstice_whisper_silk"
   solstice_air_ward:
     name: "Vector Draught"
     type: "consumable"
-    description: "Adds 30% air damage for 60 combat seconds."
+    description: "Adds 30% air damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
     damage_buff_school: "air"
     damage_buff_pct: 30
+    buff_hp_regen_pct: 3
     buff_duration_seconds: 60
     status_icon: "solstice_air_ward"
     rarity: "uncommon"
@@ -444,9 +454,11 @@ items:
   solstice_air_advanced_ward:
     name: "Advanced Vector Draught"
     type: "consumable"
-    description: "Adds 40% air damage for 60 combat seconds."
+    description: "Adds 40% air damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
     damage_buff_school: "air"
     damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
     buff_duration_seconds: 60
     status_icon: "solstice_air_advanced_ward"
     rarity: "uncommon"

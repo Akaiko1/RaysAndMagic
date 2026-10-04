@@ -19,9 +19,9 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "The archive stair glows above the broken crossing. This wheel feeds its cooling pipes and the western side of the regulator hall."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "coolant_west"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Cool the archive vent, kiln channel and western arena strip.", "action": "adventure_control", "control": "coolant_west"}, {"text": "Leave.", "action": "leave"}]
   solstice_fire_coolant_east:
     name: "Coolant East"
     type: "encounter"
@@ -30,16 +30,16 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "Two pipes leave this valve: one for the eastern floor strip, one for the lower firing row. Both are hot enough to discourage bare hands."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "coolant_east"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Bleed the eastern strip and lower firing row.", "action": "adventure_control", "control": "coolant_east"}, {"text": "Leave.", "action": "leave"}]
   solstice_fire_exit:
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
-    render_category: "landmark"
+    render_category: "wall_mounted"
     transparent: true
-    size_class: "structure"
+    size_class: "full_tile"
     dialogue:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
@@ -58,9 +58,9 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "A blue supply pipe runs from this sluice toward Neressa's chamber. Closing it will starve her healing reservoir."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "intake_sluice"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Close Neressa's healing intake.", "action": "adventure_control", "control": "intake_sluice"}, {"text": "Leave.", "action": "leave"}]
   solstice_water_return_sluice:
     name: "Return Sluice"
     type: "encounter"
@@ -69,16 +69,16 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "The return pipe bears the entrance seal. Unlock it, then step onto the marked water just beyond this console to return to the entrance."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "return_sluice"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Open the current to the chamber entrance.", "action": "adventure_control", "control": "return_sluice"}, {"text": "Leave.", "action": "leave"}]
   solstice_water_exit:
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
-    render_category: "landmark"
+    render_category: "wall_mounted"
     transparent: true
-    size_class: "structure"
+    size_class: "full_tile"
     dialogue:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
@@ -97,9 +97,9 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "Pressure plates span the gallery ahead. The circuit has no service handle; disarm it, leap across, or endure the impact."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "security_bypass"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_0"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_0"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_one:
     name: "Brace One"
     type: "encounter"
@@ -108,9 +108,9 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "This brace bears Talura's armor load. Releasing it weakens her shell. A separate fuse controls the pressure plates in the southern gallery."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "brace_one"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_1"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Release Talura's armor brace.", "action": "adventure_control", "control": "brace_one"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_1"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_two:
     name: "Brace Two"
     type: "encounter"
@@ -119,9 +119,9 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "The north brace feeds a pressure plate and the lower firing row. Locking it will silence both."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "brace_two"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_2"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Lock the north plate and lower firing row.", "action": "adventure_control", "control": "brace_two"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_three:
     name: "Brace Three"
     type: "encounter"
@@ -130,16 +130,16 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "An engraved arrow points toward the regulated channel."
+      greeting: "The south brace carries the regulator's final shock through the floor. Lock it before Talura grows desperate."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "brace_three"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_3"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Lock the south plate and final ground shock.", "action": "adventure_control", "control": "brace_three"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_exit:
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
-    render_category: "landmark"
+    render_category: "wall_mounted"
     transparent: true
-    size_class: "structure"
+    size_class: "full_tile"
     dialogue:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
@@ -169,16 +169,16 @@ npcs:
     transparent: true
     size_class: "small_prop"
     dialogue:
-      greeting: "The return line hums beneath the console. One lever also clamps the regulator's turning vanes."
+      greeting: "The hub feeds the return crossing and two escape currents inside the arena. Release the brake; the green marks show where each current lands."
       visited_message: "The work is recorded."
-      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "hub_vane"}, {"text": "Leave.", "action": "leave"}]
+      choices: [{"text": "Open the return crossing and arena escape currents.", "action": "adventure_control", "control": "hub_vane"}, {"text": "Leave.", "action": "leave"}]
   solstice_air_exit:
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
-    render_category: "landmark"
+    render_category: "wall_mounted"
     transparent: true
-    size_class: "structure"
+    size_class: "full_tile"
     dialogue:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
@@ -564,9 +564,9 @@ npcs:
     name: "Survey Camp"
     type: "encounter"
     sprite: "solstice_exit_arch"
-    render_category: "landmark"
+    render_category: "wall_mounted"
     transparent: true
-    size_class: "structure"
+    size_class: "full_tile"
     dialogue:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Survey Camp.", "action": "enter_map", "map": "solstice_approach"}, {"text": "Stay here.", "action": "leave"}]
