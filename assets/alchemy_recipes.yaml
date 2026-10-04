@@ -5,6 +5,9 @@
 # Renewable fish cost 4; abundant day wildlife costs 2; sparse/finite drops cost 1.
 # Specialty recipes may use rare trophies or gems, one per batch.
 categories:
+- key: solstice
+  label: Solstice materials
+  items: ["solstice_living_ember", "solstice_heat_resistant_fang", "solstice_furnace_ceramic", "solstice_furnace_bloom", "solstice_condensed_tideglass", "solstice_coldwater_gland", "solstice_circulation_membrane", "solstice_moonwater_lotus", "solstice_anchor_crystal", "solstice_mineral_plate", "solstice_petrified_conductor", "solstice_deepvein_moss", "solstice_bound_breath", "solstice_charged_quill", "solstice_resonance_coil", "solstice_sky_reed", "solstice_sun_resin", "solstice_rain_pearl", "solstice_calendar_jade", "solstice_whisper_silk"]
 - key: plants
   label: Plants and fungi
   items: [dawnleaf, mooncap, bitterroot, embercap, grave_orchid, bound_cucumbers]
@@ -364,3 +367,43 @@ recipes:
     - items:
       - fairy_dust
       count: 1
+
+- key: "solstice_fire_ward"
+  output: "brewed_solstice_fire_ward"
+  family: "empowering"
+  ingredients: [{"label": "Fire stock", "alternatives": [{"items": ["solstice_living_ember"], "count": 1}, {"items": ["solstice_heat_resistant_fang", "solstice_furnace_ceramic"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["solstice_furnace_bloom"], "count": 1}]}]
+
+- key: "solstice_fire_field_ward"
+  output: "brewed_solstice_fire_field_ward"
+  family: "empowering"
+  ingredients: [{"label": "Fire stock", "alternatives": [{"items": ["solstice_sun_resin"], "count": 1}, {"items": ["solstice_heat_resistant_fang", "solstice_furnace_ceramic"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["embercap"], "count": 1}]}]
+
+- key: "solstice_water_ward"
+  output: "brewed_solstice_water_ward"
+  family: "empowering"
+  ingredients: [{"label": "Water stock", "alternatives": [{"items": ["solstice_condensed_tideglass"], "count": 1}, {"items": ["solstice_coldwater_gland", "solstice_circulation_membrane"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["solstice_moonwater_lotus"], "count": 1}]}]
+
+- key: "solstice_water_field_ward"
+  output: "brewed_solstice_water_field_ward"
+  family: "empowering"
+  ingredients: [{"label": "Water stock", "alternatives": [{"items": ["solstice_rain_pearl"], "count": 1}, {"items": ["solstice_coldwater_gland", "solstice_circulation_membrane"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["mooncap"], "count": 1}]}]
+
+- key: "solstice_earth_ward"
+  output: "brewed_solstice_earth_ward"
+  family: "empowering"
+  ingredients: [{"label": "Earth stock", "alternatives": [{"items": ["solstice_anchor_crystal"], "count": 1}, {"items": ["solstice_mineral_plate", "solstice_petrified_conductor"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["solstice_deepvein_moss"], "count": 1}]}]
+
+- key: "solstice_earth_field_ward"
+  output: "brewed_solstice_earth_field_ward"
+  family: "empowering"
+  ingredients: [{"label": "Earth stock", "alternatives": [{"items": ["solstice_calendar_jade"], "count": 1}, {"items": ["solstice_mineral_plate", "solstice_petrified_conductor"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["bitterroot"], "count": 1}]}]
+
+- key: "solstice_air_ward"
+  output: "brewed_solstice_air_ward"
+  family: "empowering"
+  ingredients: [{"label": "Air stock", "alternatives": [{"items": ["solstice_bound_breath"], "count": 1}, {"items": ["solstice_charged_quill", "solstice_resonance_coil"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["solstice_sky_reed"], "count": 1}]}]
+
+- key: "solstice_air_field_ward"
+  output: "brewed_solstice_air_field_ward"
+  family: "empowering"
+  ingredients: [{"label": "Air stock", "alternatives": [{"items": ["solstice_whisper_silk"], "count": 1}, {"items": ["solstice_charged_quill", "solstice_resonance_coil"], "count": 1}]}, {"label": "Harvested reagent", "alternatives": [{"items": ["dawnleaf"], "count": 1}]}]

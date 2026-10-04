@@ -641,6 +641,7 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 	}
 
 	lines := []string{"TILE", fmt.Sprintf("Position: %d, %d", tileX, tileY)}
+	lines = append(lines, adventureHoverLines(m, tileX, tileY)...)
 	for _, npc := range m.Data.NPCSpawns {
 		if npc.X != tileX || npc.Y != tileY {
 			continue
@@ -1255,6 +1256,7 @@ func drawTileThumb(screen *ebiten.Image, originX, originY, tileSize, tx, ty int,
 }
 
 func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize int, thumb func(sprite string) *ebiten.Image) {
+	drawAdventureOverlays(screen, m, originX, originY, tileSize)
 	// Start position
 	if m.Data.StartX >= 0 && m.Data.StartY >= 0 {
 		drawTileMarkerCircle(screen, originX, originY, tileSize, m.Data.StartX, m.Data.StartY, color.RGBA{50, 200, 255, 255}, true)

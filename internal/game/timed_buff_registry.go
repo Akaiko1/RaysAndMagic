@@ -131,6 +131,7 @@ func (g *MMGame) tickPartyBuffsTurn() {
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {
 	g.partyRoot = PartyRootState{}
+	g.partyHinder = PartyHinderState{}
 	g.alchemy = AlchemyState{}
 	g.harvestRuntime = harvestRuntime{}
 	g.spatialReuseFrames = 0

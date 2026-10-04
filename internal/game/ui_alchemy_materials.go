@@ -106,7 +106,8 @@ func makeAlchemyMaterialLayout(l rareBookLayout, r *config.AlchemyRecipe) alchem
 	}
 	a.track = layoutRect{a.viewport.right() - 4, a.viewport.y, 3, a.viewport.h}
 	x, w := a.title.x, a.title.w
-	cols := max(1, (w-2)/166)
+	// Compact cells retain the icon and stack stock counters in narrow books.
+	cols := max(1, (w-2)/126)
 	cellW := (w - 8 - (cols-1)*6) / cols
 	y := 0
 	for gi, group := range r.Ingredients {
@@ -180,7 +181,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			checked++
 		}
 	}
-	drawUITextColored(screen, fmt.Sprintf("MATERIALS (%d selected)", checked), a.toolbar.x, a.toolbar.y+6, color.RGBA{209, 186, 131, 255})
+	drawUITextColored(screen, profileText(fmt.Sprintf("MATERIALS (%d selected)", checked), a.toolbar.w-116), a.toolbar.x, a.toolbar.y+6, color.RGBA{209, 186, 131, 255})
 	for i, label := range []string{"All", "None"} {
 		on := i == 0
 		ui.rareBookButton(screen, layoutRect{a.toolbar.right() - 112 + i*58, a.toolbar.y, 54, 22}, label, true, func() {
@@ -264,13 +265,20 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 				drawFilledRect(dst, icon.x, icon.y, icon.w, icon.h, color.RGBA{0, 0, 0, 130})
 			}
 			tx := cell.rect.x + 42
-			drawUITextColored(dst, fmt.Sprintf("Bag %d", have), tx, cell.rect.y+22, color.RGBA{196, 198, 186, 255})
+			bag := fmt.Sprintf("Bag %d", have)
 			take := "Use -"
 			if preview.err == nil {
 				take = fmt.Sprintf("Use %d", used[it.Name])
 			}
-			drawUITextColored(dst, take, cell.rect.right()-max(38, uiTextWidth(take))-5, cell.rect.y+22, color.RGBA{150, 201, 145, 255})
-			drawUITextColored(dst, fmt.Sprintf("%d per batch", cell.count), tx, cell.rect.y+38, color.RGBA{156, 159, 145, 255})
+			if cell.rect.w >= 166 {
+				drawUITextColored(dst, bag, tx, cell.rect.y+22, color.RGBA{196, 198, 186, 255})
+				drawUITextColored(dst, take, cell.rect.right()-max(38, uiTextWidth(take))-5, cell.rect.y+22, color.RGBA{150, 201, 145, 255})
+				drawUITextColored(dst, fmt.Sprintf("%d per batch", cell.count), tx, cell.rect.y+38, color.RGBA{156, 159, 145, 255})
+			} else {
+				// The full per-batch cost remains in the material tooltip.
+				drawUITextColored(dst, profileText(bag, cell.rect.w-47), tx, cell.rect.y+22, color.RGBA{196, 198, 186, 255})
+				drawUITextColored(dst, profileText(take, cell.rect.w-47), tx, cell.rect.y+38, color.RGBA{150, 201, 145, 255})
+			}
 			mx, my := pointerPosition()
 			if image.Pt(mx, my).In(hit) {
 				lines := GetItemTooltipRows(it, c, g.combat, tooltipDetailHeld())

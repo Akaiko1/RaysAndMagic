@@ -19,6 +19,7 @@ type PartyRootState struct {
 
 func (g *MMGame) partyRooted() bool { return g.partyRoot.Frames > 0 || g.partyRoot.Turns > 0 }
 func (g *MMGame) tickPartyRoot(turn bool) {
+	g.tickPartyHinder(turn)
 	r := &g.partyRoot
 	if turn {
 		status.TickTurnRated(&r.Turns, &r.Frames, &r.Rate)

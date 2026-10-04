@@ -380,6 +380,7 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
 	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
 	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
+	packet = cs.elementalBuffPacket(packet)
 	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
 	cs.reportIndirectHit(m, actual, sourceName)
 	cs.finishIndirectKill(m)

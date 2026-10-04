@@ -49,11 +49,12 @@ type harvestSearch struct {
 	free      [][2]int
 }
 type harvestRuntime struct {
-	world   *world.World3D
-	catalog *config.AlchemySpawnConfig
-	region  string
-	dirty   bool
-	search  *harvestSearch
+	world     *world.World3D
+	catalog   *config.AlchemySpawnConfig
+	region    string
+	dirty     bool
+	repairDay int
+	search    *harvestSearch
 }
 
 func (g *MMGame) harvestOccupied() map[[2]int]bool {
@@ -75,6 +76,18 @@ func (g *MMGame) harvestOccupied() map[[2]int]bool {
 func (g *MMGame) harvestPlacementAllowed(x, y int) bool {
 	if !g.harvestGround(x, y) {
 		return false
+	}
+	if a := g.adventureConfig(currentMapKey()); a != nil && a.OpeningOwned {
+		for _, link := range a.JumpLinks {
+			if (x == link[0] && y == link[1]) || (x == link[2] && y == link[3]) {
+				return false
+			}
+		}
+		for _, effect := range a.Effects {
+			if effect.Contains(x, y) || (effect.Kind == "transfer" && effect.Destination == [2]int{x, y}) {
+				return false
+			}
+		}
 	}
 	tm := world.GlobalTileManager
 	if tm == nil {
@@ -101,6 +114,31 @@ func (g *MMGame) advanceHarvestSearch(job *harvestSearch) bool {
 		job.cursor++
 		if g.harvestPlacementAllowed(p[0], p[1]) && !job.occupied[p] && p != job.start {
 			job.free = append(job.free, p)
+		}
+		// Closed interiors include their authored Jump and transport edges.
+		// Population search is topology-only; it spends no mana or turn and
+		// ignores temporary actor occupancy along the route.
+		if a := g.adventureConfig(job.region); a != nil && a.OpeningOwned {
+			var receivers [][2]int
+			for _, link := range a.JumpLinks {
+				if p == [2]int{link[0], link[1]} {
+					receivers = append(receivers, [2]int{link[2], link[3]})
+				}
+				if p == [2]int{link[2], link[3]} {
+					receivers = append(receivers, [2]int{link[0], link[1]})
+				}
+			}
+			for _, e := range a.Effects {
+				if e.Kind == "transfer" && e.TriggerLane == "" && e.Contains(p[0], p[1]) {
+					receivers = append(receivers, e.Destination)
+				}
+			}
+			for _, q := range receivers {
+				if !job.seen[q] && g.harvestGround(q[0], q[1]) && !policy.IsTileBlocking(q[0], q[1]) {
+					job.seen[q] = true
+					job.queue = append(job.queue, q)
+				}
+			}
 		}
 		for _, delta := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
 			q := [2]int{p[0] + delta[0], p[1] + delta[1]}
@@ -145,12 +183,13 @@ func (g *MMGame) updateAlchemyHarvest() {
 	if config.GlobalAlchemySpawns == nil || g.world == nil || g.camera == nil || g.config == nil {
 		return
 	}
-	region, _, _ := canonicalPosition(g.camera.X, g.camera.Y)
+	region, _, _ := g.canonicalPosition(g.camera.X, g.camera.Y)
 	r := &g.harvestRuntime
 	if r.world != g.world || r.catalog != config.GlobalAlchemySpawns || r.region != region {
 		*r = harvestRuntime{world: g.world, catalog: config.GlobalAlchemySpawns, region: region, dirty: true}
 	}
 	if r.dirty {
+		r.repairDay = 0
 		g.syncHarvestProps()
 		r.dirty = false
 	}
@@ -159,6 +198,13 @@ func (g *MMGame) updateAlchemyHarvest() {
 		return
 	}
 	day := g.currentCalendarDay()
+	if a := g.adventureConfig(region); a != nil && a.OpeningOwned {
+		v := g.adventure.Visits[region]
+		if v == nil {
+			return
+		}
+		day = v.Generation
+	}
 	if g.alchemy.Populations == nil {
 		g.alchemy.Populations = map[string]HarvestPopulationState{}
 	}
@@ -169,10 +215,11 @@ func (g *MMGame) updateAlchemyHarvest() {
 		}
 		id := p.Map + ":" + p.Key
 		saved, exists := g.alchemy.Populations[id]
-		if exists && saved.Day == day {
+		repair := r.repairDay != day && slices.ContainsFunc(saved.Nodes, func(n HarvestNode) bool { return n.Relocate })
+		if exists && saved.Day == day && !repair {
 			continue
 		}
-		if len(saved.Nodes) >= p.Count {
+		if len(saved.Nodes) >= p.Count && !repair {
 			saved.Day = day
 			g.alchemy.Populations[id] = saved
 			continue
@@ -208,33 +255,58 @@ func (g *MMGame) updateAlchemyHarvest() {
 			occupied[[2]int{x, y}] = true
 		}
 	}
+	// Relocation consumes a free position, not a fresh material or a day reset.
+	nextPosition := func() (int, int, bool) {
+		for len(free) > 0 {
+			xy := free[len(free)-1]
+			free = free[:len(free)-1]
+			if occupied[xy] || !g.harvestPlacementAllowed(xy[0], xy[1]) {
+				continue
+			}
+			occupied[xy] = true
+			lx, ly := xy[0], xy[1]
+			if wm := world.GlobalWorldManager; wm != nil {
+				lx, ly = wm.LocalizeTile(region, lx, ly)
+			}
+			return lx, ly, true
+		}
+		return 0, 0, false
+	}
 	for _, p := range config.GlobalAlchemySpawns.Populations {
 		if p.Map != region {
 			continue
 		}
 		id := p.Map + ":" + p.Key
 		saved, exists := g.alchemy.Populations[id]
-		if exists && saved.Day == day {
-			continue
+		refill := !exists || saved.Day != day
+		if r.repairDay != day {
+			for i := range saved.Nodes {
+				node := &saved.Nodes[i]
+				if !node.Relocate {
+					continue
+				}
+				lx, ly, ok := nextPosition()
+				if !ok {
+					break
+				}
+				node.X, node.Y, node.Relocate = lx, ly, false
+			}
 		}
 		saved.Day = day
-		for len(saved.Nodes) < p.Count && len(free) > 0 {
-			xy := free[len(free)-1]
-			free = free[:len(free)-1]
-			if occupied[xy] || !g.harvestPlacementAllowed(xy[0], xy[1]) {
-				continue
-			}
-			lx, ly := xy[0], xy[1]
-			if wm := world.GlobalWorldManager; wm != nil {
-				lx, ly = wm.LocalizeTile(region, lx, ly)
+		for refill && len(saved.Nodes) < p.Count {
+			lx, ly, ok := nextPosition()
+			if !ok {
+				break
 			}
 			key := chooseHarvest(p.Weights)
 			g.alchemy.Serial++
 			saved.Nodes = append(saved.Nodes, HarvestNode{Key: key, Quantity: p.Yield, Region: region, X: lx, Y: ly, ID: fmt.Sprintf("harvest:%d", g.alchemy.Serial)})
-			occupied[xy] = true
 		}
 		g.alchemy.Populations[id] = saved
 	}
+	// If no free position exists, retry after a world change, pickup or dawn,
+	// instead of scanning the whole region continuously.
+	r.repairDay = day
 	g.syncHarvestProps()
 }
 func (g *MMGame) syncHarvestProps() {
@@ -256,11 +328,10 @@ func (g *MMGame) syncHarvestProps() {
 		}
 		id := p.Map + ":" + p.Key
 		saved := g.alchemy.Populations[id]
-		valid := make([]HarvestNode, 0, len(saved.Nodes))
-		for _, node := range saved.Nodes {
+		for i := range saved.Nodes {
+			node := &saved.Nodes[i]
 			d, ok := config.GetItemDefinition(node.Key)
 			if !ok {
-				valid = append(valid, node)
 				continue
 			}
 			x, y := node.X, node.Y
@@ -268,12 +339,13 @@ func (g *MMGame) syncHarvestProps() {
 				x, y = wm.ProjectTile(p.Map, x, y)
 			}
 			if buildings[[2]int{x, y}] {
-				// Repair old saves containing unreachable nodes under a building.
-				// Refill the missing node once, using the normal placement search.
-				saved.Day = g.currentCalendarDay() - 1
+				// Preserve the remaining stock and its identity while repairing
+				// an old save or a newly occupied tile. Never rewind its day.
+				node.Relocate = true
+			}
+			if node.Relocate {
 				continue
 			}
-			valid = append(valid, node)
 			n := existing[node.ID]
 			if n == nil {
 				n = &character.NPC{Key: node.ID, Name: d.Name, Type: character.NPCTypeHarvest, RenderCategory: npcCatName[catScenery], Transparent: true, SizeClass: "small_prop", Sprite: d.HarvestSprite, PromptVerb: "gather", HarvestOwner: id, HarvestItem: node.Key}
@@ -281,8 +353,7 @@ func (g *MMGame) syncHarvestProps() {
 			n.X, n.Y = (float64(x)+.5)*ts, (float64(y)+.5)*ts
 			g.world.NPCs = append(g.world.NPCs, n)
 		}
-		if len(valid) != len(saved.Nodes) {
-			saved.Nodes = valid
+		if _, exists := g.alchemy.Populations[id]; exists {
 			g.alchemy.Populations[id] = saved
 		}
 	}

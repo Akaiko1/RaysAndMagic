@@ -1,4 +1,25 @@
 scenarios:
+  solstice:
+    bench_party: seabright
+    level: 20
+    map: solstice_approach
+    x: 4
+    y: 28
+    angle: -1.5707963267948966
+    gold: 3000
+    weapons:
+      - solstice_thermal_lance
+      - solstice_flowstaff
+      - solstice_anchor_hammer
+      - solstice_transfer_blade
+    items:
+      - solstice_fire_ward
+      - solstice_water_ward
+      - solstice_earth_ward
+      - solstice_air_ward
+      - bitterroot
+      - bitterroot
+      - grave_orchid
   arena:
     clear_maps: [forest, church]
     complete_npc_encounters: [shipwreck_bandit_camp]

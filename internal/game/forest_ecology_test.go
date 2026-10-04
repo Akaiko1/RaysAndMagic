@@ -205,11 +205,18 @@ func TestForestLootTablesAndDropWiring(t *testing.T) {
 			}
 		})
 	}
-	// One independent bonus roll for every reagent that grows in the world.
+	// Forest elites draw from the local harvest population, excluding resources
+	// owned by closed dungeons and the Solstice approach.
 	growing := map[string]bool{}
-	for key, def := range config.GlobalItems.Items {
-		if def.HarvestSprite != "" && !def.CraftedOnly {
-			growing[key] = true
+	spawnConfig, err := config.LoadAlchemySpawns("../../assets/alchemy_spawns.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pop := range spawnConfig.Populations {
+		if pop.Map == "forest" {
+			for key := range pop.Weights {
+				growing[key] = true
+			}
 		}
 	}
 	if len(growing) == 0 {

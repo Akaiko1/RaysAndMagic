@@ -158,6 +158,7 @@ func (cs *CombatSystem) newPartyWeaponAttack(
 			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(
 				weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), trueDamage, school, 0, true,
 			)
+			attack.CriticalPacket = cs.elementalBuffPacket(attack.CriticalPacket)
 		}
 	}
 	return attack
@@ -172,6 +173,9 @@ func (cs *CombatSystem) newPartyMonsterAttack(
 	isRanged, isSpell, isMelee bool,
 ) partyMonsterAttack {
 	packet := cs.newPartyMonsterDamagePacket(normal, trueDamage, school, resistPiercePct, !isSpell)
+	if !isSpell {
+		packet = cs.elementalBuffPacket(packet)
+	}
 	return partyMonsterAttack{
 		Packet:     packet,
 		WeaponDef:  weaponDef,
@@ -347,12 +351,18 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		}
 		damage = weaponCriticalDamage(damage, critical)
 		damage = weaponDamageWithBuff(damage, preview.OutgoingBuff)
+		if party {
+			damage = cs.game.elementalDamageBuff(damagecalc.Parts{Normal: damage}, weaponDamageTypeStr(def)).Normal
+		}
 		if !isRanged {
 			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
 		}
 		return damage
 	}
 	preview.Normal = resolve(false)
+	if party {
+		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
+	}
 	preview.CriticalTotal = resolve(true) + preview.True
 	preview.Total = preview.Normal + preview.True
 	return preview

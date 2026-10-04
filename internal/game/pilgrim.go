@@ -132,6 +132,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 				m.Purify()
 			}
 			g.partyRoot = PartyRootState{}
+			g.partyHinder.Slow = 0
 			c.RareClass.PurifyFrames = d.ReuseSeconds * tps
 		case "phase_veil", "quickening":
 			b := TimedCombatBuff{SpellID: key, Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, TechniqueTier: tier}
@@ -195,6 +196,9 @@ func (g *MMGame) useTechniqueFromBook(key string) bool {
 }
 func (g *MMGame) quickenRecovery(c *character.MMCharacter, frames int) int {
 	pct := g.quickenRecoveryPct(c)
+	if g.isPartyMember(c) {
+		frames = g.hinderRecovery(frames)
+	}
 	if frames <= 0 || pct == 0 {
 		return frames
 	}
@@ -241,8 +245,8 @@ func (g *MMGame) notifyPilgrimDisplacement(x, y float64) {
 		}
 	}
 }
-func canonicalPosition(x, y float64) (string, float64, float64) {
-	if wm := world.GlobalWorldManager; wm != nil {
+func (g *MMGame) canonicalPosition(x, y float64) (string, float64, float64) {
+	if wm := world.GlobalWorldManager; g.openWorldActive() {
 		if key, lx, ly, ok := wm.LocalizeWorldPos(x, y); ok {
 			return key, lx, ly
 		}
@@ -252,19 +256,29 @@ func canonicalPosition(x, y float64) (string, float64, float64) {
 
 type spatialTerrain struct {
 	*world.World3D
-	g         *MMGame
-	region    string
-	buildings map[[2]int]bool
+	g           *MMGame
+	region      string
+	buildings   map[[2]int]bool
+	passOpenAir bool // Transit only; never permits landing on an unwalkable floor.
 }
 
 func (t spatialTerrain) IsTileBlocking(x, y int) bool {
 	g := t.g
-	if g.world.IsTileBlockingTerrainAt(x, y) || t.buildings[[2]int{x, y}] {
+	if t.buildings[[2]int{x, y}] {
 		return true
+	}
+	if g.world.IsTileBlockingTerrainAt(x, y) {
+		if !t.passOpenAir || x < 0 || y < 0 || x >= g.world.Width || y >= g.world.Height || world.GlobalTileManager == nil {
+			return true
+		}
+		d := world.GlobalTileManager.GetTileData(g.world.Tiles[y][x])
+		if d == nil || !d.FlyOver {
+			return true
+		}
 	}
 	ts := float64(g.config.GetTileSize())
 	wx, wy := (float64(x)+0.5)*ts, (float64(y)+0.5)*ts
-	key, _, _ := canonicalPosition(wx, wy)
+	key, _, _ := g.canonicalPosition(wx, wy)
 	if key != t.region {
 		return true
 	}
@@ -292,9 +306,11 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	}
 	ts := float64(g.config.GetTileSize())
 	oldX, oldY := g.camera.X, g.camera.Y
-	region, lx, ly := canonicalPosition(oldX, oldY)
+	region, lx, ly := g.canonicalPosition(oldX, oldY)
 	maxTiles := config.TierValue(fold.Range, tier)
 	terrain := spatialTerrain{World3D: g.world, g: g, region: region, buildings: g.buildingOccupiedTiles()}
+	pathTerrain := terrain
+	pathTerrain.passOpenAir = true
 	legalLanding := func(x, y float64) bool {
 		if terrain.IsTileBlocking(TileIndex(x, ts), TileIndex(y, ts)) {
 			return false
@@ -336,7 +352,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 		for tiles := maxTiles; tiles >= fold.MinRange; tiles-- {
 			x, y = originX+dx*float64(tiles)*ts, originY+dy*float64(tiles)*ts
 			if math.Hypot(x-oldX, y-oldY)+0.01 >= float64(fold.MinRange)*ts && legalLanding(x, y) &&
-				collision.CheckMovementLine(terrain, ts, oldX, oldY, x, y) && g.collisionSystem.CheckLineOfSight(oldX, oldY, x, y) {
+				collision.CheckMovementLine(pathTerrain, ts, oldX, oldY, x, y) && g.collisionSystem.CheckLineOfSight(oldX, oldY, x, y) {
 				found = true
 				break
 			}
@@ -346,6 +362,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 		}
 	}
 	g.setPartyPosition(x, y)
+	g.creditAdventureMovement("spatial", oldX, oldY, x, y)
 	g.notifyPilgrimDisplacement(oldX, oldY)
 	if key == "fold_step" {
 		// Keep the FIRST departure point across successive Folds; refreshing

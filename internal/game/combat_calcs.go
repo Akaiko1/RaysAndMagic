@@ -77,11 +77,15 @@ func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *charact
 // The bonus always joins the Normal component and is never multiplied by those
 // modifiers. Runtime spell forms and their tooltips share this final step.
 func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int) {
-	if cs == nil || cs.game == nil || parts.Normal <= 0 {
+	if cs == nil || cs.game == nil {
 		return parts, 0
 	}
-	bonus := cs.game.combatBuffOutBonusForDamageType(damageType)
-	parts.Normal += bonus
+	bonus := 0
+	if parts.Normal > 0 {
+		bonus = cs.game.combatBuffOutBonusForDamageType(damageType)
+		parts.Normal += bonus
+	}
+	parts = cs.game.elementalDamageBuff(parts, damageType)
 	return parts, bonus
 }
 

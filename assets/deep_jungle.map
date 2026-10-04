@@ -68,12 +68,12 @@ V.o..........GQQ..O.....VV...QQQQ.........RR.....V
 V....WWSWWW.....Y...:.......QQQY............RR...V
 V...WQQQQQQW...............YQQQ.....OVG.....GR...V
 V...WQQQQQQW.GRRG...:......QQQY.....V.V.....R....V
-V...WQQQ@QQW...............QQQ.......V....RR.....V  >[npc:chest_golden]
-V...WQQQQQQW.....o.:.....Y.QQQ.....V.V.V......V..V
-V...WQQQQQQW.G.G............QQQ....V.O.GV........V
-V....WWWWWW...G....:........QQQ...GV.............V
-V...........o...............QQQ..................V
-V..YY..............:G......YQQQY.......V.........V
+V...WQQQ@QQW...............QQQ.......V....RR.....R  >[npc:chest_golden]
+V...WQQQQQQW.....o.:.....Y.QQQ.....V.V.V........@R  >[npc:solstice_jungle_entrance]
+V...WQQQQQQW.G.G............QQQ....V.O.GV........R
+V....WWWWWW...G....:........QQQ...GV.............R
+V...........o...............QQQ..................R
+V..YY..............:G......YQQQY.......V.........R
 V.G................G@Y..V..VQQQ..................V  >[npc:chest_wooden]
 V,,,,,,,Y,Y,,,,,,,:G,OO,,,,,QQQ,,,.,.,.,.,,,,,,,,V
 V,,,,,,,,,,,O,,,,,RGRG,,,,OYQQQ,,.,.,.,.,.V,Y,,,,V

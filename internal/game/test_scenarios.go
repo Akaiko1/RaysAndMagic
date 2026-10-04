@@ -29,6 +29,7 @@ type TestScenario struct {
 	Angle                 float64          `yaml:"angle"`
 	Gold                  int              `yaml:"gold"`
 	Items                 []string         `yaml:"items"`
+	Weapons               []string         `yaml:"weapons"`
 	Quests                []string         `yaml:"quests"`
 	ClearMaps             []string         `yaml:"clear_maps"`
 	CompleteNPCEncounters []string         `yaml:"complete_npc_encounters"`
@@ -136,6 +137,13 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 		}
 	}
 	var loot []items.Item
+	for _, key := range s.Weapons {
+		it, err := items.TryCreateWeaponFromYAML(key)
+		if err != nil {
+			return err
+		}
+		loot = append(loot, it)
+	}
 	for _, key := range s.Items {
 		it, err := items.TryCreateItemFromYAML(key)
 		if err != nil {

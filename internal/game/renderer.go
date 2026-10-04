@@ -113,6 +113,7 @@ type Renderer struct {
 	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
 	// integer mip selection cannot make a whole token flash sharp/soft at range.
 	standeeMipCache        map[standeeMipKey]*mipChain
+	crystalShimmerShader   *ebiten.Shader
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
 	standeeVolumeShader    *ebiten.Shader
@@ -1413,6 +1414,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// its quest unseals it.
 		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
+		r.drawEnvironmentEffects(screen)
 		// Brood Mother's smouldering field: tiny ember edges on armed tiles.
 		r.drawBossFireTrapBorders(screen)
 		// Red bubble border around the player's start tile (floor inherited).
@@ -4193,15 +4195,6 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
 	}
-	// Elite/variant tint: a persistent colour cast distinguishes a champion from
-	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
-	// both standee and billboard paths below), so it reads at a glance - no new art.
-	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
-		rr *= s.monster.TintR
-		gg *= s.monster.TintG
-		bb *= s.monster.TintB
-	}
-
 	if s.monster == r.hoveredMonster {
 		rr *= standeeHoverBoost
 		gg *= standeeHoverBoost
@@ -4240,6 +4233,7 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	}
 	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
 	r.drawMonsterHeadBadges(screen, s, screenY, v)
+	r.drawElementalWeaponMarks(screen, s, screenY)
 	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
@@ -4466,6 +4460,8 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 					tiles := r.game.buildingFootprintTiles(s.npc)
 					if s.buildingSegment >= 0 && s.buildingSegment < len(tiles) {
 						c := tiles[s.buildingSegment]
+						dx, dy := r.game.buildingWallOffset(s.npc)
+						c[0], c[1] = c[0]+dx, c[1]+dy
 						dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 						e1x, e1y := c[0]-dirX*ts/2, c[1]-dirY*ts/2
 						e2x, e2y := c[0]+dirX*ts/2, c[1]+dirY*ts/2
@@ -4487,6 +4483,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 									x1, x2 = x2, x1
 								}
 								r.drawStandeeSlabColumns(screen, slab, x1, x2)
+								r.drawFacadeCrystalShimmer(screen, s.npc, slab, x1, x2)
 							}
 						}
 					}
@@ -4567,6 +4564,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(sprite, opts)
+	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, float64(drawLeft), float64(s.screenY), float64(s.spriteSize))
 }
 
 // drawSpriteEdgeGlow outlines a billboard sprite with a soft warm halo: the

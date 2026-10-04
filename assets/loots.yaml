@@ -8,6 +8,23 @@
 #   loot_groups: shared material groups for monster drops
 
 loots:
+  solstice_ember_elemental: [{"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
+  solstice_cinder_hound: [{"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
+  solstice_kiln_automaton: [{"type": "item", "key": "solstice_furnace_ceramic", "chance": 0.4}]
+  solstice_tide_elemental: [{"type": "item", "key": "solstice_condensed_tideglass", "chance": 0.4}]
+  solstice_cistern_eel: [{"type": "item", "key": "solstice_coldwater_gland", "chance": 0.4}]
+  solstice_flow_automaton: [{"type": "item", "key": "solstice_circulation_membrane", "chance": 0.4}]
+  solstice_jade_elemental: [{"type": "item", "key": "solstice_anchor_crystal", "chance": 0.4}]
+  solstice_shardback_burrower: [{"type": "item", "key": "solstice_mineral_plate", "chance": 0.4}]
+  solstice_anchor_automaton: [{"type": "item", "key": "solstice_petrified_conductor", "chance": 0.4}]
+  solstice_gale_elemental: [{"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
+  solstice_storm_kite: [{"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
+  solstice_transfer_automaton: [{"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
+  solstice_sunscarab: [{"type": "harvest", "key": "solstice_sun_resin", "chance": 0.45}]
+  solstice_rain_serpent: [{"type": "harvest", "key": "solstice_rain_pearl", "chance": 0.45}]
+  solstice_rootbound_sentinel: [{"type": "harvest", "key": "solstice_calendar_jade", "chance": 0.45}]
+  solstice_dusk_moth: [{"type": "harvest", "key": "solstice_whisper_silk", "chance": 0.45}]
+
   common_carp:
     - {type: item, key: carp_scale, chance: 1}
   koi:
@@ -974,6 +991,23 @@ boss_loot:
 # Traps: trap_damage blasts every hero (element from trap_damage_types),
 # trap_ignite burns them; Disarm Trap avoids either at 40/60/80/100%.
 crates:
+  solstice_fire_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_fire_archive"
+    treasure_chest: true
+  solstice_water_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_water_archive"
+    treasure_chest: true
+  solstice_earth_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_earth_archive"
+    treasure_chest: true
+  solstice_air_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_air_archive"
+    treasure_chest: true
+
   # --- Roadside props (2026-07-14) ---
   # Boxes may hold sellable junk, the campfire is a one-time free rest + coin
   # cache, the barrels are one-time stat draughts.
@@ -1147,6 +1181,43 @@ crates:
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:
+  solstice_fire_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_thermal_lance", "weight": 1}, {"type": "item", "key": "solstice_heatshield_mantle", "weight": 1}, {"type": "item", "key": "solstice_ember_regulator_ring", "weight": 1}]
+  solstice_water_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_flowstaff", "weight": 1}, {"type": "item", "key": "solstice_circulation_vestment", "weight": 1}, {"type": "item", "key": "solstice_tideglass_signet", "weight": 1}]
+  solstice_earth_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_anchor_hammer", "weight": 1}, {"type": "item", "key": "solstice_deepstone_aegis", "weight": 1}, {"type": "item", "key": "solstice_loadbearer_girdle", "weight": 1}]
+  solstice_air_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_transfer_blade", "weight": 1}, {"type": "item", "key": "solstice_vector_boots", "weight": 1}, {"type": "item", "key": "solstice_resonance_diadem", "weight": 1}]
+  solstice_fire_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "steel_axe", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+  solstice_water_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "battle_staff", "weight": 1}, {"type": "item", "key": "chain_armor", "weight": 1}]
+  solstice_earth_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "steel_mace", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+  solstice_air_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "silver_sword", "weight": 1}, {"type": "item", "key": "chain_armor", "weight": 1}]
+
   castle_armory:
     rolls: 1
     gold_min: 40

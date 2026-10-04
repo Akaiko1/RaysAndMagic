@@ -96,6 +96,11 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// throne snap-back above.
 				m.BossDormant = m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
+				m.HomeMap = ms.HomeMap
+				if m.HomeMap == "" {
+					m.HomeMap = homeFallback
+				}
+				g.restoreAdventureMonster(m)
 				m.HitPoints = ms.HitPoints
 				// The enrage EFFECT is derived from HP; only the announcement
 				// latch is saved, so a threshold crossed just before the save
@@ -145,6 +150,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
 				m.RootRate = ms.RootRate
 				m.ArmorShredPct = ms.ArmorShredPct
+				m.RestoreElementalMarks(ms.ElementalMarks)
 				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
 				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
 				m.ArmorShredRate = ms.ArmorShredRate
@@ -163,6 +169,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.TrapVolleyCDFrames = ms.TrapVolleyCD
 				m.TrapVolleyTurnCD = ms.TrapVolleyTurnCD
 				m.TrapVolleyCDRate = ms.TrapVolleyCDRate
+				m.Telegraph = ms.Telegraph.Clone()
 				m.SlowPct = ms.SlowPct
 				m.SlowFramesRemaining = ms.SlowFrames
 				m.SlowTurnsRemaining = ms.SlowTurns

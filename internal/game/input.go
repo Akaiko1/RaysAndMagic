@@ -414,6 +414,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 	// Drop the previous run's per-map return positions so a fresh party enters
 	// each map at its '+' start, not where the old party last stood.
+	g.adventure = AdventureState{}
 	g.mapReturnPoses = make(map[string]MapPose)
 
 	// Reset maps to a fresh state with monsters and NPCs.
@@ -1276,6 +1277,7 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 // nothing.
 func (ih *InputHandler) applyLandingTileEffects() {
 	ih.game.autoPickupLootBags()
+	ih.game.applyEnvironmentArrival()
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }
@@ -1314,6 +1316,9 @@ func (ih *InputHandler) movementScale() float64 {
 // not rotation.
 func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	if ih.game.partyHinder.Slow > 0 {
+		speed *= .75
+	}
 	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()
 	}
@@ -3144,8 +3149,11 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
+	ih.enterEncounterMapAt(targetMapKey, nil)
+}
+func (ih *InputHandler) enterEncounterMapAt(targetMapKey string, tile *[2]int) {
 	ih.game.closeConversation()
-	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance}); err != nil {
+	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance, arrivalTile: tile}); err != nil {
 		ih.game.AddCombatMessage("You cannot enter from here.")
 	}
 }

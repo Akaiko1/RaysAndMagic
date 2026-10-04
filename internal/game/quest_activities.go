@@ -45,7 +45,7 @@ func (g *MMGame) activateQuest(id string) error {
 func activityProp(npc *character.NPC) (string, *character.NPCPropCopy) {
 	var id string
 	var prop *character.NPCPropCopy
-	if npc != nil {
+	if npc != nil && npc.DialogueData != nil {
 		_ = npc.DialogueData.WalkChoices(func(choice *character.NPCDialogueChoice) error {
 			if prop == nil && choice.Prop != nil && choice.Prop.Token != "" {
 				id, prop = choice.QuestID, choice.Prop
@@ -56,6 +56,9 @@ func activityProp(npc *character.NPC) (string, *character.NPCPropCopy) {
 	return id, prop
 }
 func (g *MMGame) activityNPCAbsent(npc *character.NPC) bool {
+	if npc != nil && npc.ShopDialogue {
+		return false
+	}
 	id, prop := activityProp(npc)
 	if prop == nil || g.questManager == nil {
 		return false
@@ -96,6 +99,9 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 	}
 	if q.Definition.Activity == nil {
 		return false
+	}
+	if g.handleObjectiveProp(npc, id, words) {
+		return true
 	}
 	credited, completed, message := g.questManager.InteractActivity(id, words.Tag, words.Token, g.dayNightIsNight)
 	g.syncQuestProps()
@@ -152,7 +158,7 @@ func validateQuestActivityProps(qm *quests.QuestManager, complete bool) error {
 			if err := validateQuestPropCopy(key, p); err != nil {
 				return err
 			}
-			if p.Token == "" || (!slices.Contains(d.Activity.Sequence, p.Token) && d.Activity.TokenPhase(p.Token) == "") {
+			if p.Token == "" || !objectiveTokenKnown(d.Activity, p.Token) {
 				return fmt.Errorf("NPC %q: unknown activity token %q", key, p.Token)
 			}
 			if p.LootTable != "" {
@@ -161,7 +167,7 @@ func validateQuestActivityProps(qm *quests.QuestManager, complete bool) error {
 			if producers[choice.QuestID] == nil {
 				producers[choice.QuestID] = map[string]string{}
 			}
-			if old := producers[choice.QuestID][p.Token]; old != "" {
+			if old := producers[choice.QuestID][p.Token]; old != "" && (old != key || d.Activity.Objective(p.Token) == nil) {
 				return fmt.Errorf("NPC %q and %q duplicate activity token %q", old, key, p.Token)
 			}
 			producers[choice.QuestID][p.Token] = key
@@ -179,6 +185,11 @@ func validateQuestActivityProps(qm *quests.QuestManager, complete bool) error {
 			continue
 		}
 		tokens := append([]string(nil), d.Activity.Sequence...)
+		for _, o := range d.Activity.Objectives {
+			if o.Event == "interact" {
+				tokens = append(tokens, o.Token)
+			}
+		}
 		for _, group := range d.Activity.Forage {
 			tokens = append(tokens, group.Tokens...)
 		}

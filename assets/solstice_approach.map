@@ -1,0 +1,32 @@
+VVVVVVVVVVVVVVVRRRRRRVVVVVVVVVVV
+VVVVVVVVVVV.....@.....VVVVVVVVVV  >[npc:solstice_vestibule_entrance]
+VVVVVVVVVVV...........VVVVVVVVVV
+VVVVVVVVVVV...........VVVVVVVVVV
+VVVVVVVVVVV..@.@.@.@.........VVV  >[npc:solstice_anchors_install_fire], [npc:solstice_anchors_install_water], [npc:solstice_anchors_install_earth], [npc:solstice_anchors_install_air]
+VVV.............@......qq....VVV  >[npc:solstice_schedule_alignment]
+VVV.aa.........@.@...........VVV  >[npc:solstice_schedule_day_reading], [npc:solstice_schedule_night_reading]
+VVV...@..................@...VVV  >[npc:solstice_anchors_recover_fire], [npc:solstice_anchors_recover_air]
+VVV..........................VVV
+VVV........V..VVVVVVVV...@...VVV  >[npc:solstice_survey_marker_3]
+VVV........V..VVVVVVVV.......VVV
+VVVVV..VVVVV..VVVVVVVVVVV..VVVVV
+VVVVV.........VVVVVVVVVVV..VVVVV
+VVVVV...ee....VVVVVVVVVVV..VVVVV
+VVVVV.....@...VVVVVVVVVVV..VVVVV  >[npc:solstice_anchors_recover_earth]
+VVVVV.......@..............VVVVV  >[npc:solstice_survey_marker_2]
+VVVVV......................VVVVV
+VVVVV...@@....VVVVVVVVVVV..VVVVV  >[npc:solstice_expedition_instrument], [npc:solstice_expedition_page_1]
+VVVVV.........VVVVVVVVVVV..VVVVV
+VVVVV..VVVVVVVVVVV.....VV..VVVVV
+VVVVV..VVVVVVVVVVV.....VV..VVVVV
+VVVVV..VVVVVVVVVVV.@@........VVV  >[npc:solstice_expedition_page_2], [npc:solstice_expedition_page_3]
+VVVVV..VVVVVVVVVVV........cc.VVV
+VV.......VVVVVVVVV...........VVV
+VV.....@.................@...VVV  >[npc:solstice_survey_marker_1], [npc:solstice_anchors_recover_water]
+VV..@........................VVV  >[npc:solstice_camp]
+VV.......VVVVVVVVVVVVV.......VVV
+VV..@.@..VVVVVVVVVVVVV.......VVV  >[npc:solstice_velna], [npc:solstice_tovan]
+VV..+....VVVVVVVVVVVVVVVVVVVVVVV
+VV.@.....VVVVVVVVVVVVVVVVVVVVVVV  >[npc:solstice_approach_exit]
+VV.......VVVVVVVVVVVVVVVVVVVVVVV
+VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV

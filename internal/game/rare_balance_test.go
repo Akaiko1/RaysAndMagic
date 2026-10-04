@@ -176,7 +176,7 @@ func TestRareSpatialMonsterPasses(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/first=%v/%s", key, stepFirst, paidKind), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassWayfarer, true)
 					if key == "return_step" {
-						region, x, y := canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+						region, x, y := g.canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 						c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Frames: 1000}
 					}
 					paid := func() {
@@ -253,7 +253,7 @@ func TestRareSpatialPreservesExistingMonsterPass(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, true)
 			if key == "return_step" {
-				region, x, y := canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+				region, x, y := g.canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 				c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Frames: 1000}
 			}
 			g.turnBasedExtraMonsterAction = true

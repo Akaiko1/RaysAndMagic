@@ -369,16 +369,27 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			chance := def.DisintegrateChance
 			def.DisintegrateChance = 0
 			t.Cleanup(func() { def.DisintegrateChance = chance })
+			// First-hit riders are separate resisted impacts, not part of the
+			// designated weapon packet. In particular they must not double.
+			firstHitBonus := 0
+			if a := def.ElementalAbility; a != nil {
+				switch a.Kind {
+				case "anchor":
+					firstHitBonus = a.Damage
+				case "backwash":
+					firstHitBonus = a.Damage + ch.GetEffectiveIntellect()/a.StatDivisor
+				}
+			}
 			trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
 			if def.Range > 3 {
 				shot := &Arrow{ID: "single", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key,
-					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def)}
+					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), ElementalAbilityDamage: firstHitBonus}
 				g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
 			} else {
 				g.combat.ApplyDamageToMonster(primary, 100, def.Name, false)
 			}
-			if got := 10000 - primary.HitPoints; got != 200+trueDamage {
-				t.Fatalf("marked primary took %d, want %d", got, 200+trueDamage)
+			if got := 10000 - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
+				t.Fatalf("marked primary took %d, want %d", got, 200+trueDamage+firstHitBonus)
 			}
 			if secondary.HitPoints != 10000 {
 				t.Fatal("single-target weapon gained splash")

@@ -269,6 +269,7 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Telegraph         TelegraphState
 	Arboreal          *ArborealConfig
 	Arbor             ArborealState
 	FishLeap          *FishLeapState
@@ -587,16 +588,14 @@ type Monster3D struct {
 	EnrageDamageMult   float64
 	EnrageCooldownMult float64
 	Enraged            bool
-	// Visual tint: a persistent RGB cast multiplied into the lit sprite, marking a
-	// variant apart when it shares a base mob's sprite (e.g. an elite). All-zero = none.
-	TintR, TintG, TintB float32
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
 	EncounterRewards   *EncounterRewards // Rewards for defeating this encounter monster
 
 	// Configuration reference
-	config *config.Config
+	ElementalMarks map[string]ElementalWeaponMark
+	config         *config.Config
 
 	// Immutable config-derived render/collision data, cached at setup. Rendering,
 	// collision registration, and overlap recovery read it frequently; none
@@ -1421,7 +1420,7 @@ func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 // MovementHeld is the shared non-random movement gate. Slow percentages below
 // 100 are applied by RT speed or one TB roll per attempted movement action.
 func (m *Monster3D) MovementHeld(turnBased bool) bool {
-	if m == nil || !m.IsAlive() || m.Speed <= 0 {
+	if m == nil || !m.IsAlive() || m.Speed <= 0 || m.Telegraph.Warning > 0 {
 		return true
 	}
 	// Charm may wander on the ground, but cannot hand an unfinished canopy

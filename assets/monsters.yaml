@@ -1,4 +1,675 @@
 monsters:
+  solstice_ember_elemental:
+    telegraphed_attack:
+      name: "Burning Strip"
+      kind: "strike"
+      school: "fire"
+      shape: "lane"
+      range: 5
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+      duration_seconds: 4
+      duration_rounds: 2
+      sustain_damage: 8
+    name: "Ember Elemental"
+    level: 24
+    max_hit_points: 1330
+    armor_class: 28
+    experience: 1500
+    damage_min: 40
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_ember_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 60
+      water: -20
+    boss: false
+    projectile_spell: "firebolt"
+    ranged_attack_range: 5
+  solstice_cinder_hound:
+    telegraphed_attack:
+      name: "Cinder Charge"
+      kind: "charge"
+      school: "fire"
+      shape: "lane"
+      range: 3
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 115
+    name: "Cinder Hound"
+    level: 23
+    max_hit_points: 1160
+    armor_class: 24
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_cinder_hound"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 40
+      water: -20
+    boss: false
+  solstice_kiln_automaton:
+    telegraphed_attack:
+      name: "Heat Discharge"
+      kind: "strike"
+      school: "fire"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Kiln Automaton"
+    level: 25
+    max_hit_points: 1650
+    armor_class: 42
+    experience: 1500
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_kiln_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      physical: 20
+      fire: 40
+      water: -20
+    boss: false
+  solstice_aureth:
+    enrage_at_hp: 787
+    enrage_cooldown_mult: 0.8
+    name: "Aureth"
+    level: 27
+    max_hit_points: 3150
+    armor_class: 44
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_aureth"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 70
+      water: -20
+    boss: true
+    projectile_spell: "firebolt"
+    ranged_attack_range: 5
+  solstice_tide_elemental:
+    telegraphed_attack:
+      name: "Slowing Wave"
+      kind: "slow"
+      school: "water"
+      shape: "cone"
+      range: 5
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+    name: "Tide Elemental"
+    level: 24
+    max_hit_points: 1300
+    armor_class: 26
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_tide_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 60
+      fire: -20
+    boss: false
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 5
+  solstice_cistern_eel:
+    telegraphed_attack:
+      name: "Coiled Frost"
+      kind: "slow"
+      school: "water"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Cistern Eel"
+    level: 23
+    max_hit_points: 1120
+    armor_class: 22
+    experience: 1500
+    damage_min: 34
+    damage_max: 52
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_cistern_eel"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 40
+      fire: -20
+    boss: false
+  solstice_flow_automaton:
+    telegraphed_attack:
+      name: "Circulation Shield"
+      kind: "shield"
+      school: "water"
+      shape: "target"
+      range: 3
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 0
+      duration_seconds: 6
+      duration_rounds: 2
+    name: "Flow Automaton"
+    level: 25
+    max_hit_points: 1570
+    armor_class: 38
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_flow_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      physical: 20
+      water: 40
+      fire: -20
+    boss: false
+  solstice_neressa:
+    telegraphed_attack:
+      name: "Undertow Lance"
+      kind: "slow"
+      school: "water"
+      shape: "lane"
+      range: 7
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+      below_hp_percent: 25
+    name: "Neressa"
+    level: 27
+    max_hit_points: 3150
+    armor_class: 40
+    experience: 4000
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_neressa"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 70
+      fire: -20
+    boss: true
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 5
+  solstice_jade_elemental:
+    telegraphed_attack:
+      name: "Anchor Roots"
+      kind: "root"
+      school: "earth"
+      shape: "target"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 75
+    name: "Jade Elemental"
+    level: 24
+    max_hit_points: 1390
+    armor_class: 32
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_jade_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 60
+      air: -20
+    boss: false
+    projectile_spell: "rock_blast"
+    ranged_attack_range: 5
+  solstice_shardback_burrower:
+    telegraphed_attack:
+      name: "Shard Cone"
+      kind: "strike"
+      school: "earth"
+      shape: "cone"
+      range: 3
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Shardback Burrower"
+    level: 23
+    max_hit_points: 1220
+    armor_class: 35
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_shardback_burrower"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 40
+      air: -20
+    boss: false
+  solstice_anchor_automaton:
+    telegraphed_attack:
+      name: "Ground Shock"
+      kind: "strike"
+      school: "earth"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Anchor Automaton"
+    level: 25
+    max_hit_points: 1740
+    armor_class: 46
+    experience: 1500
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_anchor_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      physical: 20
+      earth: 40
+      air: -20
+    boss: false
+  solstice_talura:
+    name: "Talura"
+    level: 28
+    max_hit_points: 3480
+    armor_class: 48
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_talura"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 70
+      air: -20
+    boss: true
+    projectile_spell: "rock_blast"
+    ranged_attack_range: 5
+  solstice_gale_elemental:
+    flying: true
+    telegraphed_attack:
+      name: "Pressure Front"
+      kind: "push"
+      school: "air"
+      shape: "lane"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 80
+    name: "Gale Elemental"
+    level: 24
+    max_hit_points: 1270
+    armor_class: 25
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_gale_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 60
+      earth: -20
+    boss: false
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+  solstice_storm_kite:
+    projectile_spell: "sparks"
+    ranged_attack_range: 4
+    flying: true
+    telegraphed_attack:
+      name: "Storm Dive"
+      kind: "charge"
+      school: "air"
+      shape: "lane"
+      range: 3
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Storm Kite"
+    level: 23
+    max_hit_points: 1100
+    armor_class: 22
+    experience: 1500
+    damage_min: 34
+    damage_max: 52
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_storm_kite"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 40
+      earth: -20
+    boss: false
+  solstice_transfer_automaton:
+    flying: true
+    telegraphed_attack:
+      name: "Charged Core"
+      kind: "strike"
+      school: "air"
+      shape: "target"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 120
+    name: "Transfer Automaton"
+    level: 25
+    max_hit_points: 1520
+    armor_class: 36
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_transfer_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      physical: 20
+      air: 40
+      earth: -20
+    boss: false
+  solstice_vaelith:
+    flying: true
+    name: "Vaelith"
+    level: 28
+    max_hit_points: 3480
+    armor_class: 42
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_vaelith"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 70
+      earth: -20
+    boss: true
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+  solstice_sunscarab:
+    telegraphed_attack:
+      name: "Solar Burst"
+      kind: "strike"
+      school: "fire"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+    name: "Sunscarab"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 1
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_sunscarab"
+    letter: "a"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+  solstice_rain_serpent:
+    telegraphed_attack:
+      name: "Coldwater Spit"
+      kind: "slow"
+      school: "water"
+      shape: "target"
+      range: 4
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+    name: "Rain Serpent"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 4
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_rain_serpent"
+    letter: "c"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 4
+  solstice_rootbound_sentinel:
+    telegraphed_attack:
+      name: "Binding Roots"
+      kind: "root"
+      school: "earth"
+      shape: "target"
+      range: 3
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 70
+    name: "Rootbound Sentinel"
+    level: 23
+    max_hit_points: 1200
+    armor_class: 32
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 1
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_rootbound_sentinel"
+    letter: "e"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+  solstice_dusk_moth:
+    flying: true
+    telegraphed_attack:
+      name: "Receding Spark"
+      kind: "retreat"
+      school: "air"
+      shape: "target"
+      range: 4
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+    name: "Dusk Moth"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 4
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_dusk_moth"
+    letter: "q"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+
   # All radius values are in TILES (1 tile = 64 pixels)
   # alert_radius: detection/aggro range in tiles (minimum 4 for active monsters)
   # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
@@ -376,8 +1047,8 @@ monsters:
       water: -25               # vulnerable to water/ice
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
-  # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
-  # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
+  # Summoned ONLY by the four desert statues (dragon_statue_*). Dedicated elder
+  # sprites, ~1.5x HP/XP and harder hits. All named "Elder
   # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
   # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
   elder_dragon:
@@ -401,7 +1072,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon"
-    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
     flying: true
     box_w: 48
     box_h: 48
@@ -434,7 +1104,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_red"
-    tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
     box_w: 48
     box_h: 48
@@ -465,7 +1134,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_green"
-    tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
     box_w: 48
     box_h: 48
@@ -499,7 +1167,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_gold"
-    tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
     box_w: 48
     box_h: 48
@@ -1193,13 +1860,12 @@ monsters:
     speed: 1.4
     gold_min: 220
     gold_max: 450
-    sprite: "ashigaru_firelock"
+    sprite: "ronin_marksman"
     letter: "m"
     box_w: 48
     box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
-    tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
       mind: 100      # undead: immune to mind
       body: 50       # undead: resist body
@@ -1258,13 +1924,12 @@ monsters:
     speed: 1.9
     gold_min: 260
     gold_max: 560
-    sprite: "ningyo"
+    sprite: "vengeful_ningyo"
     letter: "e"
     box_w: 48
     box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
-    tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
       mind: 100      # undead: immune to mind
       body: 50       # undead: resist body

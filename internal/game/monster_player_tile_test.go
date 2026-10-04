@@ -44,7 +44,8 @@ func TestRealTime_MeleePursuerNeverEntersPlayerTileButStillHits(t *testing.T) {
 	// them short is the reach/standoff logic, not terrain.
 	for _, key := range ordinaryMeleeMonsterKeys(t) {
 		t.Run(key, func(t *testing.T) {
-			game, _, ts := tbBehaviorGame(t, 40, 40)
+			game, gl, ts := tbBehaviorGame(t, 40, 40)
+			game.gameLoop = gl
 			game.turnBasedMode = false
 			cs := game.combat
 			placePlayerAtTile(game, ptx, pty, ts)
@@ -56,6 +57,10 @@ func TestRealTime_MeleePursuerNeverEntersPlayerTileButStillHits(t *testing.T) {
 			hp0 := partyHPSum(game)
 			reachedAdjacent := false
 			for i := 0; i < 720; i++ { // 6s at 120 TPS - covers even a speed-0.8 walker
+				// The live loop advances warnings before movement. A telegraphed
+				// melee actor holds its position until that clock releases it.
+				game.tickMonsterTelegraphs(1/float64(game.config.GetTPS()), false)
+				game.tickEnvironment(1/float64(game.config.GetTPS()), false)
 				m.Update(game.collisionSystem, game.camera.X, game.camera.Y)
 				cs.HandleMonsterInteractions()
 

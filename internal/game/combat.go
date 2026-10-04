@@ -851,27 +851,28 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 		dmg := damage
 		dmg = weaponCriticalDamage(dmg, isCrit)
 		arrow := Arrow{
-			ID:                 cs.game.GenerateProjectileID("arrow"),
-			Attacker:           cs.activeAttacker(),
-			X:                  cs.game.camera.X - dirX*back,
-			Y:                  cs.game.camera.Y - dirY*back,
-			VelX:               dirX * arrowSpeed,
-			VelY:               dirY * arrowSpeed,
-			Damage:             dmg,
-			TrueDamage:         trueDamage,
-			IgnoresDodge:       ignoresDodge,
-			LifeTime:           arrowLifetime,
-			Active:             true,
-			BowKey:             bowKey,
-			Label:              label,
-			DamageType:         damageType,
-			Crit:               isCrit,
-			CritChance:         critChance,
-			WorldAim:           worldAim || cs.partyAimTarget != nil,
-			DisintegrateChance: disintegrateChance,
-			PierceLeft:         pierceLeft,
-			RicochetLeft:       ricochetLeft,
-			Owner:              ProjectileOwnerPlayer,
+			ElementalAbilityDamage: elementalAbilityDamage(disintegrateDef, attacker),
+			ID:                     cs.game.GenerateProjectileID("arrow"),
+			Attacker:               cs.activeAttacker(),
+			X:                      cs.game.camera.X - dirX*back,
+			Y:                      cs.game.camera.Y - dirY*back,
+			VelX:                   dirX * arrowSpeed,
+			VelY:                   dirY * arrowSpeed,
+			Damage:                 dmg,
+			TrueDamage:             trueDamage,
+			IgnoresDodge:           ignoresDodge,
+			LifeTime:               arrowLifetime,
+			Active:                 true,
+			BowKey:                 bowKey,
+			Label:                  label,
+			DamageType:             damageType,
+			Crit:                   isCrit,
+			CritChance:             critChance,
+			WorldAim:               worldAim || cs.partyAimTarget != nil,
+			DisintegrateChance:     disintegrateChance,
+			PierceLeft:             pierceLeft,
+			RicochetLeft:           ricochetLeft,
+			Owner:                  ProjectileOwnerPlayer,
 		}
 		cs.game.arrows = append(cs.game.arrows, arrow)
 		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
@@ -1478,7 +1479,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		logMonsterName(monster), logDamage(finalDamage, damageTypeStr), logHP(monster.HitPoints, monster.MaxHitPoints))
 	cs.trySleightOfHand(attacker, monster)
 	cs.spawnWeaponHitImpactFX(monster, finalDamage)
-	cs.settlePartyHit(monster, weaponDef, attacker, attackerName, nil)
+	cs.settlePartyHit(monster, weaponDef, attacker, attackerName, nil, nil)
 	if radius := weaponAoeRadius(weaponDef); radius > 0 {
 		cs.applyAoeSplash(monster, attack, radius)
 	}
@@ -1489,7 +1490,8 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 // Maw's execute, and the kill finalization. executed means the Maw finished
 // the target.
 func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig,
-	attacker *character.MMCharacter, attackerName string, riders func()) (executed bool) {
+	attacker *character.MMCharacter, attackerName string, shot *Arrow, riders func()) (executed bool) {
+	cs.applyElementalWeaponAbility(monster, weaponDef, attacker, shot)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
 		if riders != nil {
@@ -1649,6 +1651,10 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 		cs.game.releaseMonsterAttackPost(monster)
 		return
 	}
+	if cs.runTelegraphedAction(monster, monster.AttackCDFrames == 0) {
+		return
+	}
+
 	// Boss specials ride EVERY fight - party or a summon that out-competed it
 	// for aggro. After the stun/charm/bind and bound-ally gates (they still
 	// suppress boss actions), BEFORE the crossfire branch that used to swallow
@@ -3096,6 +3102,7 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		}
 	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	cs.game.recordAdventureBoss(m)
 	if m.IsCaravan() {
 		cs.game.recordCaravanLoss(m.ID)
 	}

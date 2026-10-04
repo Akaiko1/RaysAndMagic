@@ -14,7 +14,8 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Arboreal *ArborealConfig `yaml:"arboreal,omitempty"`
+	Telegraph *TelegraphedAttack `yaml:"telegraphed_attack,omitempty"`
+	Arboreal  *ArborealConfig    `yaml:"arboreal,omitempty"`
 
 	Disposition  string   `yaml:"disposition,omitempty"`
 	Prey         []string `yaml:"prey,omitempty"`
@@ -139,9 +140,6 @@ type MonsterDefinition struct {
 	RootPartyTurns      int     `yaml:"root_party_turns,omitempty"`
 	RearBlinkChance     float64 `yaml:"rear_blink_chance,omitempty"`
 	RearBlinkRangeTiles float64 `yaml:"rear_blink_range_tiles,omitempty"`
-	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
-	// or variant apart from a base mob that shares its sprite.
-	TintColor []float64 `yaml:"tint_color,omitempty"`
 
 	// Reject the former misleading key rather than silently losing terrain permissions.
 	DeprecatedHabitatPreferences yaml.Node `yaml:"habitat_preferences,omitempty"`
@@ -179,6 +177,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		config.Monsters[key] = monster
 	}
 	for key, monster := range config.Monsters {
+		if err := monster.Telegraph.validate(); err != nil {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
+		}
 		if monster.Arboreal != nil {
 			if err := monster.Arboreal.validate(); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
@@ -353,9 +354,6 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.RallyMaxTargets > 0 && monster.RallyOnAggroTiles <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has rally_max_targets but no rally_on_aggro_tiles", key))
-		}
-		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
 		}
 	}
 	for letter, monsterKeys := range universalLetters {
@@ -683,11 +681,6 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.BandGroup = def.BandGroup
 	m.RootPartyChance, m.RootPartySeconds, m.RootPartyTurns = def.RootPartyChance, def.RootPartySeconds, def.RootPartyTurns
 	m.RearBlinkChance, m.RearBlinkRangeTiles = def.RearBlinkChance, def.RearBlinkRangeTiles
-	if len(def.TintColor) == 3 {
-		m.TintR = float32(def.TintColor[0])
-		m.TintG = float32(def.TintColor[1])
-		m.TintB = float32(def.TintColor[2])
-	}
 
 	m.LightRadius = 0
 	m.LightIntensity = 0

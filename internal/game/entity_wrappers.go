@@ -90,6 +90,9 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 
 	// Convert arrows
 	for i := range g.arrows {
+		if g.arrows[i].Backwash != nil {
+			g.combat.prepareBackwashCharge(&g.arrows[i])
+		}
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
 			CreateArrowWrapper(&g.arrows[i], g.collisionSystem, g.arrows[i].ID, g))
 	}

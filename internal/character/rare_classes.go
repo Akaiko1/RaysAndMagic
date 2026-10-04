@@ -45,7 +45,7 @@ func (r *RareClassState) Tick(frames int) {
 
 func AlchemyYield(tier int, family string) int {
 	switch family {
-	case "protective":
+	case "protective", "empowering":
 		return masteryTableValue([4]int{1, 2, 3, 4}, tier)
 	case "revival":
 		return masteryTableValue([4]int{1, 2, 3, 4}, tier)

@@ -58,6 +58,10 @@ func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	l.listTitle, l.rowsTop, l.rowGap = true, l.list.y+rareBookListTitle, 6
 	l.rowHeight = 54
 	l.rows = max(1, (l.list.h-52)/l.rowHeight)
+	if alchemist {
+		l.rowsTop += 48
+		l.rows = max(1, (l.list.bottom()-32-l.rowsTop)/l.rowHeight)
+	}
 	if !alchemist {
 		// Every technique is on one page. A page too short for the authored
 		// rows tightens the gaps, then drops the list heading.
@@ -291,20 +295,50 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 		return
 	}
 	rs := config.GlobalAlchemy.Recipes
-	g.selectedRare = max(0, min(len(rs)-1, g.selectedRare))
-	page := g.selectedRare / l.rows
-	pages := pageCount(len(rs), l.rows)
-	drawUIText(screen, "RECIPES", l.list.x+12, l.list.y+6)
-	for i := page * l.rows; i < min(len(rs), (page+1)*l.rows); i++ {
-		it, _ := items.TryCreateItemFromYAML(rs[i].Output)
-		idx := i
-		ui.rareBookRow(screen, l.row(i-page*l.rows), it, fmt.Sprintf("%d per batch", character.AlchemyYield(c.SkillTier(character.SkillAlchemy), rs[i].Family)), i == g.selectedRare, func() { g.selectedRare = idx; g.rareBookMessage = "" })
+	visible := g.visibleAlchemyRecipes()
+	pos := g.selectVisibleAlchemyRecipe(visible, 0)
+	page := max(0, pos) / l.rows
+	pages := pageCount(len(visible), l.rows)
+	drawUIText(screen, fmt.Sprintf("RECIPES (%d)", len(visible)), l.list.x+12, l.list.y+6)
+	category := g.alchemyRecipeFilter
+	if category == "" {
+		category = "All"
 	}
-	ui.rareBookButton(screen, layoutRect{l.pager.x, l.pager.y, 32, l.pager.h}, "<", page > 0, func() { g.selectedRare = (page - 1) * l.rows; g.rareBookMessage = "" })
+	element := g.alchemyElementFilter
+	if element == "" {
+		element = "All"
+	}
+	row := layoutRect{l.list.x + 8, l.list.y + 24, l.list.w - 16, 20}
+	ui.rareBookButton(screen, row, "Type: "+category, true, func() {
+		g.alchemyRecipeFilter = nextAlchemyFilter(g.alchemyRecipeFilter, alchemyRecipeFilters)
+		g.rareBookMessage = ""
+	})
+	row.y += 24
+	row.w = (row.w - 4) / 2
+	ui.rareBookButton(screen, row, element, true, func() {
+		g.alchemyElementFilter = nextAlchemyFilter(g.alchemyElementFilter, alchemyElementFilters)
+		g.rareBookMessage = ""
+	})
+	row.x += row.w + 4
+	ready := "Stock: All"
+	if g.alchemyBrewableOnly {
+		ready = "Brewable"
+	}
+	ui.rareBookButton(screen, row, ready, true, func() { g.alchemyBrewableOnly = !g.alchemyBrewableOnly; g.rareBookMessage = "" })
+	for i := page * l.rows; i < min(len(visible), (page+1)*l.rows); i++ {
+		idx := visible[i]
+		it, _ := items.TryCreateItemFromYAML(rs[idx].Output)
+		ui.rareBookRow(screen, l.row(i-page*l.rows), it, fmt.Sprintf("%d per batch", character.AlchemyYield(c.SkillTier(character.SkillAlchemy), rs[idx].Family)), idx == g.selectedRare, func() { g.selectedRare = idx; g.rareBookMessage = "" })
+	}
+	ui.rareBookButton(screen, layoutRect{l.pager.x, l.pager.y, 32, l.pager.h}, "<", page > 0, func() { g.selectedRare = visible[(page-1)*l.rows]; g.rareBookMessage = "" })
 	drawCenteredUIText(screen, fmt.Sprintf("%d / %d", page+1, pages), l.pager.x+36, l.pager.y, l.pager.w-72, l.pager.h)
-	ui.rareBookButton(screen, layoutRect{l.pager.right() - 32, l.pager.y, 32, l.pager.h}, ">", page+1 < pages, func() { g.selectedRare = (page + 1) * l.rows; g.rareBookMessage = "" })
+	ui.rareBookButton(screen, layoutRect{l.pager.right() - 32, l.pager.y, 32, l.pager.h}, ">", page+1 < pages, func() { g.selectedRare = visible[(page+1)*l.rows]; g.rareBookMessage = "" })
 	if g.brewAnimation != nil {
 		ui.drawAlchemyBrewAnimation(screen, l.detail)
+		return
+	}
+	if len(visible) == 0 {
+		ui.rareBookText(screen, "No matching recipes. Change the filters or gather the selected ingredients.", l.detail)
 		return
 	}
 	ui.drawAlchemyMaterials(screen, c, l, &rs[g.selectedRare])
@@ -486,7 +520,18 @@ func (ih *InputHandler) handleRareBookInput() bool {
 	}
 	n := 0
 	if c.Class == character.ClassAlchemist && config.GlobalAlchemy != nil {
-		n = len(config.GlobalAlchemy.Recipes)
+		visible := g.visibleAlchemyRecipes()
+		g.selectVisibleAlchemyRecipe(visible, 0)
+		if ih.keys.Consume(ebiten.KeyUp) {
+			g.selectVisibleAlchemyRecipe(visible, -1)
+		}
+		if ih.keys.Consume(ebiten.KeyDown) {
+			g.selectVisibleAlchemyRecipe(visible, 1)
+		}
+		if ih.keys.Consume(ebiten.KeyEnter) && len(visible) > 0 {
+			g.brewSelectedRecipe()
+		}
+		return true
 	} else if config.GlobalTechniques != nil {
 		n = len(config.GlobalTechniques.Techniques)
 	}

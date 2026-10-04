@@ -27,6 +27,8 @@ func (g *MMGame) buildingPose(npc *character.NPC) (x, y, yaw float64, ok bool) {
 	ts := float64(g.config.GetTileSize())
 	cx := (math.Floor(npc.X/ts) + 0.5) * ts
 	cy := (math.Floor(npc.Y/ts) + 0.5) * ts
+	dx, dy := g.buildingWallOffset(npc)
+	cx, cy = cx+dx, cy+dy
 	// w|n appear only at runtime, when the open-world stitcher rotates a
 	// placed map's authored e|s span (authoring stays e|s, see validation).
 	half := float64(npc.GridSpanTiles-1) / 2 * ts
@@ -41,6 +43,32 @@ func (g *MMGame) buildingPose(npc *character.NPC) (x, y, yaw float64, ok bool) {
 		return cx, cy - half, math.Pi / 2, true
 	}
 	return 0, 0, 0, false
+}
+
+// buildingWallOffset seats a facade against a complete backing wall.
+// Neighbor tests follow the runtime span, including stitched-map rotations.
+func (g *MMGame) buildingWallOffset(npc *character.NPC) (float64, float64) {
+	if !npc.WallBacked || g.world == nil || world.GlobalTileManager == nil {
+		return 0, 0
+	}
+	ts := float64(g.config.GetTileSize())
+	directions := [][2]float64{{0, -1}, {0, 1}}
+	if npc.GridSpanDir == "s" || npc.GridSpanDir == "n" {
+		directions = [][2]float64{{1, 0}, {-1, 0}}
+	}
+	for _, d := range directions {
+		backed := true
+		for _, tile := range g.buildingFootprintTiles(npc) {
+			if !world.GlobalTileManager.IsSolid(g.world.GetTileAt(tile[0]+d[0]*ts, tile[1]+d[1]*ts)) {
+				backed = false
+				break
+			}
+		}
+		if backed {
+			return d[0] * ts / 2, d[1] * ts / 2
+		}
+	}
+	return 0, 0
 }
 
 // buildingFootprintTiles lists the world-space tile centers the span covers.

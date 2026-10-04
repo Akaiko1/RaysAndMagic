@@ -8,6 +8,9 @@
 # `spawn` distinguishes a not-yet-spawned story boss from a dead one.
 # `priority` makes an unlocked follow-up outrank general leads.
 rumors:
+  - quest: solstice_records
+    priority: 15
+    text: "Velna has found a doorway on the Deep Jungle east bank that opens into different rooms by day and night. Her survey camp lies beyond the numbered bronze entrance."
   # Optional authored arcs. These point at their real giver or interaction and
   # retire as soon as the stated objective is complete.
   - quest: "culverts_valves"

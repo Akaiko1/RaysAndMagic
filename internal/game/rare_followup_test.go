@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -420,6 +421,10 @@ func TestRarePathfindingPartyAndRunning(t *testing.T) {
 func TestRareAlchemyMaterialVariety(t *testing.T) {
 	rareClassGame(t, character.ClassAlchemist, false)
 	for _, r := range config.GlobalAlchemy.Recipes {
+		// Solstice has exact two-reagent formulas, checked separately.
+		if strings.HasPrefix(r.Key, "solstice_") {
+			continue
+		}
 		keys := map[string]bool{}
 		for _, a := range r.Ingredients[1].Alternatives {
 			for _, k := range a.Items {

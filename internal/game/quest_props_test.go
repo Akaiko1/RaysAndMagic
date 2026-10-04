@@ -208,7 +208,7 @@ func activityQuestIDs(t *testing.T) []string {
 	var ids []string
 	sequence, forage := false, false
 	for _, id := range sortedMapKeys(qc.Quests) {
-		if a := qc.Quests[id].Activity; a != nil {
+		if a := qc.Quests[id].Activity; a != nil && len(a.Objectives) == 0 {
 			ids = append(ids, id)
 			sequence = sequence || len(a.Sequence) > 0
 			forage = forage || len(a.Forage) > 0

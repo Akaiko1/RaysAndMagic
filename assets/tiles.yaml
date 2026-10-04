@@ -1,4 +1,141 @@
 tiles:
+  solstice_fire_wall:
+    name: "Fire Service Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_fire_wall_0"
+    wall_color: [210, 105, 45]
+    letter: "X"
+    biomes: ["solstice_fire"]
+  solstice_water_wall:
+    name: "Water Service Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_water_wall_0"
+    wall_color: [65, 155, 170]
+    letter: "X"
+    biomes: ["solstice_water"]
+  solstice_earth_wall:
+    name: "Earth Service Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_earth_wall_0"
+    wall_color: [140, 155, 80]
+    letter: "X"
+    biomes: ["solstice_earth", "solstice_vestibule"]
+  solstice_air_wall:
+    name: "Air Service Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_air_wall_0"
+    wall_color: [155, 195, 215]
+    letter: "X"
+    biomes: ["solstice_air"]
+  solstice_fire_service_wall:
+    name: "Fire Regulator Panel"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_fire_wall_service"
+    letter: "Y"
+    biomes: ["solstice_fire"]
+
+  solstice_water_service_wall:
+    name: "Water Regulator Panel"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_water_wall_service"
+    letter: "Y"
+    biomes: ["solstice_water"]
+
+  solstice_earth_service_wall:
+    name: "Earth Regulator Panel"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_earth_wall_service"
+    letter: "Y"
+    biomes: ["solstice_earth", "solstice_vestibule"]
+
+  solstice_air_service_wall:
+    name: "Air Regulator Panel"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    render_type: "wall"
+    sprite: "solstice_air_wall_service"
+    letter: "Y"
+    biomes: ["solstice_air"]
+
+  solstice_gap:
+    name: "Broken Connection"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: false
+    fly_over: true
+    render_type: "floor"
+    sprite: ""
+    floor_color: [20, 25, 30]
+    letter: "~"
+    biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air", "solstice_vestibule"]
+  solstice_lava:
+    name: "Thermal Channel"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    render_type: "floor"
+    sprite: ""
+    floor_texture_group: "thermal"
+    floor_color: [230, 88, 25]
+    letter: "L"
+    biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air"]
+  solstice_shallow:
+    name: "Circulation Channel"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    render_type: "floor"
+    sprite: ""
+    floor_texture_group: "circulation"
+    floor_color: [45, 125, 145]
+    letter: "S"
+    biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air"]
+  solstice_plate:
+    name: "Pressure Plate"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    render_type: "floor"
+    sprite: ""
+    floor_texture_group: "pressure"
+    floor_color: [130, 125, 75]
+    letter: "T"
+    biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air"]
+
   # Pickup follows !walkable unless blocks_pickup overrides it.
   # Terrain passage bypasses a pickup block only on fly_over terrain; walls still block sight.
   # Basic terrain types

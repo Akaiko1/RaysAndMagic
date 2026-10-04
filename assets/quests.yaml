@@ -2,6 +2,132 @@
 # This file defines all quests in the game
 
 quests:
+  solstice_survey:
+    name: "The Surveyor's Contradiction"
+    description: "Read three distinct survey markers on the approach, then report to Velna."
+    type: "interact"
+    target_monster: "solstice_survey"
+    target_count: 3
+    progress_text: "readings recorded"
+    rewards:
+      gold: 600
+      experience: 800
+    activity:
+      objectives: [{"token": "marker_1", "map": "solstice_approach", "event": "interact"}, {"token": "marker_2", "map": "solstice_approach", "event": "interact"}, {"token": "marker_3", "map": "solstice_approach", "event": "interact"}]
+  solstice_expedition:
+    name: "The Missing Expedition"
+    description: "Recover the measuring instrument and three separate journal pages from the abandoned camps."
+    type: "interact"
+    target_monster: "solstice_expedition"
+    target_count: 4
+    progress_text: "readings recorded"
+    rewards:
+      gold: 800
+      experience: 1000
+    activity:
+      objectives: [{"token": "instrument", "map": "solstice_approach", "event": "interact"}, {"token": "page_1", "map": "solstice_approach", "event": "interact"}, {"token": "page_2", "map": "solstice_approach", "event": "interact"}, {"token": "page_3", "map": "solstice_approach", "event": "interact"}]
+  solstice_anchors:
+    name: "Four Anchor Points"
+    description: "Recover four calibration bearings and install each in its matching entrance socket."
+    type: "interact"
+    target_monster: "solstice_anchors"
+    target_count: 8
+    progress_text: "readings recorded"
+    rewards:
+      gold: 1000
+      experience: 1200
+    activity:
+      objectives: [{"token": "recover_fire", "map": "solstice_approach", "event": "interact"}, {"token": "install_fire", "map": "solstice_approach", "event": "interact", "requires": ["recover_fire"]}, {"token": "recover_water", "map": "solstice_approach", "event": "interact"}, {"token": "install_water", "map": "solstice_approach", "event": "interact", "requires": ["recover_water"]}, {"token": "recover_earth", "map": "solstice_approach", "event": "interact"}, {"token": "install_earth", "map": "solstice_approach", "event": "interact", "requires": ["recover_earth"]}, {"token": "recover_air", "map": "solstice_approach", "event": "interact"}, {"token": "install_air", "map": "solstice_approach", "event": "interact", "requires": ["recover_air"]}]
+  solstice_schedule:
+    name: "The Engineers' Schedule"
+    description: "Read the calibration disc by day and night, then align its seven positions in timetable order."
+    type: "interact"
+    target_monster: "solstice_schedule"
+    target_count: 3
+    progress_text: "readings recorded"
+    rewards:
+      gold: 700
+      experience: 1000
+    activity:
+      objectives: [{"token": "day_reading", "map": "solstice_approach", "event": "interact", "phase": "day"}, {"token": "night_reading", "map": "solstice_approach", "event": "interact", "phase": "night"}, {"token": "alignment", "map": "solstice_approach", "event": "interact", "requires": ["day_reading", "night_reading"], "sequence": ["1", "2", "3", "4", "5", "6", "7"]}]
+  solstice_connection:
+    name: "The Broken Connection"
+    description: "Cross the broken vestibule connection with Jump or Fold Step, activate the receiving anchor, then report to Velna."
+    type: "interact"
+    target_monster: "solstice_connection"
+    target_count: 2
+    progress_text: "readings recorded"
+    rewards:
+      gold: 1200
+      experience: 1500
+    activity:
+      objectives: [{"token": "crossing", "event": "crossing", "map": "solstice_vestibule", "from": [7, 7], "to": [9, 7]}, {"token": "receiver", "map": "solstice_vestibule", "event": "interact", "requires": ["crossing"]}]
+    on_complete_tiles: [{"map": "solstice_vestibule", "x": 8, "y": 7, "tile": "empty"}]
+  solstice_records:
+    name: "The Four Experiment Records"
+    description: "Defeat all four regulators and read each surviving experiment record. Return to Velna."
+    type: "interact"
+    target_monster: "solstice_records"
+    target_count: 4
+    progress_text: "readings recorded"
+    rewards:
+      gold: 3000
+      experience: 4000
+    activity:
+      objectives: [{"token": "fire_record", "map": "solstice_fire", "event": "interact", "requires_boss": "solstice_aureth"}, {"token": "water_record", "map": "solstice_water", "event": "interact", "requires_boss": "solstice_neressa"}, {"token": "earth_record", "map": "solstice_earth", "event": "interact", "requires_boss": "solstice_talura"}, {"token": "air_record", "map": "solstice_air", "event": "interact", "requires_boss": "solstice_vaelith"}]
+  solstice_fire_commission:
+    name: "Fire Supply Commission"
+    description: "Bring three Heat Resistant Fang to Tovan for an elemental damage draught and payment."
+    type: "interact"
+    target_monster: "solstice_fire_commission"
+    target_count: 1
+    progress_text: "commissions delivered"
+    repeatable: "3d"
+    rewards:
+      gold: 180
+      items: ["solstice_fire_ward"]
+    activity:
+      objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_heat_resistant_fang", "count": 3}]
+  solstice_water_commission:
+    name: "Water Supply Commission"
+    description: "Bring three Coldwater Gland to Tovan for an elemental damage draught and payment."
+    type: "interact"
+    target_monster: "solstice_water_commission"
+    target_count: 1
+    progress_text: "commissions delivered"
+    repeatable: "3d"
+    rewards:
+      gold: 180
+      items: ["solstice_water_ward"]
+    activity:
+      objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_coldwater_gland", "count": 3}]
+  solstice_earth_commission:
+    name: "Earth Supply Commission"
+    description: "Bring three Mineral Plate to Tovan for an elemental damage draught and payment."
+    type: "interact"
+    target_monster: "solstice_earth_commission"
+    target_count: 1
+    progress_text: "commissions delivered"
+    repeatable: "3d"
+    rewards:
+      gold: 180
+      items: ["solstice_earth_ward"]
+    activity:
+      objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_mineral_plate", "count": 3}]
+  solstice_air_commission:
+    name: "Air Supply Commission"
+    description: "Bring three Charged Quill to Tovan for an elemental damage draught and payment."
+    type: "interact"
+    target_monster: "solstice_air_commission"
+    target_count: 1
+    progress_text: "commissions delivered"
+    repeatable: "3d"
+    rewards:
+      gold: 180
+      items: ["solstice_air_ward"]
+    activity:
+      objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_charged_quill", "count": 3}]
+
   # The opening chain: Wenna the herb-picker stands by the forest clearing where
   # the party begins. She asks for the goblins first and only mentions the wolves
   # once that is done (requires_quest in npcs.yaml), so a new party is handed one

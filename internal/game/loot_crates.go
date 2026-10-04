@@ -68,6 +68,10 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		g.springCrateTrap(npc, crate)
 	}
 	g.applyCrateEffects(npc, crate)
+	if loot, ok := g.adventureLoot(currentMapKey(), "crate:"+npc.Key); ok {
+		g.grantCrateLoot(npc, loot.Items, loot.Gold, loot.ArenaPoints)
+		return
+	}
 	if crate.LootTable != "" {
 		loot, gold := rollWeightedLootTable(crate.LootTable)
 		g.grantCrateLoot(npc, loot, gold, 0)

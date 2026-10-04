@@ -94,6 +94,9 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	if hasTimedBuff && d.BuffDodgePct > 0 {
 		lines = append(lines, uitext.Text("item.party_dodge_for_s", d.BuffDodgePct, d.BuffDurationSeconds))
 	}
+	if hasTimedBuff && d.DamageBuffPct > 0 {
+		lines = append(lines, fmt.Sprintf("Party %s damage +%d%% for %ds; strongest draught per element applies.", TitleWords(d.DamageBuffSchool), d.DamageBuffPct, d.BuffDurationSeconds))
+	}
 	if hasTimedBuff && d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin_armor_class_for_s", d.BuffArmorClass, d.BuffDurationSeconds))
 	}

@@ -23,6 +23,7 @@ type TimedCombatBuff struct {
 	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
 	OutBonus      int    // flat add to party outgoing damage
+	OutPercent    int    // strongest active draught per school; static item data
 	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
 	InReduce      int    // flat reduction of incoming damage (after ResistPct)
 	ResistPct     int    // % reduction of incoming damage (applied before InReduce)
@@ -54,6 +55,8 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		ResistSchoolPct: def.ResistBuffSchoolPct,
 		ArmorBonus:      def.BuffArmorClass,
 		DodgePct:        def.BuffDodgePct,
+		OutDamageType:   def.DamageBuffSchool,
+		OutPercent:      def.DamageBuffPct,
 	}, true
 }
 
@@ -270,6 +273,8 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.ResistSchoolPct = itemBuff.ResistSchoolPct
 				b.ArmorBonus = itemBuff.ArmorBonus
 				b.DodgePct = itemBuff.DodgePct
+				b.OutPercent = itemBuff.OutPercent
+				b.OutDamageType = itemBuff.OutDamageType
 			}
 		}
 		out[i] = b

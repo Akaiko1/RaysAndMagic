@@ -64,11 +64,6 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	_, alpha := r.game.corpseFrameAndOpacity(c)
 	brightness := float32(r.calculateBrightnessWithTorchLight(c.x, c.y, s.distance))
 	rr, gg, bb := brightness, brightness, brightness
-	if c.tintR != 0 || c.tintG != 0 || c.tintB != 0 {
-		rr *= c.tintR
-		gg *= c.tintG
-		bb *= c.tintB
-	}
 	if r.game.config.Graphics.Standee.Enabled {
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", c.key), s.sprite, true)
 		slab, ok := r.prepareStandeeSlab(s.sprite, key, c.x, c.y, c.yaw, s.depthPerp, s.sizeF, s.bottomF,

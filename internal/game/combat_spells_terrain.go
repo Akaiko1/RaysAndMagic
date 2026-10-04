@@ -37,6 +37,7 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	}
 	oldX, oldY := g.camera.X, g.camera.Y
 	g.setPartyPosition(landX, landY)
+	g.creditAdventureMovement("jump", oldX, oldY, landX, landY)
 	g.notifyPilgrimDisplacement(oldX, oldY)
 	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", def.Name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.

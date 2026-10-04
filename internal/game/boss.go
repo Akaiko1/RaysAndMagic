@@ -47,6 +47,9 @@ func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, tur
 	if m == nil || !m.IsBoss() {
 		return false
 	}
+	if cs.runAdventureBossAction(m, attackTick) {
+		return true
+	}
 	ready := m.BossCD == 0
 	if m.BossCD > 0 {
 		m.BossCD--

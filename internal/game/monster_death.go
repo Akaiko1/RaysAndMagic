@@ -19,7 +19,6 @@ type monsterCorpse struct {
 	mirror                     bool
 	flying                     bool
 	arborealHeight             float64
-	tintR, tintG, tintB        float32
 	started                    int64
 	frameCount                 int
 }
@@ -97,7 +96,7 @@ func (g *MMGame) beginMonsterDeath(m *monster.Monster3D) {
 	g.monsterCorpses = append(g.monsterCorpses, monsterCorpse{
 		key: m.Key, spriteName: m.GetSpriteType(), animation: animation,
 		x: x, y: y, sizeTiles: m.GetSizeGameMultiplier(), yaw: yaw,
-		mirror: mirror, flying: m.Flying, tintR: m.TintR, tintG: m.TintG, tintB: m.TintB,
+		mirror: mirror, flying: m.Flying,
 		arborealHeight: m.VisualHeightTiles(),
 		started:        g.frameCount, frameCount: frames,
 	})

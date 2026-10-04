@@ -113,28 +113,30 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	Overwatch          bool // Reaction provenance; never changes weapon or proc classification.
-	CritChance         int
-	WorldAim           bool
-	ID                 string  // Unique identifier
-	X, Y               float64 // Current position
-	VelX, VelY         float64 // Velocity
-	DistanceTraveled   float64 // Runtime-only path length used by release projection
-	Damage             int
-	TrueDamage         int                    // typed true component snapshotted when the projectile is fired
-	IgnoresDodge       bool                   // snapshotted attack rider; shooter state may change in flight
-	Attacker           *character.MMCharacter // shooter (nil = monster/none)
-	LifeTime           int                    // Frames remaining
-	Active             bool
-	BowKey             string // YAML key of the bow used to fire this arrow
-	Label              string // chat display name override (card-proc bolts); "" = the weapon's name
-	DamageType         string // Damage element type ("physical", "dark", etc.)
-	Crit               bool   // Critical hit flag
-	SuppressAoE        bool   // volley darts past the first: whole-party AoE fires once per volley
-	DisintegrateChance float64
-	Owner              ProjectileOwner
-	SourceName         string
-	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
+	ElementalAbilityDamage int             // Effective-stat scaling snapshotted at launch.
+	Backwash               *backwashCharge // Secondary charge; never triggers ordinary hit riders.
+	Overwatch              bool            // Reaction provenance; never changes weapon or proc classification.
+	CritChance             int
+	WorldAim               bool
+	ID                     string  // Unique identifier
+	X, Y                   float64 // Current position
+	VelX, VelY             float64 // Velocity
+	DistanceTraveled       float64 // Runtime-only path length used by release projection
+	Damage                 int
+	TrueDamage             int                    // typed true component snapshotted when the projectile is fired
+	IgnoresDodge           bool                   // snapshotted attack rider; shooter state may change in flight
+	Attacker               *character.MMCharacter // shooter (nil = monster/none)
+	LifeTime               int                    // Frames remaining
+	Active                 bool
+	BowKey                 string // YAML key of the bow used to fire this arrow
+	Label                  string // chat display name override (card-proc bolts); "" = the weapon's name
+	DamageType             string // Damage element type ("physical", "dark", etc.)
+	Crit                   bool   // Critical hit flag
+	SuppressAoE            bool   // volley darts past the first: whole-party AoE fires once per volley
+	DisintegrateChance     float64
+	Owner                  ProjectileOwner
+	SourceName             string
+	SourceMonster          *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	// Pierce-through (Arena Arbalest): a hit with PierceLeft > 0 consumes this
 	// arrow and spawns a continuation bolt that skips the monster it went through.
 	PierceLeft int
@@ -191,15 +193,20 @@ type MapPose struct {
 }
 
 type MMGame struct {
+	adventure               AdventureState
 	alchemy                 AlchemyState
 	harvestRuntime          harvestRuntime
 	selectedRare            int
 	alchemyBatches          int
+	alchemyRecipeFilter     string
+	alchemyElementFilter    string
+	alchemyBrewableOnly     bool
 	rareBookMessage         string
 	brewAnimation           *alchemyBrewAnimation
 	spatialReuseFrames      int
 	spatialStepThisTurn     bool
 	partyRoot               PartyRootState
+	partyHinder             PartyHinderState
 	terrainChanges          []TerrainChange
 	editorPreview           *editorPreviewState
 	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
@@ -1070,10 +1077,9 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 		g.fishWorlds[g.world] = struct{}{}
 	}
 	g.world.Monsters = append(g.world.Monsters, m)
-	width, height := m.GetSize()
 	g.syncMonsterAttackPost(m)
 	entityType := desiredMonsterCollisionType(m)
-	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, false)
+	entity := g.world.NewMonsterCollisionEntity(m, entityType)
 	g.collisionSystem.RegisterEntity(entity)
 }
 
@@ -1257,6 +1263,18 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) 
 					occlusion.backingY = wy
 					occlusion.backingYaw = wyaw
 					occlusion.hasBackingWall = true
+				}
+			} else if g.config.Graphics.Standee.Enabled && npc.WallBacked && npc.GridSpanTiles >= 2 {
+				// The facade is rendered flush to this wall, with its front
+				// surface visible. Its center plane must not fail picking
+				// against that same wall because of depth rounding.
+				dx, dy := g.buildingWallOffset(npc)
+				if dx != 0 || dy != 0 {
+					if bx, by, yaw, found := g.buildingPose(npc); found {
+						occlusion.backingX, occlusion.backingY = bx, by
+						occlusion.backingYaw = yaw
+						occlusion.hasBackingWall = true
+					}
 				}
 			}
 			occluded := standeeColumnOccluded(depth, g.depthBuffer[screenX], occlusion.depthAllowance)
@@ -2828,6 +2846,14 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 		}
 	}
 	g.assignTurnBasedSpeedBonusActions()
+	if g.partyHinder.Slow > 0 {
+		for _, m := range g.party.Members {
+			if m.ActionsRemaining > 1 {
+				m.ActionsRemaining = max(1, m.ActionsRemaining*3/4)
+				m.TBRoundActionFloor = min(m.TBRoundActionFloor, m.ActionsRemaining)
+			}
+		}
+	}
 	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
 		g.selectedChar = idx
 	}

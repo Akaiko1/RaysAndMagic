@@ -26,6 +26,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.profileKilled = nil
 	g.discardFish()
 	wm.RandomizeEnvironmentSprites()
+	g.adventure = cloneAdventureState(save.Adventure)
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
 	g.updatePartyLevelUnlocks()

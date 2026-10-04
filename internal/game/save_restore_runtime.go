@@ -12,6 +12,7 @@ import (
 func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	// Restore mode
 	g.partyRoot = save.PartyRoot
+	g.partyHinder = save.PartyHinder
 	g.alchemy = save.Alchemy.Clone()
 	g.harvestRuntime = harvestRuntime{}
 	g.spatialReuseFrames = save.SpatialReuseFrames

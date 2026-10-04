@@ -140,7 +140,7 @@ func validateAlchemyConfig(c *AlchemyConfig) error {
 		if d == nil || !d.CraftedOnly || d.Value != 1 || d.Type != "consumable" {
 			return fmt.Errorf("recipe %q: output must be a value-1 crafted consumable", r.Key)
 		}
-		if r.Family != "common" && r.Family != "protective" && r.Family != "revival" {
+		if r.Family != "common" && r.Family != "protective" && r.Family != "empowering" && r.Family != "revival" {
 			return fmt.Errorf("recipe %q: unknown family", r.Key)
 		}
 		if len(r.Ingredients) == 0 {
@@ -237,6 +237,8 @@ func resolveBrewedItems(c *ItemSystemConfig) error {
 		d.ResistBuffSchoolPct = source.ResistBuffSchoolPct
 		d.BuffArmorClass = source.BuffArmorClass
 		d.BuffDodgePct = source.BuffDodgePct
+		d.DamageBuffSchool = source.DamageBuffSchool
+		d.DamageBuffPct = source.DamageBuffPct
 		d.BuffDurationSeconds = source.BuffDurationSeconds
 		d.StatusIcon = source.StatusIcon
 	}

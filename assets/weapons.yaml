@@ -7,6 +7,94 @@
 #   collision_size_tiles: Collision box size in tiles (min 0.5)
 
 weapons:
+  solstice_thermal_lance:
+    name: "Thermal Lance"
+    description: "The obsidian point drives heat into its target; the bronze collar vents on the third strike."
+    category: "spear"
+    damage: 32
+    range: 1
+    bonus_stat: "Might"
+    damage_type: "fire"
+    crit_chance: 10
+    rarity: "rare"
+    value: 2500
+    no_loot: true
+    elemental_ability: {kind: pressure, damage: 24, duration_seconds: 6, hits: 3, scaling_stat: Speed, stat_divisor: 3}
+    melee:
+      arc_type: 2
+      animation_frames: 8
+    graphics:
+      slash_fx: "solstice_thermal"
+      slash_color: [210, 105, 45]
+      slash_width: 32
+      slash_length: 48
+  solstice_flowstaff:
+    name: "Flowstaff"
+    description: "A caged blue reservoir releases a restless current that leaps between nearby foes."
+    category: "staff"
+    damage: 29
+    range: 7
+    bonus_stat: "Intellect"
+    damage_type: "water"
+    crit_chance: 10
+    rarity: "rare"
+    value: 2500
+    no_loot: true
+    elemental_ability: {kind: backwash, damage: 12, range_tiles: 2, hits_per_target: 2, scaling_stat: Intellect, stat_divisor: 3}
+    projectile_school: "water"
+    physics:
+      speed_tiles: 9.5
+      range_tiles: 7
+      collision_size_tiles: 0.5
+    graphics:
+      projectile_fx: "solstice_flow"
+      max_size: 30
+      min_size: 4
+      base_size: 15
+      color: [65, 155, 170]
+  solstice_anchor_hammer:
+    name: "Anchor Hammer"
+    description: "Each blow of the squared jade head weighs more heavily on the same foe."
+    category: "mace"
+    damage: 35
+    range: 1
+    bonus_stat: "Might"
+    damage_type: "earth"
+    crit_chance: 10
+    rarity: "rare"
+    value: 2500
+    no_loot: true
+    elemental_ability: {kind: anchor, damage: 12, duration_seconds: 6, max_stacks: 10}
+    melee:
+      arc_type: 2
+      animation_frames: 8
+    graphics:
+      slash_fx: "solstice_anchor"
+      slash_color: [140, 155, 80]
+      slash_width: 32
+      slash_length: 48
+  solstice_transfer_blade:
+    name: "Transfer Blade"
+    description: "The bronze collar stores three strikes, then hurls the foe away in a burst of force."
+    category: "sword"
+    damage: 31
+    range: 1
+    bonus_stat: "Accuracy"
+    damage_type: "air"
+    crit_chance: 10
+    rarity: "rare"
+    value: 2500
+    no_loot: true
+    elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 6, hits: 3, range_tiles: 3}
+    melee:
+      arc_type: 2
+      animation_frames: 8
+    graphics:
+      slash_fx: "solstice_transfer"
+      slash_color: [155, 195, 215]
+      slash_width: 32
+      slash_length: 48
+
   iron_sword:
     # Basic weapon properties
     name: "Iron Sword"

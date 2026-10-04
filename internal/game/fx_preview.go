@@ -341,6 +341,7 @@ func (p *FxPreview) clearStage() {
 	}
 	g.world.Monsters = g.world.Monsters[:0]
 	g.partyRoot = PartyRootState{}
+	g.partyHinder = PartyHinderState{}
 	if len(g.party.Members) > fxHeroIdx {
 		h := g.party.Members[fxHeroIdx]
 		h.Conditions = h.Conditions[:0]

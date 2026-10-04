@@ -49,6 +49,14 @@ func TestRareBookDisplayedPagesAndSources(t *testing.T) {
 							}
 						}
 					}
+					if len(a.cells) == 0 {
+						for _, group := range recipe.Ingredients {
+							if len(group.Materials()) != 1 {
+								t.Fatal("optional ingredient has no selectable cell")
+							}
+						}
+						continue
+					}
 					cell := a.cells[0]
 					h.clicks(false, cell.rect.x+10, cell.rect.y+25, 1)
 					if !g.alchemySelection(recipe)[cell.group][cell.key] {

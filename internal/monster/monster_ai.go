@@ -168,9 +168,10 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
-	m.TickSlowFrame()       // Tarn Trident silt decays regardless of stun/root state
-	m.TickWeakenFrame()     // Scalebreaker roar decays regardless of stun/root state
-	m.TickSoakFrame()       // Champion Stone Skin uses the same rated dual-clock contract
+	m.TickElementalMarks(false)
+	m.TickSlowFrame()   // Tarn Trident silt decays regardless of stun/root state
+	m.TickWeakenFrame() // Scalebreaker roar decays regardless of stun/root state
+	m.TickSoakFrame()   // Champion Stone Skin uses the same rated dual-clock contract
 	if !m.IsAlive() {
 		// Match the TB scheduler: a lethal autonomous tick ends this actor's
 		// action immediately. The game-level indirect-kill sweep awards and

@@ -194,6 +194,7 @@ func (cs *CombatSystem) detonateFlask(p *MagicProjectile, x, y float64) {
 	}
 	attack := cs.newPartyMonsterAttack(p.Damage, 0, d.Flask.Element, 0, nil, d.Name, false, false, false)
 	attack.Packet = cs.newPartyMonsterDamagePacket(p.Damage, 0, d.Flask.Element, 0, false)
+	attack.Packet = cs.elementalBuffPacket(attack.Packet)
 	attack.Attacker = p.Attacker
 	cs.applyAoeSplashAt(x, y, attack, p.FlaskRadius/float64(cs.game.config.GetTileSize()), nil, func(m *monster.Monster3D, actual int) {
 		cs.reportIndirectHit(m, actual, d.Name)

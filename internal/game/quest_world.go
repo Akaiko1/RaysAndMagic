@@ -783,7 +783,8 @@ func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
 			propTag := ""
 			propChoices := 0
 			if err := npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
-				if c.Prop == nil {
+				if c.Prop == nil || c.Prop.Token != "" {
+					// Token producers are validated against their activity graph separately.
 					return nil
 				}
 				propChoices++

@@ -94,3 +94,41 @@ populations:
   yield: 1
   weights:
     grave_orchid: 1
+
+- map: "solstice_fire"
+  key: "opening"
+  count: 6
+  yield: 1
+  weights:
+    solstice_furnace_bloom: 1
+
+- map: "solstice_water"
+  key: "opening"
+  count: 6
+  yield: 1
+  weights:
+    solstice_moonwater_lotus: 1
+
+- map: "solstice_earth"
+  key: "opening"
+  count: 6
+  yield: 1
+  weights:
+    solstice_deepvein_moss: 1
+
+- map: "solstice_air"
+  key: "opening"
+  count: 6
+  yield: 1
+  weights:
+    solstice_sky_reed: 1
+
+- map: "solstice_approach"
+  key: "field"
+  count: 8
+  yield: 1
+  weights:
+    solstice_sun_resin: 1
+    solstice_rain_pearl: 1
+    solstice_calendar_jade: 1
+    solstice_whisper_silk: 1

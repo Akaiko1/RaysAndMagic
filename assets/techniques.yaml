@@ -1,7 +1,7 @@
 techniques:
   - key: fold_step
     name: Fold Step
-    description: "Step forward at least 3 tiles. Cannot cross terrain, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares its reuse lock with Return Step."
+    description: "Step forward at least 3 tiles. Can cross open gaps, but needs solid footing to land. Cannot cross walls, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares its reuse lock with Return Step."
     icon: icon_technique_fold_step
     level: 1
     sp_cost: [8, 7, 6, 5]

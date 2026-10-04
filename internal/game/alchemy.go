@@ -20,6 +20,7 @@ type HarvestPopulationState struct {
 	Nodes []HarvestNode `json:"nodes"`
 }
 type HarvestNode struct {
+	Relocate bool   `json:"relocate,omitempty"`
 	Region   string `json:"region"`
 	Quantity int    `json:"quantity,omitempty"`
 	Key      string `json:"key"`
@@ -92,6 +93,9 @@ func (g *MMGame) brewSelectedRecipe() bool {
 		return false
 	}
 	if config.GlobalAlchemy == nil || g.selectedRare < 0 || g.selectedRare >= len(config.GlobalAlchemy.Recipes) {
+		return false
+	}
+	if !slices.Contains(g.visibleAlchemyRecipes(), g.selectedRare) {
 		return false
 	}
 	if reason, safe := g.safeToPrepare(brewActivity()); !safe {

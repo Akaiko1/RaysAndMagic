@@ -43,6 +43,7 @@ type TeleporterLocation struct {
 }
 
 type World3D struct {
+	adventure          *config.AdventureConfig
 	Width              int
 	Height             int
 	Tiles              [][]TileType3D
@@ -303,16 +304,20 @@ func getTeleporterFloat(props map[string]interface{}, key string, fallback float
 // RegisterMonstersWithCollisionSystem registers all monsters with the collision system
 func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision.CollisionSystem) {
 	for _, monster := range w.Monsters {
-		// Use the monster's unique ID instead of array index
-
-		// Get monster size from YAML config
-		width, height := monster.GetSize()
-
-		// Map-loaded monsters begin physically walkable. The game later promotes a
-		// party attacker only to a logical attack-post marker, never a blocker.
-		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
-		collisionSystem.RegisterEntity(entity)
+		collisionSystem.RegisterEntity(w.NewMonsterCollisionEntity(monster, collision.CollisionTypeMonster))
 	}
+}
+
+// NewMonsterCollisionEntity applies the same movement policy to authored,
+// restored and newly spawned actors before their collision registration.
+func (w *World3D) NewMonsterCollisionEntity(m *monster.Monster3D, kind collision.CollisionType) *collision.Entity {
+	width, height := m.GetSize()
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, kind, false)
+	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Monster == m.Key && a.Boss.Arena != nil {
+		b, ts := a.Boss.Arena, float64(w.config.GetTileSize())
+		entity.WithMovementBounds(collision.MovementBounds{Enabled: true, MinX: float64(b[0]) * ts, MinY: float64(b[1]) * ts, MaxX: float64(b[2]+1) * ts, MaxY: float64(b[3]+1) * ts})
+	}
+	return entity
 }
 
 // IsTileBlocking implements the collision.TileChecker interface

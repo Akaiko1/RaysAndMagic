@@ -144,7 +144,7 @@ func TestRarePartyBeginAdventure(t *testing.T) {
 					finishRareHarvest(t, g)
 					want := 0
 					if g.hasHarvestAlchemist() {
-						region, _, _ := canonicalPosition(g.camera.X, g.camera.Y)
+						region, _, _ := g.canonicalPosition(g.camera.X, g.camera.Y)
 						if want = harvestPopulationTotal(region); want == 0 {
 							t.Fatalf("start region %q has no reagent population to render", region)
 						}

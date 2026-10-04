@@ -58,6 +58,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		return nil
 	}
 	var lines []string
+	lines = append(lines, w.ElementalAbility.Lines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
@@ -1197,9 +1198,10 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name  string `yaml:"name"`
-	File  string `yaml:"file"`
-	Biome string `yaml:"biome"`
+	Adventure *AdventureConfig `yaml:"adventure,omitempty"`
+	Name      string           `yaml:"name"`
+	File      string           `yaml:"file"`
+	Biome     string           `yaml:"biome"`
 	// TownPortalDestination makes this map a Town Portal destination after the
 	// party has visited it, even when it has no tavern. Arrival uses the map's
 	// '+' start tile; tavern maps still arrive beside their tavern.
@@ -1338,6 +1340,7 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
+	ElementalAbility *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
@@ -1981,6 +1984,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			}
 			def.ProjectileSchool = school
 		}
+		if err := def.ElementalAbility.validate(def); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
 		if IsMagicRangedWeapon(def) {
 			school, err := canonicalMagicSchool(def.ProjectileSchool)
 			if err != nil {
@@ -2203,6 +2209,7 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
+	NoLoot         bool             `yaml:"no_loot,omitempty"`
 	BrewColor      [3]int           `yaml:"brew_color,omitempty"`
 	BrewedFrom     string           `yaml:"brewed_from,omitempty"`
 	CraftedOnly    bool             `yaml:"crafted_only,omitempty"`
@@ -2323,6 +2330,8 @@ type ItemDefinitionConfig struct {
 	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
 	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
 	BuffDodgePct            int    `yaml:"buff_dodge_pct,omitempty"`
+	DamageBuffSchool        string `yaml:"damage_buff_school,omitempty"`
+	DamageBuffPct           int    `yaml:"damage_buff_pct,omitempty"`
 	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
 	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
 	StatusIcon              string `yaml:"status_icon,omitempty"`
@@ -2339,7 +2348,7 @@ const MinHostileStatusDurationPct = -90
 func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 	return d != nil &&
 		d.BuffDurationSeconds > 0 &&
-		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0)
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -2483,11 +2492,21 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if def.BuffDodgePct < 0 || def.BuffDodgePct > 100 {
 			return fmt.Errorf("item %q: buff_dodge_pct must be in [0,100]", key)
 		}
+		if def.DamageBuffPct < 0 || def.DamageBuffPct > 100 || (def.DamageBuffSchool == "") != (def.DamageBuffPct == 0) {
+			return fmt.Errorf("item %q: damage_buff_school and damage_buff_pct (1..100) must be set together", key)
+		}
+		if def.DamageBuffSchool != "" {
+			school, err := canonicalMagicSchool(def.DamageBuffSchool)
+			if err != nil {
+				return fmt.Errorf("item %q: invalid damage buff school: %w", key, err)
+			}
+			def.DamageBuffSchool = school
+		}
 		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
 			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
 		}
 		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
-		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0 || def.DamageBuffPct > 0
 		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
 		if hasBuffEffect && def.Type != "consumable" {
 			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
@@ -2496,7 +2515,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
 		}
 		if hasBuffMetadata && !hasBuffEffect {
-			return fmt.Errorf("item '%s': buff metadata has no resist, armor, or dodge effect", key)
+			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, or damage effect", key)
 		}
 		switch def.Type {
 		case "consumable":
@@ -2769,6 +2788,7 @@ func (e LootEntry) RollCount() int {
 }
 
 type WeightedLootTable struct {
+	Items   []string            `yaml:"items,omitempty"` // Fixed supplies, in addition to the weighted equipment rolls.
 	Rolls   int                 `yaml:"rolls"`
 	GoldMin int                 `yaml:"gold_min,omitempty"`
 	GoldMax int                 `yaml:"gold_max,omitempty"`
@@ -2890,6 +2910,11 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 		}
 		if len(t.Entries) == 0 {
 			return fmt.Errorf("loot_table %q: no entries", name)
+		}
+		for _, key := range t.Items {
+			if err := validateLootCatalogReference(fmt.Sprintf("loot_table %q fixed item", name), "item", key); err != nil {
+				return err
+			}
 		}
 		for _, e := range t.Entries {
 			if e.Weight <= 0 {
@@ -3018,7 +3043,7 @@ func CatalogItemMatchesFilter(key, itemType string, tiers RarityRange) bool {
 		return false
 	}
 	def, ok := GetItemDefinition(key)
-	if !ok || def == nil || def.Type == "quest" || ValidateOrdinaryItemGrant(key) != nil {
+	if !ok || def == nil || def.Type == "quest" || def.NoLoot || ValidateOrdinaryItemGrant(key) != nil {
 		return false
 	}
 	if itemType != "any" && def.Type != itemType {

@@ -68,6 +68,9 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		camSin := math.Sin(cs.game.camera.Angle)
 
 		for _, monster := range cs.game.world.Monsters {
+			if ar, ok := proj.data.(*Arrow); ok && ar.Backwash != nil && ar.Backwash.Target != monster {
+				continue
+			}
 			if !monster.IsAlive() {
 				continue
 			}
@@ -382,6 +385,10 @@ func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY fl
 
 // applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
 func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
+	if shot, ok := projectile.(*Arrow); ok && shot.Backwash != nil {
+		cs.resolveBackwashCharge(shot, monster)
+		return
+	}
 	// This guard is also kept at the resolver boundary for direct callers.
 	// Do not consume or unregister the projectile: pure summons are transparent.
 	if isPurePartySummon(monster) {
@@ -604,7 +611,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	cs.game.logCombat(logToneGood, "%s%s hit %s for %s %s damage! %s", logCrit(isCrit), logSchoolWord(damageTypeStr, weaponName),
 		logMonsterName(monster), logDamage(actualDamage, damageTypeStr), logSchoolWord(damageTypeStr, damageTypeStr),
 		logHP(monster.HitPoints, monster.MaxHitPoints))
-	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, func() {
+	shot, _ := projectile.(*Arrow)
+	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, shot, func() {
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
 			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
@@ -638,12 +646,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 func (cs *CombatSystem) spellProjectileAttack(mp *MagicProjectile) partyMonsterAttack {
 	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
 	school := normalizeDamageTypeStr(def.School)
-	damage := mp.Damage
-	if damage > 0 {
-		parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: damage}, school)
-		damage = parts.Normal
-	}
-	attack := cs.newPartyMonsterAttack(damage, mp.TrueDamage, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
+	parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}, school)
+	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
 	attack.Critical = mp.Crit
 	attack.Attacker = mp.Attacker
 	attack.IgnoreDodge = mp.IgnoresDodge
