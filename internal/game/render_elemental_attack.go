@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
 )
@@ -66,7 +65,7 @@ func (g *MMGame) tickElementalAttackFX() {
 
 // drawElementalAttackGlyph is shared by world hits, portrait hits and the GIF
 // harness. It never changes gameplay or consumes random numbers.
-func drawElementalAttackGlyph(dst *ebiten.Image, fx elementalAttackEffect, cx, cy, radius float64) {
+func (r *Renderer) drawElementalAttackGlyph(dst *ebiten.Image, fx elementalAttackEffect, cx, cy, radius float64) {
 	if fx.Frames <= 0 || radius <= 0 {
 		return
 	}
@@ -75,44 +74,49 @@ func drawElementalAttackGlyph(dst *ebiten.Image, fx elementalAttackEffect, cx, c
 		return
 	}
 	base := color.RGBAModel.Convert(SchoolColor(fx.School)).(color.RGBA)
-	col := func(a float64) color.RGBA {
-		return color.RGBA{uint8(float64(base.R) * a), uint8(float64(base.G) * a), uint8(float64(base.B) * a), uint8(255 * a)}
-	}
+	rgb := [3]int{int(base.R), int(base.G), int(base.B)}
+	previous := r.weaponMaterialState
+	r.weaponMaterialState = weaponMaterialState{material: weaponMaterial(fx.School), phase: p * 5, seed: 17}
+	defer func() { r.weaponMaterialState = previous }()
 	if p < .25 {
 		for k := 0; k < 3; k++ {
 			a := float64(k)*2*math.Pi/3 - .4
-			r := radius * (1 - .5*p/.25)
-			x, y := cx+math.Cos(a)*r, cy+math.Sin(a)*r
-			vector.FillRect(dst, float32(x-2), float32(y-2), 4, 4, col(.5+.5*p/.25), false)
+			rad := radius * (1 - .5*p/.25)
+			r.drawWeaponShard(dst, cx+math.Cos(a)*rad, cy+math.Sin(a)*rad, math.Max(2, radius*.09), rgb, .5+.5*p/.25, p, k*37, false)
 		}
 		return
 	}
 	u := (p - .25) / .75
 	fade := math.Pow(1-u, .65)
-	for k := 0; k < 3; k++ {
-		for q := 1; q < 15; q++ {
-			point := func(n int) (float32, float32) {
-				a := float64(k)*2*math.Pi/3 - .75 + float64(n)*.055
-				r := radius * (1 - float64(n)*.027) * (1 + .35*u)
-				return float32(cx + math.Cos(a)*r), float32(cy + math.Sin(a)*r)
-			}
-			x1, y1 := point(q - 1)
-			x2, y2 := point(q)
-			vector.StrokeLine(dst, x1, y1, x2, y2, float32(math.Max(1, radius*.10*(1-u))), col(fade), false)
-		}
+	kind := spellPsyshock
+	switch fx.School {
+	case "fire":
+		kind = spellFireball
+	case "water":
+		kind = spellIce
+	case "earth":
+		kind = spellRock
+	case "air":
+		kind = spellLightning
+	case "dark":
+		kind = spellShadow
+	case "light":
+		kind = spellLight
+	case "spirit":
+		kind = spellStarburst
+	case "body":
+		kind = spellHarm
 	}
+	r.drawImpactCloud(dst, cx, cy, radius*1.3, radius, u, rgb, fade*.6, 17, fx.School != "fire")
+	r.drawSpellMaterialFade(dst, cx, cy, radius*(.55+.3*u), 0, 0, rgb, 1, 17, kind, fade*.82)
+
 	for k := 0; k < fx.Particles; k++ {
 		a := float64(k)*2*math.Pi/float64(fx.Particles) + .35
-		r := radius * (.3 + 1.4*u)
-		x, y := cx+math.Cos(a)*r, cy+math.Sin(a)*r
-		s := math.Max(1, radius*.07*(1-u))
-		vector.FillRect(dst, float32(x-s), float32(y-s), float32(2*s), float32(2*s), col(fade), false)
+		rad := radius * (.3 + 1.4*u)
+		r.drawWeaponShard(dst, cx+math.Cos(a)*rad, cy+math.Sin(a)*rad, math.Max(1.5, radius*.075), rgb, fade, u, k*37, false)
 	}
 	if core := math.Max(0, 1-u*4); core > 0 {
-		s := radius * (.13 + .25*core)
-		c := color.RGBA{uint8(245 * core), uint8(244 * core), uint8(219 * core), uint8(255 * core)}
-		vector.StrokeLine(dst, float32(cx-s), float32(cy), float32(cx+s), float32(cy), 2, c, false)
-		vector.StrokeLine(dst, float32(cx), float32(cy-s), float32(cx), float32(cy+s), 2, c, false)
+		r.drawSparkStar(dst, cx, cy, radius*(.13+.25*core), rgb, [3]int{245, 244, 219}, core, 1)
 	}
 }
 
@@ -128,7 +132,7 @@ func (r *Renderer) drawElementalAttackFX(screen *ebiten.Image) {
 				}
 				top := sprite.bottomF - sprite.sizeF
 				radius := r.elementalAttackScreenRadius(fx, sprite.depthPerp, screen.Bounds().Dy())
-				drawElementalAttackGlyph(screen, fx, sprite.screenXF, top+sprite.sizeF*.45, radius)
+				r.drawElementalAttackGlyph(screen, fx, sprite.screenXF, top+sprite.sizeF*.45, radius)
 				break
 			}
 			continue
@@ -141,14 +145,18 @@ func (r *Renderer) drawElementalAttackFX(screen *ebiten.Image) {
 			continue
 		}
 		radius := r.elementalAttackScreenRadius(fx, depth, screen.Bounds().Dy())
-		drawElementalAttackGlyph(screen, fx, float64(x), float64(worldViewportBottom(r.game))*.5, radius)
+		r.drawElementalAttackGlyph(screen, fx, float64(x), float64(worldViewportBottom(r.game))*.5, radius)
 	}
 }
 
 func (ui *UISystem) drawPortraitElementalAttackFX(screen *ebiten.Image, member *character.MMCharacter, x, y, w, h int) {
+	if ui.game.gameLoop == nil || ui.game.gameLoop.renderer == nil {
+		return
+	}
+	r := ui.game.gameLoop.renderer
 	for _, fx := range ui.game.elementalAttackEffects {
 		if fx.PartyTarget == member {
-			drawElementalAttackGlyph(screen, fx, float64(x+w/2), float64(y+h/2), float64(min(w, h))*.28)
+			r.drawElementalAttackGlyph(screen, fx, float64(x+w/2), float64(y+h/2), float64(min(w, h))*.28)
 		}
 	}
 }

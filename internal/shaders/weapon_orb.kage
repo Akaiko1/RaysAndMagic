@@ -1,0 +1,19 @@
+//kage:unit pixels
+package main
+
+//include weapon_noise.kageinc
+
+// Compact staff/book charge. UV is -1..1; phase and seed arrive per vertex.
+func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
+	r := length(uv)
+	if r >= 1.0 {
+		return vec4(0)
+	}
+	flow := fxNoise(uv*3.0 + vec2(custom.x, -custom.x*0.7) + custom.y)
+	filament := pow(0.5+0.5*sin(r*19.0-flow*7.0+custom.x*3.0), 5.0)
+	core := exp(-r * r * 18.0)
+	rim := exp(-pow((r-0.62-flow*0.08)*13.0, 2.0))
+	a := min(1.0, color.a) * (1.0 - smoothstep(0.6, 1.0, r)) * (0.35 + 0.4*filament + core*0.25)
+	tint := color.rgb*(0.5+0.65*flow) + mix(color.rgb, vec3(1), 0.7)*(core+rim*0.55)
+	return vec4(tint*a, a)
+}

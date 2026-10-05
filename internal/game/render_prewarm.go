@@ -2339,12 +2339,14 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 		r.reserveStandeeBuffers()
 	}
 	_, _ = r.ensureFloorShader()
+	_, _ = r.ensureAuraCurtainShader()
+	_ = r.ensureWeaponMaterialShaders()
 	_, _ = r.game.ensureSkyShader()
 	p.stats.uploadImages = len(p.uploads)
 	for img := range p.uploads {
 		r.queueMapRenderUpload(img, task)
 	}
-	if p.shaderStickerMips != nil && p.shaderCoreMips != nil {
+	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
 		r.mapRenderShaderWarmTasks = append(r.mapRenderShaderWarmTasks, task)
 	}
 }
@@ -2539,6 +2541,8 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		if !r.mapRenderTaskCurrent(task) {
 			continue
 		}
+		r.drawAuraCurtainShaderWarm(screen)
+		r.drawWeaponMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
 	}

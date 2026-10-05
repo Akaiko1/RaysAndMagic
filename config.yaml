@@ -586,14 +586,13 @@ graphics:
     loot_bag: 0.25
     treasure_chest: 0.5
 
-  # Rising "bubble" particles along the ground edges of impassable billboard
-  # tiles (rocks/cliffs - not trees, which already read as solid). Signals which
-  # tiles block movement without cluttering the view. Bubbles take the tile's
-  # own floor colour so they blend in.
+  # Low aurora curtains along the walkable-facing edges of tiles authored with
+  # impassable_aura. Tint follows the tile's sprite or floor colour. Telegraphed
+  # attacks and other tile markers share this effect with their own colours.
   impassable_aura:
     enabled: true
     radius_tiles: 7        # only tiles within this many tiles of the player
-    bubbles_per_edge: 60   # particle columns per walkable-facing edge (full border)
+    fold_density: 7.75 # broad animated folds per tile edge (2..8)
     alpha: 0.5             # base glow strength (0..1)
 
   # Load-time color key: make stray magenta (left by imperfect sprite background

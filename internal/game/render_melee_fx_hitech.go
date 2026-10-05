@@ -77,8 +77,8 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 		}
 		px, py := x0+dirX*tt, y0+dirY*tt
 		tl := h * 0.018 * w
-		r.drawGlowRect(screen, px+nx*tl, py+ny*tl, math.Max(2, h*0.006*w), techCyan, fade*0.7, additiveGlowBlend)
-		r.drawGlowRect(screen, px-nx*tl, py-ny*tl, math.Max(2, h*0.006*w), techCyan, fade*0.7, additiveGlowBlend)
+		r.weaponFxAccent(screen, px+nx*tl, py+ny*tl, math.Max(2, h*0.006*w), techCyan, fade*0.7, additiveGlowBlend)
+		r.weaponFxAccent(screen, px-nx*tl, py-ny*tl, math.Max(2, h*0.006*w), techCyan, fade*0.7, additiveGlowBlend)
 	}
 
 	if sweepT < 1 {
@@ -119,8 +119,7 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 				break
 			}
 			f := 1 - 0.3*float64(g)
-			r.drawGlowRect(screen, jx+nx*side*gu*h*0.14, jy+ny*side*gu*h*0.14,
-				math.Max(2, h*0.008*f), mixColor(techWhite, techCyan, gu), fade*(1-gu)*f*f, additiveGlowBlend)
+			r.drawWeaponShard(screen, jx+nx*side*gu*h*0.14, jy+ny*side*gu*h*0.14, math.Max(2, h*0.008*f), mixColor(techWhite, techCyan, gu), fade*(1-gu)*f*f, gu, seed+k*37, false)
 		}
 	}
 }
@@ -154,7 +153,7 @@ func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx
 		y := cy - dirY*reach*t + ny*math.Cos(ang)*rad
 		if k > 0 {
 			a := (0.62 - 0.42*t) * critBoost
-			r.fxSegment(screen, px, py, x, y, math.Max(2.5, size*0.2*(1-0.4*t)),
+			r.weaponFxSegment(screen, px, py, x, y, math.Max(2.5, size*0.2*(1-0.4*t)),
 				mixColor(techWhite, techCyan, 0.35+0.5*t), a, additiveGlowBlend)
 		}
 		px, py = x, y
@@ -177,21 +176,21 @@ func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx,
 	for i, run := range []struct{ from, to, thick, alpha float64 }{
 		{0, 3.5, 0.16, 0.55}, {3.0, 6.5, 0.11, 0.34}, {6.0, 9.5, 0.07, 0.2},
 	} {
-		r.fxSegment(screen,
+		r.weaponFxSegment(screen,
 			cx+dirX*size*run.from, cy+dirY*size*run.from,
 			cx+dirX*size*run.to, cy+dirY*size*run.to,
 			math.Max(2, size*run.thick), mixColor(techWhite, techCyan, 0.3+0.25*float64(i)),
 			run.alpha*critBoost, additiveGlowBlend)
 	}
 	// A shorter, brighter tail behind: where it has already been.
-	r.fxSegment(screen, cx, cy, cx-dirX*size*2.6, cy-dirY*size*2.6,
+	r.weaponFxSegment(screen, cx, cy, cx-dirX*size*2.6, cy-dirY*size*2.6,
 		math.Max(2, size*0.13), techCyan, 0.45*critBoost, additiveGlowBlend)
 	// Scope reticle at the head: four ticks off the axis, pulsing.
 	pulse := 0.6 + 0.4*math.Sin(fc*0.5)
 	rr := size * (1.0 + 0.25*pulse)
 	for _, s := range []float64{-1, 1} {
-		r.drawGlowRect(screen, cx+nx*s*rr, cy+ny*s*rr, math.Max(2, size*0.09), techCyan, 0.55*pulse*critBoost, additiveGlowBlend)
-		r.drawGlowRect(screen, cx+dirX*s*rr, cy+dirY*s*rr, math.Max(2, size*0.09), techCyan, 0.4*pulse*critBoost, additiveGlowBlend)
+		r.weaponFxAccent(screen, cx+nx*s*rr, cy+ny*s*rr, math.Max(2, size*0.09), techCyan, 0.55*pulse*critBoost, additiveGlowBlend)
+		r.weaponFxAccent(screen, cx+dirX*s*rr, cy+dirY*s*rr, math.Max(2, size*0.09), techCyan, 0.4*pulse*critBoost, additiveGlowBlend)
 	}
 	r.drawGlowSprite(screen, cx, cy, size*0.3, techWhite, 0.5*critBoost, additiveGlowBlend)
 }
@@ -219,7 +218,7 @@ func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, 
 			x := cx + nx*ox + dirX*oy
 			y := cy + ny*ox + dirY*oy
 			if i > 0 {
-				r.fxSegment(screen, px, py, x, y, math.Max(2, size*0.12),
+				r.weaponFxSegment(screen, px, py, x, y, math.Max(2, size*0.12),
 					mixColor(alloy, techWhite, float64(ring)*0.4), (0.5-0.12*float64(ring))*critBoost, additiveGlowBlend)
 			}
 			px, py = x, y
@@ -234,7 +233,7 @@ func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, 
 		x := cx - dirX*size*3.8*u + nx*amp
 		y := cy - dirY*size*3.8*u + ny*amp
 		if k > 0 {
-			r.fxSegment(screen, px, py, x, y, math.Max(2, size*0.11),
+			r.weaponFxSegment(screen, px, py, x, y, math.Max(2, size*0.11),
 				mixColor(alloy, techCyan, u*0.5), (0.5-0.045*float64(k))*critBoost, additiveGlowBlend)
 		}
 		px, py = x, y

@@ -19,7 +19,7 @@ import (
 // so nothing here needs state.
 
 // trapFxStyleDraw maps armed_fx to its renderer. A trap without armed_fx keeps
-// the old edge glow (drawTrapTileBorders).
+// the shared curtain (collectTrapTileBorders).
 var trapFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, trapAnchor, [3]int, int){
 	"cleave_blades": (*Renderer).drawTrapFxCleaveBlades,
 	"bear_jaws":     (*Renderer).drawTrapFxBearJaws,
@@ -86,11 +86,9 @@ func (r *Renderer) trapFloorAnchor(tileX, tileY int, ts, maxDepth float64) (trap
 func screenX2Float(x int) float64 { return float64(x) }
 
 // trapFxSpanVisible conservatively depth-tests the complete horizontal span of
-// one trap primitive. Trap effects are emitted after walls and actors, so a
-// centre-only test lets a ring or blade paint back over an occluder beside the
-// tile centre. Culling the whole small primitive when any covered column is
-// hidden gives the effect a clean per-piece silhouette without a screen-sized
-// mask or per-frame image allocation.
+// one trap primitive against wall/actor columns already drawn. The painter
+// pass handles nearer sprite silhouettes. Culling a small primitive when any
+// column is hidden avoids painting its edge through a wall beside its centre.
 func (r *Renderer) trapFxSpanVisible(a trapAnchor, centerX, width float64) bool {
 	if r == nil || r.game == nil || width <= 0 {
 		return false

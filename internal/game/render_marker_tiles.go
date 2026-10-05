@@ -14,12 +14,12 @@ type teleporterTileFx struct {
 	color  [3]int
 }
 
-// drawSpawnTileBorder outlines the player's start tile with rising bubbles in the
-// spawn tile's colour (red) on all four edges - the same edge technique as the
+// collectSpawnTileBorder outlines the player's start tile with a light curtain in
+// the spawn tile's colour (red) on all four edges - the same technique as the
 // impassable-tile aura, so the start cell reads as a marked square while its
-// floor blends into the biome ground (inherit_floor). Drawn after walls/sprites
-// so the wall depth buffer occludes it.
-func (r *Renderer) drawSpawnTileBorder(screen *ebiten.Image) {
+// floor blends into the biome ground (inherit_floor). The shared curtain
+// collector places its pieces among scenery and actors.
+func (r *Renderer) collectSpawnTileBorder() {
 	w := r.game.GetCurrentWorld()
 	if w == nil || w.StartX < 0 || w.StartY < 0 || world.GlobalTileManager == nil {
 		return
@@ -29,11 +29,11 @@ func (r *Renderer) drawSpawnTileBorder(screen *ebiten.Image) {
 		rgb = [3]int{255, 0, 0}
 	}
 
-	baseAlpha, perEdge, radius := r.auraEdgeParams()
+	baseAlpha, density, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(radius) * ts
-	r.emitAuraTileEdges(screen, w.StartX, w.StartY, ts, perEdge, baseAlpha, maxDepth, rgb)
+	r.collectAuraTileEdges(w.StartX, w.StartY, ts, density, baseAlpha, maxDepth, rgb)
 }
 
 // Teleporter glow tuning: a DENSE field of varied-size motes that fall sky->ground

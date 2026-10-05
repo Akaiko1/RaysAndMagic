@@ -6,17 +6,17 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// drawTrapTileBorders draws every armed trap. A trap whose armed_fx names a
+// collectTrapTileBorders collects every armed trap. A trap whose armed_fx names a
 // bespoke style (trapFxStyleDraw) gets that centre-anchored effect instead of an
 // outline, so traps stop reading as identical squares; traps without armed_fx
-// keep the original edge-bubble technique from the impassable aura, tinted by
+// use the shared aurora curtain from the impassable aura, tinted by
 // border_color.
-func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
+func (r *Renderer) collectTrapTileBorders(sprites []UnifiedSpriteRenderData) []UnifiedSpriteRenderData {
 	traps := r.game.traps
 	if len(traps) == 0 || r.game.world == nil {
-		return
+		return sprites
 	}
-	baseAlpha, perEdge, radius := r.auraEdgeParams()
+	baseAlpha, density, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(radius) * ts
@@ -35,77 +35,65 @@ func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
 			clampColor(def.BorderColor[1]),
 			clampColor(def.BorderColor[2]),
 		}
-		if draw, ok := trapFxStyleDraw[def.ArmedFx]; ok {
-			// Hash id from the tile so every armed trap scatters its particles
-			// differently while staying stable frame to frame.
+		if _, ok := trapFxStyleDraw[def.ArmedFx]; ok {
 			if a, visible := r.trapFloorAnchor(t.TileX, t.TileY, ts, maxDepth); visible {
-				draw(r, screen, a, rgb, t.TileX*73+t.TileY*131)
+				sprites = append(sprites, UnifiedSpriteRenderData{
+					spriteType: SpriteTypeArmedTrap, depthPerp: a.depth,
+					tileX: i, // index into the current frame's armed traps
+				})
 			}
 			continue
 		}
-		r.emitAuraTileEdges(screen, t.TileX, t.TileY, ts, perEdge, baseAlpha, maxDepth, rgb)
+		r.collectAuraTileEdges(t.TileX, t.TileY, ts, density, baseAlpha, maxDepth, rgb)
 	}
+	return sprites
 }
 
-// Brood-fire trap edging. The tongues are FIREWALL's flames (emitFlameColumn's
-// profile: soft tapered columns, white-hot base to ember tip, source-over so
-// they occlude), scaled down and packed dense - the earlier version borrowed
-// the aura's BUBBLE profile and read as glowing dots, not fire.
-const (
-	trapFlamePerEdge     = 7    // tongues per tile edge: many and small
-	trapFlamePerColumn   = 2    // staggered tongues per sample point
-	trapFlameRiseMult    = 0.85 // ~a third of a tile: ground fire, not a wall
-	trapFlameBaseAlpha   = 0.8
-	trapFlameSizeFloor   = 2.2
-	trapFlameSizeCoef    = 0.1
-	trapFlameFadeTiles   = 14.0
-	trapFlameTongueRatio = 2.4 // taller than wide, like the firewall tongues
-)
-
-// drawBossFireTrapBorders marks the Brood Mother's field: every armed tile is
-// edged with small flame tongues on the SAME sample line the aura/trap borders
-// use, so the smouldering ground reads as fire without becoming a firewall.
-func (r *Renderer) drawBossFireTrapBorders(screen *ebiten.Image) {
-	field := r.game.bossFireTraps
-	if len(field) == 0 {
+func (r *Renderer) drawArmedTrap(screen *ebiten.Image, index int) {
+	t := r.game.traps[index]
+	def, ok := config.GetTrapDefinition(t.Key)
+	if !ok {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
-	maxDepth := trapFlameFadeTiles * ts
-	for _, t := range field {
-		for _, d := range auraCardinalDirections {
-			for s := 0; s < trapFlamePerEdge; s++ {
-				wx, wy := tileEdgeSamplePoint(t.TX, t.TY, d, ts, s, trapFlamePerEdge)
-				r.emitTrapFlameColumn(screen, wx, wy, t.TX, t.TY, d[0]*2+d[1], s, maxDepth)
-			}
-		}
+	_, _, radius := r.auraEdgeParams()
+	a, visible := r.trapFloorAnchor(t.TileX, t.TileY, ts, float64(radius)*ts)
+	if draw := trapFxStyleDraw[def.ArmedFx]; visible && draw != nil {
+		rgb := [3]int{clampColor(def.BorderColor[0]), clampColor(def.BorderColor[1]), clampColor(def.BorderColor[2])}
+		// Tile-derived seeds preserve each trap's animation across frames.
+		draw(r, screen, a, rgb, t.TileX*73+t.TileY*131)
 	}
 }
 
-// emitTrapFlameColumn draws one small flame tongue stack at a sampled point on
-// a trap tile's edge. Same machinery and colour ramp as the Firewall tongues,
-// tuned short and thin.
-func (r *Renderer) emitTrapFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, edgeKey, sIdx int, maxDepth float64) {
-	r.emitBubbleColumn(screen, bubbleColumnFx{
-		wx: wx, wy: wy,
-		hx: tx, hy: ty, salt: edgeKey + 31, hi: sIdx,
-		maxDepth:     maxDepth,
-		riseFraction: auraRiseFraction * trapFlameRiseMult,
-		baseAlpha:    trapFlameBaseAlpha,
-		colBright:    1.0,
-		perColumn:    trapFlamePerColumn,
-		periodTick:   flamePeriodTick,
-		jitterMin:    auraSpeedJitterMin,
-		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
-		sizeFloor:    trapFlameSizeFloor,
-		sizeCoef:     trapFlameSizeCoef,
-		wobbleCoef:   0.5,
-		sizeJitter:   flameSizeJitter,
-		soft:         true,
-		sizeTaper:    flameTipSizeScale,
-		color:        flameCoreColor,
-		heightScale:  trapFlameTongueRatio,
-		srcOver:      true,
-		colorTop:     flameTipColor,
-	})
+// Brood-fire trap edges use the same plume material as fire zones, scaled
+// down to ground embers. Each sample joins the scene painter order.
+const (
+	trapFlamePerEdge   = 7
+	trapFlameRiseMult  = .85
+	trapFlameBaseAlpha = .8
+	trapFlameFadeTiles = 14.0
+)
+
+func (r *Renderer) collectBossFireTrapBorders(sprites []UnifiedSpriteRenderData) []UnifiedSpriteRenderData {
+	ts := float64(r.game.config.GetTileSize())
+	maxDepth := trapFlameFadeTiles * ts
+	for _, t := range r.game.bossFireTraps {
+		for _, d := range auraCardinalDirections {
+			for i := 0; i < trapFlamePerEdge; i++ {
+				wx, wy := tileEdgeSamplePoint(t.TX, t.TY, d, ts, i, trapFlamePerEdge)
+				sx, depth, ok := r.game.renderHelper.projectToScreenXF(wx, wy)
+				if !ok || depth < auraMinDepth || depth > maxDepth {
+					continue
+				}
+				sprites = append(sprites, UnifiedSpriteRenderData{
+					spriteType: SpriteTypeZoneEffect, depthPerp: depth, screenX: int(sx),
+					tileX: len(r.zoneVisuals),
+				})
+				r.zoneVisuals = append(r.zoneVisuals, zoneVisual{
+					kind: zoneVisualTrapFlame, x: wx, y: wy, maxDepth: maxDepth,
+				})
+			}
+		}
+	}
+	return sprites
 }

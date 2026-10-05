@@ -6,9 +6,10 @@ import "math"
 // These particles use the shared presentation clock and wall-depth clipping.
 func (g *MMGame) createElementalAbilityImpact(x, y float64, school string) {
 	fx := SpellHitEffect{Active: true}
+	life := max(36, int(math.Round(float64(g.config.GetTPS())*.8)))
 	for i := 0; i < 18; i++ {
 		a := float64(i) * math.Pi * 2 / 18
-		p := SpellHitParticle{X: x, Y: y, LifeTime: 36, MaxLife: 36, Size: 4, DepthTest: true, Active: true}
+		p := SpellHitParticle{X: x, Y: y, LifeTime: life, MaxLife: life, Size: 4, DepthTest: true, Active: true}
 		switch school {
 		case "fire":
 			// Six narrow pressure jets, each with three consecutive sparks.

@@ -908,9 +908,10 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	meleeConfig := weaponDef.Melee
 	graphicsConfig := weaponDef.Graphics
 
-	// Create visual slash effect (a per-weapon pixel-particle flourish; see
+	// Create visual slash effect (a per-weapon material flourish; see
 	// drawMeleeParticles, driven by Kind).
 	if graphicsConfig != nil {
+		_, weaponKey, _ := config.GetWeaponDefinitionByName(weapon.Name)
 		// Linger the visual flourish past the (fast) swing so the shaped trail
 		// fades slowly - the instant hit already resolved separately. Bespoke
 		// legendary styles linger longer: their debris/droplets need the tail.
@@ -922,7 +923,10 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 		if maxFrames < linger {
 			maxFrames = linger
 		}
+		sweepFrames := max(1, int(math.Round(float64(maxFrames)*meleeSweepFrac)))
+		maxFrames += max(1, int(math.Round(float64(cs.game.config.GetTPS())*.55)))
 		slashEffect := SlashEffect{
+			WeaponKey:      weaponKey,
 			ID:             cs.game.GenerateProjectileID("slash"),
 			X:              cs.game.camera.X,
 			Y:              cs.game.camera.Y,
@@ -931,6 +935,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 			Color:          graphicsConfig.SlashColor,
 			AnimationFrame: 0,
 			MaxFrames:      maxFrames,
+			SweepFrames:    sweepFrames,
 			Active:         true,
 			Kind:           meleeFxKind(weaponDef),
 			Style:          graphicsConfig.SlashFx,
@@ -1478,7 +1483,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	cs.game.logCombat(logToneGood, "%s%s hits %s for %s damage! %s", logCrit(isCrit), logHeroText(attackerName),
 		logMonsterName(monster), logDamage(finalDamage, damageTypeStr), logHP(monster.HitPoints, monster.MaxHitPoints))
 	cs.trySleightOfHand(attacker, monster)
-	cs.spawnWeaponHitImpactFX(monster, finalDamage)
+	cs.spawnWeaponHitImpactFX(monster, finalDamage, weaponDef)
 	cs.settlePartyHit(monster, weaponDef, attacker, attackerName, nil, nil)
 	if radius := weaponAoeRadius(weaponDef); radius > 0 {
 		cs.applyAoeSplash(monster, attack, radius)

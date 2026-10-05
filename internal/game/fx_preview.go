@@ -60,7 +60,8 @@ type FxItem struct {
 
 const fxStageMapKey = "fx_stage"
 
-// fxRespawnTicks is how often the selected effect re-fires so it loops.
+// fxRespawnTicks is the minimum interval between preview casts. Finite attack
+// visuals and persistent fields finish before the next cast can begin.
 const fxRespawnTicks = 75 // ~0.62s at 120 TPS
 
 // fxHeroIdx is the sandbox hero whose party card the card stage represents.
@@ -327,7 +328,10 @@ func (p *FxPreview) clearTransient() {
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
 	g.persistentDamageZones = g.persistentDamageZones[:0]
+	g.pendingMortars = g.pendingMortars[:0]
 	g.traps = g.traps[:0]
+	g.buffFxAnims = g.buffFxAnims[:0]
+	g.elementalAttackEffects = g.elementalAttackEffects[:0]
 	g.screenShake = 0
 	p.clearStage()
 }
@@ -394,23 +398,6 @@ func (p *FxPreview) spawn() {
 				radius = mapWideNovaFxRadiusTiles
 			}
 			g.spawnNovaFx(p.sel.Key, g.camera.X, g.camera.Y, radius)
-		}
-		// Impact burst at the stage point - ONLY for damage-dealing projectile
-		// spells (in the game this burst fires when the bolt lands on a target;
-		// the sandbox has no targets). Utility/buff/zone spells show exactly
-		// what the game shows for them: their cast visuals, no explosion.
-		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
-			cfgDef.IsProjectile && !def.DealsNoDamage && cfgDef.ZoneRadiusTiles == 0 {
-			g.CreateSpellHitEffectFromSpell(p.stageX, p.stageY, p.sel.Key)
-			// In the game the falling stars trigger on the target hit; the
-			// sandbox has no targets, so drop them at the stage point too.
-			if cfgDef.StarburstFx {
-				radius := def.AoeRadiusTiles
-				if radius <= 0 {
-					radius = 1
-				}
-				g.spawnStarburstFx(p.stageX, p.stageY, radius)
-			}
 		}
 	case FxWeapon:
 		if def, ok := config.GetWeaponDefinition(p.sel.Key); ok && def != nil {
@@ -485,6 +472,70 @@ func (p *FxPreview) stageStatus(hero *character.MMCharacter) {
 	g.registerSpawnedMonster(m)
 }
 
+// resolveStageImpacts gives the empty preview stage a target plane. A burst
+// belongs to the flying projectile and starts only when it reaches that plane.
+// Use the game's impact handlers so ranged weapons and spell variants keep
+// their normal impact style; utility and zone spells retain their cast visuals.
+func (p *FxPreview) resolveStageImpacts() {
+	g := p.g
+	dx, dy := math.Cos(p.homeA), math.Sin(p.homeA)
+	contact := func(x, y, vx, vy, rangeTiles float64) (float64, float64, bool) {
+		distance := (p.stageX-p.homeX)*dx + (p.stageY-p.homeY)*dy
+		// Short-range shots must reach the exhibit before their lifetime ends.
+		if rangeTiles > 0 {
+			distance = math.Min(distance, rangeTiles*float64(g.config.GetTileSize())*.8)
+		}
+		beyond := (x-p.homeX)*dx + (y-p.homeY)*dy - distance
+		speed := vx*dx + vy*dy
+		if beyond < 0 || speed <= 0 {
+			return 0, 0, false
+		}
+		return x - vx*beyond/speed, y - vy*beyond/speed, true
+	}
+	for i := range g.magicProjectiles {
+		shot := &g.magicProjectiles[i]
+		if !shot.Active || shot.NoCollide {
+			continue
+		}
+		def, ok := config.GetSpellDefinition(shot.SpellType)
+		if !ok || def == nil || def.DealsNoDamage || def.ZoneRadiusTiles > 0 {
+			continue
+		}
+		physics, err := g.config.GetSpellConfig(shot.SpellType)
+		if err != nil || physics == nil {
+			continue
+		}
+		x, y, hit := contact(shot.X, shot.Y, shot.VelX, shot.VelY, physics.RangeTiles)
+		if !hit {
+			continue
+		}
+		shot.X, shot.Y = x, y
+		wrapper := MagicProjectileWrapper{MagicProjectile: shot, game: g}
+		wrapper.OnCollision(x, y)
+		wrapper.ApplyCollisionEffects()
+		g.collisionSystem.UnregisterEntity(shot.ID)
+	}
+	for i := range g.arrows {
+		shot := &g.arrows[i]
+		if !shot.Active {
+			continue
+		}
+		def, ok := config.GetWeaponDefinition(shot.BowKey)
+		if !ok || def == nil || def.Physics == nil {
+			continue
+		}
+		x, y, hit := contact(shot.X, shot.Y, shot.VelX, shot.VelY, def.Physics.RangeTiles)
+		if !hit {
+			continue
+		}
+		shot.X, shot.Y = x, y
+		wrapper := ArrowWrapper{Arrow: shot, game: g}
+		wrapper.OnCollision(x, y)
+		wrapper.ApplyCollisionEffects()
+		g.collisionSystem.UnregisterEntity(shot.ID)
+	}
+}
+
 // Step advances the sandbox one tick - the same sub-updates the game loop runs
 // for effects, minus input/monsters.
 func (p *FxPreview) Step() {
@@ -497,9 +548,13 @@ func (p *FxPreview) Step() {
 	g.frameCount++
 	gl.updateSpecialEffects()
 	gl.updateProjectilesAndImpacts()
+	p.resolveStageImpacts()
 
 	p.tick++
 	if p.tick >= fxRespawnTicks {
+		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon) && p.attackVisualsActive() {
+			return
+		}
 		p.tick = 0
 		// Refresh a staged monster in place: the effects pass ticks control
 		// timers (Charm, Bind), and a new actor would reseed its animation.
@@ -512,6 +567,34 @@ func (p *FxPreview) Step() {
 		}
 		p.spawn()
 	}
+}
+
+// attackVisualsActive keeps a full flight, contact burst and fade in one loop.
+// Fields keep their authored lifetime instead of stacking a new cast each loop.
+func (p *FxPreview) attackVisualsActive() bool {
+	g := p.g
+	for _, shot := range g.magicProjectiles {
+		if shot.Active {
+			return true
+		}
+	}
+	for _, shot := range g.arrows {
+		if shot.Active {
+			return true
+		}
+	}
+	for _, slash := range g.slashEffects {
+		if slash.Active {
+			return true
+		}
+	}
+	for _, hit := range g.spellHitEffects {
+		if hit.Active {
+			return true
+		}
+	}
+	return len(g.buffFxAnims) > 0 || len(g.elementalAttackEffects) > 0 ||
+		len(g.persistentDamageZones) > 0 || len(g.pendingMortars) > 0
 }
 
 // Scene renders the sandbox through the real renderer into an offscreen image

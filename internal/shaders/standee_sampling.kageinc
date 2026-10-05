@@ -1,10 +1,14 @@
-package game
-
-// Both standee compositors use identical atlas coordinates and filtering.
-// Keep the Kage source shared so changes cannot drift between draw paths.
-const standeeSamplingShaderSrc = `//kage:unit pixels
+//kage:unit pixels
 
 package main
+
+// Ebitengine chooses one integer mip level for an entire DrawTriangles call.
+// That is correct spatial filtering, but a moving token visibly jumps between
+// sharp and soft levels because the engine does not trilinearly blend them.
+// Images 1 and 2 are adjacent sticker levels, image 3 is the selected core
+// level, and image 0 is the full-size coordinate reference. In pixel mode Kage
+// adjusts only atlas origins for imageSrcNAt, so these helpers explicitly map
+// full-size coordinates into each level before sampling.
 
 func standeeSourcePosition(u float, v float) vec2 {
 	size := imageSrc0Size()
@@ -96,4 +100,3 @@ func nearStickerAt(p vec2, filtered bool, mipBlend float, footprint vec2) vec4 {
 	return (stickerAt(p-span*0.375, mipBlend) + stickerAt(p-span*0.125, mipBlend) +
 		stickerAt(p+span*0.125, mipBlend) + stickerAt(p+span*0.375, mipBlend)) * 0.25
 }
-`

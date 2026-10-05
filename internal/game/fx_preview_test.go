@@ -255,3 +255,53 @@ func TestFxPreview_StatusExhibitsStageRealState(t *testing.T) {
 		}
 	}
 }
+
+// Replaying while contact debris is alive hides the real attack's timing.
+func TestFxPreview_AttackCompletesBeforeReplay(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	for _, tc := range []FxItem{
+		{Kind: FxSpell, Key: "fireball"},
+		{Kind: FxWeapon, Key: "iron_sword"},
+	} {
+		t.Run(tc.Key, func(t *testing.T) {
+			p.Select(tc)
+			seenImpact := false
+			for step := 1; step <= 600; step++ {
+				p.Step()
+				for _, hit := range p.g.spellHitEffects {
+					if hit.Active {
+						seenImpact = true
+					}
+				}
+				if p.tick == 0 {
+					if tc.Kind == FxSpell && (!seenImpact || len(p.g.spellHitEffects) != 0) {
+						t.Fatal("spell replayed before its impact finished")
+					}
+					if tc.Kind == FxWeapon && len(p.g.slashEffects) != 1 {
+						t.Fatal("weapon preview overlapped consecutive swings")
+					}
+					return
+				}
+			}
+			t.Fatal("completed attack never replayed")
+		})
+	}
+	p.Select(FxItem{Kind: FxSpell, Key: "hot_steam"})
+	for i := 0; i < fxRespawnTicks*3; i++ {
+		p.Step()
+	}
+	if len(p.g.persistentDamageZones) == 0 {
+		t.Fatal("field preview has no active field")
+	}
+	field := p.g.persistentDamageZones[0].FieldID
+	for _, zone := range p.g.persistentDamageZones {
+		if zone.FieldID != field {
+			t.Fatal("field preview stacked a new cast over its active field")
+		}
+	}
+}

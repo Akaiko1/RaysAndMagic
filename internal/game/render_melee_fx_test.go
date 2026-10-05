@@ -20,6 +20,23 @@ func TestShippedFxStylesResolve(t *testing.T) {
 	validateWeaponFxStyles()     // must not panic on shipped content
 	validateProjectileFxStyles() // must not panic on shipped content
 
+	// The procedural catalog must stay attached to real items, and every
+	// shipped melee weapon must retain its own authored body selection.
+	t.Run("weapon bodies", func(t *testing.T) {
+		for key := range weaponBodyModels {
+			if def, ok := config.GlobalWeapons.Weapons[key]; !ok || def == nil || def.Graphics == nil {
+				t.Errorf("procedural body %q has no drawable weapon definition", key)
+			}
+		}
+		for key, def := range config.GlobalWeapons.Weapons {
+			if def.Melee != nil {
+				if _, ok := weaponBodyModels[key]; !ok {
+					t.Errorf("melee weapon %q has no procedural body", key)
+				}
+			}
+		}
+	})
+
 	// misfit names why the entry cannot show its style; empty = fine.
 	type styled struct{ key, style, misfit string }
 	cases := []struct {

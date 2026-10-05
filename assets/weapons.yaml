@@ -766,6 +766,7 @@ weapons:
       arc_type: 2
       animation_frames: 8
     graphics:
+      slash_fx: katana
       slash_color: [220, 230, 235]
       slash_width: 34
       slash_length: 52
@@ -890,6 +891,7 @@ weapons:
       arc_type: 2
       animation_frames: 6
     graphics:
+      slash_fx: war_fan
       slash_color: [190, 220, 230]
       slash_width: 30
       slash_length: 44

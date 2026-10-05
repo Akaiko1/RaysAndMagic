@@ -1,0 +1,12 @@
+// Stable value noise, shared by weapon materials and fragment erosion.
+func fxHash(p vec2) float {
+	p = fract(p * vec2(123.34, 456.21))
+	p += dot(p, p+45.32)
+	return fract(p.x * p.y)
+}
+
+func fxNoise(p vec2) float {
+	i, f := floor(p), fract(p)
+	f = f * f * (3.0 - 2.0*f)
+	return mix(mix(fxHash(i), fxHash(i+vec2(1, 0)), f.x), mix(fxHash(i+vec2(0, 1)), fxHash(i+vec2(1, 1)), f.x), f.y)
+}

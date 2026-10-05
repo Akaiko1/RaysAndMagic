@@ -1,7 +1,6 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 	"slices"
 	"ugataima/internal/character"
@@ -345,12 +344,12 @@ func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 	}
 	return out
 }
-func (r *Renderer) drawMonsterTelegraphs(screen *ebiten.Image) {
+func (r *Renderer) collectMonsterTelegraphs() {
 	g := r.game
 	if g.world == nil {
 		return
 	}
-	alpha, edges, radius := r.auraEdgeParams()
+	alpha, density, radius := r.auraEdgeParams()
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() || (m.Telegraph.Warning <= 0 && m.Telegraph.Remaining <= 0) {
@@ -361,7 +360,7 @@ func (r *Renderer) drawMonsterTelegraphs(screen *ebiten.Image) {
 			rgb = [3]int{255, 90, 30}
 		}
 		for _, tile := range m.Telegraph.Tiles {
-			r.emitAuraTileEdges(screen, tile[0], tile[1], ts, edges, alpha, float64(radius)*ts, rgb)
+			r.collectAuraTileEdges(tile[0], tile[1], ts, density, alpha, float64(radius)*ts, rgb)
 		}
 	}
 }

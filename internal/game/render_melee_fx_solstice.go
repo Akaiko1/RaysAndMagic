@@ -10,87 +10,92 @@ var solsticeWater = [3]int{57, 193, 226}
 var solsticeEarth = [3]int{99, 197, 124}
 var solsticeAir = [3]int{188, 224, 255}
 
-// The lance compresses three heat collars around a rigid needle, then sheds
-// short perpendicular exhaust strokes. Its silhouette never becomes a slash.
+// A bronze lance point carries a turbulent flame sheath and sheds hot exhaust.
 func (r *Renderer) drawMeleeFxSolsticeThermal(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	p, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
 	}
-	h, w := arenaFxScale(s, screenH)
+	h, _ := arenaFxScale(s, screenH)
 	path := func(t float64) (float64, float64) { return cx + h*(.17-.24*t), cy + h*(.30-.55*t) }
-	r.drawDissolveStroke(screen, dissolveStroke{path: path, width: func(t float64) float64 { return (9 - 7*t) * w }, color: func(t float64) [3]int { return mixColor(solsticeFire, [3]int{255, 249, 201}, t) }, alpha: func(float64) float64 { return .95 }, length: h * .6, seed: seedFromID(s.ID), salt: 701, blend: additiveGlowBlend}, lead, p)
-	for k := 0; k < 3; k++ {
-		t := lead * (.42 + .18*float64(k))
-		x, y := path(t)
-		span := h * (.035 + .025*(1-lead))
-		r.fxSegment(screen, x-span, y+span*.4, x+span, y-span*.4, math.Max(1.5, 2*w), solsticeFire, fade, additiveGlowBlend)
+	r.drawDissolveStroke(screen, dissolveStroke{path: path, width: func(t float64) float64 { return h * (.026 - .016*t) }, color: func(t float64) [3]int { return mixColor(solsticeFire, [3]int{255, 249, 201}, t) }, alpha: func(float64) float64 { return .95 }, length: h * .6, seed: seedFromID(s.ID), salt: 701, blend: additiveGlowBlend}, lead, p)
+	// One coherent flame sheath follows the bronze point, with a ragged wake.
+	tipX, tipY := path(lead)
+	r.drawSpellMaterialFade(screen, tipX, tipY, h*.065, -.4, -.9165, solsticeFire, 1, seedFromID(s.ID), spellFireDart, fade)
+	if p < .65 {
+		r.drawWeaponHead(screen, "lunge", tipX, tipY, -1.98, h*.036, clockBrass, fade)
 	}
+
 	if p > .30 {
 		u := (p - .30) / .7
 		x, y := path(1)
-		for _, side := range []float64{-1, 1} {
-			for k := 0; k < 3; k++ {
-				d := h * (.03 + u*.18)
-				dy := float64(k-1) * h * .035
-				r.fxSegment(screen, x+side*d*.55, y+dy, x+side*d, y+dy+h*.04*u, math.Max(1, 3*w*(1-u)), mixColor(solsticeFire, clockCopper, u), fade*(1-u), additiveGlowBlend)
-			}
-		}
+		r.drawImpactCloud(screen, x, y, h*.19, h*.14, u, solsticeFire, fade*.85, seedFromID(s.ID), false)
 	}
 }
 
-// A squared head descends between two load rails. The landing folds jade
-// braces inward; four angular cracks spread under it, with no circular nova.
+// A jade and bronze hammer falls through a heavy tapered wake. Its impact
+// sends a broad dusty pressure front carrying jade and brass chips.
 func (r *Renderer) drawMeleeFxSolsticeAnchor(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	p, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
 	}
-	h, w := arenaFxScale(s, screenH)
+	h, _ := arenaFxScale(s, screenH)
 	y := cy - h*.28 + h*.44*lead*lead
-	for _, side := range []float64{-1, 1} {
-		x := cx + side*h*(.14-.08*lead)
-		r.fxSegment(screen, x, cy-h*.22, x, y, math.Max(1, 3*w), clockBrass, fade*.65, additiveGlowBlend)
-	}
-	r.drawGlowRectRotated(screen, cx, y, h*.17, h*.085, 0, clockCopper, fade, ebiten.BlendSourceOver)
-	r.drawGlowRectRotated(screen, cx, y, h*.13, h*.068, 0, solsticeEarth, fade, ebiten.BlendSourceOver)
-	r.fxSegment(screen, cx-h*.075, y-h*.038, cx+h*.075, y-h*.038, math.Max(1, 2*w), [3]int{222, 255, 208}, fade, additiveGlowBlend)
+	r.drawDissolveStroke(screen, dissolveStroke{
+		path:  func(t float64) (float64, float64) { return cx + h*.025*math.Sin(t*math.Pi), cy - h*.28 + h*.44*t*t },
+		width: func(t float64) float64 { return h * (.018 + .048*t) },
+		color: func(t float64) [3]int { return mixColor(clockCopper, solsticeEarth, t) },
+		alpha: func(t float64) float64 { return .25 + .45*t }, length: h * .46, seed: seedFromID(s.ID), salt: 715, blend: ebiten.BlendSourceOver,
+	}, lead, p)
+	r.drawHammerHead(screen, cx, y, h*.085, math.Pi-.35+lead*.5, mixColor(solsticeEarth, [3]int{36, 147, 116}, .6), fade)
+
 	if p > .28 {
 		u := (p - .28) / .72
 		by := cy + h*.16
-		for k := 0; k < 4; k++ {
-			a := math.Pi*.25 + float64(k)*math.Pi*.5
-			x1, y1 := cx+math.Cos(a)*h*.08*u, by+math.Sin(a)*h*.035*u
-			x2, y2 := cx+math.Cos(a+.35)*h*.18*u, by+math.Sin(a+.35)*h*.09*u
-			x3, y3 := cx+math.Cos(a)*h*.28*u, by+math.Sin(a)*h*.13*u
-			r.fxSegment(screen, cx, by, x1, y1, 2*w, solsticeEarth, fade, additiveGlowBlend)
-			r.fxSegment(screen, x1, y1, x2, y2, 2*w, solsticeEarth, fade, additiveGlowBlend)
-			r.fxSegment(screen, x2, y2, x3, y3, w, solsticeEarth, fade, additiveGlowBlend)
+		r.drawImpactCloud(screen, cx, by, h*.31, h*.15, u, mixColor(solsticeEarth, clockBrass, .5), fade*.8, seedFromID(s.ID), true)
+		for k := 0; k < 10; k++ {
+			seed := seedFromID(s.ID) + k*37
+			a := -math.Pi/2 + (auraHash(seed, k, 718, 0)-.5)*2.6
+			speed := h * (.1 + .14*auraHash(seed, k, 719, 0))
+			r.drawWeaponShard(screen, cx+math.Cos(a)*speed*u, by+math.Sin(a)*speed*u+h*.15*u*u, h*.014,
+				mixColor(solsticeEarth, clockBrass, auraHash(seed, k, 720, 0)), math.Sqrt(fade)*.8, u, seed, false)
 		}
 	}
 }
 
-// The vector blade makes one oblique cut. Its wake folds through right-angle
-// elbows on opposing sides, then slides apart into thin offset afterimages.
+// The vector blade opens an oblique cut, then its broad split wake curls
+// outward with the shove. Three bright facets retain its stored-strike motif.
 func (r *Renderer) drawMeleeFxSolsticeTransfer(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	p, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
 	}
-	h, w := arenaFxScale(s, screenH)
+	h, _ := arenaFxScale(s, screenH)
+	seed := seedFromID(s.ID)
 	path := func(t float64) (float64, float64) { return cx + h*(t-.5)*.52, cy + h*(.5-t)*.28 }
-	r.drawDissolveStroke(screen, dissolveStroke{path: path, width: func(float64) float64 { return 4 * w }, color: func(float64) [3]int { return solsticeAir }, alpha: func(float64) float64 { return .9 }, length: h * .60, seed: seedFromID(s.ID), salt: 731, blend: additiveGlowBlend}, lead, p)
+	r.drawDissolveStroke(screen, dissolveStroke{
+		path: path, width: func(t float64) float64 { return h * (.014 + .02*math.Sin(math.Pi*t)) },
+		color: func(t float64) [3]int { return mixColor(solsticeAir, [3]int{238, 253, 255}, t*.6) },
+		alpha: func(float64) float64 { return .9 }, length: h * .6, seed: seed, salt: 731, blend: additiveGlowBlend,
+	}, lead, p)
 	for _, side := range []float64{-1, 1} {
-		u := math.Min(1, p*2.5)
-		x := cx + side*h*(.08+.13*u)
-		y := cy - side*h*.08
-		r.fxSegment(screen, x-side*h*.06, y, x, y, 2*w, solsticeAir, fade, additiveGlowBlend)
-		r.fxSegment(screen, x, y, x, y+side*h*.09, 2*w, solsticeAir, fade, additiveGlowBlend)
+		r.drawDissolveStroke(screen, dissolveStroke{
+			path: func(t float64) (float64, float64) {
+				x, y := path(t)
+				curl := side * h * (.028 + .14*p) * math.Sin(t*math.Pi)
+				return x + curl*.45, y + curl
+			},
+			width: func(t float64) float64 { return h * .026 * math.Sin(t*math.Pi) },
+			color: func(t float64) [3]int { return mixColor(solsticeAir, [3]int{95, 139, 165}, t) },
+			alpha: func(t float64) float64 { return fade * .55 * math.Sin(t*math.Pi) }, length: h * .65, seed: seed, salt: 736, blend: additiveGlowBlend,
+		}, lead, p)
+	}
+	if p > .3 {
+		u := (p - .3) / .7
 		for k := 0; k < 3; k++ {
-			off := side * h * (.025*float64(k+1) + .06*p)
-			x0, y0 := path(.2)
-			x1, y1 := path(.8 * lead)
-			r.fxSegment(screen, x0, y0+off, x1, y1+off, w, solsticeAir, fade*.30, additiveGlowBlend)
+			angle := -.48 + float64(k-1)*.42
+			r.drawWeaponShard(screen, cx+math.Cos(angle)*h*.26*u, cy+math.Sin(angle)*h*.26*u, h*.025, solsticeAir, fade, u, seed+k*37, false)
 		}
 	}
 }
@@ -98,36 +103,37 @@ func (r *Renderer) drawMeleeFxSolsticeTransfer(screen *ebiten.Image, s SlashEffe
 // Water travels as two counterflowing ribbons enclosing a clear reservoir.
 // A side projection reveals the wake; head-on shows its double spiral mouth.
 func (r *Renderer) drawWeaponProjectileFxSolsticeFlow(screen *ebiten.Image, cx, cy, size, dx, dy, crit float64, id int) {
-	angle := float64(r.game.frameCount)*.12 + float64(id%11)
+	phase := r.weaponMaterialClock()*4 + float64(id%11)
 	for strand := 0; strand < 2; strand++ {
-		phase := angle + float64(strand)*math.Pi
-		lastX, lastY := 0., 0.
-		for k := 0; k < 18; k++ {
-			t := float64(k) / 17
-			wave := math.Sin(t*math.Pi*2+phase) * size * (.6 + .35*t)
-			x, y := cx-dx*size*t*3-dy*wave, cy-dy*size*t*3+dx*wave
-			if k > 0 {
-				r.fxSegment(screen, lastX, lastY, x, y, math.Max(1.5, size*.16), mixColor(solsticeWater, [3]int{220, 255, 246}, float64(strand)*.55), crit*(.85-.5*t), additiveGlowBlend)
-			}
-			lastX, lastY = x, y
-		}
+		offset := phase + float64(strand)*math.Pi
+		r.drawDissolveStroke(screen, dissolveStroke{
+			path: func(t float64) (float64, float64) {
+				wave := math.Sin(t*math.Pi*2+offset) * size * (.6 + .35*t)
+				return cx - dx*size*t*3 - dy*wave, cy - dy*size*t*3 + dx*wave
+			},
+			width:  func(t float64) float64 { return math.Max(1.5, size*(.24-.09*t)) },
+			color:  func(t float64) [3]int { return mixColor(solsticeWater, [3]int{220, 255, 246}, .2+.4*t) },
+			alpha:  func(t float64) float64 { return crit * (.9 - .55*t) },
+			length: size * 5, seed: id, salt: 740 + strand, blend: additiveGlowBlend,
+		}, 1, -1-phase)
 	}
 }
 
 func (r *Renderer) drawWeaponProjectileFxSolsticeFlowHeadOn(screen *ebiten.Image, cx, cy, size, crit float64, id int) {
-	phase := float64(r.game.frameCount)*.12 + float64(id%11)
+	phase := r.weaponMaterialClock()*4 + float64(id%11)
 	for strand := 0; strand < 2; strand++ {
-		lastX, lastY := 0., 0.
-		for k := 0; k < 20; k++ {
-			t := float64(k) / 19
-			a := phase + float64(strand)*math.Pi + t*math.Pi*1.4
-			rad := size * (.35 + .85*t)
-			x, y := cx+math.Cos(a)*rad, cy+math.Sin(a)*rad
-			if k > 0 {
-				r.fxSegment(screen, lastX, lastY, x, y, math.Max(1.5, size*.14), mixColor(solsticeWater, [3]int{220, 255, 246}, t), crit*(.55+.4*t), additiveGlowBlend)
-			}
-			lastX, lastY = x, y
-		}
+		offset := phase + float64(strand)*math.Pi
+		r.drawDissolveStroke(screen, dissolveStroke{
+			path: func(t float64) (float64, float64) {
+				a := offset + t*math.Pi*1.4
+				rad := size * (.35 + .85*t)
+				return cx + math.Cos(a)*rad, cy + math.Sin(a)*rad
+			},
+			width:  func(t float64) float64 { return math.Max(1.5, size*(.24-.06*t)) },
+			color:  func(t float64) [3]int { return mixColor(solsticeWater, [3]int{220, 255, 246}, t) },
+			alpha:  func(t float64) float64 { return crit * (.55 + .4*t) },
+			length: size * 6, seed: id, salt: 745 + strand, blend: additiveGlowBlend,
+		}, 1, -1-phase)
 	}
 }
 

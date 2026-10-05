@@ -30,25 +30,6 @@ func crystalShimmerAt(s *character.CrystalShimmer, frame int64, tps int, seed ui
 	return int(h % uint64(len(s.Crystals))), float32(envelope * envelope * flicker)
 }
 
-//ebitengine:shadersource
-const crystalShimmerShaderSource = `//kage:unit pixels
-package main
-var Center vec2
-var Radius vec2
-var Tint vec3
-var Strength float
-func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
- uv := (srcPos-imageSrc0Origin())/imageSrc0Size()
- q := (uv-Center)/Radius
- d := length(q)
- glow := pow(max(0, 1-d), 2)
- core := pow(max(0, 1-d*1.8), 2)
- source := imageSrc0At(srcPos)
- a := Strength*source.a
- return vec4(Tint*glow+vec3(core*.7), a)
-}
-`
-
 func (r *Renderer) crystalShimmerOptions(npc *character.NPC, sprite *ebiten.Image) (*ebiten.DrawTrianglesShaderOptions, *ebiten.Shader) {
 	seed := uint64(npc.X)*73856093 ^ uint64(npc.Y)*19349663
 	index, strength := crystalShimmerAt(npc.CrystalShimmer, r.game.frameCount, r.game.config.GetTPS(), seed)

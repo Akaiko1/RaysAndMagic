@@ -1,11 +1,9 @@
 package game
 
-import "github.com/hajimehoshi/ebiten/v2"
-
 // Authored fields use the same depth-tested tile edges as player traps. The
 // warning and active phases share geometry with damage and editor validation.
-func (r *Renderer) drawEnvironmentEffects(screen *ebiten.Image) {
-	r.drawMonsterTelegraphs(screen)
+func (r *Renderer) collectEnvironmentEffects() {
+	r.collectMonsterTelegraphs()
 	g := r.game
 	key := currentMapKey()
 	a := g.adventureConfig(key)
@@ -13,7 +11,7 @@ func (r *Renderer) drawEnvironmentEffects(screen *ebiten.Image) {
 	if a == nil || v == nil || g.world == nil {
 		return
 	}
-	alpha, perEdge, radius := r.auraEdgeParams()
+	alpha, density, radius := r.auraEdgeParams()
 	ts := float64(g.config.GetTileSize())
 	for _, e := range a.Effects {
 		if !g.effectEnabled(a, v, e) {
@@ -24,7 +22,7 @@ func (r *Renderer) drawEnvironmentEffects(screen *ebiten.Image) {
 			s = v.Effects[e.TriggerLane]
 		}
 		if e.Kind == "transfer" {
-			r.emitAuraTileEdges(screen, e.Destination[0], e.Destination[1], ts, perEdge, alpha*.65, float64(radius)*ts, [3]int{100, 255, 170})
+			r.collectAuraTileEdges(e.Destination[0], e.Destination[1], ts, density, alpha*.65, float64(radius)*ts, [3]int{100, 255, 170})
 		}
 		if e.Kind == "lane" && (s == nil || (s.Warning <= 0 && s.Remaining <= 0)) {
 			continue
@@ -48,7 +46,7 @@ func (r *Renderer) drawEnvironmentEffects(screen *ebiten.Image) {
 		}
 		for y := e.Rect[1]; y <= e.Rect[3]; y++ {
 			for x := e.Rect[0]; x <= e.Rect[2]; x++ {
-				r.emitAuraTileEdges(screen, x, y, ts, perEdge, alpha, float64(radius)*ts, rgb)
+				r.collectAuraTileEdges(x, y, ts, density, alpha, float64(radius)*ts, rgb)
 			}
 		}
 	}

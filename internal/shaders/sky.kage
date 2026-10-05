@@ -1,0 +1,38 @@
+//kage:unit pixels
+
+package main
+
+// skyShaderSrc is a Kage fragment shader that samples the sky panorama with
+// manual bilinear filtering and X-axis wrap. Doing this in a custom shader
+// lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
+// (which break batching and force the source out of the texture atlas).
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	size := imageSrc0Size()
+	origin := imageSrc0Origin()
+
+	// Image-local coordinates (atlas offset removed).
+	local := srcPos - origin
+
+	// Bilinear: gather four texels around the sample point. Texel centers sit
+	// at integer + 0.5, so shift by 0.5 before flooring.
+	p := local - vec2(0.5)
+	base := floor(p)
+	f := p - base
+
+	// Wrap X over the image width; clamp Y to a valid row.
+	sx0 := mod(base.x, size.x)
+	sx1 := mod(base.x+1.0, size.x)
+	sy0 := clamp(base.y, 0.0, size.y-1.0)
+	sy1 := clamp(base.y+1.0, 0.0, size.y-1.0)
+	half := vec2(0.5)
+
+	c00 := imageSrc0UnsafeAt(origin + vec2(sx0, sy0) + half)
+	c10 := imageSrc0UnsafeAt(origin + vec2(sx1, sy0) + half)
+	c01 := imageSrc0UnsafeAt(origin + vec2(sx0, sy1) + half)
+	c11 := imageSrc0UnsafeAt(origin + vec2(sx1, sy1) + half)
+
+	top := mix(c00, c10, f.x)
+	bot := mix(c01, c11, f.x)
+	return mix(top, bot, f.y) * color
+}

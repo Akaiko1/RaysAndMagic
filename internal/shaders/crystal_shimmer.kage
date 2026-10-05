@@ -1,0 +1,16 @@
+//kage:unit pixels
+package main
+var Center vec2
+var Radius vec2
+var Tint vec3
+var Strength float
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+ uv := (srcPos-imageSrc0Origin())/imageSrc0Size()
+ q := (uv-Center)/Radius
+ d := length(q)
+ glow := pow(max(0, 1-d), 2)
+ core := pow(max(0, 1-d*1.8), 2)
+ source := imageSrc0At(srcPos)
+ a := Strength*source.a
+ return vec4(Tint*glow+vec3(core*.7), a)
+}

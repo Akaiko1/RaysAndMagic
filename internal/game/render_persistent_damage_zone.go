@@ -9,9 +9,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Steam-zone bubble field (Hot Steam). Like the impassable-tile aura, but the
-// bubbles rise over the WHOLE square of every covered tile (not just edges) and
-// climb twice as high. Drawn each frame, depth-tested against walls.
+// Steam-zone bubbles (Hot Steam) rise across every covered tile and climb
+// twice as high as the tile-edge curtain. Walls clip them; the shared painter
+// pass supplies scenery and actor occlusion.
 const (
 	steamSamplesPerAxis = 3                  // NxN bubble columns spread across each tile
 	steamRiseMultiplier = 2.0                // twice the impassable-aura rise height
@@ -20,26 +20,54 @@ const (
 	// Bubbles need enough pixels for a rim and a highlight to read at all, so the
 	// steam field draws them bigger than the old squares and varies their size -
 	// a uniform size looks like a mechanical grid, not boiling water.
-	steamBubbleSizeFloor  = 2.5
-	steamBubbleSizeCoef   = 0.085
+	steamBubbleSizeFloor  = 3.5
+	steamBubbleSizeCoef   = 0.11
 	steamBubbleSizeJitter = 0.45
 )
 
 // steamBubbleColor is the light blue-white of hot steam.
 var steamBubbleColor = [3]int{205, 228, 245}
 
-// drawPersistentDamageZoneEffects renders the authored steam or flame effect
-// across every active persistent damage-zone cell in both combat clocks.
-func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
+type zoneVisualKind uint8
+
+const (
+	zoneVisualFlame zoneVisualKind = iota
+	zoneVisualHeat
+	zoneVisualSteam
+	zoneVisualTrapFlame
+)
+
+type zoneVisual struct {
+	kind               zoneVisualKind
+	x, y, maxDepth     float64
+	tileX, tileY, slot int
+}
+
+// collectPersistentDamageZoneEffects puts every column in the same painter
+// order as scenery and actors. Alpha silhouettes then occlude only their opaque
+// pixels, while a field in front still covers the objects behind it.
+func (r *Renderer) collectPersistentDamageZoneEffects(sprites []UnifiedSpriteRenderData) []UnifiedSpriteRenderData {
+	r.zoneVisuals = r.zoneVisuals[:0]
 	if len(r.game.persistentDamageZones) == 0 || r.game.world == nil {
-		return
+		return sprites
+	}
+	add := func(v zoneVisual) {
+		x, depth, ok := r.game.renderHelper.projectToScreenXF(v.x, v.y)
+		if !ok || depth < auraMinDepth || depth > v.maxDepth {
+			return
+		}
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeZoneEffect, depthPerp: depth, screenX: int(x),
+			tileX: len(r.zoneVisuals), // index into the reused zone-visual buffer
+		})
+		r.zoneVisuals = append(r.zoneVisuals, v)
 	}
 	ts := float64(r.game.config.GetTileSize())
 
 	for _, key := range r.visibleZoneHeatTiles() {
 		tx, ty := key[0], key[1]
 		x, y := (float64(tx)+.5)*ts, (float64(ty)+.5)*ts
-		r.emitBubbleColumn(screen, bubbleColumnFx{wx: x, wy: y, hx: tx, hy: ty, hi: 0, maxDepth: flameFadeTiles * ts, riseFraction: .10, baseAlpha: .24, colBright: 1, perColumn: 2, periodTick: 48, jitterMin: .8, jitterSpan: .4, sizeFloor: 1.5, sizeCoef: .025, wobbleCoef: .3, sizeJitter: .2, color: flameCoreColor})
+		add(zoneVisual{kind: zoneVisualHeat, x: x, y: y, maxDepth: flameFadeTiles * ts})
 	}
 	for zi := range r.game.persistentDamageZones {
 		z := &r.game.persistentDamageZones[zi]
@@ -86,7 +114,7 @@ func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
 						f := (float64(i)+0.5)/float64(flameWallColumns) - 0.5
 						wx := z.X + z.AxisX*f*ts
 						wy := z.Y + z.AxisY*f*ts
-						r.emitFlameColumn(screen, wx, wy, tx, ty, i, maxDepth)
+						add(zoneVisual{kind: zoneVisualFlame, x: wx, y: wy, maxDepth: maxDepth})
 					}
 					continue
 				}
@@ -102,14 +130,28 @@ func (r *Renderer) drawPersistentDamageZoneEffects(screen *ebiten.Image) {
 						wy := (float64(ty) + fy) * ts
 						idx := sy*samples + sx
 						if flame {
-							r.emitFlameColumn(screen, wx, wy, tx, ty, idx, maxDepth)
+							add(zoneVisual{kind: zoneVisualFlame, x: wx, y: wy, maxDepth: maxDepth})
 							continue
 						}
-						r.emitSteamColumn(screen, wx, wy, tx, ty, idx, maxDepth)
+						add(zoneVisual{kind: zoneVisualSteam, x: wx, y: wy, tileX: tx, tileY: ty, slot: idx, maxDepth: maxDepth})
 					}
 				}
 			}
 		}
+	}
+	return sprites
+}
+
+func (r *Renderer) drawZoneVisual(screen *ebiten.Image, v zoneVisual) {
+	switch v.kind {
+	case zoneVisualHeat:
+		r.drawZonePlume(screen, v.x, v.y, .75, .3, v.maxDepth, .3, flameCoreColor)
+	case zoneVisualFlame:
+		r.emitFlameColumn(screen, v.x, v.y, v.maxDepth)
+	case zoneVisualTrapFlame:
+		r.drawZonePlume(screen, v.x, v.y, .075, auraRiseFraction*trapFlameRiseMult, v.maxDepth, trapFlameBaseAlpha, flameCoreColor)
+	case zoneVisualSteam:
+		r.emitSteamColumn(screen, v.x, v.y, v.tileX, v.tileY, v.slot, v.maxDepth)
 	}
 }
 
@@ -202,96 +244,30 @@ func (r *Renderer) emitSteamColumn(screen *ebiten.Image, wx, wy float64, tx, ty,
 	})
 }
 
-// Flame field (Firewall). Same rising-column machinery as the steam bubbles,
-// tuned into fire: denser sampling, tall fast tongues that taper as they climb,
-// and a colour ramp from white-hot at the base through orange to a dark smoky
-// red at the tip. Additive, depth-tested, so a wall behind it still occludes.
+// Fire zones and burning creatures share shader plumes at different scales.
+// Both use source-over blending so bright terrain does not wash out the flame.
+// World fields and attached actor flames share the depth-sorted sprite pass.
 const (
-	flameSamplesPerAxis = 4    // columns per tile axis
-	flameRiseMultiplier = 2.4  // ~1.3 tiles of flame height (aura fraction is 0.55)
-	flameBaseAlpha      = 0.85 // per tongue, source-over: the wall hides the ground behind it
-	flamePeriodTick     = 26.0 // fast travel = flicker rather than drift
-	flameTipSizeScale   = 0.25 // tongue narrows to a quarter of its base width
-	flameSizeJitter     = 0.35
-	flameTongueAspect   = 2.8  // each tongue is this many times taller than wide
-	flameWallColumns    = 22   // dense enough that neighbouring tongues MERGE into a sheet
-	flamePerColumn      = 4    // staggered tongues per column
+	flameSamplesPerAxis = 2    // columns per tile axis
+	flameBaseAlpha      = 0.85 // opacity of the smaller burning-creature plumes
+	flameWallColumns    = 3    // overlapping shader plumes across one tile of the wall
 	flameFadeTiles      = 16.0 // a burning wall must still read from across a room
 )
 
-var (
-	flameCoreColor = [3]int{255, 176, 48} // orange base
-	flameTipColor  = [3]int{132, 26, 10}  // dark ember tip
-)
+var flameCoreColor = [3]int{255, 176, 48} // orange base
 
-// Burning MOB flames: the wall's tuning, shrunk. A mob is not a curtain - fewer,
-// shorter tongues, and no merging.
+// Burning creatures carry a compact group of shader plumes up their bodies.
 const (
-	monsterFlameRiseMultiplier = 1.3 // ~0.7 tiles of flame: up the body, not over it
-	monsterFlameColumns        = 5   // tongues across the mob's width
-	monsterFlamePerColumn      = 4
-	monsterFlameSizeFloor      = 4.0  // the wall uses 5.0 - a mob's tongues are smaller
-	monsterFlameSizeCoef       = 0.17 // ... and thinner (the wall's 0.26)
+	monsterFlameRiseMultiplier = .65 // about 0.36 of the projected floor-rise
+	monsterFlameColumns        = 3
 	monsterFlameFadeTiles      = 12.0
-	monsterFlameFrontOffset    = 0.28 // tiles toward the camera, so the mob does not occlude its own fire
 )
 
-// monsterFlameMaxDepth is the far clip for a burning mob's tongues.
 func monsterFlameMaxDepth(tileSize float64) float64 {
 	return monsterFlameFadeTiles * tileSize
 }
 
-// emitMonsterFlameColumn draws one short flame tongue stack on a burning mob,
-// through the same emitter the Firewall uses.
-func (r *Renderer) emitMonsterFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, sIdx int, maxDepth float64) {
-	r.emitBubbleColumn(screen, bubbleColumnFx{
-		wx: wx, wy: wy,
-		hx: tx, hy: ty, hi: sIdx,
-		salt:         11, // decorrelate from the steam and wall streams
-		maxDepth:     maxDepth,
-		riseFraction: auraRiseFraction * monsterFlameRiseMultiplier,
-		baseAlpha:    flameBaseAlpha,
-		colBright:    1.0,
-		perColumn:    monsterFlamePerColumn,
-		periodTick:   flamePeriodTick,
-		jitterMin:    auraSpeedJitterMin,
-		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
-		sizeFloor:    monsterFlameSizeFloor,
-		sizeCoef:     monsterFlameSizeCoef,
-		wobbleCoef:   0.5,
-		sizeJitter:   flameSizeJitter,
-		soft:         true,
-		sizeTaper:    flameTipSizeScale,
-		color:        flameCoreColor,
-		heightScale:  flameTongueAspect,
-		srcOver:      true,
-		colorTop:     flameTipColor,
-	})
-}
-
-// emitFlameColumn draws one flame tongue stack at a sampled point of a fire zone.
-func (r *Renderer) emitFlameColumn(screen *ebiten.Image, wx, wy float64, tx, ty, sIdx int, maxDepth float64) {
-	r.emitBubbleColumn(screen, bubbleColumnFx{
-		wx: wx, wy: wy,
-		hx: tx, hy: ty, hi: sIdx,
-		salt:         7, // decorrelate from the steam field's hash stream
-		maxDepth:     maxDepth,
-		riseFraction: auraRiseFraction * flameRiseMultiplier,
-		baseAlpha:    flameBaseAlpha,
-		colBright:    1.0,
-		perColumn:    flamePerColumn,
-		periodTick:   flamePeriodTick,
-		jitterMin:    auraSpeedJitterMin,
-		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
-		sizeFloor:    5.0,
-		sizeCoef:     0.26,
-		wobbleCoef:   0.5,
-		sizeJitter:   flameSizeJitter,
-		soft:         true, // round soft glows read as flame; rects read as bricks
-		sizeTaper:    flameTipSizeScale,
-		color:        flameCoreColor,
-		heightScale:  flameTongueAspect, // tongues, not puddles
-		srcOver:      true,              // fire OCCLUDES what is behind it
-		colorTop:     flameTipColor,
-	})
+// emitFlameColumn draws one independently moving plume within a fire zone.
+func (r *Renderer) emitFlameColumn(screen *ebiten.Image, wx, wy, maxDepth float64) {
+	r.drawZonePlume(screen, wx, wy, .42, 2.8, maxDepth, .92, flameCoreColor)
 }

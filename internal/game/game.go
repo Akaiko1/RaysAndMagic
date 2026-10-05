@@ -97,15 +97,17 @@ type MagicProjectile struct {
 	AoeTiles           float64            // party spell blast radius, snapshotted at launch: the shot bursts wherever it ends
 }
 
-// SlashEffect represents a visual melee swing (a per-weapon pixel-particle
+// SlashEffect represents a visual melee swing (a per-weapon material
 // flourish; see drawMeleeParticles).
 type SlashEffect struct {
+	WeaponKey      string  // weapon identity, snapshotted with the swing
 	ID             string  // Unique identifier
 	X, Y           float64 // Origin (camera position at swing) - for cleanup/debug
 	Width, Length  int     // Dimensions from weapon graphics config
 	Color          [3]int  // RGB color
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
+	SweepFrames    int     // Initial motion duration; the remaining time is cosmetic decay
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
 	Style          string // bespoke legendary flourish (graphics.slash_fx); overrides Kind
@@ -151,24 +153,28 @@ type Arrow struct {
 // SpellHitParticle represents a single particle from a spell impact
 type SpellHitParticle struct {
 	X, Y             float64 // World anchor (impact point) - fixed; used for projection
-	OffsetX, OffsetY float64 // Screen-space offset from the anchor (a real 2D burst)
-	VelX, VelY       float64 // Screen-space velocity (px/frame at the anchor's scale)
+	OffsetX, OffsetY float64 // Impact-plane offset, projected at the world anchor depth
+	VelX, VelY       float64 // Impact-plane units per frame
 	Gravity          float64 // Added to VelY each frame (ice shards fall, embers rise)
 	Color            [3]int  // RGB color based on element
 	LifeTime         int     // Frames remaining
 	MaxLife          int     // Initial lifetime for alpha calculation
-	Size             int     // Particle size (shrinks over time)
+	Size             int     // Full-face size in impact-plane units
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
-	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
-	Solid            bool    // drawn source-over, not additive: MATTER (dirt, rubble) instead of light
+	Star             bool    // renders as a twinkling 4-point star (impact_stars)
+	Solid            bool    // matte dirt/rubble instead of reflective mirror fragments
 	DepthTest        bool    // hide particles behind world walls at their projected position
 	Active           bool
 }
 
 // SpellHitEffect represents a burst of particles from a spell impact
 type SpellHitEffect struct {
-	Particles []SpellHitParticle
-	Active    bool
+	BurstAge, BurstLife int
+	BurstRadius         float64
+	BurstColor          [3]int
+	BurstDust           bool
+	Particles           []SpellHitParticle
+	Active              bool
 }
 
 // ElementColors maps spell elements to RGB colors

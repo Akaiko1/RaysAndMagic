@@ -575,7 +575,7 @@ func (gl *GameLoop) advancePersistentDamageZones(elapsedFrames int) {
 			maxLeft[z.SpellID] = z.FramesLeft
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
-		// frame (Renderer.drawPersistentDamageZoneEffects) - no sparse particle spawns here.
+		// frame through the sorted sprite pass - no sparse particle spawns here.
 		zones[w] = *z
 		w++
 	}

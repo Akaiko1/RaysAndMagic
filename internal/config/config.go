@@ -916,15 +916,14 @@ type ColorKeyConfig struct {
 	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
 }
 
-// ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
-// ground edges of impassable billboard tiles (rocks/cliffs) so the player can
-// tell which tiles block movement. Zero/absent numeric fields fall back to
-// in-code defaults; Enabled defaults off unless set in config.yaml.
+// ImpassableAuraConfig tunes the aurora curtains along authored impassable
+// tile boundaries, shared by telegraphs and other ground markers. Zero/absent
+// numeric fields use in-code defaults; Enabled defaults off unless configured.
 type ImpassableAuraConfig struct {
-	Enabled        bool    `yaml:"enabled"`
-	RadiusTiles    int     `yaml:"radius_tiles"`     // scan radius around the camera, in tiles
-	BubblesPerEdge int     `yaml:"bubbles_per_edge"` // particle columns per walkable-facing edge
-	Alpha          float64 `yaml:"alpha"`            // base glow alpha (0..1)
+	Enabled     bool    `yaml:"enabled"`
+	RadiusTiles int     `yaml:"radius_tiles"` // scan radius around the camera, in tiles
+	FoldDensity float64 `yaml:"fold_density"` // broad animated folds per tile edge (2..8)
+	Alpha       float64 `yaml:"alpha"`        // base glow alpha (0..1)
 }
 
 type ColorsConfig struct {
