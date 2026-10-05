@@ -489,7 +489,7 @@ npcs:
     shop_dialogue: true
     requires_quest: "solstice_expedition"
     stock_refresh_weeks: 0
-    inventory: [{"type": "item", "name": "Heat Draught", "cost": 150, "quantity": 4}, {"type": "item", "name": "Flow Draught", "cost": 150, "quantity": 4}, {"type": "item", "name": "Anchor Draught", "cost": 150, "quantity": 4}, {"type": "item", "name": "Vector Draught", "cost": 150, "quantity": 4}, {"type": "item", "name": "Mana Potion", "cost": 70, "quantity": 2}]
+    inventory: [{"type": "item", "name": "Heat Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Flow Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Anchor Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Vector Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Mana Potion", "cost": 70, "quantity": 2}]
     dialogue:
       quest_greeting: "Recover the expedition instrument and pages for Velna first. Until then these supplies belong to the missing surveyors."
       greeting: "I counted the supplies twice. The expedition is still missing. If you go after them, bring back the measuring wheel; it cost more than their tents."
