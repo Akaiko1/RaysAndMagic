@@ -31,6 +31,7 @@ type loadingRenderMiss struct{}
 type gameLoadingState struct {
 	worldPass     bool
 	worldRequests map[graphics.SpriteResourceRequest]bool
+	cpuRequests   map[graphics.SpriteResourceRequest]bool
 
 	stream        *graphics.ResourceStream
 	generation    uint64
@@ -58,6 +59,7 @@ func (gl *GameLoop) ensureResourceLoading() bool {
 		l.stream.Close()
 		l.stream = graphics.NewResourceStream(gl.game.sprites)
 		l.worldRequests = make(map[graphics.SpriteResourceRequest]bool)
+		l.cpuRequests = make(map[graphics.SpriteResourceRequest]bool)
 		l.generation = gl.renderer.mapRenderGeneration
 		l.uploads = nil
 	}
@@ -100,6 +102,30 @@ func (gl *GameLoop) deferGameplayResource(request graphics.SpriteResourceRequest
 		panic(loadingRenderMiss{})
 	}
 	return true
+}
+
+// A resident source can acquire a new derived consumer during speculative
+// Draw. Request its CPU pixels through the same worker before falling back to
+// a GPU readback. A failed re-decode gets one attempt per presented frame.
+func (r *Renderer) deferRenderReadback(src *ebiten.Image) {
+	if r.game == nil || r.game.gameLoop == nil {
+		return
+	}
+	gl := r.game.gameLoop
+	l := gl.loading
+	if l == nil || !l.rendering || !l.worldPass {
+		return
+	}
+	origin, ok := r.resourceOrigin(src)
+	if !ok || origin.kind != renderResourceSource {
+		return
+	}
+	request := graphics.SpriteResourceRequest{Name: origin.source.name, AnimationType: origin.source.animationType}
+	if l.cpuRequests[request] {
+		return
+	}
+	l.cpuRequests[request] = true
+	gl.deferGameplayResource(request)
 }
 
 func (l *gameLoadingState) begin(now time.Time) {
@@ -285,6 +311,7 @@ func (gl *GameLoop) tryLoadingFrame(dst *ebiten.Image) (complete bool) {
 	}()
 	dst.Clear()
 	gl.drawExplorationFrame(dst)
+	clear(l.cpuRequests)
 	return true
 }
 

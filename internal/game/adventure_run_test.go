@@ -393,6 +393,62 @@ func TestChamberScheduleSkipsClearedWindows(t *testing.T) {
 	if g.adventureAvailable("solstice_fire", now+3-0.000001) || !g.adventureAvailable("solstice_fire", now+3) {
 		t.Fatal("cooldown boundary differs from timer")
 	}
+	t.Run("stable_window_boundaries", func(t *testing.T) {
+		day, frame, night, adventure := g.calendarDay, g.dayNightFrames, g.dayNightIsNight, g.adventure
+		t.Cleanup(func() {
+			g.calendarDay, g.dayNightFrames, g.dayNightIsNight, g.adventure = day, frame, night, adventure
+		})
+		npc, err := character.CreateNPCFromConfig("solstice_threshold", 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tickDay := 1 / float64(g.dayNightCycleFrames())
+		for _, tc := range []struct {
+			name    string
+			resetAt float64
+			next    string
+			legacy  bool
+		}{
+			{"available", 0, "Flow Chamber", false},
+			{"before_dawn", 43 - tickDay, "Flow Chamber", false},
+			{"at_dawn", 43, "Thermal Chamber", false},
+			{"after_dawn", 43 + tickDay, "Thermal Chamber", false},
+			{"before_dusk", 43.5 - tickDay, "Thermal Chamber", false},
+			{"at_dusk", 43.5, "Flow Chamber", false},
+			{"after_dusk", 43.5 + tickDay, "Flow Chamber", false},
+			{"legacy_opening_at_dawn", 43, "Thermal Chamber", true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				g.adventure = AdventureState{Visits: map[string]*AdventureVisit{}}
+				for _, key := range []string{"solstice_fire", "solstice_water", "solstice_earth", "solstice_air"} {
+					v := &AdventureVisit{BossGranted: tc.resetAt > 0, VictoryAt: tc.resetAt - 3}
+					if tc.legacy {
+						if err := json.Unmarshal([]byte(`{"boss_granted":true,"opening":"39:day"}`), v); err != nil {
+							t.Fatal(err)
+						}
+					}
+					g.adventure.Visits[key] = v
+				}
+				g.calendarDay = 42
+				// Consecutive ticks around rounding-sensitive values, in both
+				// phases. A reset at a window's end belongs to the next window.
+				for _, base := range []int{0, g.dayNightCycleFrames() / 2} {
+					for _, offset := range []int{0, 54, 55, 56, 1629, 1630, 1631} {
+						g.dayNightFrames = base + offset
+						g.dayNightIsNight = base != 0
+						next := tc.next
+						if tc.resetAt == 0 && g.dayNightIsNight {
+							next = "Thermal Chamber"
+						}
+						text := g.npcDialogueText(npc)
+						if !strings.Contains(text, "Next available: "+next+" in ") {
+							t.Fatalf("frame %d: %s", g.dayNightFrames, text)
+						}
+					}
+				}
+			})
+		}
+	})
 	for _, tc := range []struct {
 		name     string
 		data     string

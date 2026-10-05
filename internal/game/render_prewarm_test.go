@@ -4,8 +4,12 @@ import (
 	"context"
 	"image"
 	"image/draw"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -467,7 +471,7 @@ func TestMapRenderStandeeWorkerCompletionAndCancellation(t *testing.T) {
 			cpu := image.NewRGBA(image.Rect(0, 0, 4, 4))
 			results := prepareMapRenderStandees(ctx, []mapRenderStandeeJob{{
 				key: standeeCoreKey{name: "mob:test"}, cpu: cpu,
-			}}, 0.5, graphics.PixelCache{})
+			}}, 0.5)
 			prepared, ok := <-results
 			if ok != tt.wantResult {
 				t.Fatalf("worker result present = %v, want %v", ok, tt.wantResult)
@@ -2118,16 +2122,22 @@ func TestWithMapRenderSourceTrackingStashesAndClearsLazyCPU(t *testing.T) {
 func TestPrewarmRetainsCPUImagesUntilDerivedWorkFinishes(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 2, 2))
+	g.appScreen = AppScreenInGame
 	r := &Renderer{game: g}
 	source := ebiten.NewImage(4, 4)
+	defer source.Deallocate()
 	task := &mapRenderPrewarmTask{
-		ctx:       context.Background(),
-		cpuImages: map[*ebiten.Image]*image.RGBA{source: image.NewRGBA(image.Rect(0, 0, 4, 4))},
+		ctx:         context.Background(),
+		cpuImages:   map[*ebiten.Image]*image.RGBA{source: image.NewRGBA(image.Rect(0, 0, 4, 4))},
+		spritesDone: true, skiesDone: true,
+		steps: []mapRenderPrewarmStep{},
 	}
 	task.prewarmer = newMapRenderPrewarmer(r, task)
-	steps := r.buildMapRenderPrewarmSteps(task)
-	if len(steps) == 0 || !steps[len(steps)-1](time.Now().Add(time.Second)) {
-		t.Fatal("final derived-resource scheduling step did not complete")
+	task.standeeJobs = []mapRenderStandeeJob{{key: makeStandeeCoreKey("retained", source, true), source: source, cpu: task.cpuImages[source]}}
+	r.mapRenderResourcePrewarmActive = task
+	r.prewarmPendingMapRenderResources()
+	if task.preparedStandees == nil {
+		t.Fatal("derived-resource worker did not start")
 	}
 	if task.cpuImages[source] == nil {
 		t.Fatal("derived-resource scheduling released CPU pixels while the prewarm task was still active")
@@ -2227,6 +2237,185 @@ func TestRenderResidencyResetsOnlyOnWorldSwitch(t *testing.T) {
 			}
 			if r.residencyWorld != g.GetCurrentWorld() {
 				t.Fatal("residency is not inventoried for the current world")
+			}
+		})
+	}
+}
+
+// Repeated objects and regions share GPU roots. A new rendering role may still
+// require source pixels; it must obtain them off-loop without a GPU readback.
+func TestMapRenderPrewarmReusesSourcesForDerivedConsumers(t *testing.T) {
+	cfg := loadTestConfig(t)
+	cfg.Graphics.Standee.Enabled = true
+	cfg.Graphics.TreesAsBillboards = true
+	for _, kind := range []string{"tree", "sheet", "animation", "processed", "processed_nil", "no_tiles", "wall", "wall_budget", "aura"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			setTestWorldManager(t, nil)
+			oldTiles := world.GlobalTileManager
+			t.Cleanup(func() { world.GlobalTileManager = oldTiles })
+			world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+			tileYAML := "tiles:\n  shared:\n    type: prop\n    sprite: shared\n    render_type: standee\n    walkable: true\n    transparent: true\n    size_class: small_prop\n    alpha_from_brightness: 0.4\n"
+			if err := os.WriteFile("tiles.yaml", []byte(tileYAML), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := world.GlobalTileManager.LoadTileConfig("tiles.yaml"); err != nil {
+				t.Fatal(err)
+			}
+			tile, _ := world.GlobalTileManager.GetTileTypeFromKey("shared")
+			world.GlobalTileManager.GetTileData(tile).ImpassableAura = true
+			request := graphics.SpriteResourceRequest{Name: "shared"}
+			w := newTestWorldSized(cfg, 2, 2)
+			w.NPCs = []*character.NPC{{Sprite: "shared", RenderCategory: "npc"}}
+			width := 8
+			if kind == "sheet" || kind == "animation" || kind == "processed" {
+				width = 32
+			}
+			if kind == "animation" {
+				def, err := monster.MonsterConfig.GetMonsterByKey("goblin")
+				if err != nil {
+					t.Fatal(err)
+				}
+				request = graphics.SpriteResourceRequest{Name: normalizedAuthoredSpriteName(def.GetSpriteFromConfig()), AnimationType: "walking_r"}
+				w.NPCs = nil
+				w.MonsterSpawns = []world.MonsterSpawn{{MonsterKey: "goblin"}}
+			}
+			path := filepath.Join("assets", "sprites", "mobs", request.Name+".png")
+			if request.AnimationType != "" {
+				path = filepath.Join("assets", "sprites", "mobs", request.Name+"_"+request.AnimationType+".png")
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			cpu := image.NewRGBA(image.Rect(0, 0, width, 8))
+			for i := 0; i < len(cpu.Pix); i += 4 {
+				cpu.Pix[i], cpu.Pix[i+1], cpu.Pix[i+2], cpu.Pix[i+3] = 40, 120, 60, 255
+			}
+			file, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(file, cpu); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			g := newTestGame(cfg, w)
+			g.appScreen = AppScreenInGame
+			g.sprites = graphics.NewSpriteManager()
+			for prepared := range g.sprites.PrepareResources(context.Background(), []graphics.SpriteResourceRequest{request}) {
+				g.sprites.CommitPreparedResource(prepared)
+			}
+			source := g.sprites.ResourceImages(request)[0]
+			r := &Renderer{game: g}
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			if kind == "processed" {
+				processed, _ := applyBrightnessToAlphaCPU(cpu, 0.4)
+				r.cacheProcessedSprite(processedSpriteKey{tileType: tile, spriteName: "shared"}, processed)
+			}
+			if kind == "processed_nil" {
+				r.cacheProcessedSprite(processedSpriteKey{tileType: tile, spriteName: "shared"}, nil)
+			}
+			if kind == "no_tiles" {
+				world.GlobalTileManager = nil
+			}
+			if kind == "wall_budget" {
+				r.wallRipmapBytes = wallRipmapBudgetBytes
+			}
+			// The first visit has only a shared source. The second has all derivatives,
+			// and must finish even when the original file is no longer accessible.
+			for visit, region := range []string{"first", "second"} {
+				if visit == 1 {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				r.scheduleMapRenderResourcePrewarm(region)
+				r.startNextMapRenderPrewarm()
+				task := r.mapRenderResourcePrewarmActive
+				if task == nil {
+					t.Fatal("region did not start")
+				}
+				switch kind {
+				case "tree":
+					task.plan = mapRenderPrewarmPlan{treeSprites: []string{"shared"}}
+				case "sheet":
+					task.plan = mapRenderPrewarmPlan{npcSprites: []mapNPCPrewarmResource{{name: "shared", prefix: "npc"}}}
+				case "processed", "processed_nil", "no_tiles":
+					task.plan = mapRenderPrewarmPlan{environmentSprites: []processedSpriteKey{{tileType: tile, spriteName: "shared"}}}
+				case "wall", "wall_budget":
+					task.plan = mapRenderPrewarmPlan{wallSprites: []string{"shared"}}
+				case "aura":
+					task.plan = mapRenderPrewarmPlan{tileTypes: []world.TileType3D{tile}}
+				}
+				if visit == 1 && kind == "aura" {
+					r.evictMapRenderResidencyOutside(map[string]struct{}{region: {}})
+					if images := g.sprites.ResourceImages(request); len(images) == 0 || images[0] != source {
+						t.Fatal("active region did not retain the reused source")
+					}
+				}
+				decoded := false
+				deadline := time.Now().Add(5 * time.Second)
+				for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+					r.prewarmPendingMapRenderResources()
+					decoded = decoded || len(task.cpuImages) > 0
+					runtime.Gosched()
+				}
+				if r.mapRenderResourcePrewarmActive != nil {
+					t.Fatal("region preparation stalled")
+				}
+				if visit == 1 {
+					r.evictMapRenderResidencyOutside(map[string]struct{}{region: {}})
+				}
+				needsCPU := kind != "processed_nil" && kind != "no_tiles" && kind != "wall_budget"
+				if decoded != (visit == 0 && needsCPU) {
+					t.Fatalf("decoded pixels on visit %d = %v", visit, decoded)
+				}
+				if r.loadDiagnostics.readbacks != 0 {
+					t.Fatal("shared source was read back from GPU")
+				}
+				if images := g.sprites.ResourceImages(request); len(images) == 0 || images[0] != source {
+					t.Fatal("shared GPU source was replaced")
+				}
+				if kind != "animation" {
+					bounds, _, _, ok := g.sprites.SpriteVisibleFrameBounds("shared")
+					if !ok || bounds.Empty() {
+						t.Fatal("reuse invalidated visible geometry")
+					}
+				}
+				resources := r.mapRenderResourcesByMap[region]
+				switch kind {
+				case "processed_nil", "no_tiles":
+					if len(resources.standees) != 0 {
+						t.Fatal("unavailable tile consumer prepared standee textures")
+					}
+				case "wall_budget":
+					if rm := r.wallRipmaps[source]; rm == nil || len(rm.owned) != 0 {
+						t.Fatal("over-budget wall did not retain its no-allocation fallback")
+					}
+				case "wall":
+					if rm := r.wallRipmaps[source]; rm == nil || rm.building || len(rm.owned) == 0 {
+						t.Fatal("missing completed wall textures")
+					}
+				case "aura":
+					if r.auraTileColorCache[tile] != [3]int{40, 120, 60} {
+						t.Fatal("missing aura color")
+					}
+				default:
+					want := 1
+					if width == 32 {
+						want = 4
+					}
+					if len(resources.standees) != want {
+						t.Fatalf("standee frames=%d, want %d", len(resources.standees), want)
+					}
+					for key := range resources.standees {
+						if r.standeeCoreCache[key] == nil || r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipCore}] == nil {
+							t.Fatal("missing derived frame")
+						}
+					}
+				}
 			}
 		})
 	}

@@ -6,6 +6,11 @@ const standeeSamplingShaderSrc = `//kage:unit pixels
 
 package main
 
+func standeeSourcePosition(u float, v float) vec2 {
+	size := imageSrc0Size()
+	return imageSrc0Origin() + vec2(min(u*size.x, size.x-1.0)+0.5, v*(size.y-1.0)+0.5)
+}
+
 func sampleLinear1(p vec2) vec4 {
 	origin0 := imageSrc0Origin()
 	size0 := imageSrc0Size()

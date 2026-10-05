@@ -327,3 +327,102 @@ func TestLoadingRetiresDragActionsWithoutLosingPickedUpFragments(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadingRetainsReusedSourcePixelsAcrossRenderMisses(t *testing.T) {
+	gl := loadingFixture(t)
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("assets/sprites/environment", 0755); err != nil {
+		t.Fatal(err)
+	}
+	var sources []*ebiten.Image
+	var expected [][]byte
+	for i, name := range []string{"first", "second"} {
+		cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+		for p := range cpu.Pix {
+			cpu.Pix[p] = byte(100 + i*40)
+		}
+		file, err := os.Create("assets/sprites/environment/" + name + ".png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(file, cpu); err != nil {
+			t.Fatal(err)
+		}
+		file.Close()
+	}
+	for _, name := range []string{"first", "second"} {
+		req := graphics.SpriteResourceRequest{Name: name}
+		for prepared := range gl.game.sprites.PrepareResources(context.Background(), []graphics.SpriteResourceRequest{req}) {
+			expected = append(expected, append([]byte(nil), prepared.CPU.Pix...))
+			gl.game.sprites.CommitPreparedResource(prepared)
+		}
+		sources = append(sources, gl.game.sprites.ResourceImages(req)[0])
+	}
+	r := gl.renderer
+	for pass := 0; pass <= len(sources); pass++ {
+		missed := false
+		func() {
+			gl.loading.rendering = true
+			defer func() {
+				gl.loading.rendering = false
+				if caught := recover(); caught != nil {
+					if _, ok := caught.(loadingRenderMiss); !ok {
+						panic(caught)
+					}
+					missed = true
+				}
+			}()
+			r.withMapRenderSourceTracking(func() {
+				for i, source := range sources {
+					pixels := make([]byte, len(expected[i]))
+					r.readRenderPixels(source, pixels)
+					if !reflect.DeepEqual(pixels, expected[i]) {
+						t.Fatal("reused source pixels changed")
+					}
+				}
+			})
+		}()
+		if missed != (pass < len(sources)) || r.loadDiagnostics.readbacks != 0 {
+			t.Fatalf("pass %d: missed=%v GPU readbacks=%d", pass, missed, r.loadDiagnostics.readbacks)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for gl.loading.stream.Pending() && time.Now().Before(deadline) {
+			gl.advanceResourceLoading()
+			time.Sleep(time.Millisecond)
+		}
+		if gl.loading.stream.Pending() {
+			t.Fatal("CPU request never completed")
+		}
+	}
+	if len(r.lazySpriteCPUPixels) != 0 {
+		t.Fatal("completed world pass retained temporary CPU pixels")
+	}
+	// Both resident sources now need a new consumer. Discovery must collect
+	// their missing CPU copies before starting one bounded worker batch.
+	r.scheduleMapRenderResourcePrewarm("batch")
+	r.startNextMapRenderPrewarm()
+	task := r.mapRenderResourcePrewarmActive
+	task.plan = mapRenderPrewarmPlan{wallSprites: []string{"first", "second"}}
+	sawBatch := false
+	deadline := time.Now().Add(5 * time.Second)
+	for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+		r.prewarmPendingMapRenderResources()
+		pending := 0
+		for _, complete := range task.prewarmer.cpuRequested {
+			if !complete {
+				pending++
+			}
+		}
+		sawBatch = sawBatch || pending == 2
+		time.Sleep(time.Millisecond)
+	}
+	if !sawBatch || r.mapRenderResourcePrewarmActive != nil || r.loadDiagnostics.readbacks != 0 {
+		t.Fatal("CPU requests did not finish as a shared batch without GPU readback")
+	}
+	for _, source := range sources {
+		if rm := r.wallRipmaps[source]; rm == nil || rm.building || len(rm.owned) == 0 {
+			t.Fatal("batched decode did not publish wall filtering data")
+		}
+	}
+	r.resetMapRenderResourceResidency()
+}

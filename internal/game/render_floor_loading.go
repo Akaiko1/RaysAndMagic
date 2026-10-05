@@ -62,6 +62,7 @@ func (r *Renderer) startFloorPreparation(key string, groups map[string][]string)
 		if ctx.Err() != nil {
 			return
 		}
+		cache.MigrateToSingleImageEntries(ctx)
 		textures, mapping := prepareFloorTextureGroups(paths)
 		if ctx.Err() != nil {
 			return

@@ -28,6 +28,61 @@ const pixelCacheTempMaxAge = time.Hour
 
 var pixelCacheWriteMu sync.Mutex
 
+// MigrateToSingleImageEntries retires the old multi-image standee cache while
+// retaining the single-image floor atlases. Run off-loop; a marker makes this
+// a one-time directory scan, retried if cancellation or a filesystem error
+// interrupts it. Unknown files, symlinks and active temporary writers stay put.
+func (c PixelCache) MigrateToSingleImageEntries(ctx context.Context) {
+	if c.Dir == "" || ctx.Err() != nil {
+		return
+	}
+	pixelCacheWriteMu.Lock()
+	defer pixelCacheWriteMu.Unlock()
+	marker := filepath.Join(c.Dir, ".single-image-v1")
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	entries, err := os.ReadDir(c.Dir)
+	if err != nil {
+		return
+	}
+	complete := true
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return
+		}
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".rgba") {
+			continue
+		}
+		key, err := hex.DecodeString(strings.TrimSuffix(entry.Name(), ".rgba"))
+		if err != nil || len(key) != sha256.Size {
+			continue
+		}
+		path := filepath.Join(c.Dir, entry.Name())
+		f, err := os.Open(path)
+		if err != nil {
+			complete = complete && os.IsNotExist(err)
+			continue
+		}
+		var header [sha256.Size + 4]byte
+		z, err := zlib.NewReader(f)
+		if err == nil {
+			_, err = io.ReadFull(z, header[:])
+			_ = z.Close()
+		}
+		_ = f.Close()
+		if err != nil || string(header[:sha256.Size]) != string(key) || binary.LittleEndian.Uint32(header[sha256.Size:]) <= 1 {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			complete = false
+		}
+	}
+	if complete && ctx.Err() == nil {
+		_ = os.WriteFile(marker, nil, 0600)
+	}
+}
+
 // PixelCacheKey includes the algorithm/settings discriminator and every source
 // pixel, ignoring origin and stride padding. Source edits invalidate the entry
 // even when a file's name, size and modification time are unchanged.

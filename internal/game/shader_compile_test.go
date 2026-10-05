@@ -155,7 +155,7 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 		}
 	}
 
-	// The far sticker uses the same selected sticker mip with a single tap.
+	// The far sticker blends the same adjacent mip levels as the near sticker.
 	// Its level-space mapping must also cover the complete destination.
 	for i := range vertices {
 		vertices[i].Custom1 = 2
@@ -165,8 +165,8 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
 			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
-			if got != (color.RGBA{R: 0xff, A: 0xff}) {
-				t.Fatalf("far-sticker pixel (%d,%d) = %#v; selected mip must fill the opaque 8x8 quad", x, y, got)
+			if got.A != 0xff || got.G != 0 || got.R < 125 || got.R > 130 || got.B < 125 || got.B > 130 {
+				t.Fatalf("far-sticker pixel (%d,%d) = %#v; adjacent mip blend must fill the opaque 8x8 quad", x, y, got)
 			}
 		}
 	}

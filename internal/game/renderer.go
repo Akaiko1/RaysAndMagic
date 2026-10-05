@@ -1313,11 +1313,17 @@ func (r *Renderer) withMapRenderSourceTracking(draw func()) {
 		defer func() { loading.worldPass = false }()
 	}
 	r.game.sprites.SetLazyResourceObserver(r.observeLazySpriteLoad)
+	complete := false
 	defer func() {
 		r.game.sprites.SetLazyResourceObserver(nil)
-		clear(r.lazySpriteCPUPixels)
+		// An incomplete loading frame may discover several dependencies in
+		// succession. Keep decoded sources until one world pass finishes.
+		if complete || r.game.gameLoop == nil || r.game.gameLoop.loading == nil || !r.game.gameLoop.loading.rendering {
+			clear(r.lazySpriteCPUPixels)
+		}
 	}()
 	draw()
+	complete = true
 }
 
 // observeLazySpriteLoad attributes a synchronous fallback load to the current
@@ -2177,18 +2183,26 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 }
 
 func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Image, *image.RGBA) {
-	if source == nil {
+	pixels := brightnessToAlphaPixels(source, strength)
+	if pixels == nil {
 		return nil, nil
+	}
+	return ebiten.NewImageFromImage(pixels), pixels
+}
+
+func brightnessToAlphaPixels(source *image.RGBA, strength float64) *image.RGBA {
+	if source == nil {
+		return nil
 	}
 	bounds := source.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	if w <= 0 || h <= 0 {
-		return nil, nil
+		return nil
 	}
 	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(pixels, pixels.Bounds(), source, bounds.Min, draw.Src)
 	if strength <= 0 {
-		return ebiten.NewImageFromImage(pixels), pixels
+		return pixels
 	}
 	if strength > 1 {
 		strength = 1
@@ -2224,7 +2238,7 @@ func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Im
 		pixels.Pix[i+2] = uint8(bv*alphaScale + 0.5)
 		pixels.Pix[i+3] = uint8(float64(a)*alphaScale + 0.5)
 	}
-	return ebiten.NewImageFromImage(pixels), pixels
+	return pixels
 }
 
 // drawEnvironmentSprite draws environment sprites in the 3D world

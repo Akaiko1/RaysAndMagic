@@ -225,8 +225,13 @@ func (g *MMGame) adventureScheduleText(source string) string {
 		}
 	}
 	cycle := g.dayNightCycleFrames()
-	delta := dayNightForwardDistance(g.dayNightFrames, g.dayNightPhaseStartFrame(!night), cycle)
-	boundary := now + float64(delta)/float64(cycle)
+	// Anchor windows to exact calendar half-days. Recombining the fractional
+	// clock with time to the next phase can round past a reset at the boundary,
+	// briefly selecting the chamber from the window that has already ended.
+	boundary := float64(day) + .5
+	if night {
+		boundary = float64(day) + 1
+	}
 	start := now
 	for start <= horizon {
 		key := s.Destination(day, night)

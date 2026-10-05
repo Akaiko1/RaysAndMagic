@@ -4,40 +4,13 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"math"
 
 	"ugataima/internal/graphics"
 )
 
 // Increment only for algorithm changes. Numeric settings and source pixels
 // participate directly, so tuning a limit or palette invalidates old entries.
-const standeePixelCacheVersion = "standee-pixels-v1"
 const floorPixelCacheVersion = "floor-atlas-v1"
-
-func prepareCachedStandeePixels(ctx context.Context, cache graphics.PixelCache, cpu *image.RGBA, tint float64) standeePreparedPixels {
-	if cpu == nil || cpu.Bounds().Empty() {
-		return standeePreparedPixels{}
-	}
-	if cache.Dir == "" {
-		return prepareStandeePixels(cpu, tint, true)
-	}
-	key := graphics.PixelCacheKey(fmt.Sprintf("%s:tint=%016x:max_pixels=%d:mips=%d:wood=%016x,%016x,%016x",
-		standeePixelCacheVersion, math.Float64bits(tint), standeeRenderSourceMaxPixels, maxMipLevel,
-		math.Float64bits(standeeWoodTone[0]), math.Float64bits(standeeWoodTone[1]), math.Float64bits(standeeWoodTone[2])), cpu)
-	w, h := standeeRenderSourceSize(cpu.Bounds().Dx(), cpu.Bounds().Dy())
-	sizes := mipSizesUniform(w, h)
-	allSizes := append(append([]image.Point(nil), sizes...), sizes...)
-	if images, ok := cache.Load(ctx, key, allSizes); ok {
-		n := len(sizes)
-		return standeePreparedPixels{sticker: images[0], core: images[n], stickerMips: images[:n], coreMips: images[n:]}
-	}
-	if ctx.Err() != nil {
-		return standeePreparedPixels{}
-	}
-	prepared := prepareStandeePixels(cpu, tint, true)
-	cache.Store(ctx, key, append(append([]*image.RGBA(nil), prepared.stickerMips...), prepared.coreMips...))
-	return prepared
-}
 
 // Source decoding stays in the existing worker. Cache only the derived atlas,
 // so source edits and ordered texture selection always participate in its key.

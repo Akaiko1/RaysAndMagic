@@ -483,6 +483,12 @@ func (sm *SpriteManager) BeginPreparedResourceCommit(prepared PreparedSpriteReso
 		return commit
 	}
 	request := prepared.Request
+	// A CPU-only re-decode can fail while the published GPU resource is still
+	// valid. Keep its bounds, hit mask and classification until explicit eviction.
+	if !prepared.Found && len(sm.ResourceImages(request)) > 0 {
+		commit.done = true
+		return commit
+	}
 	indexedName := request.Name
 	if request.AnimationType != "" {
 		indexedName += "_" + request.AnimationType

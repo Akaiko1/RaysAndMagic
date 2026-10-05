@@ -74,11 +74,38 @@ func TestPrepareResourcesDecodesOffLoopAndCommitsOnLoop(t *testing.T) {
 				if loaded != tt.wantFound {
 					t.Fatalf("static source committed = %v, want %v", loaded, tt.wantFound)
 				}
-				return
+			} else {
+				animation := sm.animations[animationKey(tt.request.Name, tt.request.AnimationType)]
+				if animation == nil || len(animation.Frames) != tt.wantFrames {
+					t.Fatalf("animation frames = %v, want %d", animation, tt.wantFrames)
+				}
 			}
-			animation := sm.animations[animationKey(tt.request.Name, tt.request.AnimationType)]
-			if animation == nil || len(animation.Frames) != tt.wantFrames {
-				t.Fatalf("animation frames = %v, want %d", animation, tt.wantFrames)
+			if tt.wantFound {
+				name := tt.request.Name
+				if tt.request.AnimationType != "" {
+					name += "_" + tt.request.AnimationType
+				}
+				sm.SpriteOpaqueAt(name, 0, 0)
+				bounds, alpha, kind := sm.visibleFrameBounds[name], sm.alphaMasks[name], sm.getCachedSpriteType(name)
+				images := sm.ResourceImages(tt.request)
+				for _, broken := range []string{"corrupt", "missing"} {
+					if broken == "corrupt" {
+						if err := os.WriteFile(sm.spritePaths[name], []byte("invalid PNG"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.Remove(sm.spritePaths[name]); err != nil {
+						t.Fatal(err)
+					}
+					for failed := range sm.PrepareResources(context.Background(), []SpriteResourceRequest{tt.request}) {
+						if failed.Found {
+							t.Fatal("broken source decoded successfully")
+						}
+						sm.CommitPreparedResource(failed)
+					}
+					if !reflect.DeepEqual(images, sm.ResourceImages(tt.request)) || bounds != sm.visibleFrameBounds[name] || alpha != sm.alphaMasks[name] || kind != sm.getCachedSpriteType(name) || sm.failedResources[tt.request] {
+						t.Fatalf("%s re-decode invalidated the resident image or metadata", broken)
+					}
+				}
 			}
 		})
 	}

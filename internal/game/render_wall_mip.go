@@ -78,6 +78,23 @@ type mapRenderWallRipmapBuilder struct {
 	published    bool
 }
 
+func (r *Renderer) wallRipmapAllocation(sprite *ebiten.Image) (int64, bool) {
+	if r == nil || sprite == nil {
+		return 0, false
+	}
+	bounds := sprite.Bounds()
+	bytes := wallRipmapByteSize(bounds.Dx(), bounds.Dy())
+	return bytes, bytes > 0 && bytes <= wallRipmapPerTextureBudgetBytes && bytes <= wallRipmapBudgetBytes-r.wallRipmapBytes
+}
+
+func (r *Renderer) wallRipmapNeedsPixels(sprite *ebiten.Image) bool {
+	if r.wallRipmaps[sprite] != nil {
+		return false
+	}
+	_, allowed := r.wallRipmapAllocation(sprite)
+	return allowed
+}
+
 func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *image.RGBA) *mapRenderWallRipmapBuilder {
 	b := &mapRenderWallRipmapBuilder{renderer: r, sprite: sprite}
 	if r == nil || sprite == nil {
@@ -92,10 +109,9 @@ func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *
 	}
 	bounds := sprite.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
-	b.estimated = wallRipmapByteSize(width, height)
-	if width <= 0 || height <= 0 || b.estimated <= 0 ||
-		b.estimated > wallRipmapPerTextureBudgetBytes ||
-		b.estimated > wallRipmapBudgetBytes-r.wallRipmapBytes {
+	var allowed bool
+	b.estimated, allowed = r.wallRipmapAllocation(sprite)
+	if !allowed {
 		if r.wallRipmaps == nil {
 			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
 		}
@@ -340,9 +356,8 @@ func (r *Renderer) wallRipmapForCPU(sprite *ebiten.Image, prepared *image.RGBA) 
 	if width <= 0 || height <= 0 {
 		return nil
 	}
-	estimatedBytes := wallRipmapByteSize(width, height)
-	if estimatedBytes <= 0 || estimatedBytes > wallRipmapPerTextureBudgetBytes ||
-		estimatedBytes > wallRipmapBudgetBytes-r.wallRipmapBytes {
+	estimatedBytes, allowed := r.wallRipmapAllocation(sprite)
+	if !allowed {
 		if r.wallRipmaps == nil {
 			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
 		}
