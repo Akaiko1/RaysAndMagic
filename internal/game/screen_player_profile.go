@@ -61,7 +61,8 @@ func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, s
 		img = ui.profileArt.thumbnail(strings.TrimPrefix(key, "sky:"))
 	} else if strings.HasPrefix(key, "monster:") {
 		name := strings.TrimPrefix(key, "monster:")
-		for _, animType := range []string{"walking_r", "walking_l"} {
+		// Fish use leap sheets instead of walking or standalone sprites.
+		for _, animType := range []string{"walking_r", "walking_l", "leaping_r", "leaping_l"} {
 			if anim := ui.game.sprites.GetAnimation(name, animType); anim != nil && len(anim.Frames) > 0 {
 				img = anim.Frames[0]
 				break

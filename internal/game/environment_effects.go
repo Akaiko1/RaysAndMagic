@@ -433,6 +433,11 @@ func (g *MMGame) recordAdventureBoss(m *monster.Monster3D) {
 		return
 	}
 	v.BossGranted = true
+	v.ArenaLocked = false
+	if a.ResetDays > 0 {
+		v.VictoryAt = g.currentQuestDay()
+	}
+	g.syncAdventureArenaBounds()
 	if g.adventure.Records == nil {
 		g.adventure.Records = map[string]bool{}
 	}

@@ -10,6 +10,7 @@ func (gl *GameLoop) runMonsterFrame() {
 	gl.prepareMonsterFrame()
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.simulateMonsterFrame()
+	gl.game.updateAdventureArena()
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
 	if !gl.game.turnBasedMode {
 		for _, pos := range monsterFrameStart {

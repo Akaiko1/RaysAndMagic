@@ -1,6 +1,7 @@
 package game
 
 import (
+	"maps"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -82,6 +83,7 @@ func normalizeItemFromConfig(item *items.Item) {
 func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m := &character.MMCharacter{
 		Name:             cs.Name,
+		AdventureXP:      maps.Clone(cs.AdventureXP),
 		Inventory:        append([]items.Item(nil), cs.Inventory...),
 		Class:            character.CharacterClass(cs.Class),
 		Race:             cs.Race,
@@ -184,6 +186,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
 		Name:             m.Name,
+		AdventureXP:      maps.Clone(m.AdventureXP),
 		Inventory:        append([]items.Item(nil), m.Inventory...),
 		Class:            int(m.Class),
 		Race:             m.Race,

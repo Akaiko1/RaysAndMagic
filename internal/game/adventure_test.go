@@ -80,6 +80,10 @@ func TestSolsticeVisitLifecycle(t *testing.T) {
 					visit.effectState("checkpoint").Carry = .375
 					boss.HitPoints = 0
 					g.recordAdventureBoss(boss)
+					victoryAt := g.currentQuestDay()
+					if visit.VictoryAt != victoryAt || g.adventureResetAt(key, visit) != victoryAt+3 {
+						t.Fatal("victory did not start a three-day chamber cooldown")
+					}
 					// Remove the dead actor exactly as the normal death queue does.
 					for i, m := range g.world.Monsters {
 						if m == boss {
@@ -107,7 +111,7 @@ func TestSolsticeVisitLifecycle(t *testing.T) {
 						t.Fatal("reload lost elemental weapon mark")
 					}
 					visit = g.adventure.Visits[key]
-					if !visit.BossGranted || visit.effectState("checkpoint").Carry != .375 || !reflect.DeepEqual(visit.Loot, lootBefore) {
+					if !visit.BossGranted || visit.VictoryAt != victoryAt || visit.effectState("checkpoint").Carry != .375 || !reflect.DeepEqual(visit.Loot, lootBefore) {
 						t.Fatal("save lost visit state")
 					}
 					for _, h := range g.party.Members {
@@ -117,17 +121,25 @@ func TestSolsticeVisitLifecycle(t *testing.T) {
 					if err := g.transitionToMap(mapTransition{mapKey: "solstice_vestibule", arrival: mapArrivalEntrance}); err != nil {
 						t.Fatal(err)
 					}
-					if err := g.enterAdventureSchedule("solstice_vestibule"); err != nil {
-						t.Fatal(err)
+					if err := g.enterAdventureSchedule("solstice_vestibule"); err == nil {
+						t.Fatal("cleared chamber remained available")
 					}
-					if g.adventure.Visits[key].Level != 25 || len(g.world.Monsters) != 18 || !g.adventure.Visits[key].BossGranted {
-						t.Fatal("same opening reset a cleared visit")
+					if g.adventure.Visits[key].Level != 25 || !g.adventure.Visits[key].BossGranted {
+						t.Fatal("blocked entry changed the visit")
 					}
-					// A clock change while occupied is inert.
-					g.calendarDay += 7
+					g.calendarDay += 2
+					if g.adventureAvailable(key, g.currentQuestDay()) {
+						t.Fatal("chamber reopened before three days")
+					}
+					// The cooldown ends independently of the entrance's rotation.
+					if !g.adventureAvailable(key, victoryAt+3) {
+						t.Fatal("chamber stayed locked after three days")
+					}
+					// Return at the same weekly window; time alone never spawns a visit.
+					g.calendarDay += 5
 					g.tickEnvironment(0, false)
 					if g.adventure.Visits[key].Generation != 1 {
-						t.Fatal("occupied visit refreshed")
+						t.Fatal("visit refreshed without entering")
 					}
 					if err := g.transitionToMap(mapTransition{mapKey: "solstice_vestibule", arrival: mapArrivalEntrance}); err != nil {
 						t.Fatal(err)
@@ -187,18 +199,38 @@ func TestAdventureTerrainCadence(t *testing.T) {
 
 func TestAdventureScalingIsIdempotent(t *testing.T) {
 	cfg := loadTestConfig(t)
-	for _, key := range []string{"solstice_ember_elemental", "solstice_aureth"} {
-		m := monster.NewMonster3DFromConfig(0, 0, key, cfg)
-		scaleAdventureMonster(m, 35)
-		hp, damage, armor := m.MaxHitPoints, m.DamageMax, m.ArmorClass
-		scaleAdventureMonster(m, 35)
-		if m.Level != 35 || m.MaxHitPoints != hp || m.DamageMax != damage || m.ArmorClass != armor {
-			t.Fatal("compounding scale")
-		}
-		scaleAdventureMonster(m, 6)
-		if m.MaxHitPoints >= hp || m.DamageMax >= damage || m.Level != 6 {
-			t.Fatal("downscale failed")
-		}
+	for _, tc := range []struct {
+		key                             string
+		level, hp, damageMin, damageMax int
+	}{
+		{"solstice_aureth", 27, 3150, 40, 60},
+		{"solstice_aureth", 34, 6388, 60, 89},
+		{"solstice_aureth", 35, 7067, 63, 95},
+		{"solstice_aureth", 36, 7564, 67, 100},
+		{"solstice_aureth", 40, 9555, 84, 126},
+		{"solstice_aureth", 45, 12043, 112, 167},
+		{"solstice_aureth", 50, 14531, 148, 223},
+		{"solstice_aureth", 60, 19506, 262, 394},
+		{"solstice_talura", 35, 7057, 60, 89},
+		{"solstice_talura", 50, 14511, 140, 210},
+		{"solstice_ember_elemental", 35, 2249, 75, 109},
+		{"solstice_ember_elemental", 50, 4099, 176, 255},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tc.key, tc.level), func(t *testing.T) {
+			m := monster.NewMonster3DFromConfig(0, 0, tc.key, cfg)
+			for _, level := range []int{tc.level, tc.level, 6, tc.level} {
+				scaleAdventureMonster(m, level)
+				if level == 6 {
+					if m.MaxHitPoints >= tc.hp || m.DamageMax >= tc.damageMax || m.Level != 6 {
+						t.Fatal("downscale failed")
+					}
+					continue
+				}
+				if m.Level != tc.level || m.MaxHitPoints != tc.hp || m.HitPoints != tc.hp || m.DamageMin != tc.damageMin || m.DamageMax != tc.damageMax {
+					t.Fatalf("level=%d HP=%d/%d damage=%d..%d; want level=%d HP=%d damage=%d..%d", m.Level, m.HitPoints, m.MaxHitPoints, m.DamageMin, m.DamageMax, tc.level, tc.hp, tc.damageMin, tc.damageMax)
+				}
+			}
+		})
 	}
 }
 
@@ -243,7 +275,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 	stats := func(m *monster.Monster3D) [8]int {
 		return [8]int{m.Level, m.MaxHitPoints, m.HitPoints, m.ArmorClass, m.DamageMin, m.DamageMax, m.Experience, m.EnrageAtHP}
 	}
-	for _, format := range []string{"current", "legacy", "legacy_no_anchor"} {
+	for _, format := range []string{"current", "legacy", "legacy_no_anchor", "old_boss_curve"} {
 		t.Run(format, func(t *testing.T) {
 			g.adventureVisit(key).Level = 56
 			g.world.Monsters = nil
@@ -282,12 +314,19 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 				}
 				m.ID = fmt.Sprintf("%s-%d", kind, i)
 				m.HitPoints = m.MaxHitPoints - 7
-				want[m.ID] = stats(m)
+				if kind == "boss" && format == "old_boss_curve" {
+					m.HitPoints = m.MaxHitPoints
+					want[m.ID] = stats(m)
+					// Old exponential saves can exceed the new maximum HP.
+					m.HitPoints *= 2
+				} else {
+					want[m.ID] = stats(m)
+				}
 				g.world.Monsters = append(g.world.Monsters, m)
 			}
 			for reload := 0; reload < 2; reload++ {
 				saved := auditSaveJSON(t, g.buildSave(wm))
-				if format != "current" && reload == 0 {
+				if (format == "legacy" || format == "legacy_no_anchor") && reload == 0 {
 					// Exercise pre-provenance JSON, including older saves without anchors.
 					raw, _ := json.Marshal(saved)
 					var document map[string]any

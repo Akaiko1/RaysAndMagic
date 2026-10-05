@@ -614,3 +614,10 @@ func (cs *CollisionSystem) GetEntityByID(id string) *Entity {
 	}
 	return nil
 }
+
+// SetMovementBounds updates an actor between worker phases.
+func (cs *CollisionSystem) SetMovementBounds(id string, bounds MovementBounds) {
+	if e := cs.entities[id]; e != nil {
+		e.movementBounds = bounds
+	}
+}

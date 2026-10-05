@@ -31,7 +31,7 @@ func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *characte
 	landX := g.camera.X + dx*def.JumpTiles*ts
 	landY := g.camera.Y + dy*def.JumpTiles*ts
 
-	if g.collisionSystem == nil || !g.collisionSystem.CanMoveTo("player", landX, landY) {
+	if g.collisionSystem == nil || !g.canMovePartyTo(landX, landY) {
 		g.AddCombatMessage("There is no room to land.")
 		return castNoEffect
 	}

@@ -415,6 +415,8 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// Drop the previous run's per-map return positions so a fresh party enters
 	// each map at its '+' start, not where the old party last stood.
 	g.adventure = AdventureState{}
+	g.arenaBarrierMessageAfter = 0
+	g.syncAdventureArenaBounds()
 	g.mapReturnPoses = make(map[string]MapPose)
 
 	// Reset maps to a fresh state with monsters and NPCs.
@@ -1249,18 +1251,19 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 	cs := ih.game.collisionSystem
 	moved := false
 	switch {
-	case cs.CanMoveTo("player", cam.X+dx, cam.Y+dy):
+	case ih.game.canMovePartyTo(cam.X+dx, cam.Y+dy):
 		cam.X += dx
 		cam.Y += dy
 		moved = true
-	case dx != 0 && cs.CanMoveTo("player", cam.X+dx, cam.Y):
+	case dx != 0 && ih.game.canMovePartyTo(cam.X+dx, cam.Y):
 		cam.X += dx
 		moved = true
-	case dy != 0 && cs.CanMoveTo("player", cam.X, cam.Y+dy):
+	case dy != 0 && ih.game.canMovePartyTo(cam.X, cam.Y+dy):
 		cam.Y += dy
 		moved = true
 	}
 	if !moved {
+		ih.game.announceBlockedPartyMove(oldX+dx, oldY+dy)
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
@@ -1342,7 +1345,7 @@ func (ih *InputHandler) isRunning() bool {
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
 func (ih *InputHandler) checkTeleporter() {
-	targetMapKey, newX, newY, teleported := ih.tryTeleportation()
+	targetMapKey, newX, newY, group, teleported := ih.tryTeleportation()
 	if !teleported {
 		return // No teleportation occurred
 	}
@@ -1353,36 +1356,45 @@ func (ih *InputHandler) checkTeleporter() {
 	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
 		if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, pose: MapPose{X: newX, Y: newY, Angle: AngleNorth}}); err != nil {
 			ih.game.AddCombatMessage("Teleport failed: " + err.Error())
+			return
 		}
-		return
+	} else {
+		// Same-map teleport uses the same landing constraint as Jump and Fold Step.
+		if !ih.game.canMovePartyTo(newX, newY) {
+			ih.game.announceBlockedPartyMove(newX, newY)
+			return
+		}
+		ih.game.setPartyPosition(newX, newY)
+		if ih.game.turnBasedMode {
+			ih.game.snapToCardinalDirection()
+		}
 	}
-
-	// Same-map teleport: keep the party's heading, no map-change autosave.
-	ih.game.setPartyPosition(newX, newY)
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
+	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
+	if reg.LastUsedByGroup == nil {
+		reg.LastUsedByGroup = make(map[string]time.Time)
 	}
+	reg.LastUsedByGroup[group] = time.Now()
 }
 
-// tryTeleportation checks if the player is on a teleporter and attempts teleportation using the global registry
-func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
+// tryTeleportation selects a destination without moving or consuming cooldown.
+func (ih *InputHandler) tryTeleportation() (string, float64, float64, string, bool) {
 	x, y := ih.game.camera.X, ih.game.camera.Y
 	worldInst := ih.game.GetCurrentWorld()
 	if worldInst == nil || world.GlobalWorldManager == nil {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tileSize := float64(ih.game.config.GetTileSize())
 	tx, ty := TileIndex(x, tileSize), TileIndex(y, tileSize)
 	if tx < 0 || tx >= worldInst.Width || ty < 0 || ty >= worldInst.Height {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tile := worldInst.Tiles[ty][tx]
 	if world.GlobalTileManager == nil {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tileData := world.GlobalTileManager.GetTileData(tile)
 	if tileData == nil || strings.ToLower(tileData.Type) != "teleporter" {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
 	// Unified world: teleporters register under their REGION key at unified
@@ -1396,27 +1408,23 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	}
 	source, ok := reg.FindTeleporter(lookupKey, tx, ty)
 	if !ok || !source.AutoActivate {
-		return "", x, y, false
-	}
-	if reg.LastUsedByGroup == nil {
-		reg.LastUsedByGroup = make(map[string]time.Time)
+		return "", x, y, "", false
 	}
 	cooldown := time.Duration(source.CooldownSeconds * float64(time.Second))
 	if cooldown > 0 {
 		if last, exists := reg.LastUsedByGroup[source.Group]; exists {
 			if time.Since(last) < cooldown {
-				return "", x, y, false
+				return "", x, y, "", false
 			}
 		}
 	}
 
 	dest, ok := reg.GetRandomDestinationTeleporter(source)
 	if !ok {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
-	reg.LastUsedByGroup[source.Group] = time.Now()
 	nx, ny := TileCenterFromTile(dest.X, dest.Y, tileSize)
-	return dest.MapKey, nx, ny, true
+	return dest.MapKey, nx, ny, source.Group, true
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
@@ -2523,6 +2531,8 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 
 	// First, check if the target tile itself is passable (not blocked by terrain)
 	if !ih.canMoveToTile(targetTileX, targetTileY) {
+		x, y := TileCenterFromTile(targetTileX, targetTileY, tileSize)
+		ih.game.announceBlockedPartyMove(x, y)
 		return false // Target tile is impassable (tree, wall, etc.)
 	}
 
@@ -2548,7 +2558,7 @@ func (ih *InputHandler) canMoveToTile(tileX, tileY int) bool {
 	worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
 
 	// Use collision system which handles bounds checking and centralized tile logic
-	return ih.game.collisionSystem.CanMoveTo("player", worldX, worldY)
+	return ih.game.canMovePartyTo(worldX, worldY)
 }
 
 // rotateTurnBased rotates the camera in 90-degree increments

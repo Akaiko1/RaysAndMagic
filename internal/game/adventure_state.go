@@ -21,6 +21,8 @@ type AdventureState struct {
 	Occupied string                     `json:"occupied,omitempty"`
 }
 type AdventureVisit struct {
+	VictoryAt   float64                      `json:"victory_at,omitempty"`
+	ArenaLocked bool                         `json:"arena_locked,omitempty"`
 	Loot        map[string]AdventureLoot     `json:"loot,omitempty"`
 	Opening     string                       `json:"opening"`
 	Element     string                       `json:"element"`
@@ -33,6 +35,34 @@ type AdventureVisit struct {
 	BossHealed  int                          `json:"boss_healed,omitempty"`
 	HealCarry   float64                      `json:"heal_carry,omitempty"`
 }
+
+// Old saves stored a deadline using the original policy. Convert it once at
+// the serialization boundary; new saves store only the victory timestamp.
+func (v *AdventureVisit) UnmarshalJSON(data []byte) error {
+	type visit AdventureVisit
+	var saved struct {
+		visit
+		ResetAt float64 `json:"reset_at"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+	*v = AdventureVisit(saved.visit)
+	if v.BossGranted && v.VictoryAt == 0 {
+		const legacyChamberResetDays = 14
+		if saved.ResetAt > 0 {
+			v.VictoryAt = saved.ResetAt - legacyChamberResetDays
+		} else {
+			// No victory date was recorded. Conservatively use the end of
+			// the visit's opening day, retaining the original migration policy.
+			day := 1
+			_, _ = fmt.Sscanf(v.Opening, "%d:", &day)
+			v.VictoryAt = float64(day + 1)
+		}
+	}
+	return nil
+}
+
 type EnvironmentState struct {
 	SourceDamageCarry map[string]float64 `json:"source_damage_carry,omitempty"`
 	DamageCarry       float64            `json:"damage_carry,omitempty"`
@@ -140,7 +170,14 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 	opening := g.openingID()
 	v := g.adventure.Visits[dest]
 	request := mapTransition{mapKey: dest, arrival: mapArrivalEntrance}
-	if v == nil || v.Opening != opening {
+	if !g.adventureAvailable(dest, g.currentQuestDay()) {
+		return fmt.Errorf("This chamber has been cleared. %s", g.adventureScheduleText(source))
+	}
+	fresh := v == nil || v.Opening != opening
+	if policy := g.adventureConfig(dest); policy != nil && policy.ResetDays > 0 {
+		fresh = v == nil || v.Opening == "" || (v.BossGranted && g.adventureAvailable(dest, g.currentQuestDay()))
+	}
+	if fresh {
 		w, err := world.GlobalWorldManager.FreshAdventureMap(dest)
 		if err != nil {
 			return err
@@ -166,28 +203,51 @@ func (g *MMGame) adventureScheduleText(source string) string {
 	s := a.Schedule
 	day, night := g.currentCalendarDay(), g.dayNightIsNight
 	current := s.Destination(day, night)
-	if night {
-		day++
-	}
-	next := s.Destination(day, !night)
 	name := func(key string) string {
 		if m := world.GlobalWorldManager.MapConfigs[key]; m != nil {
 			return m.Name
 		}
 		return key
 	}
-	cycle := g.dayNightCycleFrames()
-	remaining := 0
-	if cycle > 0 {
-		f := g.dayNightFrames
-		boundary := cycle/4 + 1
-		if night {
-			boundary = 3*cycle/4 + 1
-		}
-		remaining = (boundary - f + cycle) % cycle
+	now := g.currentQuestDay()
+	status := "available"
+	if !g.adventureAvailable(current, now) {
+		status = "cleared"
 	}
-	secs := int(math.Ceil(float64(remaining) / float64(max(1, g.config.GetTPS()))))
-	return fmt.Sprintf("Now: %s. Next: %s in %d:%02d. The destination is selected when you enter.", name(current), name(next), secs/60, secs%60)
+	// Search schedule windows, including a cooldown that ends inside a window.
+	// Each destination repeats within one week after its cooldown expires.
+	horizon := now + 8
+	for _, pair := range s.Days {
+		for _, key := range pair {
+			if v := g.adventure.Visits[key]; v != nil && v.BossGranted {
+				horizon = max(horizon, g.adventureResetAt(key, v)+8)
+			}
+		}
+	}
+	cycle := g.dayNightCycleFrames()
+	delta := dayNightForwardDistance(g.dayNightFrames, g.dayNightPhaseStartFrame(!night), cycle)
+	boundary := now + float64(delta)/float64(cycle)
+	start := now
+	for start <= horizon {
+		key := s.Destination(day, night)
+		at := start
+		if v := g.adventure.Visits[key]; v != nil && v.BossGranted {
+			at = max(at, g.adventureResetAt(key, v))
+		}
+		// When the current chamber is available, report the next usable window.
+		if (start > now || status == "cleared") && at < boundary && g.adventureAvailable(key, at) {
+			seconds := int(math.Ceil((at - now) * float64(cycle) / float64(max(1, g.config.GetTPS()))))
+			hours := math.Ceil((at-now)*24*10) / 10
+			return fmt.Sprintf("Now: %s (%s). Next available: %s in %d:%02d (%.1f game hours). Each chamber resets %d game days after victory.", name(current), status, name(key), seconds/60, seconds%60, hours, g.adventureConfig(key).ResetDays)
+		}
+		start = boundary
+		boundary += .5
+		if night {
+			day++
+		}
+		night = !night
+	}
+	return fmt.Sprintf("Now: %s (%s).", name(current), status)
 }
 func (g *MMGame) commitAdventureVisit(key string, v *AdventureVisit) {
 	if g.adventure.Visits == nil {
@@ -217,6 +277,11 @@ func regularMonsterHP(level int) float64 {
 	return math.Exp(4.181 + .1255*float64(min(level, 25)) + .04*float64(max(0, level-25)))
 }
 
+// Preserve the established early curve, then add a fixed HP budget per level.
+func bossMonsterHP(level int) float64 {
+	return math.Exp(5.333+.101*float64(min(level, 35))) + 500*float64(max(0, level-35))
+}
+
 // Scale from the authored archetype, never from already-scaled runtime values.
 func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	if m == nil || level < 1 || monster.MonsterConfig == nil {
@@ -228,7 +293,7 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	}
 	ratio := regularMonsterHP(level) / regularMonsterHP(d.Level)
 	if m.IsBoss() {
-		ratio = math.Exp(.101 * float64(level-d.Level))
+		ratio = bossMonsterHP(level) / bossMonsterHP(d.Level)
 	}
 	m.AdventureScaleLevel = level
 	m.Level = level

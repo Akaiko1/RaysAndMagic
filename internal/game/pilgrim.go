@@ -321,7 +321,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 				return false
 			}
 		}
-		return g.collisionSystem.CanMoveTo("player", x, y)
+		return g.canMovePartyTo(x, y)
 	}
 	var x, y float64
 	if key == "return_step" {

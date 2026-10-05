@@ -68,13 +68,20 @@ func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 // quick-bar frame art).
 const QuickSlotCount = 5
 
+// AdventureExperience follows the hero through roster swaps and saves.
+type AdventureExperience struct {
+	Generation int `json:"generation"`
+	Amount     int `json:"amount"`
+}
+
 type MMCharacter struct {
-	Inventory []items.Item // Personal bag; travels with this hero through roster changes.
-	RareClass RareClassState
-	Name      string
-	Class     CharacterClass
-	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
-	Race      string    // config.yaml race key; persisted because racial traits are gameplay state
+	AdventureXP map[string]AdventureExperience
+	Inventory   []items.Item // Personal bag; travels with this hero through roster changes.
+	RareClass   RareClassState
+	Name        string
+	Class       CharacterClass
+	Promotion   Promotion // elite status (Archmage/Lich); PromotionNone by default
+	Race        string    // config.yaml race key; persisted because racial traits are gameplay state
 
 	// Core stats
 	Level          int

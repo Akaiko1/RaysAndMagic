@@ -33,11 +33,16 @@ a `projectile_weapon`:
     melee damage(L)  = exp(2.634 + 0.057 * L)
     ranged damage(L) = melee damage(L) * 1.10
 
-Boss HP grows about 10.6% per level. The curve pivots at level 18, where
-the first boss (`golden_thief_bug`, 1200 HP) sits. It reaches about 7100 at
-level 35 (it was about 4300 before the 2026-10-02 retune):
+Boss HP grows about 10.6% per level through level 35, reaching about 7100 HP.
+Above level 35, the baseline gains a fixed 500 HP per level so late-game
+health does not continue growing exponentially:
 
-    boss HP(L) = exp(5.333 + 0.101 * L)
+    boss HP(L) = exp(5.333 + 0.101 * min(L, 35)) + 500 * max(0, L - 35)
+
+Dungeon scaling uses the target/base curve ratio against each monster's
+authored HP, preserving its archetype modifier. Levels through 35 retain
+their existing balance. On save restoration, a scaled boss's current HP is
+capped at its recomputed maximum; damaged bosses below that cap stay damaged.
 
 Boss damage is about 0.85x the melee curve. A boss is dangerous because of
 its HP and its kit (summons, novas, enrage, blinks), not because of bigger
@@ -54,6 +59,9 @@ hits.
 | 25 | 1508 | 58 | 64 | 1333 | 2586 | 49 |
 | 30 | 1842 | 77 | 85 | 1920 | 4286 | 65 |
 | 35 | 2250 | 102 | 113 | 2613 | 7101 | 87 |
+| 40 | 2748 | 136 | 150 | 3413 | 9601 | 116 |
+| 45 | 3356 | 181 | 199 | 4320 | 12101 | 154 |
+| 50 | 4099 | 241 | 265 | 5333 | 14601 | 205 |
 
 Keep `damage_min` and `damage_max` at about 0.8x and 1.2x of the average,
 as the shipped monsters do. A double striker (`attacks_per_round: 2`) keeps

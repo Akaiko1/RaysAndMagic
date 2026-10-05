@@ -8,13 +8,15 @@ import (
 // AdventureConfig describes closed, calendar-owned visits and authored terrain.
 // All positions are source-map tile coordinates, including in a stitched world.
 type AdventureConfig struct {
-	JumpLinks    [][4]int             `yaml:"jump_links,omitempty"` // Authored launch/landing pairs for resource reachability.
-	OpeningOwned bool                 `yaml:"opening_owned,omitempty"`
-	Element      string               `yaml:"element,omitempty"`
-	Schedule     *AdventureSchedule   `yaml:"schedule,omitempty"`
-	Effects      []EnvironmentEffect  `yaml:"effects,omitempty"`
-	Controls     []EnvironmentControl `yaml:"controls,omitempty"`
-	Boss         *AdventureBoss       `yaml:"boss,omitempty"`
+	ExperienceCap int                  `yaml:"experience_cap,omitempty"`
+	ResetDays     int                  `yaml:"reset_days,omitempty"`
+	JumpLinks     [][4]int             `yaml:"jump_links,omitempty"` // Authored launch/landing pairs for resource reachability.
+	OpeningOwned  bool                 `yaml:"opening_owned,omitempty"`
+	Element       string               `yaml:"element,omitempty"`
+	Schedule      *AdventureSchedule   `yaml:"schedule,omitempty"`
+	Effects       []EnvironmentEffect  `yaml:"effects,omitempty"`
+	Controls      []EnvironmentControl `yaml:"controls,omitempty"`
+	Boss          *AdventureBoss       `yaml:"boss,omitempty"`
 }
 type AdventureSchedule struct {
 	AlternativeTechnique string      `yaml:"alternative_technique,omitempty"`
@@ -138,6 +140,12 @@ func (c *MapConfigs) ValidateAdventures() error {
 			continue
 		}
 		fail := func(s string) error { return fmt.Errorf("map %q adventure: %s", key, s) }
+		if a.ExperienceCap < 0 || a.ResetDays < 0 || ((a.ExperienceCap > 0 || a.ResetDays > 0) && !a.OpeningOwned) {
+			return fail("experience_cap and reset_days require opening ownership and nonnegative values")
+		}
+		if a.ResetDays > 0 && a.Boss == nil {
+			return fail("reset_days requires a boss to start the cooldown")
+		}
 		if a.OpeningOwned && (m.RespawnDays != 0 || !validSchool(a.Element) || a.Element == "physical") {
 			return fail("opening ownership requires an elemental school and excludes respawn_days")
 		}

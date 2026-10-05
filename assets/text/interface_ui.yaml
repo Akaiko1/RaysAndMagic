@@ -38,3 +38,6 @@ ui.camp_rested: "The party rests. HP and SP restored; conditions cured."
 
 combat.party_uses_timed_buff: "The party uses %s - %s"
 npc.unlock_party_level: "Permanently available at average party level %d"
+
+adventure.arena_barrier: "The arena is sealed until the boss falls. Only Town Portal can carry you out."
+adventure.arena_pull: "The regulator draws the party into its arena. Defeat it or escape with Town Portal."

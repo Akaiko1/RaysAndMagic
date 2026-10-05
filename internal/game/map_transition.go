@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -53,6 +54,10 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 			return fmt.Errorf("invalid authored arrival tile")
 		}
 	}
+	if g.adventureArenaBounds().Enabled && request.arrival != mapArrivalTownPortal {
+		g.announceAdventureArenaBarrier()
+		return fmt.Errorf("%s", uitext.Text("adventure.arena_barrier"))
+	}
 	originKey := wm.CurrentMapKey
 	origin := MapPose{X: g.camera.X, Y: g.camera.Y, Angle: g.camera.Angle}
 	if request.arrival == mapArrivalUnderwater {
@@ -66,6 +71,21 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	}
 	if request.adventureVisit != nil {
 		g.commitAdventureVisit(request.mapKey, request.adventureVisit)
+	}
+	if policy := g.adventureConfig(originKey); request.arrival == mapArrivalTownPortal && policy != nil && policy.OpeningOwned && policy.Boss != nil {
+		if v := g.adventure.Visits[originKey]; v != nil {
+			v.ArenaLocked = false
+		}
+		if old := g.worldByKey(originKey); old != nil {
+			for _, m := range old.Monsters {
+				if m != nil && m.Key == policy.Boss.Monster {
+					m.EndPlayerEngagement()
+					m.WasAttacked = false
+					m.BossAggro = false
+					m.AIFoe = nil
+				}
+			}
+		}
 	}
 	g.adventure.Occupied = ""
 	if a := g.adventureConfig(request.mapKey); a != nil && a.OpeningOwned {
@@ -141,6 +161,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 	if g.world != nil {
 		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
+	g.syncAdventureArenaBounds()
 	g.clearTransientCombatState()
 	// A map change ends every approach: drop the focus identity and any nudge
 	// queued for it. (The nudge producer additionally refuses to announce an NPC

@@ -193,30 +193,31 @@ type MapPose struct {
 }
 
 type MMGame struct {
-	adventure               AdventureState
-	projectedAdventures     map[string]projectedAdventure
-	alchemy                 AlchemyState
-	harvestRuntime          harvestRuntime
-	selectedRare            int
-	alchemyBatches          int
-	alchemyRecipeFilter     string
-	alchemyElementFilter    string
-	alchemyBrewableOnly     bool
-	rareBookMessage         string
-	brewAnimation           *alchemyBrewAnimation
-	spatialReuseFrames      int
-	spatialStepThisTurn     bool
-	partyRoot               PartyRootState
-	partyHinder             PartyHinderState
-	terrainChanges          []TerrainChange
-	editorPreview           *editorPreviewState
-	fishWorlds              map[*world.World3D]struct{} // Only worlds with transient live fish.
-	ecology                 EcologyState
-	ecologyOwner            *MMGame
-	ecologyCaravan          *monster.Monster3D
-	ecologyViews            map[*world.World3D]*MMGame
-	ecologyRosterIDs        map[string]bool
-	caravanAttackAlertUntil time.Time // Session-only HUD notification throttle.
+	adventure                AdventureState
+	arenaBarrierMessageAfter int64
+	projectedAdventures      map[string]projectedAdventure
+	alchemy                  AlchemyState
+	harvestRuntime           harvestRuntime
+	selectedRare             int
+	alchemyBatches           int
+	alchemyRecipeFilter      string
+	alchemyElementFilter     string
+	alchemyBrewableOnly      bool
+	rareBookMessage          string
+	brewAnimation            *alchemyBrewAnimation
+	spatialReuseFrames       int
+	spatialStepThisTurn      bool
+	partyRoot                PartyRootState
+	partyHinder              PartyHinderState
+	terrainChanges           []TerrainChange
+	editorPreview            *editorPreviewState
+	fishWorlds               map[*world.World3D]struct{} // Only worlds with transient live fish.
+	ecology                  EcologyState
+	ecologyOwner             *MMGame
+	ecologyCaravan           *monster.Monster3D
+	ecologyViews             map[*world.World3D]*MMGame
+	ecologyRosterIDs         map[string]bool
+	caravanAttackAlertUntil  time.Time // Session-only HUD notification throttle.
 
 	tactics tacticalState
 	menuState
@@ -1410,7 +1411,10 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 // losing water protection over open water. One message per rescue; it cannot
 // repeat because the party ends up on dry land.
 func (g *MMGame) settleAshore(message string) {
-	sx, sy := g.FindNearestWalkableTileMustSucceed(g.camera.X, g.camera.Y)
+	sx, sy := g.findNearestWalkableTileMustSucceed(g.camera.X, g.camera.Y, func(tx, ty int) bool {
+		x, y := TileCenterFromTile(tx, ty, float64(g.config.GetTileSize()))
+		return g.canMovePartyTo(x, y)
+	})
 	g.setPartyPosition(sx, sy)
 	g.AddCombatMessage(message)
 }
@@ -1767,7 +1771,8 @@ func (g *MMGame) turnViewFrames() int {
 // setPartyPosition is the single point for placing the party: it moves the
 // camera AND the party's collision entity together. Writing the camera alone
 // leaves projectiles, monster reach and terrain override checks resolving against the old
-// spot until the next ordinary step.
+// spot until the next ordinary step. This placement is unconditional: live
+// movement validates its destination through collision before committing.
 func (g *MMGame) setPartyPosition(x, y float64) {
 	g.resetCameraPresentation()
 	g.movePartyPosition(x, y)
@@ -2369,6 +2374,7 @@ func (g *MMGame) refreshMonsterAIState() {
 		}
 		g.combat.refreshMonsterAITarget(m)
 	}
+	g.updateAdventureArena()
 	g.ejectPartyTargetingMonsters()
 }
 

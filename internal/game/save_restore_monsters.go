@@ -125,6 +125,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.DamageMin = ms.RuntimeStats.DamageMin
 					m.DamageMax = ms.RuntimeStats.DamageMax
 				}
+				// A boss saved before a curve reduction cannot keep excess HP.
+				if m.AdventureScaleLevel > 0 && m.IsBoss() {
+					m.HitPoints = min(m.HitPoints, m.MaxHitPoints)
+				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				// Bind and Charm are mutually exclusive. New saves cannot contain

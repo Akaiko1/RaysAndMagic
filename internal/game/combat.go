@@ -3128,7 +3128,16 @@ func (cs *CombatSystem) announceKill(m *monsterPkg.Monster3D, xp int) {
 	if monsterIsPartyAlly(m) {
 		tone = logToneBad
 	}
-	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), cs.game.rewardOwner().logKillXP(xp))
+	owner := cs.game.rewardOwner()
+	if actual, capped := owner.adventureKillExperience(m, xp); capped {
+		suffix := ""
+		if actual > 0 {
+			suffix = fmt.Sprintf(" +%d XP total", actual)
+		}
+		cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), logStyled{suffix, combatMessageGold})
+		return
+	}
+	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), owner.logKillXP(xp))
 }
 
 // killExperience is what a kill is worth to the party: nothing for its own
@@ -3206,10 +3215,11 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 
 	recipient.recordProfileKill(monster)
 	xpAwarded := cs.killExperience(monster)
+	reportedXP, _ := recipient.adventureKillExperience(monster, xpAwarded)
 
 	// Each living hero - active, reserve, or captive - gets the per-member share.
 	if xpAwarded > 0 {
-		recipient.grantSharedXP(recipient.xpShare(xpAwarded))
+		recipient.grantMonsterXP(monster, recipient.xpShare(xpAwarded))
 	}
 
 	// Check for loot drops
@@ -3232,7 +3242,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 		cs.game.addMonsterLootDrop(monster, drops, gold)
 	}
 
-	return xpAwarded
+	return reportedXP
 }
 
 // rallyOnPatronDeath: when a monster carrying DeathRalliesType dies, every other
@@ -3927,7 +3937,7 @@ func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
 	}
 	// Same per-member share as awardExperienceAndGold, but no gold/loot. Routed
 	// through grantSharedXP so Learning bonuses and bench training apply uniformly.
-	cs.game.grantSharedXP(monster.Experience / len(cs.game.party.Members))
+	cs.game.grantMonsterXP(monster, monster.Experience/len(cs.game.party.Members))
 }
 
 // armorGMDodgeBonus grants ArmorGMDodgeBonus dodge for each Grandmaster-mastered
