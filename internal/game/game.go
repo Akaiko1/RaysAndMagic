@@ -3155,6 +3155,9 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 
 func (g *MMGame) ToggleTurnBasedMode() {
 	defer g.resetOverwatch()
+	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
+		g.gameLoop.inputHandler.blockMouseAttackUntilRelease()
+	}
 	if g.turnBasedMode {
 		// Keep both action economies intact. RT cooldowns already pause while
 		// TB is active; clearing them here made Tab an attack/cast reset.

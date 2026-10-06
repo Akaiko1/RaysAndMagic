@@ -1,6 +1,7 @@
 package game
 
 import (
+	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 	"testing"
 
@@ -176,63 +177,140 @@ func TestProjectileFxRegistryDefinesSideAndHeadOnRenderers(t *testing.T) {
 	}
 }
 
-func TestBlasterProjectileFxUsesHeadOnPathAlongCameraAxis(t *testing.T) {
-	r := &Renderer{game: &MMGame{camera: &FirstPersonCamera{Angle: 0}}}
-
-	// Facing east at angle zero makes an eastbound shot head-on. An empty style
-	// keeps this routing test independent of Ebiten drawing state.
-	if !r.drawBlasterWeaponProjectileFx("", nil, 0, 0, 1, 1, 0, 1, 1) {
-		t.Fatal("camera-axis shot did not select head-on projectile FX")
+// Observe actual signature dispatch, including opacity and size. A bool that
+// production ignores cannot prove the renderer drew the correct projection.
+func TestProjectileFxDispatchSeparatesSizeAndOpacity(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		side, wantSide, wantFace float64
+		independent              bool
+	}{
+		{name: "outgoing", wantFace: 1}, {name: "near axis", side: .02, wantFace: 1},
+		{name: "oblique", side: math.Sqrt(.5), wantSide: .5, wantFace: .5},
+		{name: "lateral", side: 1, wantSide: 1},
+		{name: "eye", side: math.Sqrt(.5), wantFace: 1, independent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Renderer{game: &MMGame{}}
+			style := "clock_pistol"
+			if tc.independent {
+				style = "dragon_eye"
+			}
+			previous := weaponProjectileFxStyles[style]
+			defer func() { weaponProjectileFxStyles[style] = previous }()
+			side, face := 0.0, 0.0
+			calls := 0
+			const size = 20.0
+			const critical = 1.2
+			check := func(got float64) {
+				t.Helper()
+				calls++
+				if math.Abs(got-size*math.Sqrt(critical)) > 1e-9 {
+					t.Errorf("blend changed critical size to %g", got)
+				}
+			}
+			weaponProjectileFxStyles[style] = weaponProjectileFxStyle{
+				side: func(_ *Renderer, _ *ebiten.Image, _, _, s, dx, dy, alpha float64, _ int) {
+					check(s)
+					side = alpha
+					nx, ny := projectilePerpendicular(dx, dy)
+					if math.Abs(math.Hypot(nx, ny)-1) > 1e-9 {
+						t.Error("cross-section shrank")
+					}
+				},
+				headOn: func(_ *Renderer, _ *ebiten.Image, _, _, s, alpha float64, _ int) { check(s); face = alpha }, viewIndependent: previous.viewIndependent,
+			}
+			r.drawWeaponProjectileFxForView(style, nil, 0, 0, size, projectileView{side: tc.side}, critical, 0)
+			wantCalls := 0
+			if tc.wantSide > 0 {
+				wantCalls++
+			}
+			if tc.wantFace > 0 {
+				wantCalls++
+			}
+			if calls != wantCalls || math.Abs(side-tc.wantSide) > 1e-9 || math.Abs(face-tc.wantFace) > 1e-9 {
+				t.Fatalf("calls=%d side=%g face=%g", calls, side, face)
+			}
+		})
 	}
-	if r.drawBlasterWeaponProjectileFx("", nil, 0, 0, 1, 0, 1, 1, 1) {
-		t.Fatal("lateral shot incorrectly selected head-on projectile FX")
+}
+
+// Drive the projectile pass through the actual presentation/shake scopes.
+// Assert the projection submitted to the spell shader, not a helper return.
+func TestSpellProjectileRenderingIgnoresCameraShake(t *testing.T) {
+	g, _, _, _, _ := mouseCombatHarness(t, false)
+	g.camera.Angle = 0
+	g.camera.ViewDist = 5000
+	g.screenShake = 2.2
+	r := g.gameLoop.renderer
+	dst := ebiten.NewImage(640, 480)
+	defer dst.Deallocate()
+	ts := float64(g.config.GetTileSize())
+	for _, spell := range []string{"fireball", "lightning"} {
+		g.magicProjectiles = []MagicProjectile{{Active: true, X: g.camera.X + ts/4, Y: g.camera.Y, VelX: -3, SpellType: spell, Owner: ProjectileOwnerMonster}}
+		for frame := int64(0); frame < 2; frame++ {
+			g.frameCount = frame
+			undoView := g.swapCameraPose(cameraPose{g.camera.X, g.camera.Y + .7, .02})
+			undoShake := g.beginScreenShakeSwap()
+			r.drawMagicProjectiles(dst)
+			undoShake()
+			undoView()
+			for _, v := range r.weaponMaterialQuad {
+				if v.Custom2 != 1 {
+					t.Fatalf("%s frame %d: shake turned end-on body sideways: %g", spell, frame, v.Custom2)
+				}
+			}
+		}
 	}
 }
 
 func TestProjectileProjectionRoutesHeadOnAndBothSideDirections(t *testing.T) {
-	r := &Renderer{game: &MMGame{camera: &FirstPersonCamera{Angle: 0}}}
-
+	r := &Renderer{game: &MMGame{camera: &FirstPersonCamera{X: 64, Y: 96, Angle: .7}}}
 	tests := []struct {
-		name      string
-		vx, vy    float64
-		wantDir   float64
-		wantFound bool
+		name                  string
+		x, y, vx, vy, wantDir float64
+		wantFound             bool
 	}{
-		{name: "head on", vx: 1, vy: 0, wantFound: false},
-		{name: "screen right", vx: 0, vy: 1, wantDir: 1, wantFound: true},
-		{name: "screen left", vx: 0, vy: -1, wantDir: -1, wantFound: true},
+		{name: "head on", x: 10, vx: 1},
+		{name: "screen right", x: 10, vy: 1, wantDir: 1, wantFound: true},
+		{name: "screen left", x: 10, vy: -1, wantDir: -1, wantFound: true},
+		{name: "aim right", x: 10, y: 4, vx: 5, vy: 2},
+		{name: "aim left", x: 10, y: -4, vx: 5, vy: -2},
+		{name: "slow crossfire", x: 10, vy: .0001, wantDir: 1, wantFound: true},
+		{name: "camera moved off ray", x: 10, y: -4, vx: 1, wantDir: 1, wantFound: true},
+		{name: "stationary", x: 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotDir, gotFound := r.projectileScreenDir(tt.vx, tt.vy)
-			if gotFound != tt.wantFound || gotDir != tt.wantDir {
-				t.Fatalf("projectileScreenDir(%v, %v) = (%v, %v), want (%v, %v)",
-					tt.vx, tt.vy, gotDir, gotFound, tt.wantDir, tt.wantFound)
+			view := r.projectileView(r.game.camera.X+tt.x, r.game.camera.Y+tt.y, tt.vx, tt.vy)
+			dir, found := view.screenDir()
+			if found != tt.wantFound || dir != tt.wantDir {
+				t.Fatalf("view=%+v direction=(%v,%v), want (%v,%v)", view, dir, found, tt.wantDir, tt.wantFound)
 			}
 		})
 	}
 }
 
 func TestProjectileHeadOnDistinguishesIncomingAndOutgoing(t *testing.T) {
-	tests := []struct {
-		name     string
-		angle    float64
-		vx, vy   float64
-		incoming bool
-	}{
-		{name: "east outgoing", angle: 0, vx: 1, vy: 0},
-		{name: "east incoming", angle: 0, vx: -1, vy: 0, incoming: true},
-		{name: "north outgoing", angle: math.Pi / 2, vx: 0, vy: 1},
-		{name: "north incoming", angle: math.Pi / 2, vx: 0, vy: -1, incoming: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Renderer{game: &MMGame{camera: &FirstPersonCamera{Angle: tt.angle}}}
-			if got := r.projectileMovesTowardCamera(tt.vx, tt.vy); got != tt.incoming {
-				t.Fatalf("projectileMovesTowardCamera(%v, %v) = %v, want %v",
-					tt.vx, tt.vy, got, tt.incoming)
+	for _, bearing := range []float64{0, .35, -.35, math.Pi / 2} {
+		for _, incoming := range []bool{false, true} {
+			r := &Renderer{game: &MMGame{camera: &FirstPersonCamera{Angle: .7}}}
+			x, y := math.Cos(bearing), math.Sin(bearing)
+			vx, vy := x, y
+			if incoming {
+				vx, vy = -vx, -vy
 			}
-		})
+			view := r.projectileView(10*x, 10*y, vx, vy)
+			if view.incoming() != incoming || math.Abs(view.side) > 1e-6 {
+				t.Fatalf("bearing %g incoming %v: view=%+v", bearing, incoming, view)
+			}
+			axis := view.cameraAxis([3]float64{view.side, 0, view.depth})
+			wantX := -vx*math.Sin(r.game.camera.Angle) + vy*math.Cos(r.game.camera.Angle)
+			wantZ := vx*math.Cos(r.game.camera.Angle) + vy*math.Sin(r.game.camera.Angle)
+			if math.Abs(axis[0]-wantX) > 1e-6 || math.Abs(axis[2]-wantZ) > 1e-6 {
+				t.Fatalf("volume axis=%v, want camera-space (%g, 0, %g)", axis, wantX, wantZ)
+			}
+		}
 	}
 }
 

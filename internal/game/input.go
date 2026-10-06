@@ -42,6 +42,7 @@ type InputHandler struct {
 	mouseAttackWorld      *world.World3D
 	mouseAttackHoldFrames int
 	mouseAttackTurnBased  bool
+	mouseAttackBlocked    bool // a claimed press cannot become combat until release
 }
 
 // NewInputHandler creates a new input handler
@@ -88,7 +89,10 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
 	ih.keys.BeginFrame()
-	if !pointerLeftPressed() || !ih.game.worldClickAllowed() || ih.game.dragArmed || ih.game.dragActive || ih.game.dragPickedUp || ih.game.stashDragPickedUp {
+	if !pointerLeftPressed() || pointerLeftJustPressed() {
+		ih.mouseAttackBlocked = false
+	}
+	if !pointerLeftPressed() || !ih.game.mouseCombatInputAllowed() {
 		ih.cancelMouseAttack()
 	}
 
@@ -1528,6 +1532,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 			pickupRange := ih.game.groundContainerPickupRange()
 			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
+				ih.blockMouseAttackUntilRelease()
 				ih.game.pickupGroundContainerAt(idx)
 				return
 			}
@@ -1538,6 +1543,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 			}
 			if npc, inRange := ih.game.findNPCAtScreen(clickX, clickY); npc != nil {
 				ih.game.consumeLeftClick()
+				ih.blockMouseAttackUntilRelease()
 				if inRange {
 					ih.openNPCInteraction(npc)
 				} else {
@@ -1545,13 +1551,9 @@ func (ih *InputHandler) handleWorldMouseInput() {
 				}
 				return
 			}
-			// A press on empty world space arms dynamic target acquisition.
-			// UI, loot and NPC presses have already claimed their own gestures.
+			// Empty scenery and ordinary HUD presses may acquire a monster
+			// later. Loot and NPC interactions own their press until release.
 			ih.game.consumeLeftClick()
-			if pointerLeftPressed() && ih.game.monsterPointerFrameAllowed(clickX, clickY) {
-				ih.beginMouseAttack(nil)
-			}
-			return
 		}
 	}
 

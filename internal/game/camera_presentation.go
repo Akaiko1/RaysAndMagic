@@ -10,6 +10,7 @@ import (
 type cameraPose struct{ x, y, angle float64 }
 type cameraPresentation struct {
 	older, previous, current, presented cameraPose
+	logical                             cameraPose
 	tickStart                           time.Time
 	epoch                               uint64
 	valid, presentedValid, active       bool
@@ -22,14 +23,32 @@ func (g *MMGame) cameraPose() cameraPose {
 	}
 	return cameraPose{g.camera.X, g.camera.Y, g.camera.Angle}
 }
+
+// logicalCameraPose excludes interpolation and shake from render decisions.
+// Projection still uses the displayed camera, so the scene moves as a whole.
+func (g *MMGame) logicalCameraPose() cameraPose {
+	if g.cameraPresentation.active {
+		return g.cameraPresentation.logical
+	}
+	pose := g.cameraPose()
+	pose.x -= g.screenShakeOffsetX
+	pose.y -= g.screenShakeOffsetY
+	return pose
+}
 func (g *MMGame) resetCameraPresentation() {
 	g.cameraPresentation = cameraPresentation{epoch: g.cameraPresentation.epoch + 1}
 	// A discontinuous view change cannot transfer a press or held target to
 	// the replacement scene. Ordinary movement preserves the displayed pose.
 	if gl := g.gameLoop; gl != nil {
 		gl.ui.dropQueuedClicks()
+		if gl.renderer != nil {
+			gl.renderer.monsterPick.world = nil
+			clear(gl.renderer.monsterPick.hits)
+			gl.renderer.monsterPick.hits = gl.renderer.monsterPick.hits[:0]
+			gl.renderer.hoveredMonster = nil
+		}
 		if gl.inputHandler != nil {
-			gl.inputHandler.cancelMouseAttack()
+			gl.inputHandler.blockMouseAttackUntilRelease()
 		}
 	}
 }
@@ -88,6 +107,10 @@ func (g *MMGame) swapCameraPose(pose cameraPose) func() {
 		return func() {}
 	}
 	logical, epoch, wasActive := g.cameraPose(), g.cameraPresentation.epoch, g.cameraPresentation.active
+	previousLogical := g.cameraPresentation.logical
+	if !wasActive {
+		g.cameraPresentation.logical = logical
+	}
 	cam.X, cam.Y, cam.Angle = pose.x, pose.y, pose.angle
 	g.cameraPresentation.active = true
 	return func() {
@@ -96,6 +119,7 @@ func (g *MMGame) swapCameraPose(pose cameraPose) func() {
 			cam.X, cam.Y, cam.Angle = logical.x, logical.y, logical.angle
 		}
 		g.cameraPresentation.active = wasActive
+		g.cameraPresentation.logical = previousLogical
 	}
 }
 func (g *MMGame) beginRenderCameraSwap(now time.Time) func() {

@@ -10,7 +10,7 @@ import (
 )
 
 // Bespoke armed-trap renderers, selected by armed_fx in traps.yaml (the same
-// registry+validation shape as spellFxStyleDraw for projectiles). Every armed
+// registry+validation shape as spellFxStyleKinds for projectiles). Every armed
 // trap used to be the SAME square of rising aura bubbles tinted by
 // border_color, so a bear trap and a stasis snare read identically; these
 // styles give each one its own silhouette anchored at the tile CENTRE, so the

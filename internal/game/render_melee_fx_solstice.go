@@ -102,24 +102,25 @@ func (r *Renderer) drawMeleeFxSolsticeTransfer(screen *ebiten.Image, s SlashEffe
 
 // Water travels as two counterflowing ribbons enclosing a clear reservoir.
 // A side projection reveals the wake; head-on shows its double spiral mouth.
-func (r *Renderer) drawWeaponProjectileFxSolsticeFlow(screen *ebiten.Image, cx, cy, size, dx, dy, crit float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxSolsticeFlow(screen *ebiten.Image, cx, cy, size, dx, dy, alpha float64, id int) {
 	phase := r.weaponMaterialClock()*4 + float64(id%11)
+	nx, ny := projectilePerpendicular(dx, dy)
 	for strand := 0; strand < 2; strand++ {
 		offset := phase + float64(strand)*math.Pi
 		r.drawDissolveStroke(screen, dissolveStroke{
 			path: func(t float64) (float64, float64) {
 				wave := math.Sin(t*math.Pi*2+offset) * size * (.6 + .35*t)
-				return cx - dx*size*t*3 - dy*wave, cy - dy*size*t*3 + dx*wave
+				return cx - dx*size*t*3 + nx*wave, cy - dy*size*t*3 + ny*wave
 			},
 			width:  func(t float64) float64 { return math.Max(1.5, size*(.24-.09*t)) },
 			color:  func(t float64) [3]int { return mixColor(solsticeWater, [3]int{220, 255, 246}, .2+.4*t) },
-			alpha:  func(t float64) float64 { return crit * (.9 - .55*t) },
+			alpha:  func(t float64) float64 { return alpha * (.9 - .55*t) },
 			length: size * 5, seed: id, salt: 740 + strand, blend: additiveGlowBlend,
 		}, 1, -1-phase)
 	}
 }
 
-func (r *Renderer) drawWeaponProjectileFxSolsticeFlowHeadOn(screen *ebiten.Image, cx, cy, size, crit float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxSolsticeFlowHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
 	phase := r.weaponMaterialClock()*4 + float64(id%11)
 	for strand := 0; strand < 2; strand++ {
 		offset := phase + float64(strand)*math.Pi
@@ -131,38 +132,8 @@ func (r *Renderer) drawWeaponProjectileFxSolsticeFlowHeadOn(screen *ebiten.Image
 			},
 			width:  func(t float64) float64 { return math.Max(1.5, size*(.24-.06*t)) },
 			color:  func(t float64) [3]int { return mixColor(solsticeWater, [3]int{220, 255, 246}, t) },
-			alpha:  func(t float64) float64 { return crit * (.55 + .4*t) },
+			alpha:  func(t float64) float64 { return alpha * (.55 + .4*t) },
 			length: size * 6, seed: id, salt: 745 + strand, blend: additiveGlowBlend,
 		}, 1, -1-phase)
-	}
-}
-
-func (r *Renderer) drawElementalWeaponMarks(screen *ebiten.Image, s UnifiedSpriteRenderData, top int) {
-	m := s.monster
-	x, y := float64(s.screenX), float64(top)-5
-	size := math.Max(3, math.Min(9, float64(s.spriteSize)*.04))
-	// Stable slots avoid jitter when another mark expires.
-	for slot, kind := range []string{"pressure", "anchor", "crosswind"} {
-		mark, ok := m.ElementalMarks[kind]
-		if !ok || mark.Frames <= 0 || mark.Turns <= 0 {
-			continue
-		}
-		cx := x + (float64(slot)-1)*size*3.5
-		switch kind {
-		case "pressure":
-			for k := 0; k < mark.Count; k++ {
-				r.drawGlowRect(screen, cx+float64(k)*size*.7, y, size*.6, solsticeFire, .9, additiveGlowBlend)
-			}
-		case "anchor":
-			for k := 0; k < mark.Count; k++ {
-				r.drawGlowRect(screen, cx+float64(k%5-2)*size*.5, y-float64(k/5)*size*.6, size*.35, solsticeEarth, .9, additiveGlowBlend)
-			}
-		case "crosswind":
-			for k := 0; k < mark.Count; k++ {
-				ax := cx + float64(k)*size*.8
-				r.fxSegment(screen, ax-size*.5, y+size*.5, ax, y, 1.5, solsticeAir, .9, additiveGlowBlend)
-				r.fxSegment(screen, ax, y, ax-size*.5, y-size*.5, 1.5, solsticeAir, .9, additiveGlowBlend)
-			}
-		}
 	}
 }

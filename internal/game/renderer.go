@@ -286,8 +286,6 @@ type Renderer struct {
 	weaponMaterialState  weaponMaterialState
 	weaponMaterialOpts   ebiten.DrawTrianglesShaderOptions
 	weaponMaterialQuad   [4]ebiten.Vertex
-	spellAxialScale      float64 // temporary projection for non-mesh directional spells
-	spellFlightAxis      [3]float64
 	spellBoltShader      *ebiten.Shader
 	spellBoltOpts        ebiten.DrawTrianglesShaderOptions
 	spellBoltTime        [1]float32
@@ -2701,7 +2699,7 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.sparkColor = [3]int{240, 220, 255}
 		}
 		// Signature spells override the school default with a bespoke body
-		// renderer (graphics.projectile_fx -> spellFxStyleDraw).
+		// renderer (graphics.projectile_fx -> spellFxStyleKinds).
 		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
 			profile.style = def.Graphics.ProjectileFx
 		}
@@ -2889,50 +2887,6 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 	opts.Blend = blend
 	opts.Filter = ebiten.FilterNearest // 1x1 quad: pin it so glowOpts cannot inherit a filter
 	screen.DrawImage(r.whiteImg, opts)
-}
-
-// drawGlowRectRotated draws a solid quad at an angle - what makes a rock chunk
-// angular, a chain link oriented and a crystal facetted instead of a round blob.
-func (r *Renderer) drawGlowRectRotated(screen *ebiten.Image, x, y, w, h, angle float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
-	if w <= 0 || h <= 0 || alpha <= 0 {
-		return
-	}
-	opts := &r.glowOpts
-	opts.GeoM.Reset()
-	opts.GeoM.Translate(-0.5, -0.5) // rotate about the quad's centre
-	opts.GeoM.Scale(w, h)
-	opts.GeoM.Rotate(angle)
-	opts.GeoM.Translate(x, y)
-	opts.ColorScale.Reset()
-	opts.ColorScale.Scale(
-		float32(rgb[0])/255,
-		float32(rgb[1])/255,
-		float32(rgb[2])/255,
-		float32(alpha),
-	)
-	opts.Blend = blend
-	opts.Filter = ebiten.FilterNearest // 1x1 quad: pin it so glowOpts cannot inherit a filter
-	screen.DrawImage(r.whiteImg, opts)
-}
-
-func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, bool) {
-	if vx == 0 && vy == 0 {
-		return 0, false
-	}
-	camRightX := -math.Sin(r.game.camera.Angle)
-	camRightY := math.Cos(r.game.camera.Angle)
-	right := vx*camRightX + vy*camRightY
-	if math.Abs(right) < 0.01 {
-		return 0, false
-	}
-	dirX := math.Copysign(1, right)
-	return dirX, true
-}
-
-func (r *Renderer) projectileMovesTowardCamera(vx, vy float64) bool {
-	camForwardX := math.Cos(r.game.camera.Angle)
-	camForwardY := math.Sin(r.game.camera.Angle)
-	return vx*camForwardX+vy*camForwardY < 0
 }
 
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
@@ -4219,7 +4173,6 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	}
 	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
 	r.drawMonsterHeadBadges(screen, s, screenY, v)
-	r.drawElementalWeaponMarks(screen, s, screenY)
 	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
@@ -4800,7 +4753,8 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		centerX := float64(screenX)
 		centerY := float64(screenY) + float64(projectileSize)/2
 		fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
-		handX, handY, _ := r.spellHandOffset(magicProjectile, fxProfile, screen.Bounds().Dx(), screen.Bounds().Dy())
+		view := r.projectileView(magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
+		handX, handY, convergence := r.spellHandOffset(magicProjectile, fxProfile, view, screen.Bounds().Dx(), screen.Bounds().Dy())
 		centerX, centerY = centerX+handX, centerY+handY
 		pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
 		critBoost := 1.0
@@ -4824,7 +4778,10 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			ghost := magicProjectile
 			ghost.X -= magicProjectile.VelX * k
 			ghost.Y -= magicProjectile.VelY * k
-			gx, gy, _ := r.spellHandOffset(ghost, fxProfile, screen.Bounds().Dx(), screen.Bounds().Dy())
+			ghostView := view
+			pose := r.game.logicalCameraPose()
+			ghostView.distance = math.Hypot(ghost.X-pose.x, ghost.Y-pose.y)
+			gx, gy, _ := r.spellHandOffset(ghost, fxProfile, ghostView, screen.Bounds().Dx(), screen.Bounds().Dy())
 			r.drawGlowSprite(screen,
 				float64(gproj.screenX)+gx, float64(gproj.screenY)+float64(gproj.size)/2+gy,
 				float64(gproj.size)*fxProfile.glowScale*0.8*fade,
@@ -4838,55 +4795,28 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Spells are always magical -> particle body + evaporating trail (never the
 		// old solid square). Drift/mirror come from the school's style; colour comes
 		// from the projectile colour, so every school looks distinct.
-		if r.drawOutgoingSpellFromHand(screen, centerX, centerY, float64(projectileSize), magicProjectile, projectileColor, fxProfile, critBoost, idx) {
-			continue
+
+		r.drawSpellProjectileFxForView(screen, centerX, centerY, float64(projectileSize),
+			view, projectileColor, fxProfile, critBoost, idx, convergence)
+	}
+}
+
+// A spell is submitted once: material silhouettes interpolate end/side shape
+// in the shader, while faceted bodies project their actual flight axis.
+func (r *Renderer) drawSpellProjectileFxForView(screen *ebiten.Image, cx, cy, size float64, view projectileView, core [3]int, p projectileFxProfile, critBoost float64, id int, convergence float64) {
+	kind, ok := spellFxStyleKinds[p.style]
+	if !ok {
+		kind = spellPsyshock
+		switch p.style {
+		case "ember":
+			kind = spellFireball
+		case "shard":
+			kind = spellIce
+		case "dark":
+			kind = spellShadow
 		}
-		r.drawSpellProjectileFxForVelocity(screen, centerX, centerY, float64(projectileSize),
-			magicProjectile.VelX, magicProjectile.VelY, projectileColor, fxProfile, critBoost, idx)
 	}
-}
-
-// drawSpellProjectileFxForVelocity selects a real side-on or head-on
-// projection before dispatching the spell body. It returns true for head-on,
-// which keeps the projection decision directly testable.
-func (r *Renderer) drawSpellProjectileFxForVelocity(screen *ebiten.Image, cx, cy, size, vx, vy float64, core [3]int, p projectileFxProfile, critBoost float64, id int) bool {
-	previousAxis := r.spellFlightAxis
-	speed := math.Hypot(vx, vy)
-	if speed > 0 {
-		r.spellFlightAxis = [3]float64{(-vx*math.Sin(r.game.camera.Angle) + vy*math.Cos(r.game.camera.Angle)) / speed, 0, (vx*math.Cos(r.game.camera.Angle) + vy*math.Sin(r.game.camera.Angle)) / speed}
-	}
-	defer func() { r.spellFlightAxis = previousAxis }()
-	dirX, ok := r.projectileScreenDir(vx, vy)
-	if ok {
-		previous := r.spellAxialScale
-		right := -vx*math.Sin(r.game.camera.Angle) + vy*math.Cos(r.game.camera.Angle)
-		r.spellAxialScale = math.Max(.08, math.Abs(right)/math.Hypot(vx, vy))
-		r.drawSpellProjectileFx(screen, cx, cy, size, dirX, 0, core, p, critBoost, id)
-		r.spellAxialScale = previous
-		return false
-	}
-	r.drawSpellProjectileFxHeadOn(screen, cx, cy, size, core, p, critBoost, id)
-	return true
-}
-
-// drawSpellProjectileFx shares perspective, material dispatch and silhouettes
-// between the game's projectile pass and the editor's preview.
-func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
-	size = math.Max(size, spellFxMinClusterSize)
-	if draw, ok := spellFxStyleDraw[p.style]; ok {
-		draw(r, screen, cx, cy, size, dirX, dirY, core, p, critBoost, id)
-		return
-	}
-	kind := spellPsyshock
-	switch p.style {
-	case "ember":
-		kind = spellFireball
-	case "shard":
-		kind = spellIce
-	case "dark":
-		kind = spellShadow
-	}
-	r.drawSpellMaterial(screen, cx, cy, size, dirX, dirY, core, critBoost, id, kind)
+	r.drawSpellMaterialProjected(screen, cx, cy, math.Max(size, spellFxMinClusterSize), core, critBoost, id, kind, 1, view.spellProjection(convergence))
 }
 
 // drawArrows draws all active arrows
@@ -4911,6 +4841,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		screenX := proj.screenX
 		screenY := proj.screenY
 		arrowSize := proj.size
+		view := r.projectileView(arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
 
 		// Draw collision box if enabled (draw first, so it's behind the arrow)
 		if r.game.showCollisionBoxes {
@@ -4952,56 +4883,30 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			// before the hook, which made projectile_fx dead data on every
 			// blaster (clock pistol, Suppressor, Longlance).
 			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				r.drawBlasterWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize),
-					arrow.VelX, arrow.VelY, critBoost, idx)
+				r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize),
+					view, critBoost, idx)
 			}
 			r.drawBulletTracer(screen, centerX, centerY, float64(arrowSize),
-				arrow.VelX, arrow.VelY, arrowColor, critBoost, idx)
+				view, arrowColor, critBoost, idx)
 			continue
 		}
 		if fxProfile.style != "" {
-			dirX, lateral := r.projectileScreenDir(arrow.VelX, arrow.VelY)
-			if !lateral {
-				dirX = 0
-			}
-			r.drawWeaponCharge(screen, centerX, centerY, float64(arrowSize), dirX, 0, fxProfile.glowColor, critBoost, seedFromID(arrow.ID))
+			r.drawWeaponCharge(screen, centerX, centerY, float64(arrowSize), view.side, 0, fxProfile.glowColor, critBoost, 1, seedFromID(arrow.ID))
 			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				if lateral {
-					r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), dirX, 0, critBoost, idx)
-				} else {
-					r.drawWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize), critBoost, idx)
-				}
+				r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize), view, critBoost, idx)
 			}
 			continue
 		}
 
-		screenDir, hasScreenDir := r.projectileScreenDir(arrow.VelX, arrow.VelY)
-		if !hasScreenDir {
-			// Along the camera axis, an outgoing arrow shows its nock and
-			// fletching while an incoming arrow shows its steel head.
-			incoming := r.projectileMovesTowardCamera(arrow.VelX, arrow.VelY)
-			if !incoming && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && arrow.SkipMonster == nil {
-				convergence := bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize())
-				if r.drawOutgoingBowFromHand(bowDef.Graphics.ProjectileFx, screen, centerX, centerY,
-					float64(arrowSize), arrowColor, critBoost, idx, convergence) {
-					continue
-				}
-			}
-			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				r.drawBowWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize),
-					critBoost, idx, incoming)
-			}
-			r.drawArrowHeadOn(screen, centerX, centerY, float64(arrowSize), arrowColor, 1, incoming)
-			continue
-		}
-
+		screenDir, hasScreenDir := view.screenDir()
+		sideWeight, faceWeight := view.sideWeight(), view.faceWeight()
 		// Plain arrow: a fletched shaft with a triangular head, rotated along
 		// its on-screen flight direction, lobbed on a shallow arc so its
 		// profile shows in flight (a dead-straight arrow shot forward reads as
 		// just its tail). The arc is applied to both the current and the
 		// one-step-back sample, so the shaft angle follows the arc's tangent -
 		// the arrow noses up on the rise and tips down on the fall.
-		arcAmp := float64(arrowSize) * 1.3
+		arcAmp := float64(arrowSize) * 1.3 * sideWeight
 		maxLife := 1.0
 		if bowDef.Physics != nil {
 			maxLife = float64(bowDef.Physics.GetLifetimeFrames()) // arrows spawn with exactly this
@@ -5015,6 +4920,31 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		arcNow := arcAmp * 4 * tNow * (1 - tNow)
 		centerY -= arcNow
 
+		incoming := view.incoming()
+		convergence := 0.0
+		if !incoming && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && arrow.SkipMonster == nil {
+			convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * faceWeight
+		}
+		handX := float64(screen.Bounds().Dx()) * .055 * convergence
+		handY := float64(screen.Bounds().Dy()) * .025 * convergence
+		centerX, centerY = centerX+handX, centerY+handY
+		if faceWeight > 0 {
+			// Along the sightline, an outgoing arrow shows its nock and
+			// fletching while an incoming arrow shows its steel head.
+			fromHand := r.drawOutgoingBowFromHand(bowDef.Graphics.ProjectileFx, screen, centerX, centerY,
+				float64(arrowSize), arrowColor, critBoost, idx, convergence, faceWeight)
+			if !fromHand {
+				if style := bowDef.Graphics.ProjectileFx; style != "" {
+					r.drawBowWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize),
+						critBoost, faceWeight, idx, incoming)
+				}
+				r.drawArrowHeadOn(screen, centerX, centerY, float64(arrowSize), arrowColor, faceWeight, incoming)
+			}
+		}
+		if !hasScreenDir {
+			continue
+		}
+
 		// Shaft angle from the projected flight delta - but only once the arrow
 		// is clear of the camera: right after launch the one-step-back sample
 		// sits at/behind the camera plane, where projections swing wildly and
@@ -5027,8 +4957,8 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			if prev, pok := r.projectMovingEntity(arrow.X-arrow.VelX*3, arrow.Y-arrow.VelY*3,
 				bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize); pok {
 				arcPrev := arcAmp * 4 * tPrev * (1 - tPrev)
-				pdx := centerX - float64(prev.screenX)
-				pdy := centerY - (float64(prev.screenY) + float64(prev.size)/2 - arcPrev)
+				pdx := centerX - handX - float64(prev.screenX)
+				pdy := centerY - handY - (float64(prev.screenY) + float64(prev.size)/2 - arcPrev)
 				if pdx*pdx+pdy*pdy > 4 {
 					target = math.Atan2(pdy, pdx)
 				}
@@ -5042,17 +4972,18 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			ar.RenderAngle = approachAngle(ar.RenderAngle, target, arrowAngleMaxStep)
 		}
 		angle := ar.RenderAngle
+		axialScale := math.Abs(view.side)
 		if style := bowDef.Graphics.ProjectileFx; style != "" {
-			r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), math.Cos(angle), math.Sin(angle), critBoost, idx)
+			r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), math.Cos(angle)*axialScale, math.Sin(angle)*axialScale, critBoost, sideWeight, idx)
 		}
-		shaftLen := float64(arrowSize) * 1.7
+		shaftLen := float64(arrowSize) * 1.7 * axialScale
 		for g := 2; g >= 1; g-- {
 			off := shaftLen * 0.5 * float64(g)
-			r.drawArrowQuad(screen,
+			r.drawArrowQuadForeshortened(screen,
 				centerX-math.Cos(angle)*off, centerY-math.Sin(angle)*off,
-				float64(arrowSize), angle, arrowColor, 0.4-0.16*float64(g))
+				float64(arrowSize), angle, axialScale, arrowColor, (0.4-0.16*float64(g))*sideWeight)
 		}
-		r.drawArrowQuad(screen, centerX, centerY, float64(arrowSize), angle, arrowColor, 1.0)
+		r.drawArrowQuadForeshortened(screen, centerX, centerY, float64(arrowSize), angle, axialScale, arrowColor, sideWeight)
 	}
 }
 
@@ -5084,7 +5015,7 @@ const arrowAngleMinDist = 48.0
 const arrowAngleMaxStep = 0.12
 
 // drawArrowHeadOn renders the correct end of an arrow travelling along the
-// camera axis: the steel head when incoming, or the fletching when outgoing.
+// sightline: the steel head when incoming, or the fletching when outgoing.
 func (r *Renderer) drawArrowHeadOn(screen *ebiten.Image, cx, cy, size float64, col [3]int, alpha float64, incoming bool) {
 	if size < 2 || alpha <= 0 {
 		return
@@ -5165,16 +5096,6 @@ func (r *Renderer) drawArrowHeadOnIncoming(screen *ebiten.Image, cx, cy, size fl
 	r.standeeIdx = idx[:0]
 
 	r.drawGlowRect(screen, cx, cy, math.Max(1.5, size*0.12), highlight, alpha, ebiten.BlendSourceOver)
-}
-
-// drawArrowQuad draws an arrow the shape of a real one - shaft, triangular
-// steel head, two swept-back fletching triangles - rotated along `angle` (its
-// on-screen flight direction), in the bow's element colour. All five triangles
-// share one material draw with shaded facets. Source-over blending keeps
-// the shaft and feather colours readable against scenery. `size` is the
-// distance-scaled base size; the arrow is ~1.7x as long.
-func (r *Renderer) drawArrowQuad(screen *ebiten.Image, cx, cy, size, angle float64, col [3]int, alpha float64) {
-	r.drawArrowQuadForeshortened(screen, cx, cy, size, angle, 1, col, alpha)
 }
 
 // drawArrowQuadForeshortened collapses the visible shaft along its axis while

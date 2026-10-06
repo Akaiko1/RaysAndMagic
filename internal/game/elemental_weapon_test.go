@@ -296,9 +296,9 @@ func TestSolsticeWeaponEffectsAnimate(t *testing.T) {
 							boost = 1.3
 						}
 						if style == "solstice_flow_side" {
-							r.drawWeaponProjectileFx("solstice_flow", dst, 320, 180, 20, 1, 0, boost, 1)
+							r.drawWeaponProjectileFx("solstice_flow", dst, 320, 180, 20, 1, 0, boost, 1, 1)
 						} else {
-							r.drawWeaponProjectileFxHeadOn("solstice_flow", dst, 320, 180, 20, boost, 1)
+							r.drawWeaponProjectileFxHeadOn("solstice_flow", dst, 320, 180, 20, boost, 1, 1)
 						}
 					} else {
 						r.drawMeleeParticles(dst, SlashEffect{ID: "check", Style: style, AnimationFrame: frame, MaxFrames: 44, Crit: crit}, 320, 180, 360)

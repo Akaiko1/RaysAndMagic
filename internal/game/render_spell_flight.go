@@ -1,7 +1,6 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 )
 
@@ -14,37 +13,30 @@ func directionalSpellKind(kind int) bool {
 }
 
 // Like outgoing arrows, pointed spells leave the hand in profile, converge on
-// the view axis and expose their end face. Incoming shots never show a broadside.
-func (r *Renderer) spellHandOffset(shot MagicProjectile, p projectileFxProfile, width, height int) (float64, float64, float64) {
+// the target sightline and expose their end face.
+func (r *Renderer) spellHandOffset(shot MagicProjectile, p projectileFxProfile, view projectileView, width, height int) (float64, float64, float64) {
 	switch p.style {
 	case "ice_shard", "void_needle", "fire_dart", "shadow_bolt", "harm", "ray_of_light":
 	default:
 		return 0, 0, 0
 	}
-	if shot.Owner != ProjectileOwnerPlayer || r.projectileMovesTowardCamera(shot.VelX, shot.VelY) {
+	if shot.Owner != ProjectileOwnerPlayer || view.incoming() {
 		return 0, 0, 0
 	}
-	if _, side := r.projectileScreenDir(shot.VelX, shot.VelY); side {
-		return 0, 0, 0
-	}
-	distance := math.Hypot(shot.X-r.game.camera.X, shot.Y-r.game.camera.Y)
-	convergence := bowHandConvergence(distance, float64(r.game.config.GetTileSize()))
+	convergence := bowHandConvergence(view.distance, float64(r.game.config.GetTileSize())) * view.faceWeight()
 	return float64(width) * .055 * convergence, float64(height) * .025 * convergence, convergence
 }
 
-func (r *Renderer) drawOutgoingSpellFromHand(dst *ebiten.Image, x, y, size float64, shot MagicProjectile, rgb [3]int, p projectileFxProfile, crit float64, id int) bool {
-	_, _, convergence := r.spellHandOffset(shot, p, dst.Bounds().Dx(), dst.Bounds().Dy())
-	if convergence <= 0 {
-		return false
+func (v projectileView) spellProjection(convergence float64) spellProjection {
+	p := spellProjection{dx: 1, head: v.faceWeight(), axial: math.Max(.08, math.Abs(v.side)), axis: v.cameraAxis([3]float64{v.side, 0, v.depth})}
+	p.axial += (1 - p.axial) * p.head
+	if dir, ok := v.screenDir(); ok {
+		p.dx = dir
 	}
-	// The volume turns toward the vanishing point while leaving the hand.
-	previousAxis := r.spellFlightAxis
-	r.spellFlightAxis = [3]float64{-.45 * convergence, -.12 * convergence, 1}
-	angle := -math.Pi + .10 + .08*convergence
-	previous := r.spellAxialScale
-	r.spellAxialScale = math.Max(.07, convergence)
-	r.drawSpellProjectileFx(dst, x, y, size, math.Cos(angle), math.Sin(angle), rgb, p, crit, id)
-	r.spellAxialScale = previous
-	r.spellFlightAxis = previousAxis
-	return true
+	if convergence > 0 {
+		angle := -math.Pi + .10 + .08*convergence
+		p.dx, p.dy, p.head, p.axial = math.Cos(angle), math.Sin(angle), 0, math.Max(.07, convergence)
+		p.axis = v.cameraAxis([3]float64{v.side - .45*convergence, -.12 * convergence, v.depth})
+	}
+	return p
 }

@@ -398,6 +398,13 @@ func TestDiscontinuousViewDiscardsPointerOwnership(t *testing.T) {
 			if ih.mouseAttackTarget != nil || len(g.mouseLeftClicks)+len(g.mouseRightClicks) > 0 {
 				t.Fatal("view replacement retained an old press or hold")
 			}
+			fp.hold()
+			for range rtHoldRepeatDelay + 1 {
+				tick()
+			}
+			if ih.mouseAttackTarget != nil {
+				t.Fatal("held button reacquired from the frame before the view replacement")
+			}
 		})
 	}
 }

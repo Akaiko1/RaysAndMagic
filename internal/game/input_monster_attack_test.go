@@ -7,11 +7,13 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/threading"
 )
 
 func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePointer, *monster.Monster3D, func()) {
@@ -131,7 +133,7 @@ func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 
 func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, reason := range []string{"outside viewport", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "not drawn", "wall", "modal", "HUD", "mode", "drag", "stash picked up", "cooldown", "turn", "loading", "world"} {
+		for _, reason := range []string{"outside viewport", "dead", "removed", "charmed", "card summon", "druid summon", "spell summon", "modal", "HUD", "drag", "stash picked up", "cooldown", "turn", "loading", "world"} {
 			t.Run(map[bool]string{false: "RT", true: "TB"}[tb]+"/"+reason, func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				fp.press()
@@ -148,26 +150,10 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 					m.Pacified = true
 				case "card summon", "druid summon", "spell summon":
 					markPartySummonKind(g, m, reason)
-				case "not drawn":
-					g.gameLoop.renderer.beginMonsterPickFrame()
-				case "wall":
-					g.depthBuffer = make([]float64, 640)
-					for x := range g.depthBuffer {
-						g.depthBuffer[x] = 1
-					}
-					r := g.gameLoop.renderer
-					r.beginMonsterPickFrame()
-					sprite := ebiten.NewImage(1, 1)
-					t.Cleanup(sprite.Deallocate)
-					if hit, ok := r.prepareMonsterPick(UnifiedSpriteRenderData{monster: m, sprite: sprite, screenXF: 320, sizeF: 140, bottomF: 290, depthPerp: 64, monsterRenderX: m.X, monsterRenderY: m.Y}); ok {
-						r.monsterPick.hits = append(r.monsterPick.hits, hit)
-					}
 				case "modal":
 					g.menuOpen = true
 				case "HUD":
 					g.gameLoop.ui.displayedInput.commands = []uiInputCommand{{bounds: layoutRect{250, 150, 140, 140}}}
-				case "mode":
-					g.turnBasedMode = !tb
 				case "loading":
 					g.gameLoop.loading = &gameLoadingState{awaitingFrame: true}
 				case "world":
@@ -198,10 +184,10 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 				if len(g.slashEffects) != before {
 					t.Fatal("pointer hold bypassed " + reason)
 				}
-				if reason != "cooldown" && reason != "turn" && ih.mouseAttackTarget != nil {
+				if reason != "cooldown" && reason != "turn" && reason != "HUD" && reason != "outside viewport" && ih.mouseAttackTarget != nil {
 					t.Fatal("pointer hold retained ownership after " + reason)
 				}
-				if (reason == "cooldown" || reason == "turn") && ih.mouseAttackTarget != m {
+				if (reason == "cooldown" || reason == "turn" || reason == "HUD" || reason == "outside viewport") && ih.mouseAttackTarget != m {
 					t.Fatal("temporary action gate discarded held target")
 				}
 			})
@@ -456,7 +442,7 @@ func TestMouseSmartAttackDynamicAcquisition(t *testing.T) {
 
 func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, reason := range []string{"release", "modal", "HUD", "world", "mode", "loading", "outside viewport", "HUD press", "outside press"} {
+		for _, reason := range []string{"release", "modal", "HUD", "world", "loading", "outside viewport", "HUD press", "outside press"} {
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, reason), func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				fp.moveTo(50, 50)
@@ -486,27 +472,33 @@ func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
 				case "world":
 					other := *g.world
 					g.world = &other
-				case "mode":
-					g.turnBasedMode = !tb
 				case "loading":
 					g.gameLoop.loading = &gameLoadingState{awaitingFrame: true}
 				case "outside viewport":
 					fp.moveTo(-1, -1)
 				}
 				tick()
-				if ih.mouseAttackWorld != nil {
+				if ih.mouseAttackWorld != nil && reason != "HUD" && reason != "outside viewport" {
 					t.Fatal("targetless hold survived cancellation")
 				}
 				g.menuOpen, g.turnBasedMode, g.world = false, tb, originalWorld
 				g.gameLoop.loading = nil
 				g.gameLoop.ui.displayedInput.commands = nil
 				fp.moveTo(320, 220)
-				fp.hold() // No fresh press edge after the cancelled gesture.
+				if reason == "release" {
+					fp.idle()
+				} else {
+					fp.hold() // Any held press can acquire once gameplay is available.
+				}
 				for range rtHoldRepeatDelay + 120 {
 					tick()
 				}
-				if ih.mouseAttackTarget != nil || m.HitPoints != m.MaxHitPoints {
-					t.Fatal("cancelled gesture reacquired a target without a fresh press")
+				if reason == "release" || reason == "world" {
+					if ih.mouseAttackTarget != nil || m.HitPoints != m.MaxHitPoints {
+						t.Fatal("released gesture attacked")
+					}
+				} else if ih.mouseAttackTarget != m || m.HitPoints == m.MaxHitPoints {
+					t.Fatal("held button did not acquire when gameplay resumed")
 				}
 			})
 		}
@@ -793,10 +785,9 @@ func TestEnsureTBActorUsesActionCapability(t *testing.T) {
 	}
 }
 
-// Case table: RT/TB x billboard/standee x displayed pose after the press. The
-// actor stays in the render candidate list; ownership still requires some
-// column inside the viewport and in front of the walls.
-func TestMouseSmartAttackHeldTargetNeedsViewport(t *testing.T) {
+// RT/TB x billboard/standee x displayed pose after acquisition. Losing view
+// pauses attacks and highlight, but keeps the hold ready for the actor's return.
+func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, standee := range []bool{false, true} {
 			for _, pose := range []string{"above", "below", "side", "wall", "partly visible"} {
@@ -858,9 +849,23 @@ func TestMouseSmartAttackHeldTargetNeedsViewport(t *testing.T) {
 					for range rtHoldRepeatDelay + 120 {
 						tick()
 					}
-					keep := pose == "partly visible"
-					if (ih.mouseAttackTarget == m) != keep || (m.HitPoints < hp) != keep {
-						t.Fatalf("target kept=%v damaged=%v, want %v", ih.mouseAttackTarget == m, m.HitPoints < hp, keep)
+					r.selectMonsterHover()
+					visible := pose == "partly visible"
+					if ih.mouseAttackTarget != m || (m.HitPoints < hp) != visible || (r.hoveredMonster == m) != visible {
+						t.Fatalf("target kept=%v damaged=%v highlighted=%v, visible=%v", ih.mouseAttackTarget == m, m.HitPoints < hp, r.hoveredMonster == m, visible)
+					}
+					// Turning back resumes focus and attacks without a new press,
+					// even if the cursor is now over empty world pixels.
+					r.monsterPick.hits = []monsterPickHit{hit}
+					g.depthBuffer = nil
+					fp.moveTo(50, 50)
+					hp = m.HitPoints
+					for range 120 {
+						tick()
+					}
+					r.selectMonsterHover()
+					if ih.mouseAttackTarget != m || r.hoveredMonster != m || m.HitPoints >= hp {
+						t.Fatal("return to view did not restore highlighted held attack")
 					}
 				})
 			}
@@ -897,6 +902,182 @@ func TestHealHandoffKeepsSelectedRecipient(t *testing.T) {
 				pressed = false
 				if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
 					t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
+				}
+			})
+		}
+	}
+}
+
+// Use actual HUD commands and the gameplay Update sequence: actor selection,
+// cooldowns and multiple updates between draws must not terminate a hold.
+func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, start := range []string{"monster", "scenery", "HUD", "cover"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, start), func(t *testing.T) {
+				g, ih, fp, m, _ := mouseCombatHarness(t, tb)
+				g.threading = threading.NewThreadingComponents(g.config)
+				t.Cleanup(g.threading.Shutdown)
+				g.renderHelper = NewRenderingHelper(g)
+				g.sprites = graphics.NewSpriteManager()
+				ui := NewUISystem(g)
+				g.gameLoop.ui = ui
+				screen := ebiten.NewImage(640, 480)
+				t.Cleanup(screen.Deallocate)
+				m.X = g.camera.X + 12*float64(g.config.GetTileSize())
+				if start == "cover" {
+					m.X = g.camera.X + float64(g.config.GetTileSize())
+					g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("closed-door", (g.camera.X+m.X)/2, m.Y, 16, 48, collision.CollisionTypeNPC, true))
+				}
+				m.StunFramesRemaining = 100000
+				m.StunTurnsRemaining = 100000
+				for i, h := range g.party.Members {
+					h.ActionsRemaining = 2
+					if i%2 == 1 {
+						h.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
+					}
+					if i == 3 {
+						h.LearnSpell("firebolt")
+						h.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						h.SpellPoints, h.MaxSpellPoints = 1000, 1000
+					}
+				}
+				draw := func() { ui.Draw(screen) }
+				step := func() {
+					t.Helper()
+					ui.updateMouseState()
+					ui.dispatchDisplayedInput()
+					g.gameLoop.updateExploration()
+					ui.dropQueuedClicks()
+				}
+				draw()
+				switch start {
+				case "scenery":
+					fp.moveTo(50, 50)
+				case "HUD":
+					w, h, x, y := partyPortraitLayout(g)
+					fp.moveTo(x+w/2, y+h/2)
+				}
+				fp.press()
+				step()
+				fp.hold()
+				if start == "monster" {
+					// Party cycling invalidates HUD commands before the next Draw.
+					fp.moveTo(50, 50)
+					g.mouseRightClicks = []queuedClick{{x: -1, y: -1}}
+					step()
+					if ih.mouseAttackTarget != m {
+						t.Fatal("stale HUD dropped held actor")
+					}
+				}
+				fp.moveTo(320, 220)
+				acted := make([]bool, len(g.party.Members))
+				for frame := 0; frame < 180; frame++ {
+					// Two ticks per displayed frame reproduce the game's 120 TPS / 60 FPS.
+					if frame%2 == 0 {
+						draw()
+					}
+					step()
+					for i, h := range g.party.Members {
+						if h.RTCooldown > 0 || h.ActionsRemaining < 2 {
+							acted[i] = true
+						}
+					}
+				}
+				for i, ok := range acted {
+					if ok == (start == "cover") {
+						t.Errorf("hero %d: attack=%v cover=%v", i, ok, start == "cover")
+					}
+				}
+				if start == "cover" {
+					if ih.focusedMouseAttackTarget() != nil {
+						t.Fatal("hidden target kept focus")
+					}
+				} else if ih.mouseAttackTarget != m {
+					t.Fatal("hold lost its selected actor")
+				}
+				if m.HitPoints != m.MaxHitPoints {
+					t.Fatal("out-of-range attacks hit the distant target")
+				}
+				fp.release()
+				step()
+				if ih.mouseAttackWorld != nil {
+					t.Fatal("release kept firing")
+				}
+			})
+		}
+	}
+}
+
+// A world interaction or mode switch owns its physical press until release.
+// Ordinary scenery/HUD acquisition and retargeting remain covered above.
+func TestMouseHoldClaimedPressAndMode(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, claim := range []string{"loot", "NPC", "mode"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, claim), func(t *testing.T) {
+				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
+				g.camera.Angle = 0
+				g.camera.ViewDist = 5000
+				g.sprites = graphics.NewSpriteManager()
+				g.renderHelper = NewRenderingHelper(g)
+				r := g.gameLoop.renderer
+				shown := func() {
+					r.beginMonsterPickFrame()
+					r.monsterPick.hits = []monsterPickHit{{monster: m, left: 250, top: 150, size: 140, depth: 64}}
+				}
+				switch claim {
+				case "loot":
+					g.groundContainers = []GroundContainer{{X: g.camera.X + 64, Y: g.camera.Y, Sprite: "missing_pick_fixture", Gold: 7}}
+					info := g.groundContainerRenderInfo(&g.groundContainers[0], -1)
+					if !info.Visible {
+						t.Fatal("loot not visible")
+					}
+					fp.moveTo(info.ScreenX, info.ScreenY+info.SpriteSize/2)
+				case "NPC":
+					n := &character.NPC{Name: "Claimed pointer", Sprite: "missing_pick_fixture", RenderCategory: "npc", SizeClass: "full_tile", X: g.camera.X + 64, Y: g.camera.Y}
+					g.world.NPCs = []*character.NPC{n}
+					// The explicit NPC click must land outside the synthetic monster body.
+					r.monsterPick.hits = nil
+					x, y, size, visible := g.renderHelper.NPCSpriteMetrics(n, n.X, n.Y, 64)
+					if !visible {
+						t.Fatal("NPC not visible")
+					}
+					fp.moveTo(x, y+size/2)
+				}
+				fp.press()
+				tick()
+				fp.hold()
+				if claim == "loot" && len(g.groundContainers) != 0 {
+					t.Fatal("click did not collect loot")
+				}
+				if claim == "mode" {
+					ih.keys = keytracker.NewWithSource(heldOnly(ebiten.KeyTab))
+					tick()
+					ih.keys = keytracker.NewWithSource(heldOnly())
+					if g.turnBasedMode == tb {
+						t.Fatal("Tab did not switch combat mode")
+					}
+				}
+				g.dialogActive = false
+				g.world.NPCs = nil
+				shown()
+				fp.moveTo(320, 220)
+				before := len(g.slashEffects)
+				for range rtHoldRepeatDelay + 120 {
+					tick()
+				}
+				if len(g.slashEffects) != before || ih.mouseAttackTarget != nil {
+					t.Fatal("claimed hold became an attack")
+				}
+				fp.release()
+				tick()
+				fp.press()
+				tick()
+				fp.hold()
+				for range rtHoldRepeatDelay + 120 {
+					tick()
+				}
+				if len(g.slashEffects) <= before {
+					t.Fatal("new press did not resume combat")
 				}
 			})
 		}

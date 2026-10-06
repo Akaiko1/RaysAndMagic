@@ -514,29 +514,29 @@ func (r *Renderer) drawMeleeFxDragonRoar(screen *ebiten.Image, s SlashEffect, cx
 }
 
 // ============================ DRAKEFORGED RANGED ============================
-// Overlays on top of the normal arrow silhouette (weaponProjectileFxStyleDraw).
+// Overlays on top of the normal arrow silhouette.
 
 // Verdant Eye is an eye-shaped green flash, with open luminous arcs and a
 // brief central flare in both side-on and camera-axis projections.
-func (r *Renderer) drawWeaponProjectileFxDragonEye(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
-	r.drawSpellMaterial(screen, cx, cy, size*1.25, 0, 0, [3]int{112, 226, 118}, critBoost, id, spellEye)
+func (r *Renderer) drawWeaponProjectileFxDragonEye(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
+	r.drawSpellMaterialFade(screen, cx, cy, size*1.25, 0, 0, [3]int{112, 226, 118}, 1, id, spellEye, alpha)
 }
 
-func (r *Renderer) drawWeaponProjectileFxDragonEyeHeadOn(screen *ebiten.Image, cx, cy, size, critBoost float64, id int) {
-	r.drawWeaponProjectileFxDragonEye(screen, cx, cy, size, 0, 0, critBoost, id)
+func (r *Renderer) drawWeaponProjectileFxDragonEyeHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
+	r.drawWeaponProjectileFxDragonEye(screen, cx, cy, size, 0, 0, alpha, id)
 }
 
 // Wyrmspine Wing - the bow strung on wing-tendon. The bolt FLIES: membrane
 // vanes fan off the shaft and beat slowly, shedding scale-flecks in the
 // slipstream. This is the weapon that frees the whole party to shoot on the
 // move, so the arrow itself should look airborne rather than launched.
-func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 601
 	fc := float64(r.game.frameCount)
 	wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
 	// Wing beat: the vanes sweep between swept-back and spread.
 	beat := 0.55 + 0.45*math.Sin(fc*0.34)
-	nx, ny := -dirY, dirX
+	nx, ny := projectilePerpendicular(dirX, dirY)
 	for _, side := range []float64{-1, 1} {
 		// Two membrane vanes per side, drawn as SOLID BARS (a chain of dots
 		// reads as dots at these sizes): a leading spar plus a trailing one,
@@ -549,12 +549,12 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 			ay := cy - dirY*size*root
 			tipX := ax + nx*side*span - dirX*size*0.7*float64(i)
 			tipY := ay + ny*side*span - dirY*size*0.7*float64(i)
-			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2.5, size*0.16), wing, 0.6*critBoost, additiveGlowBlend)
-			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2, size*0.07), vein, 0.75*critBoost, additiveGlowBlend)
+			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2.5, size*0.16), wing, 0.6*alpha, additiveGlowBlend)
+			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2, size*0.07), vein, 0.75*alpha, additiveGlowBlend)
 			if i == 1 {
 				// Membrane: the trailing edge closing the two spars.
-				r.weaponFxSegment(screen, prevX, prevY, tipX, tipY, math.Max(2, size*0.1), wing, 0.4*critBoost, additiveGlowBlend)
-				r.drawGlowSprite(screen, (prevX+tipX)/2, (prevY+tipY)/2, size*0.5*beat, wing, 0.22*critBoost, additiveGlowBlend)
+				r.weaponFxSegment(screen, prevX, prevY, tipX, tipY, math.Max(2, size*0.1), wing, 0.4*alpha, additiveGlowBlend)
+				r.drawGlowSprite(screen, (prevX+tipX)/2, (prevY+tipY)/2, size*0.5*beat, wing, 0.22*alpha, additiveGlowBlend)
 			}
 			prevX, prevY = tipX, tipY
 		}
@@ -563,10 +563,10 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 	for k := 0; k < 6; k++ {
 		t := 0.3 + 0.19*float64(k)
 		wob := (auraHash(seed, k, 602, 0) - 0.5) * size * 1.1
-		x := cx - dirX*size*3.6*t - dirY*wob
-		y := cy - dirY*size*3.6*t + dirX*wob
+		x := cx - dirX*size*3.6*t + nx*wob
+		y := cy - dirY*size*3.6*t + ny*wob
 		r.weaponFxAccent(screen, x, y, math.Max(2.5, size*0.13*(1-0.1*float64(k))),
-			mixColor(wing, dragonScale, float64(k)/6), (0.42-0.055*float64(k))*critBoost, additiveGlowBlend)
+			mixColor(wing, dragonScale, float64(k)/6), (0.42-0.055*float64(k))*alpha, additiveGlowBlend)
 	}
 }
 
@@ -574,11 +574,11 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 // twin hook prongs scissor ahead of the head, and a taut thread runs back
 // along its flight - the line it will follow to the next target when it
 // ricochets.
-func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 611
 	fc := float64(r.game.frameCount)
 	hunt, bone := [3]int{178, 208, 122}, dragonBone
-	nx, ny := -dirY, dirX
+	nx, ny := projectilePerpendicular(dirX, dirY)
 	// ONE connected silhouette: a harpoon head. Barbs are ATTACHED at the point
 	// and sweep BACK along the shaft, so the bolt reads as a single barbed
 	// object. A first pass floated scissor prongs, a leash and a ghost bolt
@@ -590,18 +590,18 @@ func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy
 		// Outer barb: point -> swept back and out.
 		obX := cx - dirX*size*0.5 + nx*side*size*1.05*flex
 		obY := cy - dirY*size*0.5 + ny*side*size*1.05*flex
-		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2.5, size*0.19), hunt, 0.66*critBoost, additiveGlowBlend)
-		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2, size*0.09), bone, 0.85*critBoost, additiveGlowBlend)
+		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2.5, size*0.19), hunt, 0.66*alpha, additiveGlowBlend)
+		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2, size*0.09), bone, 0.85*alpha, additiveGlowBlend)
 		// Inner barb: a shorter second hook, giving the head its clutch look.
 		ibX := cx - dirX*size*1.4 + nx*side*size*0.62*flex
 		ibY := cy - dirY*size*1.4 + ny*side*size*0.62*flex
-		r.weaponFxSegment(screen, obX, obY, ibX, ibY, math.Max(2, size*0.12), mixColor(hunt, bone, 0.3), 0.5*critBoost, additiveGlowBlend)
+		r.weaponFxSegment(screen, obX, obY, ibX, ibY, math.Max(2, size*0.12), mixColor(hunt, bone, 0.3), 0.5*alpha, additiveGlowBlend)
 	}
 	// The shaft the barbs hang on, and the taut leash running back along the
 	// flight path - the line it will follow to the next target.
-	r.weaponFxSegment(screen, tipX, tipY, cx-dirX*size*1.6, cy-dirY*size*1.6, math.Max(2.5, size*0.14), bone, 0.7*critBoost, additiveGlowBlend)
+	r.weaponFxSegment(screen, tipX, tipY, cx-dirX*size*1.6, cy-dirY*size*1.6, math.Max(2.5, size*0.14), bone, 0.7*alpha, additiveGlowBlend)
 	r.weaponFxSegment(screen, cx-dirX*size*1.6, cy-dirY*size*1.6, cx-dirX*size*4.8, cy-dirY*size*4.8,
-		math.Max(2, size*0.1), hunt, 0.38*critBoost, additiveGlowBlend)
-	r.drawGlowSprite(screen, tipX, tipY, size*0.34, bone, 0.75*critBoost, additiveGlowBlend)
+		math.Max(2, size*0.1), hunt, 0.38*alpha, additiveGlowBlend)
+	r.drawGlowSprite(screen, tipX, tipY, size*0.34, bone, 0.75*alpha, additiveGlowBlend)
 	_ = seed
 }

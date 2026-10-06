@@ -37,7 +37,7 @@ func TestEveryProjectileSpellAuthorsAFxStyle(t *testing.T) {
 			t.Errorf("projectile spell %q authors no graphics.projectile_fx (renders as the generic school orb)", key)
 			continue
 		}
-		if _, ok := spellFxStyleDraw[style]; !ok {
+		if _, ok := spellFxStyleKinds[style]; !ok {
 			t.Errorf("spell %q: projectile_fx %q has no renderer", key, style)
 		}
 	}

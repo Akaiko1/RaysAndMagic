@@ -38,8 +38,15 @@ func (r *Renderer) beginMonsterPickFrame() {
 func (r *Renderer) selectMonsterHover() {
 	g := r.game
 	r.hoveredMonster = nil
-	if g.worldClickAllowed() && !g.dragArmed && !g.dragActive && !g.dragPickedUp {
+	if g.gameLoop != nil && g.mouseCombatInputAllowed() {
 		x, y := pointerPosition()
+		ih := g.gameLoop.inputHandler
+		if ih != nil && pointerLeftPressed() && ih.mouseAttackWorld == g.world && ih.mouseAttackTurnBased == g.turnBasedMode {
+			if g.monsterPointerFrameAllowed(x, y) {
+				r.hoveredMonster = ih.focusedMouseAttackTarget()
+			}
+			return
+		}
 		r.hoveredMonster = g.monsterAtScreen(x, y)
 	}
 }
@@ -100,26 +107,23 @@ func (g *MMGame) monsterPointerFrameAllowed(x, y int) bool {
 // viewport and in front of the walls. Sprite alpha, shake and yaw affect
 // acquisition, not continued ownership of a held attack.
 func (g *MMGame) heldMonsterVisible(target *monster.Monster3D) bool {
-	if !pointerAttackable(target) {
+	if g.gameLoop == nil || g.gameLoop.renderer == nil || !g.monsterPointerInSight(target) {
 		return false
 	}
 	f := &g.gameLoop.renderer.monsterPick
-	for _, live := range g.world.Monsters {
-		if live != target {
-			continue
+	if f.world != g.world {
+		return false
+	}
+	for _, hit := range f.hits {
+		if hit.monster == target && g.monsterPickHitVisible(f, hit) {
+			return true
 		}
-		for _, hit := range f.hits {
-			if hit.monster == target && g.monsterPickHitVisible(f, hit) {
-				return true
-			}
-		}
-		break
 	}
 	return false
 }
 
 // column projects one screen column of a hit with the geometry the renderer
-// drew, so pointer picking and held-target visibility cannot disagree.
+// drew. Retaining an acquired target does not depend on these pixels.
 func (f *monsterPickFrame) column(h monsterPickHit, x int) (depth, top, bottom, u float64, ok bool) {
 	if h.standee {
 		rx, ry := standeeRayAtScreenX(float64(x)+0.5, f.width, f.dirX, f.dirY, f.planeX, f.planeY)
@@ -190,14 +194,7 @@ func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
 				continue
 			}
 		}
-		present := false
-		for _, live := range g.world.Monsters {
-			if live == m {
-				present = true
-				break
-			}
-		}
-		if !present {
+		if !g.monsterPointerInSight(m) {
 			continue
 		}
 		nearest, best = depth, m

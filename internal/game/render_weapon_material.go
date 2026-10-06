@@ -218,25 +218,24 @@ func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind string, x, y, angle, s
 	r.drawWeaponSilhouette(dst, kind, "", x, y, angle, size, col, alpha)
 }
 
-func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, alpha float64, seed int) {
-	if size <= 0 || alpha <= 0 || r.ensureWeaponMaterialShaders() != nil {
+func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit, alpha float64, seed int) {
+	if size <= 0 || alpha < projectileAlphaThreshold || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
-	// Brightness is clamped by the shader; retain a visible critical boost in
-	// the charge silhouette as well as its trailing light.
-	size *= math.Sqrt(math.Max(1, alpha))
+	size *= math.Sqrt(crit)
 	phase := r.weaponMaterialClock()
 	prev := r.weaponMaterialState
 	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: phase, seed: seed}
 	defer func() { r.weaponMaterialState = prev }()
 	// Both projections retain a round charged core. Only lateral shots trail.
 	if math.Hypot(dx, dy) > .01 {
+		nx, ny := projectilePerpendicular(dx, dy)
 		for strand := 0; strand < 2; strand++ {
 			lastX, lastY := x, y
 			for k := 1; k <= 12; k++ {
 				t := float64(k) / 12
 				off := math.Sin(t*5-phase*4+float64(strand)*math.Pi) * size * t * .55
-				px, py := x-dx*size*t*3-dy*off, y-dy*size*t*3+dx*off
+				px, py := x-dx*size*t*3+nx*off, y-dy*size*t*3+ny*off
 				r.weaponFxSegment(dst, lastX, lastY, px, py, size*.12*(1-t)+.6, rgb, alpha*(1-t)*.65, additiveGlowBlend)
 				lastX, lastY = px, py
 			}
@@ -294,10 +293,12 @@ func (r *Renderer) drawWeaponFacets(dst *ebiten.Image, verts []ebiten.Vertex, in
 }
 
 // Blasters retain their rigid energy rod and compact head-on muzzle shape.
-func (r *Renderer) drawBulletTracer(dst *ebiten.Image, x, y, size, vx, vy float64, col [3]int, crit float64, id int) {
-	dx, lateral := r.projectileScreenDir(vx, vy)
-	if !lateral {
-		r.drawWeaponCharge(dst, x, y, size*.85, 0, 0, col, crit, id)
+func (r *Renderer) drawBulletTracer(dst *ebiten.Image, x, y, size float64, view projectileView, col [3]int, crit float64, id int) {
+	// Project the rod's length, rather than normalizing any nonzero sideways
+	// component to a full-length line. Its rear face remains visible in depth.
+	r.drawWeaponCharge(dst, x, y, size*.85, 0, 0, col, crit, view.faceWeight(), id)
+	dx := view.side
+	if view.sideWeight() == 0 {
 		return
 	}
 	previous := r.weaponMaterialState

@@ -89,6 +89,11 @@ func (ui *UISystem) cancelScreenPointerGestures() {
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
 		g.gameLoop.inputHandler.cancelMouseAttack()
 	}
+	ui.cancelWidgetPointerGestures()
+}
+
+func (ui *UISystem) cancelWidgetPointerGestures() {
+	g := ui.game
 	g.entryMenuRootPressArmed = false
 	if g.partyCreate != nil {
 		g.partyCreate.clearPending()
@@ -350,7 +355,9 @@ func (ui *UISystem) dispatchDisplayedInput() {
 	}
 	if !ui.displayedInputCurrent() {
 		ui.dropQueuedClicks()
-		ui.cancelScreenPointerGestures()
+		// A hero advancing or inventory changing invalidates widget commands,
+		// not a held world attack. Screen/modal changes have their own barrier.
+		ui.cancelWidgetPointerGestures()
 		ui.game.clearDrag()
 		ui.game.clearStashDrag()
 		return

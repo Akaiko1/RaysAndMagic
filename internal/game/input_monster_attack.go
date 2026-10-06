@@ -7,7 +7,21 @@ func (ih *InputHandler) cancelMouseAttack() {
 	ih.mouseAttackHoldFrames = 0
 }
 
+func (ih *InputHandler) blockMouseAttackUntilRelease() {
+	ih.cancelMouseAttack()
+	// Cancellation is state-only: keyboard, load and camera paths can call it.
+	// HandleInput clears the barrier on release or a fresh physical press.
+	ih.mouseAttackBlocked = true
+}
+
+func (g *MMGame) mouseCombatInputAllowed() bool {
+	return g.worldClickAllowed() && !g.dragArmed && !g.dragActive && !g.dragPickedUp && !g.stashDragPickedUp
+}
+
 func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
+	if ih.mouseAttackBlocked {
+		return
+	}
 	ih.mouseAttackTarget = target
 	ih.mouseAttackWorld = ih.game.world
 	ih.mouseAttackTurnBased = ih.game.turnBasedMode
@@ -19,27 +33,71 @@ func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
 
 func (ih *InputHandler) repeatMouseAttack() {
 	g := ih.game
-	// The world owns the gesture even before it acquires a target.
-	if ih.mouseAttackWorld == nil {
-		return
-	}
 	x, y := pointerPosition()
-	if !pointerLeftPressed() || !g.worldClickAllowed() || g.world != ih.mouseAttackWorld || g.turnBasedMode != ih.mouseAttackTurnBased || !g.monsterPointerFrameAllowed(x, y) {
+	if !pointerLeftPressed() || !g.mouseCombatInputAllowed() {
 		ih.cancelMouseAttack()
 		return
 	}
-	if !g.heldMonsterVisible(ih.mouseAttackTarget) {
+	if ih.mouseAttackWorld != nil && (g.world != ih.mouseAttackWorld || g.turnBasedMode != ih.mouseAttackTurnBased) {
+		ih.blockMouseAttackUntilRelease()
+	}
+	if ih.mouseAttackBlocked {
+		return
+	}
+	// Holding is level-triggered: a press can start over the HUD or empty
+	// scenery and acquire a monster later, without another button edge.
+	// UI pixels pause combat, but do not discard the retained actor.
+	if !g.monsterPointerFrameAllowed(x, y) {
+		return
+	}
+	if ih.mouseAttackWorld == nil {
+		ih.beginMouseAttack(nil)
+	}
+	if !g.monsterPointerPresent(ih.mouseAttackTarget) {
 		ih.mouseAttackTarget = nil
 	}
-	// Empty pixels keep the acquired actor through animation and movement.
+	// The actor owns the lock, not its last drawn silhouette. Empty pixels and
+	// temporary occlusion keep it through animation, movement and camera turns.
 	// Retargeting still requires the same opaque-pixel pick as a fresh press.
 	if target := g.monsterAtScreen(x, y); target != nil && heldHoverAcquirable(target) {
 		ih.mouseAttackTarget = target
 	}
 	ih.mouseAttackHoldFrames++
-	if ih.mouseAttackTarget != nil && ih.mouseAttackHoldFrames >= rtHoldRepeatDelay {
-		ih.performMouseSmartAttack(ih.mouseAttackTarget)
+	if target := ih.focusedMouseAttackTarget(); target != nil && ih.mouseAttackHoldFrames >= rtHoldRepeatDelay {
+		ih.performMouseSmartAttack(target)
 	}
+}
+
+// Rendering and held attacks share one focus: a retained living actor with
+// some part still visible. Losing visibility pauses fire without ending hold.
+func (ih *InputHandler) focusedMouseAttackTarget() *monster.Monster3D {
+	if ih.game.heldMonsterVisible(ih.mouseAttackTarget) {
+		return ih.mouseAttackTarget
+	}
+	return nil
+}
+
+func (g *MMGame) monsterPointerPresent(target *monster.Monster3D) bool {
+	if !pointerAttackable(target) || g.world == nil {
+		return false
+	}
+	for _, live := range g.world.Monsters {
+		if live == target {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *MMGame) monsterPointerInSight(target *monster.Monster3D) bool {
+	if !g.monsterPointerPresent(target) {
+		return false
+	}
+	if g.combat == nil {
+		return true
+	}
+	pose := g.logicalCameraPose()
+	return g.combat.attackLineClear(pose.x, pose.y, target.X, target.Y)
 }
 
 // pointerAttackable follows the ally categories: summons are never party
@@ -58,9 +116,6 @@ func heldHoverAcquirable(m *monster.Monster3D) bool {
 func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) {
 	g := ih.game
 	if !pointerAttackable(target) || !g.worldClickAllowed() || g.combat == nil {
-		return
-	}
-	if !g.combat.attackLineClear(g.camera.X, g.camera.Y, target.X, target.Y) {
 		return
 	}
 	if g.turnBasedMode {
