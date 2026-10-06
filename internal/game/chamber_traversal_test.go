@@ -18,6 +18,10 @@ func TestChamberTraversalCapabilities(t *testing.T) {
 	storage.SetDataRootForTesting(t.TempDir())
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	for _, stitched := range []bool{false, true} {
+		// One boot per world mode. Each cell enters a fresh copy of its chamber
+		// with an empty visit, exactly as a new opening would.
+		g, wm, cfg := bootOpenWorldGame(t, stitched)
+		loadBenchContent(t)
 		for _, tb := range []bool{false, true} {
 			for _, element := range []string{"fire", "water", "earth", "air"} {
 				for _, tier := range []int{-1, 0, 1, 2, 3} {
@@ -26,10 +30,13 @@ func TestChamberTraversalCapabilities(t *testing.T) {
 						method = fmt.Sprintf("Fold%d", tier)
 					}
 					t.Run(fmt.Sprintf("%s/%s/stitched=%v/TB=%v", element, method, stitched, tb), func(t *testing.T) {
-						g, wm, cfg := bootOpenWorldGame(t, stitched)
-						loadBenchContent(t)
 						key := "solstice_" + element
-						if err := g.transitionToMap(mapTransition{mapKey: key, arrival: mapArrivalEntrance}); err != nil {
+						fresh, err := wm.FreshAdventureMap(key)
+						if err != nil {
+							t.Fatal(err)
+						}
+						g.turnBasedMode = false
+						if err := g.transitionToMap(mapTransition{mapKey: key, arrival: mapArrivalEntrance, adventureWorld: fresh, adventureVisit: &AdventureVisit{}}); err != nil {
 							t.Fatal(err)
 						}
 						g.turnBasedMode = tb
