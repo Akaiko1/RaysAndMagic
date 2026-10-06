@@ -1,9 +1,7 @@
 package game
 
 import (
-	"encoding/json"
 	"log"
-	"os"
 
 	"ugataima/internal/storage"
 )
@@ -20,16 +18,8 @@ type displayPreferences struct {
 func (g *MMGame) loadDisplayPreferences() {
 	g.config.PlayerInterfaceSize = g.config.Display.DefaultInterfaceSize
 	g.config.PlayerFont = g.config.Display.DefaultFont
-	raw, err := os.ReadFile(displayPreferencesPath())
-	if os.IsNotExist(err) {
-		return
-	}
-	var prefs displayPreferences
-	if err == nil {
-		err = json.Unmarshal(raw, &prefs)
-	}
-	if err != nil {
-		log.Printf("Could not load display settings: %v", err)
+	prefs, ok := loadSettingsJSON[displayPreferences](displayPreferencesPath(), "display")
+	if !ok {
 		return
 	}
 	if _, ok := g.config.Display.InterfaceSize(prefs.InterfaceSize); ok {
@@ -48,13 +38,7 @@ func (g *MMGame) saveDisplayPreferences() {
 	if !g.displaySettingsDirty || g.config == nil {
 		return
 	}
-	if err := storage.WriteJSONAtomic(displayPreferencesPath(), displayPreferences{InterfaceSize: g.interfaceSizeKey(), Font: g.uiFontKey()}, 0600); err != nil {
-		g.settingsSaveError = "Could not save settings. Please check the data folder."
-		log.Printf("Could not save display settings: %v", err)
-		return
-	}
-	g.displaySettingsDirty = false
-	g.settingsSaveError = ""
+	g.saveSettingsJSON(displayPreferencesPath(), "display", displayPreferences{InterfaceSize: g.interfaceSizeKey(), Font: g.uiFontKey()}, &g.displaySettingsDirty)
 }
 
 // interfaceSizeKey is the active preset: the player's choice, else the default.

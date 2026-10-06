@@ -60,6 +60,10 @@ func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox) {
+	return settingsLayoutBoxes(screenW, screenH, ornate, settingsTabSound)
+}
+
+func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind) (uiBox, []uiBox) {
 	layout := makeAudioSettingsPanelLayout(screenW, screenH, ornate)
 	px, py, panelW, panelH := layout.px, layout.py, layout.panelW, layout.panelH
 	region := uiBox{"audio-settings", px, py, panelW, panelH}
@@ -67,12 +71,27 @@ func audioSettingsLayoutBoxes(screenW, screenH int, ornate bool) (uiBox, []uiBox
 	for tab := range settingsTabLabels {
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, settingsTabKind(tab))))
 	}
-	for row, def := range audioSettingDefinitions {
-		r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
-		boxes = append(boxes, uiBox{fmt.Sprintf("slider-%s", def.label), r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1})
+	if tab == settingsTabCombat {
+		for i, text := range combatSettingsTextLayout(px, py, panelW) {
+			b := text.box
+			name := fmt.Sprintf("text-%d", i)
+			if text.centered {
+				boxes = append(boxes, centeredTextBox(name, text.label, b.x, b.y, b.w, b.h))
+			} else {
+				boxes = append(boxes, textLineBox(name, text.label, b.x, b.y))
+			}
+		}
+		for _, enabled := range []bool{false, true} {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("choice-%v", enabled), combatOverlayChoiceRect(px, py, panelW, enabled)))
+		}
+	} else {
+		for row, def := range audioSettingDefinitions {
+			r := audioSelectionRect(px, py, panelW, layout.contentInset, row)
+			boxes = append(boxes, uiBox{fmt.Sprintf("slider-%s", def.label), r.x1, r.y1, r.x2 - r.x1, r.y2 - r.y1})
+		}
 	}
 	back := audioBackRect(px, py, panelH, layout.contentInset)
-	hint, hintX, hintY := audioHintPosition(px, py, panelW, panelH, layout.contentInset)
+	hint, hintX, hintY := settingsHintPosition(tab, "", px, py, panelW, panelH, layout.contentInset)
 	boxes = append(boxes,
 		uiBox{"back", back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1},
 		textLineBox("hint", hint, hintX, hintY),

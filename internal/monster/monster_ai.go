@@ -1232,7 +1232,7 @@ func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTile
 	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
 	goal := TileCoord{X: targetTileX, Y: targetTileY}
 
-	if !m.isPassableTile(collisionChecker, goal) {
+	if !m.CanTraverseTile(collisionChecker, goal) {
 		return nil
 	}
 
@@ -1359,7 +1359,7 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 			if ps.closed[nidx] {
 				continue
 			}
-			if neighbor != start && !m.isPassableTile(collisionChecker, neighbor) {
+			if neighbor != start && !m.CanTraverseTile(collisionChecker, neighbor) {
 				continue
 			}
 			tentativeG := ps.gScore[current.idx] + 1
@@ -1483,7 +1483,8 @@ func (m *Monster3D) MeleeApproachRingGoals(collisionChecker CollisionChecker, ta
 	return goals
 }
 
-func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
+// CanTraverseTile is shared by pathfinding and gameplay movement previews.
+func (m *Monster3D) CanTraverseTile(collisionChecker CollisionChecker, tile TileCoord) bool {
 	if b := m.AmbientBounds; b != nil && (tile.X < b[0] || tile.Y < b[1] || tile.X >= b[2] || tile.Y >= b[3]) {
 		return false
 	}

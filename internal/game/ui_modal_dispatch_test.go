@@ -17,11 +17,12 @@ import (
 )
 
 type displayedModalHarness struct {
-	t      *testing.T
-	g      *MMGame
-	ui     *UISystem
-	loop   *GameLoop
-	screen *ebiten.Image
+	t         *testing.T
+	g         *MMGame
+	ui        *UISystem
+	loop      *GameLoop
+	screen    *ebiten.Image
+	clickTime int64
 }
 
 func newDisplayedModalHarness(t *testing.T, width, height int) *displayedModalHarness {
@@ -46,15 +47,22 @@ func newDisplayedModalHarness(t *testing.T, width, height int) *displayedModalHa
 	g.gameLoop = loop
 	screen := ebiten.NewImage(width, height)
 	t.Cleanup(screen.Deallocate)
-	return &displayedModalHarness{t, g, ui, loop, screen}
+	return &displayedModalHarness{t: t, g: g, ui: ui, loop: loop, screen: screen}
 }
 
 // Each batch starts with the real displayed layout, then uses the same Update
 // entry point as a paused game, with no modal events left for later handlers.
 func (h *displayedModalHarness) clicks(right bool, x, y, count int) {
 	h.t.Helper()
+	h.clickTime += 100
+	h.clicksAt(right, x, y, count, h.clickTime)
+	h.clickTime += int64(count)
+}
+
+// Gesture tests supply event time independently of rendering and scheduling.
+func (h *displayedModalHarness) clicksAt(right bool, x, y, count int, now int64) {
+	h.t.Helper()
 	h.ui.Draw(h.screen)
-	now := time.Now().UnixMilli()
 	for i := 0; i < count; i++ {
 		c := queuedClick{x: x, y: y, at: now + int64(i)}
 		if right {

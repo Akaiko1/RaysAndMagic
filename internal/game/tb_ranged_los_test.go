@@ -1,11 +1,42 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
+
+// An off-center party can share the last allowed tile yet exceed the authored
+// radial range. The scheduler must move instead of spending a rejected shot.
+func TestTurnBasedRangedRadialBoundary(t *testing.T) {
+	for _, offset := range []float64{0, .25} {
+		t.Run(fmt.Sprint(offset), func(t *testing.T) {
+			g, gl, ts := tbBehaviorGame(t, 20, 20)
+			placePlayerAtTile(g, 10, 10, ts)
+			g.camera.X += offset * ts
+			g.collisionSystem.UpdateEntity("player", g.camera.X, g.camera.Y)
+			m := spawnMonsterAtTile(g, "bandit", 6, 10, ts)
+			m.RangedAttackRange = 4 * ts
+			want := offset == 0
+			if got := g.combat.monsterAttackPointInReachTB(m, g.camera.X, g.camera.Y); got != want {
+				t.Fatalf("planner reach=%v want %v", got, want)
+			}
+			if got := g.combat.monsterAttackStillValid(m, monsterAttackDestination{}, monsterAttackTurn); got != want {
+				t.Fatalf("commit reach=%v want %v", got, want)
+			}
+			ox, oy := m.X, m.Y
+			runOneMonsterTurn(g, gl)
+			if (len(g.arrows) == 1) != want {
+				t.Fatalf("shots=%d want hit=%v", len(g.arrows), want)
+			}
+			if !want && m.X == ox && m.Y == oy {
+				t.Fatal("out-of-range shot stalled movement")
+			}
+		})
+	}
+}
 
 // TestTurnBasedRangedRequiresLineOfSight guards the TB anti-kite fix: a ranged
 // monster that is row/column-aligned and in range but separated from the party

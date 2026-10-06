@@ -42,7 +42,7 @@ func TestSpellBlastBurstsWhereverTheShotEnds(t *testing.T) {
 				case "sealed":
 					target.BossDormant = true
 				}
-				shot := MagicProjectile{WorldAim: true, ID: g.GenerateProjectileID(spell), X: target.X, Y: target.Y, VelX: 1,
+				shot := MagicProjectile{ID: g.GenerateProjectileID(spell), X: target.X, Y: target.Y, VelX: 1,
 					Damage: 30, LifeTime: 50, Active: true, SpellType: spell, Owner: ProjectileOwnerPlayer,
 					Attacker: g.party.Members[0], AoeTiles: def.AoeRadiusTiles}
 				if end == "wall" || end == "range" {

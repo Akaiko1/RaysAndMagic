@@ -149,8 +149,8 @@ func TestOverwatchMovementCases(t *testing.T) {
 			if len(g.arrows) != want {
 				t.Fatal("stationary update repeated reaction")
 			}
-			if want > 0 && (!g.arrows[0].WorldAim || g.arrows[0].Attacker != ch) {
-				t.Fatal("reaction lost world aim or shooter")
+			if want > 0 && g.arrows[0].Attacker != ch {
+				t.Fatal("reaction lost its shooter")
 			}
 		})
 	}

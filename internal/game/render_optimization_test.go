@@ -31,7 +31,7 @@ func TestPatternPlanCachePreservesGeometryAndBounds(t *testing.T) {
 					t.Fatalf("blit %d changed", i)
 				}
 			}
-			if n := testing.AllocsPerRun(100, func() { cache.get("frame", src, pf, size[0], size[1], 6) }); n != 0 {
+			if n := gameAllocsPerRun(100, func() { cache.get("frame", src, pf, size[0], size[1], 6) }); n != 0 {
 				t.Fatalf("unchanged panel allocates %g", n)
 			}
 		})
@@ -79,7 +79,7 @@ func TestResidentNoOpDoesNotRebuildManifest(t *testing.T) {
 			}
 			r := &Renderer{game: &MMGame{}, mapRenderResidentMapKeys: []string{"keep"}, mapRenderResourcesByMap: map[string]*mapRenderRegionResources{"keep": resources}}
 			keep := map[string]struct{}{"keep": {}}
-			if n := testing.AllocsPerRun(100, func() { r.evictMapRenderResidencyOutside(keep); r.deallocateUnusedSkyPanoramas(nil) }); n != 0 {
+			if n := gameAllocsPerRun(100, func() { r.evictMapRenderResidencyOutside(keep); r.deallocateUnusedSkyPanoramas(nil) }); n != 0 {
 				t.Fatalf("unchanged residency allocated %g", n)
 			}
 			if r.mapRenderResourcesByMap["keep"] != resources {
@@ -155,7 +155,7 @@ func TestRenderSpatialIndexConservativeAndStable(t *testing.T) {
 				}
 			}
 		}
-		if n := testing.AllocsPerRun(50, func() { index.query(source, tc.x, tc.y, tc.radius, 64) }); n != 0 {
+		if n := gameAllocsPerRun(50, func() { index.query(source, tc.x, tc.y, tc.radius, 64) }); n != 0 {
 			t.Fatalf("query allocated %g", n)
 		}
 	}

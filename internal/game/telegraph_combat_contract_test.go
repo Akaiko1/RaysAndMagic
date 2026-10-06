@@ -217,6 +217,8 @@ func TestTelegraphTurnPositionAndPasses(t *testing.T) {
 					g.adventure = cloneAdventureState(g.adventure)
 				}
 				goblin := spawnSpecialsMonster(g, "goblin", 7, 6)
+				shooter := spawnSpecialsMonster(g, "bandit", 5, 2)
+				shooter.RangedAttackRange = 6 * 64
 				oldX, oldY := goblin.X, goblin.Y
 				g.turnBasedExtraMonsterAction = true
 				contractMonsterFrame(g, gl)
@@ -225,6 +227,9 @@ func TestTelegraphTurnPositionAndPasses(t *testing.T) {
 				}
 				if goblin.X == oldX && goblin.Y == oldY {
 					t.Fatal("following actor used stale party position")
+				}
+				if len(g.arrows) != 1 {
+					t.Fatalf("shooter did not aim at displaced party: arrows=%d", len(g.arrows))
 				}
 				cooldown := m.Telegraph.Cooldown
 				g.turnBasedMonsterPassDelay = 0

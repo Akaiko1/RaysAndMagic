@@ -133,7 +133,7 @@ func (cs *CombatSystem) spawnBackwashCharge(from *monster.Monster3D, def *config
 		LifeTime: int(math.Ceil(def.ElementalAbility.RangeTiles * float64(g.config.GetTileSize()) / speed)),
 		BowKey:   shot.BowKey, Label: "Backwash", DamageType: def.DamageType,
 		ElementalAbilityDamage: shot.ElementalAbilityDamage, Attacker: shot.Attacker,
-		Owner: ProjectileOwnerPlayer, WorldAim: true, SkipMonster: from,
+		Owner: ProjectileOwnerPlayer, SkipMonster: from, Launch: cs.continuationLaunch(from, next),
 		Backwash: &backwashCharge{Hits: hits, Target: next, OriginX: from.X, OriginY: from.Y},
 	}, def)
 }

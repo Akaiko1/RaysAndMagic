@@ -1,63 +1,29 @@
 package game
 
-import (
-	"github.com/hajimehoshi/ebiten/v2"
-)
-
-// Valve steam fills the whole tile of a shut culvert valve with rising columns -
-// same look as the impassable-tile aura but ~2x taller and sampled across the
-// tile interior (not just its edges).
+// Shut culvert valves mark their tile with a pale aurora twice as tall as the
+// ordinary boundary curtain. The saved Visited state remains the activation gate.
 const (
-	valveSteamRiseFraction = 1.1 // ~2x the impassable aura's rise
-	valveSteamGrid         = 4   // NxN sample points across the tile
-	valveSteamPerPoint     = 2
-	valveSteamPeriodTick   = 90.0
-	valveSteamColMin       = 0.45
+	valveSteamRiseFraction = 1.1
 	valveSteamBaseAlpha    = 0.6
-	valveSteamJitterMin    = 0.6 // rise-speed jitter band lower bound
-	valveSteamJitterSpan   = 0.8 // ... and width: speed in [0.6, 1.4]xbase
 )
 
-var valveSteamColor = [3]int{225, 230, 236} // pale gray-white
+var valveSteamColor = [3]int{225, 230, 236}
 
-// drawClosedValveSteam draws rising steam across the tile of every shut valve
-// (SteamWhenVisited NPCs that have been Visited), hugging the tile bounds and
-// depth-tested against walls. Procedural and rebuilt each frame.
-func (r *Renderer) drawClosedValveSteam(screen *ebiten.Image) {
+func (r *Renderer) collectClosedValveAuroras() {
 	if r.game.world == nil {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
-	maxDepth := r.game.camera.ViewDist
-
+	_, density, _ := r.auraEdgeParams()
 	for _, n := range r.game.world.NPCs {
 		if n == nil || !n.SteamWhenVisited || !n.Visited {
 			continue
 		}
-		tx := TileIndex(n.X, ts)
-		ty := TileIndex(n.Y, ts)
-		for gy := 0; gy < valveSteamGrid; gy++ {
-			for gx := 0; gx < valveSteamGrid; gx++ {
-				fx := (float64(gx) + 0.5) / float64(valveSteamGrid)
-				fy := (float64(gy) + 0.5) / float64(valveSteamGrid)
-				colBright := valveSteamColMin + (1.0-valveSteamColMin)*auraHash(tx, ty, gx+50, gy+50)
-				r.emitBubbleColumn(screen, bubbleColumnFx{
-					wx: (float64(tx) + fx) * ts, wy: (float64(ty) + fy) * ts,
-					hx: tx, hy: ty, hi: gy*valveSteamGrid + gx,
-					maxDepth:     maxDepth,
-					riseFraction: valveSteamRiseFraction,
-					baseAlpha:    valveSteamBaseAlpha,
-					colBright:    colBright,
-					perColumn:    valveSteamPerPoint,
-					periodTick:   valveSteamPeriodTick,
-					jitterMin:    valveSteamJitterMin,
-					jitterSpan:   valveSteamJitterSpan,
-					sizeFloor:    2,
-					sizeCoef:     0.05,
-					wobbleCoef:   0.7,
-					color:        valveSteamColor,
-				})
-			}
+		tx, ty := TileIndex(n.X, ts), TileIndex(n.Y, ts)
+		for _, edge := range tileEdges(tx, ty) {
+			x0, y0, x1, y1 := edge.points(ts)
+			r.collectAuraSegment(x0, y0, x1, y1, ts, valveSteamRiseFraction, density,
+				valveSteamBaseAlpha, r.game.camera.ViewDist, valveSteamColor)
 		}
 	}
 }

@@ -100,7 +100,7 @@ func TestWorldClickCannotAcquireTargetAfterTurn(t *testing.T) {
 }
 
 func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
-	for _, state := range []string{"world", "captured", "modal", "stale", "title", "creation", "exit"} {
+	for _, state := range []string{"world", "matching", "stalled", "captured", "modal", "stale", "title", "creation", "exit"} {
 		for _, right := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/right=%v", state, right), func(t *testing.T) {
 				h := newDisplayedModalHarness(t, 800, 600)
@@ -118,6 +118,16 @@ func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
 					g.exitRequested = true
 				}
 				h.ui.Draw(h.screen)
+				matched := 0
+				if state == "matching" || state == "stalled" {
+					h.ui.beginDisplayedInput()
+					h.ui.onDisplayedInput(uiCommandClick, layoutRect{-20, -20, 20, 20}, func() {
+						if g.consumeLeftClickIn(-20, -20, 0, 0) || g.consumeRightClickIn(-20, -20, 0, 0) {
+							matched++
+						}
+					})
+					h.ui.endDisplayedInput()
+				}
 				if state == "captured" {
 					h.ui.beginDisplayedInput()
 					h.ui.onDisplayedInput(uiCommandPointer, layoutRect{}, func() { h.ui.displayedInput.capturedGameplay = true })
@@ -127,6 +137,10 @@ func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
 					g.config.Display.ScreenWidth++
 				}
 				click := queuedClick{x: -10, y: -10, at: time.Now().UnixMilli()}
+				if state == "stalled" {
+					// Simulate delayed processing without sleeps or scheduler luck.
+					click.at -= 10000
+				}
 				if right {
 					g.mouseRightClicks = []queuedClick{click, click}
 				} else {
@@ -137,6 +151,9 @@ func TestUpdateOwnsBothClickQueueLifetimes(t *testing.T) {
 				}
 				if len(g.mouseLeftClicks)+len(g.mouseRightClicks) != 0 {
 					t.Fatal("Update retained unmatched click edges")
+				}
+				if (state == "matching" || state == "stalled") && matched != 2 {
+					t.Fatalf("current display received %d clicks, want both queued presses", matched)
 				}
 				if state == "world" {
 					// A new context widget must not receive the old right-click.

@@ -45,7 +45,7 @@ type NPCData struct {
 	SizeClass        string          `yaml:"size_class,omitempty"` // shared quantized visual-size tier
 	RemovedSizeTiles *float64        `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
 	SellAvailable    bool            `yaml:"sell_available,omitempty"`
-	SteamWhenVisited bool            `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
+	SteamWhenVisited bool            `yaml:"steam_when_visited,omitempty"` // show a pale aurora once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool            `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
 	MinPartyLevel    int             `yaml:"min_party_level,omitempty"`
 	NightOnly        bool            `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)

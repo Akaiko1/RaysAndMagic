@@ -117,6 +117,12 @@ func TestEqualRangeMeleeCommitAndReply(t *testing.T) {
 					cadence := monsterAttackRealtime
 					if tb {
 						cadence = monsterAttackTurn
+						c := combatAuraScratch{}
+						c.reset()
+						g.combatAuraAttacks(&c, m, ts)
+						if c.tiles[[2]int{10, 10}] == blocked {
+							t.Fatal("preview lost authored melee reach or endpoint obstruction")
+						}
 					}
 					if spent := g.combat.commitMonsterAttack(m, monsterAttackDestination{}, cadence); spent == blocked {
 						t.Fatalf("commit=%v, endpoint blocked=%v", spent, blocked)

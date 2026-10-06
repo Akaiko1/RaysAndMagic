@@ -74,10 +74,7 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	radiusTiles := 0.5
 	if g.config != nil {
 		if physics, err := g.config.GetSpellConfig(spellID); err == nil && physics != nil {
-			radiusTiles = physics.CollisionSizeTiles
-			if radiusTiles < 0.5 {
-				radiusTiles = 0.5
-			}
+			radiusTiles = g.config.ProjectileHitboxTiles(physics)
 		}
 	}
 

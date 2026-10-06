@@ -115,7 +115,7 @@ func TestFishUpdateTracksOnlyLiveWorlds(t *testing.T) {
 			if len(old.Monsters) != 0 {
 				t.Fatal("finished fish remained in its world")
 			}
-			if allocs := testing.AllocsPerRun(20, g.updateFish); allocs != 0 {
+			if allocs := gameAllocsPerRun(20, g.updateFish); allocs != 0 {
 				t.Fatalf("empty fish update allocated %g times", allocs)
 			}
 		})

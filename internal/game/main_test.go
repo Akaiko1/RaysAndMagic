@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"testing"
 
@@ -37,6 +38,30 @@ func runOnDrawFrame(fn func(screen *ebiten.Image)) {
 		close(done)
 	}
 	<-done
+}
+
+// AllocsPerRun counts allocations across the process. Drain pending graphics
+// commands and park the live debug loop while measuring, so frame/driver work
+// cannot look like game allocations.
+// Keep f on the test goroutine, including any fatal assertion and its cleanup.
+func gameAllocsPerRun(runs int, f func()) float64 {
+	if os.Getenv("RAM_DEBUG_SIM") != "" {
+		parked, resume := make(chan struct{}), make(chan struct{})
+		debugSimJobs <- func(*ebiten.Image) {
+			// Drawing invalidates the pixel cache; readback then waits for the
+			// render thread, including commands submitted by preceding frames.
+			fence := ebiten.NewImage(1, 1)
+			defer fence.Deallocate()
+			fence.Fill(color.White)
+			var pixel [4]byte
+			fence.ReadPixels(pixel[:])
+			close(parked)
+			<-resume
+		}
+		<-parked
+		defer close(resume)
+	}
+	return testing.AllocsPerRun(runs, f)
 }
 
 type testMainGame struct {

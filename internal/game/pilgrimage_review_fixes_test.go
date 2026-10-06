@@ -239,7 +239,7 @@ func TestJournalRewardPreviewCache(t *testing.T) {
 	if !ok {
 		t.Fatal("missing preview")
 	}
-	allocations := testing.AllocsPerRun(20, func() { ui.journalRewardItem("unbroken_robe") })
+	allocations := gameAllocsPerRun(20, func() { ui.journalRewardItem("unbroken_robe") })
 	if allocations != 0 {
 		t.Fatalf("cached lookup allocated %v", allocations)
 	}

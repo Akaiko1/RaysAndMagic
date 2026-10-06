@@ -89,10 +89,13 @@ func newTestWorldSized(cfg *config.Config, width, height int) *world.World3D {
 
 func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
 	game := &MMGame{
-		config:           cfg,
-		world:            w,
-		party:            character.NewParty(cfg),
-		camera:           &FirstPersonCamera{X: 64, Y: 64, Angle: 1.25},
+		config: cfg,
+		world:  w,
+		party:  character.NewParty(cfg),
+		camera: &FirstPersonCamera{
+			X: 64, Y: 64, Angle: 1.25,
+			FOV: squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
+		},
 		skyImg:           ebiten.NewImage(2, 2),
 		groundImg:        ebiten.NewImage(2, 2),
 		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),

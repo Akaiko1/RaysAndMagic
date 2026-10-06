@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 // These tests cover the turn-based / real-time monster movement and attack
@@ -46,8 +47,12 @@ func monsterTileCoords(m *monster.Monster3D, ts float64) (int, int) {
 }
 
 func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 20, 20)
+	game, _, ts := tbBehaviorGame(t, 20, 20)
+	mob := spawnMonsterAtTile(game, "goblin", 7, 7, ts)
 	game.currentTurn = 0
+	if got := game.combatAuraMoveSteps(mob); got != 1 {
+		t.Fatalf("fresh turn preview=%d, want 1", got)
+	}
 	for _, m := range game.party.Members {
 		m.ActionsRemaining = 1
 	}
@@ -56,6 +61,14 @@ func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
 	if !game.turnBasedMode || game.partyActionsUsed != 1 {
 		t.Fatalf("test setup failed: turnBased=%v partyActionsUsed=%d", game.turnBasedMode, game.partyActionsUsed)
 	}
+	if got := game.combatAuraMoveSteps(mob); got != 2 {
+		t.Fatalf("action then retreat preview=%d, want 2 before handoff", got)
+	}
+	game.partyTechniqueActionsUsed = 1
+	if got := game.combatAuraMoveSteps(mob); got != 1 {
+		t.Fatalf("technique-only preview=%d, want 1", got)
+	}
+	game.partyTechniqueActionsUsed = 0
 
 	game.endPartyTurnAfterMovement()
 
@@ -311,24 +324,49 @@ func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *t
 // A pouncing monster (puma) leaps onto an adjacent tile - never onto the
 // player's tile - and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
-	game, gl, ts := tbBehaviorGame(t, 40, 40)
-	const ptx, pty = 10, 10
-	placePlayerAtTile(game, ptx, pty, ts)
-	puma := spawnMonsterAtTile(game, "puma", 13, 10, ts) // 3 tiles east, within pounce range 4
-
-	hp0 := partyHPSum(game)
-	runOneMonsterTurn(game, gl)
-
-	tx, ty := monsterTileCoords(puma, ts)
-	if tx == ptx && ty == pty {
-		t.Fatalf("puma pounced onto the player's tile")
-	}
-	dx, dy := absI(tx-ptx), absI(ty-pty)
-	if dx > 1 || dy > 1 || dx+dy == 0 {
-		t.Fatalf("puma should land on an adjacent tile, dx=%d dy=%d", dx, dy)
-	}
-	if partyHPSum(game) >= hp0 {
-		t.Fatalf("puma pounce should strike the party")
+	for _, state := range []string{"ready", "last-cooldown", "cooldown", "root", "stun", "wall", "no-landing"} {
+		t.Run(state, func(t *testing.T) {
+			game, gl, ts := tbBehaviorGame(t, 40, 40)
+			placePlayerAtTile(game, 10, 10, ts)
+			puma := spawnMonsterAtTile(game, "puma", 13, 10, ts)
+			game.currentTurn = 0
+			switch state {
+			case "last-cooldown":
+				puma.PounceCDTurns = 1
+			case "cooldown":
+				puma.PounceCDTurns = 2
+			case "root":
+				puma.RootTurnsRemaining = 2
+			case "stun":
+				puma.StunTurnsRemaining = 2
+			case "wall":
+				game.world.Tiles[10][12] = world.TileWall
+			case "no-landing":
+				puma.AmbientBounds = &[4]int{12, 9, 15, 12}
+			}
+			want := state == "ready" || state == "last-cooldown"
+			c := combatAuraScratch{}
+			c.reset()
+			game.combatAuraAttacks(&c, puma, ts)
+			if c.tiles[[2]int{10, 10}] != want {
+				t.Fatalf("pounce preview=%v want %v", c.tiles[[2]int{10, 10}], want)
+			}
+			hp0 := partyHPSum(game)
+			runOneMonsterTurn(game, gl)
+			if got := partyHPSum(game) < hp0; got != want {
+				t.Fatalf("pounce hit=%v want %v", got, want)
+			}
+			if want {
+				tx, ty := monsterTileCoords(puma, ts)
+				dx, dy := absI(tx-10), absI(ty-10)
+				if dx > 1 || dy > 1 || dx+dy == 0 {
+					t.Fatalf("invalid pounce landing %d,%d", tx, ty)
+				}
+				if puma.PounceCDTurns != TurnBasedPounceCooldownTurns {
+					t.Fatal("pounce did not spend cooldown")
+				}
+			}
+		})
 	}
 }
 

@@ -65,18 +65,10 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 		return false
 	}
 	x, y := cs.logicalCameraXY()
-	if !cs.monsterCanAttackParty(m, Distance(m.X, m.Y, x, y), m.GetAttackRangePixels()) {
-		return false
+	if cadence == monsterAttackTurn {
+		return !monsterInAttackTransit(m) && cs.monsterAttackPointInReachTB(m, x, y)
 	}
-	// TB party shots retain their row/column lane rule. Crossfire retains its
-	// existing radial rule; ordinary ranged mobs still use adjacent melee.
-	if cadence == monsterAttackTurn && !cs.monsterUsesMeleeAgainstParty(m) {
-		tile := float64(cs.game.config.GetTileSize())
-		if TileIndex(m.X, tile) != TileIndex(x, tile) && TileIndex(m.Y, tile) != TileIndex(y, tile) {
-			return false
-		}
-	}
-	return true
+	return cs.monsterCanAttackParty(m, Distance(m.X, m.Y, x, y), m.GetAttackRangePixels())
 }
 
 // commitMonsterAttack owns normal attack delivery and action clocks in both

@@ -28,8 +28,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_ember_elemental"
     letter: "a"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_fire"]
     resistances:
@@ -64,8 +62,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_cinder_hound"
     letter: "b"
-    box_w: 42
-    box_h: 42
     size_class: "medium"
     biomes: ["solstice_fire"]
     resistances:
@@ -98,8 +94,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_kiln_automaton"
     letter: "c"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_fire"]
     resistances:
@@ -124,8 +118,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_aureth"
     letter: "m"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_fire"]
     resistances:
@@ -160,8 +152,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_tide_elemental"
     letter: "a"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_water"]
     resistances:
@@ -196,8 +186,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_cistern_eel"
     letter: "b"
-    box_w: 42
-    box_h: 42
     size_class: "medium"
     biomes: ["solstice_water"]
     resistances:
@@ -232,8 +220,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_flow_automaton"
     letter: "c"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_water"]
     resistances:
@@ -268,8 +254,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_neressa"
     letter: "m"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_water"]
     resistances:
@@ -304,8 +288,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_jade_elemental"
     letter: "a"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_earth"]
     resistances:
@@ -340,8 +322,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_shardback_burrower"
     letter: "b"
-    box_w: 42
-    box_h: 42
     size_class: "medium"
     biomes: ["solstice_earth"]
     resistances:
@@ -374,8 +354,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_anchor_automaton"
     letter: "c"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_earth"]
     resistances:
@@ -398,8 +376,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_talura"
     letter: "m"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_earth"]
     resistances:
@@ -435,8 +411,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_gale_elemental"
     letter: "a"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_air"]
     resistances:
@@ -474,8 +448,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_storm_kite"
     letter: "b"
-    box_w: 42
-    box_h: 42
     size_class: "medium"
     biomes: ["solstice_air"]
     resistances:
@@ -509,8 +481,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_transfer_automaton"
     letter: "c"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_air"]
     resistances:
@@ -534,8 +504,6 @@ monsters:
     gold_max: 40
     sprite: "solstice_vaelith"
     letter: "m"
-    box_w: 42
-    box_h: 42
     size_class: "person"
     biomes: ["solstice_air"]
     resistances:
@@ -570,8 +538,6 @@ monsters:
     gold_max: 25
     sprite: "solstice_sunscarab"
     letter: "a"
-    box_w: 40
-    box_h: 40
     size_class: "person"
     biomes: ["jungle"]
   solstice_rain_serpent:
@@ -600,8 +566,6 @@ monsters:
     gold_max: 25
     sprite: "solstice_rain_serpent"
     letter: "c"
-    box_w: 40
-    box_h: 40
     size_class: "person"
     biomes: ["jungle"]
     projectile_spell: "ice_bolt"
@@ -632,8 +596,6 @@ monsters:
     gold_max: 25
     sprite: "solstice_rootbound_sentinel"
     letter: "e"
-    box_w: 40
-    box_h: 40
     size_class: "person"
     biomes: ["jungle"]
   solstice_dusk_moth:
@@ -663,8 +625,6 @@ monsters:
     gold_max: 25
     sprite: "solstice_dusk_moth"
     letter: "q"
-    box_w: 40
-    box_h: 40
     size_class: "person"
     biomes: ["jungle"]
     projectile_spell: "lightning"
@@ -691,8 +651,6 @@ monsters:
     gold_max: 10
     sprite: "goblin"
     letter: "g"
-    box_w: 48
-    box_h: 48
     size_class: medium
     resistances: {}
 
@@ -714,8 +672,6 @@ monsters:
     gold_max: 25
     sprite: "orc"
     letter: "o"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances: {}
   wolf:
@@ -734,8 +690,6 @@ monsters:
     gold_max: 5
     sprite: "wolf"
     letter: "w"
-    box_w: 48
-    box_h: 48
     size_class: medium
     resistances: {}
 
@@ -754,8 +708,6 @@ monsters:
     gold_max: 20
     sprite: "bear"
     letter: "b"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances: {}
 
@@ -774,8 +726,6 @@ monsters:
     gold_max: 5
     sprite: "forest_spider"
     letter: "s"
-    box_w: 48
-    box_h: 48
     size_class: medium
     resistances: {}
 
@@ -796,8 +746,6 @@ monsters:
     gold_max: 10
     sprite: "skeleton"
     letter: "k"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances:
       mind: 100    # Immune to mind effects
@@ -822,8 +770,6 @@ monsters:
     gold_max: 55
     sprite: "mummy"
     letter: "m"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["pyramid"]
     resistances:
@@ -850,8 +796,6 @@ monsters:
     gold_max: 160
     sprite: "minotaur"
     letter: "n"
-    box_w: 48
-    box_h: 48
     size_class: large
     biomes: ["pyramid"]
     resistances:
@@ -875,8 +819,6 @@ monsters:
     gold_max: 260
     sprite: "isis"
     letter: "i"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["pyramid"]
     resistances:
@@ -901,8 +843,6 @@ monsters:
     gold_max: 70
     sprite: "troll"
     letter: "l"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
@@ -930,8 +870,6 @@ monsters:
     sprite: "dragon"
     flying: true
     letter: "d"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       fire: 90
@@ -969,8 +907,6 @@ monsters:
     sprite: "dragon_red"
     flying: true
     letter: "r"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["desert"]
     resistances:
@@ -1002,8 +938,6 @@ monsters:
     sprite: "dragon_green"
     flying: true
     letter: "e"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
@@ -1037,8 +971,6 @@ monsters:
     sprite: "dragon_gold"
     flying: true
     letter: "y"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
@@ -1073,8 +1005,6 @@ monsters:
     gold_max: 2500
     sprite: "elder_dragon"
     flying: true
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       fire: 100
@@ -1105,8 +1035,6 @@ monsters:
     gold_max: 2500
     sprite: "elder_dragon_red"
     flying: true
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       dark: 100
@@ -1135,8 +1063,6 @@ monsters:
     gold_max: 2500
     sprite: "elder_dragon_green"
     flying: true
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       earth: 100
@@ -1168,8 +1094,6 @@ monsters:
     gold_max: 2500
     sprite: "elder_dragon_gold"
     flying: true
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       air: 100
@@ -1193,8 +1117,6 @@ monsters:
     gold_max: 33
     sprite: "forest_orc"
     letter: "f"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances:
       earth: 25
@@ -1213,8 +1135,6 @@ monsters:
     gold_max: 500
     sprite: "dire_wolf"
     letter: "u"
-    box_w: 48
-    box_h: 48
     size_class: medium
     resistances: {}
 
@@ -1235,8 +1155,6 @@ monsters:
     gold_max: 180
     sprite: "alien"
     letter: "x"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances:
       fire: 25
@@ -1257,8 +1175,6 @@ monsters:
     gold_min: 50
     gold_max: 500
     sprite: "giant_spider"
-    box_w: 48
-    box_h: 48
     size_class: large
     resistances: {}
     walkable_tile_overrides: ["thicket"]
@@ -1278,8 +1194,6 @@ monsters:
     gold_max: 9
     sprite: "forest_spider"
     letter: "i"
-    box_w: 48
-    box_h: 48
     size_class: medium
     resistances: {}
     walkable_tile_overrides:
@@ -1299,8 +1213,6 @@ monsters:
     gold_max: 100
     sprite: "treant"
     letter: "t"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances:
       earth: 75
@@ -1329,8 +1241,6 @@ monsters:
     sprite: "pixie"
     flying: true
     letter: "p"
-    box_w: 48
-    box_h: 48
     size_class: small
     light:
       enabled: true
@@ -1358,8 +1268,6 @@ monsters:
     sprite: "desert_dervish"
     letter: "q"
     biomes: ["desert"]
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances:
       fire: 40
@@ -1383,8 +1291,6 @@ monsters:
     gold_max: 25
     sprite: "bandit"
     letter: "n"       # Bandit
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances: {}
 
@@ -1409,8 +1315,6 @@ monsters:
     biomes: ["water"]
     flying: true
     passive_until_attacked: true
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances:
       water: 60
@@ -1435,8 +1339,6 @@ monsters:
     sprite: "octopus"
     letter: "o"
     biomes: ["water"]
-    box_w: 48
-    box_h: 48
     size_class: large
     resistances:
       water: 60
@@ -1468,8 +1370,6 @@ monsters:
     gold_max: 25
     sprite: "puma"
     letter: "c"
-    box_w: 48
-    box_h: 48
     size_class: medium
     biomes: ["highlands"]
     pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
@@ -1495,8 +1395,6 @@ monsters:
     gold_max: 70
     sprite: "elf_archer"
     letter: "h"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["highlands"]
     resistances: {}
@@ -1518,8 +1416,6 @@ monsters:
     gold_max: 100
     sprite: "elf_swordsman"
     letter: "j"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["highlands"]
     resistances:
@@ -1540,8 +1436,6 @@ monsters:
     gold_max: 150
     sprite: "mountain_troll"
     letter: "v"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
@@ -1566,8 +1460,6 @@ monsters:
     gold_max: 250
     sprite: "archmage"
     letter: "z"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
@@ -1593,8 +1485,6 @@ monsters:
     gold_max: 500
     sprite: "lich"
     letter: "q"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["highlands", "lich_nexus"]
     resistances:
@@ -1621,8 +1511,6 @@ monsters:
     gold_max: 180
     sprite: "revenant"
     letter: "r"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["lich_nexus"]
     resistances:
@@ -1653,8 +1541,6 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: "frost_elemental"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: []
     resistances:
@@ -1683,8 +1569,6 @@ monsters:
     gold_max: 900
     sprite: "lich_king"
     letter: "k"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["lich_nexus"]
     resistances:
@@ -1713,8 +1597,6 @@ monsters:
     gold_max: 10
     sprite: "rat"
     letter: "r"
-    box_w: 40
-    box_h: 40
     size_class: small
     biomes: ["culverts"]
     resistances: {}
@@ -1736,8 +1618,6 @@ monsters:
     gold_max: 6
     sprite: "bat"
     letter: "v"
-    box_w: 40
-    box_h: 40
     size_class: small
     biomes: ["culverts"]
     resistances: {}
@@ -1760,8 +1640,6 @@ monsters:
     gold_max: 40
     sprite: "thief_bug"
     letter: "t"
-    box_w: 48
-    box_h: 48
     size_class: medium
     biomes: ["culverts"]
     resistances:
@@ -1800,8 +1678,6 @@ monsters:
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
     # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide
     # corridors, freezing the boss. 48 fits one tile; size_class keeps it big visually.
-    box_w: 48
-    box_h: 48
     size_class: large
     biomes: ["culverts"]
     resistances:
@@ -1831,8 +1707,6 @@ monsters:
     gold_max: 180
     sprite: "ashigaru_firelock"
     letter: "a"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
     resistances:
@@ -1862,8 +1736,6 @@ monsters:
     gold_max: 450
     sprite: "ronin_marksman"
     letter: "m"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
     resistances:
@@ -1894,8 +1766,6 @@ monsters:
     gold_max: 280
     sprite: "ningyo"
     letter: "n"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
     resistances:
@@ -1926,8 +1796,6 @@ monsters:
     gold_max: 560
     sprite: "vengeful_ningyo"
     letter: "e"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
     resistances:
@@ -1966,8 +1834,6 @@ monsters:
     enrage_cooldown_mult: 0.6
     sprite: "old_samurai"
     letter: "s"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["japanese_castle"]
     resistances:
@@ -1995,8 +1861,6 @@ monsters:
     gold_max: 140
     sprite: "kappa"
     letter: "k"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["sakura_garden"]
     resistances:
@@ -2022,8 +1886,6 @@ monsters:
     gold_max: 160
     sprite: "kasa_obake"
     letter: "u"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["sakura_garden"]
     resistances:
@@ -2052,8 +1914,6 @@ monsters:
     gold_max: 170
     sprite: "karasu_tengu"
     letter: "t"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["sakura_garden"]
     resistances:
@@ -2083,8 +1943,6 @@ monsters:
     gold_max: 200
     sprite: "kitsune_onmyoji"
     letter: "f"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["sakura_garden"]
     resistances:
@@ -2124,8 +1982,6 @@ monsters:
     gold_max: 7000
     sprite: "sakura_jorogumo"
     letter: "j"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["sakura_garden"]
     resistances:
@@ -2156,8 +2012,6 @@ monsters:
     gold_max: 110
     sprite: "ocelot"
     letter: "o"
-    box_w: 40
-    box_h: 40
     size_class: medium
     biomes: ["jungle"]
     resistances:
@@ -2178,8 +2032,6 @@ monsters:
     gold_max: 90
     sprite: "jungle_goblin"
     letter: "j"
-    box_w: 44
-    box_h: 44
     size_class: medium
     biomes: ["jungle"]
     resistances:
@@ -2208,8 +2060,6 @@ monsters:
     gold_max: 160
     sprite: "masked_huntress"
     letter: "h"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["jungle"]
     resistances:
@@ -2238,8 +2088,6 @@ monsters:
     gold_max: 180
     sprite: "masked_serpent_dancer"
     letter: "d"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["jungle"]
     resistances:
@@ -2269,8 +2117,6 @@ monsters:
     gold_max: 220
     sprite: "masked_hexer_girl"
     letter: "x"
-    box_w: 46
-    box_h: 46
     size_class: person
     biomes: ["jungle"]
     resistances:
@@ -2308,8 +2154,6 @@ monsters:
     gold_max: 700
     sprite: "gorilla_titan"
     letter: "g"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["jungle"]
     resistances:
@@ -2351,8 +2195,6 @@ monsters:
     gold_max: 8000
     sprite: "orc_warlord"
     letter: "w"
-    box_w: 48
-    box_h: 48
     size_class: huge
     biomes: ["jungle"]
     resistances:
@@ -2378,8 +2220,6 @@ monsters:
     gold_max: 0
     sprite: "deep_jungle_idol"
     letter: "i"
-    box_w: 48
-    box_h: 48
     size_class: large
     biomes: ["jungle"]
     resistances:
@@ -2409,8 +2249,6 @@ monsters:
     gold_max: 0
     sprite: hobbit_archer
     letter: "a"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["arena"]
     resistances: {}
@@ -2433,8 +2271,6 @@ monsters:
     gold_max: 0
     sprite: weapon_master
     letter: "w"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["arena"]
     resistances: {}
@@ -2457,8 +2293,6 @@ monsters:
     gold_max: 0
     sprite: dark_elf_sorceress
     letter: "s"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["arena"]
     # Shadow-caster: shrugs off her own schools, holy weapons punish her.
@@ -2482,8 +2316,6 @@ monsters:
     gold_max: 0
     sprite: druid_enemy
     letter: "d"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["arena"]
     # Warden of root and rain: nature schools bounce off, fire burns through.
@@ -2509,8 +2341,6 @@ monsters:
     gold_max: 80
     sprite: "dust_slime"
     letter: "b"
-    box_w: 52
-    box_h: 52
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     # A wad of grey lint: blades pass through, fire eats it alive.
@@ -2535,8 +2365,6 @@ monsters:
     gold_max: 110
     sprite: "possessed_tome"
     letter: "k"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 50, fire: -25 }
@@ -2562,8 +2390,6 @@ monsters:
     gold_max: 150
     sprite: "alarm_clock"
     letter: "l"
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 100, spirit: 30 }
@@ -2589,8 +2415,6 @@ monsters:
     gold_max: 220
     sprite: "grandfather_clock"
     letter: "g"
-    box_w: 56
-    box_h: 56
     size_class: person
     biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
     resistances: { mind: 100, physical: 15, fire: -20 }
@@ -2615,8 +2439,6 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: "mummy"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
 
@@ -2639,8 +2461,6 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: "alien"
-    box_w: 48
-    box_h: 48
     size_class: person
     resistances: { fire: 35, dark: 45, physical: -35 }
 
@@ -2690,8 +2510,6 @@ monsters:
     trap_volley_interval_turns: 3
     trap_volley_damage: 40
     sprite: "dragon_brood_mother"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances: { fire: 100, dark: 50, physical: 30, mind: 60, water: -25 }
 
@@ -2729,8 +2547,6 @@ monsters:
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
     sprite: "ancient_god_of_death"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances: { dark: 100, mind: 100, body: 75, physical: 35, light: -80 }
 
@@ -2772,8 +2588,6 @@ monsters:
     enrage_damage_mult: 1.4
     enrage_cooldown_mult: 0.7
     sprite: "alien_enforcer"
-    box_w: 48
-    box_h: 48
     size_class: huge
     resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
 
@@ -2791,8 +2605,6 @@ monsters:
     attack_radius: 1
     speed: 2.1
     sprite: "ring_tailed_lemur"
-    box_w: 18
-    box_h: 18
     size_class: small
     biomes: [jungle]
     arboreal:
@@ -2817,8 +2629,6 @@ monsters:
     attack_radius: 1
     speed: 2.25
     sprite: "red_ruffed_lemur"
-    box_w: 20
-    box_h: 20
     size_class: small
     biomes: [jungle]
     arboreal:
@@ -2843,8 +2653,6 @@ monsters:
     attack_radius: 1
     speed: 1.8
     sprite: "desert_rabbit"
-    box_w: 18
-    box_h: 18
     size_class: small
     biomes: [desert]
 
@@ -2864,8 +2672,6 @@ monsters:
     attack_radius: 1
     speed: 2.07
     sprite: "fennec"
-    box_w: 22
-    box_h: 22
     size_class: small
     biomes: [desert]
 
@@ -2882,8 +2688,6 @@ monsters:
     attack_radius: 1
     speed: 0.7
     sprite: "desert_caravan"
-    box_w: 36
-    box_h: 36
     size_class: large
 
   common_carp:
@@ -2900,8 +2704,6 @@ monsters:
     attack_radius: 0
     speed: 0
     sprite: common_carp
-    box_w: 24
-    box_h: 24
     size_class: small
     biomes: [forest]
 
@@ -2919,8 +2721,6 @@ monsters:
     attack_radius: 0
     speed: 0
     sprite: koi
-    box_w: 24
-    box_h: 24
     size_class: small
     biomes: [sakura_garden]
 
@@ -2938,8 +2738,6 @@ monsters:
     attack_radius: 0
     speed: 0
     sprite: rainbow_salmon
-    box_w: 24
-    box_h: 24
     size_class: small
     biomes: [highlands]
 
@@ -2963,8 +2761,6 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: bronze_gatekeeper
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes:
       - highlands
@@ -2989,8 +2785,6 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: gale_novice
-    box_w: 48
-    box_h: 48
     size_class: person
     biomes:
       - highlands

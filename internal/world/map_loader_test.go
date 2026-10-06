@@ -3,7 +3,6 @@ package world
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -455,10 +454,10 @@ func countQuestPropSpawns(md *MapData, questID string, def *quests.QuestDefiniti
 	return n
 }
 
-// Monsters of the narrow-passage biomes must fit a 1-wide gap: a collision box
-// >= the tile size spans a 2x2 footprint (half-open bounds) and wedges in
-// corridors, doorways and foliage gaps, freezing the monster.
-func TestNarrowPassageMonstersFitOneTileGaps(t *testing.T) {
+// Every monster must fit a 1-wide gap: a body >= the tile spans a 2x2
+// footprint (half-open bounds) and wedges in corridors, doorways and foliage
+// gaps. The spawned body is its size_class entry of world.monster_bodies.
+func TestMonsterBodiesFitOneTileGaps(t *testing.T) {
 	cfg, err := config.LoadConfig(filepath.Join("..", "..", "config.yaml"))
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -468,22 +467,15 @@ func TestNarrowPassageMonstersFitOneTileGaps(t *testing.T) {
 	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
 	t.Cleanup(func() { monster.MonsterConfig = previousConfig })
 
-	for _, biome := range []string{"culverts", "jungle", "japanese_castle"} {
-		t.Run(biome, func(t *testing.T) {
-			found := false
-			for key, def := range monster.MonsterConfig.Monsters {
-				if !slices.Contains(def.Biomes, biome) {
-					continue
-				}
-				found = true
-				if def.BoxW >= tile || def.BoxH >= tile {
-					t.Errorf("%s collision box %gx%g >= tile %g - wedges in 1-wide gaps", key, def.BoxW, def.BoxH, tile)
-				}
-			}
-			if !found {
-				t.Fatalf("no %s-biome monsters found", biome)
-			}
-		})
+	for key, def := range monster.MonsterConfig.Monsters {
+		body, ok := cfg.MonsterBodyTiles(def.SizeClass)
+		if !ok {
+			t.Fatalf("%s: size_class %q has no body", key, def.SizeClass)
+		}
+		w, h := monster.NewMonster3DFromConfig(0, 0, key, cfg).GetSize()
+		if w != body*tile || h != body*tile || w > config.MaxMonsterBodyTiles*tile || w >= tile {
+			t.Errorf("%s (%s) body %gx%g, want %g and under the tile", key, def.SizeClass, w, h, body*tile)
+		}
 	}
 }
 

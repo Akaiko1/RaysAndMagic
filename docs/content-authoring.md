@@ -25,6 +25,10 @@ Distances ending in `_tiles` and monster radii use tiles (normally 64 world
 pixels). Author durations in seconds where the schema asks for seconds; turn
 durations are separate. Do not assume 60 frames is one second: use configured TPS.
 Use `graphics.size_classes` for world sprite sizes, not retired raw size fields.
+Collision sizes are classes too: a monster body comes from its `size_class`
+(`world.monster_bodies`, capped at 48 px so it fits 1-wide corridors) and a
+projectile names `physics.hitbox: standard | wide` (`world.projectile_hitboxes`).
+Raw `box_w`/`box_h` and `collision_size_tiles` are rejected at load.
 
 ## Assets and animation
 

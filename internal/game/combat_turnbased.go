@@ -143,14 +143,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		gl.game.tickMonsterTelegraphs(3, true)
 		gl.game.tickEnvironment(3, true)
 	}
-	// Specials and transfer tiles can move the party before this action pass.
-	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
 	gl.game.updateAuthoredBandAggro()
 
 	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
 
 	// Process each monster's turn.
 	for _, m := range gl.game.world.Monsters {
+		// Earlier actors and telegraphs can move the party during this pass.
+		playerX, playerY := gl.game.combat.logicalCameraXY()
 		if !m.IsAlive() {
 			continue
 		}
@@ -304,20 +304,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 
-		// Work in tile space: monsters never enter the player's tile. Any attacker
-		// uses melee from a clear adjacent tile; a projectile-capable attacker uses
-		// its ranged profile everywhere else and still needs a row/column lane.
-		mtx, mty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
-		ptx, pty := gl.game.GetPlayerTilePosition()
-		dxT, dyT := ptx-mtx, pty-mty
-		adX, adY := dxT, dyT
-		if adX < 0 {
-			adX = -adX
-		}
-		if adY < 0 {
-			adY = -adY
-		}
-		manhattan := adX + adY
+		// Resolve aim after any earlier actor or special has displaced the party.
+		playerX, playerY = gl.game.combat.logicalCameraXY()
 
 		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 		// tile and strike. Brief turn cooldown.
@@ -325,9 +313,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			if tickTurnStatuses {
 				m.TickPounceCooldownTurn()
 			}
-			pounceTiles := int(m.PounceRangePixels / tileSize)
-			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles &&
-				gl.game.combat.monsterCanPounceParty(m) {
+			if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCDTurns) {
 				if gl.game.combat.executePounce(m, playerX, playerY) {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
@@ -339,46 +325,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		// Both gates: the spatial one (adjacency+LOS) and the delivery selector.
-		// A ranged CHAMPION fails the selector and falls through to the lane
-		// rule below - otherwise an adjacent diagonal would let it fire where
-		// monsterAttackTurnBased resolves the attack as ranged.
-		if gl.game.combat.monsterMeleeAdjacentToPoint(m, playerX, playerY) &&
-			gl.game.combat.monsterUsesMeleeAgainstPoint(m, playerX, playerY) {
+		if gl.game.combat.monsterAttackPointInReachTB(m, playerX, playerY) {
 			if gl.game.tryClaimMonsterAttackPost(m) {
 				m.State = monster.StateAttacking
 				gl.monsterAttackTurnBased(m)
 			} else {
 				gl.game.releaseMonsterAttackPost(m)
-				gl.monsterMoveTurnBased(m)
-			}
-		} else if m.HasRangedAttack() {
-			// Ranged: only fire when on the player's row or column (never
-			// diagonal), within range, AND with a clear line of sight; otherwise
-			// step toward the player. The LOS check stops a wasted shot into a wall
-			// - without it a ranged mob holds at range and plinks the wall forever
-			// while the party hides round a corner regening mana. No LOS -> it A*-s
-			// toward the party (monsterMoveTurnBased) to round the corner instead.
-			rangeTiles := int(m.GetAttackRangePixels() / tileSize)
-			if rangeTiles < 1 {
-				rangeTiles = 1
-			}
-			aligned := dxT == 0 || dyT == 0
-			axisDist := adX
-			if dxT == 0 {
-				axisDist = adY
-			}
-			hasLOS := gl.game.collisionSystem == nil ||
-				gl.game.combat.attackLineClear(m.X, m.Y, playerX, playerY)
-			if aligned && axisDist >= 1 && axisDist <= rangeTiles && hasLOS {
-				if gl.game.tryClaimMonsterAttackPost(m) {
-					m.State = monster.StateAttacking
-					gl.monsterAttackTurnBased(m)
-				} else {
-					gl.game.releaseMonsterAttackPost(m)
-					gl.monsterMoveTurnBased(m)
-				}
-			} else {
 				gl.monsterMoveTurnBased(m)
 			}
 		} else {
@@ -405,7 +357,44 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	gl.endMonsterTurn()
 }
 
-// monsterAttackTurnBased handles a monster attack in turn-based mode
+// monsterAttackPointInReachTB is the shared spatial rule for normal party attacks
+// and the tactical overlay. It does not spend actions or reserve an attack post.
+func (cs *CombatSystem) monsterAttackPointInReachTB(m *monster.Monster3D, x, y float64) bool {
+	if cs == nil || cs.game == nil || m == nil {
+		return false
+	}
+	ts := float64(cs.game.config.GetTileSize())
+	if cs.monsterMeleeAdjacentToPoint(m, x, y) && cs.monsterUsesMeleeAgainstPoint(m, x, y) {
+		return true
+	}
+	if !m.HasRangedAttack() {
+		// Authored long melee reach (for example, a dragon's bite) remains
+		// radial. Only projectile delivery requires a cardinal firing lane.
+		return Distance(m.X, m.Y, x, y) <= m.GetAttackRangePixels() && cs.attackLineClear(m.X, m.Y, x, y)
+	}
+	dx, dy := TileIndex(x, ts)-TileIndex(m.X, ts), TileIndex(y, ts)-TileIndex(m.Y, ts)
+	distance := absInt(dx) + absInt(dy)
+	return (dx == 0 || dy == 0) && distance >= 1 &&
+		distance <= max(1, int(m.GetAttackRangePixels()/ts)) &&
+		Distance(m.X, m.Y, x, y) <= m.GetAttackRangePixels() && cs.attackLineClear(m.X, m.Y, x, y)
+}
+
+// monsterPouncePointInReachTB includes the landing rule, not just leap radius.
+// Preview callers may supply the cooldown after the next turn's status tick.
+func (cs *CombatSystem) monsterPouncePointInReachTB(m *monster.Monster3D, x, y float64, cooldown int) bool {
+	if !m.CanPounce() || !m.TargetsParty() || cooldown > 0 {
+		return false
+	}
+	ts := float64(cs.game.config.GetTileSize())
+	d := absInt(TileIndex(x, ts)-TileIndex(m.X, ts)) + absInt(TileIndex(y, ts)-TileIndex(m.Y, ts))
+	if d < 2 || d > int(m.PounceRangePixels/ts) || !cs.attackLineClear(m.X, m.Y, x, y) {
+		return false
+	}
+	_, _, ok := cs.pounceLanding(m, x, y)
+	return ok
+}
+
+// monsterAttackTurnBased handles a monster attack in turn-based mode.
 func (gl *GameLoop) monsterAttackTurnBased(m *monster.Monster3D) {
 	gl.game.combat.commitMonsterAttack(m, monsterAttackDestination{}, monsterAttackTurn)
 }
@@ -441,12 +430,7 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 // monster-terrain-aware collision check passes, updating its collision entity and turn
 // stamp. Returns whether the monster moved.
 func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
-	if blocked := gl.attackTargetTile(m); blocked != nil &&
-		TileIndex(wx, gl.game.config.GetTileSize()) == blocked.X &&
-		TileIndex(wy, gl.game.config.GetTileSize()) == blocked.Y {
-		return false
-	}
-	if gl.game.monsterMovementHeld(m) || !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
+	if !gl.game.monsterCanEnterTileTB(m, TileIndex(wx, gl.game.config.GetTileSize()), TileIndex(wy, gl.game.config.GetTileSize())) {
 		return false
 	}
 	tileSize := float64(gl.game.config.GetTileSize())

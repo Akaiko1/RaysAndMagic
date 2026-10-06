@@ -742,16 +742,18 @@ func (m *Manager) SetVolume(channel VolumeChannel, volume float64) bool {
 }
 
 // SaveVolumes atomically persists the current user volume settings.
-func (m *Manager) SaveVolumes() {
+func (m *Manager) SaveVolumes() error {
 	if m == nil {
-		return
+		return nil
 	}
 	m.mu.Lock()
 	settings := m.volumes
 	m.mu.Unlock()
-	if err := m.saveVolumeSettings(settings); err != nil {
+	err := m.saveVolumeSettings(settings)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sound] failed to save volume settings: %v\n", err)
 	}
+	return err
 }
 
 func (m *Manager) soundVolumeLocked(def SoundDefinition, gain float64) float64 {

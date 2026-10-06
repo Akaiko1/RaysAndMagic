@@ -116,11 +116,13 @@ type Renderer struct {
 	crystalShimmerShader   *ebiten.Shader
 	auraCurtainShader      *ebiten.Shader
 	auraCurtainWarmed      bool
+	auraCurtainCoverage    bool
 	auraCurtainOpts        ebiten.DrawTrianglesShaderOptions
 	auraCurtainPhase       [1]float32
 	auraCurtainVerts       []ebiten.Vertex
 	auraCurtainIndices     []uint32
 	auraCurtainEdges       []auraCurtainEdge
+	combatAura             combatAuraScratch
 	auraSceneDepths        []float64
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
@@ -841,6 +843,8 @@ func (r *Renderer) applyTreeDepthShading(brightness, distance float64) float64 {
 
 // precomputeFloorColorCache precalculates the floor color for every tile in the world
 func (r *Renderer) precomputeFloorColorCache() {
+	r.combatAura.valid = false
+	r.combatAura.world = nil
 	r.game.world.RebuildInheritedFloors()
 	r.loadCurrentMapFloorTextures()
 
@@ -1436,13 +1440,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
 		r.drawNightMotes(screen)
 
-		// Grey smoke wreath around a sealed (dormant) boss - invulnerable until
-		// its quest unseals it.
-		r.drawSealedBossAura(screen)
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
-		// Steam rising from every shut culvert valve's tile.
-		r.drawClosedValveSteam(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -3756,7 +3755,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Render all sprites in sorted order
 	for _, s := range sprites {
 		if s.spriteType == SpriteTypeTileCurtain {
-			r.appendAuraCurtain(s)
+			r.appendAuraCurtain(screen, s)
 			continue
 		}
 		r.flushAuraCurtains(screen)
@@ -4753,6 +4752,7 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			r.drawFlaskProjectile(screen, magicProjectile)
 			continue
 		}
+		magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY = magicProjectile.Launch.renderMotion(r.game.combat, magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
 		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
@@ -4897,6 +4897,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 
+		arrow.X, arrow.Y, arrow.VelX, arrow.VelY = arrow.Launch.renderMotion(r.game.combat, arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
 		bowDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if bowDef == nil || bowDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing

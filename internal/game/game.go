@@ -70,12 +70,12 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	Launch                             projectileLaunch // Runtime-only; save/load discards projectiles.
 	FlaskKey                           string
 	FlaskRemaining, FlaskRadius        float64
 	FlaskFlightRange                   float64
 	FlaskPoisonFrames, FlaskBurnFrames int
 
-	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -115,11 +115,11 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	ElementalAbilityDamage int             // Effective-stat scaling snapshotted at launch.
-	Backwash               *backwashCharge // Secondary charge; never triggers ordinary hit riders.
-	Overwatch              bool            // Reaction provenance; never changes weapon or proc classification.
+	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
+	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
+	Backwash               *backwashCharge  // Secondary charge; never triggers ordinary hit riders.
+	Overwatch              bool             // Reaction provenance; never changes weapon or proc classification.
 	CritChance             int
-	WorldAim               bool
 	ID                     string  // Unique identifier
 	X, Y                   float64 // Current position
 	VelX, VelY             float64 // Velocity
@@ -581,13 +581,16 @@ type MMGame struct {
 	wallTopBuffer []int
 
 	// Systems
-	gameLoop            *GameLoop
-	combat              *CombatSystem
-	collisionSystem     *collision.CollisionSystem
-	questManager        *quests.QuestManager
-	soundManager        *sound.Manager
-	potionSettingsDirty bool
-	settingsSaveError   string
+	gameLoop             *GameLoop
+	combat               *CombatSystem
+	collisionSystem      *collision.CollisionSystem
+	questManager         *quests.QuestManager
+	soundManager         *sound.Manager
+	potionSettingsDirty  bool
+	combatPreferences    combatPreferences
+	combatSettingsDirty  bool
+	settingsSaveError    string
+	settingsSaveFailures map[string]bool
 	// interfaceFrames: every interface size preset resolved for the current
 	// window by the last Layout (Settings > Display reads their status).
 	interfaceFrames []interfaceSizeFrame
@@ -968,6 +971,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		game.loadDisplayPreferences()
 	}
 	if !preview {
+		game.loadCombatPreferences()
 		if err := loadUIFonts(cfg.Display.Fonts); err != nil {
 			panic(err)
 		}
@@ -3037,7 +3041,7 @@ func (g *MMGame) skipTurnBasedPartyTurnWithoutActor() bool {
 // turn. Moving after at least one attack/cast grants monsters an extra action
 // pass as anti-kiting pressure; opening the round with movement remains normal.
 func (g *MMGame) endPartyTurnAfterMovement() {
-	if g.partyActionsUsed > g.partyTechniqueActionsUsed {
+	if g.movementGrantsExtraMonsterPass() {
 		g.turnBasedExtraMonsterAction = true
 	}
 	g.forfeitPartyTurn()

@@ -69,8 +69,11 @@ func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int
 		return parts
 	})
 	g.addScreenShake(1.1, 1.1)
+	// The flash bursts where the bottle is drawn breaking; the spray above
+	// marks the physical damage footprint.
+	lx, ly, _, _ := p.Launch.renderMotion(g.combat, x, y, p.VelX, p.VelY)
 	g.hitEffectsMu.Lock()
-	g.impactLights = append(g.impactLights, ImpactLight{X: x, Y: y, Radius: p.FlaskRadius,
+	g.impactLights = append(g.impactLights, ImpactLight{X: lx, Y: ly, Radius: p.FlaskRadius,
 		Intensity: .6, Life: impactLightFrames, MaxLife: impactLightFrames})
 	g.hitEffectsMu.Unlock()
 }

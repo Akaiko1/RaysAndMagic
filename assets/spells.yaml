@@ -32,7 +32,7 @@ spells:
     physics:
       speed_tiles: 8.0           # Speed in tiles per second
       range_tiles: 12.0          # Maximum range in tiles
-      collision_size_tiles: 2.0  # Size for collision detection in tiles (min 0.5)
+      hitbox: wide
 
     # Visual appearance
     graphics:
@@ -58,7 +58,7 @@ spells:
     physics:
       speed_tiles: 12.0          # Faster than fireball
       range_tiles: 8.0           # Shorter range
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -84,7 +84,7 @@ spells:
     physics:
       speed_tiles: 10.0
       range_tiles: 10.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -112,7 +112,7 @@ spells:
     physics:
       speed_tiles: 10.0
       range_tiles: 5.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -138,7 +138,7 @@ spells:
     physics:
       speed_tiles: 8.0           # Same speed as fireball
       range_tiles: 8.0           # Medium range
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -170,7 +170,7 @@ spells:
     physics:
       speed_tiles: 20.0          # Very fast
       range_tiles: 6.0           # Short range but high damage
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -198,7 +198,7 @@ spells:
     physics:
       speed_tiles: 22.0          # very fast beam
       range_tiles: 8.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -244,7 +244,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -301,7 +301,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     # Visual appearance
     graphics:
@@ -469,7 +469,7 @@ spells:
     physics:
       speed_tiles: 18.0          # very fast
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 36
       min_size: 2
@@ -490,7 +490,7 @@ spells:
     physics:
       speed_tiles: 12.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 44
       min_size: 3
@@ -512,7 +512,7 @@ spells:
     physics:
       speed_tiles: 9.0           # slow drifting swarm
       range_tiles: 7.0
-      collision_size_tiles: 2.0
+      hitbox: wide
     graphics:
       max_size: 46
       min_size: 3
@@ -549,7 +549,7 @@ spells:
     physics:
       speed_tiles: 12.0
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 40
       min_size: 2
@@ -570,7 +570,7 @@ spells:
     physics:
       speed_tiles: 14.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 40
       min_size: 2
@@ -591,7 +591,7 @@ spells:
     physics:
       speed_tiles: 14.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 40
       min_size: 2
@@ -675,7 +675,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 42
       min_size: 2
@@ -699,7 +699,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 36
       min_size: 2
@@ -735,7 +735,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 9.0
-      collision_size_tiles: 2.0
+      hitbox: wide
     graphics:
       max_size: 46
       min_size: 3
@@ -894,7 +894,7 @@ spells:
     physics:
       speed_tiles: 9.0
       range_tiles: 7.0
-      collision_size_tiles: 2.0
+      hitbox: wide
     graphics:
       max_size: 48
       min_size: 4
@@ -914,7 +914,7 @@ spells:
 #    - Add 'physics:' section with:
 #      - speed_tiles: Speed in tiles per second
 #      - range_tiles: Maximum range in tiles
-#      - collision_size_tiles: Collision size in tiles (min 0.5)
+#      - hitbox: standard | wide (closed set; sizes in config.yaml world.projectile_hitboxes)
 #    - Add 'graphics:' section with max_size, min_size, base_size, color
 # 4. For utility spells (is_utility: true):
 #    - Add effect properties like heal_amount, vision_bonus, stat_bonus, etc.
@@ -937,7 +937,7 @@ spells:
 #   physics:
 #     speed_tiles: 10.0          # 10 tiles per second
 #     range_tiles: 10.0          # 10 tile range
-#     collision_size_tiles: 0.5  # 0.5 tiles (minimum)
+#     hitbox: standard           # arrows, bolts, bullets; wide = large shots (fireball, swarm)
 #   graphics:
 #     max_size: 50
 #     min_size: 3

@@ -275,7 +275,7 @@ func TestEditorSceneProjectionThroughRuntime(t *testing.T) {
 					wm.CurrentMapKey = key
 					g.world = wm.OpenWorld
 					a := g.adventureConfig(key)
-					if allocations := testing.AllocsPerRun(20, func() { g.adventureConfig(key) }); allocations != 0 {
+					if allocations := gameAllocsPerRun(20, func() { g.adventureConfig(key) }); allocations != 0 {
 						t.Fatalf("cached projection allocated %g times", allocations)
 					}
 

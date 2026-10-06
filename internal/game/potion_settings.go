@@ -17,13 +17,7 @@ func (g *MMGame) savePotionPreferences() {
 	if !g.potionSettingsDirty || g.config == nil {
 		return
 	}
-	if err := storage.WriteJSONAtomic(potionPreferencesPath(), g.config.EnsurePotionPreferences(), 0600); err != nil {
-		g.settingsSaveError = "Could not save settings. Please check the data folder."
-		log.Printf("Could not save potion settings: %v", err)
-		return
-	}
-	g.potionSettingsDirty = false
-	g.settingsSaveError = ""
+	g.saveSettingsJSON(potionPreferencesPath(), "potion", g.config.EnsurePotionPreferences(), &g.potionSettingsDirty)
 }
 func (g *MMGame) setPotionThreshold(mana bool, percent int) {
 	if g.config == nil {
