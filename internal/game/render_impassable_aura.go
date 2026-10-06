@@ -14,7 +14,6 @@ const (
 	auraRisePeriodTick = 95.0 // ticks for one bubble to travel bottom->top
 	auraColorBoost     = 1.35 // brighten the tile colour so the boundary reads as a glow
 	auraMinDepth       = 12.0 // near clip (world units) to avoid huge close-up blobs
-	auraColBrightMin   = 0.4  // dimmest a stream can be (1.0 = full); rest is random per stream
 	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]xbase period
 )
 
@@ -48,7 +47,7 @@ func (r *Renderer) collectAuraTileEdges(
 	rgb [3]int,
 ) {
 	for _, direction := range auraCardinalDirections {
-		r.collectAuraEdge(tx, ty, direction, ts, density, baseAlpha, maxDepth, rgb)
+		r.collectAuraEdge(tx, ty, direction, ts, auraRiseFraction, density, baseAlpha, maxDepth, rgb)
 	}
 }
 
@@ -113,7 +112,7 @@ func (r *Renderer) collectImpassableTileAura() {
 				if r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					continue // edge faces another blocker -> interior, skip
 				}
-				r.collectAuraEdge(tx, ty, d, ts, density, baseAlpha, maxDepth, rgb)
+				r.collectAuraEdge(tx, ty, d, ts, auraRiseFraction, density, baseAlpha, maxDepth, rgb)
 			}
 		}
 	}

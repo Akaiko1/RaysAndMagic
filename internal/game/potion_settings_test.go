@@ -327,12 +327,42 @@ func TestPotionSettingsOwnerLossAndSaveFailure(t *testing.T) {
 		if !g.potionSettingsDirty || g.settingsSaveError == "" {
 			t.Fatal("save failure silently accepted")
 		}
+		// A successful save in another tab must not acknowledge this failure.
+		g.setCombatOverlay(true)
+		if g.combatSettingsDirty || g.settingsSaveError == "" {
+			t.Fatal("combat save erased potion failure")
+		}
+		combatPath := combatPreferencesPath()
+		if err := os.Remove(combatPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(combatPath, 0700); err != nil {
+			t.Fatal(err)
+		}
+		g.setCombatOverlay(false)
+		if !g.combatSettingsDirty {
+			t.Fatal("combat save failure lost retry")
+		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
 		g.savePotionPreferences()
-		if g.potionSettingsDirty || g.settingsSaveError != "" {
-			t.Fatal("save did not recover")
+		if g.potionSettingsDirty || !g.combatSettingsDirty || g.settingsSaveError == "" {
+			t.Fatal("potion retry erased outstanding combat failure")
+		}
+		g.displaySettingsDirty = true
+		g.saveDisplayPreferences()
+		if g.displaySettingsDirty || g.settingsSaveError == "" {
+			t.Fatal("display save erased combat failure")
+		}
+		if err := os.Remove(combatPath); err != nil {
+			t.Fatal(err)
+		}
+		g.soundManager = nil
+		g.audioSettingsDirty = true
+		g.saveAudioSettings()
+		if g.audioSettingsDirty || g.combatSettingsDirty || g.settingsSaveError != "" {
+			t.Fatal("last retry did not clear failure")
 		}
 	})
 }

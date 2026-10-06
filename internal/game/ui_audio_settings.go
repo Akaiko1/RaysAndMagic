@@ -72,7 +72,6 @@ func (g *MMGame) beginAudioSettings() {
 	g.audioSettingsSelection = 0
 	g.audioSliderDrag = -1
 	g.fontListOpen = false
-	g.audioSettingsDirty = false
 	g.settingsTab = settingsTabSound
 	if g.config != nil {
 		g.config.EnsurePotionPreferences()
@@ -80,14 +79,16 @@ func (g *MMGame) beginAudioSettings() {
 }
 
 func (g *MMGame) saveAudioSettings() {
-	if g.audioSettingsDirty {
-		if g.soundManager != nil {
-			g.soundManager.SaveVolumes()
-		}
+	if g.soundManager == nil {
 		g.audioSettingsDirty = false
+	} else if g.audioSettingsDirty {
+		err := g.soundManager.SaveVolumes()
+		g.recordSettingsSave("sound", "sound", err)
+		g.audioSettingsDirty = err != nil
 	}
 	g.savePotionPreferences()
 	g.saveDisplayPreferences()
+	g.saveCombatPreferences()
 }
 
 func (g *MMGame) closeAudioSettings() {
@@ -137,6 +138,28 @@ func audioHintPosition(px, py, panelW, panelH, contentInset int) (string, int, i
 	return audioSettingsHint, px + panelW - contentInset - uiTextWidth(audioSettingsHint), y
 }
 
+// The live tab and layout checks share the exact footer text and width fitting.
+func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW, panelH, inset int) (string, int, int) {
+	hint, _, y := audioHintPosition(px, py, panelW, panelH, inset)
+	if tab == settingsTabCombat {
+		hint = "Left: off | Right: on | Changes saved automatically"
+	}
+	if saveError != "" {
+		hint = saveError
+	}
+	back := audioBackRect(px, py, panelH, inset)
+	width := px + panelW - inset - (back.x2 + 16)
+	if uiTextWidth(hint) > width && saveError == "" {
+		if tab == settingsTabCombat {
+			hint = "Left: off | Right: on | Auto-save"
+		} else {
+			hint = "Changes saved automatically"
+		}
+	}
+	hint = clipUIText(hint, max(0, width))
+	return hint, px + panelW - inset - uiTextWidth(hint), y
+}
+
 func audioPercentX(px, panelW, contentInset int, label string) int {
 	trackRight := px + panelW - audioSliderRightPad
 	columnRight := min(
@@ -148,6 +171,9 @@ func audioPercentX(px, panelW, contentInset int, label string) int {
 
 func (g *MMGame) setSelectedAudioVolume(delta float64) {
 	switch g.settingsTab {
+	case settingsTabCombat:
+		g.setCombatOverlay(delta > 0)
+		return
 	case settingsTabPotions:
 		mana := g.audioSettingsSelection == 1
 		g.setPotionThreshold(mana, g.config.AutoPotionThreshold(mana)+int(math.Round(delta*100)))
@@ -263,6 +289,8 @@ func (ui *UISystem) drawSettingsContent(screen *ebiten.Image, px, py, panelW, pa
 		ui.drawPotionSettings(screen, px, py, panelW)
 	} else if g.settingsTab == settingsTabDisplay {
 		ui.drawDisplaySettings(screen, px, py, panelW, contentInset)
+	} else if g.settingsTab == settingsTabCombat {
+		ui.drawCombatSettings(screen, px, py, panelW)
 	} else if g.soundManager == nil {
 		drawCenteredUIText(screen, "Audio is unavailable", px+32, py+150, panelW-64, 24)
 	} else {
@@ -294,11 +322,7 @@ func (ui *UISystem) drawSettingsContent(screen *ebiten.Image, px, py, panelW, pa
 			drawUITextColored(screen, label, audioPercentX(px, panelW, contentInset, label), r.y1+4, color.RGBA{235, 221, 180, 255})
 		}
 	}
-	hint, hx, hy := audioHintPosition(px, py, panelW, panelH, contentInset)
-	if g.settingsSaveError != "" {
-		hint = g.settingsSaveError
-		hx = px + panelW - contentInset - uiTextWidth(hint)
-	}
+	hint, hx, hy := settingsHintPosition(g.settingsTab, g.settingsSaveError, px, py, panelW, panelH, contentInset)
 	drawUITextColored(screen, hint, hx, hy, color.RGBA{169, 165, 149, 255})
 }
 

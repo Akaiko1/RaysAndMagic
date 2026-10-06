@@ -22,41 +22,44 @@ func (r *Renderer) ensureAuraCurtainShader() (*ebiten.Shader, error) {
 }
 
 // auraCurtainEdge stores perspective-correct coordinates across one projected
-// tile edge. Pieces retain these coordinates when split around scene depths.
+// world segment. Pieces retain these coordinates when split around scene depths.
 type auraCurtainEdge struct {
+	world0, world1                          [2]float64
 	left, right, inv0, invStep, uq0, uqStep float64
-	tileSize, alpha, maxDepth               float64
+	tileSize, riseFraction, alpha, maxDepth float64
 	density                                 float32
 	rgb                                     [3]int
+	coverageBlend                           bool
 }
 
 // collectAuraEdge projects and clips a tile edge without drawing over scenery.
-func (r *Renderer) collectAuraEdge(tx, ty int, d [2]int, ts, folds, baseAlpha, maxDepth float64, rgb [3]int) {
-	if maxDepth <= auraMinDepth || baseAlpha <= 0 {
+func (r *Renderer) collectAuraEdge(tx, ty int, d [2]int, ts, riseFraction, folds, baseAlpha, maxDepth float64, rgb [3]int) {
+	edges := tileEdges(tx, ty)
+	for i, direction := range auraCardinalDirections {
+		if d != direction {
+			continue
+		}
+		x0, y0, x1, y1 := edges[i].points(ts)
+		r.collectAuraSegment(x0, y0, x1, y1, ts, riseFraction, folds, baseAlpha, maxDepth, rgb)
 		return
 	}
-	x0, y0 := float64(tx)*ts, float64(ty)*ts
-	x1, y1 := x0, y0
-	u0 := float64(tx + ty)
-	if d[0] != 0 {
-		if d[0] > 0 {
-			x0 += ts
-			u0++
-		}
-		x1, y1 = x0, y0+ts
-	} else {
-		if d[1] > 0 {
-			y0 += ts
-			u0++
-		}
-		x1, y1 = x0+ts, y0
+}
+
+// collectAuraSegment shares the curtain material and occlusion for tile edges
+// and curved wards. World-space phase stays continuous around a closed ring.
+func (r *Renderer) collectAuraSegment(x0, y0, x1, y1, ts, riseFraction, folds, baseAlpha, maxDepth float64, rgb [3]int) *auraCurtainEdge {
+	return r.collectAuraSegmentUV(x0, y0, x1, y1, (x0+y0)/ts, (x1+y1)/ts, ts, riseFraction, folds, baseAlpha, maxDepth, rgb)
+}
+
+func (r *Renderer) collectAuraSegmentUV(x0, y0, x1, y1, u0, u1, ts, riseFraction, folds, baseAlpha, maxDepth float64, rgb [3]int) *auraCurtainEdge {
+	if ts <= 0 || riseFraction <= 0 || maxDepth <= auraMinDepth || baseAlpha <= 0 {
+		return nil
 	}
-	u1 := u0 + 1
 	h := r.game.renderHelper
 	cx0, z0, ok0 := h.cameraSpaceXY(x0, y0)
 	cx1, z1, ok1 := h.cameraSpaceXY(x1, y1)
 	if !ok0 || !ok1 || (z0 < auraMinDepth && z1 < auraMinDepth) || (z0 > maxDepth && z1 > maxDepth) {
-		return
+		return nil
 	}
 	// Clip in camera space first, including edges crossing the camera plane.
 	clip := func(x, z, u, otherX, otherZ, otherU float64) (float64, float64, float64) {
@@ -75,19 +78,24 @@ func (r *Renderer) collectAuraEdge(tx, ty int, d [2]int, ts, folds, baseAlpha, m
 		sx0, sx1, z0, z1, u0, u1 = sx1, sx0, z1, z0, u1, u0
 	}
 	if sx1-sx0 < 0.01 || sx1 <= 0 || sx0 >= float64(w) {
-		return
+		return nil
 	}
 	inv0, uq0 := 1/z0, u0/z0
 	invStep, uqStep := (1/z1-inv0)/(sx1-sx0), (u1/z1-uq0)/(sx1-sx0)
 	// Keep broad folds rather than a fence of narrow vertical bands.
 	density := float32(math.Max(2, math.Min(8, folds)))
+	if folds < 0 {
+		density = float32(folds)
+	}
 	left := math.Max(0, sx0)
 	r.auraCurtainEdges = append(r.auraCurtainEdges, auraCurtainEdge{
+		world0: [2]float64{x0, y0}, world1: [2]float64{x1, y1},
 		left: left, right: math.Min(float64(w), sx1),
 		inv0: inv0 + (left-sx0)*invStep, invStep: invStep,
 		uq0: uq0 + (left-sx0)*uqStep, uqStep: uqStep,
-		tileSize: ts, alpha: baseAlpha, maxDepth: maxDepth, density: density, rgb: rgb,
+		tileSize: ts, riseFraction: riseFraction, alpha: baseAlpha, maxDepth: maxDepth, density: density, rgb: rgb,
 	})
+	return &r.auraCurtainEdges[len(r.auraCurtainEdges)-1]
 }
 
 // collectTileCurtains splits sloping edges at scene depth planes. Sorting an
@@ -99,6 +107,9 @@ func (r *Renderer) collectTileCurtains(sprites []UnifiedSpriteRenderData) []Unif
 	sprites = r.collectTrapTileBorders(sprites)
 	r.collectEnvironmentEffects()
 	r.collectSpawnTileBorder()
+	r.collectClosedValveAuroras()
+	r.collectSealedBossAuroras()
+	r.collectCombatAurora()
 	if len(r.auraCurtainEdges) == 0 {
 		return sprites
 	}
@@ -152,8 +163,12 @@ func (r *Renderer) collectTileCurtains(sprites []UnifiedSpriteRenderData) []Unif
 // appendAuraCurtain clips against walls; scenery and actors occlude with their
 // actual alpha silhouettes in the painter pass. Consecutive pieces batch until
 // the next non-curtain draw, preserving order without one GPU call per edge.
-func (r *Renderer) appendAuraCurtain(s UnifiedSpriteRenderData) {
+func (r *Renderer) appendAuraCurtain(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	edge := r.auraCurtainEdges[s.tileX]
+	if edge.coverageBlend != r.auraCurtainCoverage {
+		r.flushAuraCurtains(screen)
+		r.auraCurtainCoverage = edge.coverageBlend
+	}
 	sx0, sx1 := s.screenXF, s.screenXF+s.sizeF
 	w, height := r.game.worldWidth(), r.game.worldHeight()
 	lo, hi := max(0, int(math.Floor(sx0))), min(w-1, int(math.Ceil(sx1))-1)
@@ -161,7 +176,7 @@ func (r *Renderer) appendAuraCurtain(s UnifiedSpriteRenderData) {
 	vertex := func(x float64) (ebiten.Vertex, ebiten.Vertex) {
 		inv := edge.inv0 + (x-edge.left)*edge.invStep
 		floorRise := float64(height) * 0.5 * edge.tileSize * inv
-		bottom, rise := float64(height)*0.5+floorRise, floorRise*auraRiseFraction
+		bottom, rise := float64(height)*0.5+floorRise, floorRise*edge.riseFraction
 		v := ebiten.Vertex{DstX: float32(x), DstY: float32(bottom - rise),
 			SrcX: float32(bottom), SrcY: float32(rise),
 			ColorR: float32(edge.rgb[0]) / 255, ColorG: float32(edge.rgb[1]) / 255, ColorB: float32(edge.rgb[2]) / 255, ColorA: float32(edge.alpha),
@@ -178,7 +193,7 @@ func (r *Renderer) appendAuraCurtain(s UnifiedSpriteRenderData) {
 			depth := 1 / inv
 			visible = !(x < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[x])
 			floorRise := float64(height) * 0.5 * edge.tileSize * inv
-			visible = visible && float64(height)*0.5+floorRise*(1-auraRiseFraction) < float64(height)
+			visible = visible && float64(height)*0.5+floorRise*(1-edge.riseFraction) < float64(height)
 		}
 		if start >= 0 && !visible {
 			lt, lb := vertex(math.Max(float64(start), sx0))
@@ -199,6 +214,12 @@ func (r *Renderer) flushAuraCurtains(screen *ebiten.Image) {
 	verts, indices := r.auraCurtainVerts, r.auraCurtainIndices
 	if len(indices) > 0 {
 		if shader, err := r.ensureAuraCurtainShader(); err == nil {
+			r.auraCurtainOpts.Blend = additiveGlowBlend
+			if r.auraCurtainCoverage {
+				// The shader emits straight alpha. Retain true hue over bright
+				// floors for tactical boundaries, with the same animated material.
+				r.auraCurtainOpts.Blend = auraCoverageBlend
+			}
 			// All temporal frequencies are integral multiples of this phase,
 			// so wrapping every 20 seconds is continuous even in long sessions.
 			period := int64(max(1, r.game.config.GetTPS())) * 20
@@ -225,6 +246,17 @@ func (r *Renderer) drawAuraCurtainShaderWarm(target *ebiten.Image) {
 		{DstX: 0, DstY: 1, SrcX: 1, SrcY: 1, Custom0: 1, Custom2: 3},
 		{DstX: 1, DstY: 1, SrcX: 1, SrcY: 1, Custom0: 1, Custom2: 3},
 	}
-	target.DrawTrianglesShader32(vertices, []uint32{0, 1, 2, 1, 3, 2}, shader, &r.auraCurtainOpts)
+	for _, blend := range []ebiten.Blend{additiveGlowBlend, auraCoverageBlend} {
+		r.auraCurtainOpts.Blend = blend
+		target.DrawTrianglesShader32(vertices, []uint32{0, 1, 2, 1, 3, 2}, shader, &r.auraCurtainOpts)
+	}
+	r.auraCurtainOpts.Blend = additiveGlowBlend
 	r.auraCurtainWarmed = true
+}
+
+var auraCoverageBlend = ebiten.Blend{
+	BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+	BlendFactorDestinationRGB:   ebiten.BlendFactorOneMinusSourceAlpha,
+	BlendFactorSourceAlpha:      ebiten.BlendFactorOne,
+	BlendFactorDestinationAlpha: ebiten.BlendFactorOneMinusSourceAlpha,
 }

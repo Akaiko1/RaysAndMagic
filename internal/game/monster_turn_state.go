@@ -14,11 +14,15 @@ type monsterTurnState struct {
 	turnBasedMonsterStunned     map[*monster.Monster3D]bool
 }
 
-func (s *monsterTurnState) startPasses() {
-	s.turnBasedMonsterPassesLeft = 1
+func (s *monsterTurnState) plannedPasses() int {
 	if s.turnBasedExtraMonsterAction {
-		s.turnBasedMonsterPassesLeft = 2
+		return 2
 	}
+	return 1
+}
+
+func (s *monsterTurnState) startPasses() {
+	s.turnBasedMonsterPassesLeft = s.plannedPasses()
 	s.turnBasedExtraMonsterAction = false
 	s.turnBasedMonsterStatusTick = false
 	s.turnBasedMonsterStunned = make(map[*monster.Monster3D]bool)

@@ -6,9 +6,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// bubbleColumnFx tunes rising bubbles and drifting motes. Hot Steam, valve
-// steam and teleport fields share projection, occlusion, phase and fade here.
-// Tile-edge auroras use the shared curtain collector instead.
+// bubbleColumnFx tunes rising Hot Steam bubbles and drifting teleport motes.
+// Auroras, including valves and boss wards, use the shared curtain collector.
 type bubbleColumnFx struct {
 	wx, wy       float64 // world anchor of the column
 	hx, hy       int     // tile coords -> deterministic, frame-stable per-tile phase
@@ -26,10 +25,6 @@ type bubbleColumnFx struct {
 	sizeCoef     float64 // size = max(sizeFloor, (floorY-horizon)*sizeCoef)
 	wobbleCoef   float64 // horizontal wobble amplitude in bubble-sizes
 	color        [3]int
-	centerDepth  float64 // billboard self-cull plane (bubbles behind it are hidden)
-	hasCenter    bool    // false disables the self-cull (steam/valve fill the tile)
-	centerSpanL  int     // screen-X span the billboard covers at the cull plane;
-	centerSpanR  int     // the self-cull applies only inside it (+/-math.MinInt/MaxInt = anywhere)
 	fall         bool    // true = motes descend sky->ground (teleporter); default ground->sky (steam/aura)
 	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1-j, 1+j]xbase
 	round        bool    // true = rim-lit bubble texture; false = the legacy glow rect
@@ -37,7 +32,7 @@ type bubbleColumnFx struct {
 }
 
 // emitBubbleColumn projects one world point, culls it against the near/far clip,
-// the tile's own billboard and the wall depth buffer, then draws perColumn rising
+// the actor and wall depth buffers, then draws perColumn rising
 // glows that fade in at the floor and out at the top.
 func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 	horizon := float64(r.game.worldHeight()) / 2
@@ -45,9 +40,6 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 	screenX, depth, ok := r.game.renderHelper.projectToScreenX(c.wx, c.wy)
 	if !ok || depth < auraMinDepth || depth > c.maxDepth {
 		return
-	}
-	if c.hasCenter && depth > c.centerDepth && screenX >= c.centerSpanL && screenX <= c.centerSpanR {
-		return // far side of the billboard plane AND behind its on-screen silhouette
 	}
 	if screenX >= 0 && screenX < len(r.game.actorDepthBuffer) && depth >= r.game.actorDepthBuffer[screenX] {
 		return // a monster/NPC stands in front of this column

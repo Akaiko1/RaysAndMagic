@@ -18,12 +18,14 @@ const (
 	settingsTabSound settingsTabKind = iota
 	settingsTabPotions
 	settingsTabDisplay
+	settingsTabCombat
 )
 
 var settingsTabLabels = [...]string{
 	settingsTabSound:   "Sound",
 	settingsTabPotions: "Auto-potions",
 	settingsTabDisplay: "Display",
+	settingsTabCombat:  "Combat",
 }
 
 // settingsTabRows is how many keyboard-selectable rows a tab has.
@@ -33,6 +35,8 @@ func settingsTabRows(tab settingsTabKind) int {
 		return 2 // health and mana
 	case settingsTabDisplay:
 		return displayRows
+	case settingsTabCombat:
+		return 1
 	default:
 		return len(audioSettingDefinitions)
 	}

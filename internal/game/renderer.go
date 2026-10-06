@@ -116,11 +116,13 @@ type Renderer struct {
 	crystalShimmerShader   *ebiten.Shader
 	auraCurtainShader      *ebiten.Shader
 	auraCurtainWarmed      bool
+	auraCurtainCoverage    bool
 	auraCurtainOpts        ebiten.DrawTrianglesShaderOptions
 	auraCurtainPhase       [1]float32
 	auraCurtainVerts       []ebiten.Vertex
 	auraCurtainIndices     []uint32
 	auraCurtainEdges       []auraCurtainEdge
+	combatAura             combatAuraScratch
 	auraSceneDepths        []float64
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
@@ -841,6 +843,8 @@ func (r *Renderer) applyTreeDepthShading(brightness, distance float64) float64 {
 
 // precomputeFloorColorCache precalculates the floor color for every tile in the world
 func (r *Renderer) precomputeFloorColorCache() {
+	r.combatAura.valid = false
+	r.combatAura.world = nil
 	r.game.world.RebuildInheritedFloors()
 	r.loadCurrentMapFloorTextures()
 
@@ -1436,13 +1440,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
 		r.drawNightMotes(screen)
 
-		// Grey smoke wreath around a sealed (dormant) boss - invulnerable until
-		// its quest unseals it.
-		r.drawSealedBossAura(screen)
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
-		// Steam rising from every shut culvert valve's tile.
-		r.drawClosedValveSteam(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -3756,7 +3755,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Render all sprites in sorted order
 	for _, s := range sprites {
 		if s.spriteType == SpriteTypeTileCurtain {
-			r.appendAuraCurtain(s)
+			r.appendAuraCurtain(screen, s)
 			continue
 		}
 		r.flushAuraCurtains(screen)

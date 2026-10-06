@@ -577,3 +577,18 @@ func (reg *TeleporterRegistry) GetRandomDestinationTeleporter(source TeleporterL
 	}
 	return candidates[0], true
 }
+
+// TraversalModeKey identifies transient capabilities that change floor blocking.
+func (w *World3D) TraversalModeKey() uint8 {
+	var key uint8
+	if w.terrainPassageActive {
+		key |= 1
+	}
+	if w.walkOnWaterActive {
+		key |= 2
+	}
+	if w.waterBreathingActive {
+		key |= 4
+	}
+	return key
+}

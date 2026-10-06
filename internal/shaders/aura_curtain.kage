@@ -11,18 +11,28 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	u := custom.y / custom.x
 	v := (srcPos.x - (dstPos.y - imageDstOrigin().y)) / max(srcPos.y, 0.001)
 
+	// Negative density denotes a closed ward: U is arc angle, with integer
+	// frequencies so every fold and wisp meets seamlessly at 0 / 2*pi.
+	f1, f2, s1, s2, p1, p2, c1 := 4.2, 9.3, 3.6, 8.2, 11.7, 4.6, 6.4
+	rayFreq, wispFreq := custom.z*6.283185, custom.z*3.9
+	if custom.z < 0.0 {
+		f1, f2, s1, s2, p1, p2, c1 = 4.0, 9.0, 4.0, 8.0, 12.0, 5.0, 6.0
+		rayFreq = -custom.z
+		wispFreq = floor(rayFreq*0.62 + 0.5)
+	}
+
 	// Rays stream along the curtain; slower folds compress and curl them.
 	// The upper part shears sideways without detaching the foot from the edge.
-	fold := sin(u*4.2-Phase*2.0)*1.4 + sin(u*9.3+Phase*3.0)*0.55
-	shear := v * (sin(u*3.6-Phase*3.0)*1.2 + sin(u*8.2+Phase*4.0)*0.45)
-	rayPhase := u*custom.z*6.283185 - Phase*8.0 + fold + shear
+	fold := sin(u*f1-Phase*2.0)*1.4 + sin(u*f2+Phase*3.0)*0.55
+	shear := v * (sin(u*s1-Phase*3.0)*1.2 + sin(u*s2+Phase*4.0)*0.45)
+	rayPhase := u*rayFreq - Phase*8.0 + fold + shear
 	rays := 0.5 + 0.5*sin(rayPhase)
 	rays = rays * rays * rays * rays
 
 	// Local brightening travels at a different rate from the rays. Adjacent
 	// folds reach their peaks separately instead of breathing as one fence.
-	pulse := 0.5 + 0.5*sin(u*11.7+Phase*5.0+sin(u*4.6-Phase*3.0)*0.9)
-	crest := 0.48 + 0.34*(0.5+0.5*sin(u*6.4-Phase*3.0+fold*0.35))
+	pulse := 0.5 + 0.5*sin(u*p1+Phase*5.0+sin(u*p2-Phase*3.0)*0.9)
+	crest := 0.48 + 0.34*(0.5+0.5*sin(u*c1-Phase*3.0+fold*0.35))
 	// Fade unresolved rays to their mean intensity (35/128), avoiding shimmer.
 	detail := 1.0 - smoothstep(0.12, 0.5, fwidth(rayPhase)/6.283185)
 	rays = mix(0.2734375, rays, detail)
@@ -31,7 +41,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	// A softer counterflow fills the gaps without locking every ray to the
 	// same speed or height. All time terms are integer Phase multiples so the
 	// renderer can wrap its clock without an animation jump.
-	wispPhase := u*custom.z*3.9 + Phase*5.0 - fold*0.7 - shear
+	wispPhase := u*wispFreq + Phase*5.0 - fold*0.7 - shear
 	wisps := 0.5 + 0.5*sin(wispPhase)
 	wisps = wisps * wisps * wisps * wisps
 	wispDetail := 1.0 - smoothstep(0.12, 0.5, fwidth(wispPhase)/6.283185)

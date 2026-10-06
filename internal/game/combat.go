@@ -1753,11 +1753,11 @@ func (cs *CombatSystem) monsterCanPounceParty(m *monsterPkg.Monster3D) bool {
 		cs.attackLineClear(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
 }
 
-// executePounce leaps a pouncing monster onto the nearest walkable tile
-// adjacent to the player - never inside the player's own tile (where the sprite
-// would vanish). Diagonal-adjacent tiles are valid melee contact. Callers must
-// only resolve the strike when it returns true. Shared by RT and TB pounce hooks.
-func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) bool {
+// pounceLanding is a read-only landing search shared with the threat preview.
+func (cs *CombatSystem) pounceLanding(m *monsterPkg.Monster3D, playerX, playerY float64) (float64, float64, bool) {
+	if cs.game.collisionSystem == nil {
+		return 0, 0, false
+	}
 	tileSize := float64(cs.game.config.GetTileSize())
 	ptx, pty := TileIndex(playerX, tileSize), TileIndex(playerY, tileSize)
 
@@ -1772,7 +1772,7 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 		if cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
 			continue
 		}
-		if !cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
+		if !m.CanTraverseTile(cs.game.collisionSystem, monsterPkg.TileCoord{X: c[0], Y: c[1]}) || !cs.attackLineClear(cx, cy, playerX, playerY) {
 			continue
 		}
 		if d := (cx-m.X)*(cx-m.X) + (cy-m.Y)*(cy-m.Y); d < bestD {
@@ -1780,7 +1780,19 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 		}
 	}
 	if !found {
-		return false // no free adjacent tile - can't pounce
+		return 0, 0, false // no free adjacent tile
+	}
+	return bestX, bestY, true
+}
+
+// executePounce leaps a pouncing monster onto the nearest walkable tile
+// adjacent to the player - never inside the player's own tile (where the sprite
+// would vanish). Diagonal-adjacent tiles are valid melee contact. Callers must
+// only resolve the strike when it returns true. Shared by RT and TB pounce hooks.
+func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) bool {
+	bestX, bestY, found := cs.pounceLanding(m, playerX, playerY)
+	if !found {
+		return false
 	}
 	oldX, oldY := m.X, m.Y
 	m.X, m.Y = bestX, bestY
