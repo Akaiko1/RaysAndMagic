@@ -78,7 +78,7 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 		core = buildWeaponTooltipUnifiedRows(item, char, combatSystem, full)
 	case items.ItemArmor, items.ItemAccessory:
 		core = buildArmorTooltipUnifiedRows(item, char, combatSystem, full)
-	case items.ItemConsumable, items.ItemThrowable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
+	case items.ItemConsumable, items.ItemThrowable, items.ItemQuest, items.ItemTrinket, items.ItemCard, items.ItemDevice:
 		var party *character.Party
 		if combatSystem != nil && combatSystem.game != nil {
 			party = combatSystem.game.party

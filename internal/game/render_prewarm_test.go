@@ -22,6 +22,63 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+func TestMapRenderPrewarmPipelinesReadyConsumer(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "complete", true: "cancel"}[cancel], func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			ctx, stop := context.WithCancel(context.Background())
+			defer stop()
+			prepared := make(chan graphics.PreparedSpriteResource, 1)
+			task := &mapRenderPrewarmTask{
+				ctx: ctx, cancel: stop, mapKey: "pipeline", world: gl.game.world,
+				plan:               mapRenderPrewarmPlan{containerSprites: []string{"ready", "slow"}},
+				pendingSourceNames: map[string]int{"ready": 1, "slow": 1}, sourcesChanged: true,
+				preparedSprites: prepared, skiesDone: true,
+				cpuImages:   make(map[*ebiten.Image]*image.RGBA),
+				queueBudget: graphics.NewPreparationBudget(32 << 20),
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			r.mapRenderResourcePrewarmActive = task
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+			for i := 3; i < len(cpu.Pix); i += 4 {
+				cpu.Pix[i] = 255
+			}
+			request := graphics.SpriteResourceRequest{Name: "ready"}
+			prepared <- graphics.PreparedSpriteResource{Request: request, CPU: cpu, Image: cpu, Found: true}
+			deadline := time.Now().Add(5 * time.Second)
+			for len(r.standeeCoreCache) == 0 && time.Now().Before(deadline) {
+				r.prewarmPendingMapRenderResources()
+				runtime.Gosched()
+			}
+			if len(r.standeeCoreCache) == 0 || len(r.mapRenderUploadQueue) == 0 {
+				t.Fatal("ready consumer waited for the unrelated slow source")
+			}
+			if _, resident := r.mapRenderResourcesByMap[task.mapKey]; resident || r.loadDiagnostics.readbacks != 0 {
+				t.Fatal("partial region was published or required a GPU readback")
+			}
+			if cancel {
+				r.resetMapRenderResourceResidency()
+				if len(gl.game.sprites.ResourceImages(request)) != 0 || len(r.mapRenderUploadQueue) != 0 || r.mapRenderRegistry.estimatedGPUBytes() != 0 {
+					t.Fatal("cancel retained pipelined resources or submissions")
+				}
+				return
+			}
+			// A missing final source must settle without invalidating the first.
+			prepared <- graphics.PreparedSpriteResource{Request: graphics.SpriteResourceRequest{Name: "slow"}}
+			close(prepared)
+			for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+				r.prewarmPendingMapRenderResources()
+				runtime.Gosched()
+			}
+			if r.mapRenderResourcesByMap[task.mapKey] == nil || len(gl.game.sprites.ResourceImages(request)) != 1 {
+				t.Fatal("completed pipeline failed to retain the ready source")
+			}
+		})
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -306,7 +363,7 @@ func closedPreparedSkies() <-chan mapRenderPreparedSky {
 	return ch
 }
 
-func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
+func TestMapRenderStreamingAdvancesOneStateCellPerStep(t *testing.T) {
 	tests := []struct {
 		name             string
 		setup            func(*Renderer, *mapRenderPrewarmTask, *int)
@@ -336,7 +393,7 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 			wantActive: true, wantPreparedHeld: true,
 		},
 		{
-			name: "one derived step runs per update",
+			name: "one derived step runs per advance",
 			setup: func(_ *Renderer, task *mapRenderPrewarmTask, steps *int) {
 				task.spritesDone = true
 				task.skiesDone = true
@@ -1231,7 +1288,7 @@ func TestCancelMapRenderPrewarmOutsideReleasesInFlightGPUImages(t *testing.T) {
 
 	wallSource := ebiten.NewImage(8, 8)
 	wallBuilder := newMapRenderWallRipmapBuilder(r, wallSource, image.NewRGBA(image.Rect(0, 0, 8, 8)))
-	if _, done := wallBuilder.advance(mapRenderSpriteCommitFrameBytes); done {
+	if _, done := wallBuilder.advance(mapRenderSpriteCommitChunkBytes); done {
 		t.Fatal("wall builder unexpectedly finished after one level")
 	}
 	task.wallRipmapBuilders = []*mapRenderWallRipmapBuilder{wallBuilder}

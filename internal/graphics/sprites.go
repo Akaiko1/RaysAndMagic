@@ -8,6 +8,7 @@ import (
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -362,9 +363,9 @@ func animationKey(name, animType string) animationCacheKey {
 	return animationCacheKey{name: name, animType: animType}
 }
 
-// PrepareResources decodes sources serially on one bounded worker. The
-// one-result buffer prevents a fast disk from retaining a whole region of
-// decoded RGBA images while the game loop is still committing earlier work.
+// PrepareResources decodes sources with a small CPU pool when a shared byte
+// budget is supplied. The one-result buffer and byte reservations bound queued
+// pixels while the game loop commits earlier work. Results retain request order.
 func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
 	return sm.prepareResources(ctx, requests, false, budgets...)
 }
@@ -394,26 +395,71 @@ func (sm *SpriteManager) prepareResources(ctx context.Context, requests []Sprite
 		}
 		jobs = append(jobs, decodeJob{request: request, path: path})
 	}
-	go func() {
-		defer close(results)
-		for _, job := range jobs {
-			select {
-			case <-ctx.Done():
-				return
-			default:
+	// Decode in parallel, but reserve and publish in request order. Otherwise a
+	// cheap distant sprite can overtake the nearest source, or consume the byte
+	// reservation needed by an earlier result that the owner is waiting for.
+	workers := 1
+	if preparationBudget(budgets) != nil {
+		workers = min(2, max(1, runtime.GOMAXPROCS(0)-1))
+	}
+	type queuedDecode struct {
+		job   decodeJob
+		lease *PreparationLease
+		reply chan PreparedSpriteResource
+	}
+	work := make(chan queuedDecode)
+	ordered := make(chan chan PreparedSpriteResource, workers)
+	for range min(workers, len(jobs)) {
+		go func() {
+			for next := range work {
+				if ctx.Err() != nil {
+					next.lease.Release()
+					continue
+				}
+				prepared := sm.decodePreparedResourceAtPath(next.job.request, next.job.path)
+				if interactive && prepared.Found && prepared.alpha == nil {
+					prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
+				}
+				prepared.QueueLease = next.lease
+				next.lease.ReleaseOnCancel(ctx)
+				// Each reply has one slot. A later decoder never blocks while
+				// the owner waits for an earlier request, even on cancellation.
+				next.reply <- prepared
 			}
+		}()
+	}
+	go func() {
+		defer close(work)
+		defer close(ordered)
+		for _, job := range jobs {
 			lease, ok := ReservePNGPreparation(ctx, job.path, preparationBudget(budgets))
 			if !ok {
 				return
 			}
-			prepared := sm.decodePreparedResourceAtPath(job.request, job.path)
-			if interactive && prepared.Found && prepared.alpha == nil {
-				prepared.alpha = spriteAlphaMaskFromImage(prepared.Image)
-			}
-			prepared.QueueLease = lease
-			lease.ReleaseOnCancel(ctx)
+			reply := make(chan PreparedSpriteResource, 1)
 			select {
-			case results <- prepared:
+			case work <- queuedDecode{job: job, lease: lease, reply: reply}:
+			case <-ctx.Done():
+				lease.Release()
+				return
+			}
+			select {
+			case ordered <- reply:
+			case <-ctx.Done():
+				return // The decoder owns the lease after dispatch.
+			}
+		}
+	}()
+	go func() {
+		defer close(results)
+		for reply := range ordered {
+			select {
+			case prepared := <-reply:
+				select {
+				case results <- prepared:
+				case <-ctx.Done():
+					return
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -442,12 +488,7 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	if spritePath == "" {
 		return prepared
 	}
-	file, err := os.Open(spritePath)
-	if err != nil {
-		return prepared
-	}
-	defer file.Close()
-	img, _, err := image.Decode(file)
+	img, err := DecodeImageFile(spritePath)
 	if err != nil {
 		return prepared
 	}
@@ -917,13 +958,7 @@ func (sm *SpriteManager) loadSpriteVisibleFrameBounds(name string) spriteVisible
 	if !ok {
 		return spriteVisibleFrameBounds{}
 	}
-	file, err := os.Open(spritePath)
-	if err != nil {
-		return spriteVisibleFrameBounds{}
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
+	img, err := DecodeImageFile(spritePath)
 	if err != nil {
 		return spriteVisibleFrameBounds{}
 	}
@@ -974,13 +1009,7 @@ func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {
 	if !ok {
 		return nil
 	}
-	file, err := os.Open(spritePath)
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
+	img, err := DecodeImageFile(spritePath)
 	if err != nil {
 		return nil
 	}

@@ -758,6 +758,11 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		return
 	}
 
+	if item.Type == items.ItemDevice {
+		g.useDevice(item, charIdx)
+		return
+	}
+
 	// Quest items (map, lich phylactery) are not combat actions: they work
 	// regardless of cooldown/turn budget, exactly as they do in the inventory.
 	if item.Type == items.ItemQuest {

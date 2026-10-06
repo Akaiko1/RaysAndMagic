@@ -36,6 +36,109 @@ func loadingFixture(t *testing.T) *GameLoop {
 	return gl
 }
 
+func TestLoadingPreparationDrainsReadySources(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%v", paused), func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			gl.loading.awaitingFrame = paused
+			prepared := make(chan graphics.PreparedSpriteResource, 2)
+			task := &mapRenderPrewarmTask{
+				mapKey: currentMapKey(), skiesDone: true,
+				preparedSprites: prepared, cpuImages: make(map[*ebiten.Image]*image.RGBA),
+				// Keep publication pending after the source batch. Readiness must
+				// still include the unfinished derived resources.
+				steps: []mapRenderPrewarmStep{func(time.Time) bool { return false }},
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			r.mapRenderResourcePrewarmActive = task
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			for i := 0; i < cap(prepared); i++ {
+				req := graphics.SpriteResourceRequest{Name: fmt.Sprintf("ready-%d", i)}
+				gl.game.sprites.ResourceImages(req)
+				cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+				prepared <- graphics.PreparedSpriteResource{Request: req, CPU: cpu, Image: cpu, Found: true}
+			}
+			close(prepared)
+			started := time.Now()
+			gl.advanceResourceLoading()
+			_, budget := loadingPreparationBudget(paused)
+			exhausted := time.Since(started) >= budget
+			if !paused {
+				// Background preparation spreads work over successive Updates.
+				for range 3 {
+					gl.advanceResourceLoading()
+				}
+			}
+			for i := 0; i < cap(prepared); i++ {
+				req := graphics.SpriteResourceRequest{Name: fmt.Sprintf("ready-%d", i)}
+				if !exhausted && len(gl.game.sprites.ResourceImages(req)) != 1 {
+					t.Fatal("ready sources did not finish within the mode's preparation budget")
+				}
+			}
+			if r.mapRenderResourcePrewarmActive != task {
+				t.Fatal("unfinished derived work was published")
+			}
+		})
+	}
+}
+
+func TestLoadingBackgroundBoundsPixelWrites(t *testing.T) {
+	for _, kind := range []string{"floor", "region"} {
+		t.Run(kind, func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			cpu := image.NewRGBA(image.Rect(0, 0, 512, 1024))
+			img := ebiten.NewImage(512, 1024)
+			_, cancel := context.WithCancel(context.Background())
+			var uploaded func() int
+			if kind == "floor" {
+				p := &floorPreparation{cancel: cancel, prepared: &preparedFloor{pixels: cpu}, image: img}
+				r.floorPreparation = p
+				uploaded = func() int { return p.row * cpu.Stride }
+			} else {
+				commit := &mapRenderSkyCommit{name: "large", cpu: cpu, image: img}
+				task := &mapRenderPrewarmTask{mapKey: currentMapKey(), cancel: cancel, skyCommit: commit}
+				task.prewarmer = newMapRenderPrewarmer(r, task)
+				r.mapRenderResourcePrewarmActive = task
+				uploaded = func() int { return commit.row * cpu.Stride }
+			}
+			gl.advanceResourceLoading()
+			if bytes := uploaded(); bytes != 256<<10 {
+				t.Fatalf("background Update wrote %d bytes; want one 256 KiB chunk", bytes)
+			}
+		})
+	}
+}
+
+func TestLoadingRegionHandoffWaitsForNextUpdate(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%v", paused), func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			gl.loading.awaitingFrame = paused
+			task := &mapRenderPrewarmTask{
+				mapKey: "finished", spritesDone: true, skiesDone: true,
+				steps: []mapRenderPrewarmStep{func(time.Time) bool { return true }},
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			// Warm the shared shaders first; their first compilation must not
+			// exhaust the deadline and accidentally hide a same-Update handoff.
+			r.finalizeMapRenderPrewarm(task)
+			r.mapRenderResourcePrewarmActive = task
+			r.scheduleMapRenderResourcePrewarm("next")
+			gl.advanceResourceLoading()
+			if !containsString(r.mapRenderResidentMapKeys, "finished") || r.mapRenderResourcePrewarmActive != nil || !containsString(r.mapRenderResourcePrewarmMapKeys, "next") {
+				t.Fatal("region handoff was lost or started its successor in the same Update")
+			}
+			gl.advanceResourceLoading()
+			if containsString(r.mapRenderResourcePrewarmMapKeys, "next") {
+				t.Fatal("the next Update did not resume the queued region")
+			}
+		})
+	}
+}
+
 func TestLoadingUpdateFreezesSimulationAndRetiresInput(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, stage := range []string{"worker", "upload", "floor", "fresh_frame"} {

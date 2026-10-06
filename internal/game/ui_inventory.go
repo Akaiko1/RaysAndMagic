@@ -269,6 +269,9 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredUIText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
 	}
+	if item.Type == items.ItemDevice {
+		drawDeviceCooldown(screen, item, iconX, iconY, iconSize)
+	}
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
 	}
@@ -808,7 +811,9 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, 
 				}
 			}
 
-			if item.Type == items.ItemConsumable {
+			if item.Type == items.ItemDevice {
+				ui.game.useDeviceFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
+			} else if item.Type == items.ItemConsumable {
 				// Use consumable item
 				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
 			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {

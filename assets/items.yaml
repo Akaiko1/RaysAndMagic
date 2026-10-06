@@ -72,6 +72,23 @@ item_sets:
     bonus_endurance: 20
 
 items:
+  translocator:
+    name: "Translocator"
+    type: "device"
+    rarity: "rare"
+    value: 8000
+    no_loot: true
+    description: "An expedition instrument for folding a short stretch of space."
+    use_action: jump
+    use_spell: jump
+    use_jump_extra_tiles: 1
+    use_cooldown_seconds: 10
+    tooltip_effects:
+      - "No spell points required"
+    tooltip_usage:
+      - "Double-click in inventory or use from a quick slot"
+      - "Reusable; not consumed on use"
+      - "Requires a clear landing; ends the party turn in turn-based combat"
   solstice_living_ember:
     name: "Living Ember"
     type: "trinket"
@@ -799,7 +816,7 @@ items:
     heal_base: 25
     heal_endurance_divisor: 4
     rarity: "common"
-    value: 50
+    value: 15
 
   mana_potion:
     name: "Mana Potion"
@@ -809,7 +826,7 @@ items:
     mana_base: 25
     mana_personality_divisor: 4
     rarity: "common"
-    value: 60
+    value: 20
 
   revival_potion:
     name: "Revival Potion"
@@ -819,7 +836,7 @@ items:
     revive: true
     full_heal: true
     rarity: "rare"
-    value: 500
+    value: 150
 
   magic_ring:
     name: "Magic Ring"
@@ -1848,7 +1865,7 @@ items:
     heal_base: 10
     heal_endurance_divisor: 6
     rarity: "common"
-    value: 45
+    value: 15
 
 # Monster-trophy cards added 2026-07-03 (mob roster expansion). Collection
 # effects not implemented yet -- cardEffectText falls back to "Currently not

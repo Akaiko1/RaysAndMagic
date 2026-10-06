@@ -18,28 +18,37 @@ import (
 // legally stand on; a blocked landing refunds the SP and holds position. Like
 // any no-op cast the turn and RT cooldown are still spent.
 func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
-	if def.JumpTiles <= 0 {
+	return cs.tryPartyJump(def.Name, def.JumpTiles, nil)
+}
+
+// Devices and spells share landing, arrival effects, quest credit and TB movement.
+// Commit instance state before arrivals can move bags, change maps or autosave.
+func (cs *CombatSystem) tryPartyJump(name string, tiles float64, onCommit func()) spellCastOutcome {
+	g := cs.game
+	if tiles <= 0 {
 		return castNotHandled
 	}
-	g := cs.game
 	if g.partyRooted() {
 		g.AddCombatMessage("The party is rooted in place.")
 		return castNoEffect
 	}
 	ts := float64(g.config.GetTileSize())
 	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
-	landX := g.camera.X + dx*def.JumpTiles*ts
-	landY := g.camera.Y + dy*def.JumpTiles*ts
+	landX := g.camera.X + dx*tiles*ts
+	landY := g.camera.Y + dy*tiles*ts
 
 	if g.collisionSystem == nil || !g.canMovePartyTo(landX, landY) {
 		g.AddCombatMessage("There is no room to land.")
 		return castNoEffect
 	}
 	oldX, oldY := g.camera.X, g.camera.Y
+	if onCommit != nil {
+		onCommit()
+	}
 	g.setPartyPosition(landX, landY)
 	g.creditAdventureMovement("jump", oldX, oldY, landX, landY)
 	g.notifyPilgrimDisplacement(oldX, oldY)
-	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", def.Name))
+	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
 		g.gameLoop.inputHandler.applyLandingTileEffects()

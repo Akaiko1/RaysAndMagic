@@ -2211,18 +2211,22 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	NoLoot         bool             `yaml:"no_loot,omitempty"`
-	BrewColor      [3]int           `yaml:"brew_color,omitempty"`
-	BrewedFrom     string           `yaml:"brewed_from,omitempty"`
-	CraftedOnly    bool             `yaml:"crafted_only,omitempty"`
-	HarvestSprite  string           `yaml:"harvest_sprite,omitempty"`
-	Flask          *FlaskDefinition `yaml:"flask,omitempty"`
-	AllowedClasses []string         `yaml:"allowed_classes,omitempty"`
-	Name           string           `yaml:"name"`
-	Type           string           `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType      string           `yaml:"armor_category,omitempty"`
-	Description    string           `yaml:"description"`      // Gameplay-neutral summary (optional)
-	Flavor         string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	UseAction          string           `yaml:"use_action,omitempty"`
+	UseSpell           string           `yaml:"use_spell,omitempty"`
+	UseJumpExtraTiles  int              `yaml:"use_jump_extra_tiles,omitempty"`
+	UseCooldownSeconds int              `yaml:"use_cooldown_seconds,omitempty"`
+	NoLoot             bool             `yaml:"no_loot,omitempty"`
+	BrewColor          [3]int           `yaml:"brew_color,omitempty"`
+	BrewedFrom         string           `yaml:"brewed_from,omitempty"`
+	CraftedOnly        bool             `yaml:"crafted_only,omitempty"`
+	HarvestSprite      string           `yaml:"harvest_sprite,omitempty"`
+	Flask              *FlaskDefinition `yaml:"flask,omitempty"`
+	AllowedClasses     []string         `yaml:"allowed_classes,omitempty"`
+	Name               string           `yaml:"name"`
+	Type               string           `yaml:"type"` // armor|accessory|consumable|quest|trinket|card|device
+	ArmorType          string           `yaml:"armor_category,omitempty"`
+	Description        string           `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor             string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
 	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
 	// Keeping their text in YAML lets the game tooltip and map-editor card share
 	// the same wording without item-key-specific presentation code.
@@ -2423,6 +2427,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		if err := validateDeviceDefinition(key, def); err != nil {
+			return err
 		}
 		if err := validateCraftedItem(key, def); err != nil {
 			return err
@@ -2993,7 +3000,7 @@ func validateCrates(lt *LootTablesConfig) error {
 
 // catalogItemTypes is the closed set a catalog source draws from: an item
 // type, "weapon" for weapons only, or "any" for every item type and weapons.
-var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consumable": true, "trinket": true, "weapon": true, "any": true}
+var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consumable": true, "trinket": true, "device": true, "weapon": true, "any": true}
 
 func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string, idx int, src CrateRollSource) error {
 	where := fmt.Sprintf("crate %q roll_sources[%d]", crate, idx)
@@ -3015,7 +3022,7 @@ func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string,
 		return nil
 	case "catalog":
 		if !catalogItemTypes[src.ItemType] {
-			return fmt.Errorf("%s: catalog item_type must be armor, accessory, consumable, trinket, weapon or any, got %q", where, src.ItemType)
+			return fmt.Errorf("%s: catalog item_type must be armor, accessory, consumable, trinket, device, weapon or any, got %q", where, src.ItemType)
 		}
 		if src.Amount != 0 {
 			return fmt.Errorf("%s: catalog takes no amount", where)

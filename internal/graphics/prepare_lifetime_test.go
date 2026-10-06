@@ -99,7 +99,7 @@ func TestPreparationLeaseLifetimeCells(t *testing.T) {
 }
 
 func TestPreparedSpriteCommitDetachesCallback(t *testing.T) {
-	for _, outcome := range []string{"commit", "decode_failure", "cancel"} {
+	for _, outcome := range []string{"commit", "decode_failure", "cancel", "cancel_queued"} {
 		t.Run(outcome, func(t *testing.T) {
 			sm := NewSpriteManager()
 			path := filepath.Join(t.TempDir(), "source.png")
@@ -124,17 +124,23 @@ func TestPreparedSpriteCommitDetachesCallback(t *testing.T) {
 			base, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx := &countedPreparationContext{Context: base}
-			results := sm.PrepareResources(ctx, []SpriteResourceRequest{{Name: "fixture"}}, b)
+			requests := []SpriteResourceRequest{{Name: "fixture"}}
+			if outcome == "cancel_queued" {
+				for range 15 {
+					requests = append(requests, SpriteResourceRequest{Name: "fixture"})
+				}
+			}
+			results := sm.PrepareResources(ctx, requests, b)
 			var prepared PreparedSpriteResource
 			select {
 			case prepared = <-results:
 			case <-time.After(time.Second):
 				t.Fatal("preparation stalled")
 			}
-			if prepared.QueueLease == nil || ctx.pending.Load() != 1 {
+			if prepared.QueueLease == nil || ctx.pending.Load() < 1 || outcome != "cancel_queued" && ctx.pending.Load() != 1 {
 				t.Fatal("preparation did not register a leased result")
 			}
-			if outcome == "cancel" {
+			if outcome == "cancel" || outcome == "cancel_queued" {
 				cancel()
 			} else {
 				if prepared.Found != (outcome == "commit") {

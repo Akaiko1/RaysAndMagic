@@ -119,6 +119,7 @@ func (g *MMGame) remainingBuffFrames(source string, remaining, elapsed int) int 
 
 func (g *MMGame) tickPartyBuffsTurn() {
 	frames := g.combatRoundFrames()
+	g.tickDeviceCooldowns(frames)
 	g.tickCombatBuffsTurn(frames)
 	g.advanceStatBuffs(frames)
 	g.advanceUtilityBuffs(frames)

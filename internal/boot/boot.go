@@ -32,6 +32,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	config.MustLoadItemConfig("assets/items.yaml")
+	if err := config.ValidateDeviceSpellReferences(config.GlobalItems, config.GlobalSpells); err != nil {
+		log.Fatalf("Device actions: %v", err)
+	}
 	if err := config.ValidateClassItems(cfg); err != nil {
 		log.Fatalf("Class supplies: %v", err)
 	}

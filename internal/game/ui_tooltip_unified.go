@@ -870,6 +870,9 @@ func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *cha
 			use.Add("%s", ln)
 		}
 	}
+	if item.Type == items.ItemDevice && item.DeviceCooldownFrames > 0 {
+		recovery.Add("%s", uitext.Text("item.device_cooldown", float64(item.DeviceCooldownFrames)/float64(config.GetTargetTPS()), deviceCooldownTurns(item)))
+	}
 	for _, ln := range usage {
 		use.Add("%s", ln)
 	}

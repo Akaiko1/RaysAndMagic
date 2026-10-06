@@ -264,14 +264,16 @@ func (gl *GameLoop) advanceResourceLoading() {
 	}
 	gl.ensureResourceLoading()
 	l := gl.loading
-	// Paused loading can fill idle time with small commits. Keep the same
-	// chunk size and memory ownership as background streaming; never wait
-	// for a worker or drain a region in one Update.
+	// Background work gets one pass: WritePixels may defer its GPU cost until
+	// Draw, so a cheap CPU call must not buy more upload chunks during play.
+	// A loading pause can drain ready work under the shared deadline.
 	steps, duration := loadingPreparationBudget(l.awaitingFrame)
 	deadline := time.Now().Add(duration)
+	regionDone := false
 	for step := 0; step < steps; step++ {
-		gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitFrameBytes)
-		request, images := l.stream.Advance(mapRenderSpriteCommitFrameBytes)
+		progress := gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitChunkBytes)
+		request, images, advanced := l.stream.Advance(mapRenderSpriteCommitChunkBytes)
+		progress = progress || advanced
 		if len(images) != 0 {
 			if l.worldRequests[request] {
 				gl.renderer.observeLazySpriteLoad(request, images)
@@ -281,10 +283,13 @@ func (gl *GameLoop) advanceResourceLoading() {
 			}
 		}
 		delete(l.worldRequests, request)
-		if gl.renderer.floorPreparation == nil {
-			gl.renderer.prewarmPendingMapRenderResources()
+		if !regionDone && gl.renderer.floorPreparation == nil && time.Now().Before(deadline) {
+			progress = gl.renderer.advanceMapRenderPrewarm(deadline) || progress
+			// Publishing one region must not start planning its successor in
+			// this Update. Floor and demand queues can still finish their work.
+			regionDone = gl.renderer.mapRenderResourcePrewarmActive == nil
 		}
-		if time.Now().After(deadline) {
+		if !progress || time.Now().After(deadline) {
 			break
 		}
 	}
@@ -483,6 +488,8 @@ func loadingPreparationBudget(paused bool) (int, time.Duration) {
 	if paused {
 		return 32, 4 * time.Millisecond
 	}
+	// Bound upload bursts as well as CPU time: cheap WritePixels calls can
+	// otherwise fill the next Draw with several megabytes of deferred work.
 	return 1, mapRenderDerivedFrameBudget
 }
 

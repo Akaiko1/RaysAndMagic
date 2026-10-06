@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 	"ugataima/internal/character"
+	"ugataima/internal/items"
 
 	"ugataima/internal/spells"
 	"ugataima/internal/storage"
@@ -16,7 +17,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	for _, stitched := range []bool{false, true} {
 		for _, tb := range []bool{false, true} {
-			for _, method := range []string{"jump", "fold0", "fold1", "fold2", "fold3", "return"} {
+			for _, method := range []string{"jump", "device", "fold0", "fold1", "fold2", "fold3", "return"} {
 				t.Run(fmt.Sprintf("stitched=%v/TB=%v/%s", stitched, tb, method), func(t *testing.T) {
 					g, wm, cfg := bootOpenWorldGame(t, stitched)
 					loadBenchContent(t)
@@ -27,6 +28,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 					g.currentTurn = 0
 					c := character.CreateCharacter("Pilgrim", character.ClassWayfarer, cfg)
 					c.Level = 20
+					c.ActionsRemaining = 1
 					c.SpellPoints = 1000
 					c.MaxSpellPoints = 1000
 					g.party.Members = []*character.MMCharacter{c}
@@ -46,6 +48,11 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 						def, _ := spells.GetSpellDefinitionByID("jump")
 						if g.combat.tryCastJump(def, c) != castCommitted {
 							t.Fatal("Jump cannot cross gap")
+						}
+					} else if method == "device" {
+						g.party.Inventory = []items.Item{items.CreateItemFromYAML("translocator")}
+						if !g.useDeviceFromInventory(0, 0) {
+							t.Fatal("Translocator cannot cross gap")
 						}
 					} else if method == "return" {
 						c.RareClass.Anchor = character.SpatialAnchor{MapKey: "solstice_vestibule", X: 10.5 * ts, Y: 7.5 * ts, Frames: 1000}
@@ -105,6 +112,12 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 					g.spatialStepThisTurn = false
 					g.spatialReuseFrames = 0
 					g.party.Members[0].SpellPoints = 0
+					if method == "device" {
+						if err := g.enterAdventureSchedule("solstice_vestibule"); err != nil {
+							t.Fatalf("carried Translocator did not satisfy entry gate: %v", err)
+						}
+						return
+					}
 					if err := g.enterAdventureSchedule("solstice_vestibule"); err == nil {
 						t.Fatal("entry allowed without traversal SP")
 					}
@@ -190,7 +203,7 @@ func TestSolsticeTraversalGateEligibility(t *testing.T) {
 	t.Chdir("../..")
 	storage.SetDataRootForTesting(t.TempDir())
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
-	for _, state := range []string{"Pilgrim", "Jump only", "unclaimed", "no skill", "wrong class", "low level", "unconscious", "rooted", "no SP"} {
+	for _, state := range []string{"Pilgrim", "Jump only", "unclaimed", "no skill", "wrong class", "low level", "unconscious", "rooted", "no SP", "shared device", "other owner device", "reserve device", "unconfigured device", "device rooted"} {
 		t.Run(state, func(t *testing.T) {
 			g, _, cfg := bootOpenWorldGame(t, true)
 			loadBenchContent(t)
@@ -221,11 +234,32 @@ func TestSolsticeTraversalGateEligibility(t *testing.T) {
 				g.partyRoot = PartyRootState{Frames: 100, Turns: 2}
 			case "no SP":
 				c.SpellPoints = 0
+			case "shared device", "other owner device", "reserve device", "unconfigured device", "device rooted":
+				c.Class, c.SpellPoints = character.ClassKnight, 0
+				it := items.CreateItemFromYAML("translocator")
+				if state == "unconfigured device" {
+					it.UseAction = ""
+				}
+				if state == "other owner device" || state == "reserve device" {
+					owner := character.CreateCharacter("Owner", character.ClassKnight, cfg)
+					owner.HitPoints = 0
+					owner.Inventory = []items.Item{it}
+					if state == "other owner device" {
+						g.party.Members = append(g.party.Members, owner)
+					} else {
+						g.party.Reserve = append(g.party.Reserve, owner)
+					}
+				} else {
+					g.party.Inventory = []items.Item{it}
+				}
+				if state == "device rooted" {
+					g.partyRoot = PartyRootState{Frames: 100, Turns: 2}
+				}
 			}
 			before := g.world
 			visits := len(g.adventure.Visits)
 			err := g.enterAdventureSchedule("solstice_vestibule")
-			want := state == "Pilgrim" || state == "Jump only"
+			want := state == "Pilgrim" || state == "Jump only" || state == "shared device" || state == "other owner device"
 			if (err == nil) != want {
 				t.Fatalf("gate error = %v, want entry = %v", err, want)
 			}

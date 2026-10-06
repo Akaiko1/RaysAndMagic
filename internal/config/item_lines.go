@@ -213,6 +213,7 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, uitext.Text("item.offers_a_party_member_the_path_of"))
 	}
+	lines = append(lines, d.DeviceEffectLines()...)
 	lines = append(lines, d.TooltipEffects...)
 	if d.Type == "card" {
 		lines = append(lines, d.CardCollectionLines()...)

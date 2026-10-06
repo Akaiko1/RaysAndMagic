@@ -2,6 +2,8 @@
 
 A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Lead a four-member party through raycasted dungeons and open wilds, fight in real-time *or* turn-based combat, learn spells from nine schools of magic, and hunt the four dragons that menace the realm.
 
+[Download and play](#download-and-play) | [Controls](#controls) | [Build from source](#build-from-source) | [Add content](#add-content)
+
 ![Winged Isis guardians strike and hurl lightning in the pyramid's pillared hall](src/pyramid_isis.png)
 
 ## Screenshots
@@ -24,39 +26,45 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
   equipment sets, and collectible monster cards.
 - Connected outdoor regions, separate towns and dungeons, day/night encounters,
   wildlife, and tree-climbing jungle lemurs.
-- Quests, class promotions, arena duels, merchants, and persistent achievements
-  and player statistics.
+- The jungle ruins of Solstice, with a temple and four elemental chambers,
+  traversal challenges, interactive devices, and chamber bosses.
+- Gather ingredients, brew potions, and trade supplies with local merchants.
+- Quests, class promotions, arena duels, and persistent achievements and player
+  statistics.
 - A map editor with live content catalogs and monster previews.
 
-## Run and build
+## Download and play
 
-Install Go 1.25 or newer; dependencies are pinned in [go.mod](go.mod).
-From the repository root:
+Get a packaged build from [GitHub Releases](https://github.com/Akaiko1/RaysAndMagic/releases).
+Each archive includes the game and map editor; Go is not needed to play.
 
-```sh
-go mod download
-go run .
-```
+| Platform | First launch |
+| --- | --- |
+| macOS 12+ (Apple Silicon and Intel) | Extract the universal archive and open `RaysAndMagic.app`. Keep the game and editor apps together. |
+| Windows 10/11 (64-bit) | Extract the whole archive and run `RaysAndMagic.exe`, keeping `assets/` and `config.yaml` beside it. |
 
-Run the editor with `go run ./assets/map_viewer`. For the standard local build
-(game and editor, including app bundles):
+macOS apps are ad-hoc signed, not notarized. If macOS blocks the first launch,
+allow the app in System Settings -> Privacy & Security -> Open Anyway. Windows
+executables are unsigned; SmartScreen may require More info -> Run anyway.
 
-```sh
-./build_bin.sh
-```
+### Saves and updates
 
-Release archives are built with `./build_mac_release.sh`. Windows-only builds
-use `pwsh ./build_debug_console.ps1` or `pwsh ./build_no_console.ps1`.
-Optional shader precompilation tools, caches, and rendering diagnostics are
-covered in [Rendering and loading](RENDERING.md).
+Save files and `player_profile.json` normally live in these locations:
 
-Local `bin/` builds find repository data one directory above the executable.
-macOS app bundles use a shared writable data directory at
-`~/Library/Application Support/RaysAndMagic/`; bundled YAML and sprites refresh
-on updates, while edited maps are preserved. Use the repository build when
-editing content. Saves and `player_profile.json` live in the active data
-directory's `saves/` folder. Downloaded app bundles are unsigned; macOS may require
-approval in System Settings -> Privacy & Security before launch.
+| Launch method | Save directory |
+| --- | --- |
+| macOS `.app` | `~/Library/Application Support/RaysAndMagic/saves/` |
+| Packaged Windows executable | `saves/` beside the executable |
+| Local executable in `bin/` | `bin/saves/` |
+| `go run .` from the repository root | `saves/` in the repository root |
+
+On Windows, copy the `saves/` folder when moving to a newly extracted release.
+macOS apps share their writable content under
+`~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML and
+sprites. Local map edits survive only while the shipped version of that map is
+unchanged; an updated shipped map replaces the edited copy. Use the repository
+build for content editing. See [Player profile](docs/player-profile.md) for
+achievements and statistics.
 
 ## Controls
 
@@ -64,8 +72,10 @@ approval in System Settings -> Privacy & Security before launch.
 | --- | --- |
 | WASD / Arrows | Move and turn |
 | Q / E | Strafe |
+| Shift + movement | Run in real time |
 | R | Weapon attack |
-| Space | Smart attack / confirm |
+| Space | Interact with a nearby NPC in focus; otherwise smart attack / confirm |
+| Left click on a nearby NPC | Open its interaction |
 | Left click / hold on a monster | Aim smart attack / repeat while held on that monster |
 | F | Cast selected spell |
 | C or H | Quick heal |
@@ -75,30 +85,50 @@ approval in System Settings -> Privacy & Security before launch.
 | P | Character sheets |
 | M | Spellbook |
 | J | Quest log |
-| T | Interact with nearby NPC |
+| K | Card collection |
+| V / Shift+V | Pilgrim: Fold Step / Return Step |
+| Shift while hovering a tooltip | Show detailed effects and calculations |
+| F5 | Quick save |
+| Shift+F4 | Quick load |
 | Esc | Menu / close dialogs |
 
-Mouse smart attack uses the same healing, spell, and weapon priorities and
-cooldowns as Space, without turning the view. Holding repeats after a short
-delay. Release, leaving the target, losing it behind a wall, or opening a menu
-ends the hold; press again to acquire a target. Friendly party-controlled
-creatures and transparent sprite margins are not attack targets. The monster
-under the pointer brightens to show which target the click will select.
-Background doors and NPCs do not intercept a foreground monster's click.
-Explicit mouse aim keeps the selected direction through melee resolution and
-projectile flight; the usual weapon arcs, splash and physical interception apply.
-Clicks use the last displayed view in both combat modes. An unmatched click
-expires in the same input update; turning or moving cannot give it a new target.
+Mouse smart attack uses the same priorities and cooldowns as Space without
+turning the view. The target under the pointer brightens. Hold to repeat attacks;
+release, move off the target, or open a menu to stop. Losing sight of the target
+also stops the hold; press again to acquire it.
 
-Equipped item tooltips mark completed set bonuses in green with `[ACTIVE]`.
-Loose items show the set requirements without claiming that the bonus is active.
-Overwatch also reacts to enemy attacks against the party, at half its movement
-reaction chance. Ballistics adds 2/4/6/8 percentage points of bow/blaster critical
-chance from novice through grandmaster; these values share
-`internal/character/catalog.go` with other skill effects.
-Automatic potion use applies to every class and is configured separately under
-`characters.auto_drink` (`threshold_pct`, `interval_seconds`). Field Medicine
-increases recovery from both manual and automatic drinking; it does not enable it.
+Drag items into quick slots and double-click a slot to use it. Right-click a
+slotted spell or trap to ready it for Space. Skill and item tooltips describe
+their current effects; hold Shift for the detailed breakdown.
+
+## Build from source
+
+Install Go 1.25 or newer; [go.mod](go.mod) pins the toolchain and dependencies.
+From the repository root:
+
+```sh
+go mod download
+go run .
+```
+
+Run the editor with `go run ./assets/map_viewer`.
+
+| Host platform | Local build |
+| --- | --- |
+| macOS | `./build_bin.sh` builds the game, editor, app bundles, Windows binaries, and test launchers in `bin/`. |
+| Windows | `pwsh ./build_no_console.ps1` builds GUI executables; `pwsh ./build_debug_console.ps1` builds console variants. |
+| Linux | `go build -o bin/raysandmagic .` and `go build -o bin/map_viewer ./assets/map_viewer` build native executables. |
+
+Local executables in `bin/` use the repository's `assets/` and `config.yaml`.
+Desktop builds do not require Cgo, but Linux still needs graphics/audio runtime
+libraries and a display. The Ubuntu dependency list and headless test setup
+are maintained in [CI](.github/workflows/ci.yml); use `xvfb-run --auto-servernum`
+before graphics-dependent test commands on a headless machine.
+
+On macOS, `./build_mac_release.sh` recreates `dist/` with universal macOS app
+bundles and Windows binaries plus content. The [release workflow](.github/workflows/release.yml)
+packages these directories into ZIP archives. Optional native shader compilers,
+caches, and diagnostics are covered in [Rendering and loading](RENDERING.md).
 
 ## Add content
 
@@ -112,10 +142,13 @@ YAML behaviors; a new behavior still needs runtime support.
 | Spells | `assets/spells.yaml` | [Spells](how_to_add_a_new_spell.md) |
 | Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md) |
 | Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
+| Alchemy and gathering | `assets/alchemy_recipes.yaml`, `assets/alchemy_spawns.yaml`, `assets/items.yaml` | [Shipped recipes](assets/alchemy_recipes.yaml), [Harvest populations](assets/alchemy_spawns.yaml) |
+| Pilgrim techniques | `assets/techniques.yaml` | [Shipped techniques](assets/techniques.yaml) |
 | NPCs and services | `assets/npcs.yaml` | [NPCs](how_to_add_a_new_npc.md) |
 | Quests | `assets/quests.yaml` | [Quests](docs/adding-quests.md) |
 | Terrain and props | `assets/tiles.yaml`, `assets/special_tiles.yaml` | [Tiles](how_to_add_a_new_tile.md), [Floor transitions](docs/floor-transitions.md) |
 | Maps and connections | `assets/*.map`, `assets/map_configs.yaml`, `assets/open_world.yaml` | [Maps](docs/adding-maps.md) |
+| Icons and frames | `assets/icon_frames.yaml`, `assets/sprites/interface/` | [Asset conventions](docs/content-authoring.md#assets-and-animation) |
 
 Use the [map editor](assets/map_viewer/README.md) to place content and inspect
 catalogs. Follow the [dialogue guidelines](docs/content-authoring.md#dialogue) when writing NPC or
@@ -129,12 +162,22 @@ quest prose.
 and `internal/graphics` loads sprites. Shared contributor conventions are in the
 [content guide](docs/content-authoring.md).
 
+Use [developer test scenarios](docs/test-scenarios.md) for disposable playtests.
+After a local macOS build, `bin/test_scenario.command solstice` starts the
+Solstice fixture with saves isolated from the normal campaign. The same
+`--test-scenario solstice` argument works with the game executable on other
+platforms.
+
+For code changes, run the relevant tests, then the full checks:
+
 ```sh
-go test ./internal/game -run '^TestContentGuideExamples$' -count=1
 go test ./...
 go vet ./...
 ./build_bin.sh
 ```
+
+The final packaging command requires the macOS build host. Linux CI runs
+build, vet, and race tests with Xvfb; see the [workflow](.github/workflows/ci.yml).
 
 Format changed Go files with `gofmt`. After Go or game-code changes,
 `./build_bin.sh` is the required final build verification. Content changes also

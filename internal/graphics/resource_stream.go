@@ -54,7 +54,7 @@ func (sm *SpriteManager) deferMissingResource(request SpriteResourceRequest) boo
 	return sm.deferResource(request)
 }
 
-// ResourceStream serves unexpected demand with one bounded decode worker and
+// ResourceStream serves unexpected demand with a bounded decode batch and
 // one incremental GPU commit. It does not claim ownership of published images;
 // callers register them with their existing residency owner.
 type ResourceStream struct {
@@ -96,10 +96,11 @@ func (s *ResourceStream) Close() {
 }
 
 // Advance never waits for a worker. Non-nil images are newly usable resources;
-// even decode failure completes its request and is negatively cached.
-func (s *ResourceStream) Advance(maxBytes int) (SpriteResourceRequest, map[*ebiten.Image]*image.RGBA) {
+// even decode failure completes its request and is negatively cached. Progress
+// lets a time-sliced caller drain ready work without polling an idle worker.
+func (s *ResourceStream) Advance(maxBytes int) (SpriteResourceRequest, map[*ebiten.Image]*image.RGBA, bool) {
 	if s == nil || s.ctx.Err() != nil {
-		return SpriteResourceRequest{}, nil
+		return SpriteResourceRequest{}, nil, false
 	}
 	if s.commit != nil {
 		images, done := s.commit.Advance(maxBytes)
@@ -107,9 +108,9 @@ func (s *ResourceStream) Advance(maxBytes int) (SpriteResourceRequest, map[*ebit
 			request := s.request
 			delete(s.pending, request)
 			s.commit = nil
-			return request, images
+			return request, images, true
 		}
-		return SpriteResourceRequest{}, nil
+		return SpriteResourceRequest{}, nil, true
 	}
 	if s.results != nil {
 		select {
@@ -120,12 +121,14 @@ func (s *ResourceStream) Advance(maxBytes int) (SpriteResourceRequest, map[*ebit
 			} else {
 				s.results = nil
 			}
+			return SpriteResourceRequest{}, nil, true
 		default:
 		}
 	} else if len(s.queue) > 0 {
 		requests := s.queue
 		s.queue = nil
 		s.results = s.manager.prepareResources(s.ctx, requests, true, NewPreparationBudget(32<<20))
+		return SpriteResourceRequest{}, nil, true
 	}
-	return SpriteResourceRequest{}, nil
+	return SpriteResourceRequest{}, nil, false
 }

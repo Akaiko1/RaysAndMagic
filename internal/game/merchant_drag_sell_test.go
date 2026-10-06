@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -270,6 +271,79 @@ func TestSellInventoryUnitsPartialAndFull(t *testing.T) {
 	if g.sellInventoryUnits(0, 1) {
 		t.Fatal("selling from an empty bag succeeded")
 	}
+}
+
+// Authored gold shelves must not turn Merchant into buy-and-resell profit.
+// The approximate 3:1 content guideline allows exceptions, so test the actual
+// transactions and margin rather than requiring a fixed price multiplier.
+func TestGoldShopPurchaseResaleMargin(t *testing.T) {
+	cfg := loadTestConfig(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Members = g.party.Members[:1]
+	buyer, err := character.CreateNPCFromConfig("desert_merchant", 96, 96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(character.NPCConfigInstance.NPCs))
+	for key, def := range character.NPCConfigInstance.NPCs {
+		if len(def.Inventory) > 0 || def.StockWeaponsRarity != "" {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	checked := 0
+	for _, key := range keys {
+		npc, err := character.CreateNPCFromConfig(key, 96, 96)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, stock := range npc.MerchantStock {
+			if stock.EffectiveCurrency(npc.Currency) != "" || npc.FreeGoods {
+				continue
+			}
+			checked++
+			for tier := 0; tier <= 3; tier++ {
+				t.Run(fmt.Sprintf("%s/%s/tier%d", key, stock.Item.Name, tier), func(t *testing.T) {
+					g.party.Members[0].Skills[character.SkillMerchant] = &character.Skill{Mastery: character.SkillMastery(tier)}
+					g.party.Inventory = nil
+					g.party.Gold = 1000000
+					g.dialogNPC = npc
+					entry := *stock
+					if !g.buyMerchantUnits(&entry, 1) || len(g.party.Inventory) != 1 {
+						t.Fatal("authored stock purchase failed")
+					}
+					paid := 1000000 - g.party.Gold
+					value := stock.Item.Attributes["value"]
+					if want := stock.Cost - stock.Cost*tier*5/100; paid != want {
+						t.Fatalf("purchase charged %d, want authored cost after haggling %d", paid, want)
+					}
+					g.dialogNPC = buyer
+					before := g.party.Gold
+					sold := g.sellInventoryUnits(0, 1)
+					if value <= 0 {
+						if sold || g.party.Gold != before || len(g.party.Inventory) != 1 {
+							t.Fatal("worthless stock was consumed or sold")
+						}
+						return
+					}
+					received := g.party.Gold - before
+					if want := value + value*tier*5/100; !sold || received != want || len(g.party.Inventory) != 0 {
+						t.Fatalf("sale returned %d, want full authored value after haggling %d", received, want)
+					}
+					if received >= paid {
+						t.Fatalf("buy/resell has no margin: paid %d, received %d", paid, received)
+					}
+				})
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no gold-priced stock audited")
+	}
+	t.Logf("checked %d gold-priced stock entries at every Merchant tier", checked)
 }
 
 // merchantBuyGame stages a shop with a stocked shelf and the given till.

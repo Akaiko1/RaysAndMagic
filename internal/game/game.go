@@ -1652,13 +1652,7 @@ func resolveNamedPNG(baseDir, name string) string {
 }
 
 func decodePNG(path string) (image.Image, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	img, _, err := image.Decode(f)
-	return img, err
+	return graphics.DecodeImageFile(path)
 }
 
 func loadPNGAsEbiten(path string) (*ebiten.Image, error) {

@@ -78,6 +78,8 @@ type mapRenderPrewarmTask struct {
 	queueBudget        *graphics.PreparationBudget
 	mapKey             string
 	plan               mapRenderPrewarmPlan
+	pendingSourceNames map[string]int
+	sourcesChanged     bool
 	priorities         mapRenderPrewarmPriorities
 	prewarmer          *mapRenderPrewarmer
 	preparedSprites    <-chan graphics.PreparedSpriteResource
@@ -101,7 +103,6 @@ type mapRenderPrewarmTask struct {
 	wallRipmapBuilders []*mapRenderWallRipmapBuilder
 	preparedStandees   <-chan mapRenderPreparedStandee
 	standeeCommit      *mapRenderStandeeCommit
-	standeesDone       bool
 }
 
 type mapRenderPrewarmStep func(deadline time.Time) bool
@@ -126,8 +127,8 @@ type mapRenderImageWrite struct {
 }
 
 // mapRenderStandeeCommit keeps all GPU images private until every mip level is
-// populated. It makes a multi-megabyte standee chain obey the same per-Update
-// pixel budget as decoded sprites and gives cancellation an explicit owner for
+// populated. It makes a multi-megabyte standee chain use the same bounded
+// pixel writes as decoded sprites and gives cancellation an explicit owner for
 // every in-flight image.
 type mapRenderStandeeCommit struct {
 	key           standeeCoreKey
@@ -280,7 +281,7 @@ func (c *mapRenderStandeeCommit) cancel() {
 }
 
 const (
-	mapRenderSpriteCommitFrameBytes = 256 << 10
+	mapRenderSpriteCommitChunkBytes = 256 << 10
 	mapRenderDerivedFrameBudget     = 1500 * time.Microsecond
 	mapRenderLoadMarginInTiles      = 4
 	mapRenderLoadFOVMargin          = 20 * math.Pi / 180
@@ -923,6 +924,10 @@ func (p *mapRenderPrewarmer) addUpload(img *ebiten.Image) {
 		return
 	}
 	p.uploads[img] = struct{}{}
+	// Submit each complete resource while later sources are still decoding.
+	// The task owns it until publication or cancellation, and Draw retains its
+	// existing byte/count budget. Never queue a partially populated image.
+	p.renderer.queueMapRenderUpload(img, p.task)
 }
 
 func (p *mapRenderPrewarmer) sprite(name string) *ebiten.Image {
@@ -1941,12 +1946,15 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 		task.queueBudget = graphics.NewPreparationBudget(32 << 20)
 		task.cpuImages = make(map[*ebiten.Image]*image.RGBA)
 		task.plan, task.priorities = r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(mapKey))
+		task.pendingSourceNames = make(map[string]int)
+		task.sourcesChanged = true
 		task.prewarmer = newMapRenderPrewarmer(r, task)
 		requests := orderedMapRenderSourceRequests(task.plan, task.priorities)
 		missing := requests[:0]
 		for _, request := range requests {
 			if len(r.game.sprites.ResourceImages(request)) == 0 {
 				missing = append(missing, request)
+				task.pendingSourceNames[request.Name]++
 				continue
 			}
 			// Pin reused sources before another residency update can evict
@@ -1979,7 +1987,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	}
 	if task.standeeCommit != nil {
 		task.prewarmer.lastResource = "standee-write:" + task.standeeCommit.key.name
-		sticker, core, done := task.standeeCommit.advance(r, mapRenderSpriteCommitFrameBytes)
+		sticker, core, done := task.standeeCommit.advance(r, mapRenderSpriteCommitChunkBytes)
 		if done {
 			task.prewarmer.addUpload(sticker)
 			task.prewarmer.addUpload(core)
@@ -1993,7 +2001,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		if task.spriteCommitReq.AnimationType != "" {
 			task.prewarmer.lastResource += ":" + task.spriteCommitReq.AnimationType
 		}
-		images, done := task.spriteCommit.Advance(mapRenderSpriteCommitFrameBytes)
+		images, done := task.spriteCommit.Advance(mapRenderSpriteCommitChunkBytes)
 		if done {
 			for img, cpu := range images {
 				task.cpuImages[img] = cpu
@@ -2003,13 +2011,20 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 					name: task.spriteCommitReq.Name, animationType: task.spriteCommitReq.AnimationType,
 				}] = struct{}{}
 			}
+			if task.pendingSourceNames[task.spriteCommitReq.Name] > 0 {
+				task.pendingSourceNames[task.spriteCommitReq.Name]--
+			}
+			if _, requested := task.prewarmer.cpuRequested[task.spriteCommitReq]; requested {
+				task.prewarmer.cpuRequested[task.spriteCommitReq] = true
+			}
+			task.sourcesChanged = true
 			task.spriteCommit = nil
 		}
 		return true
 	}
 	if task.skyCommit != nil {
 		task.prewarmer.lastResource = "sky:" + task.skyCommit.name
-		if task.skyCommit.advance(mapRenderSpriteCommitFrameBytes) {
+		if task.skyCommit.advance(mapRenderSpriteCommitChunkBytes) {
 			commit := task.skyCommit
 			if r.game.skyPanoramaCache == nil {
 				r.game.skyPanoramaCache = make(map[string]*ebiten.Image)
@@ -2031,9 +2046,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		case prepared, ok := <-task.preparedSprites:
 			if !ok {
 				task.spritesDone = true
-				for request := range task.prewarmer.cpuRequested {
-					task.prewarmer.cpuRequested[request] = true
-				}
+				task.sourcesChanged = true
 			} else {
 				task.prewarmer.lastResource = "begin:" + prepared.Request.Name
 				if prepared.Request.AnimationType != "" {
@@ -2069,11 +2082,11 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		default:
 		}
 	}
-	if task.preparedStandees != nil && !task.standeesDone {
+	if task.preparedStandees != nil {
 		select {
 		case prepared, ok := <-task.preparedStandees:
 			if !ok {
-				task.standeesDone = true
+				task.preparedStandees = nil
 			} else {
 				task.prewarmer.lastResource = "standee:" + prepared.key.name
 				task.standeeCommit = newMapRenderStandeeCommit(prepared)
@@ -2137,8 +2150,46 @@ func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResou
 	return visualFrames
 }
 
-func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapRenderPrewarmStep {
-	plan := task.plan
+// Take consumers only after all requested source variants for their name have
+// been published. This prevents the synchronous getters used by derived work
+// from decoding ahead of the worker or caching a temporary missing resource.
+func takeReadyRenderConsumers[T any](remaining *[]T, pending map[string]int, name func(T) string) []T {
+	var ready []T
+	kept := (*remaining)[:0]
+	for _, item := range *remaining {
+		if pending[name(item)] == 0 {
+			ready = append(ready, item)
+		} else {
+			kept = append(kept, item)
+		}
+	}
+	clear((*remaining)[len(kept):])
+	*remaining = kept
+	return ready
+}
+
+func (task *mapRenderPrewarmTask) takeReadyPlan() mapRenderPrewarmPlan {
+	remaining, pending := &task.plan, task.pendingSourceNames
+	name := func(s string) string { return s }
+	plan := mapRenderPrewarmPlan{
+		tileSprites:        takeReadyRenderConsumers(&remaining.tileSprites, pending, name),
+		wallSprites:        takeReadyRenderConsumers(&remaining.wallSprites, pending, name),
+		treeSprites:        takeReadyRenderConsumers(&remaining.treeSprites, pending, name),
+		crossedPropSprites: takeReadyRenderConsumers(&remaining.crossedPropSprites, pending, name),
+		containerSprites:   takeReadyRenderConsumers(&remaining.containerSprites, pending, name),
+		environmentSprites: takeReadyRenderConsumers(&remaining.environmentSprites, pending, func(s processedSpriteKey) string { return s.spriteName }),
+		npcSprites:         takeReadyRenderConsumers(&remaining.npcSprites, pending, func(s mapNPCPrewarmResource) string { return s.name }),
+		monsterSprites:     takeReadyRenderConsumers(&remaining.monsterSprites, pending, func(s mapMonsterPrewarmResource) string { return s.spriteName }),
+	}
+	// Aura color sampling can depend on several variants of a tile's sprite.
+	// Keep that small shared tail behind the complete source inventory.
+	if task.spritesDone {
+		plan.tileTypes, remaining.tileTypes = remaining.tileTypes, nil
+	}
+	return plan
+}
+
+func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask, plan mapRenderPrewarmPlan) []mapRenderPrewarmStep {
 	p := task.prewarmer
 	steps := make([]mapRenderPrewarmStep, 0, len(mapRenderSourceRequests(plan))+len(plan.monsterSprites)*4)
 	appendStep := func(step func()) {
@@ -2186,7 +2237,7 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 				task.wallRipmapBuilders = append(task.wallRipmapBuilders, builder)
 			}
 			if builder != nil && !builder.done {
-				if _, done := builder.advance(mapRenderSpriteCommitFrameBytes); !done {
+				if _, done := builder.advance(mapRenderSpriteCommitChunkBytes); !done {
 					return false
 				}
 			}
@@ -2343,28 +2394,30 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 	_ = r.ensureWeaponMaterialShaders()
 	_, _ = r.game.ensureSkyShader()
 	p.stats.uploadImages = len(p.uploads)
-	for img := range p.uploads {
-		r.queueMapRenderUpload(img, task)
-	}
 	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
 		r.mapRenderShaderWarmTasks = append(r.mapRenderShaderWarmTasks, task)
 	}
 }
 
 // prewarmPendingMapRenderResources advances at most one CPU commit or one
-// derived-resource step. A region can take many ticks, but no Update consumes
-// the whole cold region and only one region owns in-flight GPU allocations.
-func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
+// derived-resource step for callers outside the gameplay scheduler.
+func (r *Renderer) prewarmPendingMapRenderResources() bool {
+	return r.advanceMapRenderPrewarm(time.Now().Add(mapRenderDerivedFrameBudget))
+}
+
+// advanceMapRenderPrewarm shares the scheduler deadline and reports whether
+// another immediate step could be useful. It never waits for a CPU worker.
+func (r *Renderer) advanceMapRenderPrewarm(deadline time.Time) bool {
 	if r == nil || r.game == nil {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	if r.game.appScreen != AppScreenInGame {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	r.startNextMapRenderPrewarm()
 	task := r.mapRenderResourcePrewarmActive
 	if task == nil {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	defer r.recordRenderLoadStep(time.Now(), task)
 	if !r.mapRenderTaskCurrent(task) {
@@ -2373,33 +2426,50 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		if task.prewarmer != nil {
 			r.deallocateMapRenderRegion(task.prewarmer.resources, r.retainedMapRenderResources())
 		}
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	if r.drainPreparedMapRenderResource(task) {
-		return mapRenderPrewarmStats{}
+		return true
 	}
-	if !task.spritesDone || !task.skiesDone {
-		return mapRenderPrewarmStats{}
-	}
-	if task.steps == nil {
+	if task.sourcesChanged || task.steps == nil && task.spritesDone {
+		task.sourcesChanged = false
 		task.state = mapRenderTaskDerived
-		task.steps = r.buildMapRenderPrewarmSteps(task)
-		return mapRenderPrewarmStats{}
+		plan := task.takeReadyPlan()
+		steps := r.buildMapRenderPrewarmSteps(task, plan)
+		if task.steps == nil {
+			task.steps = steps
+		} else {
+			task.steps = append(task.steps, steps...)
+		}
+		if len(steps) > 0 {
+			return true
+		}
+	}
+	// Start ready standees before the rest of the region is decoded or derived.
+	// A single worker shares the source queue's budget and drains one batch at
+	// a time; decoded pixels stay owned by this task until final publication.
+	if len(task.standeeJobs) > 0 && task.preparedStandees == nil && task.standeeCommit == nil {
+		jobs := task.standeeJobs
+		task.standeeJobs = nil
+		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, r.game.config.Graphics.Standee.CoreTint, task.queueBudget)
+		return true
 	}
 	if task.nextStep < len(task.steps) {
-		deadline := time.Now().Add(mapRenderDerivedFrameBudget)
 		task.prewarmer.waitingForCPU = false
 		if task.steps[task.nextStep](deadline) {
 			task.nextStep++
 		} else if task.prewarmer.waitingForCPU {
-			// Discover all missing CPU sources in this pass before starting the
-			// bounded worker. Independent consumers share one decode batch.
+			// Batch shared-source CPU re-decodes after the initial source stream
+			// completes. Other ready consumers continue in the meantime.
 			task.waitingSteps = append(task.waitingSteps, task.steps[task.nextStep])
 			task.nextStep++
 		}
+		if task.nextStep < len(task.steps) || len(task.standeeJobs) > 0 {
+			return true
+		}
 	}
-	if task.nextStep < len(task.steps) {
-		return mapRenderPrewarmStats{}
+	if !task.spritesDone || !task.skiesDone {
+		return false
 	}
 	if len(task.waitingSteps) > 0 {
 		p := task.prewarmer
@@ -2408,16 +2478,10 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		task.spritesDone = false
 		task.preparedSprites = r.game.sprites.PrepareResources(task.ctx, p.cpuRequests, task.queueBudget)
 		p.cpuRequests = nil
-		return mapRenderPrewarmStats{}
+		return true
 	}
-	if len(task.standeeJobs) > 0 {
-		jobs := task.standeeJobs
-		task.standeeJobs = nil
-		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, r.game.config.Graphics.Standee.CoreTint, task.queueBudget)
-		return mapRenderPrewarmStats{}
-	}
-	if task.standeeCommit != nil || task.preparedStandees != nil && !task.standeesDone {
-		return mapRenderPrewarmStats{}
+	if task.standeeCommit != nil || task.preparedStandees != nil {
+		return false
 	}
 	task.cpuImages = nil
 	r.finalizeMapRenderPrewarm(task)
@@ -2426,10 +2490,9 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		task.cancel()
 	}
 	r.commitMapRenderResidency(task.mapKey, task.prewarmer.resources)
-	stats := task.prewarmer.stats
 	r.mapRenderResourcePrewarmActive = nil
 	r.mapRenderResourcePrewarmPending = len(r.mapRenderResourcePrewarmMapKeys) > 0
-	return stats
+	return true
 }
 
 const (

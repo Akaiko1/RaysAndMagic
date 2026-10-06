@@ -90,6 +90,12 @@ func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		name string
 		item *ItemDefinitionConfig
 	}{
+		{"device without action", &ItemDefinitionConfig{Type: "device", UseSpell: "jump", UseCooldownSeconds: 10}},
+		{"device without reference", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseCooldownSeconds: 10}},
+		{"device unsupported action", &ItemDefinitionConfig{Type: "device", UseAction: "missing", UseSpell: "jump", UseCooldownSeconds: 10}},
+		{"device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1}},
+		{"device with negative range", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: -1, UseCooldownSeconds: 10}},
+		{"device behavior on potion", &ItemDefinitionConfig{Type: "consumable", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10}},
 		{"reflect over one hundred", &ItemDefinitionConfig{ProjectileReflectPct: 101}},
 		{"status below floor", &ItemDefinitionConfig{StatusDurationPct: MinHostileStatusDurationPct - 1}},
 		{"scale stack without cap", &ItemDefinitionConfig{ScaleStackAC: 1}},

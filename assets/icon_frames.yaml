@@ -6,6 +6,7 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_item_translocator: basic
   icon_item_wolf_pelt: basic
   icon_item_spider_silk: basic
   icon_item_fairy_dust: basic

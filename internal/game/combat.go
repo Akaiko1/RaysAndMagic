@@ -19,6 +19,7 @@ import (
 
 // CombatSystem handles all combat-related functionality
 type CombatSystem struct {
+	deviceClock         deviceCooldownSweep
 	game                *MMGame
 	racialProcRoll      func(int) bool
 	elementalAttackRoll func() float64

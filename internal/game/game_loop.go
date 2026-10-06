@@ -708,6 +708,7 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
+	gl.game.tickDeviceCooldowns(gl.game.combatFrameElapsed())
 	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub

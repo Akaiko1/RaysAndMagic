@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
@@ -160,8 +161,8 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 	if q == nil || !q.RewardsClaimed {
 		return fmt.Errorf("Restore the receiving anchor and report back first.")
 	}
-	if !g.canPrepareSpell(s.RequiresSpell) && !g.canPrepareAdventureTechnique(s.AlternativeTechnique) {
-		return fmt.Errorf("An active hero must be able to use Jump or Fold Step with enough spell points.")
+	if !g.canPrepareSpell(s.RequiresSpell) && !g.canPrepareAdventureTechnique(s.AlternativeTechnique) && !g.canPrepareJumpDevice(s.RequiresSpell) {
+		return fmt.Errorf("%s", uitext.Text("item.traversal_required"))
 	}
 	dest := s.Destination(g.currentCalendarDay(), g.dayNightIsNight)
 	if g.worldByKey(dest) == nil {

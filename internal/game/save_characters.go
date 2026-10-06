@@ -2,6 +2,7 @@ package game
 
 import (
 	"maps"
+	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -47,7 +48,7 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	switch item.Type {
-	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard, items.ItemDevice:
 	default:
 		return
 	}
@@ -77,6 +78,18 @@ func normalizeItemFromConfig(item *items.Item) {
 	item.Description = template.Description
 	item.Rarity = template.Rarity
 	item.Set = template.Set
+	item.UseAction = template.UseAction
+	if item.Type == items.ItemDevice {
+		item.SpellEffect = template.SpellEffect
+		limit := item.Attributes["use_cooldown_seconds"] * config.GetTargetTPS()
+		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) {
+			seconds := math.Min(item.LegacyDeviceCooldown, float64(item.Attributes["use_cooldown_seconds"]))
+			// Legacy float accumulation can drift just above an exact frame.
+			item.DeviceCooldownFrames = int(math.Round(seconds * float64(config.GetTargetTPS())))
+		}
+		item.DeviceCooldownFrames = min(max(0, item.DeviceCooldownFrames), limit)
+	}
+	item.LegacyDeviceCooldown = 0
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.

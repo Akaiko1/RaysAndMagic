@@ -41,3 +41,12 @@ npc.unlock_party_level: "Permanently available at average party level %d"
 
 adventure.arena_barrier: "The arena is sealed until the boss falls. Only Town Portal can carry you out."
 adventure.arena_pull: "The regulator draws the party into its arena. Defeat it or escape with Town Portal."
+
+item.device_recharging: "%s is recharging."
+item.device_cooldown: "Ready in %.1f seconds / %d rounds"
+item.traversal_required: "An active hero needs a suitable traversal spell or technique with enough spell points, or a carried device with a matching movement effect."
+
+item.device_jump: "Teleports the entire party %s tiles forward"
+item.device_recharge: "Recharge: %d seconds"
+item.device_cannot_act: "The selected hero cannot act yet."
+item.device_unavailable: "%s has no available use action."

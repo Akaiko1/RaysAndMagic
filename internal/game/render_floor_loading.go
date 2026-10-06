@@ -75,24 +75,24 @@ func (r *Renderer) startFloorPreparation(key string, groups map[string][]string)
 	}()
 }
 
-func (r *Renderer) advanceFloorPreparation(maxBytes int) {
+func (r *Renderer) advanceFloorPreparation(maxBytes int) bool {
 	p := r.floorPreparation
 	if p == nil {
-		return
+		return false
 	}
 	if p.prepared == nil {
 		select {
 		case prepared, ok := <-p.result:
 			if !ok {
 				r.cancelFloorPreparation()
-				return
+				return true
 			}
 			p.prepared = &prepared
 			if prepared.pixels != nil {
 				p.image = ebiten.NewImage(prepared.pixels.Bounds().Dx(), prepared.pixels.Bounds().Dy())
 			}
 		default:
-			return
+			return false
 		}
 	}
 	prepared := p.prepared
@@ -102,7 +102,7 @@ func (r *Renderer) advanceFloorPreparation(maxBytes int) {
 		graphics.WritePixelsRegion(p.image, image.Rect(0, p.row, cpu.Bounds().Dx(), p.row+rows), cpu.Pix[p.row*cpu.Stride:(p.row+rows)*cpu.Stride])
 		p.row += rows
 		if p.row < cpu.Bounds().Dy() {
-			return
+			return true
 		}
 	}
 	if r.floorTexAtlas != nil {
@@ -116,4 +116,5 @@ func (r *Renderer) advanceFloorPreparation(maxBytes int) {
 		gl.loading.uploads = append(gl.loading.uploads, r.floorTexAtlas)
 	}
 	r.cancelFloorPreparation()
+	return true
 }

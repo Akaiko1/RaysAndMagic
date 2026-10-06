@@ -17,6 +17,10 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		return nil, false
 	}
 	adapted := &items.ItemDefinitionFromYAML{
+		UseAction:                 def.UseAction,
+		UseSpell:                  def.UseSpell,
+		UseJumpExtraTiles:         def.UseJumpExtraTiles,
+		UseCooldownSeconds:        def.UseCooldownSeconds,
 		Name:                      def.Name,
 		Description:               def.Description,
 		Flavor:                    def.Flavor,

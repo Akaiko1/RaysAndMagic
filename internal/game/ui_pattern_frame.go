@@ -3,7 +3,6 @@ package game
 import (
 	"image"
 	"image/draw"
-	"os"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -108,12 +107,7 @@ func analyzePatternFrame(name string, slice int) *patternFrame {
 	if !ok {
 		return nil
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-	decoded, _, err := image.Decode(file)
+	decoded, err := graphics.DecodeImageFile(path)
 	if err != nil {
 		return nil
 	}

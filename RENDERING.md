@@ -70,12 +70,18 @@ image creation/publication stays with the owner. One region owns in-flight GPU
 allocations. The existing 32 MiB preparation reservation is unchanged; it is a
 queue reservation, not a limit on all process RAM. Cancellation and generation
 checks prevent a previous world's jobs from publishing into a new one.
+Sprite decoding uses up to two workers, with byte reservations and result
+delivery kept in request order so smaller distant images cannot overtake nearby
+ones. Queued results stay bounded and cancellation releases their reservations.
 
 The owner advances resource preparation in 256 KiB pixel chunks. Background
 loading performs one scheduling pass per Update. While awaiting a complete
 frame, it performs up to 32 passes or approximately 4 ms of work. A pass cannot
 interrupt an individual operation, so this is a cooperative time budget. Floor,
 demand and region preparation all participate; workers are never waited on.
+Background work does not repeat passes just because pixel writes were cheap on
+the CPU: their GPU cost may be deferred until Draw. Publishing a region defers
+the next region's planning until the following Update, including during a pause.
 
 Demand uploads and region prewarm uploads use the same policy: up to 32 images
 and 8 MiB per queue per Draw. A first oversized image is admitted alone to
