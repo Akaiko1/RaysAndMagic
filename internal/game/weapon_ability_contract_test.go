@@ -437,7 +437,7 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 	}
 }
 
-func TestContinuationDoesNotBorrowTurnBasedAimAssist(t *testing.T) {
+func TestProjectileDoesNotAcquireTargetsDuringFlight(t *testing.T) {
 	for _, continuation := range []bool{false, true} {
 		t.Run(fmt.Sprintf("continuation=%v", continuation), func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
@@ -455,16 +455,19 @@ func TestContinuationDoesNotBorrowTurnBasedAimAssist(t *testing.T) {
 			}
 			g.arrows = []Arrow{ar}
 			g.collisionSystem.RegisterEntity(collision.NewEntity(ar.ID, ar.X, ar.Y, 8, 8, collision.CollisionTypeProjectile, false))
-			if got := cs.turnBasedProjectileAssistTarget(ar.X, ar.Y, ar.VelX, ar.VelY); got != m {
-				t.Fatal("fixture is not eligible for initial-shot aim assist")
-			}
 			cs.CheckProjectileMonsterCollisions()
-			want := 990
-			if continuation {
-				want = 1000
-			}
+			want := 1000
 			if m.HitPoints != want {
 				t.Fatalf("HP=%d want %d", m.HitPoints, want)
+			}
+			// Positive control: moving the same target onto the existing ray must
+			// land the shot, even when the party turns away in the meantime.
+			m.X, m.Y = ar.X, ar.Y
+			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+			g.camera.Angle = math.Pi
+			cs.CheckProjectileMonsterCollisions()
+			if m.HitPoints >= want || g.arrows[0].Active {
+				t.Fatal("physical contact did not land the existing projectile")
 			}
 		})
 	}

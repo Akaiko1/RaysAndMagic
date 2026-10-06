@@ -15,6 +15,7 @@ func (r *Renderer) flaskProjectilePose(p MagicProjectile) (flaskRenderPose, bool
 	if !p.Active || p.FlaskKey == "" {
 		return flaskRenderPose{}, false
 	}
+	p.X, p.Y, p.VelX, p.VelY = p.Launch.renderMotion(r.game.combat, p.X, p.Y, p.VelX, p.VelY)
 	projected, ok := r.projectMovingEntity(p.X, p.Y, 16, 4, 96)
 	if !ok {
 		return flaskRenderPose{}, false

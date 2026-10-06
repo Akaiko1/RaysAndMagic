@@ -38,23 +38,23 @@ type MonsterDefinition struct {
 	Sprite       string   `yaml:"sprite"`
 	Letter       string   `yaml:"letter"`
 	Biomes       []string `yaml:"biomes,omitempty"`
-	BoxW         float64  `yaml:"box_w"`
-	BoxH         float64  `yaml:"box_h"`
 	// AnimateWhenIdle loops the walking sheet at rest, independently of speed.
 	AnimateWhenIdle bool `yaml:"animate_when_idle,omitempty"`
-	// SizeClass picks a quantized sprite height (small/medium/person/large/huge);
-	// the tile-height value per class lives in config graphics.monster_size_classes.
+	// SizeClass (small/medium/person/large/huge) picks the sprite height from
+	// config graphics.size_classes and the collision body from world.monster_bodies.
 	SizeClass string `yaml:"size_class"`
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
 	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
 	// damage school comes from that weapon. Ordinary melee uses a shared profile.
 	Champion string `yaml:"champion,omitempty"`
-	// size_game and size_multiplier are retired. The fields exist only so content
-	// still authoring them FAILS LOUD in validation instead of silently rendering
-	// at the wrong scale.
+	// size_game, size_multiplier and box_w/box_h are retired. The fields exist
+	// only so content still authoring them FAILS LOUD in validation instead of
+	// silently rendering or colliding at the wrong scale.
 	DeprecatedSizeGame        float64        `yaml:"size_game,omitempty"`
 	DeprecatedSizeMultiplier  float64        `yaml:"size_multiplier,omitempty"`
+	DeprecatedBoxW            float64        `yaml:"box_w,omitempty"`
+	DeprecatedBoxH            float64        `yaml:"box_h,omitempty"`
 	Resistances               map[string]int `yaml:"resistances"`
 	WalkableTileOverrides     []string       `yaml:"walkable_tile_overrides,omitempty"`
 	ProjectileSpell           string         `yaml:"projectile_spell"`
@@ -242,6 +242,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.DeprecatedSizeMultiplier != 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_multiplier - use size_class (small/medium/person/large/huge)", key))
+		}
+		if monster.DeprecatedBoxW != 0 || monster.DeprecatedBoxH != 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed keys box_w/box_h - the collision body comes from size_class (config world.monster_bodies)", key))
 		}
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))
@@ -568,7 +571,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	// Render/collision identity never changes after setup; cache it so hot
 	// frame/tick callers do not copy or scan the YAML definition.
 	m.cachedSprite = def.GetSpriteFromConfig()
-	m.cachedSizeW, m.cachedSizeH = def.GetSizeFromConfig()
+	m.cachedBody = m.bodyPixels(def.SizeClass)
 	m.cachedSizeMult = def.GetSizeGameMultiplier()
 	m.Level = def.Level
 	m.MaxHitPoints = def.MaxHitPoints
@@ -698,9 +701,15 @@ func (def *MonsterDefinition) GetSpriteFromConfig() string {
 	return def.Sprite
 }
 
-// GetSizeFromConfig returns collision box width and height from config
-func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
-	return def.BoxW, def.BoxH
+// bodyPixels resolves the square collision body of a size class from config
+// world.monster_bodies. LoadConfig guarantees every class; only hand-built
+// test configs and monsters fall back to the cap.
+func (m *Monster3D) bodyPixels(class string) float64 {
+	tiles, ok := m.config.MonsterBodyTiles(class)
+	if !ok {
+		tiles = config.MaxMonsterBodyTiles
+	}
+	return tiles * m.tileSize()
 }
 
 // ValidSizeClasses is the fixed set of monster size-class names. The tile-height

@@ -138,7 +138,7 @@ func TestNightMoteScanAndSpawnReuseScratch(t *testing.T) {
 	r.updateNightMoteTrees(1)
 	r.nightMotes = r.nightMotes[:0]
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := gameAllocsPerRun(100, func() {
 		r.nightMotes = r.nightMotes[:0]
 		r.nightMoteNextByTree[id] = 2
 		r.updateNightMoteTrees(2)

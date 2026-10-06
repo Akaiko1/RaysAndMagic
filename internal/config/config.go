@@ -395,6 +395,32 @@ type WorldConfig struct {
 	// OpenWorld merges the outdoor maps into one unified world at load time
 	// (rules in assets/open_world.yaml). Pointer so an absent key defaults ON.
 	OpenWorld *bool `yaml:"open_world"`
+	// MonsterBodies is the square collision body edge in tiles per actor size
+	// class. The same box moves the monster and takes projectile hits.
+	MonsterBodies map[string]float64 `yaml:"monster_bodies"`
+	// ProjectileHitboxes is the square hitbox edge in tiles per physics.hitbox.
+	ProjectileHitboxes map[string]float64 `yaml:"projectile_hitboxes"`
+}
+
+// MaxMonsterBodyTiles caps monster bodies at 48 px on the 64 px tile: a larger
+// body wedges in 1-wide corridors and at corners.
+const MaxMonsterBodyTiles = 0.75
+
+var projectileHitboxNames = []string{"standard", "wide"}
+
+// MonsterBodyTiles resolves the collision body edge of an actor size class.
+func (c *Config) MonsterBodyTiles(class string) (float64, bool) {
+	if c == nil {
+		return 0, false
+	}
+	value, ok := c.World.MonsterBodies[class]
+	return value, ok && value > 0
+}
+
+// ProjectileHitboxTiles resolves a physics block's hitbox class. Load
+// validation guarantees both the class name and its table entry.
+func (c *Config) ProjectileHitboxTiles(p *ProjectilePhysicsConfig) float64 {
+	return c.World.ProjectileHitboxes[p.Hitbox]
 }
 
 // OpenWorldEnabled reports whether the unified open world is on (default true;
@@ -413,12 +439,26 @@ type MovementConfig struct {
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
 // Uses tile-based units for designer-friendly configuration.
-// Speed is in tiles per second, range is in tiles, collision is in tiles.
+// Speed is in tiles per second and range is in tiles; the hitbox is a class.
 // Lifetime is calculated automatically: lifetime_frames = (range / speed) * tps
 type ProjectilePhysicsConfig struct {
-	SpeedTiles         float64 `yaml:"speed_tiles"`          // Speed in tiles per second
-	RangeTiles         float64 `yaml:"range_tiles"`          // Maximum range in tiles
-	CollisionSizeTiles float64 `yaml:"collision_size_tiles"` // Collision box size in tiles (min 0.5)
+	SpeedTiles float64 `yaml:"speed_tiles"` // Speed in tiles per second
+	RangeTiles float64 `yaml:"range_tiles"` // Maximum range in tiles
+	// Hitbox names a closed-set class; its size lives in world.projectile_hitboxes.
+	Hitbox string `yaml:"hitbox"`
+	// RemovedCollisionSizeTiles rejects the retired raw size key at load.
+	RemovedCollisionSizeTiles *float64 `yaml:"collision_size_tiles,omitempty"`
+}
+
+// validate checks the authored hitbox class of a physics block.
+func (p *ProjectilePhysicsConfig) validate() error {
+	if p.RemovedCollisionSizeTiles != nil {
+		return fmt.Errorf("physics.collision_size_tiles is removed - use hitbox: %s", strings.Join(projectileHitboxNames, "|"))
+	}
+	if !slices.Contains(projectileHitboxNames, p.Hitbox) {
+		return fmt.Errorf("physics.hitbox %q must be one of %s", p.Hitbox, strings.Join(projectileHitboxNames, "|"))
+	}
+	return nil
 }
 
 // GetSpeedPixels returns speed in pixels per frame for the game engine
@@ -437,16 +477,6 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	// the projectile travels as close to range_tiles as discrete frames allow -
 	// truncation left a few weapons ~1 frame short of their stated range.
 	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
-}
-
-// GetCollisionSizePixels returns collision size in pixels for the game engine
-// Enforces minimum of 0.5 tiles
-func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float64 {
-	collisionTiles := p.CollisionSizeTiles
-	if collisionTiles < 0.5 {
-		collisionTiles = 0.5 // Minimum 0.5 tiles
-	}
-	return collisionTiles * tileSize
 }
 
 // MeleeAttackConfig for instant melee weapons. ArcType is the discrete swing
@@ -969,12 +999,7 @@ const DefaultMonsterWalkFrameSeconds = 0.15
 type MonsterRenderConfig struct {
 	WalkFrameSeconds float64                  `yaml:"walk_frame_seconds"`
 	Death            MonsterDeathRenderConfig `yaml:"death"`
-	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
-	// (projectile hits); rendering is uncapped - a render-side pixel cap makes
-	// sprites sink at close range as the floor anchor outgrows the capped size.
-	MaxSpriteSize          int `yaml:"max_sprite_size"`
-	MinSpriteSize          int `yaml:"min_sprite_size"`
-	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
+	MinSpriteSize    int                      `yaml:"min_sprite_size"`
 }
 
 type NPCRenderConfig struct {
@@ -1667,6 +1692,29 @@ func LoadConfig(filename string) (*Config, error) {
 			return nil, fmt.Errorf("graphics.size_classes is missing required class %q", class)
 		}
 	}
+	for class, value := range config.World.MonsterBodies {
+		if !IsActorSizeClass(class) {
+			return nil, fmt.Errorf("world.monster_bodies contains unknown size class %q", class)
+		}
+		if !(value > 0 && value <= MaxMonsterBodyTiles) {
+			return nil, fmt.Errorf("world.monster_bodies.%s = %v must be in (0, %v] tiles; a larger body wedges in 1-wide corridors", class, value, MaxMonsterBodyTiles)
+		}
+	}
+	for _, class := range actorSizeClassNames {
+		if _, ok := config.MonsterBodyTiles(class); !ok {
+			return nil, fmt.Errorf("world.monster_bodies is missing size class %q", class)
+		}
+	}
+	for name, value := range config.World.ProjectileHitboxes {
+		if !slices.Contains(projectileHitboxNames, name) || !(value > 0) || math.IsInf(value, 1) {
+			return nil, fmt.Errorf("world.projectile_hitboxes contains invalid entry %q = %v", name, value)
+		}
+	}
+	for _, name := range projectileHitboxNames {
+		if config.World.ProjectileHitboxes[name] <= 0 {
+			return nil, fmt.Errorf("world.projectile_hitboxes is missing class %q", name)
+		}
+	}
 	if seconds := config.Graphics.Monster.WalkFrameSeconds; !(seconds > 0 && seconds <= 5) {
 		return nil, fmt.Errorf("graphics.monster.walk_frame_seconds must be in (0, 5]")
 	}
@@ -1769,6 +1817,11 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.Physics != nil {
+			if err := def.Physics.validate(); err != nil {
+				return fmt.Errorf("spell '%s': %w", id, err)
+			}
+		}
 		if def.Fly && !def.TerrainPassage {
 			return fmt.Errorf("spell '%s': fly requires terrain_passage", id)
 		}
@@ -2043,6 +2096,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.IsRanged() {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
+			}
+			if err := def.Physics.validate(); err != nil {
+				return fmt.Errorf("projectile weapon '%s': %w", key, err)
 			}
 			if def.Graphics != nil && def.Graphics.SlashFx != "" {
 				return fmt.Errorf("projectile weapon '%s' defines slash_fx (melee-only)", key)

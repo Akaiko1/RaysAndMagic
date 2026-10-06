@@ -63,6 +63,20 @@ world:
   # Unified open world: outdoor maps are stitched into one world with carved
   # passages (rules in assets/open_world.yaml). false = classic split maps.
   open_world: true
+  # Monster collision bodies in tiles, keyed by size_class. One square box
+  # moves the monster and takes projectile hits. Capped at 0.75 tile (48 px):
+  # a larger body wedges in 1-wide corridors and at corners.
+  monster_bodies:
+    small: 0.375    # 24 px - rat, bat, pixie, wildlife
+    medium: 0.625   # 40 px - wolf, spider, goblin
+    person: 0.75    # 48 px
+    large: 0.75     # 48 px
+    huge: 0.75      # 48 px
+  # Projectile hitboxes in tiles, keyed by physics.hitbox in spells/weapons.
+  # Area damage is aoe_radius_tiles, not the hitbox.
+  projectile_hitboxes:
+    standard: 0.5   # arrows, bolts, bullets
+    wide: 1.0       # large shots (fireball, swarm); stays in its own lane in turn-based
 
 # Movement settings
 movement:
@@ -541,13 +555,10 @@ graphics:
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
     min_view_angle_deg: 22      # monster tokens never come closer than this to edge-on (0 = off)
 
-  # Monster rendering (max_sprite_size bounds combat collision scaling only;
-  # rendering is uncapped so sprites don't sink at close range)
+  # Monster rendering is uncapped so sprites do not sink at close range.
   monster:
     walk_frame_seconds: 0.15  # Seconds per walking frame; matches the code default (about 6.7 FPS)
-    max_sprite_size: 60
     min_sprite_size: 8
-    size_distance_multiplier: 75
     death:
       fps: 6
       fall_seconds: 1

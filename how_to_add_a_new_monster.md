@@ -10,6 +10,7 @@ Take level, HP, damage and experience from [Monster design](docs/monster-design.
   can omit `letter`.
 - Radii in `monsters.yaml` are in tiles (1 tile = 64px).
 - `size_class` sets the sprite size: one of `small`, `medium`, `person`, `large`, `huge`. The per-class height in tiles lives in `config.yaml` under `graphics.size_classes`. A raw `size_multiplier` is rejected at load.
+- `size_class` also sets the collision body (movement and projectile hits) from `config.yaml` `world.monster_bodies`: small 24 px, medium 40 px, person/large/huge 48 px. Bodies are capped at 48 px so every monster fits 1-wide corridors. Raw `box_w`/`box_h` are rejected at load.
 
 ## Step 1: Define the monster
 Add a new entry under `monsters:` in `assets/monsters.yaml`.
@@ -34,8 +35,6 @@ monsters:
     sprite: "goblin"       # assets/sprites/mobs/goblin.png
     biomes: [forest]
     letter: "v"            # lowercase, unique in its biome scope (see "Biome restriction")
-    box_w: 40              # keep < 64 (tile size) or it can't fit 1-wide corridors
-    box_h: 40
     size_class: large       # small | medium | person | large | huge
     resistances: {}
 ```
@@ -171,8 +170,6 @@ monsters:
     attack_radius: 1
     speed: 2.1
     sprite: ring_tailed_lemur
-    box_w: 18
-    box_h: 18
     size_class: small
     biomes: [jungle]
     arboreal:

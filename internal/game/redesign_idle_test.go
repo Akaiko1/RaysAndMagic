@@ -30,7 +30,7 @@ func TestDisplayedIdleInventoryDoesNotAllocatePerBinding(t *testing.T) {
 	for _, count := range []int{64, 512, 2048} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			ui := idleInventoryUI(t, count)
-			if n := testing.AllocsPerRun(100, ui.dispatchDisplayedInput); n != 0 {
+			if n := gameAllocsPerRun(100, ui.dispatchDisplayedInput); n != 0 {
 				t.Fatalf("idle displayed inventory allocates %g times per update", n)
 			}
 			// Skipping idle work must not bless changed content for a later click.
@@ -90,7 +90,7 @@ func TestSkyCleanupIdleDoesNotRebuildOtherResources(t *testing.T) {
 					}
 					t.Cleanup(func() { r.game.skyPanorama = nil; r.game.skyPanoramaPrev = nil; r.deallocateUnusedSkyPanoramas(nil) })
 				}
-				if n := testing.AllocsPerRun(100, func() { r.deallocateUnusedSkyPanoramas(keep) }); n != 0 {
+				if n := gameAllocsPerRun(100, func() { r.deallocateUnusedSkyPanoramas(keep) }); n != 0 {
 					t.Fatalf("unchanged sky ownership allocated %g times per tick", n)
 				}
 				if len(r.standeeCoreCache) != count {

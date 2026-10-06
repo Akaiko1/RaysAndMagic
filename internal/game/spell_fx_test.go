@@ -43,22 +43,6 @@ func TestEveryProjectileSpellAuthorsAFxStyle(t *testing.T) {
 	}
 }
 
-// TestPerspectiveScale_NeverInflates: the collision scale must not balloon near
-// the camera (the spawn-frame bug where a fireball hit/exploded several tiles
-// away before being drawn). It clamps to 1 up close and shrinks far away.
-func TestPerspectiveScale_NeverInflates(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	cs.game.camera.X, cs.game.camera.Y = 0, 0
-	ts := float64(cs.game.config.GetTileSize())
-
-	if near := cs.calculatePerspectiveScale(1, 1, 28, 4, 110); near > 1.0 {
-		t.Errorf("point-blank scale = %v, want <= 1 (no inflation)", near)
-	}
-	if far := cs.calculatePerspectiveScale(ts*8, 0, 28, 4, 110); far >= 1.0 {
-		t.Errorf("far scale = %v, want < 1 (shrinks with distance)", far)
-	}
-}
-
 // TestFireboltParticleSize_ShrinksWithDistance: a firebolt's explosion particles
 // must get smaller with distance (not pin to the max cap at every range, which
 // read as "always point-blank"). Uses firebolt's real spawn size + the camera's

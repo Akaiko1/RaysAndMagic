@@ -27,7 +27,7 @@ spells:
     physics:
       speed_tiles: 10.0
       range_tiles: 10.0
-      collision_size_tiles: 0.5
+      hitbox: standard     # standard | wide; sizes in config.yaml world.projectile_hitboxes
 
     graphics:
       max_size: 50
@@ -74,7 +74,7 @@ Strong Magic, criticals, and target defenses. See
 - `aoe_radius_tiles` (splash radius; 0 = single-target, >0 splashes all monsters within N tiles)
 - damage tuning: `damage_cost_multiplier`, `scales_with_personality`, `deals_no_damage`
 - riders: `stun_chance` + `stun_duration_seconds`/`stun_duration_turns` (Lightning, Psychic Shock), `disintegrate_chance` (instakill roll), `bind_undead` + `bind_duration_seconds`, `pacify` + `pacify_duration_seconds` (Charm), `starburst_fx`
-- `physics` (`speed_tiles`, `range_tiles`, `collision_size_tiles`), `graphics`
+- `physics` (`speed_tiles`, `range_tiles`, `hitbox`), `graphics`. `hitbox` is `standard` (0.5 tile: bolts, arrows) or `wide` (1.0 tile: large shots such as fireball; speed is `speed_tiles` alone); area damage comes from `aoe_radius_tiles`, not the hitbox. A raw `collision_size_tiles` is rejected at load.
 
 ## Supported utility fields
 

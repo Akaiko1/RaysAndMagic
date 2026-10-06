@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 )
@@ -53,16 +54,18 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 						return def
 					}
 					shoot := func(x, vx float64, life int) {
-						shot := MagicProjectile{WorldAim: true, ID: g.GenerateProjectileID("fireball"), X: x, Y: cy, VelX: vx,
+						shot := MagicProjectile{ID: g.GenerateProjectileID("fireball"), X: x, Y: cy, VelX: vx,
 							Damage: 30, LifeTime: life, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, Attacker: hero, AoeTiles: 2}
 						g.magicProjectiles = []MagicProjectile{shot}
-						updater := entities.NewEntityUpdaterWithWorkers(1)
-						defer updater.Stop()
-						updater.UpdateProjectilesParallel(g.ConvertProjectilesToWrappers(), g.world.CanProjectileMoveTo)
+						g.magicProjectiles[0].Launch = projectileLaunch{valid: true, x: x, y: cy, dx: 1, cone: projectileAssistMaxAngleRad}
+						g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, x, cy, 8, 8, collision.CollisionTypeProjectile, false))
+						g.threading = &threading.ThreadingComponents{EntityUpdater: entities.NewEntityUpdaterWithWorkers(1)}
+						defer g.threading.Shutdown()
+						(&GameLoop{game: g}).updateProjectilesAndImpacts()
 					}
 					switch source {
 					case "spell_hit":
-						shot := MagicProjectile{WorldAim: true, ID: g.GenerateProjectileID("fireball"), X: cx, Y: cy, VelX: 1,
+						shot := MagicProjectile{ID: g.GenerateProjectileID("fireball"), X: cx, Y: cy, VelX: 1,
 							Damage: 30, LifeTime: 50, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, Attacker: hero, AoeTiles: 2}
 						g.magicProjectiles = []MagicProjectile{shot}
 						g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, shot.X, shot.Y, 8, 8, collision.CollisionTypeProjectile, false))
@@ -286,5 +289,62 @@ func TestQuakesAndArtilleryReachBehindWalls(t *testing.T) {
 				t.Errorf("monster behind the wall hit=%v, want %v", got, tc.reaches)
 			}
 		})
+	}
+}
+
+// Physical overlap alone is insufficient for wide projectiles beside cover.
+// Direct contact and the resulting splash must both obey the same wall rule.
+func TestProjectileContactStopsAtCover(t *testing.T) {
+	for _, cover := range []string{"open", "wall", "door"} {
+		for _, partyTarget := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/party=%v", cover, partyTarget), func(t *testing.T) {
+				g, ts := summonTileWorld(t)
+				x, y := 14.95*ts, 10.5*ts
+				if cover == "wall" {
+					g.world.Tiles[10][15] = world.TileWall
+				}
+				if cover == "door" {
+					g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("door", 15.5*ts, y, ts*.9, ts*.9, collision.CollisionTypeNPC, true))
+				}
+				m := spawnMonsterAtTile(g, "goblin", 16, 10, ts)
+				m.X = 16.05 * ts
+				m.PerfectDodge = 0
+				g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+				splash := spawnMonsterAtTile(g, "goblin", 16, 11, ts)
+				splash.PerfectDodge = 0
+				g.world.Monsters = []*monsterPkg.Monster3D{m, splash}
+				splashHP := splash.HitPoints
+				p := MagicProjectile{ID: "wide-fireball", X: x, Y: y, Damage: 10, LifeTime: 30, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, AoeTiles: 2, AoE: true}
+				if partyTarget {
+					g.camera.X, g.camera.Y = m.X, m.Y
+					g.collisionSystem.UpdateEntity("player", m.X, m.Y)
+					p.Owner = ProjectileOwnerMonster
+					p.SourceMonster = m
+					p.IgnoresDodge = true
+				}
+				g.magicProjectiles = []MagicProjectile{p}
+				g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, x, y, 2*ts, 2*ts, collision.CollisionTypeProjectile, false))
+				before := m.HitPoints
+				if partyTarget {
+					before = partyHPSum(g)
+					g.combat.CheckProjectilePlayerCollisions()
+				} else {
+					g.combat.CheckProjectileMonsterCollisions()
+				}
+				after := m.HitPoints
+				if partyTarget {
+					after = partyHPSum(g)
+				}
+				if (after < before) != (cover == "open") {
+					t.Fatalf("HP %d->%d; cover=%s", before, after, cover)
+				}
+				if !partyTarget && (splash.HitPoints < splashHP) != (cover == "open") {
+					t.Fatal("contact splash disagrees with cover")
+				}
+				if g.magicProjectiles[0].Active != (cover != "open") {
+					t.Fatal("covered target consumed projectile")
+				}
+			})
+		}
 	}
 }

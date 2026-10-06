@@ -5,8 +5,6 @@ type queuedClick struct {
 	at   int64
 }
 
-const clickBufferMs = doubleClickWindowMs
-
 // leftClickPosition returns the oldest queued left-click position.
 // It returns ok=false if there is no click queued.
 func (g *MMGame) leftClickPosition() (x, y int, ok bool) {
@@ -66,25 +64,4 @@ func (g *MMGame) consumeRightClickIn(x1, y1, x2, y2 int) bool {
 // match while preserving unrelated right-clicks for their context handlers.
 func (g *MMGame) consumeRightClickMatching(match func(queuedClick) bool) bool {
 	return consumeClickMatching(&g.mouseRightClicks, &g.mouseRightClickX, &g.mouseRightClickY, &g.mouseRightClickAt, match)
-}
-
-func (g *MMGame) pruneClickQueues(now int64) {
-	if len(g.mouseLeftClicks) > 0 {
-		keep := g.mouseLeftClicks[:0]
-		for _, click := range g.mouseLeftClicks {
-			if now-click.at <= clickBufferMs {
-				keep = append(keep, click)
-			}
-		}
-		g.mouseLeftClicks = keep
-	}
-	if len(g.mouseRightClicks) > 0 {
-		keep := g.mouseRightClicks[:0]
-		for _, click := range g.mouseRightClicks {
-			if now-click.at <= clickBufferMs {
-				keep = append(keep, click)
-			}
-		}
-		g.mouseRightClicks = keep
-	}
 }

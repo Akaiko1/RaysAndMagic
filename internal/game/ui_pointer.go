@@ -16,7 +16,8 @@ func (ui *UISystem) updateMouseState() {
 		ui.dropQueuedClicks()
 		return
 	}
-	ui.game.pruneClickQueues(now)
+	// Update owns queue lifetime, including early returns. A slow frame must
+	// not discard an otherwise valid press; timestamps only describe gestures.
 	suppressLeftClick, releaseDrivenClicks := ui.recognizeGameplayPointer(now)
 
 	if leftJustPressed && !suppressLeftClick && !releaseDrivenClicks {

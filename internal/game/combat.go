@@ -644,7 +644,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	return cs.equipmentAttackAtAngle(cs.partyAttackAngle(), false)
 }
 
-func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) bool {
+func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) bool {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 
 	// Stunned characters cannot attack either.
@@ -660,7 +660,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) boo
 	// Check if character has a weapon equipped - main hand, or (Dual Wielding)
 	// whichever hand attackSlotFor picked for this swing.
 	slot := cs.attackSlotFor(attacker)
-	if worldAim {
+	if explicitAim {
 		slot = items.SlotMainHand
 	}
 	weapon, hasWeapon := attacker.Equipment[slot]
@@ -686,7 +686,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) boo
 		totalDamage = cs.weaponRangedDamageAtLaunch(totalDamage, true)
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action - and no card procs either.
-		acted = cs.createArrowAttackAimed(totalDamage, slot, "", angle, worldAim)
+		acted = cs.createArrowAttackAimed(totalDamage, slot, "", angle, explicitAim)
 	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
 		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
 		// castResolvedSpell already rolled the summon-card checks for this
@@ -737,7 +737,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, worldAim bool) boo
 		// The card itself stays silent; the bolt's chat identity is the authored
 		// label of whichever card granted the bonus.
 		if pct := cs.game.cardBonusBoltPct(); pct > 0 && rand.Intn(100) < pct {
-			cs.createArrowAttackAimed(attacker.GetEffectiveAccuracy()/3, items.SlotMainHand, cs.game.cardBonusBoltLabel(), angle, worldAim)
+			cs.createArrowAttackAimed(attacker.GetEffectiveAccuracy()/3, items.SlotMainHand, cs.game.cardBonusBoltLabel(), angle, explicitAim)
 		}
 	}
 	return acted
@@ -757,7 +757,7 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 	return cs.createArrowAttackAimed(damage, slot, label, cs.partyAttackAngle(), false)
 }
 
-func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, worldAim bool) bool {
+func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, explicitAim bool) bool {
 	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
 	// (matches the dispatch gate in EquipmentMeleeAttack).
 	attacker := cs.game.party.Members[cs.game.selectedChar]
@@ -804,7 +804,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			arrowLifetime = int(rangeTiles/speedTiles*float64(cs.game.config.GetTPS()) + 0.5)
 		}
 	}
-	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
+	collisionSize := cs.game.config.ProjectileHitboxTiles(weaponDef.Physics) * tileSize
 
 	// Determine damage type from weapon
 	damageType := monsterPkg.DamagePhysical.String()
@@ -841,6 +841,8 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 		pierceLeft = equippedDef.PierceCount
 		ricochetLeft = equippedDef.RicochetTargets
 	}
+	launch := cs.partyProjectileLaunch(angle, arrowSpeed*float64(arrowLifetime), explicitAim)
+	angle = launch.angle
 	dirX, dirY := math.Cos(angle), math.Sin(angle)
 	spacing := volleySpacingFrac * float64(tileSize)
 	for i := 0; i < volley; i++ {
@@ -852,6 +854,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 		dmg := damage
 		dmg = weaponCriticalDamage(dmg, isCrit)
 		arrow := Arrow{
+			Launch:                 launch,
 			ElementalAbilityDamage: elementalAbilityDamage(disintegrateDef, attacker),
 			ID:                     cs.game.GenerateProjectileID("arrow"),
 			Attacker:               cs.activeAttacker(),
@@ -862,14 +865,13 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			Damage:                 dmg,
 			TrueDamage:             trueDamage,
 			IgnoresDodge:           ignoresDodge,
-			LifeTime:               arrowLifetime,
+			LifeTime:               volleyDartLifetime(arrowLifetime, back, arrowSpeed),
 			Active:                 true,
 			BowKey:                 bowKey,
 			Label:                  label,
 			DamageType:             damageType,
 			Crit:                   isCrit,
 			CritChance:             critChance,
-			WorldAim:               worldAim || cs.partyAimTarget != nil,
 			DisintegrateChance:     disintegrateChance,
 			PierceLeft:             pierceLeft,
 			RicochetLeft:           ricochetLeft,
@@ -1216,55 +1218,7 @@ func (cs *CombatSystem) classifyFrontSlots(mons []*monsterPkg.Monster3D) (front,
 	return front, left, right, hasPulledSide
 }
 
-// turnBasedProjectileAssistTarget redirects a player projectile that hit nothing
-// onto the front attack slot it was AIMED at, so a shot at a pulled front-diagonal
-// SPRITE connects with the real monster. It assists only when the shot was heading
-// at the slot (within projectileAssistMaxAngleRad of the camera->slot direction)
-// AND the projectile has actually FLOWN out to the slot's drawn position - so the
-// arrow/bolt visibly travels instead of striking the instant it spawns. A sideways
-// or backward miss, or a shot still in the player's lap, never connects.
-func (cs *CombatSystem) turnBasedProjectileAssistTarget(px, py, dirX, dirY float64) *monsterPkg.Monster3D {
-	if cs == nil || cs.game == nil || !cs.game.turnBasedMode {
-		return nil
-	}
-	targets := make([]*monsterPkg.Monster3D, 0, len(cs.game.world.Monsters))
-	for _, m := range cs.game.world.Monsters {
-		if m != nil && m.IsAlive() && !isPurePartySummon(m) {
-			targets = append(targets, m)
-		}
-	}
-	front, left, right, _ := cs.classifyFrontSlots(targets)
-	best := front
-	if best == nil {
-		best = chooseFrontAttackSide(left, right)
-	}
-	if best == nil {
-		return nil
-	}
-	camX, camY := cs.game.camera.X, cs.game.camera.Y
-	if !headingTowardWithin(camX, camY, dirX, dirY, best.vx, best.vy, projectileAssistMaxAngleRad) {
-		return nil
-	}
-	// Forward progress of the projectile along the camera->slot ray must reach the
-	// slot (minus a tolerance for the sprite's size / fast bolts overshooting a frame).
-	slotX, slotY := best.vx-camX, best.vy-camY
-	slotDist := math.Hypot(slotX, slotY)
-	if slotDist <= 0 {
-		return best.monster
-	}
-	forward := ((px-camX)*slotX + (py-camY)*slotY) / slotDist
-	tol := projectileAssistReachToleranceTiles * float64(cs.game.config.GetTileSize())
-	if forward < slotDist-tol {
-		return nil // still in flight - let it keep travelling
-	}
-	return best.monster
-}
-
 const projectileAssistMaxAngleRad = 35.0 * math.Pi / 180.0
-
-// projectileAssistReachToleranceTiles: how far short of the pulled slot the
-// projectile may connect (sprite radius + per-frame overshoot slack).
-const projectileAssistReachToleranceTiles = 0.5
 
 // headingTowardWithin reports whether heading (dirX,dirY) points within maxRad of
 // the direction from (ox,oy) to (tx,ty).
@@ -2905,7 +2859,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 	}
 
 	tileSize := cs.game.config.GetTileSize()
-	collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
+	collisionSize := cs.game.config.ProjectileHitboxTiles(spellConfig) * tileSize
 	projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 	cs.game.collisionSystem.RegisterEntity(projectileEntity)
 	if spellDef, err := spells.GetSpellDefinitionByID(spellID); err == nil {
@@ -2928,7 +2882,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	tileSize := cs.game.config.GetTileSize()
 	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
 	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
-	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
+	collisionSize := cs.game.config.ProjectileHitboxTiles(weaponDef.Physics) * tileSize
 
 	damageType := monsterPkg.DamagePhysical.String()
 	if weaponDef.DamageType != "" {
@@ -2960,7 +2914,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 			Damage:             parts.Normal,
 			TrueDamage:         parts.True,
 			IgnoresDodge:       monster.IgnoresDodge,
-			LifeTime:           arrowLifetime,
+			LifeTime:           volleyDartLifetime(arrowLifetime, back, arrowSpeed),
 			Active:             true,
 			BowKey:             weaponKey,
 			DamageType:         damageType,
@@ -2975,6 +2929,15 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	}
 	cs.game.playMonsterRangedWeaponAttackSound(weaponDef, monster)
+}
+
+// volleyDartLifetime lets a dart trailed back behind the lead still end on
+// the lead's range plane, so every dart of a volley reaches the authored range.
+func volleyDartLifetime(lifetime int, back, speed float64) int {
+	if speed <= 0 {
+		return lifetime
+	}
+	return lifetime + int(math.Round(back/speed))
 }
 
 func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinitionConfig, monster *monsterPkg.Monster3D) float64 {

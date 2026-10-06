@@ -73,45 +73,6 @@ func flaskDamage(c *character.MMCharacter, d *config.FlaskDefinition) int {
 	return config.TierValue(d.Damage, c.SkillTier(character.SkillBombThrowing)) + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
 }
 
-// flaskAim fixes the arc at launch. Keyboard throws acquire a visible forward
-// foe using the shared auto-target and front-slot rules; clicks keep their aim.
-// Fly to the real position, so the splash still resolves in world coordinates.
-func (cs *CombatSystem) flaskAim(maxRange float64) (angle, distance float64) {
-	g := cs.game
-	angle, distance = cs.partyAttackAngle(), maxRange
-	if target := cs.partyAimTarget; target != nil {
-		return angle, min(maxRange, math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y))
-	}
-	var best *monster.Monster3D
-	bestDistance := maxRange
-	dirX, dirY := math.Cos(angle), math.Sin(angle)
-	cone := min(g.camera.FOV/2, projectileAssistMaxAngleRad)
-	for _, target := range g.world.Monsters {
-		if isExcludedFromPartyAutoTarget(target) || !target.IsAlive() {
-			continue
-		}
-		d := math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y)
-		if d <= 0 || d > bestDistance || !cs.attackLineClear(g.camera.X, g.camera.Y, target.X, target.Y) {
-			continue
-		}
-		x, y := target.X, target.Y
-		if _, px, py, pulled, ok := cs.pulledFrontSlot(target); ok && pulled {
-			x, y = px, py
-		}
-		if !headingTowardWithin(g.camera.X, g.camera.Y, dirX, dirY, x, y, cone) {
-			continue
-		}
-		if best == nil || d < bestDistance || (d == bestDistance && target.ID < best.ID) {
-			best, bestDistance = target, d
-		}
-	}
-	if best != nil {
-		angle = math.Atan2(best.Y-g.camera.Y, best.X-g.camera.X)
-		distance = bestDistance
-	}
-	return angle, distance
-}
-
 func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	refuse := func(message string) bool {
 		if announce {
@@ -142,8 +103,10 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	tps := g.config.GetTPS()
 	tile := float64(g.config.GetTileSize())
 	speed := 8 * tile / float64(tps)
-	a, distance := g.combat.flaskAim(float64(f.RangeTiles) * tile)
+	launch := g.combat.partyProjectileLaunch(g.combat.partyAttackAngle(), float64(f.RangeTiles)*tile, false)
+	a, distance := launch.angle, launch.distance
 	p := MagicProjectile{
+		Launch:            launch,
 		ID:                g.GenerateProjectileID("flask"),
 		FlaskKey:          key,
 		FlaskPoisonFrames: config.TierValue(f.PoisonSeconds, tier) * tps,
@@ -151,7 +114,6 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		FlaskRadius:       float64(f.RadiusTiles) * tile,
 		FlaskRemaining:    distance,
 		FlaskFlightRange:  distance,
-		WorldAim:          true,
 		Attacker:          c,
 		X:                 g.camera.X,
 		Y:                 g.camera.Y,

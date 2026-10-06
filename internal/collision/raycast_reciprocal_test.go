@@ -63,9 +63,16 @@ func TestAttackEndpointsLiveAndSnapshot(t *testing.T) {
 				} else {
 					tiles.setOpaque(int(x/64), int(y/64), true)
 				}
-				for _, checker := range []SightChecker{cs, cs.Snapshot()} {
+				frozen := cs.SightSnapshot()
+				for _, checker := range []SightChecker{cs, cs.Snapshot(), cs.SightSnapshot()} {
 					if CanAttackFrom(checker, x, y) || AttackLineClear(checker, x1, y1, x2, y2) || AttackLineClear(checker, x2, y2, x1, y1) {
 						t.Fatal("blocked endpoint allowed an attack")
+					}
+				}
+				if dynamic {
+					cs.UnregisterEntity("door")
+					if !cs.CanAttackFrom(x, y) || frozen.CanAttackFrom(x, y) {
+						t.Fatal("door change leaked into the frozen projectile airspace")
 					}
 				}
 			})

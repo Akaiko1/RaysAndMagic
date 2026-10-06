@@ -482,7 +482,7 @@ func TestPlayerRangedAttackUsesWeaponPhysics(t *testing.T) {
 	if entity == nil || entity.BoundingBox == nil {
 		t.Fatalf("expected arrow collision entity")
 	}
-	expectedCollisionSize := weaponDef.Physics.GetCollisionSizePixels(game.config.GetTileSize())
+	expectedCollisionSize := game.config.ProjectileHitboxTiles(weaponDef.Physics) * game.config.GetTileSize()
 	if math.Abs(entity.BoundingBox.Width-expectedCollisionSize) > 0.0001 {
 		t.Fatalf("expected collision width %.4f from weapon physics, got %.4f", expectedCollisionSize, entity.BoundingBox.Width)
 	}

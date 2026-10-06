@@ -151,7 +151,9 @@ func (g *MMGame) fireOverwatch(index int, target *monster.Monster3D) bool {
 	g.selectedChar = index
 	defer func() { g.selectedChar = previous }()
 	first := len(g.arrows)
-	if !g.combat.equipmentAttackAtAngle(math.Atan2(target.Y-g.camera.Y, target.X-g.camera.X), true) {
+	restoreAim := g.combat.beginPartyTargetAim(target)
+	defer restoreAim()
+	if !g.combat.equipmentAttackAtAngle(g.combat.partyAttackAngle(), true) {
 		return false
 	}
 	for i := first; i < len(g.arrows); i++ {

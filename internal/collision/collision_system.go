@@ -83,12 +83,12 @@ type TileChecker interface {
 // CollisionSystem manages all collision detection in the game.
 //
 // CONCURRENCY CONTRACT (deliberately lock-free): the parallel PROJECTILE
-// updater calls UpdateEntity/CanMoveTo* directly on the live system from worker
+// updater calls UpdateEntity directly on the live system from worker
 // goroutines. That is safe only while (1) updates are stop-the-world - no other
 // game mutation runs concurrently, (2) each worker touches a DISJOINT set of
 // entities (chunked partitioning) AND never reads another worker's entities -
-// projectile movement only checks TILES (world.CanProjectileMoveTo), never
-// other entities, so this holds - and (3) the entities map itself is never
+// projectile movement queries frozen terrain and door airspace through
+// SightSnapshot, never live entities - and (3) the entities map itself is never
 // mutated (Register/Unregister) inside a parallel phase. Breaking any of these
 // entity-registry invariants requires adding a lock around the registry first.
 // The smaller dynamic sight overlay has its own RWMutex: CastRay may read it

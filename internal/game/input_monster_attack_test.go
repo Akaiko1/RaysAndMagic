@@ -22,6 +22,7 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	g.camera.Angle = 0.6
 	placePlayerAtTile(g, 10, 10, ts)
 	g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = 640, 480
+	g.camera.FOV = squareProjectionFOV(640, 480)
 	m := monster.NewMonster3DFromConfig(11.5*ts, 10.5*ts, "goblin", g.config)
 	m.HitPoints, m.MaxHitPoints = 100000, 100000
 	m.PerfectDodge = 0
@@ -34,6 +35,10 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 		ch.RTCooldown, ch.OffHandRTCooldown = 0, 0
 	}
 	ih := NewInputHandler(g)
+	// Desktop input must not turn a scripted attack into a sprint or movement.
+	// Individual keyboard cases replace the edge source below.
+	ih.keys = keytracker.NewWithSource(heldOnly())
+	ih.heldKeys = heldOnly()
 	ui := &UISystem{game: g}
 	r := &Renderer{game: g}
 	g.gameLoop = &GameLoop{game: g, inputHandler: ih, ui: ui, renderer: r}

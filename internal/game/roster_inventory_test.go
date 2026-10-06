@@ -102,8 +102,11 @@ func TestRosterImportantItemsDisplayedConfirmation(t *testing.T) {
 						rosterTestRequest(t, h, embedded)
 						warn := kind != "ordinary" && kind != "empty" && kind != "shared"
 						if warn {
-							if g.pendingRosterSwap == nil || g.party.Members[0] != hero {
+							if g.party.Members[0] != hero {
 								t.Fatal("important personal items were benched without a warning")
+							}
+							if g.pendingRosterSwap == nil {
+								t.Fatal("roster click did not open the important-items warning")
 							}
 							rosterTestAnswer(t, h, confirm)
 						}

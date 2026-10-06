@@ -518,9 +518,11 @@ func (gl *GameLoop) updateProjectilesParallel() {
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
-	// Projectiles fly over floor-level obstacles (chasms, water) and only stop at
-	// solid walls - unlike entity movement, which uses CanMoveTo.
-	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanProjectileMoveTo)
+	if len(allProjectiles) > 0 {
+		// Freeze doors and terrain once; workers never lock or read live blockers.
+		airspace := gl.game.collisionSystem.SightSnapshot()
+		gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, airspace.CanAttackFrom)
+	}
 
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()

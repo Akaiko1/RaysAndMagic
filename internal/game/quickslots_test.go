@@ -3,6 +3,7 @@ package game
 import (
 	"image"
 	"testing"
+	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
 
@@ -288,7 +289,8 @@ func TestInGameQuickSlotDoubleClickUsesTheSlot(t *testing.T) {
 			click := func(p image.Point) {
 				d.at = p
 				beginUIFrame(d.h.screen, g.uiPixelScale())
-				d.h.clicks(false, p.X, p.Y, 1)
+				d.h.clicksAt(false, p.X, p.Y, 1, d.clock.UnixMilli())
+				d.clock = d.clock.Add(100 * time.Millisecond)
 				d.frame()
 			}
 			click(first)

@@ -70,12 +70,12 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
+	Launch                             projectileLaunch // Runtime-only; save/load discards projectiles.
 	FlaskKey                           string
 	FlaskRemaining, FlaskRadius        float64
 	FlaskFlightRange                   float64
 	FlaskPoisonFrames, FlaskBurnFrames int
 
-	WorldAim           bool    // Explicit/autonomous aim uses physical collision, independent of the camera.
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
@@ -115,11 +115,11 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	ElementalAbilityDamage int             // Effective-stat scaling snapshotted at launch.
-	Backwash               *backwashCharge // Secondary charge; never triggers ordinary hit riders.
-	Overwatch              bool            // Reaction provenance; never changes weapon or proc classification.
+	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
+	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
+	Backwash               *backwashCharge  // Secondary charge; never triggers ordinary hit riders.
+	Overwatch              bool             // Reaction provenance; never changes weapon or proc classification.
 	CritChance             int
-	WorldAim               bool
 	ID                     string  // Unique identifier
 	X, Y                   float64 // Current position
 	VelX, VelY             float64 // Velocity

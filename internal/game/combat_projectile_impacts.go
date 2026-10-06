@@ -14,9 +14,8 @@ import (
 	"ugataima/internal/spells"
 )
 
-// CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
-// using perspective-scaled bounding boxes for accurate visual collision detection.
-// Crossfire, reflected shots and arrow continuations use world-space collision.
+// CheckProjectileMonsterCollisions resolves every shot against physical world
+// boxes. Input, camera direction and sprite scale never change the hit rule.
 func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	// Collect all active projectiles. Monster-owned ones are excluded (they hit
 	// the party, not other monsters); party, crossfire, and reflected owners can
@@ -45,27 +44,12 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, "magic_projectile", snapshot.Owner, i})
 		}
 	}
-	// Initial player shots retain first-person aim assistance. Autonomous shots
-	// and continuations use world collision without camera-dependent assistance.
 	for _, proj := range projectiles {
 		var hitMonster *monsterPkg.Monster3D
-		bestDepth := 0.0
-		bestLateral := 0.0
 		bestWorldDistance := math.MaxFloat64
 		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
 		reflected := proj.owner == ProjectileOwnerReflected
-		worldAim := false
-		switch p := proj.data.(type) {
-		case *Arrow:
-			worldAim = p.SkipMonster != nil || p.WorldAim
-		case *MagicProjectile:
-			worldAim = p.WorldAim
-		}
-		worldSpace := crossfire || reflected || worldAim
 		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
-
-		camCos := math.Cos(cs.game.camera.Angle)
-		camSin := math.Sin(cs.game.camera.Angle)
 
 		for _, monster := range cs.game.world.Monsters {
 			if ar, ok := proj.data.(*Arrow); ok && ar.Backwash != nil && ar.Backwash.Target != monster {
@@ -95,54 +79,29 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			if proj.owner == ProjectileOwnerMonsterAtBound && !projectileSourceMonster(proj.data).CanAttackActor(monster) {
 				continue
 			}
-			if worldSpace {
-				if !cs.checkWorldSpaceProjectileCollision(proj.entityID, monster) {
-					continue
-				}
-				dx, dy := monster.X-projectileX, monster.Y-projectileY
-				distSq := dx*dx + dy*dy
-				if hitMonster == nil || distSq < bestWorldDistance ||
-					(distSq == bestWorldDistance && monster.ID < hitMonster.ID) {
-					bestWorldDistance = distSq
-					hitMonster = monster
-				}
+			targetEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
+			if targetEntity == nil || targetEntity.BoundingBox == nil {
 				continue
 			}
-			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
-				dx := monster.X - cs.game.camera.X
-				dy := monster.Y - cs.game.camera.Y
-				depth := dx*camCos + dy*camSin
-				if depth <= 0 {
-					continue
-				}
-				angle := math.Atan2(dy, dx)
-				angleDiff := angle - cs.game.camera.Angle
-				for angleDiff > math.Pi {
-					angleDiff -= 2 * math.Pi
-				}
-				for angleDiff < -math.Pi {
-					angleDiff += 2 * math.Pi
-				}
-				if math.Abs(angleDiff) > cs.game.camera.FOV/2 {
-					continue
-				}
-				lateral := math.Abs(-dx*camSin + dy*camCos)
-				if hitMonster == nil || depth < bestDepth || (depth == bestDepth && lateral < bestLateral) {
-					bestDepth = depth
-					bestLateral = lateral
-					hitMonster = monster
-				}
-			}
-		}
-		if hitMonster == nil && proj.owner == ProjectileOwnerPlayer && !worldSpace {
-			var px, py, vx, vy float64
-			switch d := proj.data.(type) {
+			var launch projectileLaunch
+			switch p := proj.data.(type) {
 			case *Arrow:
-				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
+				launch = p.Launch
 			case *MagicProjectile:
-				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
+				launch = p.Launch
 			}
-			hitMonster = cs.turnBasedProjectileAssistTarget(px, py, vx, vy)
+			if proj.owner == ProjectileOwnerPlayer && !launch.reaches(projectileX, projectileY, targetEntity.BoundingBox) {
+				continue
+			}
+			if !cs.projectileHitsEntity(proj.entityID, targetEntity) {
+				continue
+			}
+			distSq := DistanceSquared(monster.X, monster.Y, projectileX, projectileY)
+			if hitMonster == nil || distSq < bestWorldDistance ||
+				(distSq == bestWorldDistance && monster.ID < hitMonster.ID) {
+				bestWorldDistance = distSq
+				hitMonster = monster
+			}
 		}
 		if hitMonster != nil {
 			// Reflections preserve only the Aegis' mirrored damage contract.
@@ -180,7 +139,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		if !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerMonster {
 			continue
 		}
-		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
+		if cs.projectileHitsEntity(mp.ID, playerEntity) {
 			damageTypeStr := spellDamageTypeStr(mp.SpellType)
 			// Broodscale Aegis: this same bolt may turn and fly back at its caster.
 			if cs.tryReflectMonsterProjectile(
@@ -220,7 +179,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		if !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerMonster {
 			continue
 		}
-		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
+		if cs.projectileHitsEntity(ar.ID, playerEntity) {
 			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
 			// Broodscale Aegis: this same dart may turn and fly back at its shooter.
 			if cs.tryReflectMonsterProjectile(
@@ -263,12 +222,18 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 	}
 }
 
-func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *collision.Entity) bool {
+// projectileHitsEntity owns physical overlap for every projectile and faction.
+func (cs *CombatSystem) projectileHitsEntity(projectileID string, target *collision.Entity) bool {
+	if target == nil || target.BoundingBox == nil {
+		return false
+	}
 	projEntity := cs.game.collisionSystem.GetEntityByID(projectileID)
 	if projEntity == nil || projEntity.BoundingBox == nil {
 		return false
 	}
-	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
+	from, to := projEntity.BoundingBox, target.BoundingBox
+	// Wide projectile boxes must not touch a target through a wall or door.
+	return from.Intersects(to) && cs.attackLineClear(from.X, from.Y, to.X, to.Y)
 }
 
 // applyMonsterProjectileDamage applies a single-target monster projectile/arrow.
@@ -308,27 +273,6 @@ func (cs *CombatSystem) applyMonsterProjectileDamageToChar(src *monsterPkg.Monst
 	cs.monsterHitCharacter(src, currentChar, sourceName, hit)
 }
 
-// getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
-func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projectileType string) (baseSize float64, minSize, maxSize int, ok bool) {
-	switch projectileType {
-	case "magic_projectile":
-		magicProj := projectile.(*MagicProjectile)
-		cfg, err := cs.game.config.GetSpellGraphicsConfig(magicProj.SpellType)
-		if err != nil {
-			return 0, 0, 0, false
-		}
-		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
-	case "arrow":
-		arrow := projectile.(*Arrow)
-		weaponDef := lookupWeaponConfigByKey(arrow.BowKey)
-		if weaponDef == nil || weaponDef.Graphics == nil {
-			return 0, 0, 0, false
-		}
-		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
-	}
-	return 0, 0, 0, false
-}
-
 // getProjectilePosition returns the X, Y position of a projectile
 func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectileType string) (float64, float64) {
 	switch projectileType {
@@ -340,32 +284,6 @@ func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectile
 		return p.X, p.Y
 	}
 	return 0, 0
-}
-
-// calculatePerspectiveScale calculates the scale factor for perspective-based collision
-func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSize, maxSize int) float64 {
-	dist := Distance(cs.game.camera.X, cs.game.camera.Y, x, y)
-	if dist == 0 {
-		dist = 0.001 // Avoid division by zero
-	}
-
-	visualSize := baseSize / dist * float64(cs.game.config.GetTileSize())
-	if visualSize > float64(maxSize) {
-		visualSize = float64(maxSize)
-	}
-	if visualSize < float64(minSize) {
-		visualSize = float64(minSize)
-	}
-	scale := visualSize / baseSize
-	// Never INFLATE the collision box above its true world size. Near the camera
-	// (e.g. the spawn frame, dist~0) this scale would otherwise balloon - a
-	// fireball's 2-tile box x ~3.9 ~ 8 tiles - so it "hit" and exploded on a
-	// monster several tiles away before the projectile was even drawn. Clamping
-	// to 1 keeps collision at the world box up close and only shrinks it far away.
-	if scale > 1.0 {
-		scale = 1.0
-	}
-	return scale
 }
 
 // spawnProjectileHitFX bursts the impact FX for a projectile hit at the FX
@@ -478,6 +396,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cont := *ar
 			cont.PierceLeft = ar.PierceLeft - 1
 			cont.SkipMonster = monster
+			cont.Launch = ar.Launch.piercing(cs, monster)
 			cs.spawnArrowContinuation(cont, weaponDef)
 		}
 	default:
@@ -513,9 +432,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attackerName = uitext.Text("combat.overwatch_source", attackerName)
 	}
 
-	// Impact FX anchor: the projectile bursts where the monster is DRAWN. For a
-	// turn-based pulled front-diagonal target that's the pulled slot (where the
-	// assist connects), not its real off-to-the-side tile.
+	// Impact FX follow the monster's drawn position, including a TB pulled slot.
+	// Contact itself has already resolved against the actor's physical box.
 	fxX, fxY := cs.monsterVisualPos(monster)
 
 	// Typed true damage is stamped when the projectile leaves its source.
@@ -709,62 +627,13 @@ func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack
 	}, exclude)
 }
 
-// checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
-func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, projectile interface{}, projectileType string, monster *monsterPkg.Monster3D) bool {
-	// Get projectile graphics info for scaling
-	baseSize, minSize, maxSize, ok := cs.getProjectileGraphicsInfo(projectile, projectileType)
-	if !ok {
-		return false
-	}
-
-	// Get collision entities
-	projEntity := cs.game.collisionSystem.GetEntityByID(entityID)
-	monsterCollisionEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
-	if projEntity == nil || monsterCollisionEntity == nil {
-		return false
-	}
-
-	// Calculate perspective-scaled collision boxes
-	projX, projY := cs.getProjectilePosition(projectile, projectileType)
-	projScale := cs.calculatePerspectiveScale(projX, projY, baseSize, minSize, maxSize)
-	scaledProjW := projEntity.BoundingBox.Width * projScale
-	scaledProjH := projEntity.BoundingBox.Height * projScale
-
-	// Monster scaling
-	monsterMultiplier := float64(cs.game.config.Graphics.Monster.SizeDistanceMultiplier)
-	monsterScale := cs.calculatePerspectiveScale(monster.X, monster.Y, monsterMultiplier,
-		cs.game.config.Graphics.Monster.MinSpriteSize, cs.game.config.Graphics.Monster.MaxSpriteSize)
-	scaledMonsterW := monsterCollisionEntity.BoundingBox.Width * monsterScale
-	scaledMonsterH := monsterCollisionEntity.BoundingBox.Height * monsterScale
-
-	// Check collision with perspective-scaled boxes
-	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
-	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
-	return scaledProjBox.Intersects(scaledMonsterBox)
-}
-
-// checkWorldSpaceProjectileCollision is the camera-independent impact rule for
-// monster-vs-monster crossfire. Both entities already own authoritative world
-// boxes in the collision system; scaling them by the party camera would make a
-// fight stop dealing damage when it moved behind or outside the player's FOV.
-func (cs *CombatSystem) checkWorldSpaceProjectileCollision(entityID string, monster *monsterPkg.Monster3D) bool {
-	if cs == nil || cs.game == nil || cs.game.collisionSystem == nil || monster == nil {
-		return false
-	}
-	projectileEntity := cs.game.collisionSystem.GetEntityByID(entityID)
-	monsterEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
-	return projectileEntity != nil && projectileEntity.BoundingBox != nil &&
-		monsterEntity != nil && monsterEntity.BoundingBox != nil &&
-		projectileEntity.BoundingBox.Intersects(monsterEntity.BoundingBox)
-}
-
 func (cs *CombatSystem) spawnArrowContinuation(cont Arrow, weaponDef *config.WeaponDefinitionConfig) {
 	if weaponDef == nil || weaponDef.Physics == nil {
 		return
 	}
 	cont.ID = cs.game.GenerateProjectileID("arrow")
 	cont.Active = true
-	collisionSize := weaponDef.Physics.GetCollisionSizePixels(float64(cs.game.config.GetTileSize()))
+	collisionSize := cs.game.config.ProjectileHitboxTiles(weaponDef.Physics) * cs.game.config.GetTileSize()
 	cs.game.arrows = append(cs.game.arrows, cont)
 	entity := collision.NewEntity(
 		cont.ID,
@@ -796,6 +665,7 @@ func (cs *CombatSystem) trySpawnArrowRicochet(ar *Arrow, victim *monsterPkg.Mons
 	}
 	cont := *ar
 	cont.RicochetLeft--
+	cont.Launch = cs.continuationLaunch(victim, next) // a new ray from the struck actor
 	cont.SkipMonster = victim
 	cont.X, cont.Y = victim.X, victim.Y
 	// Each leg receives the YAML-authored lifetime. The parent may have spent

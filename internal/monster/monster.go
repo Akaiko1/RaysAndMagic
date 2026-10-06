@@ -604,8 +604,7 @@ type Monster3D struct {
 	// collision registration, and overlap recovery read it frequently; none
 	// should copy or scan monsters.yaml.
 	cachedSprite   string
-	cachedSizeW    float64
-	cachedSizeH    float64
+	cachedBody     float64
 	cachedSizeMult float64
 
 	// ChampionKey names this mob's champions.yaml character build ("" = not a
@@ -1357,21 +1356,13 @@ func (m *Monster3D) GetSpriteType() string {
 }
 
 func (m *Monster3D) GetSize() (width, height float64) {
-	// Cached at SetupMonsterFromConfig; the scan below only serves hand-built
-	// test monsters that never went through config setup.
-	if m.cachedSizeW > 0 && m.cachedSizeH > 0 {
-		return m.cachedSizeW, m.cachedSizeH
+	// Cached at SetupMonsterFromConfig; hand-built test monsters that never went
+	// through setup get the capped body.
+	if m.cachedBody > 0 {
+		return m.cachedBody, m.cachedBody
 	}
-	if MonsterConfig != nil {
-		for _, def := range MonsterConfig.Monsters {
-			if def.Name == m.Name {
-				return def.GetSizeFromConfig()
-			}
-		}
-	}
-
-	// Fallback size if config not loaded or monster not found
-	return 32.0, 32.0
+	body := m.bodyPixels("")
+	return body, body
 }
 
 // GetSizeGameMultiplier returns the visual size multiplier from config

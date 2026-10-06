@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"ugataima/internal/character"
@@ -136,6 +137,9 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return castRejected
 		}
+		speed := math.Hypot(projectile.VelX, projectile.VelY)
+		launch := cs.partyProjectileLaunch(cs.partyAttackAngle(), speed*float64(projectile.LifeTime), false)
+		projectile.VelX, projectile.VelY = launch.dx*speed, launch.dy*speed
 		// CreateProjectile carries physics only; damage is authored HERE
 		// (effective stats + mastery), once.
 		_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
@@ -161,7 +165,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		projectile.Damage = parts.Normal
 
 		magicProjectile := MagicProjectile{
-			WorldAim:           cs.partyAimTarget != nil,
+			Launch:             launch,
 			ID:                 cs.game.GenerateProjectileID(string(spellID)),
 			Attacker:           caster,
 			X:                  projectile.X,
@@ -182,7 +186,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
 		tileSize := cs.game.config.GetTileSize()
-		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
+		collisionSize := cs.game.config.ProjectileHitboxTiles(spellConfig) * tileSize
 		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(projectileEntity)
 

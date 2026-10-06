@@ -63,17 +63,8 @@ func bucketCoord(v, size float64) int32 {
 // UpdateEntity is running. A fresh copy per call is what makes concurrent reads
 // free of locks afterward.
 func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
-	snap := &CollisionSnapshot{
-		tileChecker: cs.tileChecker,
-		tileSize:    cs.tileSize,
-		entities:    make(map[string]EntitySnapshot, len(cs.entities)),
-	}
-	cs.sightMu.RLock()
-	snap.sightBlockerTiles = make(map[sightTileKey]int, len(cs.sightBlockerTiles))
-	for tile, count := range cs.sightBlockerTiles {
-		snap.sightBlockerTiles[tile] = count
-	}
-	cs.sightMu.RUnlock()
+	snap := cs.SightSnapshot()
+	snap.entities = make(map[string]EntitySnapshot, len(cs.entities))
 	if snap.tileSize > 0 {
 		snap.solids = make([]snapEntity, 0, len(cs.entities))
 		snap.buckets = make(map[bucketKey][]int32, len(cs.entities)*2)
@@ -114,6 +105,19 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 				snap.buckets[k] = append(snap.buckets[k], idx)
 			}
 		}
+	}
+	return snap
+}
+
+// SightSnapshot freezes only terrain and dynamic sight blockers. Projectile
+// workers need no entity copies or movement index, and query it without locks.
+func (cs *CollisionSystem) SightSnapshot() *CollisionSnapshot {
+	snap := &CollisionSnapshot{tileChecker: cs.tileChecker, tileSize: cs.tileSize}
+	cs.sightMu.RLock()
+	defer cs.sightMu.RUnlock()
+	snap.sightBlockerTiles = make(map[sightTileKey]int, len(cs.sightBlockerTiles))
+	for tile, count := range cs.sightBlockerTiles {
+		snap.sightBlockerTiles[tile] = count
 	}
 	return snap
 }

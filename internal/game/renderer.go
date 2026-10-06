@@ -4752,6 +4752,7 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			r.drawFlaskProjectile(screen, magicProjectile)
 			continue
 		}
+		magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY = magicProjectile.Launch.renderMotion(r.game.combat, magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
 		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
@@ -4896,6 +4897,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 
+		arrow.X, arrow.Y, arrow.VelX, arrow.VelY = arrow.Launch.renderMotion(r.game.combat, arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
 		bowDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if bowDef == nil || bowDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing

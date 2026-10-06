@@ -50,7 +50,7 @@ weapons:
     physics:
       speed_tiles: 12.0
       range_tiles: 12.0
-      collision_size_tiles: 0.5
+      hitbox: standard     # standard | wide; sizes in config.yaml world.projectile_hitboxes
 
     graphics:
       max_size: 40
@@ -69,7 +69,7 @@ weapons:
 - `category`: used for class restrictions and mastery.
 - `range`: in tiles; `> 3` is ranged.
 - `melee`: required for melee weapons.
-- `physics`: required for ranged weapons.
+- `physics`: required for ranged weapons. `hitbox` is `standard` (0.5 tile) or `wide` (1.0 tile, large shots; speed is `speed_tiles` alone); sizes live in `config.yaml` `world.projectile_hitboxes`. A raw `collision_size_tiles` is rejected at load.
 - `graphics`: required for visuals (slash or projectile).
 
 ## Optional fields

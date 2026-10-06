@@ -60,7 +60,7 @@ func TestEnvironmentVariantsSurviveRenderCacheRebuilds(t *testing.T) {
 		if !reflect.DeepEqual(seen, wantVariants) {
 			t.Fatalf("selected sprites %v, want every authored variant %v", seen, wantVariants)
 		}
-		if allocs := testing.AllocsPerRun(100, func() {
+		if allocs := gameAllocsPerRun(100, func() {
 			for _, entry := range r.treeTilesCache {
 				r.selectEnvironmentSpriteName(entry.tileType, entry.tileX, entry.tileY)
 			}
@@ -134,7 +134,7 @@ func TestLegacyEnvironmentSelectionUsesTileCache(t *testing.T) {
 	if want == "" {
 		t.Fatal("fixture has no legacy sprite")
 	}
-	if allocs := testing.AllocsPerRun(100, func() {
+	if allocs := gameAllocsPerRun(100, func() {
 		if got := r.selectEnvironmentSpriteName(tree, 1, 1); got != want {
 			t.Fatalf("cached sprite %q differs from legacy selection %q", got, want)
 		}

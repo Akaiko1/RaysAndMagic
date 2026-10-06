@@ -4,7 +4,7 @@
 # Physics units (for projectile weapons):
 #   speed_tiles: Speed in tiles per second
 #   range_tiles: Maximum range in tiles
-#   collision_size_tiles: Collision box size in tiles (min 0.5)
+#   hitbox: standard | wide - closed set; sizes live in config.yaml world.projectile_hitboxes
 
 weapons:
   solstice_thermal_lance:
@@ -45,7 +45,7 @@ weapons:
     physics:
       speed_tiles: 9.5
       range_tiles: 7
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       projectile_fx: "solstice_flow"
       max_size: 30
@@ -157,7 +157,7 @@ weapons:
     physics:
       speed_tiles: 12.0          # Fast throw
       range_tiles: 4.0           # 4 tile range, matches display range
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     graphics:
       max_size: 20
@@ -227,7 +227,7 @@ weapons:
     physics:
       speed_tiles: 10.0          # 10 tiles per second
       range_tiles: 8.0           # 8 tile range
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     graphics:
       max_size: 36
@@ -250,7 +250,7 @@ weapons:
     physics:
       speed_tiles: 14.0
       range_tiles: 9.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 26
       min_size: 2
@@ -274,7 +274,7 @@ weapons:
     physics:
       speed_tiles: 12.0
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     graphics:
       max_size: 40
@@ -298,7 +298,7 @@ weapons:
     physics:
       speed_tiles: 9.0
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     graphics:
       max_size: 28
@@ -456,7 +456,7 @@ weapons:
     physics:
       speed_tiles: 12.0          # 12 tiles per second (faster than hunting bow)
       range_tiles: 10.0          # 10 tile range
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+      hitbox: standard
 
     graphics:
       max_size: 36
@@ -480,7 +480,7 @@ weapons:
     physics:
       speed_tiles: 9.5
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     graphics:
       max_size: 30
@@ -508,7 +508,7 @@ weapons:
     physics:
       speed_tiles: 4.0           # 4 tiles per second (very slow)
       range_tiles: 12.0          # 12 tile range
-      collision_size_tiles: 2.0  # oversized hitbox for the large slow projectile
+      hitbox: wide  # large slow projectile
 
     graphics:
       max_size: 24
@@ -551,7 +551,7 @@ weapons:
     physics:
       speed_tiles: 13.0          # 13 tiles/sec
       range_tiles: 11.0          # 11 tile range
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     graphics:
       max_size: 40
@@ -577,7 +577,7 @@ weapons:
     physics:
       speed_tiles: 10.0
       range_tiles: 7.0
-      collision_size_tiles: 2.0
+      hitbox: wide
 
     graphics:
       max_size: 34
@@ -602,7 +602,7 @@ weapons:
     physics:
       speed_tiles: 9.5
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
 
     graphics:
       max_size: 30
@@ -742,7 +742,7 @@ weapons:
     physics:
       speed_tiles: 14.0
       range_tiles: 7.0
-      collision_size_tiles: 2.0
+      hitbox: wide
     graphics:
       max_size: 26
       min_size: 4
@@ -844,7 +844,7 @@ weapons:
     physics:
       speed_tiles: 13.0
       range_tiles: 8.0  # bullet must reach the Ronin Marksman's 7-tile firing range
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 22
       min_size: 3
@@ -993,7 +993,7 @@ weapons:
     physics:
       speed_tiles: 11.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 24
       min_size: 2
@@ -1215,7 +1215,7 @@ weapons:
     physics:
       speed_tiles: 13.0
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 34
       min_size: 2
@@ -1239,7 +1239,7 @@ weapons:
     physics:
       speed_tiles: 16.0
       range_tiles: 9.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 26
       min_size: 2
@@ -1265,7 +1265,7 @@ weapons:
     physics:
       speed_tiles: 12.0
       range_tiles: 6.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 32
       min_size: 4
@@ -1454,7 +1454,7 @@ weapons:
     physics:
       speed_tiles: 14.0
       range_tiles: 6.0
-      collision_size_tiles: 0.4
+      hitbox: standard
     graphics:
       max_size: 34
       min_size: 2
@@ -1656,7 +1656,7 @@ weapons:
     physics:
       speed_tiles: 15.0
       range_tiles: 8.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 24
       min_size: 2
@@ -1682,7 +1682,7 @@ weapons:
     physics:
       speed_tiles: 16.0
       range_tiles: 9.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 26
       min_size: 2
@@ -1710,7 +1710,7 @@ weapons:
     physics:
       speed_tiles: 10.0
       range_tiles: 7.0
-      collision_size_tiles: 2.0
+      hitbox: wide
     graphics:
       max_size: 34
       min_size: 4
@@ -1737,7 +1737,7 @@ weapons:
     physics:
       speed_tiles: 18.0
       range_tiles: 5.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 22
       min_size: 2
@@ -1762,7 +1762,7 @@ weapons:
     physics:
       speed_tiles: 22.0
       range_tiles: 20.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 24
       min_size: 2
@@ -1807,7 +1807,7 @@ weapons:
     physics:
       speed_tiles: 17.0
       range_tiles: 11.0
-      collision_size_tiles: 0.5
+      hitbox: standard
     graphics:
       max_size: 24
       min_size: 2

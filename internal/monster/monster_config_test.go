@@ -56,6 +56,28 @@ func TestMonsterSizeGameRejected(t *testing.T) {
 	}
 }
 
+// Raw box_w/box_h are retired: the body comes from size_class. Authoring them
+// must fail loudly; the same monster without them must not trip that rule.
+func TestMonsterBoxKeysRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		def  MonsterDefinition
+		want bool
+	}{
+		{"box_w", MonsterDefinition{Name: "Crate", SizeClass: "person", DeprecatedBoxW: 48}, true},
+		{"box_h", MonsterDefinition{Name: "Crate", SizeClass: "person", DeprecatedBoxH: 48}, true},
+		{"class only", MonsterDefinition{Name: "Crate", SizeClass: "person"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMonsterConfiguration(&MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"crate": tc.def}})
+			got := err != nil && strings.Contains(err.Error(), "box_w/box_h") && strings.Contains(err.Error(), "crate")
+			if got != tc.want {
+				t.Fatalf("box rejection=%v want %v: %v", got, tc.want, err)
+			}
+		})
+	}
+}
+
 func TestMonsterSpawnLetterMustBeLowercase(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"bad_marker": {Name: "Bad Marker", Letter: "B", SizeClass: "person"},

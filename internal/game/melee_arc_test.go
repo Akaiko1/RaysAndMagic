@@ -1,12 +1,13 @@
 package game
 
 import (
+	"math"
 	"testing"
 
-	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/threading"
 )
 
 // Melee arc mechanic: reach is counted in TILE steps (a diagonal neighbour is one
@@ -300,49 +301,43 @@ func TestRealTime_PlayerMeleeArcAssistFrontDiagonalContact(t *testing.T) {
 }
 
 func TestTurnBased_PlayerProjectileAssistsPulledFrontDiagonalTarget(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 40, 40)
-	cs := game.combat
-	const ptx, pty = 10, 10
-	placePlayerAtTile(game, ptx, pty, ts)
-	game.camera.Angle = 0 // face +X (East)
-
-	target := spawnMonsterAtTile(game, "goblin", ptx+1, pty-1, ts)
-	beforeHP := target.HitPoints
-	projectile := MagicProjectile{
-		ID:        "test_firebolt",
-		X:         game.camera.X,
-		Y:         game.camera.Y,
-		VelX:      8,
-		VelY:      0,
-		Damage:    20,
-		LifeTime:  10,
-		Active:    true,
-		SpellType: "firebolt",
-		Size:      16,
-		Owner:     ProjectileOwnerPlayer,
-	}
-	game.magicProjectiles = append(game.magicProjectiles, projectile)
-	game.collisionSystem.RegisterEntity(collision.NewEntity(projectile.ID, projectile.X, projectile.Y, 16, 16, collision.CollisionTypeProjectile, false))
-
-	// Fresh from the muzzle (still at the camera): the assist must NOT fire yet -
-	// the bolt has to visibly travel toward the pulled sprite first.
-	cs.CheckProjectileMonsterCollisions()
-	if target.HitPoints < beforeHP {
-		t.Fatalf("projectile must not assist-hit at spawn; the bolt should still be in flight")
-	}
-	if !game.magicProjectiles[0].Active {
-		t.Fatalf("projectile was consumed before it travelled")
-	}
-
-	// Advance the bolt out to the pulled slot's drawn position; now it connects.
-	game.magicProjectiles[0].X = game.camera.X + 1.0*ts
-	game.magicProjectiles[0].Y = game.camera.Y
-	cs.CheckProjectileMonsterCollisions()
-	if target.HitPoints >= beforeHP {
-		t.Fatalf("player projectile should assist-hit once it reaches the pulled front-diagonal slot")
-	}
-	if game.magicProjectiles[0].Active {
-		t.Fatalf("projectile should be consumed after the assisted hit")
+	for _, kind := range []string{"weapon", "spell"} {
+		t.Run(kind, func(t *testing.T) {
+			game, gl, ts := tbBehaviorGame(t, 40, 40)
+			game.threading = threading.NewThreadingComponents(game.config)
+			t.Cleanup(game.threading.Shutdown)
+			placePlayerAtTile(game, 10, 10, ts)
+			game.camera.Angle = 0
+			target := spawnMonsterAtTile(game, "goblin", 11, 9, ts)
+			target.PerfectDodge = 0
+			before := target.HitPoints
+			ch := game.party.Members[0]
+			if kind == "weapon" {
+				ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
+				if !game.combat.EquipmentMeleeAttack() {
+					t.Fatal("weapon launch failed")
+				}
+			} else {
+				ch.LearnSpell("firebolt")
+				ch.SpellPoints, ch.MaxSpellPoints = 100, 100
+				ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+				if !game.combat.CastEquippedSpell() {
+					t.Fatal("spell launch failed")
+				}
+			}
+			game.combat.CheckProjectileMonsterCollisions()
+			if target.HitPoints != before {
+				t.Fatal("assisted shot hit at the muzzle")
+			}
+			// Selection belongs to launch, so a turn in flight cannot cancel the shot.
+			game.camera.Angle = math.Pi
+			for n := 0; n < 300 && gl.hasActiveProjectiles(); n++ {
+				gl.updateProjectilesAndImpacts()
+			}
+			if target.HitPoints >= before {
+				t.Fatal("assisted shot did not reach the real diagonal actor")
+			}
+		})
 	}
 }
 
